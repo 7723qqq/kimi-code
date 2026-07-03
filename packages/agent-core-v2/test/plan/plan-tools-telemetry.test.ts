@@ -7,6 +7,7 @@ import {
   ExitPlanModeTool,
   type ExitPlanModeInput,
 } from '#/agent/plan/tools/exit-plan-mode';
+import type { ToolResult } from '#/agent/tool';
 import type { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 
@@ -243,10 +244,13 @@ describe('AgentPlanService EnterPlanMode telemetry', () => {
           arguments: '{}',
         };
 
-        const result = await toolExecutor.execute([call], {
+        const result: ToolResult[] = [];
+        for await (const item of toolExecutor.execute([call], {
           turnId: 1,
           signal: new AbortController().signal,
-        });
+        })) {
+          result.push(item.result);
+        }
 
         expect(result[0]?.isError).toBeFalsy();
         expect(result[0]?.output).toContain('Plan mode is now active');

@@ -1,5 +1,4 @@
 import { createDecorator } from '#/_base/di';
-import type { UsageRecordContext } from '#/agent/usage';
 import type {
   FinishReason,
   Message,
@@ -10,6 +9,19 @@ import type {
 import type { LogContext } from '#/app/log';
 
 export type LLMRequestLogFields = Readonly<LogContext>;
+
+export type LLMRequestSource =
+  | {
+      readonly type: 'turn';
+      readonly turnId: number;
+      readonly step?: number;
+      readonly logFields?: LLMRequestLogFields;
+    }
+  | {
+      readonly type: 'operation';
+      readonly requestKind?: string;
+      readonly logFields?: LLMRequestLogFields;
+    };
 
 export interface LLMRequestRetryContext {
   readonly failedAttempt: number;
@@ -59,7 +71,7 @@ export interface LLMRequestParams {
   messages: Message[];
   tools: readonly Tool[];
   signal: AbortSignal;
-  requestLogFields?: LLMRequestLogFields;
+  source?: LLMRequestSource;
 }
 
 export interface LLMRequestFinish {
@@ -81,8 +93,7 @@ export interface LLMRequestOverrides {
   messages?: readonly Message[];
   tools?: readonly Tool[];
   systemPrompt?: string;
-  requestLogFields?: LLMRequestLogFields;
-  usageContext?: UsageRecordContext;
+  source?: LLMRequestSource;
   maxOutputSize?: number;
   retry?: LLMRequestRetryOptions;
 }

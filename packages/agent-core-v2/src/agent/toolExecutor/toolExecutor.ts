@@ -10,13 +10,18 @@ import type { OrderedHookSlot } from '#/hooks';
 export interface ToolExecutorExecuteOptions {
   readonly signal: AbortSignal;
   readonly turnId: number;
-  readonly onToolResult?: (toolCallId: string, result: ToolResult) => void | Promise<void>;
+}
+
+export interface ToolExecutionResult {
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly result: ToolResult;
 }
 
 export interface IAgentToolExecutorService {
   readonly _serviceBrand: undefined;
 
-  execute(calls: ToolCall[], options: ToolExecutorExecuteOptions): Promise<ToolResult[]>;
+  execute(calls: ToolCall[], options: ToolExecutorExecuteOptions): AsyncIterable<ToolExecutionResult>;
 
   readonly hooks: {
     readonly onWillExecuteTool: OrderedHookSlot<ToolWillExecuteContext>;

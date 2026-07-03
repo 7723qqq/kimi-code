@@ -4,7 +4,7 @@
  * The scheduler owns only execution ordering:
  *   - tasks with non-conflicting resource accesses may overlap
  *   - tasks with conflicting resource accesses wait for the conflicting active tasks
- *   - drained results are handed back in provider order
+ *   - callers decide whether to drain results in provider order or completion order
  *
  * Validation, hooks, event construction, and result finalization stay in
  * `toolExecutorService.ts`.

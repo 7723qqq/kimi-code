@@ -148,14 +148,13 @@ export class AgentLoopService implements IAgentLoopService {
     signal.throwIfAborted();
 
     const stepUuid = randomUUID();
-    const turnStep = `${turnId}.${String(currentStep)}`;
 
     this.record.signal({ type: 'turn.step.started', turnId, step: currentStep, stepId: stepUuid });
 
     const emitStreamPart = this.createStreamPartHandler(turnId);
     const response = await this.llmRequester.request(
       {
-        requestLogFields: { turnStep },
+        source: { type: 'turn', turnId, step: currentStep },
         retry: {
           maxAttempts: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxRetriesPerStep,
           onRetry: (retry) => {
@@ -174,7 +173,6 @@ export class AgentLoopService implements IAgentLoopService {
             });
           },
         },
-        usageContext: { type: 'turn', turnId },
       },
       emitStreamPart,
       signal,
@@ -193,18 +191,20 @@ export class AgentLoopService implements IAgentLoopService {
     let finishReason: FinishReason = providerFinishReason ?? 'completed';
     const hasToolCalls = message.toolCalls.length > 0;
     if (hasToolCalls) {
-      const toolResults = await this.toolExecutor.execute(response.message.toolCalls, {
+      let stopTurn = false;
+      for await (const toolResult of this.toolExecutor.execute(response.message.toolCalls, {
         signal,
         turnId,
-        onToolResult: (toolCallId, result) => {
-          this.append({
-            ...createToolMessage(toolCallId, toolResultOutputForModel(result)),
-            role: 'tool',
-            isError: result.isError,
-          });
-        },
-      });
-      if (toolResults.some((r) => r.stopTurn === true)) {
+      })) {
+        const { result } = toolResult;
+        this.append({
+          ...createToolMessage(toolResult.toolCallId, toolResultOutputForModel(result)),
+          role: 'tool',
+          isError: result.isError,
+        });
+        if (result.stopTurn === true) stopTurn = true;
+      }
+      if (stopTurn) {
         finishReason = 'completed';
       } else {
         finishReason = 'tool_calls';

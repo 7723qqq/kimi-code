@@ -279,15 +279,67 @@ describe('AgentToolExecutorService', () => {
       toolCall('call_second', 'second', {}),
     ]);
 
-    expect(results).toEqual([
+    expect(results).toHaveLength(2);
+    expect(results).toEqual(expect.arrayContaining([
       expect.objectContaining({ output: 'first result', stopBatchAfterThis: true }),
       expect.objectContaining({
         output: 'Tool skipped because a previous tool call stopped the turn.',
         isError: true,
       }),
-    ]);
+    ]));
     expect(first.calls).toHaveLength(1);
     expect(second.calls).toEqual([]);
+  });
+
+  it('yields independent tool results as each call finishes', async () => {
+    const slowRelease = deferred();
+    const fastRelease = deferred();
+    const slowStarted = deferred();
+    const fastStarted = deferred();
+    const firstYielded = deferred();
+    const slow = new TestTool('slow', {
+      accesses: ToolAccesses.readFile('/repo/slow.txt'),
+      execute: async () => {
+        slowStarted.resolve();
+        await slowRelease.promise;
+        return { output: 'slow' };
+      },
+    });
+    const fast = new TestTool('fast', {
+      accesses: ToolAccesses.readFile('/repo/fast.txt'),
+      execute: async () => {
+        fastStarted.resolve();
+        await fastRelease.promise;
+        return { output: 'fast' };
+      },
+    });
+    registry.register(slow);
+    registry.register(fast);
+
+    const yielded: string[] = [];
+    const execution = (async () => {
+      for await (const item of executor.execute(
+        [
+          toolCall('call_slow', 'slow', {}),
+          toolCall('call_fast', 'fast', {}),
+        ],
+        { turnId: 0, signal: new AbortController().signal },
+      )) {
+        yielded.push(String(item.result.output));
+        if (yielded.length === 1) firstYielded.resolve();
+      }
+    })();
+
+    await Promise.all([slowStarted.promise, fastStarted.promise]);
+    fastRelease.resolve();
+    await firstYielded.promise;
+
+    expect(yielded).toEqual(['fast']);
+
+    slowRelease.resolve();
+    await execution;
+
+    expect(yielded).toEqual(['fast', 'slow']);
   });
 
   it('writes resolveExecution description and display onto tool.call.started events', async () => {
@@ -417,10 +469,12 @@ describe('AgentToolExecutorService', () => {
     controller.abort();
     await execution;
 
-    expect(pairedToolCallIds()).toEqual({
-      calls: ['call_first', 'call_second', 'call_third'],
-      results: ['call_first', 'call_second', 'call_third'],
-    });
+    const paired = pairedToolCallIds();
+    expect(paired.calls).toEqual(['call_first', 'call_second', 'call_third']);
+    expect(paired.results).toHaveLength(3);
+    expect(paired.results).toEqual(
+      expect.arrayContaining(['call_first', 'call_second', 'call_third']),
+    );
   });
 
   it('preserves media-only image output with a text companion', async () => {
@@ -535,14 +589,16 @@ describe('parseToolCallArguments', () => {
   });
 });
 
-function execute(calls: ToolCall[], signal?: AbortSignal): Promise<ToolResult[]> {
-  return executor.execute(calls, {
+async function execute(calls: ToolCall[], signal?: AbortSignal): Promise<ToolResult[]> {
+  const results: ToolResult[] = [];
+  for await (const item of executor.execute(calls, {
     turnId: 0,
     signal: signal ?? new AbortController().signal,
-    onToolResult: (toolCallId, result) => {
-      events.push({ type: 'tool.result', toolCallId, result });
-    },
-  });
+  })) {
+    results.push(item.result);
+    events.push({ type: 'tool.result', toolCallId: item.toolCallId, result: item.result });
+  }
+  return results;
 }
 
 function toolCall(id: string, name: string, args: unknown): ToolCall {
@@ -577,6 +633,20 @@ function pairedToolCallIds(): { readonly calls: string[]; readonly results: stri
       )
       .map((event) => event.toolCallId),
   };
+}
+
+function deferred<T = void>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T | PromiseLike<T>) => void;
+  readonly reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 class TestTool implements ExecutableTool<Record<string, unknown>> {

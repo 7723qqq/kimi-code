@@ -6,7 +6,7 @@ import { ITelemetryService } from '#/app/telemetry';
 import type { ToolCall } from '#/app/llmProtocol';
 import { IAgentLoopService } from '#/agent/loop';
 import { IAgentRecordService } from '#/agent/record';
-import type { ExecutableTool, ExecutableToolContext, ToolExecution } from '#/agent/tool';
+import type { ExecutableTool, ExecutableToolContext, ToolExecution, ToolResult } from '#/agent/tool';
 import {
   IAgentToolDedupeService,
   AgentToolDedupeService,
@@ -181,13 +181,16 @@ describe('AgentToolDedupeService', () => {
         step: 1,
         signal: new AbortController().signal,
       });
-      const results = await executor.execute(
+      const results: ToolResult[] = [];
+      for await (const item of executor.execute(
         [
           toolCall('call_1', 'Echo', { text: 'same' }),
           toolCall('call_2', 'Echo', { text: 'same' }),
         ],
         { turnId: 3, signal: new AbortController().signal },
-      );
+      )) {
+        results.push(item.result);
+      }
 
       expect(tool.calls).toHaveLength(1);
       expect(results.map((result) => result.output)).toEqual(['same', 'same']);

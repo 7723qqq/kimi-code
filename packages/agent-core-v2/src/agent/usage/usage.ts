@@ -1,11 +1,7 @@
+import type { LLMRequestSource } from '#/agent/llmRequester/llmRequester';
 import type { TokenUsage } from '#/app/llmProtocol';
 
-import { createDecorator } from "#/_base/di";
-
-export interface UsageRecordContext {
-  readonly type: 'turn';
-  readonly turnId: number;
-}
+import { createDecorator } from '#/_base/di';
 
 export interface UsageStatus {
   readonly byModel?: Record<string, TokenUsage>;
@@ -15,7 +11,7 @@ export interface UsageStatus {
 
 export interface IAgentUsageService {
   readonly _serviceBrand: undefined;
-  record(model: string, usage: TokenUsage, context?: UsageRecordContext): void;
+  record(model: string, usage: TokenUsage, source?: LLMRequestSource): void;
   status(): UsageStatus;
 }
 

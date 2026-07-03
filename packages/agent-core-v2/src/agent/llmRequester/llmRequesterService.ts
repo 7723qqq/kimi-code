@@ -48,6 +48,7 @@ import type {
   LLMRequestLogFields,
   LLMRequestOverrides,
   LLMRequestPartHandler,
+  LLMRequestSource,
   LLMStreamTiming,
 } from './index';
 import { IAgentLLMRequesterService } from './llmRequester';
@@ -72,8 +73,8 @@ interface ResolvedLLMRequest {
   readonly systemPrompt: string;
   readonly tools: readonly Tool[];
   readonly messages: Message[];
-  readonly requestLogFields: LLMRequestOverrides['requestLogFields'];
-  readonly usageContext: LLMRequestOverrides['usageContext'];
+  readonly source: LLMRequestSource | undefined;
+  readonly logFields: LLMRequestLogFields;
 }
 
 interface LLMRequestLogInput {
@@ -165,7 +166,8 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   ): Promise<LLMRequestFinish> {
     signal?.throwIfAborted();
     const request = this.resolveRequest(
-      requestOverridesForAttempt(overrides, attempt, maxAttempts),
+      overrides,
+      attempt === 1 ? undefined : { attempt: `${String(attempt)}/${String(maxAttempts)}` },
     );
     return await this.runRequest(request, onPart, signal);
   }
@@ -179,7 +181,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   ): void {
     if (isAbortError(error) || signal?.aborted === true) return;
     const payload: LogContext = {
-      ...overrides.requestLogFields,
+      ...logFieldsForSource(overrides.source),
       attempt: `${String(attempt)}/${String(maxAttempts)}`,
       model: this.profile.data().modelAlias ?? 'unknown',
       ...retryErrorFields(error),
@@ -217,7 +219,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       systemPrompt: request.systemPrompt,
       tools: request.tools,
       messages: request.messages,
-      fields: request.requestLogFields,
+      fields: request.logFields,
     });
 
     const input = {
@@ -256,9 +258,9 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     }
 
     const usageModel = request.modelAlias;
-    this.usage.record(usageModel, usage, request.usageContext);
+    this.usage.record(usageModel, usage, request.source);
     this.contextSize.measured(request.messages, [message], usage);
-    this.logResponse(request.requestLogFields, usage, timing);
+    this.logResponse(request.logFields, usage, timing);
 
     return {
       message,
@@ -271,7 +273,10 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     };
   }
 
-  private resolveRequest(overrides: LLMRequestOverrides): ResolvedLLMRequest {
+  private resolveRequest(
+    overrides: LLMRequestOverrides,
+    extraLogFields?: LLMRequestLogFields,
+  ): ResolvedLLMRequest {
     const resolved = this.profile.resolveModelContext();
     let model = this.profile.getProvider();
     model = applyCompletionBudget({
@@ -293,13 +298,13 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       systemPrompt: overrides.systemPrompt ?? this.profile.getSystemPrompt(),
       tools: [...(overrides.tools ?? this.defaultTools())],
       messages: [...messages],
-      requestLogFields: overrides.requestLogFields,
-      usageContext: overrides.usageContext,
+      source: overrides.source,
+      logFields: logFieldsForSource(overrides.source, extraLogFields),
     };
   }
 
   private logRequest(input: LLMRequestLogInput): void {
-    const requestLogFields: LLMRequestLogFields = input.fields ?? {};
+    const logFields: LLMRequestLogFields = input.fields ?? {};
     const config = {
       provider: input.protocol,
       model: input.modelName,
@@ -315,11 +320,11 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     });
     if (signature !== this.lastConfigLogSignature) {
       this.lastConfigLogSignature = signature;
-      this.log.info('llm config', { ...requestLogFields, ...config });
+      this.log.info('llm config', { ...logFields, ...config });
     }
 
     const partialMessageCount = input.messages.filter((message) => message.partial === true).length;
-    const requestFields: LogContext = { ...requestLogFields };
+    const requestFields: LogContext = { ...logFields };
     if (partialMessageCount > 0) requestFields['partialMessageCount'] = partialMessageCount;
     this.log.info('llm request', requestFields);
   }
@@ -357,21 +362,28 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   }
 }
 
-function requestOverridesForAttempt(
-  overrides: LLMRequestOverrides,
-  attempt: number,
-  maxAttempts: number,
-): LLMRequestOverrides {
-  if (attempt === 1) {
-    return overrides;
+function logFieldsForSource(
+  source: LLMRequestSource | undefined,
+  extraFields?: LLMRequestLogFields,
+): LLMRequestLogFields {
+  switch (source?.type) {
+    case 'turn':
+      return {
+        ...source.logFields,
+        ...(source.step === undefined
+          ? {}
+          : { turnStep: `${String(source.turnId)}.${String(source.step)}` }),
+        ...extraFields,
+      };
+    case 'operation':
+      return {
+        ...source.logFields,
+        ...(source.requestKind === undefined ? {} : { requestKind: source.requestKind }),
+        ...extraFields,
+      };
+    default:
+      return extraFields ?? {};
   }
-  return {
-    ...overrides,
-    requestLogFields: {
-      ...overrides.requestLogFields,
-      attempt: `${String(attempt)}/${String(maxAttempts)}`,
-    },
-  };
 }
 
 function toolSignature(tools: readonly Tool[]) {

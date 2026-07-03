@@ -209,7 +209,11 @@ describe('LLMRequester service migration coverage', () => {
 
       await expect(
         llmRequester.request({
-          requestLogFields: { requestKind: 'direct_test', turnStep: '0.1' },
+          source: {
+            type: 'operation',
+            requestKind: 'direct_test',
+            logFields: { turnStep: '0.1' },
+          },
           retry: { maxAttempts: 1 },
         }),
       ).rejects.toMatchObject({ message: 'temporary provider failure' });
@@ -323,7 +327,13 @@ describe('LLMRequester service migration coverage', () => {
     it('logs successful LLM responses with caller-provided request fields', async () => {
       await collectLLMRequest((onPart) =>
         llmRequester.request(
-          { requestLogFields: { requestKind: 'direct_test', turnStep: '0.1' } },
+          {
+            source: {
+              type: 'operation',
+              requestKind: 'direct_test',
+              logFields: { turnStep: '0.1' },
+            },
+          },
           onPart,
         ),
       );

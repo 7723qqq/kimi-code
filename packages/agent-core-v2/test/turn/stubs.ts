@@ -111,12 +111,12 @@ export function stubLoopWithHooks(): IAgentLoopService {
  * An `IAgentToolExecutorService` stub whose tool-execution hooks (`onWillExecuteTool` /
  * `onDidExecuteTool`) are real `OrderedHookSlot`s, so services that register
  * gate hooks in their constructor (AgentPermissionGate, AgentMcpService, …) can be built
- * in tests. `execute` resolves to an empty batch by default.
+ * in tests. `execute` yields an empty batch by default.
  */
 export function stubToolExecutor(): IAgentToolExecutorService {
   return {
     _serviceBrand: undefined,
-    execute: async () => [],
+    execute: async function* () {},
     hooks: createHooks([
       'onWillExecuteTool',
       'onDidExecuteTool',

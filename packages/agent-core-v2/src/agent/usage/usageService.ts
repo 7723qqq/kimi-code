@@ -1,12 +1,11 @@
-import {
-  addUsage,
-  type TokenUsage } from '#/app/llmProtocol';
+import { addUsage, type TokenUsage } from '#/app/llmProtocol';
+import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { Disposable } from '#/_base/di/lifecycle';
 
+import type { LLMRequestSource } from '#/agent/llmRequester/llmRequester';
 import { IAgentRecordService } from '#/agent/record';
-import type { UsageRecordContext, UsageStatus } from './usage';
+import type { UsageStatus } from './usage';
 import { IAgentUsageService } from './usage';
 
 declare module '#/agent/wireRecord' {
@@ -14,7 +13,7 @@ declare module '#/agent/wireRecord' {
     'usage.record': {
       model: string;
       usage: TokenUsage;
-      context?: UsageRecordContext;
+      context?: LLMRequestSource;
     };
   }
 }
@@ -36,14 +35,14 @@ export class AgentUsageService extends Disposable implements IAgentUsageService 
     );
   }
 
-  record(model: string, usage: TokenUsage, context?: UsageRecordContext): void {
+  record(model: string, usage: TokenUsage, source?: LLMRequestSource): void {
     this.records.append({
       type: 'usage.record',
       model,
       usage,
-      context,
+      context: source,
     });
-    this.apply(model, usage, context);
+    this.apply(model, usage, source);
     this.publishChanged();
   }
 
@@ -58,13 +57,13 @@ export class AgentUsageService extends Disposable implements IAgentUsageService 
     };
   }
 
-  private apply(model: string, usage: TokenUsage, context: UsageRecordContext | undefined): void {
+  private apply(model: string, usage: TokenUsage, source: LLMRequestSource | undefined): void {
     const current = this.byModel[model];
     this.byModel[model] = current === undefined ? copyUsage(usage) : addUsage(current, usage);
 
-    if (context?.type === 'turn') {
-      if (this.currentTurnId !== context.turnId) {
-        this.currentTurnId = context.turnId;
+    if (source?.type === 'turn') {
+      if (this.currentTurnId !== source.turnId) {
+        this.currentTurnId = source.turnId;
         this.currentTurn = copyUsage(usage);
       } else {
         this.currentTurn =

@@ -31,6 +31,7 @@ import { ITelemetryService } from '#/app/telemetry';
 import { OrderedHookSlot } from '#/hooks';
 import {
   IAgentToolExecutorService,
+  type ToolExecutionResult,
   type ToolExecutorExecuteOptions,
 } from './toolExecutor';
 import { ToolScheduler } from './toolScheduler';
@@ -47,9 +48,29 @@ export interface ToolExecutionTask {
 }
 
 interface TimedToolResult {
+  readonly index: number;
   readonly result: ToolResult;
   readonly durationMs: number;
 }
+
+type SettledTimedToolResult =
+  | { readonly status: 'fulfilled'; readonly value: TimedToolResult }
+  | { readonly status: 'rejected'; readonly index: number; readonly reason: unknown };
+
+type SettledToolExecutionResult =
+  | { readonly status: 'fulfilled'; readonly value: ToolExecutionResult }
+  | { readonly status: 'rejected'; readonly reason: unknown };
+
+type ToolExecutionResultPromise = Promise<SettledToolExecutionResult>;
+
+type ToolExecutionStreamEvent =
+  | { readonly type: 'timed'; readonly result: IteratorResult<TimedToolResult> }
+  | { readonly type: 'timedRejected'; readonly reason: unknown }
+  | {
+      readonly type: 'finalized';
+      readonly promise: ToolExecutionResultPromise;
+      readonly settled: SettledToolExecutionResult;
+    };
 
 export class AgentToolExecutorService implements IAgentToolExecutorService {
   declare readonly _serviceBrand: undefined;
@@ -65,11 +86,11 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     @ILogService private readonly log?: ILogService,
   ) {}
 
-  async execute(
+  async *execute(
     calls: ToolCall[],
     options: ToolExecutorExecuteOptions,
-  ): Promise<ToolResult[]> {
-    if (calls.length === 0) return [];
+  ): AsyncIterable<ToolExecutionResult> {
+    if (calls.length === 0) return;
 
     const preflighted = calls.map((call) => preflightToolCall(this.toolRegistry, call, this.log));
     const preparedTasks: Array<{
@@ -96,25 +117,86 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       }
     }
 
-    const timedResults = await this.executeBatch(
+    const timedResults = this.executeBatch(
       preparedTasks.map(({ task }) => task),
       options.signal,
-    );
+    )[Symbol.asyncIterator]();
+    let nextTimed: Promise<IteratorResult<TimedToolResult>> | undefined = timedResults.next();
+    const finalizations = new Set<ToolExecutionResultPromise>();
 
-    const results: ToolResult[] = [];
-    for (let index = 0; index < preparedTasks.length; index += 1) {
-      const prepared = preparedTasks[index]!;
-      const { call } = prepared;
-      const timedResult = timedResults[index]!;
-      const rawResult = timedResult.result;
-      const finalized = await this.finalizeToolResult(call, rawResult, options);
-      results.push(finalized);
+    try {
+      while (nextTimed !== undefined || finalizations.size > 0) {
+        const candidates: Array<Promise<ToolExecutionStreamEvent>> = [];
+        if (nextTimed !== undefined) {
+          candidates.push(
+            nextTimed.then(
+              (result): ToolExecutionStreamEvent => ({ type: 'timed', result }),
+              (reason): ToolExecutionStreamEvent => ({ type: 'timedRejected', reason }),
+            ),
+          );
+        }
+        for (const promise of finalizations) {
+          candidates.push(
+            promise.then((settled): ToolExecutionStreamEvent => ({
+              type: 'finalized',
+              promise,
+              settled,
+            })),
+          );
+        }
 
-      await this.dispatchToolResult(call, finalized, options);
-      this.trackToolCall(call, finalized, timedResult.durationMs, options.turnId);
+        const event = await Promise.race(candidates);
+        if (event.type === 'timedRejected') {
+          throw event.reason;
+        }
+        if (event.type === 'timed') {
+          if (event.result.done === true) {
+            nextTimed = undefined;
+            continue;
+          }
+
+          const finalization = this.finalizeTimedResult(
+            preparedTasks[event.result.value.index]!,
+            event.result.value,
+            options,
+          ).then(
+            (value): SettledToolExecutionResult => ({ status: 'fulfilled', value }),
+            (reason): SettledToolExecutionResult => ({ status: 'rejected', reason }),
+          );
+          finalizations.add(finalization);
+          nextTimed = timedResults.next();
+          continue;
+        }
+
+        finalizations.delete(event.promise);
+        if (event.settled.status === 'rejected') throw event.settled.reason;
+        yield event.settled.value;
+      }
+    } finally {
+      await timedResults.return?.();
+      await Promise.allSettled(finalizations);
     }
+  }
 
-    return results;
+  private async finalizeTimedResult(
+    prepared: {
+      readonly call: PreflightedToolCall;
+    },
+    timedResult: TimedToolResult,
+    options: ToolExecutorExecuteOptions,
+  ): Promise<ToolExecutionResult> {
+    const { call } = prepared;
+    const rawResult = timedResult.result;
+    const finalized = await this.finalizeToolResult(call, rawResult, options);
+
+    this.dispatchToolResult(call, finalized, options);
+    this.trackToolCall(call, finalized, timedResult.durationMs, options.turnId);
+
+    return {
+      toolCallId: call.toolCall.id,
+      toolName: call.toolName,
+      result: finalized,
+    };
   }
 
   private trackToolCall(
@@ -247,30 +329,49 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     return makeResolvedTask(makeErrorToolResult(call, call.args, output));
   }
 
-  private async executeBatch(
+  private async *executeBatch(
     tasks: ToolExecutionTask[],
     signal: AbortSignal,
-  ): Promise<TimedToolResult[]> {
+  ): AsyncIterable<TimedToolResult> {
     const scheduler = new ToolScheduler<TimedToolResult>();
-    const pendingResults = tasks.map((task) =>
-      scheduler.add({
+    const allResults: Array<Promise<TimedToolResult>> = [];
+    const pendingResults = new Map<number, Promise<SettledTimedToolResult>>();
+
+    for (let index = 0; index < tasks.length; index += 1) {
+      const task = tasks[index]!;
+      const pendingResult = scheduler.add({
         accesses: task.accesses,
         start: async () => {
           const startedAt = Date.now();
           return {
             result: task.execute(signal).then((result) => ({
+              index,
               result,
               durationMs: Math.max(0, Date.now() - startedAt),
             })),
           };
         },
-      }),
-    );
+      });
+      allResults.push(pendingResult);
+      pendingResults.set(
+        index,
+        pendingResult.then(
+          (value): SettledTimedToolResult => ({ status: 'fulfilled', value }),
+          (reason): SettledTimedToolResult => ({ status: 'rejected', index, reason }),
+        ),
+      );
+    }
 
     try {
-      return await Promise.all(pendingResults);
+      while (pendingResults.size > 0) {
+        const settled = await Promise.race(pendingResults.values());
+        const index = settled.status === 'fulfilled' ? settled.value.index : settled.index;
+        pendingResults.delete(index);
+        if (settled.status === 'rejected') throw settled.reason;
+        yield settled.value;
+      }
     } finally {
-      await Promise.allSettled(pendingResults);
+      await Promise.allSettled(allResults);
     }
   }
 
@@ -346,12 +447,11 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     });
   }
 
-  private async dispatchToolResult(
+  private dispatchToolResult(
     call: PreflightedToolCall,
     result: ToolResult,
     options: ToolExecutorExecuteOptions,
-  ): Promise<void> {
-    await options.onToolResult?.(call.toolCall.id, result);
+  ): void {
     this.record.signal({
       type: 'tool.result',
       turnId: options.turnId,
