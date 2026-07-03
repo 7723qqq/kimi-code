@@ -28,7 +28,7 @@ import { literalRulePattern, matchesPathRuleSubject } from '#/_base/tools/suppor
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
 import { renderPrompt } from '#/_base/utils/render-prompt';
 import { ISessionAgentFileSystem } from '#/session/agentFs';
-import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';

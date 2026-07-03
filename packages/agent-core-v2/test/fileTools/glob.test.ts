@@ -29,8 +29,8 @@ import {
   GlobTool,
   MAX_MATCHES,
   splitCompletePaths,
-} from '#/agent/fileTools/tools/glob';
-import type { IHostEnvironment } from '#/app/hostEnvironment';
+} from '#/os/backends/node-local/tools/glob';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { probeHostEnvironmentFromNode } from '#/_base/execEnv';
 import { createExecContext } from '#/session/execContext';
 import { SessionProcessRunner } from '#/session/process/processRunnerService';

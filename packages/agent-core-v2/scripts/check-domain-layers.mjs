@@ -147,7 +147,6 @@ const DOMAIN_LAYER = new Map([
   ['microCompaction', 4],
   ['loop', 4],
   ['media', 4],
-  ['fileTools', 4],
   ['shellTools', 4],
   ['llmRequester', 4],
   ['profile', 4],

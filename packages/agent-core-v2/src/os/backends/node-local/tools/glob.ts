@@ -56,7 +56,7 @@ import {
   runRgOnce,
   shouldRetryRipgrepEagain,
 } from '#/session/agentFs/runRg';
-import { IHostEnvironment } from '#/app/hostEnvironment';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ISessionProcessRunner } from '#/session/process';
 import { ITelemetryService } from '#/app/telemetry';
