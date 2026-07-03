@@ -112,6 +112,44 @@ describe('AgentContextInjectorService', () => {
     expect(context.get()).toHaveLength(1);
   });
 
+  it('exposes all live injection positions alongside the newest one', async () => {
+    const seen: Array<readonly number[]> = [];
+
+    injector(ix).register('recording_test', ({ injectedPositions, lastInjectedAt }) => {
+      seen.push(injectedPositions);
+      expect(lastInjectedAt).toBe(injectedPositions.at(-1) ?? null);
+      return seen.length <= 2 ? 'recorded reminder' : undefined;
+    });
+
+    await injector(ix).inject();
+    context.splice(1, 0, [userMessage('between reminders')]);
+    await injector(ix).inject();
+    await injector(ix).inject();
+
+    expect(seen).toEqual([[], [0], [0, 2]]);
+  });
+
+  it('falls back to the previous surviving copy when the newest injection is deleted', async () => {
+    const seen: Array<number | null> = [];
+
+    injector(ix).register('recording_test', ({ lastInjectedAt }) => {
+      seen.push(lastInjectedAt);
+      return seen.length <= 2 ? 'recorded reminder' : undefined;
+    });
+
+    await injector(ix).inject();
+    context.splice(1, 0, [userMessage('between reminders')]);
+    await injector(ix).inject();
+    context.splice(2, 1, []);
+    await injector(ix).inject();
+
+    expect(seen).toEqual([null, 0, 0]);
+    expect(context.get().map((message) => message.origin?.kind)).toEqual([
+      'injection',
+      'user',
+    ]);
+  });
+
   it('resets the stored injection index after context clear', async () => {
     const seen: Array<number | null> = [];
 
@@ -157,7 +195,7 @@ describe('AgentContextInjectorService', () => {
     ]);
   });
 
-  it('keeps the injection index aligned after compaction replaces the prefix', async () => {
+  it('re-injects at the next step after compaction swallows the reminder', async () => {
     const seen: Array<number | null> = [];
 
     context.splice(0, 0, [userMessage('before reminder')]);
@@ -174,9 +212,11 @@ describe('AgentContextInjectorService', () => {
     );
     await injector(ix).inject();
 
-    expect(seen).toEqual([null, 0]);
-    expect(context.get()).toHaveLength(1);
-    expect(context.get()[0]?.origin).toEqual({ kind: 'compaction_summary' });
+    expect(seen).toEqual([null, null]);
+    expect(context.get().map((message) => message.origin)).toEqual([
+      { kind: 'compaction_summary' },
+      { kind: 'injection', variant: 'recording_test' },
+    ]);
   });
 
   it('keeps every injection index aligned after compaction preserves injected messages', async () => {

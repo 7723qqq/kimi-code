@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { renderNotificationXml } from '#/agent/contextMemory/notification-xml';
-import { project } from '#/agent/contextProjector';
 import {
   IAgentContextMemoryService,
   IAgentContextSizeService,
@@ -153,7 +152,7 @@ describe('Agent context', () => {
       },
     ];
 
-    expect(project(history)).toEqual([
+    expect(ctx.project(history)).toEqual([
       {
         role: 'user',
         content: [{ type: 'text', text: 'Run the tool' }],
@@ -173,11 +172,6 @@ describe('Agent context', () => {
       {
         role: 'assistant',
         content: [{ type: 'think', think: '', encrypted: 'enc_empty_thinking' }],
-        toolCalls: [],
-      },
-      {
-        role: 'user',
-        content: [{ type: 'text', text: '   ' }],
         toolCalls: [],
       },
     ]);
@@ -203,7 +197,7 @@ describe('Agent context', () => {
       },
     ];
 
-    expect(() => project(history)).toThrow(
+    expect(() => ctx.project(history)).toThrow(
       'Tool result message content cannot be empty after removing empty text blocks.',
     );
   });
@@ -876,7 +870,7 @@ describe('Agent context', () => {
     it('does not merge a cron-fire envelope into an adjacent user message', () => {
       const cronEnvelope =
         '<cron-fire jobId="deadbeef" cron="*/5 * * * *" recurring="true" coalescedCount="1" stale="false">\n<prompt>\ncheck the deploy\n</prompt>\n</cron-fire>';
-      const messages = project([
+      const messages = ctx.project([
         userMessage(cronEnvelope, {
           kind: 'cron_job',
           jobId: 'deadbeef',
@@ -893,7 +887,7 @@ describe('Agent context', () => {
     });
 
     it('uses message origin to keep non-user-origin messages separate', () => {
-      const messages = project([
+      const messages = ctx.project([
         userMessage('Host reminder without an XML prefix', {
           kind: 'injection',
           variant: 'host',
@@ -907,7 +901,7 @@ describe('Agent context', () => {
     });
 
     it('only merges user-role messages with user origin', () => {
-      const messages = project([
+      const messages = ctx.project([
         userMessage('First real prompt', { kind: 'user' }),
         userMessage('Second real prompt', { kind: 'user' }),
         userMessage('No origin prompt'),

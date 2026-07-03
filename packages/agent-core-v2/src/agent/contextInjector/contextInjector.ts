@@ -2,6 +2,9 @@ import { createDecorator } from "#/_base/di";
 import type { IDisposable } from "#/_base/di";
 
 export interface ContextInjectionContext {
+  /** Live positions of this variant's injections in the current history, ascending. */
+  readonly injectedPositions: readonly number[];
+  /** Position of the newest live injection; `null` when none survive. */
   readonly lastInjectedAt: number | null;
 }
 

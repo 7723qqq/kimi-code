@@ -1,12 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { project, trimTrailingOpenToolExchange } from '#/agent/contextProjector';
+import { SyncDescriptor } from '#/_base/di/descriptors';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { TestInstantiationService } from '#/_base/di/test';
 import type { ContextMessage } from '#/agent/contextMemory';
+import {
+  AgentContextProjectorService,
+  IAgentContextProjectorService,
+} from '#/agent/contextProjector';
+import { IAgentMicroCompactionService } from '#/agent/microCompaction';
+import type { Message } from '#/app/llmProtocol';
 
-// Unit tests for how the projector normalizes tool exchanges: results are
-// pulled up right after their call, messages that landed between a call and its
-// results are deferred to after the exchange, unanswered calls are closed with
-// a synthetic error result, stale duplicate results are dropped, and orphan
+// Tests for how the projector normalizes tool exchanges: results are pulled up
+// right after their call, messages that landed between a call and its results
+// are deferred to after the exchange, unanswered calls are closed with a
+// synthetic error result, stale duplicate results are dropped, and orphan
 // results are dropped in a real projection (but kept in a bare slice).
 
 const INTERRUPTED = 'Tool execution was interrupted before its result was recorded';
@@ -36,13 +44,30 @@ function toolResult(toolCallId: string, text: string): ContextMessage {
   return { role: 'tool', content: [{ type: 'text', text }], toolCalls: [], toolCallId };
 }
 
-function shape(history: readonly ContextMessage[]): string[] {
-  return project(history).map((message) =>
-    message.role === 'tool' ? `tool:${message.toolCallId}` : message.role,
-  );
-}
-
 describe('projector tool-exchange normalization', () => {
+  let disposables: DisposableStore;
+  let projector: IAgentContextProjectorService;
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+    const ix = disposables.add(new TestInstantiationService());
+    ix.set(IAgentContextProjectorService, new SyncDescriptor(AgentContextProjectorService));
+    ix.stub(IAgentMicroCompactionService, { compact: (messages) => messages });
+    projector = ix.get(IAgentContextProjectorService);
+  });
+
+  afterEach(() => disposables.dispose());
+
+  function project(history: readonly ContextMessage[]): readonly Message[] {
+    return projector.project(history);
+  }
+
+  function shape(history: readonly ContextMessage[]): string[] {
+    return project(history).map((message) =>
+      message.role === 'tool' ? `tool:${message.toolCallId}` : message.role,
+    );
+  }
+
   it('leaves a fully resolved exchange untouched', () => {
     const history = [user('go'), assistant('', ['c1']), toolResult('c1', 'one'), user('next')];
     expect(shape(history)).toEqual(['user', 'assistant', 'tool:c1', 'user']);
@@ -154,6 +179,24 @@ describe('projector tool-exchange normalization', () => {
     expect(shape(history)).toEqual(['user', 'assistant']);
   });
 
+  it('drops a leading orphan result when the slice contains an assistant', () => {
+    const history = [toolResult('ghost', 'orphaned'), user('hi'), assistant('hello')];
+    expect(shape(history)).toEqual(['user', 'assistant']);
+  });
+
+  it('drops a partial assistant exchange without stranding its results', () => {
+    // A partial assistant (stream interrupted) is removed before the exchange
+    // normalization, so its recorded results become orphans and are dropped,
+    // and no synthetic result is invented for its open calls.
+    const history: ContextMessage[] = [
+      user('go'),
+      { ...assistant('', ['c1', 'c2']), partial: true },
+      toolResult('c1', 'one'),
+      assistant('recovered'),
+    ];
+    expect(shape(history)).toEqual(['user', 'assistant']);
+  });
+
   it('keeps a bare result slice with no preceding assistant (used for sizing)', () => {
     // micro-compaction projects single messages to size them — a leading result
     // is kept rather than treated as an orphan.
@@ -169,20 +212,4 @@ describe('projector tool-exchange normalization', () => {
     expect(project([message])).toHaveLength(1);
   });
 
-  it('trims a trailing exchange closed only by synthetic interrupted results', () => {
-    const projected = project([user('go'), assistant('', ['c1', 'c2']), toolResult('c1', 'one')]);
-    expect(trimTrailingOpenToolExchange(projected).map((message) => message.role)).toEqual([
-      'user',
-    ]);
-  });
-
-  it('keeps a trailing exchange closed by real tool results', () => {
-    const projected = project([
-      user('go'),
-      assistant('', ['c1', 'c2']),
-      toolResult('c1', 'one'),
-      toolResult('c2', 'two'),
-    ]);
-    expect(trimTrailingOpenToolExchange(projected)).toEqual(projected);
-  });
 });

@@ -6,7 +6,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IAgentMicroCompactionService } from '#/agent/microCompaction';
-import type { ContentPart, Message, TextPart } from '#/app/llmProtocol';
+import type { ContentPart, Message, TextPart, ToolCall } from '#/app/llmProtocol';
 import { IAgentContextProjectorService } from './contextProjector';
 
 export class AgentContextProjectorService implements IAgentContextProjectorService {
@@ -26,143 +26,97 @@ export class AgentContextProjectorService implements IAgentContextProjectorServi
   }
 }
 
-
-export function project(history: readonly ContextMessage[]): Message[] {
-  return finalizeProjectedMessages(mergeAdjacentUserMessages(normalizeToolExchanges(history)));
-}
-
-const TOOL_INTERRUPTED_STATUS = '<system>ERROR: Tool execution failed.</system>';
-const TOOL_INTERRUPTED_OUTPUT =
-  'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.';
-
-interface ToolExchangeProjection {
-  pendingToolCalls: Set<string>;
-  results: ContextMessage[];
-}
-
-export function normalizeToolExchanges(history: readonly ContextMessage[]): ContextMessage[] {
-  const exchangeByToolCallId = new Map<string, ToolExchangeProjection>();
-  const exchangeByAssistant = new Map<ContextMessage, ToolExchangeProjection>();
-  const matchedResults = new Set<ContextMessage>();
-
+// Projects the stored context history into the wire messages sent to the
+// model, in two passes over the history:
+//
+// Pass 1 resolves which recorded result answers each assistant tool call. A
+// call stays open until its first result; a call id reused by a later
+// assistant re-opens for the results that follow. Partial messages (stream
+// interrupted) are invisible here, so their calls never anchor an exchange.
+//
+// Pass 2 emits the projection. Strict providers require every tool call to be
+// answered right after the assistant message, so each call's result is emitted
+// beside it (a synthetic interrupted result when none was recorded), and tool
+// messages are skipped where they originally sat — a result is either
+// re-emitted beside its call or it is an orphan, wire-invalid and useless to
+// the model. A history with no assistant at all is a bare sizing slice
+// (micro-compaction sizes single messages this way) and passes through as-is.
+// Emitting cleans each message (drops empty / whitespace-only text blocks,
+// rejected by strict providers), merges adjacent user prompts, and strips
+// context-only metadata off the wire.
+function project(history: readonly ContextMessage[]): Message[] {
+  const openCalls = new Map<string, ToolCall>();
+  const answers = new Map<ToolCall, ContextMessage>();
+  let hasAssistant = false;
   for (const message of history) {
-    if (message.role === 'assistant' && message.toolCalls.length > 0) {
-      const exchange: ToolExchangeProjection = {
-        pendingToolCalls: new Set(message.toolCalls.map((toolCall) => toolCall.id)),
-        results: [],
-      };
-      exchangeByAssistant.set(message, exchange);
-      for (const toolCall of message.toolCalls) {
-        exchangeByToolCallId.set(toolCall.id, exchange);
-      }
-      continue;
+    if (message.partial === true) continue;
+    if (message.role === 'assistant') {
+      hasAssistant = true;
+      for (const call of message.toolCalls) openCalls.set(call.id, call);
+    } else if (message.role === 'tool' && message.toolCallId !== undefined) {
+      const call = openCalls.get(message.toolCallId);
+      if (call === undefined) continue;
+      answers.set(call, message);
+      openCalls.delete(message.toolCallId);
     }
-
-    if (message.role !== 'tool' || message.toolCallId === undefined) continue;
-
-    const exchange = exchangeByToolCallId.get(message.toolCallId);
-    if (exchange === undefined) continue;
-    if (!exchange.pendingToolCalls.delete(message.toolCallId)) continue;
-    exchange.results.push(message);
-    matchedResults.add(message);
   }
 
-  const out: ContextMessage[] = [];
-  let sawAssistant = false;
+  const out: Message[] = [];
+  let mergeSource: ContextMessage | undefined;
+
+  const emit = (source: ContextMessage): void => {
+    const content = source.content.some(isBlankText)
+      ? source.content.filter((part) => !isBlankText(part))
+      : source.content;
+    if (source.role === 'tool' && content.length === 0) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        'Tool result message content cannot be empty after removing empty text blocks.',
+        { details: { toolCallId: source.toolCallId } },
+      );
+    }
+    if (content.length === 0 && source.toolCalls.length === 0) return;
+
+    const message = content === source.content ? source : { ...source, content };
+    if (mergeSource !== undefined && canMergeUserMessage(message)) {
+      mergeSource = mergeTwoUserMessages(mergeSource, message);
+      out[out.length - 1] = stripContextMetadata(mergeSource);
+      return;
+    }
+    mergeSource = canMergeUserMessage(message) ? message : undefined;
+    out.push(stripContextMetadata(message));
+  };
+
   for (const message of history) {
+    if (message.partial === true) continue;
     if (message.role === 'tool') {
-      // A result matched to its call is emitted right after that call (below).
-      if (matchedResults.has(message)) continue;
-      // A result whose call was never seen is an orphan and is dropped — but
-      // only once we are in a real projection context (an assistant has
-      // appeared). A leading tool result with no assistant is a bare slice
-      // (micro-compaction sizes single messages this way) and is kept.
-      if (sawAssistant) continue;
-      out.push(message);
+      if (!hasAssistant) emit(message);
       continue;
     }
-
-    out.push(message);
-    if (message.role === 'assistant') sawAssistant = true;
-    const exchange = exchangeByAssistant.get(message);
-    if (exchange === undefined) continue;
-
-    out.push(...exchange.results);
-    for (const toolCallId of exchange.pendingToolCalls) {
-      out.push(createInterruptedToolResult(toolCallId));
+    emit(message);
+    for (const call of message.toolCalls) {
+      emit(answers.get(call) ?? createInterruptedToolResult(call.id));
     }
   }
-
   return out;
 }
+
+const TOOL_INTERRUPTED_TEXT =
+  '<system>ERROR: Tool execution failed.</system>\n' +
+  'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.';
 
 function createInterruptedToolResult(toolCallId: string): ContextMessage {
   return {
     role: 'tool',
-    content: [
-      { type: 'text', text: `${TOOL_INTERRUPTED_STATUS}\n${TOOL_INTERRUPTED_OUTPUT}` },
-    ],
+    content: [{ type: 'text', text: TOOL_INTERRUPTED_TEXT }],
     toolCalls: [],
     toolCallId,
     isError: true,
   };
 }
 
-function mergeAdjacentUserMessages(history: readonly ContextMessage[]): ContextMessage[] {
-  const out: ContextMessage[] = [];
-  for (const message of history) {
-    const previous = out.at(-1);
-    if (
-      canMergeUserMessage(message) &&
-      previous !== undefined &&
-      canMergeUserMessage(previous)
-    ) {
-      out[out.length - 1] = mergeTwoUserMessages(previous, message);
-      continue;
-    }
-    out.push(message);
-  }
-  return out;
-}
-
-function finalizeProjectedMessages(history: readonly ContextMessage[]): Message[] {
-  const out: Message[] = [];
-  for (const message of history) {
-    if (message.partial === true) continue;
-
-    let content: ContentPart[] | undefined;
-    for (const [index, part] of message.content.entries()) {
-      if (part.type === 'text' && part.text.length === 0) {
-        content ??= message.content.slice(0, index);
-        continue;
-      }
-      content?.push(part);
-    }
-
-    const projectedContent = content ?? message.content;
-    if (message.role === 'tool' && projectedContent.length === 0) {
-      throw new KimiError(
-        ErrorCodes.REQUEST_INVALID,
-        'Tool result message content cannot be empty after removing empty text blocks.',
-        {
-          details: {
-            toolCallId: message.toolCallId,
-          },
-        },
-      );
-    }
-    if (projectedContent.length === 0 && message.toolCalls.length === 0) continue;
-
-    out.push({
-      role: message.role,
-      name: message.name,
-      content: projectedContent.map((p) => ({ ...p })) as ContentPart[],
-      toolCalls: message.toolCalls.map((tc) => ({ ...tc })),
-      toolCallId: message.toolCallId,
-      partial: message.partial,
-    });
-  }
-  return out;
+function isBlankText(part: ContentPart): boolean {
+  return part.type === 'text' && part.text.trim().length === 0;
 }
 
 function canMergeUserMessage(message: ContextMessage): boolean {
@@ -170,58 +124,33 @@ function canMergeUserMessage(message: ContextMessage): boolean {
 }
 
 function mergeTwoUserMessages(a: ContextMessage, b: ContextMessage): ContextMessage {
-  const aText = extractTextOnly(a);
-  const bText = extractTextOnly(b);
-  const nonTextParts = [
-    ...a.content.filter((p) => p.type !== 'text'),
-    ...b.content.filter((p) => p.type !== 'text'),
-  ];
-  const mergedText: TextPart = { type: 'text', text: `${aText}\n\n${bText}` };
-  const content: ContentPart[] = [mergedText, ...nonTextParts];
-  return {
-    role: 'user',
-    content,
-    toolCalls: [],
-    origin: a.origin,
-  };
+  // Join only the non-empty sides so merging an image-only message never
+  // produces a whitespace-only text block (rejected by strict providers).
+  const text = [a, b].map(extractText).filter((t) => t.length > 0).join('\n\n');
+  const content: ContentPart[] = text === '' ? [] : [{ type: 'text', text }];
+  content.push(
+    ...a.content.filter((part) => part.type !== 'text'),
+    ...b.content.filter((part) => part.type !== 'text'),
+  );
+  return { role: 'user', content, toolCalls: [], origin: a.origin };
 }
 
-function extractTextOnly(message: Message): string {
+function extractText(message: ContextMessage): string {
   return message.content
-    .filter((p): p is TextPart => p.type === 'text')
-    .map((p) => p.text)
+    .filter((part): part is TextPart => part.type === 'text')
+    .map((part) => part.text)
     .join('');
 }
 
-export function trimTrailingOpenToolExchange(history: readonly Message[]): Message[] {
-  let lastNonToolIndex = history.length - 1;
-  while (lastNonToolIndex >= 0 && history[lastNonToolIndex]?.role === 'tool') {
-    lastNonToolIndex -= 1;
-  }
-
-  const assistant = history[lastNonToolIndex];
-  if (assistant === undefined) return [];
-  if (assistant.role !== 'assistant' || assistant.toolCalls.length === 0) return [...history];
-
-  const trailingToolCallIds = new Set(
-    history
-      .slice(lastNonToolIndex + 1)
-      .filter((message) => !isInterruptedToolResult(message))
-      .map((message) => message.toolCallId)
-      .filter((toolCallId): toolCallId is string => typeof toolCallId === 'string'),
-  );
-  const closed = assistant.toolCalls.every((toolCall) => trailingToolCallIds.has(toolCall.id));
-  return closed ? [...history] : history.slice(0, lastNonToolIndex);
-}
-
-function isInterruptedToolResult(message: Message): boolean {
-  const content = message.content[0];
-  return (
-    message.role === 'tool' &&
-    message.content.length === 1 &&
-    content?.type === 'text' &&
-    content.text === `${TOOL_INTERRUPTED_STATUS}\n${TOOL_INTERRUPTED_OUTPUT}`
-  );
+function stripContextMetadata(message: ContextMessage): Message {
+  return {
+    role: message.role,
+    name: message.name,
+    content: message.content.map((part) => ({ ...part })) as ContentPart[],
+    toolCalls: message.toolCalls.map((toolCall) => ({ ...toolCall })),
+    toolCallId: message.toolCallId,
+    partial: message.partial,
+  };
 }
 
 registerScopedService(

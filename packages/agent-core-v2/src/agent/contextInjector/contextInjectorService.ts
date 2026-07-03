@@ -20,15 +20,14 @@ interface ContextInjectionEntry {
   readonly cadence: ContextInjectionOptions['cadence'];
   readonly provider: ContextInjectionProvider;
   readonly variant: string;
-  injectedAt: number | null;
-  resolveHistory: boolean;
+  /** Live positions of this variant's injection messages, ascending. */
+  readonly positions: number[];
   turnConsumed: boolean;
 }
 
 export class AgentContextInjectorService extends Disposable implements IAgentContextInjectorService {
   declare readonly _serviceBrand: undefined;
   private readonly entries = new Set<ContextInjectionEntry>();
-  private readonly selfInsertedMessages = new WeakMap<ContextMessage, ContextInjectionEntry>();
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -46,9 +45,6 @@ export class AgentContextInjectorService extends Disposable implements IAgentCon
     this._register(
       turnService.hooks.onLaunched.register('context-injector', (_ctx, next) => {
         for (const entry of this.entries) {
-          if (entry.cadence !== 'turn') continue;
-          entry.injectedAt = null;
-          entry.resolveHistory = false;
           entry.turnConsumed = false;
         }
         return next();
@@ -65,13 +61,14 @@ export class AgentContextInjectorService extends Disposable implements IAgentCon
     provider: ContextInjectionProvider,
     options: ContextInjectionOptions = {},
   ) {
+    const cadence = options.cadence ?? 'step';
+    const positions = findInjections(this.context.get(), variant);
     const entry: ContextInjectionEntry = {
-      cadence: options.cadence ?? 'step',
+      cadence,
       provider,
       variant,
-      injectedAt: null,
-      resolveHistory: true,
-      turnConsumed: false,
+      positions,
+      turnConsumed: cadence === 'turn' && positions.length > 0,
     };
     this.entries.add(entry);
     return toDisposable(() => {
@@ -81,49 +78,58 @@ export class AgentContextInjectorService extends Disposable implements IAgentCon
 
   private async inject(): Promise<void> {
     for (const entry of this.entries) {
-      const history = this.context.get();
-      if (entry.resolveHistory) {
-        entry.injectedAt ??= findLastInjection(history, entry.variant);
-      }
       if (entry.cadence === 'turn') {
-        if (entry.turnConsumed || entry.injectedAt !== null) continue;
+        if (entry.turnConsumed) continue;
         entry.turnConsumed = true;
       }
+      const injectedPositions: readonly number[] = [...entry.positions];
       const content = await entry.provider({
-        lastInjectedAt: entry.injectedAt,
+        injectedPositions,
+        lastInjectedAt: injectedPositions.at(-1) ?? null,
       });
       if (!this.entries.has(entry)) continue;
       if (content === undefined || content.trim().length === 0) continue;
-      const message = this.reminders.appendSystemReminder(content, {
+      this.reminders.appendSystemReminder(content, {
         kind: 'injection',
         variant: entry.variant,
       });
-      this.selfInsertedMessages.set(message, entry);
-      entry.injectedAt = this.context.get().length - 1;
-      entry.resolveHistory = false;
-      this.selfInsertedMessages.delete(message);
     }
   }
 
   private handleSplice(splice: ContextSplice): void {
-    const selfInserted = new Map<ContextInjectionEntry, number>();
+    let insertedInjections: Map<string, number[]> | undefined;
     splice.messages.forEach((message, offset) => {
-      const entry = this.selfInsertedMessages.get(message);
-      if (entry !== undefined) {
-        selfInserted.set(entry, splice.start + offset);
+      if (message.origin?.kind !== 'injection') return;
+      insertedInjections ??= new Map();
+      const positions = insertedInjections.get(message.origin.variant);
+      if (positions === undefined) {
+        insertedInjections.set(message.origin.variant, [splice.start + offset]);
+      } else {
+        positions.push(splice.start + offset);
       }
     });
-    const previousLength =
-      this.context.get().length - splice.messages.length + splice.deleteCount;
+    if (insertedInjections === undefined && splice.deleteCount === 0) return;
 
+    const deletedEnd = splice.start + splice.deleteCount;
+    const delta = splice.messages.length - splice.deleteCount;
     for (const entry of this.entries) {
-      const ownInsertedAt = selfInserted.get(entry);
-      if (ownInsertedAt !== undefined) {
-        entry.injectedAt = ownInsertedAt;
-        entry.resolveHistory = false;
-        continue;
+      const adopted = insertedInjections?.get(entry.variant) ?? [];
+      const positions = entry.positions;
+      if (adopted.length === 0 && positions.length === 0) continue;
+      // Mirror the context splice onto the ascending positions array: shift
+      // survivors past the deleted range, then replace the deleted segment
+      // with the adopted insertions (which land in [start, start + inserted)).
+      let lo = 0;
+      while (lo < positions.length && positions[lo]! < splice.start) lo++;
+      let hi = lo;
+      while (hi < positions.length && positions[hi]! < deletedEnd) hi++;
+      for (let index = hi; index < positions.length; index++) {
+        positions[index] = positions[index]! + delta;
       }
-      entry.injectedAt = updateInjectedAt(entry.injectedAt, splice, previousLength);
+      positions.splice(lo, hi - lo, ...adopted);
+      if (adopted.length > 0 && entry.cadence === 'turn') {
+        entry.turnConsumed = true;
+      }
     }
   }
 }
@@ -134,56 +140,17 @@ type ContextSplice = {
   readonly messages: readonly ContextMessage[];
 };
 
-function updateInjectedAt(
-  injectedAt: number | null,
-  splice: ContextSplice,
-  previousLength: number,
-): number | null {
-  if (injectedAt === null) return null;
-  if (isClearSplice(splice, previousLength)) return null;
-  if (isCompactionSplice(splice)) {
-    const next = injectedAt - splice.deleteCount + 1;
-    return next >= 0 ? next : null;
-  }
-  if (isSingleMessageRemoval(splice)) {
-    if (injectedAt > splice.start) return injectedAt - 1;
-    if (injectedAt === splice.start) return null;
-    return injectedAt;
-  }
-  const deletedEnd = splice.start + splice.deleteCount;
-  if (injectedAt < splice.start) return injectedAt;
-  if (injectedAt < deletedEnd) return null;
-  return injectedAt + splice.messages.length - splice.deleteCount;
-}
-
-function isClearSplice(splice: ContextSplice, previousLength: number): boolean {
-  return splice.start === 0 && splice.deleteCount >= previousLength && splice.messages.length === 0;
-}
-
-function isCompactionSplice(splice: ContextSplice): boolean {
-  return (
-    splice.start === 0 &&
-    splice.deleteCount > 0 &&
-    splice.messages.length === 1 &&
-    splice.messages[0]?.origin?.kind === 'compaction_summary'
-  );
-}
-
-function isSingleMessageRemoval(splice: ContextSplice): boolean {
-  return splice.deleteCount === 1 && splice.messages.length === 0;
-}
-
-function findLastInjection(
+function findInjections(
   history: readonly ContextMessage[],
   variant: string,
-): number | null {
-  for (let index = history.length - 1; index >= 0; index--) {
-    const message = history[index];
-    if (message?.origin?.kind === 'injection' && message.origin.variant === variant) {
-      return index;
+): number[] {
+  const positions: number[] = [];
+  history.forEach((message, index) => {
+    if (message.origin?.kind === 'injection' && message.origin.variant === variant) {
+      positions.push(index);
     }
-  }
-  return null;
+  });
+  return positions;
 }
 
 registerScopedService(
