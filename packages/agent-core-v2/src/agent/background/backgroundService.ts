@@ -27,7 +27,6 @@ import {
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IConfigService } from '#/app/config';
-import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentPromptService } from '#/agent/prompt';
 import { ISessionContext } from '#/session/sessionContext';
 import { IAtomicDocumentStore, IStorageService } from '#/app/storage';
@@ -35,6 +34,7 @@ import { ITelemetryService } from '#/app/telemetry';
 import { IAgentRecordService, type AgentRecord } from '#/agent/record';
 import {
   IAgentBackgroundService,
+  type BackgroundNotificationContext,
   type BackgroundLoadOptions,
   type BackgroundTask,
   type BackgroundTaskInfo,
@@ -48,6 +48,7 @@ import { BackgroundTaskPersistence } from './persist';
 import { TaskListTool } from '#/agent/background/tools/task-list';
 import { TaskOutputTool } from '#/agent/background/tools/task-output';
 import { TaskStopTool } from '#/agent/background/tools/task-stop';
+import { OrderedHookSlot } from '#/hooks';
 
 declare module '#/agent/wireRecord' {
   interface WireRecordMap {
@@ -122,6 +123,9 @@ export function isBackgroundTaskTerminal(status: BackgroundTaskStatus): boolean 
 
 export class AgentBackgroundService extends Disposable implements IAgentBackgroundService {
   declare readonly _serviceBrand: undefined;
+  readonly hooks: IAgentBackgroundService['hooks'] = {
+    onDidNotify: new OrderedHookSlot<BackgroundNotificationContext>(),
+  };
 
   private readonly tasks = new Map<string, ManagedTask>();
   private readonly ghosts = new Map<string, BackgroundTaskInfo>();
@@ -133,7 +137,6 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
     @IAgentRecordService private readonly record: IAgentRecordService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentPromptService private readonly prompt: IAgentPromptService,
-    @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IConfigService private readonly config: IConfigService,
     @IAtomicDocumentStore atomicDocs: IAtomicDocumentStore,
@@ -774,14 +777,14 @@ export class AgentBackgroundService extends Disposable implements IAgentBackgrou
   }
 
   private fireNotificationHook(notification: BackgroundTaskNotification): void {
-    this.externalHooks.triggerNotification({
+    void this.hooks.onDidNotify.run({
       notificationType: notification.type,
       title: notification.title,
       body: notification.body,
       severity: notification.severity,
       sourceKind: notification.source_kind,
       sourceId: notification.source_id,
-    });
+    }).catch(() => undefined);
   }
 
   private isTerminalNotificationSuppressed(taskId: string): boolean {

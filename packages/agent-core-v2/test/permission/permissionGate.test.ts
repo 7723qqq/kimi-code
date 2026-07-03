@@ -9,7 +9,6 @@ import type { Hooks } from '#/hooks';
 import type { ApprovalResponse } from '#/session/approval/approval';
 import type { ApprovalRequest } from '#/session/approval/approval';
 import { ISessionApprovalService } from '#/session/approval/approval';
-import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IHostEnvironment } from '#/app/hostEnvironment';
 import type { ResolvedToolExecutionHookContext } from '#/agent/tool';
 import { IAgentPermissionGate, AgentPermissionGate } from '#/agent/permissionGate';
@@ -98,10 +97,6 @@ describe('AgentPermissionGate', () => {
           IAgentPermissionPolicyService,
           stubPermissionPolicyService(() => policyResult),
         );
-        reg.definePartialInstance(IAgentExternalHooksService, {
-          triggerPermissionRequest: () => {},
-          triggerPermissionResult: () => {},
-        });
         reg.definePartialInstance(ITelemetryService, { track: () => {} });
         reg.defineInstance(ISessionApprovalService, stubApprovalService(() => approvalResponse));
         reg.defineInstance(ISessionContext, {
@@ -384,14 +379,20 @@ describe('AgentPermissionGate', () => {
   it('fires observer hooks while waiting for user approval', async () => {
     const permissionRequest = vi.fn();
     const permissionResult = vi.fn();
-    ix.set(IAgentExternalHooksService, {
-      triggerPermissionRequest: permissionRequest,
-      triggerPermissionResult: permissionResult,
-    } as Partial<IAgentExternalHooksService> as IAgentExternalHooksService);
     policyResult = { policyName: 'p', result: { kind: 'ask' } };
     approvalResponse = { decision: 'approved', selectedLabel: 'Approve once' };
     const request = setApprovalRequest(async () => approvalResponse);
     const svc = make();
+    disposables.add(
+      svc.hooks.onDidRequestApproval.register('test', (ctx) => {
+        permissionRequest(ctx);
+      }),
+    );
+    disposables.add(
+      svc.hooks.onDidResolveApproval.register('test', (ctx) => {
+        permissionResult(ctx);
+      }),
+    );
 
     await expect(svc.authorize(makeContext('Bash', { command: 'printf first' }))).resolves
       .toBeUndefined();

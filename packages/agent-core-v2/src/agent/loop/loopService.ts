@@ -4,7 +4,6 @@ import type { AgentEvent } from '@moonshot-ai/protocol';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentRecordService } from '#/agent/record';
@@ -31,7 +30,7 @@ import {
   isAbortError,
   isMaxStepsExceededError,
 } from './errors';
-import { IAgentLoopService } from './loop';
+import { IAgentLoopService, type TurnWillStopContext } from './loop';
 import type { LoopInterruptReason, LoopTurnStopReason, TurnResult } from './types';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
@@ -47,6 +46,7 @@ export class AgentLoopService implements IAgentLoopService {
     beforeStep: new OrderedHookSlot(),
     afterStep: new OrderedHookSlot(),
     onContextOverflow: new OrderedHookSlot(),
+    onWillStop: new OrderedHookSlot<TurnWillStopContext>(),
   };
 
   constructor(
@@ -55,7 +55,6 @@ export class AgentLoopService implements IAgentLoopService {
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
-    @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @IConfigService private readonly config: IConfigService,
     @ILogService private readonly log: ILogService,
   ) { }
@@ -97,12 +96,13 @@ export class AgentLoopService implements IAgentLoopService {
           }
 
           if (!stopHookContinuationUsed) {
-            const reason = await this.externalHooks.triggerStop(signal, false);
-            if (reason !== undefined && hasStepBudgetRemaining(maxSteps, steps)) {
+            const context: TurnWillStopContext = { signal, stopHookActive: false };
+            await this.hooks.onWillStop.run(context);
+            if (context.continuationPrompt !== undefined && hasStepBudgetRemaining(maxSteps, steps)) {
               stopHookContinuationUsed = true;
               this.append({
                 role: 'user',
-                content: [{ type: 'text', text: reason }],
+                content: [{ type: 'text', text: context.continuationPrompt }],
                 toolCalls: [],
                 origin: { kind: 'system_trigger', name: 'stop_hook' },
               });

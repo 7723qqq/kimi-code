@@ -23,6 +23,26 @@ export interface TurnRunContext {
   result?: TurnResult;
 }
 
+export type TurnUserPromptDecision =
+  | {
+      readonly action: 'append';
+      readonly event: string;
+      readonly message: string;
+      readonly text: string;
+    }
+  | {
+      readonly action: 'block';
+      readonly event: string;
+      readonly message: string;
+      readonly text: string;
+    };
+
+export interface TurnUserPromptSubmitContext {
+  readonly turn: Turn;
+  readonly promptMessage: ContextMessage;
+  decision?: TurnUserPromptDecision;
+}
+
 export interface TurnEndedContext {
   readonly turn: Turn;
   readonly result: TurnResult;
@@ -41,6 +61,7 @@ export interface IAgentTurnService {
 
   readonly hooks: Hooks<{
     onLaunched: { turn: Turn };
+    onWillSubmitUserPrompt: TurnUserPromptSubmitContext;
     onEnded: TurnEndedContext;
   }>;
 }

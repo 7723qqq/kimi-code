@@ -1169,8 +1169,6 @@ export class AgentTestContext {
     const contextSize = this.get(IAgentContextSizeService);
     const usage = this.get(IAgentUsageService);
     const toolStore = this.get(IAgentToolStoreService);
-    const background = this.get(IAgentBackgroundService);
-    const permission = this.get(IAgentPermissionGate);
     const permissionMode = this.get(IAgentPermissionModeService);
     const permissionRules = this.get(IAgentPermissionRulesService);
     const cron = this.get(IAgentCronService);
@@ -1180,6 +1178,9 @@ export class AgentTestContext {
     // `Bash`/etc. land in the per-agent registry the same way they would
     // under a real Agent scope (see `AgentLifecycleService.create`).
     this.get(IAgentBuiltinToolsRegistrar);
+    this.get(IAgentExternalHooksService);
+    const background = this.get(IAgentBackgroundService);
+    const permission = this.get(IAgentPermissionGate);
     const swarm = this.get(IAgentSwarmService);
 
     context.get();

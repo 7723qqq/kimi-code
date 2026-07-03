@@ -1,10 +1,8 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { toKimiErrorPayload, type KimiErrorPayload } from "#/errors";
-import { isUserCancellation } from "#/_base/utils/abort";
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import { IAgentContextMemoryService, USER_PROMPT_ORIGIN } from '#/agent/contextMemory';
-import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { OrderedHookSlot } from '#/hooks';
 import { IAgentLoopService, type TurnResult as LoopTurnResult } from '#/agent/loop';
 import { ITelemetryService } from '#/app/telemetry';
@@ -12,6 +10,7 @@ import { IAgentRecordService } from '#/agent/record';
 import type {
   Turn,
   TurnEndedContext,
+  TurnUserPromptSubmitContext,
   TurnResult,
 } from './turn';
 import { IAgentTurnService } from './turn';
@@ -39,6 +38,7 @@ export class AgentTurnService implements IAgentTurnService {
 
   readonly hooks = {
     onLaunched: new OrderedHookSlot<{ turn: Turn }>(),
+    onWillSubmitUserPrompt: new OrderedHookSlot<TurnUserPromptSubmitContext>(),
     onEnded: new OrderedHookSlot<TurnEndedContext>(),
   };
 
@@ -46,7 +46,6 @@ export class AgentTurnService implements IAgentTurnService {
     @IAgentLoopService private readonly loop: IAgentLoopService,
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-    @IAgentExternalHooksService private readonly externalHooks: IAgentExternalHooksService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     record.define('turn.launch', {
@@ -143,7 +142,6 @@ export class AgentTurnService implements IAgentTurnService {
         this.rejectReady(turn, turn.abortController.signal.reason);
         return result;
       }
-      this.externalHooks.triggerStopFailure(error, turn.abortController.signal);
       this.rejectReady(turn, error);
       result = { reason: 'failed', error };
       return result;
@@ -157,12 +155,6 @@ export class AgentTurnService implements IAgentTurnService {
       if (result !== undefined) {
         this.lastEndedReasonValue = result.reason;
         const ended = toTurnEndedEvent(turn, result, Date.now() - startedAt);
-        if (
-          ended.reason === 'cancelled' &&
-          isUserCancellation(turn.abortController.signal.reason)
-        ) {
-          this.externalHooks.triggerInterrupt({ turnId: turn.id, reason: 'cancelled' });
-        }
         this.record.signal(ended);
         if (ended.error !== undefined) {
           this.record.signal({ type: 'error', ...ended.error });
@@ -199,10 +191,9 @@ export class AgentTurnService implements IAgentTurnService {
     const promptMessage = this.context.get().at(-1);
     if (!shouldRunUserPromptHook(promptMessage)) return undefined;
 
-    const hookResult = await this.externalHooks.triggerUserPromptSubmit(
-      promptMessage.content,
-      turn.abortController.signal,
-    );
+    const hookContext: TurnUserPromptSubmitContext = { turn, promptMessage };
+    await this.hooks.onWillSubmitUserPrompt.run(hookContext);
+    const hookResult = hookContext.decision;
     if (hookResult?.action === 'block') {
       this.append({
         role: 'assistant',

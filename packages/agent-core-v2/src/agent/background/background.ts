@@ -1,4 +1,5 @@
 import { createDecorator } from "#/_base/di";
+import type { Hooks } from '#/hooks';
 import type {
   BackgroundTask,
   BackgroundTaskInfo,
@@ -47,8 +48,20 @@ export interface RegisterBackgroundTaskOptions {
 
 export type ForegroundTaskReleaseReason = 'detached' | 'terminal';
 
+export interface BackgroundNotificationContext {
+  readonly notificationType: string;
+  readonly title: string;
+  readonly body: string;
+  readonly severity: 'info' | 'warning';
+  readonly sourceKind: string;
+  readonly sourceId: string;
+}
+
 export interface IAgentBackgroundService {
   readonly _serviceBrand: undefined;
+  readonly hooks: Hooks<{
+    onDidNotify: BackgroundNotificationContext;
+  }>;
   registerTask(task: BackgroundTask, options?: RegisterBackgroundTaskOptions): string;
   getTask(taskId: string): BackgroundTaskInfo | undefined;
   list(activeOnly?: boolean, limit?: number): readonly BackgroundTaskInfo[];

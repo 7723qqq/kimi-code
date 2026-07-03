@@ -8,7 +8,7 @@
  * summary + usage), and emits `subagent.*` facts on the caller's event sink.
  * Owns no scoped state itself — all durable state lives in the sub agent scope,
  * and cancellation is the caller's responsibility (via the abort signal it
- * passes in). Bound to no scope; borrows `event`, `externalHooks`, `telemetry`,
+ * passes in). Bound to no scope; borrows `event`, `telemetry`,
  * `profile`, `prompt`, `contextMemory`, `usage`, and `agentTool` through the
  * caller/child accessors.
  */
@@ -29,7 +29,6 @@ import {
 } from '#/agent/contextMemory';
 import { ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
 import { IAgentRecordService } from '#/agent/record';
-import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { isAbortError } from '#/agent/loop/errors';
 import { IAgentProfileService } from '#/agent/profile';
 import { ISessionMetadata } from '#/session/sessionMetadata';
@@ -37,6 +36,7 @@ import { ITelemetryService } from '#/app/telemetry';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentUsageService } from '#/agent/usage';
 import type { Turn } from '#/agent/turn';
+import { IAgentToolService } from './agentToolServiceToken';
 
 import { DEFAULT_AGENT_SUBAGENT_PROFILES, EXPLORE_ROLE_ADDITIONAL } from './profiles';
 import {
@@ -51,7 +51,6 @@ import SUMMARY_CONTINUATION_PROMPT from './summary-continuation.md?raw';
 const SUBAGENT_PROMPT_ORIGIN: PromptOrigin = { kind: 'system_trigger', name: 'subagent' };
 const SUMMARY_MIN_LENGTH = 200;
 const SUMMARY_CONTINUATION_ATTEMPTS = 1;
-const HOOK_TEXT_PREVIEW_LENGTH = 500;
 
 export type RunContext = {
   readonly lifecycle: IAgentLifecycleService;
@@ -224,26 +223,24 @@ function emitFailed(
 }
 
 
-async function triggerSubagentStart(
+async function runSubagentStartHook(
   caller: IAgentScopeHandle,
   profileName: string,
   prompt: string,
   signal: AbortSignal,
 ): Promise<void> {
-  await caller.accessor.get(IAgentExternalHooksService)?.triggerSubagentStart(
-    {
-      agentName: profileName,
-      prompt: prompt.slice(0, HOOK_TEXT_PREVIEW_LENGTH),
-    },
+  await caller.accessor.get(IAgentToolService)?.hooks.onWillRunSubagent.run({
+    agentName: profileName,
+    prompt,
     signal,
-  );
+  });
 }
 
-function triggerSubagentStop(caller: IAgentScopeHandle, profileName: string, result: string): void {
-  caller.accessor.get(IAgentExternalHooksService)?.triggerSubagentStop({
+function runSubagentStopHook(caller: IAgentScopeHandle, profileName: string, result: string): void {
+  void caller.accessor.get(IAgentToolService)?.hooks.onDidRunSubagent.run({
     agentName: profileName,
-    response: result.slice(0, HOOK_TEXT_PREVIEW_LENGTH),
-  });
+    response: result,
+  }).catch(() => undefined);
 }
 
 function observeFirstRequest(turn: Turn, options: RunSubagentOptions): void {
@@ -268,7 +265,7 @@ async function runWithActiveChild(
   try {
     const result = await run(turnRef, controller);
     emitCompleted(caller, child.id, result.result, result.usage);
-    triggerSubagentStop(caller, profileName, result.result);
+    runSubagentStopHook(caller, profileName, result.result);
     return result;
   } catch (error) {
     emitFailed(caller, child.id, error, options);
@@ -290,7 +287,7 @@ async function runPromptTurn(
   controller: AbortController,
 ): Promise<{ result: string; usage?: TokenUsage }> {
   options.signal.throwIfAborted();
-  await triggerSubagentStart(caller, profileName, options.prompt, options.signal);
+  await runSubagentStartHook(caller, profileName, options.prompt, options.signal);
   options.signal.throwIfAborted();
 
   const turn = child.accessor.get(IAgentPromptService).prompt({
@@ -320,7 +317,7 @@ async function runRetryTurn(
   controller: AbortController,
 ): Promise<{ result: string; usage?: TokenUsage }> {
   options.signal.throwIfAborted();
-  await triggerSubagentStart(caller, profileName, options.prompt, options.signal);
+  await runSubagentStartHook(caller, profileName, options.prompt, options.signal);
   options.signal.throwIfAborted();
 
   const turn = child.accessor.get(IAgentPromptService).retry('agent-host');

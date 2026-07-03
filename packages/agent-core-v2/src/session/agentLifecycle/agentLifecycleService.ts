@@ -106,13 +106,13 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
           [IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{ homedir: agentHomedir }])],
           [IAgentBlobStoreService, new SyncDescriptor(AgentBlobStoreService, [{}])],
           [IAgentMcpService, new SyncDescriptor(AgentMcpService, [{ manager: this.getMcpManager() }])],
-          // These two carry a leading static `options` param; the scoped
+          // These services carry a leading static `options` param; the scoped
           // registry supplies none, so seed an empty one to satisfy the DI
           // contract (static args must fill the slots before the first `@IX`).
-          // Kept delayed so they only instantiate (with their full dependency
-          // set) when a turn actually resolves them.
+          // Replay building stays delayed, while external hooks are
+          // force-instantiated below to attach listeners before the first turn.
           [IAgentReplayBuilderService, new SyncDescriptor(AgentReplayBuilderService, [{}], true)],
-          [IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService, [{}], true)],
+          [IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService, [{}])],
         ],
       },
     ) as IAgentScopeHandle;
@@ -133,6 +133,10 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     // registrar is separate from the registry itself to avoid a construction
     // cycle where tool ctors transitively depend on the registry.
     handle.accessor.get(IAgentBuiltinToolsRegistrar);
+    // Force-instantiate the external hook adapter so it registers listeners on
+    // the agent's domain hooks before the first turn. No business service
+    // injects it directly; it observes their hooks instead.
+    handle.accessor.get(IAgentExternalHooksService);
     // Force-instantiate the agent's MCP service so it attaches the (shared)
     // manager's tools and registers the `wait-for-initial-load` hook before the
     // first turn — otherwise plugin/session MCP servers would connect but their

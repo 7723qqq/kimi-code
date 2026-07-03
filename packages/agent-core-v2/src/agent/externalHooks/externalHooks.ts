@@ -1,8 +1,13 @@
-import type { ContentPart } from '#/app/llmProtocol';
+/**
+ * `externalHooks` domain (L5) — contract for configured external hook
+ * commands.
+ *
+ * The service is intentionally observer-shaped: business domains expose their
+ * own minimal hook contexts, and the L5 implementation listens to those hooks
+ * to invoke configured external commands.
+ */
 
-import { createDecorator } from "#/_base/di";
-import type { ExecutableToolResult } from '#/agent/tool';
-import type { ToolInputDisplay } from '@moonshot-ai/protocol';
+import { createDecorator } from '#/_base/di';
 import type { HookEngine } from './engine';
 
 export interface RenderedExternalHookResult {
@@ -11,96 +16,14 @@ export interface RenderedExternalHookResult {
   readonly text: string;
 }
 
-export type UserPromptHookDecision =
-  | ({ readonly action: 'append' } & RenderedExternalHookResult)
-  | ({ readonly action: 'block' } & RenderedExternalHookResult);
-
 export interface ExternalHooksServiceOptions {
   readonly hookEngine?:
     | Pick<HookEngine, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>
     | undefined;
 }
 
-export interface NotificationHookPayload {
-  readonly notificationType: string;
-  readonly title: string;
-  readonly body: string;
-  readonly severity: 'info' | 'warning';
-  readonly sourceKind: string;
-  readonly sourceId: string;
-}
-
-export interface PermissionRequestHookPayload {
-  readonly turnId: number;
-  readonly toolCallId: string;
-  readonly toolName: string;
-  readonly action: string;
-  readonly toolInput: unknown;
-  readonly display: ToolInputDisplay;
-}
-
-export type PermissionResultHookPayload =
-  | {
-      readonly turnId: number;
-      readonly toolCallId: string;
-      readonly toolName: string;
-      readonly action: string;
-      readonly decision: 'approved' | 'rejected' | 'cancelled';
-      readonly scope?: 'session';
-      readonly feedback?: string;
-      readonly selectedLabel?: string;
-    }
-  | {
-      readonly turnId: number;
-      readonly toolCallId: string;
-      readonly toolName: string;
-      readonly action: string;
-      readonly decision: 'error';
-      readonly error: string;
-    };
-
 export interface IAgentExternalHooksService {
   readonly _serviceBrand: undefined;
-  triggerPreToolUse(
-    payload: {
-      readonly toolCallId: string;
-      readonly toolName: string;
-      readonly toolInput: Record<string, unknown>;
-    },
-    signal: AbortSignal,
-  ): Promise<string | undefined>;
-  triggerUserPromptSubmit(
-    input: readonly ContentPart[],
-    signal: AbortSignal,
-  ): Promise<UserPromptHookDecision | undefined>;
-  triggerStop(signal: AbortSignal, stopHookActive: boolean): Promise<string | undefined>;
-  triggerPostToolUse(
-    payload: {
-      readonly toolCallId: string;
-      readonly toolName: string;
-      readonly toolInput: Record<string, unknown>;
-      readonly result: ExecutableToolResult;
-    },
-    signal: AbortSignal,
-  ): Promise<void>;
-  triggerPermissionRequest(payload: PermissionRequestHookPayload): void;
-  triggerPermissionResult(payload: PermissionResultHookPayload): void;
-  triggerStopFailure(error: unknown, signal: AbortSignal): void;
-  triggerInterrupt(payload: { readonly turnId: number; readonly reason: 'cancelled' }): void;
-  triggerNotification(payload: NotificationHookPayload): void;
-  triggerPreCompact(
-    payload: { readonly trigger: 'manual' | 'auto'; readonly tokenCount: number },
-    signal: AbortSignal,
-  ): Promise<void>;
-  triggerPostCompact(payload: {
-    readonly trigger: 'manual' | 'auto';
-    readonly estimatedTokenCount: number;
-  }): void;
-  triggerSubagentStart(
-    payload: { readonly agentName: string; readonly prompt: string },
-    signal: AbortSignal,
-  ): Promise<void>;
-  triggerSubagentStop(payload: { readonly agentName: string; readonly response: string }): void;
 }
 
 export const IAgentExternalHooksService =

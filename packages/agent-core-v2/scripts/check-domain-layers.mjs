@@ -139,7 +139,6 @@ const DOMAIN_LAYER = new Map([
   ['fileTools', 4],
   ['shellTools', 4],
   ['llmRequester', 4],
-  ['externalHooks', 4],
   ['profile', 4],
   ['prompt', 4],
   ['replayBuilder', 4],
@@ -150,6 +149,7 @@ const DOMAIN_LAYER = new Map([
   ['mcp', 5],
   ['cron', 5],
   ['agentTool', 5],
+  ['externalHooks', 5],
   // `btw` forks a single side-question sub-agent via `agentLifecycle`, mirroring
   // the `agentTool` shape (Agent-scope, spawns one child) — same layer.
   ['btw', 5],

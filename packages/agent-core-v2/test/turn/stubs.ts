@@ -41,7 +41,11 @@ function makeTurn(id: number): Turn {
 }
 
 function makeHooks(): IAgentTurnService['hooks'] {
-  return createHooks(['onLaunched', 'onEnded']) as IAgentTurnService['hooks'];
+  return createHooks([
+    'onLaunched',
+    'onWillSubmitUserPrompt',
+    'onEnded',
+  ]) as IAgentTurnService['hooks'];
 }
 
 function makeAgentLoopHookSlots(): IAgentLoopService['hooks'] {
@@ -49,6 +53,7 @@ function makeAgentLoopHookSlots(): IAgentLoopService['hooks'] {
     'beforeStep',
     'afterStep',
     'onContextOverflow',
+    'onWillStop',
   ]) as IAgentLoopService['hooks'];
 }
 

@@ -58,6 +58,7 @@ import { IAgentContextSizeService } from '#/agent/contextSize';
 import { AgentCronService } from '#/agent/cron';
 import { IAgentRecordService } from '#/agent/record';
 import { AgentExternalHooksService, IAgentExternalHooksService } from '#/agent/externalHooks';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction';
 import { IFlagService } from '#/app/flag';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester';
 import { logSeed, resolveLoggingConfig } from '#/app/log/logConfig';
@@ -66,6 +67,8 @@ import { IChatProviderFactory } from '#/app/chatProvider';
 import { IModelService } from '#/app/model';
 import '#/app/model';
 import { ISessionModelResolver } from '#/session/modelRuntime';
+import { IAgentToolService } from '#/agent/agentTool';
+import { IAgentPermissionGate } from '#/agent/permissionGate';
 import { IAgentPermissionRulesService, AgentPermissionRulesService } from '#/agent/permissionRules';
 import { IAgentProfileService, AgentProfileService } from '#/agent/profile';
 import { IAgentPromptService } from '#/agent/prompt';
@@ -177,12 +180,37 @@ describe('config slice (every section owner against one shared registry)', () =>
             onDidExecuteTool: hookSlot(),
           } as unknown as IAgentToolExecutorService['hooks'],
         });
+        reg.definePartialInstance(IAgentPermissionGate, {
+          hooks: {
+            onDidRequestApproval: hookSlot(),
+            onDidResolveApproval: hookSlot(),
+          } as unknown as IAgentPermissionGate['hooks'],
+        });
+        reg.definePartialInstance(IAgentFullCompactionService, {
+          hooks: {
+            onWillCompact: hookSlot(),
+            onDidCompact: hookSlot(),
+          } as unknown as IAgentFullCompactionService['hooks'],
+        });
+        reg.definePartialInstance(IAgentToolService, {
+          hooks: {
+            onWillRunSubagent: hookSlot(),
+            onDidRunSubagent: hookSlot(),
+          } as unknown as IAgentToolService['hooks'],
+        });
         reg.definePartialInstance(ISessionModelResolver, { defaultModel: 'mock-model' });
         reg.definePartialInstance(ISessionContext, {
           metaScope: 'sessions/demo/demo/session-meta',
           sessionDir: homeDir,
         });
-        reg.definePartialInstance(IAgentTurnService, { getActiveTurn: () => undefined });
+        reg.definePartialInstance(IAgentTurnService, {
+          getActiveTurn: () => undefined,
+          hooks: {
+            onLaunched: hookSlot(),
+            onWillSubmitUserPrompt: hookSlot(),
+            onEnded: hookSlot(),
+          } as unknown as IAgentTurnService['hooks'],
+        });
 
         // Collaborators declared but not touched during construction — empty
         // stubs keep the container strict-clean (no "unknown service" warnings).

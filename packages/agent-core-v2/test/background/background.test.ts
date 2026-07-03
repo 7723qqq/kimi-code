@@ -7,14 +7,14 @@ import { IAgentBackgroundService, type BackgroundTask } from '#/agent/background
 import { AgentBackgroundService } from '#/agent/background/backgroundService';
 import { IConfigRegistry, IConfigService } from '#/app/config';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentEventSinkService } from '#/agent/eventSink';
-import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentPromptService } from '#/agent/prompt';
+import { IAgentRecordService } from '#/agent/record';
 import { ISessionContext } from '#/session/sessionContext';
 import { IAtomicDocumentStore, IStorageService } from '#/app/storage';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
+import { createHooks } from '#/hooks';
 
 import { stubContextMemory, stubWireRecord } from '../contextMemory/stubs';
 
@@ -37,13 +37,18 @@ describe('AgentBackgroundService', () => {
     ix = disposables.add(new TestInstantiationService());
     ix.stub(IAgentWireRecordService, stubWireRecord());
     ix.stub(IAgentContextMemoryService, stubContextMemory());
-    ix.stub(IAgentEventSinkService, { emit: () => {}, on: () => toDisposable(() => {}) });
+    ix.stub(IAgentRecordService, {
+      hooks: createHooks(['onRestoredRecord', 'onResumeEnded']) as IAgentRecordService['hooks'],
+      append: () => {},
+      on: () => toDisposable(() => {}),
+      define: () => toDisposable(() => {}),
+      signal: () => {},
+    });
     ix.stub(ITelemetryService, { track: () => {} });
     ix.stub(IAgentToolRegistryService, {
       register: () => toDisposable(() => {}),
     });
     ix.stub(IAgentPromptService, { steer: () => undefined });
-    ix.stub(IAgentExternalHooksService, { triggerNotification: () => {} });
     ix.stub(IConfigRegistry, { registerSection: () => {} });
     ix.stub(IConfigService, {
       get: (() => undefined) as IConfigService['get'],

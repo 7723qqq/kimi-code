@@ -22,12 +22,19 @@ export interface TurnContextOverflowContext {
   handled: boolean;
 }
 
+export interface TurnWillStopContext {
+  readonly signal: AbortSignal;
+  readonly stopHookActive: boolean;
+  continuationPrompt?: string;
+}
+
 export interface IAgentLoopService {
   readonly _serviceBrand: undefined;
   readonly hooks: Hooks<{
     beforeStep: TurnBeforeStepContext;
     afterStep: TurnAfterStepContext;
     onContextOverflow: TurnContextOverflowContext;
+    onWillStop: TurnWillStopContext;
   }>;
   runTurn(turnId: number, signal?: AbortSignal): Promise<TurnResult>;
 }

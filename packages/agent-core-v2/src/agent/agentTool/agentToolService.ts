@@ -18,13 +18,22 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import { OrderedHookSlot } from '#/hooks';
 
 import { AgentTool } from './agentTool';
-import { IAgentToolService } from './agentToolServiceToken';
+import {
+  IAgentToolService,
+  type AgentToolDidRunSubagentContext,
+  type AgentToolWillRunSubagentContext,
+} from './agentToolServiceToken';
 import type { AgentToolRunOverride } from './runChildAgent';
 
 export class AgentToolService extends Disposable implements IAgentToolService {
   declare readonly _serviceBrand: undefined;
+  readonly hooks: IAgentToolService['hooks'] = {
+    onWillRunSubagent: new OrderedHookSlot<AgentToolWillRunSubagentContext>(),
+    onDidRunSubagent: new OrderedHookSlot<AgentToolDidRunSubagentContext>(),
+  };
 
   constructor(
     runner: AgentToolRunOverride | undefined,

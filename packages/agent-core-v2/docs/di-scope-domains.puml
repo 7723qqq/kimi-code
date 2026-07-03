@@ -36,6 +36,7 @@ package "App scope (process-wide)" #EAF3FB {
   rectangle "<b>provider</b>\n<size:9><i>App</i></size>\n  IProviderService" as provider #D6EAF8
   rectangle "<b>flag</b>\n<size:9><i>App</i></size>\n  IFlagService\n  IFlagRegistry" as flag #D6EAF8
   rectangle "<b>config</b>\n<size:9><i>App</i></size>\n  IConfigRegistry\n  IConfigService" as config #D6EAF8
+  rectangle "<b>plugin</b>\n<size:9><i>App</i></size>\n  IPluginService" as plugin #D6EAF8
   rectangle "<b>chatProvider</b>\n<size:9><i>App</i></size>\n  IChatProviderFactory" as chatProvider #D6EAF8
   rectangle "<b>model</b>\n<size:9><i>App</i></size>\n  IModelService" as model #D6EAF8
   rectangle "<b>modelCatalog</b>\n<size:9><i>App</i></size>\n  IModelCatalogService" as modelCatalog #D6EAF8
@@ -125,6 +126,7 @@ flag --> config #34495E
 config --> bootstrap #34495E
 config --> log #34495E
 config --> storage #34495E
+plugin --> bootstrap #34495E
 model --> config #34495E
 modelCatalog --> provider #34495E
 modelCatalog --> model #34495E
@@ -133,6 +135,7 @@ modelCatalog --> auth #34495E
 workspaceContext --> execContext #34495E
 sessionLog --> session_context #34495E
 sessionSkillCatalog --> globalSkillCatalog #34495E
+sessionSkillCatalog --> plugin #34495E
 sessionSkillCatalog --> workspaceContext #34495E
 globalSkillCatalog --> bootstrap #34495E
 agentFs --> workspaceContext #34495E
@@ -193,7 +196,6 @@ turn --> loop #34495E
 turn --> record #34495E
 turn --> wireRecord #34495E
 turn --> contextMemory #34495E
-turn --> externalHooks #34495E
 turn --> telemetry #34495E
 loop --> contextMemory #34495E
 loop --> contextSize #34495E
@@ -201,7 +203,6 @@ loop --> llmRequester #34495E
 loop --> record #34495E
 loop --> toolExecutor #34495E
 loop --> profile #34495E
-loop --> externalHooks #34495E
 loop --> config #34495E
 llmRequester --> contextMemory #34495E
 llmRequester --> contextProjector #34495E
@@ -220,7 +221,6 @@ toolDedup --> toolExecutor #34495E
 permissionGate --> permissionMode #34495E
 permissionGate --> permissionRules #34495E
 permissionGate --> permissionPolicy #34495E
-permissionGate --> externalHooks #34495E
 permissionGate --> telemetry #34495E
 permissionGate --> toolExecutor #34495E
 permissionMode --> wireRecord #34495E
@@ -266,7 +266,6 @@ background --> record #34495E
 background --> wireRecord #34495E
 background --> telemetry #34495E
 background --> prompt #34495E
-background --> externalHooks #34495E
 background --> contextMemory #34495E
 background --> config #34495E
 background --> storage #34495E
@@ -296,7 +295,6 @@ fullCompaction --> telemetry #34495E
 fullCompaction --> wireRecord #34495E
 fullCompaction --> record #34495E
 fullCompaction --> replayBuilder #34495E
-fullCompaction --> externalHooks #34495E
 fullCompaction --> turn #34495E
 fullCompaction --> loop #34495E
 microCompaction --> contextMemory #34495E
@@ -306,8 +304,9 @@ microCompaction --> flag #34495E
 microCompaction --> profile #34495E
 microCompaction --> telemetry #34495E
 microCompaction --> loop #34495E
-externalHooks --> toolExecutor #34495E
 externalHooks --> config #34495E
+externalHooks --> bootstrap #34495E
+externalHooks --> plugin #34495E
 todoList --> contextMemory #34495E
 todoList --> profile #34495E
 todoList --> toolStore #34495E
@@ -334,6 +333,7 @@ rpc --> agentTool #34495E
 rpc --> usage #34495E
 rpc --> telemetry #34495E
 rpc --> goal #34495E
+rpc --> plugin #34495E
 rpc --> fileTools #34495E
 rpc --> shellTools #34495E
 fileTools --> toolRegistry #34495E
@@ -367,6 +367,13 @@ swarm ..> wireRecord #16A085 : swarm_mode.enter/exit
 swarm ..> turn #16A085 : hooks.onEnded
 background ..> wireRecord #16A085 : background.task.started/terminated
 background ..> contextMemory #16A085 : hooks.onSpliced
+externalHooks ..> toolExecutor #16A085 : onWillExecuteTool / onDidExecuteTool
+externalHooks ..> permissionGate #16A085 : approval hooks
+externalHooks ..> turn #16A085 : prompt/end hooks
+externalHooks ..> loop #16A085 : stop hook
+externalHooks ..> fullCompaction #16A085 : compaction hooks
+externalHooks ..> background #16A085 : notification hook
+externalHooks ..> agentTool #16A085 : subagent hooks
 toolStore ..> wireRecord #16A085 : tools.update_store
 usage ..> wireRecord #16A085 : usage.record
 contextSize ..> contextMemory #16A085 : hooks.onSpliced

@@ -5,15 +5,15 @@ import { APIProviderRateLimitError } from '@moonshot-ai/kosong';
 import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import type { IScopeHandle } from '#/_base/di/scope';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentEventSinkService } from '#/agent/eventSink';
-import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentPromptService } from '#/agent/prompt';
+import { IAgentRecordService } from '#/agent/record';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
 import { IAgentPermissionPolicyService } from '#/agent/permissionPolicy';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentUsageService } from '#/agent/usage';
-import { resumeChildAgent, retryChildAgent, spawnChildAgent } from '#/agent/agentTool';
+import { IAgentToolService, resumeChildAgent, retryChildAgent, spawnChildAgent } from '#/agent/agentTool';
+import { createHooks } from '#/hooks';
 
 const CHILD_SUMMARY = 'child summary '.repeat(20);
 const CALLER_AGENT_ID = 'main';
@@ -114,9 +114,12 @@ function fakeScope(id: string, options: FakeScopeOptions = {}): IScopeHandle {
   const permissionPolicy = {
     registerPolicy: vi.fn(() => ({ dispose: () => {} })),
   };
-  const externalHooks = {
-    triggerSubagentStart: vi.fn().mockResolvedValue(undefined),
-    triggerSubagentStop: vi.fn(),
+  const agentTool = {
+    _serviceBrand: undefined,
+    hooks: createHooks([
+      'onWillRunSubagent',
+      'onDidRunSubagent',
+    ]) as IAgentToolService['hooks'],
   };
   const telemetry = {
     track: vi.fn(),
@@ -129,10 +132,10 @@ function fakeScope(id: string, options: FakeScopeOptions = {}): IScopeHandle {
         if (token === IAgentPromptService) return prompt;
         if (token === IAgentContextMemoryService) return context;
         if (token === IAgentUsageService) return usage;
-        if (token === IAgentEventSinkService) return { emit: (event: unknown) => events.push(event) };
+        if (token === IAgentRecordService) return { signal: (event: unknown) => events.push(event) };
         if (token === IAgentSystemReminderService) return systemReminder;
         if (token === IAgentPermissionPolicyService) return permissionPolicy;
-        if (token === IAgentExternalHooksService) return externalHooks;
+        if (token === IAgentToolService) return agentTool;
         if (token === ITelemetryService) return telemetry;
         return undefined;
       }),
@@ -373,6 +376,15 @@ describe('runChildAgent', () => {
     const parent = fakeScope(CALLER_AGENT_ID);
     const child = fakeScope('child');
     const agents = makeAgents(parent, { child });
+    const agentTool = parent.accessor.get(IAgentToolService);
+    const subagentStart = vi.fn();
+    const subagentStop = vi.fn();
+    agentTool.hooks.onWillRunSubagent.register('test-start', (ctx) => {
+      subagentStart(ctx);
+    });
+    agentTool.hooks.onDidRunSubagent.register('test-stop', (ctx) => {
+      subagentStop(ctx);
+    });
 
     const handle = await spawnChildAgent({
       lifecycle: agents as unknown as IAgentLifecycleService,
@@ -386,12 +398,12 @@ describe('runChildAgent', () => {
     });
     await handle.completion;
 
-    const hooks = parent.accessor.get(IAgentExternalHooksService);
-    expect(hooks.triggerSubagentStart).toHaveBeenCalledWith(
-      { agentName: 'explore', prompt: 'Explore the repo' },
-      expect.anything(),
-    );
-    expect(hooks.triggerSubagentStop).toHaveBeenCalledWith({
+    expect(subagentStart).toHaveBeenCalledWith({
+      agentName: 'explore',
+      prompt: 'Explore the repo',
+      signal: expect.anything(),
+    });
+    expect(subagentStop).toHaveBeenCalledWith({
       agentName: 'explore',
       response: CHILD_SUMMARY,
     });
