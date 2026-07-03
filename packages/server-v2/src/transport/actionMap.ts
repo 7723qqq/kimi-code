@@ -26,7 +26,7 @@ import {
   IAgentRPCService,
   ISessionApprovalService,
   IAuthSummaryService,
-  IAgentBackgroundService,
+  IAgentTaskService,
   IBootstrapService,
   IConfigService,
   IAgentContextMemoryService,
@@ -184,11 +184,11 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
     'plan:cancel': { service: IAgentPlanService, method: 'cancel' },
     'plan:clear': { service: IAgentPlanService, method: 'clear' },
 
-    'tasks:list': { service: IAgentBackgroundService, method: 'list', readonly: true },
-    'tasks:get': { service: IAgentBackgroundService, method: 'getTask', readonly: true },
-    'tasks:readOutput': { service: IAgentBackgroundService, method: 'readOutput', readonly: true },
-    'tasks:stop': { service: IAgentBackgroundService, method: 'stop' },
-    'tasks:detach': { service: IAgentBackgroundService, method: 'detach' },
+    'tasks:list': { service: IAgentTaskService, method: 'list', readonly: true },
+    'tasks:get': { service: IAgentTaskService, method: 'getTask', readonly: true },
+    'tasks:readOutput': { service: IAgentTaskService, method: 'readOutput', readonly: true },
+    'tasks:stop': { service: IAgentTaskService, method: 'stop' },
+    'tasks:detach': { service: IAgentTaskService, method: 'detach' },
 
     'usage:status': { service: IAgentUsageService, method: 'status', readonly: true },
 

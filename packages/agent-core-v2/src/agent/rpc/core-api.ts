@@ -1,6 +1,6 @@
 import type { AgentConfigData } from '#/agent/profile';
 import type { AgentContextData } from '#/agent/contextMemory';
-import type { BackgroundTaskInfo } from '#/agent/background';
+import type { AgentTaskInfo } from '#/agent/task';
 import type {
   GoalBudgetLimits,
   GoalBudgetReport,
@@ -226,19 +226,19 @@ export interface UnregisterToolPayload {
 export interface SetActiveToolsPayload {
   readonly names: readonly string[];
 }
-export interface StopBackgroundPayload {
+export interface StopTaskPayload {
   readonly taskId: string;
   /** Free-form human-readable reason persisted with the task record. */
   readonly reason?: string;
 }
-export interface DetachBackgroundPayload {
+export interface DetachTaskPayload {
   readonly taskId: string;
 }
-export interface GetBackgroundOutputPayload {
+export interface GetTaskOutputPayload {
   readonly taskId: string;
   readonly tail?: number;
 }
-export interface GetBackgroundPayload {
+export interface GetTasksPayload {
   /**
    * When omitted, returns all tasks (including terminal/lost). Pass
    * `true` to filter down to active-only — useful for model-facing
@@ -397,8 +397,8 @@ export interface AgentAPI {
   registerTool: (payload: RegisterToolPayload) => void;
   unregisterTool: (payload: UnregisterToolPayload) => void;
   setActiveTools: (payload: SetActiveToolsPayload) => void;
-  stopBackground: (payload: StopBackgroundPayload) => void;
-  detachBackground: (payload: DetachBackgroundPayload) => BackgroundTaskInfo | undefined;
+  stopTask: (payload: StopTaskPayload) => void;
+  detachTask: (payload: DetachTaskPayload) => AgentTaskInfo | undefined;
   clearContext: (payload: EmptyPayload) => void;
   activateSkill: (payload: ActivateSkillPayload) => void;
   activatePluginCommand: (payload: ActivatePluginCommandPayload) => void;
@@ -407,14 +407,14 @@ export interface AgentAPI {
   pauseGoal: (payload: EmptyPayload) => GoalSnapshot;
   resumeGoal: (payload: EmptyPayload) => GoalSnapshot;
   cancelGoal: (payload: EmptyPayload) => GoalSnapshot;
-  getBackgroundOutput: (payload: GetBackgroundOutputPayload) => string;
+  getTaskOutput: (payload: GetTaskOutputPayload) => string;
   getContext: (payload: EmptyPayload) => AgentContextData;
   getConfig: (payload: EmptyPayload) => AgentConfigData;
   getPermission: (payload: EmptyPayload) => PermissionData;
   getPlan: (payload: EmptyPayload) => PlanData;
   getUsage: (payload: EmptyPayload) => UsageStatus;
   getTools: (payload: EmptyPayload) => readonly ToolInfo[];
-  getBackground: (payload: GetBackgroundPayload) => readonly BackgroundTaskInfo[];
+  getTasks: (payload: GetTasksPayload) => readonly AgentTaskInfo[];
 }
 
 type AgentAPIWithId = WithAgentId<AgentAPI>;

@@ -13,7 +13,7 @@
  * The opening tag name (`<notification `) is load-bearing for notification
  * consumers that detect chat-history injections.
  *
- * `agent_id` is emitted only for background_task notifications whose
+ * `agent_id` is emitted only for task notifications whose
  * source task is an agent run — surfacing it structurally lets the
  * LLM identify the correct id to pass to `Agent(resume=...)` without
  * having to grep the body or the original spawn-success ToolResult.

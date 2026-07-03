@@ -5,15 +5,15 @@
  * `ensureMainAgent` bootstrap helper, and the requester-side run mirroring
  * helpers (`mirrorAgentRun`). Importing this barrel registers the
  * `IAgentLifecycleService` binding into the scope registry, side-effect-loads
- * the builtin agent profiles, and side-effect-loads the `Agent` tool file so its
- * `registerTool(...)` call runs — the tool is this domain's LLM-facing wrapper
- * layer, not a separate domain.
+ * the builtin agent profiles, and side-effect-loads the `Agent` tool file plus
+ * its task adapter so their registration/type augmentation runs.
  */
 
 import './profile';
 
 export * from './agentLifecycle';
 export * from './agentLifecycleService';
+export * from './tools/subagent-task';
 export { AGENT_RUN_PROMPT_ORIGIN } from './runAgentTurn';
 export * from './mainAgent';
 export * from './mirrorAgentRun';

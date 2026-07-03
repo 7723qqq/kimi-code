@@ -607,18 +607,18 @@ describe('Agent context', () => {
     );
   });
 
-  it('undo only counts real user prompts, skipping background notifications', () => {
+  it('undo only counts real user prompts, skipping task notifications', () => {
     ctx.appendAssistantText(1, 'first response');
     ctx.appendAssistantText(2, 'second response');
 
-    // Append a background task notification (role: 'user' but not a real prompt)
+    // Append a task notification (role: 'user' but not a real prompt)
     context.splice(context.get().length, 0, [
       {
         role: 'user',
         content: [{ type: 'text', text: 'background task completed' }],
         toolCalls: [],
         origin: {
-          kind: 'background_task',
+          kind: 'task',
           taskId: 'bash-001',
           status: 'completed',
           notificationId: 'task:bash-001:completed',
@@ -798,7 +798,7 @@ describe('Agent context', () => {
         id: 'n_"1&2',
         category: 'task',
         type: 'task.done',
-        source_kind: 'background_task',
+        source_kind: 'task',
         source_id: 'bg&1',
         title: 'Task finished',
         severity: 'info',
@@ -825,7 +825,7 @@ describe('Agent context', () => {
     });
 
     it('renders an agent_id attribute when the notification carries one', () => {
-      // Background agent tasks (taskId starts with `agent-`) own a separate
+      // Agent tasks (taskId starts with `agent-`) own a separate
       // `agent_id` for the spawned subagent. Surfacing it as a top-level XML
       // attribute lets the LLM resume the right thing without having to dig
       // it out of the body or cross-reference the spawn-success ToolResult.
@@ -833,12 +833,12 @@ describe('Agent context', () => {
         id: 'n_lost1',
         category: 'task',
         type: 'task.lost',
-        source_kind: 'background_task',
+        source_kind: 'task',
         source_id: 'agent-w7gq3wwj',
         agent_id: 'agent-0',
-        title: 'Background agent lost',
+        title: 'Task agent lost',
         severity: 'warning',
-        body: 'Background agent 1 lost.',
+        body: 'Task agent 1 lost.',
       });
 
       expect(text).toContain('source_id="agent-w7gq3wwj"');
@@ -850,9 +850,9 @@ describe('Agent context', () => {
         id: 'n_bash',
         category: 'task',
         type: 'task.completed',
-        source_kind: 'background_task',
+        source_kind: 'task',
         source_id: 'bash-abcdef00',
-        title: 'Background task completed',
+        title: 'Task completed',
         severity: 'info',
         body: 'echo done completed.',
       });

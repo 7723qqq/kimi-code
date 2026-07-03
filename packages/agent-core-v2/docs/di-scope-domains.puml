@@ -90,7 +90,7 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>skill</b>\n<size:9><i>Agent</i></size>\n  IAgentSkillService" as skill #FDEBD0
   rectangle "<b>questionTools</b>\n<size:9><i>Agent</i></size>\n  IAgentQuestionToolsService" as questionTools #FDEBD0
   rectangle "<b>userTool</b>\n<size:9><i>Agent</i></size>\n  IAgentUserToolService" as userTool #FDEBD0
-  rectangle "<b>background</b>\n<size:9><i>Agent</i></size>\n  IAgentBackgroundService" as background #FDEBD0
+  rectangle "<b>task</b>\n<size:9><i>Agent</i></size>\n  IAgentTaskService" as task #FDEBD0
   rectangle "<b>cron</b>\n<size:9><i>Agent</i></size>\n  IAgentCronService" as cron #FDEBD0
   rectangle "<b>swarm</b>\n<size:9><i>Agent</i></size>\n  IAgentSwarmService" as swarm #FDEBD0
   rectangle "<b>mcp</b>\n<size:9><i>Agent</i></size>\n  IAgentMcpService" as mcp #FDEBD0
@@ -251,19 +251,19 @@ skill --> telemetry #34495E
 skill --> sessionSkillCatalog #34495E
 questionTools --> question #34495E
 questionTools --> toolRegistry #34495E
-questionTools --> background #34495E
+questionTools --> task #34495E
 questionTools --> telemetry #34495E
 userTool --> toolRegistry #34495E
 userTool --> profile #34495E
 userTool --> wireRecord #34495E
-background --> record #34495E
-background --> wireRecord #34495E
-background --> telemetry #34495E
-background --> prompt #34495E
-background --> contextMemory #34495E
-background --> config #34495E
-background --> storage #34495E
-background --> session_context #34495E
+task --> record #34495E
+task --> wireRecord #34495E
+task --> telemetry #34495E
+task --> prompt #34495E
+task --> contextMemory #34495E
+task --> config #34495E
+task --> storage #34495E
+task --> session_context #34495E
 cron --> prompt #34495E
 cron --> record #34495E
 cron --> wireRecord #34495E
@@ -316,7 +316,7 @@ rpc --> swarm #34495E
 rpc --> fullCompaction #34495E
 rpc --> userTool #34495E
 rpc --> toolRegistry #34495E
-rpc --> background #34495E
+rpc --> task #34495E
 rpc --> contextMemory #34495E
 rpc --> contextSize #34495E
 rpc --> skill #34495E
@@ -336,7 +336,7 @@ shellTools --> toolRegistry #34495E
 shellTools --> process #34495E
 shellTools --> hostEnvironment
 shellTools --> execContext #34495E
-shellTools --> background #34495E
+shellTools --> task #34495E
 web --> toolRegistry #34495E
 auth --> toolRegistry #34495E
 
@@ -358,14 +358,14 @@ goal ..> eventSink #16A085 : hook.result / goal.updated
 microCompaction ..> wireRecord #16A085 : micro_compaction.apply / full_compaction.complete
 swarm ..> wireRecord #16A085 : swarm_mode.enter/exit
 swarm ..> turn #16A085 : hooks.onEnded
-background ..> wireRecord #16A085 : background.task.started/terminated
-background ..> contextMemory #16A085 : hooks.onSpliced
+task ..> wireRecord #16A085 : task.started/terminated
+task ..> contextMemory #16A085 : hooks.onSpliced
 externalHooks ..> toolExecutor #16A085 : onWillExecuteTool / onDidExecuteTool
 externalHooks ..> permissionGate #16A085 : approval hooks
 externalHooks ..> turn #16A085 : prompt/end hooks
 externalHooks ..> loop #16A085 : stop hook
 externalHooks ..> fullCompaction #16A085 : compaction hooks
-externalHooks ..> background #16A085 : notification hook
+externalHooks ..> task #16A085 : notification hook
 agent_lifecycle ..> externalHooks #16A085 : SubagentStart/Stop (mirrorAgentRun)
 toolStore ..> wireRecord #16A085 : tools.update_store
 usage ..> wireRecord #16A085 : usage.record

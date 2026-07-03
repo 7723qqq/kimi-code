@@ -153,8 +153,8 @@ const DOMAIN_LAYER = new Map([
   ['replayBuilder', 4],
   ['todoList', 4],
   ['web', 4],
-  // L5 — async lifecycle
-  ['background', 5],
+  // L5 — agent task management
+  ['agentTask', 5],
   ['mcp', 5],
   ['cron', 5],
   ['externalHooks', 5],
@@ -209,6 +209,7 @@ function domainFromRel(rel, { exemptRootFile }) {
   }
   if (SCOPE_DIRS.has(segments[0])) {
     // `src/{scope}/{domain}/…`
+    if (segments[0] === 'agent' && segments[1] === 'task') return 'agentTask';
     return segments[1];
   }
   // Top-level `src/*.ts` facades are not domains — exempt from layering.
@@ -240,7 +241,6 @@ function domainFromRel(rel, { exemptRootFile }) {
  *  - `skill>turn`           : skill activate starts a turn (same Agent scope intent).
  *  - `turn>agentLifecycle` : turn cancels sub-agents via lifecycle handle.
  *  - `swarm>agentLifecycle`: swarm spawns/manages sub-agents.
- *  - `background>agentLifecycle`: background agent-tasks spawn sub-agents.
  *  - `cron>agentLifecycle` : cron coordinator steers the main agent.
  *  - `cron>sessionContext`: cron scheduler reads session identity for store filtering.
  *
@@ -274,13 +274,12 @@ const ALLOWED_EXCEPTIONS = new Set([
   'skill>turn',
   'turn>agentLifecycle',
   'swarm>agentLifecycle',
-  'background>agentLifecycle',
   'cron>agentLifecycle',
   'cron>sessionContext',
   'wireRecord>hooks',
   // L3/L4 type-sharing: tool contract + execution hook contexts now live in
   // `tool`; the remaining upward import is a `loop` error/event helper.
-  'contextMemory>background',
+  'contextMemory>agentTask',
   'llmRequester>session',
   'loop>mcp',
   'permissionGate>externalHooks',
@@ -297,7 +296,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'plugin>externalHooks',
   'plugin>mcp',
   'profile>session',
-  'replayBuilder>background',
+  'replayBuilder>agentTask',
   'replayBuilder>rpc',
   'replayBuilder>sessionMetadata',
   'skill>contextMemory',

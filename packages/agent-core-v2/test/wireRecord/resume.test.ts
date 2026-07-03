@@ -10,14 +10,14 @@ import {
   type PersistedWireRecord,
   type PromptOrigin,
 } from '#/index';
-import { IAgentBackgroundService } from '#/agent/background';
+import { IAgentTaskService } from '#/agent/task';
 import { IAgentPlanService } from '#/agent/plan';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentTurnService } from '#/agent/turn';
 import {
-  createBackgroundTaskPersistence,
-  type BackgroundServiceTestManager,
-} from '../background/stubs';
+  createAgentTaskPersistence,
+  type TaskServiceTestManager,
+} from '../task/stubs';
 import { createFakeAgentFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 import {
   DEFAULT_TEST_SYSTEM_PROMPT,
@@ -377,9 +377,9 @@ describe('Agent resume', () => {
     expect(toolCall?.function).toBeUndefined();
   });
 
-  it('keeps delivered background notifications indexed after compaction replay', async () => {
+  it('keeps delivered task notifications indexed after compaction replay', async () => {
     const origin = {
-      kind: 'background_task',
+      kind: 'task',
       taskId: 'agent-seen0000',
       status: 'completed',
       notificationId: 'task:agent-seen0000:completed',
@@ -394,7 +394,7 @@ describe('Agent resume', () => {
         type: 'context.append_message',
         message: {
           role: 'user',
-          content: [{ type: 'text', text: 'already delivered background notification' }],
+          content: [{ type: 'text', text: 'already delivered task notification' }],
           toolCalls: [],
           origin,
         },
@@ -409,7 +409,7 @@ describe('Agent resume', () => {
     ] as unknown as PersistedWireRecord[]);
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-bg-resume-delivered-'));
     try {
-      const backgroundPersistence = createBackgroundTaskPersistence(homeDir);
+      const backgroundPersistence = createAgentTaskPersistence(homeDir);
       const ctx = testAgent(homeDirServices(homeDir), { autoConfigure: false, persistence });
       await backgroundPersistence.writeTask({
         taskId: 'agent-seen0000',
@@ -427,10 +427,10 @@ describe('Agent resume', () => {
 
       await ctx.restorePersisted();
       expect(
-        ctx.context.get().some((message) => message.origin?.kind === 'background_task'),
+        ctx.context.get().some((message) => message.origin?.kind === 'task'),
       ).toBe(false);
 
-      const background = ctx.get(IAgentBackgroundService) as BackgroundServiceTestManager;
+      const background = ctx.get(IAgentTaskService) as TaskServiceTestManager;
       await background.loadFromDisk();
       await background.reconcile();
 
@@ -543,7 +543,7 @@ describe('Agent resume', () => {
     ] as unknown as PersistedWireRecord[]);
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-bg-resume-undelivered-'));
     try {
-      const backgroundPersistence = createBackgroundTaskPersistence(homeDir);
+      const backgroundPersistence = createAgentTaskPersistence(homeDir);
       const ctx = testAgent(homeDirServices(homeDir), { autoConfigure: false, persistence });
       await backgroundPersistence.writeTask({
         taskId: 'agent-new00000',
@@ -562,7 +562,7 @@ describe('Agent resume', () => {
       expect(
         ctx.context.get().some(
           (message) =>
-            message.origin?.kind === 'background_task' &&
+            message.origin?.kind === 'task' &&
             message.origin.taskId === 'agent-new00000',
         ),
       ).toBe(true);
@@ -575,7 +575,7 @@ describe('Agent resume', () => {
           messages: expect.arrayContaining([
             expect.objectContaining({
               origin: {
-                kind: 'background_task',
+                kind: 'task',
                 taskId: 'agent-new00000',
                 status: 'completed',
                 notificationId: 'task:agent-new00000:completed',

@@ -8,7 +8,7 @@
  *   - `defer()` — passive wait: the caller controls when the handle
  *     settles via `resolve` / `reject`.
  *
- * Consumers that need to track handles across turns (e.g. `background`)
+ * Consumers that need to track handles across turns (e.g. `agent/task`)
  * compose on top of these primitives; `ITaskService` itself is stateless
  * beyond the set of live handles.
  */

@@ -55,7 +55,7 @@ import {
 } from './mappers';
 import type {
   WireAuthResult,
-  WireBackgroundTask,
+  WireTask,
   WireConfig,
   WireEvent,
   WireFileMeta,
@@ -392,7 +392,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
     );
     return {
       model: data.model && data.model.length > 0 ? data.model : null,
-      thinkingLevel: data.thinking_level,
+      thinkingEffort: data.thinking_level,
       permission: data.permission,
       planMode: data.plan_mode === true,
       swarmMode: data.swarm_mode === true,
@@ -646,7 +646,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
     const query: Record<string, string | undefined> = {
       status: status,
     };
-    const data = await this.http.get<{ items: WireBackgroundTask[] }>(
+    const data = await this.http.get<{ items: WireTask[] }>(
       `/sessions/${encodeURIComponent(sessionId)}/tasks`,
       query,
     );
@@ -662,7 +662,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
       with_output: input?.withOutput,
       output_bytes: input?.outputBytes,
     };
-    const data = await this.http.get<WireBackgroundTask>(
+    const data = await this.http.get<WireTask>(
       `/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}`,
       query,
     );
@@ -973,8 +973,8 @@ export class DaemonKimiWebApi implements KimiWebApi {
 
   /**
    * Register a workspace by folder path.
-   * PRESUMED — POST /api/v1/workspaces { root, name? }. On error this throws so
-   * the composable can fall back to a locally-derived workspace from the path.
+   * PRESUMED — POST /api/v1/workspaces { root, name? }. Throws on error (e.g.
+   * path not found) so the caller can surface it to the user.
    */
   async addWorkspace(input: { root: string; name?: string }): Promise<AppWorkspace> {
     const body: Record<string, unknown> = { root: input.root };
@@ -989,6 +989,18 @@ export class DaemonKimiWebApi implements KimiWebApi {
    */
   async deleteWorkspace(id: string): Promise<void> {
     await this.http.delete(`/workspaces/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Rename a workspace (display name only).
+   * PATCH /api/v1/workspaces/:id { name }. On error this throws.
+   */
+  async updateWorkspace(id: string, input: { name: string }): Promise<AppWorkspace> {
+    const data = await this.http.patch<WireWorkspace>(
+      `/workspaces/${encodeURIComponent(id)}`,
+      { name: input.name },
+    );
+    return toAppWorkspace(data);
   }
 
   /**
@@ -1101,7 +1113,6 @@ export class DaemonKimiWebApi implements KimiWebApi {
       thinking: 'thinking',
       planMode: 'plan_mode',
       yolo: 'yolo',
-      defaultThinking: 'default_thinking',
       defaultPermissionMode: 'default_permission_mode',
       defaultPlanMode: 'default_plan_mode',
       permission: 'permission',

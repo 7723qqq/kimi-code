@@ -4,11 +4,11 @@ import { join } from 'node:path';
 
 import {
   IAgentLifecycleService,
-  IAgentBackgroundService,
+  IAgentTaskService,
   ISessionLifecycleService,
   modelResolverSeed,
   SingleModelResolver,
-  type BackgroundTask,
+  type AgentTask,
 } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -49,7 +49,7 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-tasks-'));
     // Seed a stub ISessionModelResolver so the agent scope can instantiate if a
-    // transitive service needs it; IAgentBackgroundService itself does not.
+    // transitive service needs it; IAgentTaskService itself does not.
     const modelResolver = new SingleModelResolver({
       type: 'openai',
       model: 'stub',
@@ -103,15 +103,15 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
   }
 
   // The main agent scope is not created automatically on session creation
-  // (server-v2 gap G10); create it here, then register fake background tasks
-  // directly into its IAgentBackgroundService to bypass the tool loop.
-  async function mainAgentBackground(sessionId: string): Promise<IAgentBackgroundService> {
+  // (server-v2 gap G10); create it here, then register fake tasks
+  // directly into its IAgentTaskService to bypass the tool loop.
+  async function mainAgentTasks(sessionId: string): Promise<IAgentTaskService> {
     const session = server!.core.accessor.get(ISessionLifecycleService).get(sessionId);
     if (session === undefined) throw new Error(`session ${sessionId} not found`);
     const agent =
       session.accessor.get(IAgentLifecycleService).getHandle('main') ??
       (await session.accessor.get(IAgentLifecycleService).create({ agentId: 'main' }));
-    return agent.accessor.get(IAgentBackgroundService);
+    return agent.accessor.get(IAgentTaskService);
   }
 
   // Let the `registerTask` microtask run `start` (which appends output) before
@@ -120,7 +120,7 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 
-  function fakeTask(kind: 'process' | 'agent' | 'question', output?: string): BackgroundTask {
+  function fakeTask(kind: 'process' | 'agent' | 'question', output?: string): AgentTask {
     return {
       idPrefix: 'test',
       kind,
@@ -150,7 +150,7 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
 
   it('returns an empty list when the main agent has no tasks yet', async () => {
     const id = await createSession();
-    await mainAgentBackground(id);
+    await mainAgentTasks(id);
     const { body } = await getJson<ListWire>(`/api/v1/sessions/${id}/tasks`);
     expect(body.code).toBe(0);
     expect(body.data.items).toEqual([]);
@@ -158,10 +158,10 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
 
   it('lists registered tasks with mapped kind/status and wire-shaped fields', async () => {
     const id = await createSession();
-    const bg = await mainAgentBackground(id);
-    const processId = bg.registerTask(fakeTask('process'));
-    const agentId = bg.registerTask(fakeTask('agent'));
-    const questionId = bg.registerTask(fakeTask('question'));
+    const tasks = await mainAgentTasks(id);
+    const processId = tasks.registerTask(fakeTask('process'));
+    const agentId = tasks.registerTask(fakeTask('agent'));
+    const questionId = tasks.registerTask(fakeTask('question'));
     await flush();
 
     const { body } = await getJson<ListWire>(`/api/v1/sessions/${id}/tasks`);
@@ -198,8 +198,8 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
 
   it('filters the list by wire status', async () => {
     const id = await createSession();
-    const bg = await mainAgentBackground(id);
-    bg.registerTask(fakeTask('process'));
+    const tasks = await mainAgentTasks(id);
+    tasks.registerTask(fakeTask('process'));
     await flush();
 
     const running = await getJson<ListWire>(`/api/v1/sessions/${id}/tasks?status=running`);
@@ -214,8 +214,8 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
 
   it('gets a single task by id and 40406 for an unknown task', async () => {
     const id = await createSession();
-    const bg = await mainAgentBackground(id);
-    const taskId = bg.registerTask(fakeTask('process'));
+    const tasks = await mainAgentTasks(id);
+    const taskId = tasks.registerTask(fakeTask('process'));
     await flush();
 
     const got = await getJson<TaskWire>(`/api/v1/sessions/${id}/tasks/${taskId}`);
@@ -228,8 +228,8 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
 
   it('includes output_preview / output_bytes when with_output is set', async () => {
     const id = await createSession();
-    const bg = await mainAgentBackground(id);
-    const taskId = bg.registerTask(fakeTask('process', 'hello world'));
+    const tasks = await mainAgentTasks(id);
+    const taskId = tasks.registerTask(fakeTask('process', 'hello world'));
     await flush();
 
     const got = await getJson<TaskWire>(
@@ -248,8 +248,8 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
 
   it('cancels a running task and reports 40904 on a second cancel', async () => {
     const id = await createSession();
-    const bg = await mainAgentBackground(id);
-    const taskId = bg.registerTask(fakeTask('process'));
+    const tasks = await mainAgentTasks(id);
+    const taskId = tasks.registerTask(fakeTask('process'));
     await flush();
 
     const cancelled = await postJson<{ cancelled: boolean }>(
@@ -270,15 +270,15 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
 
   it('cancelling an unknown task returns 40406', async () => {
     const id = await createSession();
-    await mainAgentBackground(id);
+    await mainAgentTasks(id);
     const { body } = await postJson<null>(`/api/v1/sessions/${id}/tasks/nope:cancel`);
     expect(body.code).toBe(40406);
   });
 
   it('rejects a bare POST without the :cancel suffix (40001)', async () => {
     const id = await createSession();
-    const bg = await mainAgentBackground(id);
-    const taskId = bg.registerTask(fakeTask('process'));
+    const tasks = await mainAgentTasks(id);
+    const taskId = tasks.registerTask(fakeTask('process'));
     await flush();
 
     const { body } = await postJson<null>(`/api/v1/sessions/${id}/tasks/${taskId}`);

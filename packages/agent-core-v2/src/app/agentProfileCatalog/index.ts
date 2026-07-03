@@ -8,6 +8,7 @@
 
 export * from './agentProfileCatalog';
 export * from './agentProfileCatalogService';
+export * from './profile-shared';
 export * from './promptPrefix';
 export {
   registerAgentProfile,

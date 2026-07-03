@@ -1,4 +1,4 @@
-import type { BackgroundTaskInfo } from '#/agent/background';
+import type { AgentTaskInfo } from '#/agent/task';
 import type { CompactionResult } from '#/agent/fullCompaction';
 import type { AgentConfigData, AgentConfigUpdateData } from '#/agent/profile';
 import type { AgentContextData, ContextMessage } from '#/agent/contextMemory';
@@ -44,7 +44,7 @@ export interface ResumedAgentState {
   readonly usage: UsageStatus;
   readonly tools: readonly ToolInfo[];
   readonly toolStore?: Readonly<Record<string, unknown>>;
-  readonly background: readonly BackgroundTaskInfo[];
+  readonly tasks: readonly AgentTaskInfo[];
 }
 
 export interface ResumeSessionResult extends SessionSummary {

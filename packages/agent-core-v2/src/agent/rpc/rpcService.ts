@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentBackgroundService } from '#/agent/background';
+import { IAgentTaskService } from '#/agent/task';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction';
@@ -34,11 +34,11 @@ import type {
   CancelPayload,
   CancelPlanPayload,
   CreateGoalPayload,
-  DetachBackgroundPayload,
+  DetachTaskPayload,
   EmptyPayload,
   EnterSwarmPayload,
-  GetBackgroundOutputPayload,
-  GetBackgroundPayload,
+  GetTaskOutputPayload,
+  GetTasksPayload,
   PromptLaunchResult,
   PromptPayload,
   RegisterToolPayload,
@@ -50,7 +50,7 @@ import type {
   SetPermissionPayload,
   SetThinkingPayload,
   SteerPayload,
-  StopBackgroundPayload,
+  StopTaskPayload,
   UndoHistoryPayload,
   UnregisterToolPayload,
 } from './core-api';
@@ -79,7 +79,7 @@ export class AgentRPCService implements IAgentRPCService {
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IExecContext private readonly execContext: IExecContext,
     @IHostEnvironment private readonly hostEnv: IHostEnvironment,
-    @IAgentBackgroundService private readonly background: IAgentBackgroundService,
+    @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentSkillService private readonly skills: IAgentSkillService,
@@ -267,12 +267,12 @@ export class AgentRPCService implements IAgentRPCService {
     this.profile.update({ activeToolNames: payload.names });
   }
 
-  stopBackground(payload: StopBackgroundPayload): void {
-    void this.background.stop(payload.taskId, payload.reason);
+  stopTask(payload: StopTaskPayload): void {
+    void this.tasks.stop(payload.taskId, payload.reason);
   }
 
-  detachBackground(payload: DetachBackgroundPayload) {
-    return this.background.detach(payload.taskId);
+  detachTask(payload: DetachTaskPayload) {
+    return this.tasks.detach(payload.taskId);
   }
 
   clearContext(_payload: EmptyPayload): void {
@@ -357,8 +357,8 @@ export class AgentRPCService implements IAgentRPCService {
     return this.goal.cancelGoal();
   }
 
-  getBackgroundOutput(payload: GetBackgroundOutputPayload): Promise<string> {
-    return this.background.readOutput(payload.taskId, payload.tail);
+  getTaskOutput(payload: GetTaskOutputPayload): Promise<string> {
+    return this.tasks.readOutput(payload.taskId, payload.tail);
   }
 
   getContext(_payload: EmptyPayload) {
@@ -393,8 +393,8 @@ export class AgentRPCService implements IAgentRPCService {
     }));
   }
 
-  getBackground(payload: GetBackgroundPayload) {
-    return this.background.list(payload.activeOnly ?? false, payload.limit);
+  getTasks(payload: GetTasksPayload) {
+    return this.tasks.list(payload.activeOnly ?? false, payload.limit);
   }
 }
 

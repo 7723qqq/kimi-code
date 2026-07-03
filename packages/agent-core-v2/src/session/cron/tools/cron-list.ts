@@ -3,7 +3,7 @@
  * session.
  *
  * Read-only and side-effect-free. The output mirrors the
- * `key: value\n---\n` shape used by `tools/background/task-list.ts` so
+ * `key: value\n---\n` shape used by `task/tools/task-list.ts` so
  * the LLM sees a consistent record layout across the "list scheduled
  * work" tools.
  *

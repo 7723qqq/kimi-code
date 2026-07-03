@@ -32,7 +32,7 @@ import type {
 import type {
   WireApprovalRequest,
   WireApprovalResponse,
-  WireBackgroundTask,
+  WireTask,
   WireFsEntry,
   WireImageSource,
   WireMessage,
@@ -364,7 +364,7 @@ export function toWireQuestionResponse(input: QuestionResponse): WireQuestionRes
 // Task mapper
 // ---------------------------------------------------------------------------
 
-export function toAppTask(wire: WireBackgroundTask): AppTask {
+export function toAppTask(wire: WireTask): AppTask {
   return {
     id: wire.id,
     sessionId: wire.session_id,
@@ -382,6 +382,9 @@ export function toAppTask(wire: WireBackgroundTask): AppTask {
     parentToolCallId: wire.parent_tool_call_id,
     suspendedReason: wire.suspended_reason,
     swarmIndex: wire.swarm_index,
+    // The background task store only holds detached tasks, so any subagent it
+    // returns is a background subagent (foreground ones never persist here).
+    runInBackground: wire.kind === 'subagent' ? true : undefined,
     // outputLines starts undefined; populated by eventReducer via task.progress events
   };
 }
@@ -644,7 +647,7 @@ export function toAppEvent(wire: WireEvent): AppEvent {
         dismissedAt: w.payload.dismissed_at,
       };
 
-    // ----- Background tasks -----
+    // ----- Tasks -----
     case 'event.task.created':
       return {
         type: 'taskCreated',
@@ -743,10 +746,9 @@ export function toAppConfig(wire: WireConfig): AppConfig {
     defaultProvider: wire.default_provider,
     defaultModel: wire.default_model,
     models: wire.models,
-    thinking: wire.thinking,
+    thinking: wire.thinking as { enabled?: boolean; effort?: string } | undefined,
     planMode: wire.plan_mode,
     yolo: wire.yolo,
-    defaultThinking: wire.default_thinking,
     defaultPermissionMode: wire.default_permission_mode,
     defaultPlanMode: wire.default_plan_mode,
     permission: wire.permission,

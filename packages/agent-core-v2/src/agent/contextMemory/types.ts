@@ -1,6 +1,6 @@
 import type { ContentPart, Message } from '#/app/llmProtocol';
 
-import type { BackgroundTaskStatus } from '#/agent/background';
+import type { AgentTaskStatus } from '#/agent/task';
 import type { CronJobOrigin, CronMissedOrigin } from '@moonshot-ai/protocol';
 
 export type SkillSource = 'project' | 'user' | 'extra' | 'builtin';
@@ -45,10 +45,10 @@ export interface SystemTriggerOrigin {
   readonly name: string;
 }
 
-export interface BackgroundTaskOrigin {
-  readonly kind: 'background_task';
+export interface TaskOrigin {
+  readonly kind: 'task';
   readonly taskId: string;
-  readonly status: BackgroundTaskStatus;
+  readonly status: AgentTaskStatus;
   readonly notificationId: string;
 }
 
@@ -70,7 +70,7 @@ export type PromptOrigin =
   | InjectionOrigin
   | CompactionSummaryOrigin
   | SystemTriggerOrigin
-  | BackgroundTaskOrigin
+  | TaskOrigin
   | CronJobOrigin
   | CronMissedOrigin
   | HookResultOrigin

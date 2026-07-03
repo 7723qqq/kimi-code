@@ -4,9 +4,9 @@
  * Ported from v1 (`packages/agent-core/test/tools/bash.test.ts`) and adapted
  * to the v2 constructor `(runner, kaos, background, options)`. Self-contained:
  * builds minimal fake `ISessionProcessRunner` / `IProcess`, `IKaos`, and
- * `IAgentBackgroundService` inline so the tool can be exercised without the
- * composition root. The fake `IAgentBackgroundService` drives the real
- * `ProcessBackgroundTask` so stream observation, timeout and user-interrupt
+ * `IAgentTaskService` inline so the tool can be exercised without the
+ * composition root. The fake `IAgentTaskService` drives the real
+ * `ProcessTask` so stream observation, timeout and user-interrupt
  * semantics match production.
  *
  * Deviations from v1:
@@ -22,16 +22,16 @@ import { PassThrough, Readable, type Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  IAgentBackgroundService,
-  ProcessBackgroundTask,
-  type BackgroundTask,
-  type BackgroundTaskInfo,
-  type BackgroundTaskOutputSnapshot,
-  type BackgroundTaskStatus,
+  IAgentTaskService,
+  type AgentTask,
+  type AgentTaskInfo,
+  type AgentTaskOutputSnapshot,
+  type AgentTaskStatus,
   type ForegroundTaskReleaseReason,
-  type RegisterBackgroundTaskOptions,
-} from '#/agent/background';
-import type { BackgroundTaskSettlement } from '#/agent/background/task';
+  type RegisterAgentTaskOptions,
+} from '#/agent/task';
+import type { AgentTaskSettlement } from '#/agent/task/types';
+import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IAgentProfileService } from '#/agent/profile';
 import { createExecContext, type IExecContext } from '#/session/execContext';
@@ -304,9 +304,9 @@ function createTestRunner(proc: IProcess | ReturnType<typeof vi.fn>) {
   return { runner, exec };
 }
 
-// ── Fake IAgentBackgroundService ──────────────────────────────────────────
+// ── Fake IAgentTaskService ──────────────────────────────────────────
 
-const TERMINAL_STATUSES: ReadonlySet<BackgroundTaskStatus> = new Set([
+const TERMINAL_STATUSES: ReadonlySet<AgentTaskStatus> = new Set([
   'completed',
   'failed',
   'timed_out',
@@ -324,14 +324,14 @@ interface ForegroundRelease {
 
 interface ManagedEntry {
   readonly taskId: string;
-  readonly task: BackgroundTask;
+  readonly task: AgentTask;
   readonly startedDetached: boolean;
-  readonly options: RegisterBackgroundTaskOptions;
+  readonly options: RegisterAgentTaskOptions;
   readonly outputChunks: string[];
   readonly abortController: AbortController;
   readonly startedAt: number;
   readonly waiters: Array<() => void>;
-  status: BackgroundTaskStatus;
+  status: AgentTaskStatus;
   stopReason?: string;
   endedAt: number | null;
   foregroundRelease?: ForegroundRelease;
@@ -348,7 +348,7 @@ function createRelease(): ForegroundRelease {
   return { promise, resolve };
 }
 
-function isTerminal(status: BackgroundTaskStatus): boolean {
+function isTerminal(status: AgentTaskStatus): boolean {
   return TERMINAL_STATUSES.has(status);
 }
 
@@ -356,8 +356,8 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function createFakeBackgroundService(options: { maxRunningTasks?: number } = {}): {
-  readonly service: IAgentBackgroundService;
+function createFakeTaskService(options: { maxRunningTasks?: number } = {}): {
+  readonly service: IAgentTaskService;
   readonly tasks: Map<string, ManagedEntry>;
 } {
   const tasks = new Map<string, ManagedEntry>();
@@ -369,7 +369,7 @@ function createFakeBackgroundService(options: { maxRunningTasks?: number } = {})
     return `${prefix}-${suffix}`;
   };
 
-  const entryToInfo = (entry: ManagedEntry): BackgroundTaskInfo => {
+  const entryToInfo = (entry: ManagedEntry): AgentTaskInfo => {
     return entry.task.toInfo({
       taskId: entry.taskId,
       description: entry.task.description,
@@ -381,7 +381,7 @@ function createFakeBackgroundService(options: { maxRunningTasks?: number } = {})
     });
   };
 
-  const settleTask = (entry: ManagedEntry, settlement: BackgroundTaskSettlement): boolean => {
+  const settleTask = (entry: ManagedEntry, settlement: AgentTaskSettlement): boolean => {
     if (isTerminal(entry.status)) return false;
     entry.status = settlement.status;
     entry.endedAt = Date.now();
@@ -402,7 +402,7 @@ function createFakeBackgroundService(options: { maxRunningTasks?: number } = {})
   const stopEntry = async (
     entry: ManagedEntry,
     reason: string | undefined,
-  ): Promise<BackgroundTaskInfo> => {
+  ): Promise<AgentTaskInfo> => {
     if (isTerminal(entry.status)) return entryToInfo(entry);
     entry.stopReason = reason;
     entry.abortController.abort(reason);
@@ -443,11 +443,15 @@ function createFakeBackgroundService(options: { maxRunningTasks?: number } = {})
     return count;
   };
 
-  const service: IAgentBackgroundService = {
+  const service: IAgentTaskService = {
     _serviceBrand: undefined,
-    hooks: createHooks(['onDidNotify']) as IAgentBackgroundService['hooks'],
+    hooks: createHooks(['onDidNotify']) as IAgentTaskService['hooks'],
 
-    registerTask(task: BackgroundTask, registerOptions: RegisterBackgroundTaskOptions = {}): string {
+    track(): never {
+      throw new Error('fake IAgentTaskService.track is not implemented');
+    },
+
+    registerTask(task: AgentTask, registerOptions: RegisterAgentTaskOptions = {}): string {
       const detached = registerOptions.detached ?? true;
       if (detached && options.maxRunningTasks !== undefined) {
         if (activeDetachedCount() >= options.maxRunningTasks) {
@@ -489,7 +493,7 @@ function createFakeBackgroundService(options: { maxRunningTasks?: number } = {})
             appendOutput: (chunk: string) => {
               entry.outputChunks.push(chunk);
             },
-            settle: async (settlement: BackgroundTaskSettlement) => settleTask(entry, settlement),
+            settle: async (settlement: AgentTaskSettlement) => settleTask(entry, settlement),
           }),
         )
         .catch((error: unknown) => {
@@ -519,13 +523,13 @@ function createFakeBackgroundService(options: { maxRunningTasks?: number } = {})
       return taskId;
     },
 
-    getTask(taskId: string): BackgroundTaskInfo | undefined {
+    getTask(taskId: string): AgentTaskInfo | undefined {
       const entry = tasks.get(taskId);
       return entry === undefined ? undefined : entryToInfo(entry);
     },
 
-    list(activeOnly = true): readonly BackgroundTaskInfo[] {
-      const result: BackgroundTaskInfo[] = [];
+    list(activeOnly = true): readonly AgentTaskInfo[] {
+      const result: AgentTaskInfo[] = [];
       for (const entry of tasks.values()) {
         const info = entryToInfo(entry);
         if (activeOnly && isTerminal(info.status)) continue;
@@ -538,7 +542,7 @@ function createFakeBackgroundService(options: { maxRunningTasks?: number } = {})
       /* no-op in the fake */
     },
 
-    async getOutputSnapshot(taskId: string): Promise<BackgroundTaskOutputSnapshot> {
+    async getOutputSnapshot(taskId: string): Promise<AgentTaskOutputSnapshot> {
       const entry = tasks.get(taskId);
       const preview = entry === undefined ? '' : entry.outputChunks.join('');
       return {
@@ -561,7 +565,7 @@ function createFakeBackgroundService(options: { maxRunningTasks?: number } = {})
       /* no-op in the fake */
     },
 
-    detach(taskId: string): BackgroundTaskInfo | undefined {
+    detach(taskId: string): AgentTaskInfo | undefined {
       const entry = tasks.get(taskId);
       if (entry === undefined) return undefined;
       if (isTerminal(entry.status)) return entryToInfo(entry);
@@ -593,20 +597,20 @@ function createFakeBackgroundService(options: { maxRunningTasks?: number } = {})
       return entryToInfo(entry);
     },
 
-    async stop(taskId: string, reason?: string): Promise<BackgroundTaskInfo | undefined> {
+    async stop(taskId: string, reason?: string): Promise<AgentTaskInfo | undefined> {
       const entry = tasks.get(taskId);
       if (entry === undefined) return undefined;
       return stopEntry(entry, reason);
     },
 
-    async stopAll(reason?: string): Promise<readonly BackgroundTaskInfo[]> {
+    async stopAll(reason?: string): Promise<readonly AgentTaskInfo[]> {
       const results = await Promise.all(
         Array.from(tasks.keys()).map((taskId) => service.stop(taskId, reason)),
       );
-      return results.filter((info): info is BackgroundTaskInfo => info !== undefined);
+      return results.filter((info): info is AgentTaskInfo => info !== undefined);
     },
 
-    async wait(taskId: string, timeoutMs = 30_000): Promise<BackgroundTaskInfo | undefined> {
+    async wait(taskId: string, timeoutMs = 30_000): Promise<AgentTaskInfo | undefined> {
       const entry = tasks.get(taskId);
       if (entry === undefined) return undefined;
       if (isTerminal(entry.status)) return entryToInfo(entry);
@@ -687,7 +691,7 @@ function bashTool(
   runner: ISessionProcessRunner,
   env: IHostEnvironment = createTestEnv(),
   ctx: IExecContext = createTestCtx(),
-  background: IAgentBackgroundService = createFakeBackgroundService().service,
+  background: IAgentTaskService = createFakeTaskService().service,
   profile: IAgentProfileService = stubProfile(),
 ): BashTool {
   return new BashTool(runner, env, ctx, background, profile);
@@ -1163,7 +1167,7 @@ describe('BashTool background mode', () => {
   it('can detach a foreground command through the background service', async () => {
     const { proc, finish } = pendingProcess();
     const { runner } = createTestRunner(proc);
-    const { service } = createFakeBackgroundService();
+    const { service } = createFakeTaskService();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const running = executeTool(tool, context({ command: 'sleep 10', timeout: 60 }));
@@ -1206,7 +1210,7 @@ describe('BashTool background mode', () => {
   it('notifies when a foreground command registers its background task', async () => {
     const { proc, finish } = pendingProcess();
     const { runner } = createTestRunner(proc);
-    const { service } = createFakeBackgroundService();
+    const { service } = createFakeTaskService();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
     const started = vi.fn();
 
@@ -1227,7 +1231,7 @@ describe('BashTool background mode', () => {
     try {
       const { proc } = pendingProcess();
       const { runner } = createTestRunner(proc);
-      const { service } = createFakeBackgroundService();
+      const { service } = createFakeTaskService();
       const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
       const running = executeTool(tool, context({ command: 'sleep 10', timeout: 1 }));
@@ -1252,7 +1256,7 @@ describe('BashTool background mode', () => {
   it('does not recommend disabled task tools when a foreground command is detached', async () => {
     const { proc, finish } = pendingProcess();
     const { runner } = createTestRunner(proc);
-    const { service } = createFakeBackgroundService();
+    const { service } = createFakeTaskService();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service, stubProfile(() => false));
 
     const running = executeTool(tool, context({ command: 'sleep 10', timeout: 60 }));
@@ -1279,7 +1283,7 @@ describe('BashTool background mode', () => {
   it('keeps task metadata independent when noisy foreground output is capped before detach', async () => {
     const { proc, finish } = pendingProcess();
     const { runner } = createTestRunner(proc);
-    const { service } = createFakeBackgroundService();
+    const { service } = createFakeTaskService();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const running = executeTool(tool, context({ command: 'yes noisy', timeout: 60 }));
@@ -1323,7 +1327,7 @@ describe('BashTool background mode', () => {
     const backgroundDisabled = bashTool(
       runner,
       createTestEnv(), createTestCtx(),
-      createFakeBackgroundService().service,
+      createFakeTaskService().service,
       stubProfile(() => false),
     );
 
@@ -1335,7 +1339,7 @@ describe('BashTool background mode', () => {
     expect(unavailable.output).toContain('Background execution is not available');
     expect(exec).not.toHaveBeenCalled();
 
-    const { service } = createFakeBackgroundService();
+    const { service } = createFakeTaskService();
     const withService = bashTool(runner, createTestEnv(), createTestCtx(), service);
     const missingDescription = await executeTool(
       withService,
@@ -1350,7 +1354,7 @@ describe('BashTool background mode', () => {
   it('registers background commands and returns a task id', async () => {
     const proc = processWithOutput();
     const { runner } = createTestRunner(proc);
-    const { service } = createFakeBackgroundService();
+    const { service } = createFakeTaskService();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const result = await executeTool(
@@ -1364,8 +1368,8 @@ describe('BashTool background mode', () => {
   });
 
   it('kills a spawned background command when the task limit is reached', async () => {
-    const { service } = createFakeBackgroundService({ maxRunningTasks: 1 });
-    service.registerTask(new ProcessBackgroundTask(processWithOutput(), 'sleep 10', 'existing task'));
+    const { service } = createFakeTaskService({ maxRunningTasks: 1 });
+    service.registerTask(new ProcessTask(processWithOutput(), 'sleep 10', 'existing task'));
     const rejectedProc = processWithOutput();
     const { runner, exec } = createTestRunner(rejectedProc);
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
@@ -1384,7 +1388,7 @@ describe('BashTool background mode', () => {
   });
 
   it('rejects one of two concurrent background commands when the task limit is reached', async () => {
-    const { service } = createFakeBackgroundService({ maxRunningTasks: 1 });
+    const { service } = createFakeTaskService({ maxRunningTasks: 1 });
     const firstProc = processWithOutput({
       wait: () => new Promise(() => {}),
     });
@@ -1416,7 +1420,7 @@ describe('BashTool background mode', () => {
   });
 
   it('uses Git Bash semantics and rejects the concurrent command at the task limit', async () => {
-    const { service } = createFakeBackgroundService({ maxRunningTasks: 1 });
+    const { service } = createFakeTaskService({ maxRunningTasks: 1 });
     const firstProc = processWithOutput({
       wait: () => new Promise(() => {}),
     });
@@ -1467,7 +1471,7 @@ describe('BashTool background mode', () => {
     try {
       const { proc, finishWait, markExited } = processWithVisibleExitBeforeWait(0);
       const { runner } = createTestRunner(proc);
-      const { service } = createFakeBackgroundService();
+      const { service } = createFakeTaskService();
       const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
       const result = await executeTool(
@@ -1503,7 +1507,7 @@ describe('BashTool background mode', () => {
     try {
       const proc = processThatNeverExits();
       const { runner } = createTestRunner(proc);
-      const { service } = createFakeBackgroundService();
+      const { service } = createFakeTaskService();
       const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
       const result = await executeTool(
@@ -1529,7 +1533,7 @@ describe('BashTool background mode', () => {
     try {
       const proc = processThatNeverExits();
       const { runner } = createTestRunner(proc);
-      const { service } = createFakeBackgroundService();
+      const { service } = createFakeTaskService();
       const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
       const result = await executeTool(
@@ -1554,7 +1558,7 @@ describe('BashTool background mode', () => {
   it('reports background task startup with task_id, status, automatic_notification, and a human-shell hint', async () => {
     const proc = processWithOutput();
     const { runner } = createTestRunner(proc);
-    const { service } = createFakeBackgroundService();
+    const { service } = createFakeTaskService();
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
     const result = await executeTool(
@@ -1572,7 +1576,7 @@ describe('BashTool background mode', () => {
   });
 
   it('rejects background command without description (description-required guard)', async () => {
-    const { service } = createFakeBackgroundService();
+    const { service } = createFakeTaskService();
     const { runner, exec } = createTestRunner(processWithOutput());
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
 
@@ -1599,7 +1603,7 @@ describe('BashTool prompt / runtime consistency', () => {
       [...enabledTool.description.matchAll(/`(Task[A-Za-z]+)`/g)].map((match) => match[1]),
     );
 
-    const tool = bashTool(runner, createTestEnv(), createTestCtx(), createFakeBackgroundService().service, stubProfile(() => false));
+    const tool = bashTool(runner, createTestEnv(), createTestCtx(), createFakeTaskService().service, stubProfile(() => false));
     const result = await executeTool(
       tool,
       context({ command: 'sleep 10', run_in_background: true, description: 'watch' }),

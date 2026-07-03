@@ -17,7 +17,7 @@ export const metaCapabilitiesSchema = z.object({
   file_upload: z.literal(true),
   fs_query: z.literal(true),
   mcp: z.literal(true),
-  background_tasks: z.literal(true),
+  tasks: z.literal(true),
   terminal: z.literal(true),
 });
 

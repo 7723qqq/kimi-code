@@ -4,11 +4,11 @@
  *
  * Listens to hook slots owned by the agent behavior/lifecycle domains
  * (`toolExecutor`, `permissionGate`, `turn`, `loop`, `fullCompaction`, and
- * `background`) and translates those minimal contexts into the configured
- * external HookEngine events. The `SubagentStart` / `SubagentStop` pair is
- * the one exception: the `agentLifecycle` tool wrapper has no hook service of
- * its own, so `mirrorAgentRun` invokes `runAgentTaskStart` /
- * `notifyAgentTaskStop` on this service directly.
+ * `task`) and translates those minimal contexts into the configured external
+ * HookEngine events. The `SubagentStart` / `SubagentStop` pair is the one
+ * exception: the `agentLifecycle` tool wrapper has no hook service of its own,
+ * so `mirrorAgentRun` invokes `runAgentTaskStart` / `notifyAgentTaskStop` on
+ * this service directly.
  */
 
 import { Disposable, IInstantiationService } from '#/_base/di';
@@ -16,7 +16,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { isUserCancellation } from '#/_base/utils/abort';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
-import { IAgentBackgroundService, type BackgroundNotificationContext } from '#/agent/background';
+import { IAgentTaskService, type AgentTaskNotificationContext } from '#/agent/task';
 import {
   IAgentFullCompactionService,
   type FullCompactionDidCompactContext,
@@ -124,8 +124,8 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
       this.instantiation.invokeFunction((accessor) => accessor.get(IAgentFullCompactionService)),
     );
 
-    this.registerBackgroundHooks(
-      this.instantiation.invokeFunction((accessor) => accessor.get(IAgentBackgroundService)),
+    this.registerTaskHooks(
+      this.instantiation.invokeFunction((accessor) => accessor.get(IAgentTaskService)),
     );
 
   }
@@ -225,10 +225,10 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     );
   }
 
-  private registerBackgroundHooks(background: IAgentBackgroundService): void {
+  private registerTaskHooks(tasks: IAgentTaskService): void {
     this._register(
-      background.hooks.onDidNotify.register('externalHooks', async (ctx, next) => {
-        this.notifyBackgroundNotification(ctx);
+      tasks.hooks.onDidNotify.register('externalHooks', async (ctx, next) => {
+        this.notifyTaskNotification(ctx);
         await next();
       }),
     );
@@ -361,7 +361,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     });
   }
 
-  private notifyBackgroundNotification(ctx: BackgroundNotificationContext): void {
+  private notifyTaskNotification(ctx: AgentTaskNotificationContext): void {
     const signal = new AbortController().signal;
     fireAndForget(
       this.engine(),

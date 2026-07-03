@@ -137,7 +137,11 @@ export class TurnFlow {
       input,
       origin,
     });
-    if (this.activeTurn) {
+    // Buffer while a turn is active OR a manual compaction holds the context;
+    // `onCompactionFinished` replays the buffer once compaction's full lifecycle
+    // (summary + reinjection) is done. Returning null means "buffered" — which is
+    // exactly what fire-and-forget callers (background notifications, cron) assume.
+    if (this.activeTurn || this.agent.fullCompaction.isCompacting) {
       this.steerBuffer.push({ input, origin });
       return null;
     }
@@ -158,6 +162,18 @@ export class TurnFlow {
           { details: { turnId: this.turnId } },
         ),
       });
+      return null;
+    }
+
+    // While a manual/SDK compaction holds the context, defer the launch instead
+    // of rejecting it: buffer the input and replay it from `onCompactionFinished`
+    // once compaction's full lifecycle (summary + reinjection) completes. The
+    // deferred turn's eventual `turn.started` lets PromptService associate the
+    // pending prompt, so a prompt submitted mid-compaction completes normally
+    // rather than getting stuck "running". (Auto compaction runs inside an active
+    // turn, so the `activeTurn` check above already covers it.)
+    if (this.agent.fullCompaction.isCompacting) {
+      this.steerBuffer.push({ input, origin });
       return null;
     }
 
@@ -287,6 +303,25 @@ export class TurnFlow {
     }
     steers.length = 0;
     return true;
+  }
+
+  /**
+   * Replay inputs (prompts or steers) that were deferred while a manual compaction
+   * held the context. Called by `FullCompaction` once the compaction lifecycle
+   * (summary + reinjection) is done — and on cancel/failure — so deferred input is
+   * never lost or stuck. If a turn is somehow already active (e.g. one that raced
+   * and cancelled the compaction), let it consume the buffer like any other steer;
+   * otherwise launch a fresh turn from the first buffered item, with the rest
+   * draining into it via `flushSteerBuffer`.
+   */
+  onCompactionFinished(): void {
+    if (this.steerBuffer.length === 0) return;
+    if (this.activeTurn !== null) {
+      this.flushSteerBuffer();
+      return;
+    }
+    const next = this.steerBuffer.shift()!;
+    this.launch(next.input, next.origin);
   }
 
   finishResume(): void {
@@ -524,6 +559,11 @@ export class TurnFlow {
         }
       }
     }
+    // A live turn must never end with recorded tool calls still awaiting
+    // results; if one does (a dispatch failure mid-batch broke the "every
+    // recorded call gets a result" invariant), close the exchange now so the
+    // context state machine cannot strand later messages in deferredMessages.
+    this.closeAbandonedToolExchange(ended);
     // Emit the terminal turn.ended and (for a standalone turn) release the active
     // turn in the SAME synchronous frame, so the session is observably idle the
     // instant turn.ended fires. A goal drive keeps the active turn across its
@@ -654,6 +694,7 @@ export class TurnFlow {
           signal,
           llm: this.agent.llm,
           buildMessages: () => this.agent.context.messages,
+          buildMessagesStrict: () => this.agent.context.strictMessages,
           dispatchEvent: this.buildDispatchEvent(turnId),
           tools: this.agent.tools.loopTools,
           log: this.agent.log,
@@ -669,9 +710,15 @@ export class TurnFlow {
           },
           hooks: {
             beforeStep: async ({ signal: stepSignal }) => {
-              this.flushSteerBuffer();
               this.agent.microCompaction.detect();
               await this.agent.fullCompaction.beforeStep(stepSignal);
+              // Flush steered messages (background-task / cron notifications,
+              // user interrupts) AFTER compaction so they land in the
+              // post-compaction context instead of being dropped by it. The
+              // keep/drop decision lives in
+              // `compactionUserMessageDisposition()`; these origins are not
+              // re-injected later, so append them only after compaction runs.
+              this.flushSteerBuffer();
               await this.agent.injection.inject();
               deduper.beginStep();
               return;
@@ -802,6 +849,29 @@ export class TurnFlow {
         }
         throw error;
       }
+    }
+  }
+
+  // Guarded so this repair can never turn a finished turn into a crash: a
+  // failure to close (e.g. record persistence still broken) is logged and the
+  // projection-level safeguards remain the last line of defense.
+  private closeAbandonedToolExchange(ended: TurnEndedEvent): void {
+    try {
+      const closed = this.agent.context.closeAbandonedToolExchange(
+        abandonedToolResultOutput(ended),
+      );
+      if (closed === 0) return;
+      this.agent.log.warn('closed abandoned tool exchange at turn end', {
+        turnId: ended.turnId,
+        reason: ended.reason,
+        closed,
+      });
+      this.agent.telemetry.track('tool_exchange_abandoned', {
+        reason: ended.reason,
+        closed,
+      });
+    } catch (error) {
+      this.agent.log.warn('failed to close abandoned tool exchange', { error });
     }
   }
 
@@ -1242,4 +1312,18 @@ function telemetryToolErrorType(result: ToolTelemetryResult): string {
 
 function toolResultText(result: ToolTelemetryResult): string {
   return toolOutputText(result.output);
+}
+
+// Output for a tool call abandoned by its turn (see closeAbandonedToolExchange):
+// name the cause so the model treats the gap as an interruption to reason about,
+// not a tool outcome. Mirrors the phrasing of the resume-time synthesis in
+// `ContextMemory`.
+function abandonedToolResultOutput(ended: TurnEndedEvent): string {
+  const cause =
+    ended.reason === 'cancelled'
+      ? 'the turn was cancelled'
+      : ended.reason === 'failed'
+        ? `the turn failed${ended.error !== undefined ? ` (${ended.error.message})` : ''}`
+        : 'the turn ended';
+  return `Tool call did not complete: ${cause} before its result was recorded. Do not assume the tool completed successfully.`;
 }

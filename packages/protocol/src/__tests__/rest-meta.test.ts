@@ -10,7 +10,7 @@ describe('metaResponseSchema', () => {
       file_upload: true,
       fs_query: true,
       mcp: true,
-      background_tasks: true,
+      tasks: true,
       terminal: true,
     },
     server_id: '01HXYZABCDEFGHJKMNPQRSTVWX',

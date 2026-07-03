@@ -84,7 +84,7 @@ export interface SystemTriggerOrigin {
   readonly name: string;
 }
 
-export type AgentCoreBackgroundTaskStatus =
+export type TaskLifecycleStatus =
   | 'running'
   | 'completed'
   | 'failed'
@@ -92,10 +92,10 @@ export type AgentCoreBackgroundTaskStatus =
   | 'killed'
   | 'lost';
 
-export interface BackgroundTaskOrigin {
-  readonly kind: 'background_task';
+export interface TaskOrigin {
+  readonly kind: 'task';
   readonly taskId: string;
-  readonly status: AgentCoreBackgroundTaskStatus;
+  readonly status: TaskLifecycleStatus;
   readonly notificationId: string;
 }
 
@@ -132,7 +132,7 @@ export type PromptOrigin =
   | ShellCommandOrigin
   | CompactionSummaryOrigin
   | SystemTriggerOrigin
-  | BackgroundTaskOrigin
+  | TaskOrigin
   | CronJobOrigin
   | CronMissedOrigin
   | HookResultOrigin
@@ -241,7 +241,7 @@ export type KimiErrorCode =
   | 'records.write_failed'
   | 'compaction.failed'
   | 'compaction.unable'
-  | 'background.task_id_empty'
+  | 'task.task_id_empty'
   | 'mcp.server_not_found'
   | 'mcp.server_disabled'
   | 'mcp.startup_failed'
@@ -282,10 +282,10 @@ export interface KimiErrorPayload {
   readonly retryable: boolean;
 }
 
-export interface BackgroundTaskInfoBase {
+export interface TaskInfoBase {
   readonly taskId: string;
   readonly description: string;
-  readonly status: AgentCoreBackgroundTaskStatus;
+  readonly status: TaskLifecycleStatus;
   readonly detached?: boolean;
   readonly startedAt: number;
   readonly endedAt: number | null;
@@ -294,35 +294,59 @@ export interface BackgroundTaskInfoBase {
   readonly timeoutMs?: number;
 }
 
-export interface ProcessBackgroundTaskInfo extends BackgroundTaskInfoBase {
+export interface ProcessTaskInfo extends TaskInfoBase {
   readonly kind: 'process';
   readonly command: string;
   readonly pid: number;
   readonly exitCode: number | null;
 }
 
-export interface AgentBackgroundTaskInfo extends BackgroundTaskInfoBase {
+export interface AgentTaskInfo extends TaskInfoBase {
   readonly kind: 'agent';
   readonly agentId?: string;
   readonly subagentType?: string;
 }
 
-export interface QuestionBackgroundTaskInfo extends BackgroundTaskInfoBase {
+export interface QuestionTaskInfo extends TaskInfoBase {
   readonly kind: 'question';
   readonly questionCount: number;
   readonly toolCallId?: string;
 }
 
-export type BackgroundTaskInfo =
-  | ProcessBackgroundTaskInfo
-  | AgentBackgroundTaskInfo
-  | QuestionBackgroundTaskInfo;
+export type TaskInfo =
+  | ProcessTaskInfo
+  | AgentTaskInfo
+  | QuestionTaskInfo;
 
 export interface CompactionResult {
   readonly summary: string;
   readonly compactedCount: number;
   readonly tokensBefore: number;
   readonly tokensAfter: number;
+  /**
+   * Number of real user messages kept verbatim ahead of the summary in the
+   * post-compaction live context. Recorded so the wire-transcript reducer can
+   * reproduce the live folded length without re-deriving it from the full
+   * transcript (which still holds the untruncated originals of messages the
+   * live context may have truncated, so the two would otherwise diverge).
+   * Optional for backward compatibility with older wire records.
+   */
+  readonly keptUserMessageCount?: number;
+  /**
+   * Of `keptUserMessageCount`, how many messages form the head segment (the
+   * oldest user input kept when the pool overflowed the budget). Present iff
+   * the selection split into head + tail, in which case the live context also
+   * holds one elision-marker message between the segments. Optional for
+   * backward compatibility with older wire records.
+   */
+  readonly keptHeadUserMessageCount?: number;
+  /**
+   * Oldest messages trimmed from the summarizer input when the compaction
+   * request overflowed the model window; not covered by the produced summary.
+   * Mirrors agent-core's `CompactionResult.droppedCount`; optional for backward
+   * compatibility.
+   */
+  readonly droppedCount?: number;
 }
 
 export interface ToolUpdate {
@@ -597,6 +621,7 @@ export interface SubagentSpawnedEvent {
   readonly subagentName: string;
   readonly parentToolCallId: string;
   readonly parentToolCallUuid?: string;
+  readonly parentAgentId?: string;
   readonly callerAgentId?: string;
   readonly description?: string;
   readonly swarmIndex?: number;
@@ -648,14 +673,14 @@ export interface CompactionCompletedEvent {
   readonly result: CompactionResult;
 }
 
-export interface BackgroundTaskStartedEvent {
-  readonly type: 'background.task.started';
-  readonly info: BackgroundTaskInfo;
+export interface TaskStartedEvent {
+  readonly type: 'task.started';
+  readonly info: TaskInfo;
 }
 
-export interface BackgroundTaskTerminatedEvent {
-  readonly type: 'background.task.terminated';
-  readonly info: BackgroundTaskInfo;
+export interface TaskTerminatedEvent {
+  readonly type: 'task.terminated';
+  readonly info: TaskInfo;
 }
 
 export interface CronFiredEvent {
@@ -735,8 +760,8 @@ export type AgentEvent =
   | CompactionBlockedEvent
   | CompactionCancelledEvent
   | CompactionCompletedEvent
-  | BackgroundTaskStartedEvent
-  | BackgroundTaskTerminatedEvent
+  | TaskStartedEvent
+  | TaskTerminatedEvent
   | CronFiredEvent
   | PromptSubmittedEvent;
 
@@ -812,21 +837,21 @@ export const systemTriggerOriginSchema = z.object({
   name: z.string(),
 }) satisfies z.ZodType<SystemTriggerOrigin>;
 
-export const agentCoreBackgroundTaskStatusSchema = z.enum([
+export const taskLifecycleStatusSchema = z.enum([
   'running',
   'completed',
   'failed',
   'timed_out',
   'killed',
   'lost',
-]) satisfies z.ZodType<AgentCoreBackgroundTaskStatus>;
+]) satisfies z.ZodType<TaskLifecycleStatus>;
 
-export const backgroundTaskOriginSchema = z.object({
-  kind: z.literal('background_task'),
+export const taskOriginSchema = z.object({
+  kind: z.literal('task'),
   taskId: z.string(),
-  status: agentCoreBackgroundTaskStatusSchema,
+  status: taskLifecycleStatusSchema,
   notificationId: z.string(),
-}) satisfies z.ZodType<BackgroundTaskOrigin>;
+}) satisfies z.ZodType<TaskOrigin>;
 
 export const cronJobOriginSchema = z.object({
   kind: z.literal('cron_job'),
@@ -861,7 +886,7 @@ export const promptOriginSchema = z.discriminatedUnion('kind', [
   shellCommandOriginSchema,
   compactionSummaryOriginSchema,
   systemTriggerOriginSchema,
-  backgroundTaskOriginSchema,
+  taskOriginSchema,
   cronJobOriginSchema,
   cronMissedOriginSchema,
   hookResultOriginSchema,
@@ -972,7 +997,7 @@ export const kimiErrorCodeSchema = z.enum([
   'records.write_failed',
   'compaction.failed',
   'compaction.unable',
-  'background.task_id_empty',
+  'task.task_id_empty',
   'mcp.server_not_found',
   'mcp.server_disabled',
   'mcp.startup_failed',
@@ -1003,48 +1028,51 @@ export const kimiErrorPayloadSchema = z.object({
   retryable: z.boolean(),
 }) satisfies z.ZodType<KimiErrorPayload>;
 
-export const backgroundTaskInfoBaseSchema = z.object({
+export const taskInfoBaseSchema = z.object({
   taskId: z.string(),
   description: z.string(),
-  status: agentCoreBackgroundTaskStatusSchema,
+  status: taskLifecycleStatusSchema,
   detached: z.boolean().optional(),
   startedAt: z.number(),
   endedAt: z.number().nullable(),
   stopReason: z.string().optional(),
   terminalNotificationSuppressed: z.boolean().optional(),
   timeoutMs: z.number().optional(),
-}) satisfies z.ZodType<BackgroundTaskInfoBase>;
+}) satisfies z.ZodType<TaskInfoBase>;
 
-export const processBackgroundTaskInfoSchema = backgroundTaskInfoBaseSchema.extend({
+export const processTaskInfoSchema = taskInfoBaseSchema.extend({
   kind: z.literal('process'),
   command: z.string(),
   pid: z.number(),
   exitCode: z.number().nullable(),
-}) satisfies z.ZodType<ProcessBackgroundTaskInfo>;
+}) satisfies z.ZodType<ProcessTaskInfo>;
 
-export const agentBackgroundTaskInfoSchema = backgroundTaskInfoBaseSchema.extend({
+export const agentTaskInfoSchema = taskInfoBaseSchema.extend({
   kind: z.literal('agent'),
   agentId: z.string().optional(),
   subagentType: z.string().optional(),
-}) satisfies z.ZodType<AgentBackgroundTaskInfo>;
+}) satisfies z.ZodType<AgentTaskInfo>;
 
-export const questionBackgroundTaskInfoSchema = backgroundTaskInfoBaseSchema.extend({
+export const questionTaskInfoSchema = taskInfoBaseSchema.extend({
   kind: z.literal('question'),
   questionCount: z.number(),
   toolCallId: z.string().optional(),
-}) satisfies z.ZodType<QuestionBackgroundTaskInfo>;
+}) satisfies z.ZodType<QuestionTaskInfo>;
 
-export const backgroundTaskInfoSchema = z.discriminatedUnion('kind', [
-  processBackgroundTaskInfoSchema,
-  agentBackgroundTaskInfoSchema,
-  questionBackgroundTaskInfoSchema,
-]) satisfies z.ZodType<BackgroundTaskInfo>;
+export const taskInfoSchema = z.discriminatedUnion('kind', [
+  processTaskInfoSchema,
+  agentTaskInfoSchema,
+  questionTaskInfoSchema,
+]) satisfies z.ZodType<TaskInfo>;
 
 export const compactionResultSchema = z.object({
   summary: z.string(),
   compactedCount: z.number(),
   tokensBefore: z.number(),
   tokensAfter: z.number(),
+  keptUserMessageCount: z.number().optional(),
+  keptHeadUserMessageCount: z.number().optional(),
+  droppedCount: z.number().optional(),
 }) satisfies z.ZodType<CompactionResult>;
 
 export const toolUpdateSchema = z.object({
@@ -1289,6 +1317,7 @@ export const subagentSpawnedEventSchema = z.object({
   subagentName: z.string(),
   parentToolCallId: z.string(),
   parentToolCallUuid: z.string().optional(),
+  parentAgentId: z.string().optional(),
   callerAgentId: z.string().optional(),
   description: z.string().optional(),
   swarmIndex: z.number().optional(),
@@ -1340,15 +1369,15 @@ export const compactionCompletedEventSchema = z.object({
   result: compactionResultSchema,
 }) satisfies z.ZodType<CompactionCompletedEvent>;
 
-export const backgroundTaskStartedEventSchema = z.object({
-  type: z.literal('background.task.started'),
-  info: backgroundTaskInfoSchema,
-}) satisfies z.ZodType<BackgroundTaskStartedEvent>;
+export const taskStartedEventSchema = z.object({
+  type: z.literal('task.started'),
+  info: taskInfoSchema,
+}) satisfies z.ZodType<TaskStartedEvent>;
 
-export const backgroundTaskTerminatedEventSchema = z.object({
-  type: z.literal('background.task.terminated'),
-  info: backgroundTaskInfoSchema,
-}) satisfies z.ZodType<BackgroundTaskTerminatedEvent>;
+export const taskTerminatedEventSchema = z.object({
+  type: z.literal('task.terminated'),
+  info: taskInfoSchema,
+}) satisfies z.ZodType<TaskTerminatedEvent>;
 
 export const cronFiredEventSchema = z.object({
   type: z.literal('cron.fired'),
@@ -1430,8 +1459,8 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   compactionBlockedEventSchema,
   compactionCancelledEventSchema,
   compactionCompletedEventSchema,
-  backgroundTaskStartedEventSchema,
-  backgroundTaskTerminatedEventSchema,
+  taskStartedEventSchema,
+  taskTerminatedEventSchema,
   cronFiredEventSchema,
   promptSubmittedEventSchema,
 ]) satisfies z.ZodType<AgentEvent>;

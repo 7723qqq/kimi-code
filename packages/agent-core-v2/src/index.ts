@@ -43,7 +43,7 @@ export * from '#/agent/swarm';
 export * from '#/agent/usage';
 export * from '#/agent/toolDedupe';
 
-export * from '#/agent/background';
+export * from '#/agent/task';
 export * from '#/app/cron';
 export * from '#/session/cron';
 

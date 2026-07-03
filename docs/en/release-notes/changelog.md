@@ -6,6 +6,106 @@ outline: 2
 
 This page documents the changes in each Kimi Code CLI release.
 
+## 0.22.1 (2026-07-02)
+
+### Bug Fixes
+
+- Fix TUI rendering bugs that caused the screen to go blank and the input box to disappear.
+- Fix the TUI crashing when the terminal is resized to a very narrow width while the input contains CJK or emoji text.
+- Fix the web UI becoming sluggish after opening many sessions.
+- Clear the screen fully when starting a new session via /new, /clear, or a session switch.
+- Fix web tooltips that could get stuck on screen when their trigger element is removed while open.
+- Fix the sidebar session row shifting its title and status badges when hovered.
+- Fix the session search dialog showing a horizontal scrollbar for long session titles or snippets.
+
+### Polish
+
+- Improve compaction handoff summaries for more reliable resumed sessions. They now keep the latest intent, key tool results, decisions, open questions, and context to re-check.
+- Save shell commands to input history and recall them in bash mode. Press Up on an empty `!` prompt to browse previous shell commands.
+- When large images are compressed, tell the model the original and delivered image details. Keep the original image available, and support cropped or full-resolution reads for fine details.
+- Refresh the web UI icon set and unify the message copy and undo button hover states and tooltips.
+- Let the web sidebar collapse an expanded workspace session list back to its first page.
+- Trim redundant and incorrect tooltips in the web UI.
+- Show an up arrow on the web composer send button.
+
+### Refactors
+
+- Remove the experimental micro compaction feature and its toggle from the experiments panel.
+- Remove duplicate newline-shortcut handling from the prompt editor.
+
+## 0.22.0 (2026-07-02)
+
+### Features
+
+- Automatically compress oversized images before they reach the model, downsampling and re-encoding them to cut vision-token cost and avoid provider image-size errors.
+- Add model alias overrides, letting you set model metadata under `[models."<alias>".overrides]` to override provider catalog refresh results.
+
+### Bug Fixes
+
+- Fix plan, swarm, and goal modes being shared across sessions in the web UI; each session now keeps its own toggles.
+- Fix the transcript jumping to the top when scrolling up through history during streaming output.
+- Release pasted images and streaming timers once they are no longer shown, so memory stops growing in long sessions.
+- Fix the terminal being left in raw mode with a hidden cursor and disabled flow control after a crash or abrupt exit.
+- Fix an active workspace showing only its five most recent sessions on load, so it now keeps loading older sessions from the last 12 hours.
+- Fix the Thinking-by-default setting not taking effect, so new sessions correctly start with thinking enabled.
+- Fix spurious errors from the web question, approval, and task actions when the action was already complete, and add loading feedback so each click is acknowledged immediately.
+- Show draft pull requests with a distinct draft status instead of displaying them as open.
+- Hide the conversation outline when there is not enough room to expand its labels, so it no longer clips against the window edge.
+- Hide the unsupported Off option in the /model thinking switcher for always-on models that already expose multiple effort levels.
+
+### Polish
+
+- Refresh the web UI with a new design system, including updated colors, typography, spacing, light and dark palettes, restyled tooltips, and subtle enter/exit and expand/collapse animations.
+- Group consecutive tool calls into a collapsible stack with per-tool renderers, including diff line-count chips for edits and inline previews for image, video, and audio results.
+- Improve session search with a Cmd/Ctrl+K palette that filters by title, workspace, and last prompt with highlighted matches. Press Cmd+K or Ctrl+K to open it.
+- Show queued prompts inline below the running turn in the web chat, and split Stop into its own button so Send no longer interrupts.
+- Show the conversation outline as one entry per user query that expands into a labeled list on hover.
+- Replace the Explore and Native theme options with a single chat layout and a Blue or Black accent-color setting.
+- Add workspace sorting by manual order or last-edited time, plus collapse-all and expand-all controls, to the sidebar.
+- Show time, duration, connection, and stack details in web error and warning toasts.
+- Use one consistent modal dialog for confirmations in the web UI (archive session, delete workspace, delete provider, undo message, and mode toggles).
+- Reduce the default TUI transcript window to keep long sessions responsive.
+- Reduce the web composer's default height for a more compact empty state, and fix ArrowUp recalling the previous message while editing a multi-line draft; ArrowUp now recalls only from the very start of the text and is disabled in the expanded editor.
+- Remove the fade-out animation when undoing a message in the web chat.
+
+## 0.21.1 (2026-07-01)
+
+### Bug Fixes
+
+- Keep the waiting spinner visible while encrypted reasoning streams, fixing a blank spinner-less gap before the first response text appears.
+
+## 0.21.0 (2026-07-01)
+
+### Features
+
+- Plugins can now provide slash commands via a `commands` field in their manifest, registered as `<plugin>:<command>` and invoked with `$ARGUMENTS` expansion.
+- Add Mermaid diagram rendering to the web chat. Fenced `mermaid` blocks in assistant responses now render as diagrams. KaTeX math and Mermaid diagram parsing also run in Web Workers to keep the UI responsive during live streaming.
+
+### Bug Fixes
+
+- Stop a malformed message history from permanently bricking a session on strict providers (Anthropic). The request is repaired before sending — orphaned tool calls are closed and empty/whitespace-only text blocks dropped — and if the provider still rejects its structure, it is resent once with a wire-compliant rebuild.
+- Force-exit headless runs (`kimi -p`) so a stray ref'd handle left over from the run can't keep a completed run alive until an external timeout, and bound prompt cleanup so a wedged shutdown step can't hang shutdown.
+- Fix @ file mentions not opening when typed inside a slash command argument.
+- Fix adding a workspace by path in the web UI failing silently when the daemon rejects the path; it now shows an error instead of a broken workspace.
+- Fix duplicate workspaces showing in the web sidebar when the same folder is registered more than once.
+- Fix the web workspace rename not persisting after a page refresh.
+
+### Polish
+
+- Add a double-Esc shortcut to open the undo selector. Press Esc twice while idle to undo.
+- Show file path completions when typing `/` in shell mode (`!`).
+- Always show the usage-data opt-out toggle in the web settings with a clearer label and description.
+
+### Refactors
+
+- Rework conversation compaction:
+  - Keep only recent user prompts plus a single user-role summary; drop assistant and tool messages.
+  - Repair tool_use/tool_result adjacency before sending, fixing a strict-provider HTTP 400 when a tool call and its result became non-adjacent.
+  - Merge consecutive user turns for strict providers (Gemini/Vertex), fixing an HTTP 400 ("roles must alternate") after compaction or when a turn is steered in right after a tool result.
+  - Micro-compaction now defaults off.
+- Refactor the thinking effort system
+- Add a server-side key-value store API for persisting web UI preferences to the user's data directory.
+
 ## 0.20.3 (2026-06-30)
 
 ### Bug Fixes
