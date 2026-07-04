@@ -5,7 +5,6 @@
  * production tree. Import from a relative path (`./stubs` or `../turn/stubs`).
  */
 
-import type { PromptOrigin } from '#/agent/contextMemory';
 import type { IAgentLoopService } from '#/agent/loop';
 import type { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import type { IAgentTurnService, Turn } from '#/agent/turn';
@@ -20,7 +19,7 @@ export interface StubTurnOptions {
 }
 
 /**
- * An `IAgentTurnService` stub that also records `launch` origins and exposes the
+ * An `IAgentTurnService` stub that also records `launch` calls and exposes the
  * active turn. `prompts` / `steered` are retained as empty arrays for legacy
  * assertions — the HEAD `IAgentTurnService` has no `prompt` / `steer` methods, so
  * tests that used to drive them should be rewritten against `launch` + hooks.
@@ -28,7 +27,7 @@ export interface StubTurnOptions {
 export type StubTurn = IAgentTurnService & {
   readonly prompts: readonly string[];
   readonly steered: readonly string[];
-  readonly launches: readonly PromptOrigin[];
+  readonly launches: readonly number[];
 };
 
 function makeTurn(id: number): Turn {
@@ -57,16 +56,17 @@ function makeAgentLoopHookSlots(): IAgentLoopService['hooks'] {
 
 /** A configurable `IAgentTurnService` stub backed by real `OrderedHookSlot`s. */
 export function stubTurn(options: StubTurnOptions = {}): StubTurn {
-  const launches: PromptOrigin[] = [];
+  const launches: number[] = [];
   let activeTurn: Turn | undefined;
   let nextId = typeof options.currentId === 'number' ? options.currentId : 0;
   return {
     _serviceBrand: undefined,
     hooks: makeHooks(),
-    launch(origin) {
-      launches.push(origin);
-      activeTurn = makeTurn(nextId++);
-      return activeTurn;
+    launch() {
+      const turn = makeTurn(nextId++);
+      launches.push(turn.id);
+      activeTurn = turn;
+      return turn;
     },
     getActiveTurn() {
       return options.hasActiveTurn ? activeTurn : undefined;

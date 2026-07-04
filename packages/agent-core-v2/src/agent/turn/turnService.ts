@@ -3,7 +3,6 @@ import { createControlledPromise } from '@antfu/utils';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError, toKimiErrorPayload } from '#/errors';
-import type { PromptOrigin } from '#/agent/contextMemory';
 import { OrderedHookSlot } from '#/hooks';
 import { IAgentLoopService } from '#/agent/loop';
 import { IAgentTelemetryContextService, ITelemetryService } from '#/app/telemetry';
@@ -19,7 +18,6 @@ declare module '#/agent/wireRecord' {
   interface WireRecordMap {
     'turn.launch': {
       turnId: number;
-      origin: PromptOrigin;
     };
   }
 }
@@ -47,7 +45,7 @@ export class AgentTurnService implements IAgentTurnService {
     });
   }
 
-  launch(origin: PromptOrigin): Turn {
+  launch(): Turn {
     if (this.activeTurn !== undefined) {
       throw new KimiError(
         ErrorCodes.TURN_AGENT_BUSY,
@@ -57,7 +55,7 @@ export class AgentTurnService implements IAgentTurnService {
     }
 
     const turnId = this.nextTurnId;
-    this.record.append({ type: 'turn.launch', turnId, origin });
+    this.record.append({ type: 'turn.launch', turnId });
     this.restoreLaunch(turnId);
     const abortController = new AbortController();
     const ready = createControlledPromise<void>();
@@ -69,7 +67,7 @@ export class AgentTurnService implements IAgentTurnService {
     };
     void ready.catch(() => undefined);
     this.activeTurn = turn;
-    turn.result = this.runTurn(turn, origin, ready);
+    turn.result = this.runTurn(turn, ready);
     void this.hooks.onLaunched.run({ turn });
     return turn;
   }
@@ -80,7 +78,6 @@ export class AgentTurnService implements IAgentTurnService {
 
   private async runTurn(
     turn: Turn,
-    origin: PromptOrigin,
     ready: ReturnType<typeof createControlledPromise<void>>,
   ): Promise<TurnResult> {
     const startedAt = Date.now();
@@ -91,7 +88,6 @@ export class AgentTurnService implements IAgentTurnService {
       this.record.signal({
         type: 'turn.started',
         turnId: turn.id,
-        origin,
       });
       result = await this.loop.runTurn(turn.id, {
         signal: turn.abortController.signal,

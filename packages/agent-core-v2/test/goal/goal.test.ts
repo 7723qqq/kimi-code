@@ -567,7 +567,7 @@ describe('AgentGoalService core workflow hooks', () => {
       status: 'active',
       turnsUsed: 1,
     });
-    expect(turnService.launches).toEqual([{ kind: 'system_trigger', name: 'goal_continuation' }]);
+    expect(turnService.launches).toHaveLength(1);
     expect(context.get().at(-1)?.origin).toEqual({
       kind: 'system_trigger',
       name: 'goal_continuation',
@@ -596,7 +596,7 @@ describe('AgentGoalService core workflow hooks', () => {
     await goals.createGoal({ objective: 'finish the task' });
     await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 7 } }, 'model');
 
-    const turn = turnService.launch({ kind: 'user' });
+    const turn = turnService.launch();
     await turnService.hooks.onLaunched.run({ turn });
 
     expect(
@@ -653,7 +653,7 @@ describe('AgentGoalService core workflow hooks', () => {
       status: 'active',
       turnsUsed: 0,
     });
-    expect(turnService.launches).toEqual([{ kind: 'system_trigger', name: 'goal_continuation' }]);
+    expect(turnService.launches).toHaveLength(1);
   });
 
   it('requests one final outcome turn after model completion', async () => {

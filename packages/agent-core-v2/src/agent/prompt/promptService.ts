@@ -5,9 +5,7 @@ import { ErrorCodes, KimiError } from '#/errors';
 import {
   ensureMessageId,
   IAgentContextMemoryService,
-  USER_PROMPT_ORIGIN,
   type ContextMessage,
-  type PromptOrigin,
 } from '#/agent/contextMemory';
 import { IAgentLoopService } from '#/agent/loop';
 import { IAgentRecordService } from '#/agent/record';
@@ -56,7 +54,7 @@ export class AgentPromptService implements IAgentPromptService {
     const stamped = ensureMessageId(message);
     this.append(stamped);
     if (await this.blockedByHook(stamped, false)) return undefined;
-    return this.launch(stamped.origin ?? USER_PROMPT_ORIGIN);
+    return this.launch();
   }
 
   steer(message: ContextMessage): PromptSteerHandle {
@@ -82,7 +80,7 @@ export class AgentPromptService implements IAgentPromptService {
   }
 
   retry(trigger?: string): Turn | undefined {
-    return this.launch({ kind: 'retry', trigger });
+    return this.launch();
   }
 
   undo(count: number): number {
@@ -134,8 +132,8 @@ export class AgentPromptService implements IAgentPromptService {
     this.context.splice(this.context.get().length, 0, messages);
   }
 
-  private launch(origin: PromptOrigin): Turn {
-    const turn = this.turnService.launch(origin);
+  private launch(): Turn {
+    const turn = this.turnService.launch();
     this.observe(turn);
     return turn;
   }

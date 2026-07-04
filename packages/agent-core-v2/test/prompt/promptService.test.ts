@@ -85,7 +85,7 @@ describe('AgentPromptService', () => {
 
   it('runs submit hooks before queuing active steers', async () => {
     const { context, loop, prompt, turn } = createHarness({ hasActiveTurn: true });
-    const activeTurn = turn.launch({ kind: 'user' });
+    const activeTurn = turn.launch();
     const seen: Array<Pick<PromptSubmitContext, 'isSteer'> & {
       readonly originKind: string | undefined;
     }> = [];
@@ -123,7 +123,7 @@ describe('AgentPromptService', () => {
 
   it('does not queue active steers blocked by hooks', async () => {
     const { context, loop, prompt, turn } = createHarness({ hasActiveTurn: true });
-    const activeTurn = turn.launch({ kind: 'user' });
+    const activeTurn = turn.launch();
 
     prompt.hooks.onWillSubmitPrompt.register('block', async (ctx) => {
       ctx.block = true;
