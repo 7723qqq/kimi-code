@@ -8,12 +8,12 @@ import {
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import { AgentContextInjectorService } from '#/agent/contextInjector/contextInjectorService';
 import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
+import { IAgentContextOpsService, AgentContextOpsService } from '#/agent/contextOps';
 import { IAgentLoopService } from '#/agent/loop';
-import { IAgentProfileService } from '#/agent/profile';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
 import { IAgentTurnService } from '#/agent/turn';
-import { registerContextMemoryServices } from '../contextMemory/stubs';
+import { registerContextMemoryServices, type StubContextMemory } from '../contextMemory/stubs';
 import { stubLoopWithHooks, stubTurnWithHooks } from '../turn/stubs';
 
 type InjectableContextInjector = IAgentContextInjectorService & {
@@ -51,7 +51,7 @@ function lastText(context: IAgentContextMemoryService): string | undefined {
 describe('AgentContextInjectorService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
-  let context: IAgentContextMemoryService;
+  let context: StubContextMemory;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -61,11 +61,12 @@ describe('AgentContextInjectorService', () => {
       additionalServices: (reg) => {
         reg.defineInstance(IAgentLoopService, stubLoopWithHooks());
         reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
+        reg.define(IAgentContextOpsService, AgentContextOpsService);
         reg.define(IAgentSystemReminderService, AgentSystemReminderService);
         reg.define(IAgentContextInjectorService, AgentContextInjectorService);
       },
     });
-    context = ix.get(IAgentContextMemoryService);
+    context = ix.get(IAgentContextMemoryService) as StubContextMemory;
   });
 
   afterEach(() => disposables.dispose());

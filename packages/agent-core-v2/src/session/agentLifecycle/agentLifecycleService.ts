@@ -38,6 +38,7 @@ import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { IAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentContextOpsService } from '#/agent/contextOps';
 import { IAgentBuiltinToolsRegistrar } from '#/agent/toolRegistry';
 import { IAgentWireRecordService, AgentWireRecordService } from '#/agent/wireRecord';
 import { IAgentBlobService, AgentBlobServiceImpl } from '#/agent/blob';
@@ -195,7 +196,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
 
     const sourceMessages = source.accessor.get(IAgentContextMemoryService)?.get();
     if (sourceMessages !== undefined && sourceMessages.length > 0) {
-      child.accessor.get(IAgentContextMemoryService)?.splice(0, 0, sourceMessages);
+      child.accessor.get(IAgentContextOpsService)?.append(...sourceMessages);
     }
     return child;
   }

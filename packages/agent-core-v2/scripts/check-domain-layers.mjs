@@ -139,6 +139,7 @@ const DOMAIN_LAYER = new Map([
   ['usage', 4],
   ['toolDedupe', 4],
   ['contextMemory', 4],
+  ['contextOps', 4],
   ['contextInjector', 4],
   ['systemReminder', 4],
   ['contextProjector', 4],
@@ -297,10 +298,6 @@ const ALLOWED_EXCEPTIONS = new Set([
   'permissionPolicy>profile',
   'permissionRules>replayBuilder',
   'record>replayBuilder',
-  // `record` owns the replay read model, whose `message` records carry
-  // `ContextMessage` (L4). `removeLastMessages` takes a set of them, so the
-  // projection side references the context message type by structure only.
-  'record>contextMemory',
   'plugin>externalHooks',
   'plugin>mcp',
   'profile>session',
@@ -314,6 +311,9 @@ const ALLOWED_EXCEPTIONS = new Set([
   'toolExecutor>loop',
   'userTool>profile',
   'wireRecord>contextMemory',
+  // The v1.5 migration emits `context.*` operation records and references the
+  // arg tuple types declared by their owning domains (L4) — type-only.
+  'wireRecord>contextOps',
   'wireRecord>loop',
   'wireRecord>tool',
   'hostFolderBrowser>os/backends',

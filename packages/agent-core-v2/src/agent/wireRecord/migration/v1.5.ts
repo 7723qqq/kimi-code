@@ -5,6 +5,10 @@ import {
 } from '#/app/llmProtocol';
 
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
+// Deep import (not the barrel): the barrel would runtime-cycle back into this
+// migration through contextMemoryService → record → wireRecord → migrations.
+import { ensureMessageId } from '#/agent/contextMemory/messageId';
+import type { ContextRemovalTarget } from '#/agent/contextOps';
 import type { ExecutableToolResult } from '#/agent/tool';
 import type { WireMigration, WireMigrationRecord } from './index';
 
@@ -58,8 +62,6 @@ class V1_5MigrationState {
         return [];
       case 'context.undo':
         return this.migrateUndo(record as V1_4UndoRecord);
-      case 'context.splice':
-        return this.preserveContextSplice(record as V1_5ContextSpliceRecord);
       case 'forked':
         return this.migrateForked(record);
       default:
@@ -133,16 +135,19 @@ class V1_5MigrationState {
     this.history.splice(0, deleteCount);
     this.resetLoopState();
     if (deleteCount === 0) return [];
-    return [this.createContextSpliceRecord(0, deleteCount, [], record)];
+    return [withTime(record, { type: 'context.clear', args: [] })];
   }
 
   private migrateApplyCompaction(record: V1_4ApplyCompactionRecord): WireMigrationRecord[] {
-    const message = createCompactionSummaryMessage(record.summary);
+    const message = ensureMessageId(createCompactionSummaryMessage(record.summary));
     const deleteCount = clampDeleteCount(record.compactedCount, this.history.length);
     this.history.splice(0, deleteCount, message);
     this.resetLoopState();
     return [
-      this.createContextSpliceRecord(0, deleteCount, [message], record),
+      withTime(record, {
+        type: 'context.compact',
+        args: [deleteCount, cloneContextMessage(message), record.tokensAfter],
+      }),
       this.createFullCompactionCompleteRecord(record),
     ];
   }
@@ -150,7 +155,7 @@ class V1_5MigrationState {
   private migrateUndo(record: V1_4UndoRecord): WireMigrationRecord[] {
     if (record.count <= 0) return [];
 
-    const output: WireMigrationRecord[] = [];
+    const removals: ContextRemovalTarget[] = [];
     let removedUserCount = 0;
     for (let index = this.history.length - 1; index >= 0; index--) {
       const message = this.history[index];
@@ -159,22 +164,15 @@ class V1_5MigrationState {
       if (message.origin?.kind === 'compaction_summary') break;
 
       this.history.splice(index, 1);
-      output.push(this.createContextSpliceRecord(index, 1, [], record));
+      removals.push({ index, messageId: message.id });
       if (isRealUserPrompt(message)) {
         removedUserCount++;
         if (removedUserCount >= record.count) break;
       }
     }
     this.resetLoopState();
-    return output;
-  }
-
-  private preserveContextSplice(record: V1_5ContextSpliceRecord): WireMigrationRecord[] {
-    const start = normalizedSpliceStart(record.start, this.history.length);
-    const deleteCount = clampDeleteCount(record.deleteCount, this.history.length - start);
-    const messages = record.messages.map(cloneContextMessage);
-    this.history.splice(start, deleteCount, ...messages);
-    return [record];
+    if (removals.length === 0) return [];
+    return [withTime(record, { type: 'context.undo', args: [removals] })];
   }
 
   private migrateForked(record: WireMigrationRecord): WireMigrationRecord[] {
@@ -243,11 +241,10 @@ class V1_5MigrationState {
     };
     const next = update(openStep.message);
     if (!openStep.inserted) {
-      const inserted = cloneContextMessage(next);
-      const start = this.history.length;
+      const inserted = ensureMessageId(cloneContextMessage(next));
       this.history.push(inserted);
       this.openSteps.set(stepUuid, { message: inserted, inserted: true });
-      return [this.createContextSpliceRecord(start, 0, [inserted], record)];
+      return [this.createAppendRecord(inserted, record)];
     }
 
     const index = this.history.indexOf(openStep.message);
@@ -258,7 +255,14 @@ class V1_5MigrationState {
 
     this.history.splice(index, 1, next);
     this.openSteps.set(stepUuid, { message: next, inserted: true });
-    return [this.createContextSpliceRecord(index, 1, [next], record)];
+    // Incremental streaming update — replace the open assistant message in
+    // place (same message id), matching the `context.replace` operation.
+    return [
+      withTime(record, {
+        type: 'context.replace',
+        args: [index, cloneContextMessage(next)],
+      }),
+    ];
   }
 
   private appendToolResult(
@@ -315,23 +319,18 @@ class V1_5MigrationState {
     message: ContextMessage,
     record: WireMigrationRecord,
   ): WireMigrationRecord[] {
-    const next = cloneContextMessage(message);
-    const start = this.history.length;
+    const next = ensureMessageId(cloneContextMessage(message));
     this.history.push(next);
-    return [this.createContextSpliceRecord(start, 0, [next], record)];
+    return [this.createAppendRecord(next, record)];
   }
 
-  private createContextSpliceRecord(
-    start: number,
-    deleteCount: number,
-    messages: readonly ContextMessage[],
+  private createAppendRecord(
+    message: ContextMessage,
     source: WireMigrationRecord,
   ): WireMigrationRecord {
     return withTime(source, {
-      type: 'context.splice',
-      start,
-      deleteCount,
-      messages: messages.map(cloneContextMessage),
+      type: 'context.append',
+      args: [cloneContextMessage(message)],
     });
   }
 
@@ -489,13 +488,6 @@ interface V1_4UndoRecord extends WireMigrationRecord {
   readonly count: number;
 }
 
-interface V1_5ContextSpliceRecord extends WireMigrationRecord {
-  readonly type: 'context.splice';
-  readonly start: number;
-  readonly deleteCount: number;
-  readonly messages: readonly ContextMessage[];
-}
-
 function createAssistantMessage(): ContextMessage {
   return {
     role: 'assistant',
@@ -526,12 +518,6 @@ function turnIdOf(event: V1_4LoopRecordedEvent): number | undefined {
   if (event.type === 'tool.result') return undefined;
   const turnId = event.turnId;
   return Number.isInteger(turnId) && turnId >= 0 ? turnId : undefined;
-}
-
-function normalizedSpliceStart(start: number, length: number): number {
-  if (!Number.isFinite(start)) return length;
-  if (start < 0) return Math.max(0, length + start);
-  return Math.min(start, length);
 }
 
 function clampDeleteCount(deleteCount: number, max: number): number {

@@ -7,8 +7,14 @@ import {
   IAgentContextMemoryService,
   USER_PROMPT_ORIGIN,
   type ContextMessage,
+  type ContextOperation,
   type PromptOrigin,
 } from '#/agent/contextMemory';
+import {
+  IAgentContextOpsService,
+  removalMessageIds,
+  type ContextRemovalTarget,
+} from '#/agent/contextOps';
 import { IAgentLoopService } from '#/agent/loop';
 import { IAgentRecordService } from '#/agent/record';
 import { IAgentTurnService, type Turn } from '#/agent/turn';
@@ -25,10 +31,13 @@ interface QueuedSteer {
   removed: boolean;
 }
 
+export type ContextUndoArgs = [removals: readonly ContextRemovalTarget[]];
+
 export class AgentPromptService implements IAgentPromptService {
   declare readonly _serviceBrand: undefined;
   private readonly steerQueue: QueuedSteer[] = [];
   private observedTurn: Turn | undefined;
+  private readonly undoOperation: ContextOperation<ContextUndoArgs>;
 
   readonly hooks = {
     onWillSubmitPrompt: new OrderedHookSlot<PromptSubmitContext>(),
@@ -36,6 +45,7 @@ export class AgentPromptService implements IAgentPromptService {
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentContextOpsService private readonly contextOps: IAgentContextOpsService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentLoopService loopService: IAgentLoopService,
@@ -50,11 +60,23 @@ export class AgentPromptService implements IAgentPromptService {
       }
       await next();
     });
+
+    this.undoOperation = context.defineOperation<ContextUndoArgs>({
+      type: 'undo',
+      apply: (splice, removals) => {
+        for (const removal of removals) {
+          splice(removal.index, 1, []);
+        }
+      },
+      replay: (replay, removals) => {
+        replay.removeMessages(removalMessageIds(removals));
+      },
+    });
   }
 
   async prompt(message: ContextMessage): Promise<Turn | undefined> {
     const stamped = ensureMessageId(message);
-    this.append(stamped);
+    this.contextOps.append(stamped);
     if (await this.blockedByHook(stamped, false)) return undefined;
     return this.launch(stamped.origin ?? USER_PROMPT_ORIGIN, stamped.id);
   }
@@ -90,6 +112,7 @@ export class AgentPromptService implements IAgentPromptService {
 
     const history = this.context.get();
     let removedCount = 0;
+    const removals: ContextRemovalTarget[] = [];
     let stoppedAtCompaction = false;
     for (let index = history.length - 1; index >= 0 && removedCount < count; index--) {
       const message = history[index];
@@ -99,10 +122,14 @@ export class AgentPromptService implements IAgentPromptService {
         break;
       }
 
-      this.context.splice(index, 1, []);
+      removals.push({ index, messageId: message.id });
       if (isRealUserPrompt(message)) {
         removedCount++;
       }
+    }
+
+    if (removals.length > 0) {
+      this.undoOperation(removals);
     }
 
     if (removedCount < count && !this.record.restoring) {
@@ -124,14 +151,7 @@ export class AgentPromptService implements IAgentPromptService {
 
   clear(): void {
     this.discardQueuedSteers();
-    const historyLength = this.context.get().length;
-    if (historyLength > 0) {
-      this.context.splice(0, historyLength, []);
-    }
-  }
-
-  private append(...messages: ContextMessage[]): void {
-    this.context.splice(this.context.get().length, 0, messages);
+    this.contextOps.clear();
   }
 
   private launch(origin: PromptOrigin, promptMessageId?: string): Turn {
@@ -170,7 +190,7 @@ export class AgentPromptService implements IAgentPromptService {
     for (const entry of pending) {
       entry.emitted = true;
     }
-    this.append(...pending.map((entry) => entry.message));
+    this.contextOps.append(...pending.map((entry) => entry.message));
     return true;
   }
 

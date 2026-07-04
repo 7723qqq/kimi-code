@@ -5,8 +5,8 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { renderPrompt } from "#/_base/utils/render-prompt";
 import { estimateTokens, estimateTokensForMessages } from "#/_base/utils/tokens";
-import type { ContextMessage } from '#/agent/contextMemory';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import type { ContextMessage, ContextOperation } from '#/agent/contextMemory';
+import { ensureMessageId, IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import {
   IAgentLLMRequesterService,
@@ -46,6 +46,12 @@ import {
   type CompactionResult,
 } from './types';
 import { OrderedHookSlot } from '#/hooks';
+
+export type ContextCompactArgs = [
+  compactedCount: number,
+  summary: ContextMessage,
+  tokensAfter?: number,
+];
 
 declare module '#/agent/wireRecord' {
   interface WireRecordMap {
@@ -93,6 +99,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   };
 
   private readonly strategy: CompactionStrategy;
+  private readonly compactOperation: ContextOperation<ContextCompactArgs>;
   private compactionCountInTurn = 0;
   private compacting: ActiveCompaction | null = null;
   // Token count right after the last successful compaction. While nothing new
@@ -145,6 +152,29 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         await this.onLoopError(ctx, next);
       }),
     );
+    // Replace the compacted prefix with the summary message. The summary
+    // never enters the replay as a message — the compaction card (pushed by
+    // `full_compaction.begin`) is its only replay presence — but the history
+    // reset marks a segment boundary for partial-resume windowing.
+    this.compactOperation = this.context.defineOperation<ContextCompactArgs>({
+      type: 'compact',
+      apply: (splice, compactedCount, summary, tokensAfter) => {
+        splice(0, compactedCount, [summary], tokensAfter);
+      },
+      replay: (replay) => {
+        replay.cut();
+      },
+      blobs: ([, summary]) => [
+        {
+          parts: summary.content,
+          replace: ([compactedCount, current, tokensAfter], parts) => [
+            compactedCount,
+            { ...current, content: [...parts] },
+            tokensAfter,
+          ],
+        },
+      ],
+    });
     this._register(
       record.define('full_compaction.begin', {
         resume: (r) => {
@@ -165,8 +195,8 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     this._register(
       record.define('full_compaction.complete', {
         resume: (r) => {
-          // The summary message never enters the replay (its splice is a
-          // boundary); the compaction record is its only replay presence.
+          // The summary message never enters the replay (`context.compact`
+          // only cuts); the compaction record is its only replay presence.
           const message = compactionSummaryMessage(this.context.get());
           if (message === undefined) return;
           const summary = contextMessageText(message);
@@ -496,10 +526,9 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         ...usageTelemetry(attempt.usage),
       });
 
-      this.context.splice(
-        0,
+      this.compactOperation(
         compactedCount,
-        [createCompactionSummaryMessage(summary)],
+        ensureMessageId(createCompactionSummaryMessage(summary)),
         result.tokensAfter,
       );
       return result;

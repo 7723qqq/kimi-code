@@ -17,7 +17,8 @@ import {
 import { ErrorCodes, KimiError } from '#/errors';
 import { OrderedHookSlot } from '#/hooks';
 
-import { IAgentContextMemoryService, newMessageId, type ContextMessage } from '../contextMemory';
+import { newMessageId } from '../contextMemory';
+import { IAgentContextOpsService } from '#/agent/contextOps';
 import { LOOP_CONTROL_SECTION, type LoopControl } from './configSection';
 import {
   createMaxStepsExceededError,
@@ -50,7 +51,7 @@ export class AgentLoopService implements IAgentLoopService {
   };
 
   constructor(
-    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentContextOpsService private readonly contextOps: IAgentContextOpsService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
@@ -183,7 +184,7 @@ export class AgentLoopService implements IAgentLoopService {
     const { providerFinishReason, message } = response;
     let finishReason = providerFinishReason ?? 'completed';
 
-    this.append({
+    this.contextOps.append({
       id: newMessageId(),
       role: 'assistant',
       content: response.message.content,
@@ -199,7 +200,7 @@ export class AgentLoopService implements IAgentLoopService {
         turnId,
       })) {
         const { result } = toolResult;
-        this.append({
+        this.contextOps.append({
           ...createToolMessage(toolResult.toolCallId, toolResultOutputForModel(result)),
           role: 'tool',
           isError: result.isError,
@@ -237,10 +238,6 @@ export class AgentLoopService implements IAgentLoopService {
       stopReason: finishReason,
       continue: afterStepContext.continue,
     };
-  }
-
-  private append(message: ContextMessage): void {
-    this.context.splice(this.context.get().length, 0, [message]);
   }
 
   private emitStepCompleted(

@@ -44,7 +44,8 @@ function createDeduper(telemetry = recordingTelemetry(telemetryEvents)): ToolDed
     },
     strict: true,
   });
-  return ix.get(IAgentToolDedupeService) as unknown as ToolDedupeInternals;
+  const service = ix.get(IAgentToolDedupeService);
+  return toolDedupTesting.createDriver(service as AgentToolDedupeService) as unknown as ToolDedupeInternals;
 }
 
 function okResult(text: string): ToolDedupResult {

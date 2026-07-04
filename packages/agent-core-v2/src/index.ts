@@ -80,6 +80,7 @@ export * from '#/app/web';
 // Ported agent services. These keep the current service boundaries during the migration.
 export * from '#/agent/blob';
 export * from '#/agent/contextMemory';
+export * from '#/agent/contextOps';
 export * from '#/agent/systemReminder';
 export * from '#/agent/contextProjector';
 export * from '#/agent/contextSize';

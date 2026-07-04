@@ -293,6 +293,20 @@ export class AgentToolDedupeService extends Disposable implements IAgentToolDedu
   }
 }
 
+/** Test-driver surface that mirrors the old internal call shape. */
+export interface ToolDedupeTestDriver {
+  readonly currentStreak: number;
+  beginStep(turnId?: number, step?: number): Promise<void>;
+  endStep(): Promise<void>;
+  checkSameStep(toolCallId: string, toolName: string, args: unknown): Promise<ToolDedupResult | null>;
+  finalizeResult(
+    toolCallId: string,
+    toolName: string,
+    args: unknown,
+    result: ToolDedupResult,
+  ): Promise<ToolDedupResult>;
+}
+
 export const __testing = {
   REMINDER_TEXT_1,
   REMINDER_TEXT_3,
@@ -301,6 +315,27 @@ export const __testing = {
   REPEAT_REMINDER_2_START,
   REPEAT_REMINDER_3_START,
   REPEAT_FORCE_STOP_STREAK,
+  createDriver(service: AgentToolDedupeService): ToolDedupeTestDriver {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const s = service as any;
+    return {
+      get currentStreak() {
+        return service.currentStreak;
+      },
+      beginStep: async (turnId?: number, step?: number) => {
+        s.beginStep(turnId, step);
+      },
+      endStep: async () => {
+        s.endStep();
+      },
+      checkSameStep: async (toolCallId: string, toolName: string, args: unknown) => {
+        const checked = s.checkToolCall(toolCallId, toolName, args);
+        return checked.syntheticResult as ToolDedupResult | null;
+      },
+      finalizeResult: (toolCallId: string, toolName: string, args: unknown, result: ToolDedupResult) =>
+        s.finalizeResult(toolCallId, toolName, args, result),
+    };
+  },
 };
 
 registerScopedService(

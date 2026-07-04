@@ -15,6 +15,7 @@ export * from './agentLifecycle';
 export * from './agentLifecycleService';
 export * from './tools/subagent-task';
 export { AGENT_RUN_PROMPT_ORIGIN } from './runAgentTurn';
+export * from './contextOperationOwners';
 export * from './mainAgent';
 export * from './mirrorAgentRun';
 // Deliberately last: `tools/agent` reaches `sessionSwarmService` through

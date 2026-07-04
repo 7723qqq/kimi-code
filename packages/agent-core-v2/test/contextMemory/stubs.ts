@@ -11,7 +11,7 @@ import { toDisposable } from '#/_base/di';
 import type { ServiceRegistration } from '#/_base/di/test';
 import { createHooks } from '#/hooks';
 import type { Hooks } from '#/hooks';
-import { ensureMessageId, IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
+import { ensureMessageId, IAgentContextMemoryService, type ContextMessage, type ContextOperation, type ContextOperationDefinition } from '#/agent/contextMemory';
 import { IAgentRecordService } from '#/agent/record';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
 
@@ -51,7 +51,8 @@ export function stubRecord(): IAgentRecordService {
     define: () => toDisposable(() => {}),
     push: () => {},
     patchLast: () => {},
-    removeLastMessages: () => {},
+    removeMessages: () => {},
+    cut: () => {},
     buildReplay: () => [],
   };
 }
@@ -59,6 +60,13 @@ export function stubRecord(): IAgentRecordService {
 export interface StubContextMemory extends IAgentContextMemoryService {
   /** The live backing history, exposed so tests can inspect splices. */
   readonly messages: readonly ContextMessage[];
+  /** Direct splice helper for tests that pre-date the operation registry. */
+  splice(
+    start: number,
+    deleteCount: number,
+    inserted: readonly ContextMessage[],
+    tokens?: number,
+  ): void;
 }
 
 /**
@@ -68,6 +76,7 @@ export interface StubContextMemory extends IAgentContextMemoryService {
  */
 export function stubContextMemory(): StubContextMemory {
   const messages: ContextMessage[] = [];
+  const operationTypes = new Set<string>();
   const hooks = {
     onSpliced: createHooks(['onSpliced'])['onSpliced'],
   } as unknown as Hooks<{
@@ -78,6 +87,20 @@ export function stubContextMemory(): StubContextMemory {
       tokens?: number;
     };
   }>;
+
+  const splice: (start: number, deleteCount: number, inserted: readonly ContextMessage[], tokens?: number) => void = (start, deleteCount, inserted, tokens) => {
+    const boundedStart = normalizeSpliceStart(start, messages.length);
+    const boundedDeleteCount = clampDeleteCount(deleteCount, messages.length - boundedStart);
+    const stamped = inserted.map(ensureMessageId);
+    messages.splice(boundedStart, boundedDeleteCount, ...stamped);
+    void hooks.onSpliced.run({
+      start: boundedStart,
+      deleteCount: boundedDeleteCount,
+      messages: [...stamped],
+      tokens,
+    });
+  };
+
   return {
     _serviceBrand: undefined,
     hooks,
@@ -85,16 +108,14 @@ export function stubContextMemory(): StubContextMemory {
       return messages;
     },
     get: () => [...messages],
-    splice: (start, deleteCount, inserted, tokens) => {
-      const stamped = inserted.map(ensureMessageId);
-      messages.splice(start, deleteCount, ...stamped);
-      void hooks.onSpliced.run({
-        start,
-        deleteCount,
-        messages: [...stamped],
-        tokens,
-      });
+    defineOperation: <T extends readonly unknown[]>(definition: ContextOperationDefinition<T>): ContextOperation<T> => {
+      const recordType = `context.${definition.type}`;
+      operationTypes.add(recordType);
+      return (...args: T) => {
+        definition.apply(splice, ...args);
+      };
     },
+    splice,
   };
 }
 
@@ -108,4 +129,15 @@ export function registerContextMemoryServices(reg: ServiceRegistration): void {
   reg.defineInstance(IAgentWireRecordService, stubWireRecord());
   reg.defineInstance(IAgentRecordService, stubRecord());
   reg.defineInstance(IAgentContextMemoryService, stubContextMemory());
+}
+
+function normalizeSpliceStart(start: number, length: number): number {
+  if (Number.isNaN(start)) return length;
+  if (start < 0) return Math.max(0, length + Math.floor(start));
+  return Math.min(Math.floor(start), length);
+}
+
+function clampDeleteCount(deleteCount: number, max: number): number {
+  if (Number.isNaN(deleteCount) || deleteCount <= 0) return 0;
+  return Math.min(Math.floor(deleteCount), Math.max(0, max));
 }

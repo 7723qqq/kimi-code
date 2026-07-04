@@ -213,7 +213,6 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
     'profile:setThinking': { service: IAgentProfileService, method: 'setThinking' },
 
     'messages:list': { service: IAgentContextMemoryService, method: 'get', readonly: true },
-    'messages:splice': { service: IAgentContextMemoryService, method: 'splice' },
 
     'toolStore:get': { service: IAgentToolState, method: 'get', readonly: true },
     'toolStore:data': { service: IAgentToolState, method: 'data', readonly: true },

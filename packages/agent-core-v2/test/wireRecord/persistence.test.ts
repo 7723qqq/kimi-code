@@ -16,7 +16,9 @@ import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { AgentContextMemoryService } from '#/agent/contextMemory/contextMemoryService';
 import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
-import { IAgentRecordService } from '#/agent/record';
+import { IAgentContextOpsService, AgentContextOpsService } from '#/agent/contextOps';
+import { IAgentRecordService, AgentRecordService } from '#/agent/record';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext';
 import {
   AppendLogStore,
   AGENT_WIRE_PROTOCOL_VERSION,
@@ -29,7 +31,6 @@ import {
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { stubBootstrap } from '../bootstrap/stubs';
-import { stubRecord } from '../contextMemory/stubs';
 
 const cleanups: string[] = [];
 const disposables: DisposableStore[] = [];
@@ -101,12 +102,17 @@ async function createWireHarness(): Promise<{
   ix.set(IBlobStore, new SyncDescriptor(BlobStoreService));
   ix.stub(IBootstrapService, stubBootstrap(dir));
   ix.stub(IHostFileSystem, new HostFileSystem());
-  ix.stub(IAgentRecordService, stubRecord());
   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
+  ix.stub(IAgentScopeContext, makeAgentScopeContext({ agentId: 'test', agentScope: '' }));
   ix.set(IAgentBlobService, new SyncDescriptor(AgentBlobServiceImpl));
+
   ix.set(IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{}]));
+  ix.set(IAgentRecordService, new SyncDescriptor(AgentRecordService));
   ix.set(IAgentContextMemoryService, new SyncDescriptor(AgentContextMemoryService));
-  ix.get(IAgentContextMemoryService);
+  ix.set(IAgentContextOpsService, new SyncDescriptor(AgentContextOpsService));
+  // Force-instantiate the context ops domain so its operation facets are
+  // registered before any wire records are appended.
+  ix.get(IAgentContextOpsService);
 
   return {
     dir,
@@ -300,18 +306,17 @@ describe('AgentWireRecordService persistence', () => {
     };
 
     wire.append({
-      type: 'context.splice',
-      start: 0,
-      deleteCount: 0,
-      messages: [message],
+      type: 'context.append',
+      args: [message],
     });
     await wire.flush();
 
     const records = await readPersistedWireRecords(storage);
-    expect(records.map((record) => record.type)).toEqual(['metadata', 'context.splice']);
-    const record = records[1] as Extract<PersistedWireRecord, { type: 'context.splice' }>;
+    expect(records.map((record) => record.type)).toEqual(['metadata', 'context.append']);
+    const record = records[1] as { type: 'context.append'; args: readonly ContextMessage[] };
+    const appendedMessages = record.args;
     const url = (
-      record.messages[0]!.content[0] as unknown as { imageUrl: { url: string } }
+      appendedMessages[0]!.content[0] as unknown as { imageUrl: { url: string } }
     ).imageUrl.url;
     expect(url.startsWith('blobref:')).toBe(true);
 

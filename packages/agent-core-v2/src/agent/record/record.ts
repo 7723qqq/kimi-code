@@ -6,15 +6,14 @@
  * durable persistence (for resume), live broadcast (`AgentEvent` to the edge),
  * and the replay read model. `signal(event)` emits a live-only event that is
  * never recorded (deltas / progress). The replay read model (`buildReplay`,
- * `push`/`patchLast`/`removeLastMessages`) is owned here too — it is just one
- * more projection of the same record stream. Bound at Agent scope.
+ * `push`/`patchLast`/`removeMessages`/`cut`) is owned here too — it is just
+ * one more projection of the same record stream. Bound at Agent scope.
  */
 
 import type { AgentEvent } from '@moonshot-ai/protocol';
 
 import type { IDisposable } from '#/_base/di';
 import { createDecorator } from '#/_base/di';
-import type { ContextMessage } from '#/agent/contextMemory';
 import type {
   IAgentWireRecordService,
   WireRecordBlobSelector,
@@ -102,9 +101,9 @@ export interface IAgentRecordService {
   /**
    * Append a record to the replay read model directly. Used when the projected
    * data is computed inside a domain handler rather than derived from a single
-   * record via `toReplay` (e.g. `contextMemory` projecting spliced messages).
-   * Gated by phase: captured while restoring/post-restoring, or always when
-   * `captureLiveRecords` is set.
+   * record via `toReplay` (e.g. `contextMemory` forwarding a context
+   * operation's replay projection). Gated by phase: captured while
+   * restoring/post-restoring, or always when `captureLiveRecords` is set.
    */
   push(record: AgentReplayRecordPayload): void;
   /** Patch the most recent replay record of `type` (restore-time only). */
@@ -112,8 +111,16 @@ export interface IAgentRecordService {
     type: T,
     patch: Partial<Extract<AgentReplayRecord, { type: T }>>,
   ): void;
-  /** Drop replay `message` records whose message is in `removedMessages`. */
-  removeLastMessages(removedMessages: ReadonlySet<ContextMessage>): void;
+  /** Drop replay `message` records whose message id is in `messageIds`. */
+  removeMessages(messageIds: ReadonlySet<string>): void;
+  /**
+   * Mark a history-reset boundary (compaction / clear) in the replay stream.
+   * Drives partial-resume windowing: when a `range.start` window is
+   * configured, a cut either discards the segment before the window or
+   * freezes the read model (stopping the restore) once the window is full.
+   * A no-op without a windowed range.
+   */
+  cut(): void;
   /** Replay read model built from restored (and optionally live) records. */
   buildReplay(): readonly AgentReplayRecord[];
   /** When true, live `append` calls also feed the replay read model. */

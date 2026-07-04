@@ -5,6 +5,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import type { PromptOrigin } from '#/agent/contextMemory';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentContextOpsService, AgentContextOpsService } from '#/agent/contextOps';
 import { AgentLoopService, IAgentLoopService } from '#/agent/loop';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester';
 import { IAgentRecordService } from '#/agent/record';
@@ -36,6 +37,7 @@ describe('AgentTurnService ready', () => {
         reg.defineInstance(IAgentLoopService, loop);
         reg.defineInstance(IAgentRecordService, stubRecord());
         reg.defineInstance(IAgentContextMemoryService, stubContextMemory());
+        reg.define(IAgentContextOpsService, AgentContextOpsService);
         reg.defineInstance(ITelemetryService, recordingTelemetry([]));
         reg.defineInstance(IAgentTelemetryContextService, {
           _serviceBrand: undefined,
@@ -152,6 +154,7 @@ describe('AgentLoopService onStepStarted', () => {
       additionalServices: (reg) => {
         reg.defineInstance(IAgentContextMemoryService, stubContextMemory());
         reg.defineInstance(IAgentRecordService, stubRecord());
+        reg.define(IAgentContextOpsService, AgentContextOpsService);
         reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
         reg.definePartialInstance(IConfigService, {
           get: <T>() => undefined as T,

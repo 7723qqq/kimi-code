@@ -23,10 +23,14 @@ import {
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
-import { IAgentLifecycleService, ensureMainAgent, MAIN_AGENT_ID } from '#/session/agentLifecycle';
+import {
+  IAgentLifecycleService,
+  ensureMainAgent,
+  resolveContextOperationOwners,
+  MAIN_AGENT_ID,
+} from '#/session/agentLifecycle';
 import { IBootstrapService } from '#/app/bootstrap';
 import { IEventService } from '#/app/event';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { createExecContext, execContextSeed } from '#/session/execContext';
@@ -155,10 +159,10 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     const agents = handle.accessor.get(IAgentLifecycleService);
     if (agents.getHandle(MAIN_AGENT_ID) === undefined) {
       const main = await ensureMainAgent(handle);
-      // Resolve context memory BEFORE restoring so its `context.splice` resumer
-      // is registered; otherwise the wire replay applies splices into a void and
-      // the restored transcript never lands in context memory.
-      main.accessor.get(IAgentContextMemoryService);
+      // Resolve every context-operation owner BEFORE restoring so all
+      // `context.<type>` resumers are registered; an unclaimed record fails
+      // the restore loudly.
+      resolveContextOperationOwners(main);
       await main.accessor.get(IAgentWireRecordService).restore();
     }
     return handle;
@@ -283,6 +287,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
           sourceAgent.labels ??
           (sourceAgent.swarmItem !== undefined ? { swarmItem: sourceAgent.swarmItem } : undefined),
       });
+      resolveContextOperationOwners(agentHandle);
       await agentHandle.accessor.get(IAgentWireRecordService).restore();
     }
 

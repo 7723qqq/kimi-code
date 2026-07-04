@@ -8,12 +8,15 @@
  * Live emission is suppressed while restoring, so edge consumers never receive
  * historical events.
  *
- * The replay read model (`push` / `patchLast` / `removeLastMessages` /
+ * The replay read model (`push` / `patchLast` / `removeMessages` / `cut` /
  * `buildReplay`) is owned here too — it is one more projection of the same
- * record stream, fed by `toReplay` facets (declarative) and by direct `push`
- * calls from domain handlers (imperative). The former `eventSink` and
- * `replayBuilder` services are folded into this class; `wireRecord` remains the
- * registered persistence backend that this service coordinates.
+ * record stream, fed by `toReplay` facets (declarative) and by direct calls
+ * from domain handlers (imperative — e.g. `contextMemory` forwarding a
+ * context operation's replay projection). `cut()` marks history-reset
+ * boundaries declared by context operations (compaction / clear) and drives
+ * the partial-resume windowing. The former `eventSink` and `replayBuilder`
+ * services are folded into this class; `wireRecord` remains the registered
+ * persistence backend that this service coordinates.
  */
 
 import { Disposable, toDisposable } from '#/_base/di';
@@ -23,7 +26,6 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { AgentEvent } from '@moonshot-ai/protocol';
 
-import type { ContextMessage } from '#/agent/contextMemory';
 import {
   IAgentWireRecordService,
   type WireRecord,
@@ -40,17 +42,6 @@ import {
   type RecordFacets,
   type RecordServiceOptions,
 } from './record';
-
-// An undo boundary is a `context.splice` that removes messages from the start of
-// the history. It is the canonical (post v1.5 migration) equivalent of the legacy
-// `context.clear` and `context.apply_compaction` records, both of which the v1.5
-// migration rewrites into a `context.splice` with `start === 0` and
-// `deleteCount > 0` (see wireRecord/migration/v1.5.ts). A splice that only
-// appends (`deleteCount === 0`) or removes messages from the middle/end of the
-// history (`start > 0`, e.g. a migrated `context.undo`) is not a boundary.
-function isUndoBoundaryRecord(record: WireRecord): boolean {
-  return record.type === 'context.splice' && record.start === 0 && record.deleteCount > 0;
-}
 
 export class AgentRecordService extends Disposable implements IAgentRecordService {
   declare readonly _serviceBrand: undefined;
@@ -78,7 +69,9 @@ export class AgentRecordService extends Disposable implements IAgentRecordServic
       wireRecord.hooks.onRestoredRecord.register('record-replay', async (ctx, next) => {
         await next();
         this.runReplayFacet(ctx.record as unknown as AgentRecord);
-        if (this.finishRestoringRecord(ctx.record)) {
+        // Once a cut() froze the windowed read model, the requested replay
+        // window is complete — stop restoring further records.
+        if (this.options.range !== undefined && this.frozen) {
           ctx.stop = true;
         }
       }),
@@ -164,10 +157,32 @@ export class AgentRecordService extends Disposable implements IAgentRecordServic
     }
   }
 
-  removeLastMessages(removedMessages: ReadonlySet<ContextMessage>): void {
+  removeMessages(messageIds: ReadonlySet<string>): void {
     if (this.frozen) return;
-    if (removedMessages.size === 0) return;
-    this.removeMessagesFrom(this.replayRecords, removedMessages);
+    if (messageIds.size === 0) return;
+    for (let i = this.replayRecords.length - 1; i >= 0; i--) {
+      const record = this.replayRecords[i]!;
+      if (
+        record.type === 'message' &&
+        record.message.id !== undefined &&
+        messageIds.has(record.message.id)
+      ) {
+        this.replayRecords.splice(i, 1);
+      }
+    }
+  }
+
+  cut(): void {
+    if (this.frozen) return;
+    const start = this.options.range?.start;
+    if (start === undefined) return;
+    const nextSegmentStart = this.segmentStart + this.replayRecords.length;
+    if (nextSegmentStart > start) {
+      this.frozen = true;
+      return;
+    }
+    this.segmentStart = nextSegmentStart;
+    this.replayRecords.splice(0);
   }
 
   buildReplay(): readonly AgentReplayRecord[] {
@@ -220,36 +235,6 @@ export class AgentRecordService extends Disposable implements IAgentRecordServic
     }
   }
 
-  private finishRestoringRecord(record: WireRecord): boolean {
-    const range = this.options.range;
-    if (range === undefined) return false;
-    if (this.frozen) return true;
-    if (!isUndoBoundaryRecord(record)) return false;
-    if (range.start === undefined) return false;
-
-    const start = range.start;
-    const nextSegmentStart = this.segmentStart + this.replayRecords.length;
-    if (nextSegmentStart > start) {
-      this.frozen = true;
-      return true;
-    }
-
-    this.segmentStart = nextSegmentStart;
-    this.replayRecords.splice(0);
-    return false;
-  }
-
-  private removeMessagesFrom(
-    records: AgentReplayRecord[],
-    removedMessages: ReadonlySet<ContextMessage>,
-  ): void {
-    for (let i = records.length - 1; i >= 0; i--) {
-      const record = records[i]!;
-      if (record.type === 'message' && removedMessages.has(record.message)) {
-        records.splice(i, 1);
-      }
-    }
-  }
 }
 
 registerScopedService(

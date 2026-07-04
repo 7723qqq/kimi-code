@@ -5,6 +5,7 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentContextOpsService, AgentContextOpsService } from '#/agent/contextOps';
 import { IAgentRecordService } from '#/agent/record';
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 import { IAgentLifecycleService } from '#/session/agentLifecycle';
@@ -73,6 +74,7 @@ describe('AgentSwarmService', () => {
     ix.stub(IAgentLifecycleService, {});
     ix.stub(ISessionSwarmService, { run: async () => [], cancel: () => {} });
     ix.stub(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
+    ix.set(IAgentContextOpsService, new SyncDescriptor(AgentContextOpsService));
     ix.set(IAgentSystemReminderService, new SyncDescriptor(AgentSystemReminderService));
     ix.set(IAgentSwarmService, new SyncDescriptor(AgentSwarmService));
   });

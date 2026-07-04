@@ -3,8 +3,9 @@ import {
 } from "#/_base/di";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { ensureMessageId, IAgentContextMemoryService } from '#/agent/contextMemory';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
+import { IAgentContextOpsService } from '#/agent/contextOps';
 
 import { IAgentSystemReminderService } from './systemReminder';
 
@@ -13,12 +14,13 @@ export class AgentSystemReminderService extends Disposable implements IAgentSyst
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentContextOpsService private readonly contextOps: IAgentContextOpsService,
   ) {
     super();
   }
 
   appendSystemReminder(content: string, origin: PromptOrigin): ContextMessage {
-    const message: ContextMessage = {
+    const message: ContextMessage = ensureMessageId({
       role: 'user',
       content: [
         {
@@ -28,8 +30,8 @@ export class AgentSystemReminderService extends Disposable implements IAgentSyst
       ],
       toolCalls: [],
       origin,
-    };
-    this.context.splice(this.context.get().length, 0, [message]);
+    });
+    this.contextOps.append(message);
     return message;
   }
 
@@ -40,7 +42,7 @@ export class AgentSystemReminderService extends Disposable implements IAgentSyst
     if (last === undefined || !filter(last)) {
       return false;
     }
-    this.context.splice(lastIndex, 1, []);
+    this.contextOps.remove([{ index: lastIndex, messageId: last.id }]);
     return true;
   }
 }

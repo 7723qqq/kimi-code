@@ -21,6 +21,7 @@ import {
   type ContextMessage,
   type PromptOrigin,
 } from '#/agent/contextMemory';
+import { IAgentContextOpsService } from '#/agent/contextOps';
 import { GoalInjection, type GoalInjectionOptions } from '#/agent/goal/injection/goalInjection';
 import {
   buildGoalBlockedReasonPrompt,
@@ -151,6 +152,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentContextOpsService private readonly contextOps: IAgentContextOpsService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
     @IAgentLoopService loopService: IAgentLoopService,
   ) {
@@ -503,7 +505,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       toolCalls: [],
       origin: GOAL_CONTINUATION_ORIGIN,
     });
-    this.context.splice(this.context.get().length, 0, [message]);
+    this.contextOps.append(message);
     this.turnService.launch(GOAL_CONTINUATION_ORIGIN, message.id);
   }
 

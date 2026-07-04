@@ -70,6 +70,7 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>record</b>\n<size:9><i>Agent</i></size>\n  IAgentRecordService" as record #FDEBD0
   rectangle "<b>blobStore</b>\n<size:9><i>Agent</i></size>\n  IAgentBlobStoreService" as blobStore #FDEBD0
   rectangle "<b>contextMemory</b>\n<size:9><i>Agent</i></size>\n  IAgentContextMemoryService" as contextMemory #FDEBD0
+  rectangle "<b>contextOps</b>\n<size:9><i>Agent</i></size>\n  IAgentContextOpsService" as contextOps #FDEBD0
   rectangle "<b>contextProjector</b>\n<size:9><i>Agent</i></size>\n  IAgentContextProjectorService" as contextProjector #FDEBD0
   rectangle "<b>contextInjector</b>\n<size:9><i>Agent</i></size>\n  IAgentContextInjectorService" as contextInjector #FDEBD0
   rectangle "<b>contextSize</b>\n<size:9><i>Agent</i></size>\n  IAgentContextSizeService" as contextSize #FDEBD0
@@ -164,6 +165,7 @@ filestore --> storage #34495E
 record --> wireRecord #34495E
 contextMemory --> wireRecord #34495E
 contextMemory --> record #34495E
+contextOps --> contextMemory #34495E
 contextInjector --> contextMemory #34495E
 contextInjector --> turn #34495E
 contextInjector --> loop #34495E
@@ -172,6 +174,7 @@ contextSize --> contextMemory #34495E
 contextSize --> record #34495E
 contextSize --> wireRecord #34495E
 systemReminder --> contextMemory #34495E
+systemReminder --> contextOps #34495E
 profile --> wireRecord #34495E
 profile --> record #34495E
 profile --> record #34495E
@@ -180,6 +183,7 @@ profile --> config #34495E
 profile --> modelProvider #34495E
 profile --> chatProvider #34495E
 prompt --> contextMemory #34495E
+prompt --> contextOps #34495E
 prompt --> turn #34495E
 prompt --> loop #34495E
 prompt --> wireRecord #34495E
@@ -188,8 +192,9 @@ turn --> loop #34495E
 turn --> record #34495E
 turn --> wireRecord #34495E
 turn --> contextMemory #34495E
+turn --> contextOps #34495E
 turn --> telemetry #34495E
-loop --> contextMemory #34495E
+loop --> contextOps #34495E
 loop --> contextSize #34495E
 loop --> llmRequester #34495E
 loop --> record #34495E
@@ -242,6 +247,7 @@ goal --> record #34495E
 goal --> telemetry #34495E
 goal --> contextInjector #34495E
 goal --> contextMemory #34495E
+goal --> contextOps #34495E
 goal --> turn #34495E
 goal --> loop #34495E
 goal --> toolRegistry #34495E
@@ -263,6 +269,7 @@ task --> wireRecord #34495E
 task --> telemetry #34495E
 task --> prompt #34495E
 task --> contextMemory #34495E
+task --> contextOps #34495E
 task --> config #34495E
 task --> storage #34495E
 task --> session_context #34495E
@@ -348,7 +355,7 @@ flag ..> config #16A085 : onDidChangeConfiguration
 permissionMode ..> wireRecord #16A085 : permission.set_mode
 userTool ..> wireRecord #16A085 : tools.register_/unregister_user_tool
 profile ..> wireRecord #16A085 : config.update / tools.set_active_tools
-contextMemory ..> wireRecord #16A085 : context.splice
+contextMemory ..> wireRecord #16A085 : context.<type> ops
 cron ..> wireRecord #16A085 : cron.add / delete / cursor
 todo ..> wireRecord #16A085 : todo.set
 fullCompaction ..> wireRecord #16A085 : full_compaction.begin/cancel/complete
@@ -375,7 +382,6 @@ toolStore ..> wireRecord #16A085 : tools.update_store
 usage ..> wireRecord #16A085 : usage.record
 contextSize ..> contextMemory #16A085 : hooks.onSpliced
 contextSize ..> wireRecord #16A085 : context_size.measured
-loop ..> contextMemory #16A085 : hooks.onSpliced
 loop ..> wireRecord #16A085 : hooks.onResumeEnded
 plan ..> wireRecord #16A085 : plan_mode.enter/cancel/exit
 

@@ -3,106 +3,154 @@ import {
 } from "#/_base/di";
 import { OrderedHookSlot } from '#/hooks';
 import { IAgentRecordService, type AgentRecord } from '#/agent/record';
-import { IAgentContextMemoryService } from './contextMemory';
+import type { WireRecordBlobSelector } from '#/agent/wireRecord';
+import {
+  IAgentContextMemoryService,
+  type ContextOperation,
+  type ContextOperationDefinition,
+  type ContextReplayWriter,
+  type ContextSplice,
+  type ContextSplicedEvent,
+} from './contextMemory';
 import { ensureMessageId } from './messageId';
 import type { ContextMessage } from './types';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
+const CONTEXT_OPERATION_PREFIX = 'context.';
+
 declare module '#/agent/wireRecord' {
   interface WireRecordMap {
-    'context.splice': {
-      start: number;
-      deleteCount: number;
-      messages: readonly ContextMessage[];
-      tokens?: number;
-    };
+    [type: `${typeof CONTEXT_OPERATION_PREFIX}${string}`]: { readonly args: readonly unknown[] };
   }
 }
 
 export class AgentContextMemoryService extends Disposable implements IAgentContextMemoryService {
   declare readonly _serviceBrand: undefined;
   private readonly history: ContextMessage[] = [];
+  private readonly operationTypes = new Set<string>();
+  private applying = false;
 
   readonly hooks = {
-    onSpliced: new OrderedHookSlot<{
-      start: number;
-      deleteCount: number;
-      messages: ContextMessage[];
-      tokens?: number;
-    }>(),
+    onSpliced: new OrderedHookSlot<ContextSplicedEvent>(),
   };
 
   constructor(
     @IAgentRecordService private readonly record: IAgentRecordService,
   ) {
     super();
+    // The wire map accepts any `context.${string}` type, so unknown operation
+    // types can't be caught at compile time — fail the restore loudly instead
+    // of silently dropping an unclaimed context record.
     this._register(
-      record.define('context.splice', {
-        resume: (r) => {
-          this.applySplice(r);
-        },
-        blobs: (r) =>
-          r.messages.map((message, index) => ({
-            parts: message.content,
-            replace: (current, content) => ({
-              ...current,
-              messages: current.messages.map((item, itemIndex) =>
-                itemIndex === index ? { ...item, content: [...content] } : item,
-              ),
-            }),
-          })),
+      this.record.hooks.onRestoredRecord.register('context-operation-guard', async (ctx, next) => {
+        const type = ctx.record.type;
+        if (type.startsWith(CONTEXT_OPERATION_PREFIX) && !this.operationTypes.has(type)) {
+          throw new Error(`No context operation registered for restored record "${type}"`);
+        }
+        await next();
       }),
     );
+  }
+
+  defineOperation<T extends readonly unknown[]>(
+    definition: ContextOperationDefinition<T>,
+  ): ContextOperation<T> {
+    const recordType = `${CONTEXT_OPERATION_PREFIX}${definition.type}` as const;
+    if (this.operationTypes.has(recordType)) {
+      throw new Error(`Context operation "${recordType}" is already defined`);
+    }
+    this.operationTypes.add(recordType);
+    const blobs = definition.blobs;
+    this._register(
+      this.record.define(recordType, {
+        resume: (record) => {
+          this.runOperation(definition, record.args as T);
+        },
+        blobs:
+          blobs === undefined
+            ? undefined
+            : (adaptBlobSelector(blobs) as unknown as WireRecordBlobSelector<
+                AgentRecord<typeof recordType>
+              >),
+      }),
+    );
+    return (...args: T): void => {
+      if (this.applying) {
+        throw new Error(
+          `Context operation "${recordType}" invoked while another operation is applying`,
+        );
+      }
+      this.record.append({ type: recordType, args });
+      this.runOperation(definition, args);
+    };
   }
 
   get(): readonly ContextMessage[] {
     return [...this.history];
   }
 
-  splice(
-    start: number,
-    deleteCount: number,
-    messages: readonly ContextMessage[],
-    tokens?: number,
+  private runOperation<T extends readonly unknown[]>(
+    definition: ContextOperationDefinition<T>,
+    args: T,
   ): void {
-    const stamped = messages.map(ensureMessageId);
-    const record: AgentRecord<'context.splice'> = {
-      type: 'context.splice',
-      start,
-      deleteCount,
-      messages: stamped,
-      tokens,
-    };
-    this.record.append(record);
-    this.applySplice(record);
+    this.applying = true;
+    try {
+      definition.apply(this.splice, ...args);
+      definition.replay(this.replayWriter, ...args);
+    } finally {
+      this.applying = false;
+    }
   }
 
-  private applySplice(record: AgentRecord<'context.splice'>): void {
-    // A boundary splice (`start === 0 && deleteCount > 0`, i.e. compaction or
-    // clear — see `isUndoBoundaryRecord`) never touches the replay: the removed
-    // transcript stays visible, and what it inserts (a compaction summary) is
-    // context machinery represented by its owner's record, not a message.
-    // Every other splice mirrors itself into the replay.
-    const boundary = record.start === 0 && record.deleteCount > 0;
-    const removedMessages = boundary
-      ? []
-      : this.history.slice(record.start, record.start + record.deleteCount);
-    const messages = record.messages.map(ensureMessageId);
-    this.history.splice(record.start, record.deleteCount, ...messages);
-    if (!boundary) {
-      this.record.removeLastMessages(new Set(removedMessages));
-      for (const message of messages) {
-        this.record.push({ type: 'message', message });
-      }
-    }
+  private readonly splice: ContextSplice = (start, deleteCount, insert, tokens) => {
+    const boundedStart = normalizeSpliceStart(start, this.history.length);
+    const boundedDeleteCount = clampDeleteCount(deleteCount, this.history.length - boundedStart);
+    const messages = insert.map(ensureMessageId);
+    this.history.splice(boundedStart, boundedDeleteCount, ...messages);
     void this.hooks.onSpliced.run({
-      start: record.start,
-      deleteCount: record.deleteCount,
+      start: boundedStart,
+      deleteCount: boundedDeleteCount,
       messages,
-      tokens: record.tokens,
+      tokens,
     });
-  }
+  };
+
+  private readonly replayWriter: ContextReplayWriter = {
+    push: (record) => {
+      this.record.push(record);
+    },
+    removeMessages: (messageIds) => {
+      this.record.removeMessages(messageIds);
+    },
+    cut: () => {
+      this.record.cut();
+    },
+  };
+}
+
+function normalizeSpliceStart(start: number, length: number): number {
+  if (Number.isNaN(start)) return length;
+  if (start < 0) return Math.max(0, length + Math.floor(start));
+  return Math.min(Math.floor(start), length);
+}
+
+function clampDeleteCount(deleteCount: number, max: number): number {
+  if (Number.isNaN(deleteCount) || deleteCount <= 0) return 0;
+  return Math.min(Math.floor(deleteCount), Math.max(0, max));
+}
+
+function adaptBlobSelector<T extends readonly unknown[]>(
+  blobs: NonNullable<ContextOperationDefinition<T>['blobs']>,
+): WireRecordBlobSelector<{ args: T }> {
+  return (record) =>
+    Array.from(blobs(record.args), (target) => ({
+      parts: target.parts,
+      replace: (current: { args: T }, parts: NonNullable<typeof target.parts>) => ({
+        ...current,
+        args: target.replace(current.args, parts),
+      }),
+    }));
 }
 
 registerScopedService(

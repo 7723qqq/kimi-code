@@ -98,13 +98,13 @@ describe('1.4 to 1.5', () => {
         },
       ]),
     ).toMatchInlineSnapshot(`
-      [wire] metadata         { "protocol_version": "<protocol-version>", "created_at": "<time>" }
-      [wire] context.splice   { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "hello" } ], "toolCalls": [], "origin": { "kind": "user" } } ], "time": "<time>" }
-      [wire] turn.launch      { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
-      [wire] context.splice   { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "checking" } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] context.splice   { "start": 1, "deleteCount": 1, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "checking" } ], "toolCalls": [ { "type": "function", "id": "call_1", "name": "Read", "arguments": "{\\"file\\":\\"example.test\\"}" } ] } ], "time": "<time>" }
-      [wire] context.splice   { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "contents" } ], "toolCalls": [], "toolCallId": "call_1" } ], "time": "<time>" }
-      [wire] context.splice   { "start": 3, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "queued while tool runs" } ], "toolCalls": [], "origin": { "kind": "system_trigger", "name": "queued" } } ], "time": "<time>" }
+      [wire] metadata          { "protocol_version": "<protocol-version>", "created_at": "<time>" }
+      [wire] context.append    { "args": [ { "role": "user", "content": [ { "type": "text", "text": "hello" } ], "toolCalls": [], "origin": { "kind": "user" }, "id": "<msg-1>" } ], "time": "<time>" }
+      [wire] turn.launch       { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+      [wire] context.append    { "args": [ { "role": "assistant", "content": [ { "type": "text", "text": "checking" } ], "toolCalls": [], "id": "<msg-2>" } ], "time": "<time>" }
+      [wire] context.replace   { "args": [ 1, { "role": "assistant", "content": [ { "type": "text", "text": "checking" } ], "toolCalls": [ { "type": "function", "id": "call_1", "name": "Read", "arguments": "{\\"file\\":\\"example.test\\"}" } ], "id": "<msg-2>" } ], "time": "<time>" }
+      [wire] context.append    { "args": [ { "role": "tool", "content": [ { "type": "text", "text": "contents" } ], "toolCalls": [], "toolCallId": "call_1", "id": "<msg-3>" } ], "time": "<time>" }
+      [wire] context.append    { "args": [ { "role": "user", "content": [ { "type": "text", "text": "queued while tool runs" } ], "toolCalls": [], "origin": { "kind": "system_trigger", "name": "queued" }, "id": "<msg-4>" } ], "time": "<time>" }
     `);
   });
 
@@ -210,16 +210,14 @@ describe('1.4 to 1.5', () => {
       [wire] metadata                   { "protocol_version": "<protocol-version>", "created_at": "<time>" }
       [wire] goal.create                { "goalId": "goal-1", "objective": "finish migration", "time": "<time>" }
       [wire] goal.clear                 { "time": "<time>" }
-      [wire] context.splice             { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "before tool" } ], "toolCalls": [], "origin": { "kind": "user" } } ], "time": "<time>" }
-      [wire] turn.launch                { "turnId": 2, "origin": { "kind": "system_trigger", "name": "migrated_turn" }, "time": "<time>" }
-      [wire] context.splice             { "start": 1, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [], "toolCalls": [ { "type": "function", "id": "call_interrupted", "name": "Write", "arguments": "{\\"file\\":\\"example.test\\"}" } ] } ], "time": "<time>" }
-      [wire] turn.launch                { "turnId": 3, "origin": { "kind": "system_trigger", "name": "migrated_turn" }, "time": "<time>" }
-      [wire] context.splice             { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "<system>ERROR: Tool execution failed.</system>\\nTool execution was interrupted before its result was recorded. Do not assume the tool completed successfully." } ], "toolCalls": [], "toolCallId": "call_interrupted", "isError": true } ], "time": "<time>" }
-      [wire] context.splice             { "start": 3, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "after interruption" } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] context.splice             { "start": 0, "deleteCount": 2, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "compacted summary" } ], "toolCalls": [], "origin": { "kind": "compaction_summary" } } ], "time": "<time>" }
+      [wire] context.append             { "args": [ { "role": "user", "content": [ { "type": "text", "text": "before tool" } ], "toolCalls": [], "origin": { "kind": "user" }, "id": "<msg-1>" } ], "time": "<time>" }
+      [wire] context.append             { "args": [ { "role": "assistant", "content": [], "toolCalls": [ { "type": "function", "id": "call_interrupted", "name": "Write", "arguments": "{\\"file\\":\\"example.test\\"}" } ], "id": "<msg-2>" } ], "time": "<time>" }
+      [wire] context.append             { "args": [ { "role": "tool", "content": [ { "type": "text", "text": "<system>ERROR: Tool execution failed.</system>\\nTool execution was interrupted before its result was recorded. Do not assume the tool completed successfully." } ], "toolCalls": [], "toolCallId": "call_interrupted", "isError": true, "id": "<msg-3>" } ], "time": "<time>" }
+      [wire] context.append             { "args": [ { "role": "assistant", "content": [ { "type": "text", "text": "after interruption" } ], "toolCalls": [], "id": "<msg-4>" } ], "time": "<time>" }
+      [wire] context.compact            { "args": [ 2, { "role": "assistant", "content": [ { "type": "text", "text": "compacted summary" } ], "toolCalls": [], "origin": { "kind": "compaction_summary" }, "id": "<msg-5>" }, 20 ], "time": "<time>" }
       [wire] full_compaction.complete   { "compactedCount": 2, "tokensBefore": 100, "tokensAfter": 20, "time": "<time>" }
-      [wire] context.splice             { "start": 3, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "remove this" } ], "toolCalls": [], "origin": { "kind": "user" } } ], "time": "<time>" }
-      [wire] context.splice             { "start": 3, "deleteCount": 1, "messages": [], "time": "<time>" }
+      [wire] context.append             { "args": [ { "role": "user", "content": [ { "type": "text", "text": "remove this" } ], "toolCalls": [], "origin": { "kind": "user" }, "id": "<msg-6>" } ], "time": "<time>" }
+      [wire] context.undo               { "args": [ [ { "index": 3, "messageId": "<msg-6>" } ] ], "time": "<time>" }
     `);
   });
 });

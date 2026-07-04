@@ -27,6 +27,7 @@ import {
 } from './types';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentContextOpsService } from '#/agent/contextOps';
 import { IConfigService } from '#/app/config';
 import { IAgentPromptService } from '#/agent/prompt';
 import { ISessionContext } from '#/session/sessionContext';
@@ -49,9 +50,6 @@ import {
 } from './task';
 import { LEGACY_BACKGROUND_SECTION, TASK_SECTION, type AgentTaskConfig } from './configSection';
 import { AgentTaskPersistence } from './persist';
-import { TaskListTool } from '#/agent/task/tools/task-list';
-import { TaskOutputTool } from '#/agent/task/tools/task-output';
-import { TaskStopTool } from '#/agent/task/tools/task-stop';
 import { OrderedHookSlot } from '#/hooks';
 
 declare module '#/agent/wireRecord' {
@@ -148,6 +146,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentPromptService private readonly prompt: IAgentPromptService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentContextOpsService private readonly contextOps: IAgentContextOpsService,
     @IConfigService private readonly config: IConfigService,
     @IAtomicDocumentStore atomicDocs: IAtomicDocumentStore,
     @IFileSystemStorageService byteStore: IFileSystemStorageService,
@@ -832,14 +831,12 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   private async restoreAgentTaskNotification(info: AgentTaskInfo): Promise<void> {
     const context = await this.buildAgentTaskNotificationContext(info);
     if (context === undefined) return;
-    this.context.splice(this.context.get().length, 0, [
-      {
-        role: 'user',
-        content: [...context.content],
-        toolCalls: [],
-        origin: context.origin,
-      },
-    ]);
+    this.contextOps.append({
+      role: 'user',
+      content: [...context.content],
+      toolCalls: [],
+      origin: context.origin,
+    });
     this.fireNotificationHook(context.notification);
   }
 

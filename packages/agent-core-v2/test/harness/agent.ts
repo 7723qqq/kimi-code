@@ -5,7 +5,7 @@ import { Readable, type Writable } from 'node:stream';
 import { createControlledPromise } from '@antfu/utils';
 import { expect, vi } from 'vitest';
 
-import { toDisposable } from '#/_base/di';
+import { createDecorator, toDisposable } from '#/_base/di';
 import { Event } from '#/_base/event';
 import type { PromisifyMethods } from '#/_base/utils/types';
 import { escapeXmlAttr } from '#/_base/utils/xml-escape';
@@ -43,7 +43,6 @@ import type {
   WireRecordRestoreResult,
 } from '#/agent/wireRecord';
 import { IOAuthService } from '#/app/auth/auth';
-import { IChatProviderFactory } from '#/app/chatProvider';
 import type { SkillCatalog } from '#/app/globalSkillCatalog/types';
 import {
   isToolCall,
@@ -62,6 +61,14 @@ import {
   type generate as kosongGenerate,
 } from '#/app/llmProtocol/kosong';
 import type { ILogger, LogContext, LogLevel } from '#/app/log';
+
+interface IChatProviderFactory {
+  readonly _serviceBrand: undefined;
+  create(config: ProviderConfig): ChatProvider;
+  register(provider: ChatProvider): void;
+}
+
+const IChatProviderFactory = createDecorator<IChatProviderFactory>('chatProviderFactory');
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
@@ -81,6 +88,7 @@ import {
   IBootstrapService,
   IConfigService,
   IAgentContextMemoryService,
+  IAgentContextOpsService,
   IAgentContextProjectorService,
   IAgentContextSizeService,
   IAgentEventSinkService,
@@ -1756,8 +1764,7 @@ export class AgentTestContext {
 
   private appendMessage(...messages: ContextMessage[]): void {
     if (messages.length === 0) return;
-    const context = this.get(IAgentContextMemoryService);
-    context.splice(context.get().length, 0, messages);
+    this.get(IAgentContextOpsService).append(...messages);
   }
 
   private coverUsage(tokenTotal: number | undefined): void {
