@@ -2,11 +2,11 @@
  * `contextOps` domain (L4) — `IAgentContextOpsService` implementation.
  *
  * Defines the standard operations against `contextMemory`'s operation
- * registry. `append` splices at the end (Infinity start) and mirrors each
- * message into the replay read model; `remove` splices out each resolved
- * target and drops the matching replay messages; `clear` drops the whole
- * history and cuts a new replay segment; `replace` swaps one message in
- * place and patches the replay copy by removing/re-pushing it. Message
+ * registry. `append` and `append_system_reminder` splice at the end
+ * (Infinity start) and mirror each message into the replay read model;
+ * `remove` splices out each resolved target and drops the matching replay
+ * messages; `clear` drops the whole history and cuts a new replay segment;
+ * legacy `replace` swaps one message in place for old migrated wire. Message
  * content is offloaded to the blob store through each operation's blob
  * selector. Bound at Agent scope.
  */
@@ -20,11 +20,13 @@ import {
   type ContextMessage,
   type ContextOperation,
   type ContextOperationBlobTarget,
+  type PromptOrigin,
 } from '#/agent/contextMemory';
 
 import {
   IAgentContextOpsService,
   type ContextAppendArgs,
+  type ContextAppendSystemReminderArgs,
   type ContextClearArgs,
   type ContextRemovalTarget,
   type ContextRemoveArgs,
@@ -61,10 +63,30 @@ function messageContentBlobTarget<T extends readonly unknown[]>(
   };
 }
 
+function toSystemReminderMessage(message: ContextMessage): ContextMessage {
+  return {
+    ...message,
+    content: message.content.map((part) =>
+      part.type === 'text'
+        ? { ...part, text: toSystemReminderText(part.text) }
+        : part,
+    ),
+  };
+}
+
+function toSystemReminderText(content: string): string {
+  const trimmed = content.trim();
+  if (trimmed.startsWith('<system-reminder>') && trimmed.endsWith('</system-reminder>')) {
+    return trimmed;
+  }
+  return `<system-reminder>\n${trimmed}\n</system-reminder>`;
+}
+
 export class AgentContextOpsService extends Disposable implements IAgentContextOpsService {
   declare readonly _serviceBrand: undefined;
 
   private readonly appendOperation: ContextOperation<ContextAppendArgs>;
+  private readonly appendSystemReminderOperation: ContextOperation<ContextAppendSystemReminderArgs>;
   private readonly removeOperation: ContextOperation<ContextRemoveArgs>;
   private readonly clearOperation: ContextOperation<ContextClearArgs>;
 
@@ -95,6 +117,24 @@ export class AgentContextOpsService extends Disposable implements IAgentContextO
           ),
         ),
     });
+
+    this.appendSystemReminderOperation =
+      context.defineOperation<ContextAppendSystemReminderArgs>({
+        type: 'append_system_reminder',
+        apply: (splice, message) => {
+          splice(Number.POSITIVE_INFINITY, 0, [toSystemReminderMessage(message)]);
+        },
+        replay: (replay, message) => {
+          replay.push({ type: 'message', message: toSystemReminderMessage(message) });
+        },
+        blobs: ([message]) => [
+          messageContentBlobTarget<ContextAppendSystemReminderArgs>(
+            message,
+            (_current, next) => [next],
+            ([current]) => current,
+          ),
+        ],
+      });
 
     this.removeOperation = context.defineOperation<ContextRemoveArgs>({
       type: 'remove',
@@ -144,6 +184,22 @@ export class AgentContextOpsService extends Disposable implements IAgentContextO
   append(...messages: readonly ContextMessage[]): void {
     if (messages.length === 0) return;
     this.appendOperation(...messages.map(ensureMessageId));
+  }
+
+  appendSystemReminder(content: string, origin: PromptOrigin): ContextMessage {
+    const message = ensureMessageId({
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: content.trim(),
+        },
+      ],
+      toolCalls: [],
+      origin,
+    });
+    this.appendSystemReminderOperation(message);
+    return message;
   }
 
   remove(removals: readonly ContextRemovalTarget[]): void {

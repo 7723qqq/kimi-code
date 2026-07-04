@@ -7,7 +7,7 @@ import {
   DenyAllPermissionPolicyService,
   IAgentPermissionPolicyService,
 } from '#/agent/permissionPolicy';
-import { IAgentSystemReminderService } from '#/agent/systemReminder';
+import { IAgentContextOpsService } from '#/agent/contextOps';
 import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import { ISessionBtwService, SIDE_QUESTION_SYSTEM_REMINDER } from '#/session/btw/btw';
 import { SessionBtwService } from '#/session/btw/btwService';
@@ -29,7 +29,7 @@ describe('SessionBtwService', () => {
       id: 'agent-btw-1',
       accessor: {
         get: (id: unknown) => {
-          if (id === IAgentSystemReminderService) return { appendSystemReminder };
+          if (id === IAgentContextOpsService) return { appendSystemReminder };
           if (id === IAgentPermissionPolicyService) return { registerPolicy };
           return undefined;
         },

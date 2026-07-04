@@ -81,7 +81,6 @@ export * from '#/app/web';
 export * from '#/agent/blob';
 export * from '#/agent/contextMemory';
 export * from '#/agent/contextOps';
-export * from '#/agent/systemReminder';
 export * from '#/agent/contextProjector';
 export * from '#/agent/contextSize';
 export * from '#/agent/contextInjector';

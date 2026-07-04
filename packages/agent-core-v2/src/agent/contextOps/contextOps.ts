@@ -4,16 +4,19 @@
  * The standard positional context operations shared across domains:
  * `context.append` (append messages at the end), `context.remove` (remove
  * resolved index/id targets), `context.clear` (drop the whole history and cut
- * the replay segment), and `context.replace` (replace one message in place —
- * emitted by the wire migration only, no live caller). Owning them in one
- * service gives every migrated record type a single registrant that the
- * restore preamble can resolve before replaying the wire log.
+ * the replay segment), and `context.append_system_reminder` (append a
+ * `<system-reminder>` user message). The legacy `context.replace` replay
+ * operation is registered by the implementation for old migrated wire only.
+ * Owning them in one service gives every migrated record type a single
+ * registrant that the restore preamble can resolve before replaying the wire
+ * log.
  */
 
 import { createDecorator } from "#/_base/di";
-import type { ContextMessage } from '#/agent/contextMemory';
+import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 
 export type ContextAppendArgs = readonly ContextMessage[];
+export type ContextAppendSystemReminderArgs = [message: ContextMessage];
 export type ContextReplaceArgs = [index: number, message: ContextMessage];
 
 /**
@@ -35,6 +38,12 @@ export interface IAgentContextOpsService {
 
   /** Append messages at the end of the history (ids stamped when missing). */
   append(...messages: readonly ContextMessage[]): void;
+
+  /**
+   * Append a `<system-reminder>` message to the end of the history.
+   * Returns the raw message recorded by the wire operation.
+   */
+  appendSystemReminder(content: string, origin: PromptOrigin): ContextMessage;
 
   /** Remove the resolved targets (descending indices) from the history. */
   remove(removals: readonly ContextRemovalTarget[]): void;

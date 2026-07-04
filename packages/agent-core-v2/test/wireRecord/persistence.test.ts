@@ -91,6 +91,8 @@ async function createWireHarness(): Promise<{
   readonly dir: string;
   readonly storage: IFileSystemStorageService;
   readonly wire: IAgentWireRecordService;
+  readonly context: IAgentContextMemoryService;
+  readonly contextOps: IAgentContextOpsService;
 }> {
   const dir = await makeDir('wire-service-test');
   const disposable = new DisposableStore();
@@ -118,6 +120,8 @@ async function createWireHarness(): Promise<{
     dir,
     storage,
     wire: ix.get(IAgentWireRecordService),
+    context: ix.get(IAgentContextMemoryService),
+    contextOps: ix.get(IAgentContextOpsService),
   };
 }
 
@@ -294,6 +298,31 @@ describe('AppendLogStore file persistence', () => {
 });
 
 describe('AgentWireRecordService persistence', () => {
+  it('persists raw system reminder args while applying the wrapped context message', async () => {
+    const { storage, wire, context, contextOps } = await createWireHarness();
+
+    contextOps.appendSystemReminder(' Remember this. ', {
+      kind: 'injection',
+      variant: 'host',
+    });
+    await wire.flush();
+
+    expect(context.get()[0]?.content).toEqual([
+      { type: 'text', text: '<system-reminder>\nRemember this.\n</system-reminder>' },
+    ]);
+
+    const records = await readPersistedWireRecords(storage);
+    expect(records.map((record) => record.type)).toEqual([
+      'metadata',
+      'context.append_system_reminder',
+    ]);
+    const record = records[1] as {
+      type: 'context.append_system_reminder';
+      args: readonly [ContextMessage];
+    };
+    expect(record.args[0].content).toEqual([{ type: 'text', text: 'Remember this.' }]);
+  });
+
   it('offloads large content part data URIs to blobsDir during append', async () => {
     const { dir, storage, wire } = await createWireHarness();
     const payload = 'X'.repeat(5000);

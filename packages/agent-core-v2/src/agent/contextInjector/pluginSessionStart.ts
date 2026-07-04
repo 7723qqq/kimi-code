@@ -17,12 +17,12 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { escapeXmlAttr } from '#/_base/utils/xml-escape';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentContextOpsService } from '#/agent/contextOps';
 import { ILogService } from '#/app/log';
 import { IPluginService } from '#/app/plugin';
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
 import type { SkillCatalog, SkillDefinition } from '#/app/globalSkillCatalog/types';
-import { IAgentSystemReminderService } from '#/agent/systemReminder';
 
 import { IAgentContextInjectorService } from './contextInjector';
 
@@ -43,7 +43,7 @@ export class PluginSessionStartInjectorService
 
   constructor(
     @IAgentContextInjectorService private readonly injector: IAgentContextInjectorService,
-    @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
+    @IAgentContextOpsService private readonly contextOps: IAgentContextOpsService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IPluginService private readonly plugins: IPluginService,
     @ISessionSkillCatalog private readonly skillCatalog: ISessionSkillCatalog,
@@ -80,12 +80,12 @@ export class PluginSessionStartInjectorService
       log: this.log,
     });
     if (reminder !== undefined) {
-      this.reminders.appendSystemReminder(
+      this.contextOps.appendSystemReminder(
         `${reminder}\n\nThis supersedes any earlier plugin_session_start reminder in this session.`,
         { kind: 'injection', variant: INJECTION_VARIANT },
       );
     } else if (shouldNeutralizePluginSessionStart(this.context.get())) {
-      this.reminders.appendSystemReminder(
+      this.contextOps.appendSystemReminder(
         'There are currently no active plugin session starts. ' +
           'This supersedes any earlier plugin_session_start reminder in this session.',
         { kind: 'injection', variant: INJECTION_VARIANT },

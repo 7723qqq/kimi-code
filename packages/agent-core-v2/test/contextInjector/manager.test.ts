@@ -10,8 +10,6 @@ import { AgentContextInjectorService } from '#/agent/contextInjector/contextInje
 import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
 import { IAgentContextOpsService, AgentContextOpsService } from '#/agent/contextOps';
 import { IAgentLoopService } from '#/agent/loop';
-import { IAgentSystemReminderService } from '#/agent/systemReminder';
-import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
 import { IAgentTurnService } from '#/agent/turn';
 import { registerContextMemoryServices, type StubContextMemory } from '../contextMemory/stubs';
 import { stubLoopWithHooks, stubTurnWithHooks } from '../turn/stubs';
@@ -62,7 +60,6 @@ describe('AgentContextInjectorService', () => {
         reg.defineInstance(IAgentLoopService, stubLoopWithHooks());
         reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
         reg.define(IAgentContextOpsService, AgentContextOpsService);
-        reg.define(IAgentSystemReminderService, AgentSystemReminderService);
         reg.define(IAgentContextInjectorService, AgentContextInjectorService);
       },
     });

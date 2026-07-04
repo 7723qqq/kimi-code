@@ -30,12 +30,12 @@ export interface ServiceNode {
    * bound at App and Session).
    */
   id: string;
-  /** Token identifier (e.g. `IAgentSystemReminderService`). */
+  /** Token identifier (e.g. `IAgentContextOpsService`). */
   token: string;
-  /** Impl class name (e.g. `AgentSystemReminderService`). */
+  /** Impl class name (e.g. `AgentContextOpsService`). */
   impl: string;
   scope: ServiceScope;
-  /** First folder under `src/` (e.g. `systemReminder`). */
+  /** First folder under `src/` (e.g. `contextOps`). */
   domain: string;
   /** Repo-relative path of the impl file. */
   file: string;

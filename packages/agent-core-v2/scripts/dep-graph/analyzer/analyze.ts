@@ -236,7 +236,7 @@ function sameRef(a: EdgeRef, b: EdgeRef): boolean {
 /**
  * Collect every top-level `interface` declaration in the tree, keyed by
  * name. Used to pull each service's public callable surface out of its
- * token interface (e.g. `interface IAgentSystemReminderService { ... }`)
+ * token interface (e.g. `interface IAgentContextOpsService { ... }`)
  * so the graph view can render every method as a port row even when
  * nothing calls into it yet.
  *

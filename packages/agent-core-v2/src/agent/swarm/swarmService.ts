@@ -1,17 +1,17 @@
 /**
  * `swarm` domain (L4) — `IAgentSwarmService` implementation.
  *
- * Tracks swarm-mode enter/exit (mirroring it into `wireRecord` and
- * `systemReminder`) and auto-exits on turn end. Bound at Agent scope. The
- * `AgentSwarm` tool self-registers via `registerTool(...)` in
- * `tools/agent-swarm.ts`.
+ * Tracks swarm-mode enter/exit (mirroring it into `wireRecord` and context
+ * operations) and auto-exits on turn end. Bound at Agent scope. The `AgentSwarm`
+ * tool self-registers via `registerTool(...)` in `tools/agent-swarm.ts`.
  */
 
 import { Disposable } from '#/_base/di';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentContextOpsService } from '#/agent/contextOps';
 import { IAgentRecordService } from '#/agent/record';
-import { IAgentSystemReminderService } from '#/agent/systemReminder';
 import { IAgentTurnService } from '#/agent/turn';
 import SWARM_MODE_ENTER_REMINDER from './enter-reminder.md?raw';
 import SWARM_MODE_EXIT_REMINDER from './exit-reminder.md?raw';
@@ -36,7 +36,8 @@ export class AgentSwarmService extends Disposable implements IAgentSwarmService 
 
   constructor(
     @IAgentRecordService private readonly record: IAgentRecordService,
-    @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentContextOpsService private readonly contextOps: IAgentContextOpsService,
     @IAgentTurnService turnService: IAgentTurnService,
   ) {
     super();
@@ -93,7 +94,10 @@ export class AgentSwarmService extends Disposable implements IAgentSwarmService 
     if (this._active !== null) return;
     this._active = trigger;
     if (injectReminder && trigger !== 'tool') {
-      this.reminders.appendSystemReminder(SWARM_MODE_ENTER_REMINDER, { kind: 'injection', variant: 'swarm_mode' });
+      this.contextOps.appendSystemReminder(SWARM_MODE_ENTER_REMINDER, {
+        kind: 'injection',
+        variant: 'swarm_mode',
+      });
     }
     this.emitChanged();
   }
@@ -102,13 +106,25 @@ export class AgentSwarmService extends Disposable implements IAgentSwarmService 
     if (this._active === null) return;
     const trigger = this._active;
     this._active = null;
-    const removedEnterReminder = trigger !== 'tool' && this.reminders.removeLastReminder(
-      (m) => m.origin?.kind === 'injection' && m.origin.variant === 'swarm_mode',
-    );
+    const removedEnterReminder = trigger !== 'tool' && this.removeLastSwarmEnterReminder();
     if (injectExitReminder && trigger !== 'tool' && !removedEnterReminder) {
-      this.reminders.appendSystemReminder(SWARM_MODE_EXIT_REMINDER, { kind: 'injection', variant: 'swarm_mode_exit' });
+      this.contextOps.appendSystemReminder(SWARM_MODE_EXIT_REMINDER, {
+        kind: 'injection',
+        variant: 'swarm_mode_exit',
+      });
     }
     this.emitChanged();
+  }
+
+  private removeLastSwarmEnterReminder(): boolean {
+    const history = this.context.get();
+    const lastIndex = history.length - 1;
+    const last = history[lastIndex];
+    if (last?.origin?.kind !== 'injection' || last.origin.variant !== 'swarm_mode') {
+      return false;
+    }
+    this.contextOps.remove([{ index: lastIndex, messageId: last.id }]);
+    return true;
   }
 
   private emitChanged(): void {

@@ -16,7 +16,7 @@ import {
   DenyAllPermissionPolicyService,
   IAgentPermissionPolicyService,
 } from '#/agent/permissionPolicy';
-import { IAgentSystemReminderService } from '#/agent/systemReminder';
+import { IAgentContextOpsService } from '#/agent/contextOps';
 import { IAgentLifecycleService } from '#/session/agentLifecycle';
 
 import { ISessionBtwService, SIDE_QUESTION_SYSTEM_REMINDER, TOOL_CALL_DISABLED_MESSAGE } from './btw';
@@ -31,7 +31,7 @@ export class SessionBtwService implements ISessionBtwService {
   async start(): Promise<string> {
     const child = await this.lifecycle.fork('main');
     child.accessor
-      .get(IAgentSystemReminderService)
+      .get(IAgentContextOpsService)
       ?.appendSystemReminder(SIDE_QUESTION_SYSTEM_REMINDER, {
         kind: 'system_trigger',
         name: 'btw',

@@ -5,9 +5,9 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
+import { IAgentContextOpsService } from '#/agent/contextOps';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentLoopService } from '#/agent/loop';
-import { IAgentSystemReminderService } from '#/agent/systemReminder';
 import { IAgentTurnService } from '#/agent/turn';
 import type { ContextMessage } from '#/agent/contextMemory';
 import {
@@ -33,7 +33,7 @@ export class AgentContextInjectorService extends Disposable implements IAgentCon
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentTurnService turnService: IAgentTurnService,
     @IAgentLoopService loopService: IAgentLoopService,
-    @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
+    @IAgentContextOpsService private readonly contextOps: IAgentContextOpsService,
   ) {
     super();
     this._register(
@@ -89,7 +89,7 @@ export class AgentContextInjectorService extends Disposable implements IAgentCon
       });
       if (!this.entries.has(entry)) continue;
       if (content === undefined || content.trim().length === 0) continue;
-      this.reminders.appendSystemReminder(content, {
+      this.contextOps.appendSystemReminder(content, {
         kind: 'injection',
         variant: entry.variant,
       });

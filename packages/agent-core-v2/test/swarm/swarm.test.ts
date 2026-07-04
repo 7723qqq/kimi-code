@@ -1,33 +1,29 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeAgentScopeContext } from '#/agent/scopeContext';
-
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentContextOpsService, AgentContextOpsService } from '#/agent/contextOps';
+import { AgentContextOpsService, IAgentContextOpsService } from '#/agent/contextOps';
 import { IAgentRecordService } from '#/agent/record';
-const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
-import { IAgentLifecycleService } from '#/session/agentLifecycle';
-import { ISessionSwarmService } from '#/session/swarm';
-import type {
-  SessionSwarmRunResult,
-  SessionSwarmTask,
-} from '#/session/swarm';
-import { IAgentScopeContext } from '#/agent/scopeContext';
-import { IAgentSystemReminderService } from '#/agent/systemReminder';
-import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentSwarmService } from '#/agent/swarm';
 import { AgentSwarmService } from '#/agent/swarm/swarmService';
 import { AgentSwarmTool, AgentSwarmToolInputSchema } from '#/agent/swarm/tools/agent-swarm';
 import type { ExecutableToolContext } from '#/agent/tool';
-import { IAgentToolRegistryService, AgentToolRegistryService } from '#/agent/toolRegistry';
+import { AgentToolRegistryService, IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentTurnService } from '#/agent/turn';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
-
-import { stubContextMemory, stubWireRecord } from '../contextMemory/stubs';
+import { IAgentLifecycleService } from '#/session/agentLifecycle';
+import type {
+  SessionSwarmRunResult,
+  SessionSwarmTask,
+} from '#/session/swarm';
+import { ISessionSwarmService } from '#/session/swarm';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubContextMemory, stubWireRecord, type StubContextMemory } from '../contextMemory/stubs';
 import { executeTool } from '../tools/fixtures/execute-tool';
 import { stubTurnWithHooks } from '../turn/stubs';
+
+const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 
 const signal = new AbortController().signal;
 
@@ -75,7 +71,6 @@ describe('AgentSwarmService', () => {
     ix.stub(ISessionSwarmService, { run: async () => [], cancel: () => {} });
     ix.stub(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
     ix.set(IAgentContextOpsService, new SyncDescriptor(AgentContextOpsService));
-    ix.set(IAgentSystemReminderService, new SyncDescriptor(AgentSystemReminderService));
     ix.set(IAgentSwarmService, new SyncDescriptor(AgentSwarmService));
   });
   afterEach(() => disposables.dispose());
@@ -87,6 +82,43 @@ describe('AgentSwarmService', () => {
     expect(swarm.isActive).toBe(true);
     swarm.exit();
     expect(swarm.isActive).toBe(false);
+  });
+
+  it('removes the swarm enter reminder on exit when it is the last message', () => {
+    const context = ix.get(IAgentContextMemoryService) as StubContextMemory;
+    const swarm = ix.get(IAgentSwarmService);
+
+    swarm.enter('manual');
+    expect(context.messages).toHaveLength(1);
+    expect(context.messages[0]?.origin).toEqual({ kind: 'injection', variant: 'swarm_mode' });
+
+    swarm.exit();
+
+    expect(context.messages).toHaveLength(0);
+  });
+
+  it('keeps the swarm enter reminder on exit when it is not the last message', () => {
+    const context = ix.get(IAgentContextMemoryService) as StubContextMemory;
+    const swarm = ix.get(IAgentSwarmService);
+
+    swarm.enter('manual');
+    context.splice(Number.POSITIVE_INFINITY, 0, [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'later message' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
+    ]);
+    swarm.exit();
+
+    expect(context.messages).toHaveLength(3);
+    expect(context.messages[0]?.origin).toEqual({ kind: 'injection', variant: 'swarm_mode' });
+    expect(context.messages[1]?.origin).toEqual({ kind: 'user' });
+    expect(context.messages[2]?.origin).toEqual({
+      kind: 'injection',
+      variant: 'swarm_mode_exit',
+    });
   });
 });
 

@@ -1274,12 +1274,10 @@ export class AgentTestContext {
     content: string,
     origin: ContextMessage['origin'] = { kind: 'injection', variant: 'system-reminder' },
   ): void {
-    this.appendMessage({
-      role: 'user',
-      content: [{ type: 'text', text: `<system-reminder>\n${content.trim()}\n</system-reminder>` }],
-      toolCalls: [],
-      origin,
-    });
+    this.get(IAgentContextOpsService).appendSystemReminder(
+      content,
+      origin ?? { kind: 'injection', variant: 'system-reminder' },
+    );
   }
 
   appendLocalCommandStdout(content: string): void {

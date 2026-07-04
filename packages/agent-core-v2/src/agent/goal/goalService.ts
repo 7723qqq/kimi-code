@@ -4,7 +4,7 @@
  * Owns the per-agent goal lifecycle; persists records and broadcasts through
  * `record`, injects reminders through `contextInjector`, drives continuation
  * turns through `turn`, participates in steps through `loop`, updates context
- * through `contextMemory`, writes system reminders through `systemReminder`,
+ * through `contextMemory`, writes system reminders through `contextOps`,
  * registers model tools through `toolRegistry`, and reports telemetry through
  * `telemetry`. Bound at Agent scope.
  */
@@ -33,7 +33,6 @@ import {
   type TurnBeforeStepContext,
 } from '#/agent/loop';
 import { IAgentRecordService, type AgentRecord } from '#/agent/record';
-import { IAgentSystemReminderService } from '#/agent/systemReminder';
 import { IAgentTurnService, type Turn, type TurnEndedContext } from '#/agent/turn';
 import type { TokenUsage } from '#/app/llmProtocol';
 import type { TelemetryProperties } from '#/app/telemetry';
@@ -148,7 +147,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   constructor(
     private readonly options: GoalServiceOptions = {},
     @IAgentRecordService private readonly record: IAgentRecordService,
-    @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -358,7 +356,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     const snapshot = this.toSnapshot(state);
     this.clearInternal(actor);
     if (actor === 'user') {
-      this.reminders.appendSystemReminder(GOAL_CANCELLED_REMINDER, {
+      this.contextOps.appendSystemReminder(GOAL_CANCELLED_REMINDER, {
         kind: 'system_trigger',
         name: 'goal_cancelled',
       });
@@ -380,7 +378,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this.appendStatusUpdate(state, actor, input.reason);
     const snapshot = this.toSnapshot(state);
     if (actor === 'model') {
-      this.reminders.appendSystemReminder(buildGoalBlockedReasonPrompt(snapshot), {
+      this.contextOps.appendSystemReminder(buildGoalBlockedReasonPrompt(snapshot), {
         kind: 'system_trigger',
         name: GOAL_BLOCKED_REMINDER_NAME,
       });
@@ -406,7 +404,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       actor,
     });
     if (actor === 'model') {
-      this.reminders.appendSystemReminder(buildGoalCompletionSummaryPrompt(snapshot), {
+      this.contextOps.appendSystemReminder(buildGoalCompletionSummaryPrompt(snapshot), {
         kind: 'system_trigger',
         name: GOAL_COMPLETION_REMINDER_NAME,
       });
@@ -593,7 +591,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     const hadGoal = this.state !== undefined;
     this.state = undefined;
     if (!hadGoal) return;
-    this.reminders.appendSystemReminder(GOAL_FORK_CLEARED_REMINDER, {
+    this.contextOps.appendSystemReminder(GOAL_FORK_CLEARED_REMINDER, {
       kind: 'system_trigger',
       name: 'goal_fork_cleared',
     });
