@@ -570,8 +570,8 @@ describe('Plan service', () => {
         [wire] plan_mode.enter         { "id": "test-plan", "time": "<time>" }
         [emit] agent.status.updated    { "planMode": true }
         [wire] context.splice          { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Inspect without mutating files" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
-        [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
-        [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
+        [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+        [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" } }
         [wire] context.splice          { "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<plan-mode-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "plan_mode" }, "id": "<msg-2>" } ], "time": "<time>" }
         [emit] turn.step.started       { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
         [emit] assistant.delta         { "turnId": 0, "delta": "I will inspect safely." }
@@ -634,8 +634,8 @@ describe('Plan service', () => {
         [wire] plan_mode.enter         { "id": "test-plan", "time": "<time>" }
         [emit] agent.status.updated    { "planMode": true }
         [wire] context.splice          { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Remove forbidden.txt" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
-        [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
-        [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
+        [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+        [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" } }
         [wire] context.splice          { "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<plan-mode-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "plan_mode" }, "id": "<msg-2>" } ], "time": "<time>" }
         [emit] turn.step.started       { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
         [emit] assistant.delta         { "turnId": 0, "delta": "I will mutate a file." }

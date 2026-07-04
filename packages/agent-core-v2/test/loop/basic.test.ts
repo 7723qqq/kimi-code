@@ -42,8 +42,8 @@ describe('Agent loop', () => {
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
       [wire] tools.set_active_tools   { "names": [], "time": "<time>" }
       [wire] context.splice           { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
-      [wire] turn.launch              { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
-      [emit] turn.started             { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
+      [wire] turn.launch              { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+      [emit] turn.started             { "turnId": 0, "origin": { "kind": "user" } }
       [emit] turn.step.started        { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] thinking.delta           { "turnId": 0, "delta": "<think-1>" }
       [emit] assistant.delta          { "turnId": 0, "delta": "<text-1>" }
@@ -75,8 +75,8 @@ describe('Agent loop', () => {
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
       [wire] context.splice          { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
-      [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
-      [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
+      [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+      [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" } }
       [emit] turn.step.started       { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] assistant.delta         { "turnId": 0, "delta": "blocked" }
       [wire] usage.record            { "model": "mock-model", "usage": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 0 }, "time": "<time>" }
@@ -193,8 +193,8 @@ describe('Agent loop', () => {
     expect(await ctx.untilApproval(true)).toMatchInlineSnapshot(`
       [wire] tools.set_active_tools   { "names": [ "Lookup" ], "time": "<time>" }
       [wire] context.splice           { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Look up moon" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
-      [wire] turn.launch              { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
-      [emit] turn.started             { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
+      [wire] turn.launch              { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+      [emit] turn.started             { "turnId": 0, "origin": { "kind": "user" } }
       [emit] turn.step.started        { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] assistant.delta          { "turnId": 0, "delta": "I will look it up." }
       [emit] tool.call.delta          { "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "argumentsPart": "{\\"query\\":\\"moon\\"}" }

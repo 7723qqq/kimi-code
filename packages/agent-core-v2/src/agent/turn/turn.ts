@@ -7,8 +7,6 @@ export type { TurnResult } from '#/agent/loop';
 
 export interface Turn {
   readonly id: number;
-  /** Id of the user message that triggered this turn, when launched from a prompt. */
-  readonly promptMessageId?: string;
   readonly abortController: AbortController;
   /**
    * Resolves on the first model response event for the first loop step, or at
@@ -25,7 +23,7 @@ export interface TurnEndedContext {
 
 export interface IAgentTurnService {
   readonly _serviceBrand: undefined;
-  launch(origin: PromptOrigin, promptMessageId?: string): Turn;
+  launch(origin: PromptOrigin): Turn;
   getActiveTurn(): Turn | undefined;
 
   readonly hooks: Hooks<{

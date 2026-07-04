@@ -470,8 +470,6 @@ export interface TurnStartedEvent {
   readonly type: 'turn.started';
   readonly turnId: number;
   readonly origin: PromptOrigin;
-  /** Id of the user message that triggered this turn, when launched from a prompt. */
-  readonly promptMessageId?: string;
 }
 
 export interface TurnEndedEvent {

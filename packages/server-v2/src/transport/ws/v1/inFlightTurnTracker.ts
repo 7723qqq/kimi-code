@@ -35,7 +35,6 @@ interface ToolAccum {
 
 interface TurnAccum {
   turnId: number;
-  promptMessageId?: string;
   assistantText: string;
   thinkingText: string;
   tools: Map<string, ToolAccum>;
@@ -56,7 +55,6 @@ export class InFlightTurnTracker {
       case 'turn.started': {
         this.bySession.set(sessionId, {
           turnId: event.turnId,
-          promptMessageId: event.promptMessageId,
           assistantText: '',
           thinkingText: '',
           tools: new Map(),
@@ -131,7 +129,6 @@ export class InFlightTurnTracker {
       assistant_text: turn.assistantText,
       thinking_text: turn.thinkingText,
       running_tools,
-      current_prompt_id: turn.promptMessageId,
     };
   }
 

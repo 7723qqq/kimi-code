@@ -95,7 +95,6 @@ describe('server-v2 GET /api/v1/sessions/:id/snapshot', () => {
     emit(sid, {
       type: 'turn.started',
       turnId: 1,
-      promptMessageId: 'msg_test_prompt_1',
     } as unknown as AgentEvent); // durable → seq 1
     emit(sid, { type: 'assistant.delta', turnId: 1, delta: 'Hello' } as unknown as AgentEvent); // volatile
 
@@ -104,7 +103,6 @@ describe('server-v2 GET /api/v1/sessions/:id/snapshot', () => {
     expect(snap.in_flight_turn).toMatchObject({
       turn_id: 1,
       assistant_text: 'Hello',
-      current_prompt_id: 'msg_test_prompt_1',
     });
   });
 
