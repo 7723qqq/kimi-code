@@ -7,12 +7,11 @@ import type { PromptOrigin } from '#/agent/contextMemory';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { AgentLoopService, IAgentLoopService } from '#/agent/loop';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester';
-import { IAgentProfileService } from '#/agent/profile';
 import { IAgentRecordService } from '#/agent/record';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { AgentTurnService, IAgentTurnService } from '#/agent/turn';
 import { IConfigService } from '#/app/config';
-import { emptyUsage, UNKNOWN_CAPABILITY } from '#/app/llmProtocol';
+import { emptyUsage } from '#/app/llmProtocol';
 import { ILogService } from '#/app/log';
 import { IAgentTelemetryContextService, ITelemetryService } from '#/app/telemetry';
 
@@ -126,17 +125,6 @@ describe('AgentLoopService onStepStarted', () => {
       additionalServices: (reg) => {
         reg.defineInstance(IAgentContextMemoryService, stubContextMemory());
         reg.defineInstance(IAgentRecordService, stubRecord());
-        reg.definePartialInstance(IAgentProfileService, {
-          resolveModelContext: () => ({
-            modelAlias: 'mock-model',
-            modelCapabilities: UNKNOWN_CAPABILITY,
-            maxOutputSize: undefined,
-            alwaysThinking: false,
-            thinkingLevel: 'off',
-            reservedContextSize: undefined,
-            compactionTriggerRatio: undefined,
-          }),
-        });
         reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
         reg.definePartialInstance(IConfigService, {
           get: <T>() => undefined as T,

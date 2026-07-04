@@ -32,7 +32,6 @@ export class AgentTurnService implements IAgentTurnService {
   private nextTurnId = 0;
   private activeTurn: Turn | undefined;
   private lastEndedReasonValue: TurnResult['reason'] | undefined;
-  private readonly turnTelemetry = new Map<number, ITelemetryService>();
 
   readonly hooks = {
     onLaunched: new OrderedHookSlot<{ turn: Turn }>(),
@@ -97,7 +96,6 @@ export class AgentTurnService implements IAgentTurnService {
   ): Promise<TurnResult> {
     const startedAt = Date.now();
     const turnTelemetry = this.telemetry.withContext(this.telemetryContext.get());
-    this.turnTelemetry.set(turn.id, turnTelemetry);
     let result: TurnResult | undefined;
     try {
       turnTelemetry.track('turn_started');
@@ -137,13 +135,12 @@ export class AgentTurnService implements IAgentTurnService {
           this.record.signal({ type: 'error', ...ended.error });
         }
         if (ended.reason !== 'completed') {
-          this.trackTurnInterrupted(turn.id, result.steps ?? 0);
+          turnTelemetry.track('turn_interrupted', { at_step: result.steps ?? 0 });
         }
       }
       if (result !== undefined) {
         await this.hooks.onEnded.run({ turn, result });
       }
-      this.turnTelemetry.delete(turn.id);
     }
   }
 
@@ -203,11 +200,6 @@ export class AgentTurnService implements IAgentTurnService {
     this.context.splice(this.context.get().length, 0, messages);
   }
 
-  private trackTurnInterrupted(turnId: number, atStep: number): void {
-    const telemetry =
-      this.turnTelemetry.get(turnId) ?? this.telemetry.withContext(this.telemetryContext.get());
-    telemetry.track('turn_interrupted', { at_step: atStep });
-  }
 }
 
 function shouldRunUserPromptHook(message: ContextMessage | undefined): message is ContextMessage {

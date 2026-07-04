@@ -1,8 +1,7 @@
 import { createDecorator } from '#/_base/di';
 import type { FinishReason, TokenUsage } from '#/app/llmProtocol';
 import type { Hooks } from '#/hooks';
-
-import type { TurnResult } from './types';
+import type { TurnEndReason } from '@moonshot-ai/protocol';
 
 export interface TurnBeforeStepContext {
   readonly turnId: number;
@@ -33,6 +32,12 @@ export interface RunTurnOptions {
   readonly signal?: AbortSignal;
   /** Fires on the first model response event for a step, or at step completion. */
   readonly onStepStarted?: (step: number) => void;
+}
+
+export interface TurnResult {
+  readonly reason: TurnEndReason;
+  readonly error?: unknown;
+  readonly steps?: number;
 }
 
 export interface IAgentLoopService {

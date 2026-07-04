@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester';
-import { IAgentProfileService } from '#/agent/profile';
 import { IAgentRecordService } from '#/agent/record';
 import type { ToolResult } from '#/agent/tool';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
@@ -15,7 +14,6 @@ import {
   type StreamedMessagePart,
   type TokenUsage,
 } from '#/app/llmProtocol';
-import { ILogService } from '#/app/log';
 import { ErrorCodes, KimiError } from '#/errors';
 import { OrderedHookSlot } from '#/hooks';
 
@@ -31,14 +29,16 @@ import {
   IAgentLoopService,
   type RunTurnOptions,
   type TurnAfterStepContext,
+  type TurnResult,
 } from './loop';
-import type { LoopInterruptReason, TurnResult } from './types';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
 const TOOL_EMPTY_STATUS = '<system>Tool output is empty.</system>';
 const TOOL_EMPTY_ERROR_STATUS =
   '<system>ERROR: Tool execution failed. Tool output is empty.</system>';
 const TOOL_OUTPUT_EMPTY_TEXT = 'Tool output is empty.';
+
+export type LoopInterruptReason = 'aborted' | 'max_steps' | 'error';
 
 export class AgentLoopService implements IAgentLoopService {
   declare readonly _serviceBrand: undefined;
@@ -53,10 +53,8 @@ export class AgentLoopService implements IAgentLoopService {
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentRecordService private readonly record: IAgentRecordService,
-    @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
     @IConfigService private readonly config: IConfigService,
-    @ILogService private readonly log: ILogService,
   ) { }
 
   async runTurn(
@@ -64,7 +62,6 @@ export class AgentLoopService implements IAgentLoopService {
     options: RunTurnOptions = {},
   ): Promise<TurnResult> {
     const signal = options.signal ?? new AbortController().signal;
-    this.profile.resolveModelContext();
 
     let steps = 0;
     let activeStep: number | undefined;
