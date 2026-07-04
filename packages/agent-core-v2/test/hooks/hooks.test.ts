@@ -63,13 +63,123 @@ describe('OrderedHookSlot', () => {
     expect(order).toEqual(['a', 'b', 'c']);
   });
 
-  it('throws when next() is called more than once', async () => {
+  it('re-runs the remaining chain when next() is called more than once', async () => {
     const slot = new OrderedHookSlot<Record<string, never>>();
+    let terminalRuns = 0;
     slot.register('a', async (_ctx, next) => {
       await next();
       await next();
     });
-    await expect(slot.run({})).rejects.toThrow(/next\(\) cannot be called more than once/);
+    await slot.run({}, async () => {
+      terminalRuns += 1;
+    });
+    expect(terminalRuns).toBe(2);
+  });
+
+  it('skips downstream handlers and the terminal when next() is not called', async () => {
+    const slot = new OrderedHookSlot<{ value: number }>();
+    const order: string[] = [];
+    slot.register('veto', () => {
+      order.push('veto');
+    });
+    slot.register('downstream', async (_ctx, next) => {
+      order.push('downstream');
+      await next();
+    });
+    let terminalRan = false;
+    await slot.run({ value: 0 }, async () => {
+      terminalRan = true;
+    });
+    expect(order).toEqual(['veto']);
+    expect(terminalRan).toBe(false);
+  });
+
+  it('re-runs the remaining chain and terminal on each next() call', async () => {
+    const slot = new OrderedHookSlot<{ attempt: number; result?: string }>();
+    const attempts: number[] = [];
+    slot.register('retry', async (ctx, next) => {
+      ctx.attempt = 1;
+      await next();
+      if (ctx.result === 'fail') {
+        ctx.attempt = 2;
+        await next();
+      }
+    });
+    slot.register('downstream', async (ctx, next) => {
+      attempts.push(ctx.attempt);
+      await next();
+    });
+    const ctx: { attempt: number; result?: string } = { attempt: 0 };
+    await slot.run(ctx, async (current) => {
+      current.result = current.attempt === 1 ? 'fail' : 'ok';
+    });
+    expect(attempts).toEqual([1, 2]);
+    expect(ctx.result).toBe('ok');
+  });
+
+  it('resumes the remaining chain and terminal with a forked context', async () => {
+    interface Ctx {
+      readonly id: number;
+      value: number;
+      result?: number;
+    }
+    const slot = new OrderedHookSlot<Ctx>();
+    const seen: number[] = [];
+    slot.register('fork', async (ctx, next) => {
+      const fork: Ctx = { ...ctx, value: 100 };
+      await next(fork);
+      ctx.result = fork.result;
+    });
+    slot.register('downstream', async (ctx, next) => {
+      seen.push(ctx.value);
+      await next();
+    });
+    const original: Ctx = { id: 1, value: 0 };
+    await slot.run(original, async (current) => {
+      current.result = current.value + 1;
+    });
+    expect(seen).toEqual([100]);
+    expect(original.value).toBe(0);
+    expect(original.result).toBe(101);
+  });
+
+  it('propagates a fork through nested next() calls without arguments', async () => {
+    interface Ctx {
+      value: number;
+    }
+    const slot = new OrderedHookSlot<Ctx>();
+    slot.register('fork', async (ctx, next) => {
+      await next({ ...ctx, value: 42 });
+    });
+    slot.register('middle', async (_ctx, next) => {
+      await next();
+    });
+    let terminalValue: number | undefined;
+    await slot.run({ value: 0 }, async (current) => {
+      terminalValue = current.value;
+    });
+    expect(terminalValue).toBe(42);
+  });
+
+  it('runs forked branches concurrently', async () => {
+    interface Ctx {
+      input: number;
+      output?: number;
+    }
+    const slot = new OrderedHookSlot<Ctx>();
+    slot.register('race', async (ctx, next) => {
+      const forks: Ctx[] = [
+        { ...ctx, input: 1 },
+        { ...ctx, input: 2 },
+      ];
+      await Promise.all(forks.map((fork) => next(fork)));
+      ctx.output = Math.max(...forks.map((fork) => fork.output ?? 0));
+    });
+    const ctx: Ctx = { input: 0 };
+    await slot.run(ctx, async (current) => {
+      current.output = current.input * 10;
+    });
+    expect(ctx.output).toBe(20);
   });
 });
 

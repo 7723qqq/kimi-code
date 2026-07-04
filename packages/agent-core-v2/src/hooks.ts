@@ -1,3 +1,9 @@
+/**
+ * `hooks` domain (cross-cutting) — ordered chain-of-responsibility hook slots.
+ *
+ * Provides typed extension points with repeatable chaining and isolated context
+ * forks. Bound as utility infrastructure, not a scoped Service.
+ */
 import { toDisposable, type IDisposable } from "#/_base/di";
 
 export type Hooks<TEvents extends Record<string, unknown>> = {
@@ -13,12 +19,12 @@ export interface HookSlot<TContext> {
 
   delete(id: string): boolean;
 
-  run(context: TContext, terminal?: () => Promise<void>): Promise<void>;
+  run(context: TContext, terminal?: (context: TContext) => Promise<void>): Promise<void>;
 }
 
 export type HookHandler<TContext> = (
   context: TContext,
-  next: () => Promise<void>,
+  next: (context?: TContext) => Promise<void>,
 ) => void | Promise<void>;
 
 export interface HookRegisterOptions {
@@ -82,22 +88,23 @@ export class OrderedHookSlot<TContext> implements HookSlot<TContext> {
     });
   }
 
-  async run(context: TContext, terminal: () => Promise<void> = async () => {}): Promise<void> {
+  async run(
+    context: TContext,
+    terminal: (context: TContext) => Promise<void> = async () => {},
+  ): Promise<void> {
     const entries = [...this.entries];
-    let index = -1;
-    const dispatch = async (nextIndex: number): Promise<void> => {
-      if (nextIndex <= index) {
-        throw new Error('Hook next() cannot be called more than once');
-      }
-      index = nextIndex;
-      const entry = entries[nextIndex];
-      if (entry === undefined) {
-        await terminal();
-        return;
-      }
-      await entry.handler(context, () => dispatch(nextIndex + 1));
+    const dispatch = (index: number, ctx: TContext): ((override?: TContext) => Promise<void>) => {
+      return async (override?: TContext): Promise<void> => {
+        const current = override ?? ctx;
+        const entry = entries[index];
+        if (entry === undefined) {
+          await terminal(current);
+          return;
+        }
+        await entry.handler(current, dispatch(index + 1, current));
+      };
     };
-    await dispatch(0);
+    await dispatch(0, context)();
   }
 }
 
