@@ -7,7 +7,6 @@ import type {
   ExecutableTool,
   ExecutableToolContext,
   ExecutableToolResult,
-  ToolResult,
 } from '#/agent/tool';
 import { ISessionInteractionService } from '#/session/interaction';
 import { IAgentProfileService } from '#/agent/profile';
@@ -83,8 +82,7 @@ export class AgentUserToolService extends Disposable implements IAgentUserToolSe
       parameters,
       resolveExecution: (args) => ({
         approvalRule: name,
-        execute: async (context) =>
-          toExecutableToolResult(await this.executeUserTool(context, name, args)),
+        execute: (context) => this.executeUserTool(context, name, args),
       }),
     };
     this.registrations.set(name, this._register(this.registry.register(tool, { source: 'user' })));
@@ -103,8 +101,8 @@ export class AgentUserToolService extends Disposable implements IAgentUserToolSe
     context: ExecutableToolContext,
     name: string,
     args: unknown,
-  ): Promise<ToolResult> {
-    const request = this.interaction.request<UserToolExecutionRequest, ToolResult>({
+  ): Promise<ExecutableToolResult> {
+    const request = this.interaction.request<UserToolExecutionRequest, ExecutableToolResult>({
       id: context.toolCallId,
       kind: 'user_tool',
       payload: {
@@ -129,22 +127,6 @@ export class AgentUserToolService extends Disposable implements IAgentUserToolSe
       throw error;
     }
   }
-}
-
-function toExecutableToolResult(result: ToolResult): ExecutableToolResult {
-  if (result.isError === true) {
-    return {
-      output: result.output,
-      isError: true,
-      message: result.message,
-      stopTurn: result.stopTurn,
-    };
-  }
-  return {
-    output: result.output,
-    message: result.message,
-    stopTurn: result.stopTurn,
-  };
 }
 
 registerScopedService(

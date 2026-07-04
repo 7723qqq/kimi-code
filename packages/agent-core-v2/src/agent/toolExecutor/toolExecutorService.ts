@@ -664,25 +664,11 @@ function makeErrorToolResult(
   args: unknown,
   output: string,
 ): PreparedToolResult {
-  return makeToolResult(call, args, { output, isError: true });
-}
-
-function makeToolResult(
-  call: PreflightedToolCall,
-  args: unknown,
-  result: ExecutableToolResult,
-): PreparedToolResult {
-  const toolResult: ToolResult = {
-    output: result.output,
-    isError: result.isError,
-    stopTurn: result.stopTurn,
-  };
   return {
     toolCall: call.toolCall,
     toolName: call.toolName,
     args,
-    result: toolResult,
-    stopTurn: result.stopTurn === true,
+    result: { output, isError: true },
   };
 }
 
