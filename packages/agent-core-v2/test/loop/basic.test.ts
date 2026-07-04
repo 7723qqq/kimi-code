@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentProfileService } from '#/index';
 import { IAgentLLMRequesterService, type LLMStreamTiming } from '#/agent/llmRequester';
+import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentLoopService } from '#/agent/loop';
 import type { ExecutableTool } from '#/agent/tool';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
@@ -183,10 +184,18 @@ describe('Agent loop', () => {
   it('lets non-external stop hooks continue a turn more than once', async () => {
     profile.update({ activeToolNames: [] });
     let continuations = 0;
-    loop.hooks.onWillStop.register('test-repeat-stop-continuation', async (hookCtx, next) => {
+    loop.hooks.afterStep.register('test-repeat-stop-continuation', async (hookCtx, next) => {
       if (continuations < 2) {
         continuations += 1;
-        hookCtx.continuationPrompt = `continue ${continuations}`;
+        const prompt = `continue ${continuations}`;
+        const context = ctx.get(IAgentContextMemoryService);
+        context.splice(context.get().length, 0, [{
+          role: 'user',
+          content: [{ type: 'text', text: prompt }],
+          toolCalls: [],
+          origin: { kind: 'system_trigger', name: 'stop_hook' },
+        }]);
+        hookCtx.continue = true;
         return;
       }
       await next();

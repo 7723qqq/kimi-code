@@ -29,10 +29,10 @@ export class AgentPromptService implements IAgentPromptService {
       await next();
     });
     loopService.hooks.afterStep.register('prompt-service-steer', async (ctx, next) => {
-      await next();
       if (this.flushSteerQueue()) {
-        ctx.continueTurn = true;
+        ctx.continue = true;
       }
+      await next();
     });
   }
 

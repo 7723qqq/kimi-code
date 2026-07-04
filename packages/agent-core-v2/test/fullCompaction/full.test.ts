@@ -1703,6 +1703,54 @@ describe('FullCompaction', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('does not reset the step budget after provider context overflow compaction', async () => {
+    let callCount = 0;
+    const generate: GenerateFn = async (_provider, _system, _tools, _history, callbacks) => {
+      callCount += 1;
+      if (callCount === 1) {
+        throw new APIContextOverflowError(400, 'Context length exceeded', 'req-budget-overflow');
+      }
+      if (callCount === 2) {
+        return textResult('Budget compacted summary.');
+      }
+      await callbacks?.onMessagePart?.({ type: 'text', text: 'Should not run.' });
+      return textResult('Should not run.');
+    };
+    const ctx = testAgent({
+      generate,
+      initialConfig: {
+        providers: {},
+        loopControl: { maxStepsPerTurn: 1 },
+      },
+    });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.newEvents();
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Retry after provider overflow' }] });
+    const events = await ctx.untilTurnEnd();
+
+    expect(callCount).toBe(2);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'turn.ended',
+        args: expect.objectContaining({
+          reason: 'failed',
+          error: expect.objectContaining({
+            code: 'loop.max_steps_exceeded',
+            details: expect.objectContaining({
+              maxSteps: 1,
+            }),
+          }),
+        }),
+      }),
+    );
+    await ctx.expectResumeMatches();
+  });
+
   it('preserves thinking effort when compacting after provider context overflow', async () => {
     let callCount = 0;
     const records: TelemetryRecord[] = [];

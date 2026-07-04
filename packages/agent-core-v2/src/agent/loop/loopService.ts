@@ -28,7 +28,11 @@ import {
   isAbortError,
   isMaxStepsExceededError,
 } from './errors';
-import { IAgentLoopService, type RunTurnOptions, type TurnWillStopContext } from './loop';
+import {
+  IAgentLoopService,
+  type RunTurnOptions,
+  type TurnAfterStepContext,
+} from './loop';
 import type { LoopInterruptReason, TurnResult } from './types';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
@@ -44,7 +48,6 @@ export class AgentLoopService implements IAgentLoopService {
     beforeStep: new OrderedHookSlot(),
     afterStep: new OrderedHookSlot(),
     onContextOverflow: new OrderedHookSlot(),
-    onWillStop: new OrderedHookSlot<TurnWillStopContext>(),
   };
 
   constructor(
@@ -64,62 +67,45 @@ export class AgentLoopService implements IAgentLoopService {
     const signal = options.signal ?? new AbortController().signal;
     this.profile.resolveModelContext();
 
+    let steps = 0;
+    let activeStep: number | undefined;
     while (true) {
-      let steps = 0;
-      let activeStep: number | undefined;
-
       try {
+        activeStep = undefined;
+        signal.throwIfAborted();
+
         const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
-        while (true) {
-          signal.throwIfAborted();
 
-          if (maxSteps !== undefined && maxSteps > 0 && steps >= maxSteps) {
-            throw createMaxStepsExceededError(maxSteps);
-          }
-
-          steps += 1;
-          activeStep = steps;
-          const stepResult = await this.executeLoopStep(
-            turnId,
-            signal,
-            steps,
-            options.onStepStarted,
-          );
-          activeStep = undefined;
-
-          if (stepResult.stopReason === 'filtered') {
-            throw new KimiError(
-              ErrorCodes.PROVIDER_FILTERED,
-              'Provider safety policy blocked the response.',
-              {
-                name: 'ProviderFilteredError',
-                details: { finishReason: 'filtered' },
-              },
-            );
-          }
-
-          if (stepResult.stopReason === 'tool_calls') {
-            continue;
-          }
-
-          if (stepResult.continueTurn) {
-            continue;
-          }
-
-          const context: TurnWillStopContext = { signal };
-          await this.hooks.onWillStop.run(context);
-          if (context.continuationPrompt !== undefined) {
-            this.append({
-              role: 'user',
-              content: [{ type: 'text', text: context.continuationPrompt }],
-              toolCalls: [],
-              origin: { kind: 'system_trigger', name: 'stop_hook' },
-            });
-            continue;
-          }
-
-          break;
+        if (maxSteps !== undefined && maxSteps > 0 && steps >= maxSteps) {
+          throw createMaxStepsExceededError(maxSteps);
         }
+
+        steps += 1;
+        activeStep = steps;
+        const stepResult = await this.executeLoopStep(
+          turnId,
+          signal,
+          steps,
+          options.onStepStarted,
+        );
+        activeStep = undefined;
+
+        if (stepResult.stopReason === 'filtered') {
+          throw new KimiError(
+            ErrorCodes.PROVIDER_FILTERED,
+            'Provider safety policy blocked the response.',
+            {
+              name: 'ProviderFilteredError',
+              details: { finishReason: 'filtered' },
+            },
+          );
+        }
+
+        if (stepResult.stopReason === 'tool_calls' || stepResult.continue) {
+          continue;
+        }
+
+        return { reason: 'completed', steps };
       } catch (error) {
         if (isAbortError(error) || signal.aborted) {
           this.emitStepInterrupted(turnId, activeStep, 'aborted');
@@ -140,12 +126,13 @@ export class AgentLoopService implements IAgentLoopService {
           } catch (hookError) {
             return { reason: 'failed', error: hookError, steps };
           }
-          if (context.handled) continue;
+          if (context.handled) {
+            activeStep = undefined;
+            continue;
+          }
         }
         return { reason: 'failed', error, steps };
       }
-
-      return { reason: 'completed', steps };
     }
   }
 
@@ -156,7 +143,7 @@ export class AgentLoopService implements IAgentLoopService {
     onStepStarted: ((step: number) => void) | undefined,
   ): Promise<{
     readonly stopReason: FinishReason;
-    readonly continueTurn: boolean;
+    readonly continue: boolean;
   }> {
     await this.hooks.beforeStep.run({ turnId, step: currentStep, signal });
     signal.throwIfAborted();
@@ -237,16 +224,24 @@ export class AgentLoopService implements IAgentLoopService {
     markStepStarted();
     this.emitStepCompleted(turnId, currentStep, stepUuid, usage, finishReason, response);
 
-    const afterStepContext = { turnId, step: currentStep, signal, usage, continueTurn: false };
+    const afterStepContext: TurnAfterStepContext = {
+      turnId,
+      step: currentStep,
+      signal,
+      usage,
+      stopReason: finishReason,
+      continue: false,
+    };
     try {
       await this.hooks.afterStep.run(afterStepContext);
-    } catch {
+    } catch (error) {
+      if (isAbortError(error) || signal.aborted) throw error;
       // afterStep hook failures must not affect the turn result.
     }
 
     return {
       stopReason: finishReason,
-      continueTurn: finishReason !== 'tool_calls' && afterStepContext.continueTurn,
+      continue: afterStepContext.continue,
     };
   }
 

@@ -300,6 +300,7 @@ microCompaction --> loop #34495E
 externalHooks --> config #34495E
 externalHooks --> bootstrap #34495E
 externalHooks --> plugin #34495E
+externalHooks --> contextMemory #34495E
 todo --> agent_lifecycle #34495E
 usage --> wireRecord #34495E
 usage --> record #34495E

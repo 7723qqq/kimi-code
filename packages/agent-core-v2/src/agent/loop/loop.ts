@@ -1,5 +1,5 @@
 import { createDecorator } from '#/_base/di';
-import type { TokenUsage } from '#/app/llmProtocol';
+import type { FinishReason, TokenUsage } from '#/app/llmProtocol';
 import type { Hooks } from '#/hooks';
 
 import type { TurnResult } from './types';
@@ -12,7 +12,8 @@ export interface TurnBeforeStepContext {
 
 export interface TurnAfterStepContext extends TurnBeforeStepContext {
   readonly usage: TokenUsage;
-  continueTurn: boolean;
+  readonly stopReason: FinishReason;
+  continue: boolean;
 }
 
 export interface TurnContextOverflowContext {
@@ -20,11 +21,6 @@ export interface TurnContextOverflowContext {
   readonly signal: AbortSignal;
   readonly error: unknown;
   handled: boolean;
-}
-
-export interface TurnWillStopContext {
-  readonly signal: AbortSignal;
-  continuationPrompt?: string;
 }
 
 export interface RunTurnOptions {
@@ -39,7 +35,6 @@ export interface IAgentLoopService {
     beforeStep: TurnBeforeStepContext;
     afterStep: TurnAfterStepContext;
     onContextOverflow: TurnContextOverflowContext;
-    onWillStop: TurnWillStopContext;
   }>;
   runTurn(turnId: number, options?: RunTurnOptions): Promise<TurnResult>;
 }

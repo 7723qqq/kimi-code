@@ -7,6 +7,8 @@ import {
   type TestInstantiationService,
 } from '#/_base/di/test';
 import { Event } from '#/_base/event';
+import { emptyUsage } from '#/app/llmProtocol/kosong';
+import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
 import { IAgentTaskService } from '#/agent/task';
 import {
   AgentExternalHooksService,
@@ -19,7 +21,7 @@ import {
   hooksToToml,
 } from '#/agent/externalHooks/configSection';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction';
-import { IAgentLoopService, type TurnWillStopContext } from '#/agent/loop';
+import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop';
 import { IAgentPermissionGate } from '#/agent/permissionGate';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IAgentTurnService, type Turn } from '#/agent/turn';
@@ -52,6 +54,32 @@ function makeTurn(id: number): Turn {
     abortController: new AbortController(),
     ready: Promise.resolve(),
     result: Promise.resolve({ reason: 'completed' }),
+  };
+}
+
+function makeAfterStep(signal: AbortSignal): TurnAfterStepContext {
+  return {
+    turnId: 0,
+    step: 1,
+    signal,
+    usage: emptyUsage(),
+    stopReason: 'completed',
+    continue: false,
+  };
+}
+
+function stubContextMemory(): IAgentContextMemoryService & {
+  readonly messages: readonly ContextMessage[];
+} {
+  const messages: ContextMessage[] = [];
+  return {
+    _serviceBrand: undefined,
+    get: () => [...messages],
+    splice: (start, deleteCount, inserted) => {
+      messages.splice(start, deleteCount, ...inserted);
+    },
+    hooks: createHooks(['onSpliced']) as IAgentContextMemoryService['hooks'],
+    messages,
   };
 }
 
@@ -110,6 +138,7 @@ describe('HookEngine integration', () => {
     try {
       const loop = stubLoopWithHooks();
       const turnService = stubTurnWithHooks();
+      const context = stubContextMemory();
       const stopInputs: unknown[] = [];
       const hookEngine = {
         trigger: async () => [],
@@ -126,6 +155,7 @@ describe('HookEngine integration', () => {
           reg.defineInstance(IBootstrapService, stubBootstrap());
           reg.definePartialInstance(IConfigService, {});
           reg.definePartialInstance(IPluginService, {});
+          reg.defineInstance(IAgentContextMemoryService, context);
           reg.defineInstance(IAgentLoopService, loop);
           reg.defineInstance(IAgentTurnService, turnService);
           reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
@@ -147,13 +177,29 @@ describe('HookEngine integration', () => {
       ix.get(IAgentExternalHooksService);
 
       const signal = new AbortController().signal;
-      const first: TurnWillStopContext = { signal };
-      await loop.hooks.onWillStop.run(first);
-      expect(first.continuationPrompt).toBe('continue 1');
+      const filtered: TurnAfterStepContext = {
+        ...makeAfterStep(signal),
+        stopReason: 'filtered',
+      };
+      await loop.hooks.afterStep.run(filtered);
+      expect(filtered.continue).toBe(false);
+      expect(stopInputs).toEqual([]);
+      expect(context.messages).toEqual([]);
 
-      const second: TurnWillStopContext = { signal };
-      await loop.hooks.onWillStop.run(second);
-      expect(second.continuationPrompt).toBeUndefined();
+      const first = makeAfterStep(signal);
+      await loop.hooks.afterStep.run(first);
+      expect(first.continue).toBe(true);
+      expect(context.messages.at(-1)).toEqual(
+        expect.objectContaining({
+          role: 'user',
+          content: [{ type: 'text', text: 'continue 1' }],
+          origin: { kind: 'system_trigger', name: 'stop_hook' },
+        }),
+      );
+
+      const second = makeAfterStep(signal);
+      await loop.hooks.afterStep.run(second);
+      expect(second.continue).toBe(false);
       expect(stopInputs).toEqual([{ stopHookActive: false }]);
 
       await turnService.hooks.onEnded.run({
@@ -161,9 +207,16 @@ describe('HookEngine integration', () => {
         result: { reason: 'completed' },
       });
 
-      const nextTurn: TurnWillStopContext = { signal };
-      await loop.hooks.onWillStop.run(nextTurn);
-      expect(nextTurn.continuationPrompt).toBe('continue 2');
+      const nextTurn = makeAfterStep(signal);
+      await loop.hooks.afterStep.run(nextTurn);
+      expect(nextTurn.continue).toBe(true);
+      expect(context.messages.at(-1)).toEqual(
+        expect.objectContaining({
+          role: 'user',
+          content: [{ type: 'text', text: 'continue 2' }],
+          origin: { kind: 'system_trigger', name: 'stop_hook' },
+        }),
+      );
       expect(stopInputs).toEqual([{ stopHookActive: false }, { stopHookActive: false }]);
     } finally {
       ix?.dispose();

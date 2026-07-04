@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentGoalService, type AgentGoalService } from '#/agent/goal';
-import { IAgentLoopService } from '#/agent/loop';
+import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop';
 import { IAgentRecordService } from '#/agent/record';
 import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn';
 import type { PersistedWireRecord, WireRecord } from '#/agent/wireRecord';
@@ -63,16 +63,17 @@ async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<
     step: 1,
     signal: turn.abortController.signal,
   };
-  const afterStep = {
+  const afterStep: TurnAfterStepContext = {
     turnId: turn.id,
     step: 1,
     signal: turn.abortController.signal,
     usage: zeroUsage,
-    continueTurn: false,
+    stopReason: 'completed' as const,
+    continue: false,
   };
   await loopService.hooks.beforeStep.run(step);
   await loopService.hooks.afterStep.run(afterStep);
-  return afterStep.continueTurn;
+  return afterStep.continue;
 }
 
 async function runStepUsageHooks(
@@ -81,12 +82,13 @@ async function runStepUsageHooks(
   turn: Turn,
   usage: TokenUsage,
 ): Promise<boolean> {
-  const afterStep = {
+  const afterStep: TurnAfterStepContext = {
     turnId: turn.id,
     step: 1,
     signal: turn.abortController.signal,
     usage,
-    continueTurn: false,
+    stopReason: 'completed' as const,
+    continue: false,
   };
   await loopService.hooks.afterStep.run(afterStep);
   return goals.getGoal().goal?.budget.overBudget === true;
@@ -664,12 +666,13 @@ describe('AgentGoalService core workflow hooks', () => {
       step: 1,
       signal: turn.abortController.signal,
     };
-    const afterStep = {
+    const afterStep: TurnAfterStepContext = {
       turnId: turn.id,
       step: 1,
       signal: turn.abortController.signal,
       usage: zeroUsage,
-      continueTurn: false,
+      stopReason: 'completed' as const,
+      continue: false,
     };
     await loopService.hooks.beforeStep.run(step);
 
@@ -677,7 +680,7 @@ describe('AgentGoalService core workflow hooks', () => {
     await loopService.hooks.afterStep.run(afterStep);
     await endTurn(turnService, turn);
 
-    expect(afterStep.continueTurn).toBe(true);
+    expect(afterStep.continue).toBe(true);
     expect(goals.getGoal().goal).toBeNull();
     expect(turnService.launches).toEqual([]);
     expect(context.get().at(-1)?.origin).toEqual({

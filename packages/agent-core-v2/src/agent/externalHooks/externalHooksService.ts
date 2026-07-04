@@ -5,7 +5,8 @@
  * Listens to hook slots owned by the agent behavior/lifecycle domains
  * (`toolExecutor`, `permissionGate`, `turn`, `loop`, `fullCompaction`, and
  * `task`) and translates those minimal contexts into the configured external
- * HookEngine events. The `SubagentStart` / `SubagentStop` pair is the one
+ * HookEngine events. Appends Stop hook continuation prompts through
+ * `contextMemory`. The `SubagentStart` / `SubagentStop` pair is the one
  * exception: the `agentLifecycle` tool wrapper has no hook service of its own,
  * so `mirrorAgentRun` invokes `runAgentTaskStart` / `notifyAgentTaskStop` on
  * this service directly.
@@ -17,12 +18,13 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { isUserCancellation } from '#/_base/utils/abort';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
 import { IAgentTaskService, type AgentTaskNotificationContext } from '#/agent/task';
+import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import {
   IAgentFullCompactionService,
   type FullCompactionDidCompactContext,
   type FullCompactionWillCompactContext,
 } from '#/agent/fullCompaction';
-import { IAgentLoopService, type TurnWillStopContext } from '#/agent/loop';
+import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop';
 import {
   IAgentPermissionGate,
   type PermissionApprovalResultContext,
@@ -81,6 +83,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
 
   constructor(
     private readonly options: ExternalHooksServiceOptions = {},
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IConfigService private readonly config: IConfigService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
@@ -198,14 +201,27 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
 
   private registerLoopHooks(loop: IAgentLoopService): void {
     this._register(
-      loop.hooks.onWillStop.register('externalHooks', async (ctx, next) => {
+      loop.hooks.afterStep.register('externalHooks', async (ctx, next) => {
+        await next();
+        if (
+          ctx.stopReason === 'tool_calls' ||
+          ctx.stopReason === 'filtered' ||
+          ctx.continue
+        ) {
+          return;
+        }
         const reason = await this.runStop(ctx);
         if (reason !== undefined) {
           this.stopHookContinuationUsed = true;
-          ctx.continuationPrompt = reason;
+          this.context.splice(this.context.get().length, 0, [{
+            role: 'user',
+            content: [{ type: 'text', text: reason }],
+            toolCalls: [],
+            origin: { kind: 'system_trigger', name: 'stop_hook' },
+          }]);
+          ctx.continue = true;
           return;
         }
-        await next();
       }),
     );
   }
@@ -326,7 +342,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     );
   }
 
-  private async runStop(ctx: TurnWillStopContext): Promise<string | undefined> {
+  private async runStop(ctx: TurnAfterStepContext): Promise<string | undefined> {
     ctx.signal.throwIfAborted();
     if (this.stopHookContinuationUsed) return undefined;
 

@@ -212,8 +212,8 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     );
     this._register(
       loopService.hooks.afterStep.register('goal-outcome-continuation', async (ctx, next) => {
-        await next();
         this.handleAfterStep(ctx);
+        await next();
       }),
     );
     this._register(
@@ -467,7 +467,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     if (this.goalOutcomeContinuationTurns.has(ctx.turnId)) return;
     if (!isGoalOutcomeReminder(this.context.get().at(-1))) return;
     this.goalOutcomeContinuationTurns.add(ctx.turnId);
-    ctx.continueTurn = true;
+    ctx.continue = true;
   }
 
   private async handleTurnEnded(ctx: TurnEndedContext): Promise<void> {
