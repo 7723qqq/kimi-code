@@ -7,6 +7,7 @@ import {
   IAgentContextMemoryService,
   USER_PROMPT_ORIGIN,
   type ContextMessage,
+  type PromptOrigin,
 } from '#/agent/contextMemory';
 import { IAgentLoopService } from '#/agent/loop';
 import { IAgentRecordService } from '#/agent/record';
@@ -54,10 +55,8 @@ export class AgentPromptService implements IAgentPromptService {
   async prompt(message: ContextMessage): Promise<Turn | undefined> {
     const stamped = ensureMessageId(message);
     this.append(stamped);
-    if (await this.applyPromptHook(stamped, false)) return undefined;
-    const turn = this.turnService.launch(stamped.origin ?? USER_PROMPT_ORIGIN, stamped.id);
-    this.observe(turn);
-    return turn;
+    if (await this.blockedByHook(stamped, false)) return undefined;
+    return this.launch(stamped.origin ?? USER_PROMPT_ORIGIN, stamped.id);
   }
 
   steer(message: ContextMessage): PromptSteerHandle {
@@ -65,7 +64,7 @@ export class AgentPromptService implements IAgentPromptService {
     if (activeTurn === undefined) {
       return {
         removeFromQueue: () => {
-          throw this.createSteerAlreadyEmittedError();
+          throw steerAlreadyEmittedError();
         },
         launched: this.prompt(message),
       };
@@ -83,21 +82,18 @@ export class AgentPromptService implements IAgentPromptService {
   }
 
   retry(trigger?: string): Turn | undefined {
-    const turn = this.turnService.launch({ kind: 'retry', trigger });
-    this.observe(turn);
-    return turn;
+    return this.launch({ kind: 'retry', trigger });
   }
 
   undo(count: number): number {
     if (count <= 0) return 0;
 
     const history = this.context.get();
-    let removedUserCount = 0;
+    let removedCount = 0;
     let stoppedAtCompaction = false;
-    for (let index = history.length - 1; index >= 0; index--) {
+    for (let index = history.length - 1; index >= 0 && removedCount < count; index--) {
       const message = history[index];
-      if (message === undefined) continue;
-      if (message.origin?.kind === 'injection') continue;
+      if (message === undefined || message.origin?.kind === 'injection') continue;
       if (message.origin?.kind === 'compaction_summary') {
         stoppedAtCompaction = true;
         break;
@@ -105,44 +101,46 @@ export class AgentPromptService implements IAgentPromptService {
 
       this.context.splice(index, 1, []);
       if (isRealUserPrompt(message)) {
-        removedUserCount++;
-        if (removedUserCount >= count) break;
+        removedCount++;
       }
     }
 
-    if (!this.record.restoring && (removedUserCount < count || stoppedAtCompaction)) {
+    if (removedCount < count && !this.record.restoring) {
       throw new KimiError(
         ErrorCodes.REQUEST_INVALID,
-        formatUndoUnavailableMessage(count, removedUserCount, stoppedAtCompaction),
+        formatUndoUnavailableMessage(count, removedCount, stoppedAtCompaction),
         {
           details: {
             reason: 'undo_limit',
             requestedCount: count,
-            undoableCount: removedUserCount,
+            undoableCount: removedCount,
             stoppedAtCompaction,
           },
         },
       );
     }
-    return removedUserCount;
+    return removedCount;
   }
 
   clear(): void {
-    for (const entry of this.steerQueue) {
-      entry.removed = true;
-    }
-    this.steerQueue.length = 0;
+    this.discardQueuedSteers();
     const historyLength = this.context.get().length;
-    if (historyLength === 0) return;
-    this.context.splice(0, historyLength, []);
+    if (historyLength > 0) {
+      this.context.splice(0, historyLength, []);
+    }
   }
 
   private append(...messages: ContextMessage[]): void {
-    if (messages.length === 0) return;
     this.context.splice(this.context.get().length, 0, messages);
   }
 
-  private async applyPromptHook(promptMessage: ContextMessage, isSteer: boolean): Promise<boolean> {
+  private launch(origin: PromptOrigin, promptMessageId?: string): Turn {
+    const turn = this.turnService.launch(origin, promptMessageId);
+    this.observe(turn);
+    return turn;
+  }
+
+  private async blockedByHook(promptMessage: ContextMessage, isSteer: boolean): Promise<boolean> {
     const hookContext: PromptSubmitContext = {
       promptMessage,
       isSteer,
@@ -160,32 +158,24 @@ export class AgentPromptService implements IAgentPromptService {
         this.observedTurn = undefined;
       }
       if (result.reason !== 'completed') {
-        for (const entry of this.steerQueue) {
-          entry.removed = true;
-        }
-        this.steerQueue.length = 0;
+        this.discardQueuedSteers();
       }
     });
   }
 
   private flushSteerQueue(): boolean {
-    if (this.steerQueue.length === 0) return false;
+    const pending = this.steerQueue.splice(0).filter((entry) => !entry.removed);
+    if (pending.length === 0) return false;
 
-    const entries = this.steerQueue.splice(0);
-    const messages: ContextMessage[] = [];
-    for (const entry of entries) {
-      if (entry.removed) continue;
+    for (const entry of pending) {
       entry.emitted = true;
-      messages.push(entry.message);
     }
-    if (messages.length === 0) return false;
-
-    this.append(...messages);
+    this.append(...pending.map((entry) => entry.message));
     return true;
   }
 
   private async enqueueSteer(activeTurn: Turn, entry: QueuedSteer): Promise<Turn | undefined> {
-    if (await this.applyPromptHook(entry.message, true)) return undefined;
+    if (await this.blockedByHook(entry.message, true)) return undefined;
     if (entry.removed) return undefined;
 
     this.steerQueue.push(entry);
@@ -195,9 +185,8 @@ export class AgentPromptService implements IAgentPromptService {
 
   private removeQueuedSteer(entry: QueuedSteer): void {
     if (entry.emitted) {
-      throw this.createSteerAlreadyEmittedError();
+      throw steerAlreadyEmittedError();
     }
-    if (entry.removed) return;
     entry.removed = true;
     const index = this.steerQueue.indexOf(entry);
     if (index >= 0) {
@@ -205,26 +194,29 @@ export class AgentPromptService implements IAgentPromptService {
     }
   }
 
-  private createSteerAlreadyEmittedError(): KimiError {
-    return new KimiError(
-      ErrorCodes.REQUEST_INVALID,
-      'Cannot remove a steer after it has been emitted',
-      { details: { reason: 'steer_already_emitted' } },
-    );
+  private discardQueuedSteers(): void {
+    for (const entry of this.steerQueue.splice(0)) {
+      entry.removed = true;
+    }
   }
+}
+
+function steerAlreadyEmittedError(): KimiError {
+  return new KimiError(
+    ErrorCodes.REQUEST_INVALID,
+    'Cannot remove a steer after it has been emitted',
+    { details: { reason: 'steer_already_emitted' } },
+  );
 }
 
 function isRealUserPrompt(message: ContextMessage): boolean {
   if (message.role !== 'user') return false;
   const origin = message.origin;
   if (origin === undefined || origin.kind === 'user') return true;
-  if (origin.kind === 'skill_activation') {
-    return origin.trigger === 'user-slash';
-  }
-  if (origin.kind === 'plugin_command') {
-    return origin.trigger === 'user-slash';
-  }
-  return false;
+  return (
+    (origin.kind === 'skill_activation' || origin.kind === 'plugin_command') &&
+    origin.trigger === 'user-slash'
+  );
 }
 
 function formatUndoUnavailableMessage(
