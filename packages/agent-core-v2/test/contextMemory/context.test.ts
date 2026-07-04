@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
 import type { ContextMessage } from '#/agent/contextMemory';
-import { renderNotificationXml } from '#/agent/contextMemory/notification-xml';
 import {
   IAgentContextMemoryService,
   IAgentContextSizeService,
@@ -787,86 +786,6 @@ describe('Agent context', () => {
   });
 
   describe('notification projection', () => {
-    it('renders task notifications with escaped attributes and generic children', () => {
-      const text = renderNotificationXml({
-        id: 'n_"1&2',
-        category: 'task',
-        type: 'task.done',
-        source_kind: 'task',
-        source_id: 'bg&1',
-        title: 'Task finished',
-        severity: 'info',
-        body: 'The task completed.',
-        children: [
-          [
-            '<output-file path="/tmp/logs/a&amp;b/output.log" bytes="1234">',
-            'Read the output file to retrieve the result: /tmp/logs/a&amp;b/output.log',
-            '</output-file>',
-          ].join('\n'),
-        ],
-      });
-
-      expect(text).toContain('id="n_&quot;1&amp;2"');
-      expect(text).toContain('source_id="bg&amp;1"');
-      expect(text).toContain('Title: Task finished');
-      expect(text).toContain('Severity: info');
-      expect(text).toContain('<output-file path="/tmp/logs/a&amp;b/output.log" bytes="1234">');
-      expect(text).toContain(
-        'Read the output file to retrieve the result: /tmp/logs/a&amp;b/output.log',
-      );
-      expect(text).not.toContain('<task-notification>');
-      expect(text.trimEnd()).toMatch(/<\/notification>$/);
-    });
-
-    it('renders an agent_id attribute when the notification carries one', () => {
-      // Agent tasks (taskId starts with `agent-`) own a separate
-      // `agent_id` for the spawned subagent. Surfacing it as a top-level XML
-      // attribute lets the LLM resume the right thing without having to dig
-      // it out of the body or cross-reference the spawn-success ToolResult.
-      const text = renderNotificationXml({
-        id: 'n_lost1',
-        category: 'task',
-        type: 'task.lost',
-        source_kind: 'task',
-        source_id: 'agent-w7gq3wwj',
-        agent_id: 'agent-0',
-        title: 'Task agent lost',
-        severity: 'warning',
-        body: 'Task agent 1 lost.',
-      });
-
-      expect(text).toContain('source_id="agent-w7gq3wwj"');
-      expect(text).toContain('agent_id="agent-0"');
-    });
-
-    it('omits the agent_id attribute when the notification does not carry one', () => {
-      const text = renderNotificationXml({
-        id: 'n_bash',
-        category: 'task',
-        type: 'task.completed',
-        source_kind: 'task',
-        source_id: 'bash-abcdef00',
-        title: 'Task completed',
-        severity: 'info',
-        body: 'echo done completed.',
-      });
-
-      expect(text).not.toContain('agent_id=');
-    });
-
-    it('does not render task output blocks for non-task notifications', () => {
-      const text = renderNotificationXml({
-        id: '',
-        source_kind: 'host',
-        tail_output: 'should stay out of the XML',
-      });
-
-      expect(text).toContain('id="unknown"');
-      expect(text).toContain('category="unknown"');
-      expect(text).not.toContain('<task-notification>');
-      expect(text).not.toContain('should stay out of the XML');
-    });
-
     it('does not merge a cron-fire envelope into an adjacent user message', () => {
       const cronEnvelope =
         '<cron-fire jobId="deadbeef" cron="*/5 * * * *" recurring="true" coalescedCount="1" stale="false">\n<prompt>\ncheck the deploy\n</prompt>\n</cron-fire>';

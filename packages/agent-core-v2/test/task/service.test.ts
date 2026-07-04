@@ -4,6 +4,7 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentTaskService, type AgentTask } from '#/agent/task';
+import { renderNotificationXml } from '#/agent/task/notificationXml';
 import { AgentTaskService } from '#/agent/task/taskService';
 import { IConfigRegistry, IConfigService } from '#/app/config';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
@@ -94,5 +95,83 @@ describe('AgentTaskService', () => {
     expect(listed[0]?.kind).toBe('process');
     expect(await svc.readOutput(id)).toBe('');
     await svc.stop(id);
+  });
+});
+
+describe('Agent task notification XML', () => {
+  it('renders task notifications with escaped attributes and generic children', () => {
+    const text = renderNotificationXml({
+      id: 'n_"1&2',
+      category: 'task',
+      type: 'task.done',
+      source_kind: 'task',
+      source_id: 'bg&1',
+      title: 'Task finished',
+      severity: 'info',
+      body: 'The task completed.',
+      children: [
+        [
+          '<output-file path="/tmp/logs/a&amp;b/output.log" bytes="1234">',
+          'Read the output file to retrieve the result: /tmp/logs/a&amp;b/output.log',
+          '</output-file>',
+        ].join('\n'),
+      ],
+    });
+
+    expect(text).toContain('id="n_&quot;1&amp;2"');
+    expect(text).toContain('source_id="bg&amp;1"');
+    expect(text).toContain('Title: Task finished');
+    expect(text).toContain('Severity: info');
+    expect(text).toContain('<output-file path="/tmp/logs/a&amp;b/output.log" bytes="1234">');
+    expect(text).toContain(
+      'Read the output file to retrieve the result: /tmp/logs/a&amp;b/output.log',
+    );
+    expect(text).not.toContain('<task-notification>');
+    expect(text.trimEnd()).toMatch(/<\/notification>$/);
+  });
+
+  it('renders an agent_id attribute when the notification carries one', () => {
+    const text = renderNotificationXml({
+      id: 'n_lost1',
+      category: 'task',
+      type: 'task.lost',
+      source_kind: 'task',
+      source_id: 'agent-w7gq3wwj',
+      agent_id: 'agent-0',
+      title: 'Task agent lost',
+      severity: 'warning',
+      body: 'Task agent 1 lost.',
+    });
+
+    expect(text).toContain('source_id="agent-w7gq3wwj"');
+    expect(text).toContain('agent_id="agent-0"');
+  });
+
+  it('omits the agent_id attribute when the notification does not carry one', () => {
+    const text = renderNotificationXml({
+      id: 'n_bash',
+      category: 'task',
+      type: 'task.completed',
+      source_kind: 'task',
+      source_id: 'bash-abcdef00',
+      title: 'Task completed',
+      severity: 'info',
+      body: 'echo done completed.',
+    });
+
+    expect(text).not.toContain('agent_id=');
+  });
+
+  it('ignores unrelated fields while applying attribute fallbacks', () => {
+    const text = renderNotificationXml({
+      id: '',
+      source_kind: 'host',
+      tail_output: 'should stay out of the XML',
+    });
+
+    expect(text).toContain('id="unknown"');
+    expect(text).toContain('category="unknown"');
+    expect(text).not.toContain('<task-notification>');
+    expect(text).not.toContain('should stay out of the XML');
   });
 });

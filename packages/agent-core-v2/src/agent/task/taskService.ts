@@ -18,13 +18,13 @@ import type { ContentPart } from '#/app/llmProtocol';
 import { Disposable } from '#/_base/di';
 import { escapeXml, escapeXmlAttr } from '#/_base/utils/xml-escape';
 import type { TaskOrigin } from '#/agent/contextMemory';
-import { renderNotificationXml } from '#/agent/contextMemory/notification-xml';
 import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task';
 import {
   TERMINAL_STATUSES,
   type AgentTaskInfoBase,
   type AgentTaskSettlement,
 } from './types';
+import { renderNotificationXml } from './notificationXml';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IConfigService } from '#/app/config';

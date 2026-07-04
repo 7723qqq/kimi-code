@@ -1,24 +1,11 @@
 /**
- * Notification XML rendering — produces the chat-history injection text
- * shared between the live ContextMemory and the projector.
+ * `task` domain (L5) — renders task terminal notification XML for context injection.
  *
- * Output shape:
- *   <notification id="..." category="..." type="..." source_kind="..." source_id="..." [agent_id="..."]>
- *   Title: ...
- *   Severity: ...
- *   <body>
- *   <children...>
- *   </notification>
- *
- * The opening tag name (`<notification `) is load-bearing for notification
- * consumers that detect chat-history injections.
- *
- * `agent_id` is emitted only for task notifications whose
- * source task is an agent run — surfacing it structurally lets the
- * LLM identify the correct id to pass to `Agent(resume=...)` without
- * having to grep the body or the original spawn-success ToolResult.
- * It is intentionally a separate attribute from `source_id`: the two
- * look alike (`agent-...`) but live in different namespaces.
+ * Produces the model-visible `<notification ...>` block inserted through
+ * `contextMemory` for detached task settlement. The opening tag name is
+ * load-bearing for notification consumers, and `agent_id` stays separate from
+ * `source_id` because subagent resume ids and task ids live in different
+ * namespaces.
  */
 
 import { escapeXmlAttr } from '#/_base/utils/xml-escape';
@@ -53,11 +40,9 @@ function stringAttr(value: unknown, fallback: string): string {
   return escapeXmlAttr(value);
 }
 
-/** Like `stringAttr` but returns `undefined` instead of a fallback so the
- *  caller can omit the attribute entirely when the source value is absent. */
 function optionalStringAttr(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length === 0) return undefined;
-  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;');
+  return escapeXmlAttr(value);
 }
 
 function childBlocks(value: unknown): string[] {
