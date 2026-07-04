@@ -25,14 +25,19 @@ export const migrateV1_4ToV1_5: WireMigration = {
   targetVersion: '1.5',
   migrateRecords(records: readonly WireMigrationRecord[]): readonly WireMigrationRecord[] {
     const state = new V1_5MigrationState();
-    return records.flatMap((record) => state.migrate(record));
+    const output: WireMigrationRecord[] = [];
+    for (const record of records) {
+      output.push(...state.migrate(record));
+    }
+    output.push(...state.finish());
+    return output;
   },
 };
 
 class V1_5MigrationState {
   private readonly history: ContextMessage[] = [];
   private readonly openSteps = new Map<string, OpenStep>();
-  private readonly pendingToolResultIds = new Set<string>();
+  private readonly pendingToolResultSteps = new Map<string, string>();
   private readonly launchedTurnIds = new Set<number>();
   private readonly promptAppendDedupKeys: string[] = [];
   private deferredMessages: ContextMessage[] = [];
@@ -95,7 +100,7 @@ class V1_5MigrationState {
     if (this.consumePromptAppendDedup(message)) {
       return [];
     }
-    if (this.pendingToolResultIds.size > 0) {
+    if (this.pendingToolResultSteps.size > 0) {
       this.deferredMessages.push(message);
       return [];
     }
@@ -110,7 +115,7 @@ class V1_5MigrationState {
         output.push(...this.closePendingToolResults(record));
         this.openSteps.set(event.uuid, {
           message: createAssistantMessage(),
-          inserted: false,
+          source: record,
         });
         return output;
       case 'content.part':
@@ -131,30 +136,36 @@ class V1_5MigrationState {
   }
 
   private migrateClear(record: WireMigrationRecord): WireMigrationRecord[] {
+    const output = this.flushOpenSteps();
     const deleteCount = this.history.length;
     this.history.splice(0, deleteCount);
     this.resetLoopState();
-    if (deleteCount === 0) return [];
-    return [withTime(record, { type: 'context.clear', args: [] })];
+    if (deleteCount > 0) {
+      output.push(withTime(record, { type: 'context.clear', args: [] }));
+    }
+    return output;
   }
 
   private migrateApplyCompaction(record: V1_4ApplyCompactionRecord): WireMigrationRecord[] {
+    const output = this.flushOpenSteps();
     const message = ensureMessageId(createCompactionSummaryMessage(record.summary));
     const deleteCount = clampDeleteCount(record.compactedCount, this.history.length);
     this.history.splice(0, deleteCount, message);
     this.resetLoopState();
-    return [
+    output.push(
       withTime(record, {
         type: 'context.compact',
         args: [deleteCount, cloneContextMessage(message), record.tokensAfter],
       }),
       this.createFullCompactionCompleteRecord(record),
-    ];
+    );
+    return output;
   }
 
   private migrateUndo(record: V1_4UndoRecord): WireMigrationRecord[] {
     if (record.count <= 0) return [];
 
+    const output = this.flushOpenSteps();
     const removals: ContextRemovalTarget[] = [];
     let removedUserCount = 0;
     for (let index = this.history.length - 1; index >= 0; index--) {
@@ -171,8 +182,10 @@ class V1_5MigrationState {
       }
     }
     this.resetLoopState();
-    if (removals.length === 0) return [];
-    return [withTime(record, { type: 'context.undo', args: [removals] })];
+    if (removals.length > 0) {
+      output.push(withTime(record, { type: 'context.undo', args: [removals] }));
+    }
+    return output;
   }
 
   private migrateForked(record: WireMigrationRecord): WireMigrationRecord[] {
@@ -185,17 +198,18 @@ class V1_5MigrationState {
     event: LoopContentPartEvent,
     record: WireMigrationRecord,
   ): WireMigrationRecord[] {
-    return this.replaceOpenStep(event.stepUuid, record, (message) => ({
+    this.updateOpenStep(event.stepUuid, record, (message) => ({
       ...message,
       content: [...message.content, cloneContentPart(event.part)],
     }));
+    return [];
   }
 
   private applyToolCall(
     event: LoopToolCallEvent,
     record: WireMigrationRecord,
   ): WireMigrationRecord[] {
-    const output = this.replaceOpenStep(event.stepUuid, record, (message) => ({
+    this.updateOpenStep(event.stepUuid, record, (message) => ({
       ...message,
       toolCalls: [
         ...message.toolCalls,
@@ -207,17 +221,19 @@ class V1_5MigrationState {
         },
       ],
     }));
-    this.pendingToolResultIds.add(event.toolCallId);
-    return output;
+    this.pendingToolResultSteps.set(event.toolCallId, event.stepUuid);
+    return [];
   }
 
   private applyToolResult(
     event: LoopToolResultEvent,
     record: WireMigrationRecord,
   ): WireMigrationRecord[] {
-    if (!this.pendingToolResultIds.has(event.toolCallId)) return [];
-    const output = this.appendToolResult(event.toolCallId, event.result, record);
-    this.pendingToolResultIds.delete(event.toolCallId);
+    const stepUuid = this.pendingToolResultSteps.get(event.toolCallId);
+    if (stepUuid === undefined) return [];
+    const output = this.flushOpenStep(stepUuid, record);
+    output.push(...this.appendToolResult(event.toolCallId, event.result, record));
+    this.pendingToolResultSteps.delete(event.toolCallId);
     output.push(...this.flushDeferredMessages(record));
     return output;
   }
@@ -226,43 +242,48 @@ class V1_5MigrationState {
     event: LoopStepEndEvent,
     record: WireMigrationRecord,
   ): WireMigrationRecord[] {
+    const output = this.flushOpenStep(event.uuid, record);
     this.openSteps.delete(event.uuid);
-    return this.flushDeferredMessages(record);
+    output.push(...this.flushDeferredMessages(record));
+    return output;
   }
 
-  private replaceOpenStep(
+  private updateOpenStep(
     stepUuid: string,
     record: WireMigrationRecord,
     update: (message: ContextMessage) => ContextMessage,
-  ): WireMigrationRecord[] {
+  ): void {
     const openStep = this.openSteps.get(stepUuid) ?? {
       message: createAssistantMessage(),
-      inserted: false,
+      source: record,
     };
-    const next = update(openStep.message);
-    if (!openStep.inserted) {
-      const inserted = ensureMessageId(cloneContextMessage(next));
-      this.history.push(inserted);
-      this.openSteps.set(stepUuid, { message: inserted, inserted: true });
-      return [this.createAppendRecord(inserted, record)];
-    }
+    this.openSteps.set(stepUuid, {
+      message: update(openStep.message),
+      source: record,
+    });
+  }
 
-    const index = this.history.indexOf(openStep.message);
-    if (index < 0) {
-      this.openSteps.set(stepUuid, { message: next, inserted: false });
-      return this.appendNow(next, record);
-    }
+  private flushOpenStep(
+    stepUuid: string,
+    source: WireMigrationRecord,
+  ): WireMigrationRecord[] {
+    const openStep = this.openSteps.get(stepUuid);
+    if (openStep === undefined) return [];
+    this.openSteps.delete(stepUuid);
+    if (isEmptyAssistantMessage(openStep.message)) return [];
+    return this.appendNow(openStep.message, source);
+  }
 
-    this.history.splice(index, 1, next);
-    this.openSteps.set(stepUuid, { message: next, inserted: true });
-    // Incremental streaming update — replace the open assistant message in
-    // place (same message id), matching the `context.replace` operation.
-    return [
-      withTime(record, {
-        type: 'context.replace',
-        args: [index, cloneContextMessage(next)],
-      }),
-    ];
+  private flushOpenSteps(): WireMigrationRecord[] {
+    const output: WireMigrationRecord[] = [];
+    for (const [stepUuid, openStep] of [...this.openSteps]) {
+      output.push(...this.flushOpenStep(stepUuid, openStep.source));
+    }
+    return output;
+  }
+
+  finish(): WireMigrationRecord[] {
+    return this.flushOpenSteps();
   }
 
   private appendToolResult(
@@ -282,10 +303,14 @@ class V1_5MigrationState {
   }
 
   private closePendingToolResults(record: WireMigrationRecord): WireMigrationRecord[] {
-    if (this.pendingToolResultIds.size === 0) return [];
+    if (this.pendingToolResultSteps.size === 0) return [];
     const output: WireMigrationRecord[] = [];
-    const toolCallIds = [...this.pendingToolResultIds];
+    const toolCallIds = [...this.pendingToolResultSteps.keys()];
     for (const toolCallId of toolCallIds) {
+      const stepUuid = this.pendingToolResultSteps.get(toolCallId);
+      if (stepUuid !== undefined) {
+        output.push(...this.flushOpenStep(stepUuid, record));
+      }
       output.push(
         ...this.appendToolResult(
           toolCallId,
@@ -296,14 +321,14 @@ class V1_5MigrationState {
           record,
         ),
       );
-      this.pendingToolResultIds.delete(toolCallId);
+      this.pendingToolResultSteps.delete(toolCallId);
     }
     output.push(...this.flushDeferredMessages(record));
     return output;
   }
 
   private flushDeferredMessages(record: WireMigrationRecord): WireMigrationRecord[] {
-    if (this.pendingToolResultIds.size > 0 || this.deferredMessages.length === 0) {
+    if (this.pendingToolResultSteps.size > 0 || this.deferredMessages.length === 0) {
       return [];
     }
     const messages = this.deferredMessages;
@@ -398,14 +423,14 @@ class V1_5MigrationState {
 
   private resetLoopState(): void {
     this.openSteps.clear();
-    this.pendingToolResultIds.clear();
+    this.pendingToolResultSteps.clear();
     this.deferredMessages = [];
   }
 }
 
 interface OpenStep {
   readonly message: ContextMessage;
-  readonly inserted: boolean;
+  readonly source: WireMigrationRecord;
 }
 
 interface V1_4TurnPromptRecord extends WireMigrationRecord {
@@ -494,6 +519,14 @@ function createAssistantMessage(): ContextMessage {
     content: [],
     toolCalls: [],
   };
+}
+
+function isEmptyAssistantMessage(message: ContextMessage): boolean {
+  return (
+    message.role === 'assistant' &&
+    message.content.length === 0 &&
+    message.toolCalls.length === 0
+  );
 }
 
 function createCompactionSummaryMessage(summary: string): ContextMessage {
