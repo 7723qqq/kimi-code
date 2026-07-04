@@ -27,12 +27,6 @@ export interface IAgentTurnService {
   readonly _serviceBrand: undefined;
   launch(origin: PromptOrigin, promptMessageId?: string): Turn;
   getActiveTurn(): Turn | undefined;
-  /**
-   * Reason the most recently finished turn ended with, or `undefined` when no
-   * turn has ended yet (or after a new turn launches). Used by sessionActivity
-   * to surface an `aborted` session status, mirroring v1's `_abortedTurns`.
-   */
-  lastEndedReason(): TurnResult['reason'] | undefined;
 
   readonly hooks: Hooks<{
     onLaunched: { turn: Turn };

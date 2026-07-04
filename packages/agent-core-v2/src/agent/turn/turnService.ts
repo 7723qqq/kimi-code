@@ -29,7 +29,6 @@ export class AgentTurnService implements IAgentTurnService {
   declare readonly _serviceBrand: undefined;
   private nextTurnId = 0;
   private activeTurn: Turn | undefined;
-  private lastEndedReasonValue: TurnResult['reason'] | undefined;
 
   readonly hooks = {
     onLaunched: new OrderedHookSlot<{ turn: Turn }>(),
@@ -58,10 +57,6 @@ export class AgentTurnService implements IAgentTurnService {
       );
     }
 
-    // A new turn clears the previous `aborted`/`failed` memory (mirrors v1
-    // clearing `_abortedTurns` on `turn.started` / `prompt.submitted`).
-    this.lastEndedReasonValue = undefined;
-
     const turnId = this.nextTurnId;
     this.record.append({ type: 'turn.launch', turnId, origin, promptMessageId });
     this.restoreLaunch(turnId);
@@ -83,10 +78,6 @@ export class AgentTurnService implements IAgentTurnService {
 
   getActiveTurn(): Turn | undefined {
     return this.activeTurn;
-  }
-
-  lastEndedReason(): TurnResult['reason'] | undefined {
-    return this.lastEndedReasonValue;
   }
 
   private async runTurn(
@@ -123,7 +114,6 @@ export class AgentTurnService implements IAgentTurnService {
         this.activeTurn = undefined;
       }
       if (result !== undefined) {
-        this.lastEndedReasonValue = result.reason;
         const error = result.error !== undefined ? toKimiErrorPayload(result.error) : undefined;
         this.record.signal({
           type: 'turn.ended',

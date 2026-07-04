@@ -209,12 +209,11 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
         ? sourceHandle.accessor.get(ISessionContext).workspaceId
         : indexSummary!.workspaceId;
 
-    // 2. Reject forking a live session with an active turn (v1 parity). Any
-    // phase other than idle/aborted implies a turn is still in progress
-    // (including turns paused on an approval/question).
+    // 2. Reject forking a live session with an active turn or a pending
+    // interaction.
     if (sourceHandle !== undefined) {
       const status = sourceHandle.accessor.get(ISessionActivity).status();
-      if (status !== 'idle' && status !== 'aborted') {
+      if (status !== 'idle') {
         throw new KimiError(
           ErrorCodes.SESSION_FORK_ACTIVE_TURN,
           `Session "${sourceId}" cannot be forked while a turn is running`,

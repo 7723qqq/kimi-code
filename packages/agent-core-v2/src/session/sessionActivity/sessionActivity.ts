@@ -10,7 +10,7 @@
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
-export type SessionStatus = 'running' | 'idle' | 'awaiting_approval' | 'awaiting_question' | 'aborted';
+export type SessionStatus = 'running' | 'idle' | 'awaiting_approval' | 'awaiting_question';
 
 export interface ISessionActivity {
   readonly _serviceBrand: undefined;
