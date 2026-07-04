@@ -392,7 +392,7 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
       toolCalls: [],
       origin,
     };
-    void promptService.steer(message);
+    void promptService.steer(message).launched.catch(() => {});
     this.telemetry.track(CRON_MISSED, { count: tasks.length });
     return undefined;
   }
@@ -449,7 +449,7 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
     };
     this.signalRecord({ type: 'cron.fired', origin, prompt: task.prompt });
     const buffered = mainHandle.accessor.get(IAgentTurnService).getActiveTurn() !== undefined;
-    void promptService.steer(message);
+    void promptService.steer(message).launched.catch(() => {});
     this.telemetry.track(CRON_FIRED, {
       recurring: task.recurring !== false,
       coalesced_count: ctx.coalescedCount,

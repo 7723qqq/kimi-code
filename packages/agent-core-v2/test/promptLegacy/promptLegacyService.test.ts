@@ -72,7 +72,10 @@ function createHarness(options: { readonly blockPrompt?: boolean } = {}): Harnes
       for (const part of message.content) {
         if (part.type === 'text') steered.push(part.text);
       }
-      return Promise.resolve(undefined);
+      return {
+        removeFromQueue: () => {},
+        launched: Promise.resolve(activeTurn),
+      };
     },
     retry: () => undefined,
     undo: () => 0,

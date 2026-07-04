@@ -59,7 +59,10 @@ describe('AgentSkillService', () => {
           },
           steer: (message) => {
             prompted.push(message);
-            return Promise.resolve(undefined);
+            return {
+              removeFromQueue: () => {},
+              launched: Promise.resolve(undefined),
+            };
           },
           retry: () => undefined,
           undo: () => 0,
@@ -156,7 +159,10 @@ describe('SkillTool', () => {
           },
           steer: (message: ContextMessage) => {
             prompted.push(message);
-            return Promise.resolve(undefined);
+            return {
+              removeFromQueue: () => {},
+              launched: Promise.resolve(undefined),
+            };
           },
           retry: () => undefined,
           undo: () => 0,

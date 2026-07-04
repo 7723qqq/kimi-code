@@ -818,7 +818,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       content: [...context.content],
       toolCalls: [],
       origin: context.origin,
-    });
+    }).launched;
     this.fireNotificationHook(context.notification);
   }
 

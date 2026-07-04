@@ -14,6 +14,7 @@ import { IConfigService } from '#/app/config';
 import { emptyUsage } from '#/app/llmProtocol';
 import { ILogService } from '#/app/log';
 import { IAgentTelemetryContextService, ITelemetryService } from '#/app/telemetry';
+import { ErrorCodes, KimiError } from '#/errors';
 
 import { stubContextMemory, stubRecord } from '../contextMemory/stubs';
 import { stubLog } from '../log/stubs';
@@ -112,6 +113,32 @@ describe('AgentTurnService ready', () => {
     expect((readyError as Error).message).toBe('Turn ended before first step');
     expect((readyError as Error).cause).toBe(cause);
     await expect(turn.result).resolves.toMatchObject({ reason: 'failed', error: cause });
+  });
+
+  it('throws a KimiError when launching while a turn is active', async () => {
+    const release = createControlledPromise<void>();
+    loop.runTurn = async () => {
+      await release;
+      return { reason: 'completed', steps: 1 };
+    };
+
+    const turnService = ix.get(IAgentTurnService);
+    const turn = turnService.launch(SYSTEM_ORIGIN);
+    let error: unknown;
+    try {
+      turnService.launch(SYSTEM_ORIGIN);
+    } catch (caught) {
+      error = caught;
+    } finally {
+      release.resolve();
+    }
+
+    expect(error).toBeInstanceOf(KimiError);
+    expect(error).toMatchObject({
+      code: ErrorCodes.TURN_AGENT_BUSY,
+      details: { turnId: turn.id },
+    });
+    await expect(turn.result).resolves.toMatchObject({ reason: 'completed', steps: 1 });
   });
 });
 

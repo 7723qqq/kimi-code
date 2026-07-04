@@ -102,7 +102,7 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
       content,
       toolCalls: [],
       origin: { kind: 'user' },
-    });
+    }).launched;
     return { steered: true, prompt_ids: [...promptIds] };
   }
 

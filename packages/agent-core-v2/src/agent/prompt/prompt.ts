@@ -9,10 +9,15 @@ export interface PromptSubmitContext {
   block: boolean;
 }
 
+export interface PromptSteerHandle {
+  removeFromQueue(): void;
+  readonly launched: Promise<Turn | undefined>;
+}
+
 export interface IAgentPromptService {
   readonly _serviceBrand: undefined;
   prompt(message: ContextMessage): Promise<Turn | undefined>;
-  steer(message: ContextMessage): Promise<Turn | undefined>;
+  steer(message: ContextMessage): PromptSteerHandle;
   retry(trigger?: string): Turn | undefined;
   undo(count: number): number;
   clear(): void;

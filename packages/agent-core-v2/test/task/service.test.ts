@@ -49,7 +49,12 @@ describe('AgentTaskService', () => {
     ix.stub(IAgentToolRegistryService, {
       register: () => toDisposable(() => {}),
     });
-    ix.stub(IAgentPromptService, { steer: () => Promise.resolve(undefined) });
+    ix.stub(IAgentPromptService, {
+      steer: () => ({
+        removeFromQueue: () => {},
+        launched: Promise.resolve(undefined),
+      }),
+    });
     ix.stub(IConfigRegistry, { registerSection: () => {} });
     ix.stub(IConfigService, {
       get: (() => undefined) as IConfigService['get'],

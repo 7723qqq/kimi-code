@@ -2,7 +2,7 @@ import { createControlledPromise } from '@antfu/utils';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { toKimiErrorPayload } from '#/errors';
+import { ErrorCodes, KimiError, toKimiErrorPayload } from '#/errors';
 import type { PromptOrigin } from '#/agent/contextMemory';
 import { OrderedHookSlot } from '#/hooks';
 import { IAgentLoopService } from '#/agent/loop';
@@ -51,7 +51,11 @@ export class AgentTurnService implements IAgentTurnService {
 
   launch(origin: PromptOrigin, promptMessageId?: string): Turn {
     if (this.activeTurn !== undefined) {
-      throw new Error(`Cannot launch a new turn while turn ${this.activeTurn.id} is active`);
+      throw new KimiError(
+        ErrorCodes.TURN_AGENT_BUSY,
+        `Cannot launch a new turn while another turn (ID ${this.activeTurn.id}) is active`,
+        { details: { turnId: this.activeTurn.id } },
+      );
     }
 
     // A new turn clears the previous `aborted`/`failed` memory (mirrors v1

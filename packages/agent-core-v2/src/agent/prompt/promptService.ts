@@ -1,6 +1,6 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { ErrorCodes, KimiError, makeErrorPayload } from "#/errors";
+import { ErrorCodes, KimiError } from '#/errors';
 
 import {
   ensureMessageId,
@@ -15,11 +15,18 @@ import { OrderedHookSlot } from '#/hooks';
 import {
   IAgentPromptService,
   type PromptSubmitContext,
+  type PromptSteerHandle,
 } from './prompt';
+
+interface QueuedSteer {
+  readonly message: ContextMessage;
+  emitted: boolean;
+  removed: boolean;
+}
 
 export class AgentPromptService implements IAgentPromptService {
   declare readonly _serviceBrand: undefined;
-  private readonly steerQueue: ContextMessage[] = [];
+  private readonly steerQueue: QueuedSteer[] = [];
   private observedTurn: Turn | undefined;
 
   readonly hooks = {
@@ -45,7 +52,6 @@ export class AgentPromptService implements IAgentPromptService {
   }
 
   async prompt(message: ContextMessage): Promise<Turn | undefined> {
-    if (this.emitBusyIfActive()) return undefined;
     const stamped = ensureMessageId(message);
     this.append(stamped);
     if (await this.applyPromptHook(stamped, false)) return undefined;
@@ -54,24 +60,29 @@ export class AgentPromptService implements IAgentPromptService {
     return turn;
   }
 
-  async steer(message: ContextMessage): Promise<Turn | undefined> {
-    const stamped = ensureMessageId(message);
+  steer(message: ContextMessage): PromptSteerHandle {
     const activeTurn = this.turnService.getActiveTurn();
-    if (activeTurn !== undefined) {
-      this.steerQueue.push(stamped);
-      this.observe(activeTurn);
-      return undefined;
+    if (activeTurn === undefined) {
+      return {
+        removeFromQueue: () => {
+          throw this.createSteerAlreadyEmittedError();
+        },
+        launched: this.prompt(message),
+      };
     }
 
-    this.append(stamped);
-    if (await this.applyPromptHook(stamped, true)) return undefined;
-    const turn = this.turnService.launch(stamped.origin ?? USER_PROMPT_ORIGIN, stamped.id);
-    this.observe(turn);
-    return turn;
+    const entry: QueuedSteer = {
+      message: ensureMessageId(message),
+      emitted: false,
+      removed: false,
+    };
+    return {
+      removeFromQueue: () => this.removeQueuedSteer(entry),
+      launched: this.enqueueSteer(activeTurn, entry),
+    };
   }
 
   retry(trigger?: string): Turn | undefined {
-    if (this.emitBusyIfActive()) return undefined;
     const turn = this.turnService.launch({ kind: 'retry', trigger });
     this.observe(turn);
     return turn;
@@ -117,6 +128,9 @@ export class AgentPromptService implements IAgentPromptService {
   }
 
   clear(): void {
+    for (const entry of this.steerQueue) {
+      entry.removed = true;
+    }
     this.steerQueue.length = 0;
     const historyLength = this.context.get().length;
     if (historyLength === 0) return;
@@ -146,6 +160,9 @@ export class AgentPromptService implements IAgentPromptService {
         this.observedTurn = undefined;
       }
       if (result.reason !== 'completed') {
+        for (const entry of this.steerQueue) {
+          entry.removed = true;
+        }
         this.steerQueue.length = 0;
       }
     });
@@ -154,23 +171,46 @@ export class AgentPromptService implements IAgentPromptService {
   private flushSteerQueue(): boolean {
     if (this.steerQueue.length === 0) return false;
 
-    const messages = this.steerQueue.splice(0);
+    const entries = this.steerQueue.splice(0);
+    const messages: ContextMessage[] = [];
+    for (const entry of entries) {
+      if (entry.removed) continue;
+      entry.emitted = true;
+      messages.push(entry.message);
+    }
+    if (messages.length === 0) return false;
+
     this.append(...messages);
     return true;
   }
 
-  private emitBusyIfActive(): boolean {
-    const activeTurn = this.turnService.getActiveTurn();
-    if (activeTurn === undefined) return false;
-    this.record.signal({
-      type: 'error',
-      ...makeErrorPayload(
-        ErrorCodes.TURN_AGENT_BUSY,
-        `Cannot launch a new turn while another turn (ID ${activeTurn.id}) is active`,
-        { details: { turnId: activeTurn.id } },
-      ),
-    });
-    return true;
+  private async enqueueSteer(activeTurn: Turn, entry: QueuedSteer): Promise<Turn | undefined> {
+    if (await this.applyPromptHook(entry.message, true)) return undefined;
+    if (entry.removed) return undefined;
+
+    this.steerQueue.push(entry);
+    this.observe(activeTurn);
+    return activeTurn;
+  }
+
+  private removeQueuedSteer(entry: QueuedSteer): void {
+    if (entry.emitted) {
+      throw this.createSteerAlreadyEmittedError();
+    }
+    if (entry.removed) return;
+    entry.removed = true;
+    const index = this.steerQueue.indexOf(entry);
+    if (index >= 0) {
+      this.steerQueue.splice(index, 1);
+    }
+  }
+
+  private createSteerAlreadyEmittedError(): KimiError {
+    return new KimiError(
+      ErrorCodes.REQUEST_INVALID,
+      'Cannot remove a steer after it has been emitted',
+      { details: { reason: 'steer_already_emitted' } },
+    );
   }
 }
 

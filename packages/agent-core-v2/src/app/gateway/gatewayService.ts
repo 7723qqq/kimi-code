@@ -57,14 +57,14 @@ export class RestGateway implements IRestGateway {
     content: string,
   ): Promise<{ readonly turn_id: number } | undefined> {
     const agent = this.agent(sessionId, agentId);
-    const turn = await agent.accessor.get(IAgentPromptService).steer({
+    const steer = agent.accessor.get(IAgentPromptService).steer({
       role: 'user',
       content: [{ type: 'text', text: content }],
       toolCalls: [],
       origin: { kind: 'user' },
     });
-    const id = turn?.id ?? agent.accessor.get(IAgentTurnService).getActiveTurn()?.id;
-    return id === undefined ? undefined : { turn_id: id };
+    const turn = await steer.launched;
+    return turn === undefined ? undefined : { turn_id: turn.id };
   }
   cancel(sessionId: string, agentId: string, reason?: string): Promise<void> {
     const activeTurn = this.agent(sessionId, agentId).accessor.get(IAgentTurnService).getActiveTurn();

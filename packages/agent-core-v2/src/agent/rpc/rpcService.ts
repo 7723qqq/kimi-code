@@ -171,13 +171,13 @@ export class AgentRPCService implements IAgentRPCService {
 
   async steer(payload: SteerPayload): Promise<PromptLaunchResult | undefined> {
     this.telemetry.track('input_steer', { parts: payload.input.length });
-    const turn = await this.promptService.steer({
+    const steer = this.promptService.steer({
       role: 'user',
       content: [...payload.input],
       toolCalls: [],
     });
-    const id = turn?.id ?? this.turnService.getActiveTurn()?.id;
-    return id === undefined ? undefined : { turn_id: id };
+    const turn = await steer.launched;
+    return turn === undefined ? undefined : { turn_id: turn.id };
   }
 
   cancel({ turnId }: CancelPayload): void {

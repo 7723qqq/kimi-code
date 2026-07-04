@@ -82,12 +82,15 @@ describe('Cron — session E2E (P1.9)', () => {
     }> = [];
     vi.spyOn(prompt, 'steer').mockImplementation((message: ContextMessage) => {
       steerCalls.push({ content: message.content, origin: message.origin });
-      return Promise.resolve({
-        id: 1,
-        abortController: new AbortController(),
-        ready: Promise.resolve(),
-        result: Promise.resolve({ reason: 'completed' as const }),
-      });
+      return {
+        removeFromQueue: () => {},
+        launched: Promise.resolve({
+          id: 1,
+          abortController: new AbortController(),
+          ready: Promise.resolve(),
+          result: Promise.resolve({ reason: 'completed' as const }),
+        }),
+      };
     });
 
     // Schedule via the full tool surface — the scheduling path goes

@@ -78,7 +78,10 @@ describe('SessionCronService', () => {
       prompt: () => Promise.resolve(undefined),
       steer: (message) => {
         steered.push(message);
-        return Promise.resolve(fakeTurn());
+        return {
+          removeFromQueue: () => {},
+          launched: Promise.resolve(fakeTurn()),
+        };
       },
       retry: () => undefined,
       undo: () => 0,

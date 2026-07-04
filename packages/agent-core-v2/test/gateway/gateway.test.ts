@@ -54,7 +54,10 @@ describe('RestGateway', () => {
         promptCalls.push(message);
         return Promise.resolve(undefined);
       },
-      steer: () => Promise.resolve(undefined),
+      steer: () => ({
+        removeFromQueue: () => {},
+        launched: Promise.resolve(undefined),
+      }),
       retry: () => undefined,
       undo: () => 0,
       clear: () => {},

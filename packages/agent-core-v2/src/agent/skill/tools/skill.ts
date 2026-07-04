@@ -173,7 +173,7 @@ export async function executeModelSkill(
     origin,
   };
   skillService.recordModelToolActivation(origin);
-  await prompt.steer(message);
+  await prompt.steer(message).launched;
   return {
     output: `Skill "${skill.name}" loaded inline. Follow its instructions.`,
   };

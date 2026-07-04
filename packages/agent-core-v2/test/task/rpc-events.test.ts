@@ -207,7 +207,10 @@ function createAgentTaskService(options: {
 
   const steerSpy = vi
     .spyOn(ctx.get(IAgentPromptService), 'steer')
-    .mockResolvedValue(undefined);
+    .mockReturnValue({
+      removeFromQueue: () => {},
+      launched: Promise.resolve(undefined),
+    });
   const context = ctx.get(IAgentContextMemoryService);
   const spliceHistorySpy = vi.spyOn(context, 'splice');
 

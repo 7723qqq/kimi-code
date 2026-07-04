@@ -64,7 +64,10 @@ function captureSteer(prompt: IAgentPromptService): SteerCall[] {
   const calls: SteerCall[] = [];
   prompt.steer = (message: ContextMessage) => {
     calls.push({ content: message.content, origin: message.origin as PromptOrigin });
-    return Promise.resolve(undefined);
+    return {
+      removeFromQueue: () => {},
+      launched: Promise.resolve(undefined),
+    };
   };
   return calls;
 }

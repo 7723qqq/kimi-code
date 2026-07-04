@@ -31,11 +31,14 @@ function createClocks(initial: number = WALL_ANCHOR): ClockHarness {
 }
 
 function spySteer(prompt: IAgentPromptService) {
-  return vi.spyOn(prompt, 'steer').mockImplementation((_message: ContextMessage) => Promise.resolve({
-    id: 1,
-    abortController: new AbortController(),
-    ready: Promise.resolve(),
-    result: Promise.resolve({ reason: 'completed' as const }),
+  return vi.spyOn(prompt, 'steer').mockImplementation((_message: ContextMessage) => ({
+    removeFromQueue: () => {},
+    launched: Promise.resolve({
+      id: 1,
+      abortController: new AbortController(),
+      ready: Promise.resolve(),
+      result: Promise.resolve({ reason: 'completed' as const }),
+    }),
   }));
 }
 
