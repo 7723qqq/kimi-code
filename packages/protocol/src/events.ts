@@ -469,7 +469,6 @@ export interface WarningEvent {
 export interface TurnStartedEvent {
   readonly type: 'turn.started';
   readonly turnId: number;
-  readonly origin: PromptOrigin;
 }
 
 export interface TurnEndedEvent {
