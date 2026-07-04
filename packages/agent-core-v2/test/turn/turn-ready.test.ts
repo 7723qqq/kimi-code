@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import type { PromptOrigin } from '#/agent/contextMemory';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { AgentLoopService, IAgentLoopService } from '#/agent/loop';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester';
@@ -20,8 +19,6 @@ import { stubContextMemory, stubRecord } from '../contextMemory/stubs';
 import { stubLog } from '../log/stubs';
 import { recordingTelemetry } from '../telemetry/stubs';
 import { stubLoopWithHooks, stubToolExecutor } from './stubs';
-
-const SYSTEM_ORIGIN: PromptOrigin = { kind: 'system_trigger', name: 'test' };
 
 describe('AgentTurnService ready', () => {
   let disposables: DisposableStore;
@@ -75,7 +72,7 @@ describe('AgentTurnService ready', () => {
       return { reason: 'completed', steps: 1 };
     };
 
-    const turn = ix.get(IAgentTurnService).launch(SYSTEM_ORIGIN);
+    const turn = ix.get(IAgentTurnService).launch();
     void turn.ready.then(
       () => {
         readySettled = true;
@@ -103,7 +100,7 @@ describe('AgentTurnService ready', () => {
     const cause = new Error('loop failed before first step');
     loop.runTurn = async () => ({ reason: 'failed', error: cause, steps: 0 });
 
-    const turn = ix.get(IAgentTurnService).launch(SYSTEM_ORIGIN);
+    const turn = ix.get(IAgentTurnService).launch();
     let readyError: unknown;
     await turn.ready.catch((error: unknown) => {
       readyError = error;
@@ -123,10 +120,10 @@ describe('AgentTurnService ready', () => {
     };
 
     const turnService = ix.get(IAgentTurnService);
-    const turn = turnService.launch(SYSTEM_ORIGIN);
+    const turn = turnService.launch();
     let error: unknown;
     try {
-      turnService.launch(SYSTEM_ORIGIN);
+      turnService.launch();
     } catch (caught) {
       error = caught;
     } finally {

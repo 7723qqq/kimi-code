@@ -1,6 +1,5 @@
 import { createDecorator } from "#/_base/di";
 import type { TurnResult } from '#/agent/loop';
-import type { PromptOrigin } from '#/agent/contextMemory';
 import type { Hooks } from '#/hooks';
 
 export type { TurnResult } from '#/agent/loop';
@@ -23,7 +22,7 @@ export interface TurnEndedContext {
 
 export interface IAgentTurnService {
   readonly _serviceBrand: undefined;
-  launch(origin: PromptOrigin): Turn;
+  launch(): Turn;
   getActiveTurn(): Turn | undefined;
 
   readonly hooks: Hooks<{

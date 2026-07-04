@@ -118,7 +118,7 @@ describe('RestGateway', () => {
 
   it('aborts the active turn signal on cancel', async () => {
     const gw = ix.get(IRestGateway);
-    const turn = turnService.launch({ kind: 'user' });
+    const turn = turnService.launch();
     await gw.cancel('s1', 'main', 'bye');
 
     expect(turn.abortController.signal.aborted).toBe(true);
