@@ -199,7 +199,7 @@ const emit = defineEmits<{
   /** Show an Edit/Write tool call's diff in the right-side panel. */
   openToolDiff: [id: string];
   /** Edit + resend the last user message (parent undoes, then refills composer). */
-  editMessage: [text: string];
+  editMessage: [payload: { text: string; images?: { url: string; alt?: string; kind: 'image' | 'video'; fileId?: string }[] }];
   /** Fetch the next older page of messages (triggered by top sentinel visibility or click). */
   loadOlderMessages: [];
   /** Remove a queued message by index. */
@@ -220,10 +220,10 @@ function hasImages(item: QueuedPromptView): boolean {
   return (item.attachments?.length ?? 0) > 0;
 }
 
-function onQueueEdit(index: number, item: QueuedPromptView): void {
-  // Image-carrying prompts can't be round-tripped through the text composer, so
-  // they are remove-only (matches the previous dock queue behaviour).
-  if (hasImages(item)) return;
+function onQueueEdit(index: number): void {
+  // Image/video attachments round-trip through the composer now (the composer
+  // can hold fileIds), so a queued prompt can be loaded back for edit whether or
+  // not it carries media.
   emit('editQueued', index);
 }
 
@@ -353,7 +353,7 @@ async function onUndo(turn: ChatTurn): Promise<void> {
 function confirmEditMessage(turn: ChatTurn): void {
   if (undoingTurnId.value !== null) return;
   undoingTurnId.value = turn.id;
-  emit('editMessage', turn.text);
+  emit('editMessage', { text: turn.text, images: turn.images });
   // Fallback: if the server rewind never removes the turn (e.g. it failed),
   // release the guard so the user can retry.
   undoFallbackTimer = setTimeout(() => {
@@ -721,9 +721,8 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
           <button
             type="button"
             class="q-body"
-            :title="hasImages(item) ? t('composer.queuedHasImage', { n: item.attachments?.length ?? 0 }) : t('composer.editQueued')"
-            :disabled="hasImages(item)"
-            @click="onQueueEdit(qi, item)"
+            :title="t('composer.editQueued')"
+            @click="onQueueEdit(qi)"
           >
             <span v-if="item.text" class="u-text q-text">{{ item.text }}</span>
             <span v-else class="q-text q-text-placeholder">

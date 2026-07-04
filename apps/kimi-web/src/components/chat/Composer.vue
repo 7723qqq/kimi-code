@@ -246,6 +246,7 @@ const {
   handleDragLeave,
   handleDrop,
   clearAfterSubmit,
+  loadAttachments,
 } = useAttachmentUpload({ uploadImage: () => props.uploadImage, sessionId: () => props.sessionId });
 
 // Silence noUnusedLocals: fileInputRef is used as a template ref (ref="fileInputRef").
@@ -277,7 +278,10 @@ function focus(): void {
   // or if focus is triggered during an animation/transition.
   textareaRef.value?.focus({ preventScroll: true });
 }
-defineExpose({ loadForEdit, focus });
+function loadAttachmentsForEdit(atts: { fileId?: string; kind: 'image' | 'video'; url: string; name?: string }[]): void {
+  loadAttachments(atts);
+}
+defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
 
 function handleSubmit(): void {
   const trimmed = text.value.trim();
