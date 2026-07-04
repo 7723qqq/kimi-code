@@ -6,7 +6,7 @@
  * (`toolExecutor`, `permissionGate`, `prompt`, `turn`, `loop`, `fullCompaction`, and
  * `task`) and translates those minimal contexts into the configured external
  * HookEngine events. Appends UserPromptSubmit hook results and Stop hook
- * continuation prompts through `contextMemory`. The `SubagentStart` /
+ * continuation prompts through `contextOps`. The `SubagentStart` /
  * `SubagentStop` pair is the one
  * exception: the `agentLifecycle` tool wrapper has no hook service of its own,
  * so `mirrorAgentRun` invokes `runAgentTaskStart` / `notifyAgentTaskStop` on
@@ -19,7 +19,8 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { isUserCancellation } from '#/_base/utils/abort';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
 import { IAgentTaskService, type AgentTaskNotificationContext } from '#/agent/task';
-import { IAgentContextMemoryService, USER_PROMPT_ORIGIN } from '#/agent/contextMemory';
+import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory';
+import { IAgentContextOpsService } from '#/agent/contextOps';
 import {
   IAgentFullCompactionService,
   type FullCompactionDidCompactContext,
@@ -87,7 +88,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
 
   constructor(
     private readonly options: ExternalHooksServiceOptions = {},
-    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentContextOpsService private readonly contextOps: IAgentContextOpsService,
     @IAgentRecordService private readonly record: IAgentRecordService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IConfigService private readonly config: IConfigService,
@@ -224,12 +225,12 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
         const reason = await this.runStop(ctx);
         if (reason !== undefined) {
           this.stopHookContinuationUsed = true;
-          this.context.splice(this.context.get().length, 0, [{
+          this.contextOps.append({
             role: 'user',
             content: [{ type: 'text', text: reason }],
             toolCalls: [],
             origin: { kind: 'system_trigger', name: 'stop_hook' },
-          }]);
+          });
           ctx.continue = true;
           return;
         }
@@ -321,12 +322,12 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
 
     const block = renderUserPromptHookBlockResult(results);
     if (block !== undefined) {
-      this.context.splice(this.context.get().length, 0, [{
+      this.contextOps.append({
         role: 'assistant',
         content: [{ type: 'text', text: block.text }],
         toolCalls: [],
         origin: { kind: 'hook_result', event: block.event, blocked: true },
-      }]);
+      });
       this.record.signal({
         type: 'hook.result',
         hookEvent: block.event,
@@ -338,12 +339,12 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
 
     const append = renderUserPromptHookResult(results);
     if (append !== undefined) {
-      this.context.splice(this.context.get().length, 0, [{
+      this.contextOps.append({
         role: 'user',
         content: [{ type: 'text', text: append.text }],
         toolCalls: [],
         origin: { kind: 'hook_result', event: append.event },
-      }]);
+      });
       this.record.signal({
         type: 'hook.result',
         hookEvent: append.event,

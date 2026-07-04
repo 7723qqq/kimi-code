@@ -8,7 +8,8 @@ import {
 } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { emptyUsage } from '#/app/llmProtocol/kosong';
-import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
+import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { AgentContextOpsService, IAgentContextOpsService } from '#/agent/contextOps';
 import { IAgentTaskService } from '#/agent/task';
 import {
   AgentExternalHooksService,
@@ -33,7 +34,7 @@ import { IPluginService } from '#/app/plugin';
 import { createHooks } from '#/hooks';
 
 import { stubBootstrap } from '../bootstrap/stubs';
-import { stubRecord } from '../contextMemory/stubs';
+import { stubContextMemory, stubRecord } from '../contextMemory/stubs';
 import { stubLoopWithHooks, stubToolExecutor, stubTurnWithHooks } from '../turn/stubs';
 
 function nodeCommand(source: string): string {
@@ -68,21 +69,6 @@ function makeAfterStep(signal: AbortSignal): TurnAfterStepContext {
     usage: emptyUsage(),
     stopReason: 'completed',
     continue: false,
-  };
-}
-
-function stubContextMemory(): IAgentContextMemoryService & {
-  readonly messages: readonly ContextMessage[];
-} {
-  const messages: ContextMessage[] = [];
-  return {
-    _serviceBrand: undefined,
-    get: () => [...messages],
-    splice: (start, deleteCount, inserted) => {
-      messages.splice(start, deleteCount, ...inserted);
-    },
-    hooks: createHooks(['onSpliced']) as IAgentContextMemoryService['hooks'],
-    messages,
   };
 }
 
@@ -159,6 +145,7 @@ describe('HookEngine integration', () => {
           reg.definePartialInstance(IConfigService, {});
           reg.definePartialInstance(IPluginService, {});
           reg.defineInstance(IAgentContextMemoryService, context);
+          reg.define(IAgentContextOpsService, AgentContextOpsService);
           reg.defineInstance(IAgentRecordService, stubRecord());
           reg.defineInstance(IAgentLoopService, loop);
           reg.definePartialInstance(IAgentPromptService, {
