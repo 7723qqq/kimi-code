@@ -9,7 +9,6 @@ import type { ToolResult } from '#/agent/tool';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IConfigService } from '#/app/config';
 import {
-  APIContextOverflowError,
   createToolMessage,
   type ContentPart,
   type FinishReason,
@@ -17,7 +16,7 @@ import {
   type TokenUsage,
 } from '#/app/llmProtocol';
 import { ILogService } from '#/app/log';
-import { ErrorCodes, KimiError, isKimiError } from '#/errors';
+import { ErrorCodes, KimiError } from '#/errors';
 import { OrderedHookSlot } from '#/hooks';
 
 import { IAgentContextMemoryService, newMessageId, type ContextMessage } from '../contextMemory';
@@ -47,7 +46,7 @@ export class AgentLoopService implements IAgentLoopService {
   readonly hooks: IAgentLoopService['hooks'] = {
     beforeStep: new OrderedHookSlot(),
     afterStep: new OrderedHookSlot(),
-    onContextOverflow: new OrderedHookSlot(),
+    onError: new OrderedHookSlot(),
   };
 
   constructor(
@@ -119,17 +118,15 @@ export class AgentLoopService implements IAgentLoopService {
         const reason: LoopInterruptReason = isMaxStepsExceededError(error) ? 'max_steps' : 'error';
         this.emitStepInterrupted(turnId, activeStep, reason, errorMessage(error));
 
-        if (isContextOverflowError(error)) {
-          const context = { turnId, signal, error, handled: false };
-          try {
-            await this.hooks.onContextOverflow.run(context);
-          } catch (hookError) {
-            return { reason: 'failed', error: hookError, steps };
-          }
-          if (context.handled) {
-            activeStep = undefined;
-            continue;
-          }
+        const context = { turnId, step: activeStep, signal, error, retry: false };
+        try {
+          await this.hooks.onError.run(context);
+        } catch (hookError) {
+          return { reason: 'failed', error: hookError, steps };
+        }
+        if (context.retry) {
+          activeStep = undefined;
+          continue;
         }
         return { reason: 'failed', error, steps };
       }
@@ -357,13 +354,6 @@ export class AgentLoopService implements IAgentLoopService {
       }
     };
   }
-}
-
-function isContextOverflowError(error: unknown): boolean {
-  return (
-    error instanceof APIContextOverflowError ||
-    (isKimiError(error) && error.code === ErrorCodes.CONTEXT_OVERFLOW)
-  );
 }
 
 function toolResultOutputForModel(result: ToolResult): string | ContentPart[] {

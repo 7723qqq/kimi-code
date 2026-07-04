@@ -98,6 +98,66 @@ describe('Agent loop', () => {
     });
   });
 
+  it('lets onError recover a non-context loop error by retrying', async () => {
+    profile.update({ activeToolNames: [] });
+    const seenErrors: Array<{ readonly step: number | undefined; readonly message: string }> = [];
+
+    loop.hooks.onError.register('test-recover-generate-error', async (hookCtx, next) => {
+      seenErrors.push({
+        step: hookCtx.step,
+        message: hookCtx.error instanceof Error ? hookCtx.error.message : String(hookCtx.error),
+      });
+      if (seenErrors.length === 1) {
+        ctx.mockNextResponse({ type: 'text', text: 'Recovered.' });
+        hookCtx.retry = true;
+        return;
+      }
+      await next();
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await ctx.untilTurnEnd();
+
+    expect(seenErrors).toEqual([
+      { step: 1, message: 'Unexpected generate call #1' },
+    ]);
+    expect(ctx.allEvents).toContainEqual(
+      expect.objectContaining({
+        event: 'turn.ended',
+        args: expect.objectContaining({ reason: 'completed' }),
+      }),
+    );
+  });
+
+  it('does not run onError for aborted turns', async () => {
+    let called = false;
+    loop.hooks.onError.register('test-abort-not-recoverable', async (_hookCtx, next) => {
+      called = true;
+      await next();
+    });
+    const controller = new AbortController();
+    controller.abort(new Error('stop'));
+
+    const result = await loop.runTurn(0, { signal: controller.signal });
+
+    expect(result.reason).toBe('cancelled');
+    expect(called).toBe(false);
+  });
+
+  it('fails with the onError handler error when recovery throws', async () => {
+    const recoveryError = new Error('recovery failed');
+    loop.hooks.onError.register('test-throw-recovery-error', async () => {
+      throw recoveryError;
+    });
+
+    const result = await loop.runTurn(0);
+
+    expect(result.reason).toBe('failed');
+    if (result.reason === 'failed') {
+      expect(result.error).toBe(recoveryError);
+    }
+  });
+
   it('runs an agent turn through registered tool approval and execution', async () => {
     const lookupCall: ToolCall = {
       type: 'function',

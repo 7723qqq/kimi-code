@@ -16,11 +16,17 @@ export interface TurnAfterStepContext extends TurnBeforeStepContext {
   continue: boolean;
 }
 
-export interface TurnContextOverflowContext {
+export interface TurnErrorContext {
   readonly turnId: number;
+  /** The currently executing step, or undefined for turn-level failures. */
+  readonly step?: number;
   readonly signal: AbortSignal;
   readonly error: unknown;
-  handled: boolean;
+  /**
+   * Set to true only after a handler has changed state enough for the loop to
+   * retry. Handlers that do not recognize the error must call next().
+   */
+  retry: boolean;
 }
 
 export interface RunTurnOptions {
@@ -34,7 +40,7 @@ export interface IAgentLoopService {
   readonly hooks: Hooks<{
     beforeStep: TurnBeforeStepContext;
     afterStep: TurnAfterStepContext;
-    onContextOverflow: TurnContextOverflowContext;
+    onError: TurnErrorContext;
   }>;
   runTurn(turnId: number, options?: RunTurnOptions): Promise<TurnResult>;
 }

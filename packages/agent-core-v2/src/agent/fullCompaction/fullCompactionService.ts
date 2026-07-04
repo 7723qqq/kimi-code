@@ -14,8 +14,8 @@ import {
   sleepForRetry,
   type LLMRequestFinish,
 } from '#/agent/llmRequester';
-import { IAgentLoopService, type TurnContextOverflowContext } from '#/agent/loop';
-import { isAbortError } from '#/agent/loop/errors';
+import { IAgentLoopService, type TurnErrorContext } from '#/agent/loop';
+import { isAbortError, isContextOverflowError } from '#/agent/loop/errors';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentRecordService } from '#/agent/record';
 import { IAgentTurnService } from '#/agent/turn';
@@ -141,8 +141,8 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       }),
     );
     this._register(
-      loopService.hooks.onContextOverflow.register('full-compaction', async (ctx, next) => {
-        await this.onContextOverflow(ctx, next);
+      loopService.hooks.onError.register('full-compaction', async (ctx, next) => {
+        await this.onLoopError(ctx, next);
       }),
     );
     this._register(
@@ -241,10 +241,14 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     this.consecutiveOverflowCompactions = 0;
   }
 
-  private async onContextOverflow(
-    context: TurnContextOverflowContext,
+  private async onLoopError(
+    context: TurnErrorContext,
     next: () => Promise<void>,
   ): Promise<void> {
+    if (!isContextOverflowError(context.error)) {
+      await next();
+      return;
+    }
     this.consecutiveOverflowCompactions += 1;
     const maxAttempts = this.strategy.maxOverflowCompactionAttempts;
     if (this.consecutiveOverflowCompactions > maxAttempts) {
@@ -259,7 +263,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       await next();
       return;
     }
-    context.handled = true;
+    context.retry = true;
     await this.block(context.signal, context.turnId);
   }
 
@@ -615,7 +619,7 @@ function isTodoItem(value: unknown): value is TodoItem {
 export { AgentFullCompactionService as FullCompaction };
 
 // Construct eagerly (not delayed): the service registers turn and loop hooks
-// (onLaunched / beforeStep / afterStep / onContextOverflow) that drive auto
+// (onLaunched / beforeStep / afterStep / onError) that drive auto
 // compaction. With delayed instantiation the eager `accessor.get(IAgentFullCompactionService)`
 // only realizes a proxy, so the hooks would not register until the first RPC —
 // after turns have already run without the auto-compaction gate.

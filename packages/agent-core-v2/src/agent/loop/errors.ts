@@ -2,7 +2,8 @@
  * `loop` domain error codes and loop-local error helpers.
  */
 
-import { KimiError, registerErrorDomain, type ErrorDomain } from '#/_base/errors';
+import { KimiError, isKimiError, registerErrorDomain, type ErrorDomain } from '#/_base/errors';
+import { APIContextOverflowError } from '#/app/llmProtocol';
 
 export const LoopErrors = {
   codes: {
@@ -40,6 +41,13 @@ export function createMaxStepsExceededError(maxSteps: number, message?: string):
 
 export function isMaxStepsExceededError(error: unknown): boolean {
   return error instanceof KimiError && error.code === LoopErrors.codes.LOOP_MAX_STEPS_EXCEEDED;
+}
+
+export function isContextOverflowError(error: unknown): boolean {
+  return (
+    error instanceof APIContextOverflowError ||
+    (isKimiError(error) && error.code === LoopErrors.codes.CONTEXT_OVERFLOW)
+  );
 }
 
 export function isAbortError(err: unknown): boolean {

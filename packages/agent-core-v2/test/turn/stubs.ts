@@ -52,7 +52,7 @@ function makeAgentLoopHookSlots(): IAgentLoopService['hooks'] {
   return createHooks([
     'beforeStep',
     'afterStep',
-    'onContextOverflow',
+    'onError',
   ]) as IAgentLoopService['hooks'];
 }
 
