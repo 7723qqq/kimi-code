@@ -16,15 +16,22 @@
 import {
   IAgentContextMemoryService,
   IAgentLifecycleService,
+  IAgentPromptLegacyService,
   ISessionInteractionService,
   ISessionContext,
   ISessionLifecycleService,
   ISessionMetadata,
   IWorkspaceRegistry,
   toProtocolMessage,
+  type IAgentScopeHandle,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import { ErrorCode, sessionSnapshotResponseSchema, type Message } from '@moonshot-ai/protocol';
+import {
+  ErrorCode,
+  sessionSnapshotResponseSchema,
+  type InFlightTurn,
+  type Message,
+} from '@moonshot-ai/protocol';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -111,6 +118,14 @@ export function registerSnapshotRoutes(app: SnapshotRouteHost, deps: SnapshotRou
         const offset = history.length - page.length;
         items = page.map((msg, i) => toProtocolMessage(session_id, offset + i, msg, meta.createdAt));
       }
+      const currentPromptId =
+        snapState.inFlightTurn === null
+          ? undefined
+          : readCurrentPromptId(main);
+      const inFlightTurn = attachCurrentPromptIdToInFlight(
+        snapState.inFlightTurn,
+        currentPromptId,
+      );
 
       // Pending approvals / questions.
       const interaction = handle.accessor.get(ISessionInteractionService);
@@ -128,7 +143,7 @@ export function registerSnapshotRoutes(app: SnapshotRouteHost, deps: SnapshotRou
             epoch: snapState.epoch,
             session,
             messages: { items, has_more: hasMore },
-            in_flight_turn: snapState.inFlightTurn,
+            in_flight_turn: inFlightTurn,
             pending_approvals: pendingApprovals,
             pending_questions: pendingQuestions,
           },
@@ -138,4 +153,22 @@ export function registerSnapshotRoutes(app: SnapshotRouteHost, deps: SnapshotRou
     },
   );
   app.get(route.path, route.options, route.handler as Parameters<SnapshotRouteHost['get']>[2]);
+}
+
+function readCurrentPromptId(main: IAgentScopeHandle | undefined): string | undefined {
+  if (main === undefined) return undefined;
+  try {
+    return main.accessor.get(IAgentPromptLegacyService).list().active?.prompt_id;
+  } catch {
+    // Auxiliary reconnect metadata must not make the whole snapshot fail.
+    return undefined;
+  }
+}
+
+function attachCurrentPromptIdToInFlight(
+  inFlightTurn: InFlightTurn | null,
+  currentPromptId: string | undefined,
+): InFlightTurn | null {
+  if (inFlightTurn === null || currentPromptId === undefined) return inFlightTurn;
+  return { ...inFlightTurn, current_prompt_id: currentPromptId };
 }

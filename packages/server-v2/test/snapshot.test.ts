@@ -11,14 +11,120 @@ import {
   IAgentContextMemoryService,
   IAgentEventSinkService,
   IAgentLifecycleService,
+  IAgentPromptLegacyService,
+  ISessionInteractionService,
   ISessionContext,
   ISessionLifecycleService,
+  ISessionMetadata,
+  IWorkspaceRegistry,
 } from '@moonshot-ai/agent-core-v2';
 import { sessionSnapshotResponseSchema, type AgentEvent } from '@moonshot-ai/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { registerSnapshotRoutes } from '../src/routes/snapshot';
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
+
+function fakeAccessor(entries: ReadonlyArray<readonly [unknown, unknown]>) {
+  const services = new Map<unknown, unknown>(entries);
+  return {
+    get<T>(id: unknown): T {
+      if (!services.has(id)) {
+        throw new Error(`unexpected service request: ${String(id)}`);
+      }
+      return services.get(id) as T;
+    },
+  };
+}
+
+describe('server-v2 snapshot route enrichment', () => {
+  it('attaches current_prompt_id to an in-flight turn from promptLegacy active state', async () => {
+    const sessionId = 'sess_snapshot';
+    const promptId = 'msg_snapshot_prompt';
+    const workspaceId = 'wd_snapshot_012345abcdef';
+    const now = Date.parse('2026-01-01T00:00:00.000Z');
+    const main = {
+      accessor: fakeAccessor([
+        [IAgentContextMemoryService, { get: () => [] }],
+        [
+          IAgentPromptLegacyService,
+          { list: () => ({ active: { prompt_id: promptId }, queued: [] }) },
+        ],
+      ]),
+    };
+    const session = {
+      accessor: fakeAccessor([
+        [ISessionContext, { workspaceId }],
+        [
+          ISessionMetadata,
+          {
+            read: async () => ({
+              id: sessionId,
+              title: 'Snapshot',
+              createdAt: now,
+              updatedAt: now,
+              archived: false,
+            }),
+          },
+        ],
+        [IAgentLifecycleService, { getHandle: () => main }],
+        [ISessionInteractionService, { listPending: () => [] }],
+      ]),
+    };
+    const core = {
+      accessor: fakeAccessor([
+        [ISessionLifecycleService, { resume: async () => session }],
+        [IWorkspaceRegistry, { get: async () => ({ root: '/workspace' }) }],
+      ]),
+    };
+    const broadcaster = {
+      getSnapshotState: async () => ({
+        seq: 1,
+        epoch: 'ep_snapshot',
+        inFlightTurn: {
+          turn_id: 7,
+          assistant_text: 'Hello',
+          thinking_text: '',
+          running_tools: [],
+        },
+      }),
+    };
+
+    let routeHandler:
+      | ((
+          req: { id: string; params: { session_id: string } },
+          reply: { send(payload: unknown): unknown },
+        ) => Promise<void> | void)
+      | undefined;
+    registerSnapshotRoutes(
+      {
+        get: (_path, _options, handler) => {
+          routeHandler = handler;
+        },
+      },
+      { core: core as never, broadcaster: broadcaster as never },
+    );
+
+    let payload: unknown;
+    await routeHandler?.(
+      { id: 'req_snapshot', params: { session_id: sessionId } },
+      {
+        send: (value) => {
+          payload = value;
+        },
+      },
+    );
+
+    const body = payload as { code: number; data: unknown };
+    expect(body.code).toBe(0);
+    const snap = sessionSnapshotResponseSchema.parse(body.data);
+    expect(snap.in_flight_turn).toMatchObject({
+      turn_id: 7,
+      assistant_text: 'Hello',
+      current_prompt_id: promptId,
+    });
+  });
+});
 
 describe('server-v2 GET /api/v1/sessions/:id/snapshot', () => {
   let server: RunningServer | undefined;
