@@ -86,13 +86,9 @@ export interface ToolInfo extends ToolDefinition {
 
 export type BuiltinTool<Input = unknown> = ExecutableTool<Input>;
 
-export interface ToolResult {
-  readonly output: ExecutableToolOutput;
-  readonly isError?: boolean;
-  readonly message?: string;
+export type ToolResult = ExecutableToolResult & {
   readonly description?: string;
   readonly display?: ToolInputDisplay;
   readonly approvalRule?: string;
-  readonly stopTurn?: boolean;
   readonly stopBatchAfterThis?: boolean;
-}
+};

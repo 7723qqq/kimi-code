@@ -6,6 +6,7 @@ import { IAgentLoopService } from '#/agent/loop';
 import { AgentPromptService, IAgentPromptService } from '#/agent/prompt';
 import type { PromptSubmitContext } from '#/agent/prompt';
 import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
+import { AgentContextOpsService, IAgentContextOpsService } from '#/agent/contextOps';
 import { IAgentRecordService } from '#/agent/record';
 import { IAgentTurnService, type Turn } from '#/agent/turn';
 
@@ -32,6 +33,7 @@ function createHarness(options: { readonly hasActiveTurn?: boolean } = {}) {
     strict: true,
     additionalServices: (reg) => {
       reg.defineInstance(IAgentContextMemoryService, context);
+      reg.define(IAgentContextOpsService, AgentContextOpsService);
       reg.defineInstance(IAgentTurnService, turn);
       reg.defineInstance(IAgentRecordService, stubRecord());
       reg.defineInstance(IAgentLoopService, loop);

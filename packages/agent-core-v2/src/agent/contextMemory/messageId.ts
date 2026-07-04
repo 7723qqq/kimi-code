@@ -2,12 +2,11 @@
  * `contextMemory` message id helpers.
  *
  * Every `ContextMessage` gets a stable local id (`msg_<ulid>`) when it enters
- * `IAgentContextMemoryService` — the splice primitive stamps missing ids. The
- * id is persisted in the `context.<type>` operation wire records, so it is
- * stable across restarts. It is the identity used by `Turn.promptMessageId`,
- * snapshot `current_prompt_id`, replay-record removal, and message lookup.
- * Provider-assigned ids live on the separate `providerMessageId` field and
- * never collide with this namespace.
+ * `IAgentContextMemoryService`. The id is persisted in context operation wire
+ * records, so it is stable across restarts. It is the identity used for message
+ * lookup, snapshot correlation, and replay-record removal. Provider-assigned ids
+ * live on the separate `providerMessageId` field and never collide with this
+ * namespace.
  */
 
 import { ulid } from 'ulid';

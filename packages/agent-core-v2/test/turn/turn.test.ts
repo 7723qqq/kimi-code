@@ -351,8 +351,8 @@ describe('Agent turn flow', () => {
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
       [wire] context.splice          { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Trigger generate failure" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
-      [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
-      [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
+      [wire] turn.launch             { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+      [emit] turn.started            { "turnId": 0, "origin": { "kind": "user" } }
       [emit] turn.step.started       { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] turn.step.interrupted   { "turnId": 0, "step": 1, "reason": "error", "message": "Unexpected generate call #1" }
       [emit] turn.ended              { "turnId": 0, "reason": "failed", "error": { "code": "internal", "message": "Unexpected generate call #1", "name": "Error", "details": { "turnId": 0 }, "retryable": false } }
@@ -626,8 +626,8 @@ describe('Agent turn flow', () => {
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
       [wire] context.splice   { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello without login" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
-      [wire] turn.launch      { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
-      [emit] turn.started     { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
+      [wire] turn.launch      { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+      [emit] turn.started     { "turnId": 0, "origin": { "kind": "user" } }
       [emit] turn.ended       { "turnId": 0, "reason": "failed", "error": { "code": "model.not_configured", "message": "Model not set", "name": "KimiError", "details": { "turnId": 0 }, "retryable": false } }
     `);
     expect(ctx.newEvents()).toMatchInlineSnapshot(
@@ -1817,8 +1817,8 @@ describe('Agent turn flow', () => {
 
     expect(await ctx.untilApprovalRequest()).toMatchInlineSnapshot(`
       [wire] context.splice         { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Run a command" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
-      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
-      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
+      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" } }
       [emit] turn.step.started      { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] assistant.delta        { "turnId": 0, "delta": "I will run Bash." }
       [emit] tool.call.delta        { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf should-not-run\\",\\"timeout\\":60}" }
@@ -1864,8 +1864,8 @@ describe('Agent turn flow', () => {
     const approval = await ctx.takeApprovalRequest();
     expect(approval.events).toMatchInlineSnapshot(`
       [wire] context.splice         { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Run Bash, then listen" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
-      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
-      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
+      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" } }
       [emit] turn.step.started      { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] assistant.delta        { "turnId": 0, "delta": "I will ask first." }
       [emit] tool.call.delta        { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf approved\\",\\"timeout\\":60}" }
@@ -1938,8 +1938,8 @@ describe('Agent turn flow', () => {
     const approval = await ctx.takeApprovalRequest();
     expect(approval.events).toMatchInlineSnapshot(`
       [wire] context.splice         { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Start the active turn" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
-      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
-      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
+      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" } }
       [emit] turn.step.started      { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] assistant.delta        { "turnId": 0, "delta": "I will wait for approval." }
       [emit] tool.call.delta        { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf should-not-run\\",\\"timeout\\":60}" }

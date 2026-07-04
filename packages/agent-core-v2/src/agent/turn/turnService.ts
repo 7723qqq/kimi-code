@@ -20,7 +20,6 @@ declare module '#/agent/wireRecord' {
     'turn.launch': {
       turnId: number;
       origin: PromptOrigin;
-      promptMessageId?: string;
     };
   }
 }
@@ -48,7 +47,7 @@ export class AgentTurnService implements IAgentTurnService {
     });
   }
 
-  launch(origin: PromptOrigin, promptMessageId?: string): Turn {
+  launch(origin: PromptOrigin): Turn {
     if (this.activeTurn !== undefined) {
       throw new KimiError(
         ErrorCodes.TURN_AGENT_BUSY,
@@ -58,13 +57,12 @@ export class AgentTurnService implements IAgentTurnService {
     }
 
     const turnId = this.nextTurnId;
-    this.record.append({ type: 'turn.launch', turnId, origin, promptMessageId });
+    this.record.append({ type: 'turn.launch', turnId, origin });
     this.restoreLaunch(turnId);
     const abortController = new AbortController();
     const ready = createControlledPromise<void>();
     const turn: MutableTurn = {
       id: turnId,
-      promptMessageId,
       abortController,
       ready,
       result: Promise.resolve({ reason: 'failed' }),
@@ -94,7 +92,6 @@ export class AgentTurnService implements IAgentTurnService {
         type: 'turn.started',
         turnId: turn.id,
         origin,
-        promptMessageId: turn.promptMessageId,
       });
       result = await this.loop.runTurn(turn.id, {
         signal: turn.abortController.signal,

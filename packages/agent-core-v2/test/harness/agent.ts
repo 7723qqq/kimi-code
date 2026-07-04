@@ -35,7 +35,10 @@ import { AgentRecordService, IAgentRecordService, type RecordServiceOptions } fr
 import type { AgentAPI } from '#/agent/rpc/core-api';
 import { IAgentSkillService } from '#/agent/skill/skill';
 import { AgentSkillService } from '#/agent/skill/skillService';
-import type { ExecutableToolOutput as ToolOutput, ToolResult } from '#/agent/tool';
+import type {
+  ExecutableToolOutput as ToolOutput,
+  ExecutableToolResult,
+} from '#/agent/tool';
 import type {
   PersistedWireRecord,
   WireRecord,
@@ -262,7 +265,7 @@ type RpcPromise<T> = Promise<T> & {
 type PromiseAgentAPI = PromisifyMethods<AgentAPI>;
 type GenerateFn = typeof kosongGenerate;
 
-type TestToolResult = ToolResult & {
+type TestToolResult = ExecutableToolResult & {
   readonly content?: unknown;
 };
 
@@ -1622,7 +1625,7 @@ export class AgentTestContext {
         const interaction = createTestInteraction(request);
         pending.set(interaction.id, interaction);
         const payload = request.payload as UserToolInteractionPayload;
-        const promise = this.createRpcPromise<ToolResult>();
+        const promise = this.createRpcPromise<ExecutableToolResult>();
         promise.then(
           () => pending.delete(interaction.id),
           () => pending.delete(interaction.id),

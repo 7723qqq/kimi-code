@@ -395,8 +395,8 @@ describe('Agent tools', () => {
         [emit] agent.status.updated       { "permission": "auto" }
         [wire] tools.register_user_tool   { "name": "Lookup", "description": "Look up a short test value.", "parameters": { "type": "object", "properties": { "query": { "type": "string" } }, "required": [ "query" ], "additionalProperties": false }, "time": "<time>" }
         [wire] context.splice             { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Look up moon" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
-        [wire] turn.launch                { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
-        [emit] turn.started               { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
+        [wire] turn.launch                { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+        [emit] turn.started               { "turnId": 0, "origin": { "kind": "user" } }
         [wire] context.splice             { "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<auto-mode-enter-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "permission_mode" }, "id": "<msg-2>" } ], "time": "<time>" }
         [emit] turn.step.started          { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
         [emit] assistant.delta            { "turnId": 0, "delta": "I will look it up." }
@@ -450,8 +450,8 @@ describe('Agent tools', () => {
       expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
         [wire] tools.unregister_user_tool   { "name": "Lookup", "time": "<time>" }
         [wire] context.splice               { "start": 5, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Can you still use Lookup?" } ], "toolCalls": [], "id": "<msg-6>" } ], "time": "<time>" }
-        [wire] turn.launch                  { "turnId": 1, "origin": { "kind": "user" }, "promptMessageId": "<msg-6>", "time": "<time>" }
-        [emit] turn.started                 { "turnId": 1, "origin": { "kind": "user" }, "promptMessageId": "<msg-6>" }
+        [wire] turn.launch                  { "turnId": 1, "origin": { "kind": "user" }, "time": "<time>" }
+        [emit] turn.started                 { "turnId": 1, "origin": { "kind": "user" } }
         [emit] turn.step.started            { "turnId": 1, "step": 1, "stepId": "<uuid-3>" }
         [emit] assistant.delta              { "turnId": 1, "delta": "No lookup tool is available." }
         [wire] usage.record                 { "model": "mock-model", "usage": { "inputOther": 128, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 1 }, "time": "<time>" }

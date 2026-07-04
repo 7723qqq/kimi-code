@@ -1,4 +1,4 @@
-@startuml di-scope-domains
+@startuml agent-core-v2-domains
 top to bottom direction
 skinparam shadowing false
 skinparam nodesep 28

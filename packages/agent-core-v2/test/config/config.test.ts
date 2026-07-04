@@ -199,8 +199,8 @@ describe('Agent config', () => {
     });
     expect(await ctx.untilApproval(true)).toMatchInlineSnapshot(`
       [wire] context.splice         { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Look up before config changes" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
-      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
-      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
+      [wire] turn.launch            { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+      [emit] turn.started           { "turnId": 0, "origin": { "kind": "user" } }
       [emit] turn.step.started      { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] assistant.delta        { "turnId": 0, "delta": "I will look it up." }
       [emit] tool.call.delta        { "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "argumentsPart": "{\\"query\\":\\"original\\"}" }
@@ -261,8 +261,8 @@ describe('Agent config', () => {
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
       [wire] context.splice          { "start": 4, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Start a fresh turn" } ], "toolCalls": [], "id": "<msg-5>" } ], "time": "<time>" }
-      [wire] turn.launch             { "turnId": 1, "origin": { "kind": "user" }, "promptMessageId": "<msg-5>", "time": "<time>" }
-      [emit] turn.started            { "turnId": 1, "origin": { "kind": "user" }, "promptMessageId": "<msg-5>" }
+      [wire] turn.launch             { "turnId": 1, "origin": { "kind": "user" }, "time": "<time>" }
+      [emit] turn.started            { "turnId": 1, "origin": { "kind": "user" } }
       [emit] turn.step.started       { "turnId": 1, "step": 1, "stepId": "<uuid-3>" }
       [emit] assistant.delta         { "turnId": 1, "delta": "Now the changed config is active." }
       [wire] usage.record            { "model": "changed-model", "usage": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 1 }, "time": "<time>" }

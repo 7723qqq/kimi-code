@@ -78,7 +78,7 @@ export class AgentPromptService implements IAgentPromptService {
     const stamped = ensureMessageId(message);
     this.contextOps.append(stamped);
     if (await this.blockedByHook(stamped, false)) return undefined;
-    return this.launch(stamped.origin ?? USER_PROMPT_ORIGIN, stamped.id);
+    return this.launch(stamped.origin ?? USER_PROMPT_ORIGIN);
   }
 
   steer(message: ContextMessage): PromptSteerHandle {
@@ -154,8 +154,8 @@ export class AgentPromptService implements IAgentPromptService {
     this.contextOps.clear();
   }
 
-  private launch(origin: PromptOrigin, promptMessageId?: string): Turn {
-    const turn = this.turnService.launch(origin, promptMessageId);
+  private launch(origin: PromptOrigin): Turn {
+    const turn = this.turnService.launch(origin);
     this.observe(turn);
     return turn;
   }
