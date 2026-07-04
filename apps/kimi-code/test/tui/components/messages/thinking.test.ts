@@ -89,4 +89,20 @@ describe('ThinkingComponent', () => {
       expect(visibleWidth(line)).toBeLessThanOrEqual(37);
     }
   });
+
+  it('keeps the same line count in live and finalized modes', () => {
+    const live = new ThinkingComponent(longThinking, true, 'live');
+    const liveLines = live.render(80).length;
+    live.finalize();
+    const finalLines = live.render(80).length;
+    expect(finalLines).toBe(liveLines);
+    expect(finalLines).toBe(4);
+  });
+
+  it('keeps a stable height for short thinking content', () => {
+    const c = new ThinkingComponent('one line', true, 'live');
+    const liveLines = c.render(80).length;
+    c.finalize();
+    expect(c.render(80).length).toBe(liveLines);
+  });
 });

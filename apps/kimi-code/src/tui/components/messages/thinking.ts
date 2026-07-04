@@ -17,6 +17,8 @@ import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
 
+import { FixedHeightWindow } from './fixed-height-window';
+
 export type ThinkingRenderMode = 'live' | 'finalized';
 
 export class ThinkingComponent implements Component {
@@ -101,10 +103,12 @@ export class ThinkingComponent implements Component {
 
     let rendered: string[];
     if (this.mode === 'live') {
-      const visibleLines =
-        contentLines.length > THINKING_PREVIEW_LINES
-          ? contentLines.slice(contentLines.length - THINKING_PREVIEW_LINES)
-          : contentLines;
+      const window = new FixedHeightWindow({
+        height: THINKING_PREVIEW_LINES,
+        tail: true,
+        lines: contentLines,
+      });
+      const windowLines = window.render(contentWidth);
       const spinner = currentTheme.fg(
         'textDim',
         `${BRAILLE_SPINNER_FRAMES[this.spinnerFrame] ?? BRAILLE_SPINNER_FRAMES[0]} `,
@@ -112,29 +116,40 @@ export class ThinkingComponent implements Component {
       rendered = [
         '',
         spinner + currentTheme.fg('textDim', 'thinking...'),
-        ...visibleLines.map((line) => MESSAGE_INDENT + line),
+        MESSAGE_INDENT + (windowLines[0] ?? ''),
+        MESSAGE_INDENT + (windowLines[1] ?? ''),
       ];
-    } else {
+    } else if (this.expanded) {
+      // Expanded: show all content lines (no fixed height).
       const lines: string[] = [''];
       for (let i = 0; i < contentLines.length; i++) {
         const p = i === 0 && this.showMarker ? currentTheme.fg('textDim', STATUS_BULLET) : MESSAGE_INDENT;
         lines.push(p + contentLines[i]);
       }
-
-      if (this.expanded || contentLines.length <= THINKING_PREVIEW_LINES) {
-        rendered = lines;
-      } else {
-        // Leading blank + first PREVIEW_LINES content lines + hint line.
-        const truncated = lines.slice(0, 1 + THINKING_PREVIEW_LINES);
+      rendered = lines;
+    } else {
+      // Finalized, collapsed: fixed 4-row skeleton (blank + header + 2-row window).
+      const window = new FixedHeightWindow({
+        height: THINKING_PREVIEW_LINES,
+        tail: false,
+        lines: contentLines,
+      });
+      const windowLines = window.render(contentWidth);
+      const first = windowLines[0] ?? '';
+      const second = windowLines[1] ?? '';
+      const header =
+        (this.showMarker ? currentTheme.fg('textDim', STATUS_BULLET) : MESSAGE_INDENT) + first;
+      let tailLine: string;
+      if (contentLines.length > THINKING_PREVIEW_LINES) {
         const remaining = contentLines.length - THINKING_PREVIEW_LINES;
         const hint = `... (${String(remaining)} more lines, ctrl+o to expand)`;
         const indentWidth = Math.min(MESSAGE_INDENT.length, Math.max(0, width));
         const hintWidth = Math.max(0, width - indentWidth);
-        truncated.push(
-          ' '.repeat(indentWidth) + currentTheme.dim(truncateToWidth(hint, hintWidth, '…')),
-        );
-        rendered = truncated;
+        tailLine = ' '.repeat(indentWidth) + currentTheme.dim(truncateToWidth(hint, hintWidth, '…'));
+      } else {
+        tailLine = ' ';
       }
+      rendered = ['', header, MESSAGE_INDENT + second, tailLine];
     }
 
     if (isRenderCacheEnabled()) {
