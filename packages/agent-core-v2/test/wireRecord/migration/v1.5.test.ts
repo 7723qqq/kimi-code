@@ -4,7 +4,7 @@ import { migrateV1_4ToV1_5 } from '#/agent/wireRecord/migration';
 import { runMigrationRecords } from './utils';
 
 describe('1.4 to 1.5', () => {
-  it('rewrites prompt and loop transcript records to launch and splice records', () => {
+  it('rewrites prompt and loop transcript records to launch and context records', () => {
     expect(
       runMigrationRecords(migrateV1_4ToV1_5, [
         {
@@ -98,13 +98,12 @@ describe('1.4 to 1.5', () => {
         },
       ]),
     ).toMatchInlineSnapshot(`
-      [wire] metadata          { "protocol_version": "<protocol-version>", "created_at": "<time>" }
-      [wire] context.append    { "args": [ { "role": "user", "content": [ { "type": "text", "text": "hello" } ], "toolCalls": [], "origin": { "kind": "user" }, "id": "<msg-1>" } ], "time": "<time>" }
-      [wire] turn.launch       { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
-      [wire] context.append    { "args": [ { "role": "assistant", "content": [ { "type": "text", "text": "checking" } ], "toolCalls": [], "id": "<msg-2>" } ], "time": "<time>" }
-      [wire] context.replace   { "args": [ 1, { "role": "assistant", "content": [ { "type": "text", "text": "checking" } ], "toolCalls": [ { "type": "function", "id": "call_1", "name": "Read", "arguments": "{\\"file\\":\\"example.test\\"}" } ], "id": "<msg-2>" } ], "time": "<time>" }
-      [wire] context.append    { "args": [ { "role": "tool", "content": [ { "type": "text", "text": "contents" } ], "toolCalls": [], "toolCallId": "call_1", "id": "<msg-3>" } ], "time": "<time>" }
-      [wire] context.append    { "args": [ { "role": "user", "content": [ { "type": "text", "text": "queued while tool runs" } ], "toolCalls": [], "origin": { "kind": "system_trigger", "name": "queued" }, "id": "<msg-4>" } ], "time": "<time>" }
+      [wire] metadata         { "protocol_version": "<protocol-version>", "created_at": "<time>" }
+      [wire] context.append   { "args": [ { "role": "user", "content": [ { "type": "text", "text": "hello" } ], "toolCalls": [], "origin": { "kind": "user" }, "id": "<msg-1>" } ], "time": "<time>" }
+      [wire] turn.launch      { "turnId": 0, "origin": { "kind": "user" }, "time": "<time>" }
+      [wire] context.append   { "args": [ { "role": "assistant", "content": [ { "type": "text", "text": "checking" } ], "toolCalls": [ { "type": "function", "id": "call_1", "name": "Read", "arguments": "{\\"file\\":\\"example.test\\"}" } ], "id": "<msg-2>" } ], "time": "<time>" }
+      [wire] context.append   { "args": [ { "role": "tool", "content": [ { "type": "text", "text": "contents" } ], "toolCalls": [], "toolCallId": "call_1", "id": "<msg-3>" } ], "time": "<time>" }
+      [wire] context.append   { "args": [ { "role": "user", "content": [ { "type": "text", "text": "queued while tool runs" } ], "toolCalls": [], "origin": { "kind": "system_trigger", "name": "queued" }, "id": "<msg-4>" } ], "time": "<time>" }
     `);
   });
 

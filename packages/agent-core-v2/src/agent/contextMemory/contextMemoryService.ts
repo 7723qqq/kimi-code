@@ -39,9 +39,6 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
     @IAgentRecordService private readonly record: IAgentRecordService,
   ) {
     super();
-    // The wire map accepts any `context.${string}` type, so unknown operation
-    // types can't be caught at compile time — fail the restore loudly instead
-    // of silently dropping an unclaimed context record.
     this._register(
       this.record.hooks.onRestoredRecord.register('context-operation-guard', async (ctx, next) => {
         const type = ctx.record.type;
