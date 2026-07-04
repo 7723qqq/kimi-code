@@ -90,7 +90,7 @@ describe('ThinkingComponent', () => {
     }
   });
 
-  it('keeps the same line count in live and finalized modes', () => {
+  it('keeps the same line count in live and finalized modes for long content', () => {
     const live = new ThinkingComponent(longThinking, true, 'live');
     const liveLines = live.render(80).length;
     live.finalize();
@@ -99,10 +99,11 @@ describe('ThinkingComponent', () => {
     expect(finalLines).toBe(4);
   });
 
-  it('keeps a stable height for short thinking content', () => {
+  it('does not pad short finalized thinking with blank lines', () => {
     const c = new ThinkingComponent('one line', true, 'live');
-    const liveLines = c.render(80).length;
     c.finalize();
-    expect(c.render(80).length).toBe(liveLines);
+    const lines = c.render(80);
+    expect(lines.length).toBeLessThanOrEqual(3);
+    expect(lines.at(-1)?.trim()).not.toBe('');
   });
 });

@@ -1208,6 +1208,8 @@ git commit -m "fix(tui): force full render on BTW close and cap Edit/Write previ
 
 ### 方案调整（实施时的工程决策）
 
+- **Task 5（Thinking 等高化）**：原计划用 `FixedHeightWindow` 把 live/finalized 统一固定为 4 行。实施后发现短内容（≤2 行）会被 padding 出空行（finalized 在 contentLines=1 时有 2 行空行），不符合预期。改为：contentLines > 2 时固定 4 行（live/finalized 等高），contentLines ≤ 2 时恢复自然高度、不 padding（允许 live/finalized 差 1 行，避免空行）。Thinking 不再使用 `FixedHeightWindow`。
+
 - **Task 6（ToolCall 输出窗口）**：原计划是「把 progress + liveOutput + content 合并成一个固定 6 行窗口」。实施时改为「progress 行固定 6 行窗口（`PROGRESS_WINDOW_LINES = 6`，tail）」，因为 content 由 `pickResultRenderer` 返回 `Component[]`（含 diff/image 等复杂组件），合并成单一文本窗口风险高且会丢失样式。新方案把运行中 progress 从最多 24 行降到 6 行，大幅减少 `setResult` 清空时的塌缩；liveOutput 仍 tail 3 行。`buildProgressBlock` 改用 `FixedHeightWindow`，新增 `styleProgressLine` 提取样式逻辑。
 
 - **Task 11 #9（BTW 关闭）**：代码里 `btw-panel.ts:147` 的 `close()` 已经在调用 `this.host.state.ui.requestRender(true)`，无需额外改动。
