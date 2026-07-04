@@ -1,0 +1,57 @@
+/* Feature module: rightpanel — right-side slide-in detail panel (NOT a masked overlay).
+ * Tokens only (var(--c-*) / var(--r-*) / var(--s-*) / var(--font-*)); no hex, gradients or glass. */
+
+/* ---- shell (spec) -------------------------------------------------------- */
+.rpanel {
+  position: fixed; right: 0; top: 0; height: 100vh; width: 420px; max-width: 90vw;
+  background: var(--c-bg); border-left: 0.5px solid var(--c-sep); z-index: 700;
+  transform: translateX(105%); transition: transform 260ms var(--ease);
+  display: flex; flex-direction: column;
+}
+.rpanel.is-open { transform: translateX(0); }
+
+/* ---- header -------------------------------------------------------------- */
+.rp-head {
+  flex: none; display: flex; align-items: center; gap: var(--s-2);
+  height: 48px; padding: 0 var(--s-2) 0 var(--s-4);
+  border-bottom: 0.5px solid var(--c-sep);
+}
+.rp-title {
+  font-size: 14px; font-weight: 500; color: var(--c-text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rp-head .seg { margin-left: auto; }
+.rp-head .seg button { height: 26px; padding: 0 10px; font-size: 12.5px; }
+.rp-head .ic-btn { flex: none; }
+
+/* ---- body ---------------------------------------------------------------- */
+.rp-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--s-4); }
+
+/* 思考 */
+.rp-h { margin: 0 0 var(--s-3); font-size: 15px; font-weight: 500; color: var(--c-text); }
+.rp-think { display: flex; flex-direction: column; gap: var(--s-2); }
+.rp-think p { margin: 0; font-size: 13px; line-height: 1.65; color: var(--c-text-2); }
+
+/* shared filename header (Diff / 文件) */
+.rp-file-head {
+  font-family: var(--font-mono); font-size: 12px; color: var(--c-text-2);
+  padding: 0 0 var(--s-2); margin-bottom: var(--s-2);
+  border-bottom: 0.5px solid var(--c-sep);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Diff */
+.rp-diff { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7; }
+.rp-dline { display: flex; gap: var(--s-2); padding: 0 var(--s-2); border-radius: var(--r-sm); white-space: pre; }
+.rp-dline .rp-sign { flex: none; width: 1em; text-align: center; color: var(--c-text-3); }
+.rp-dline .rp-dt { flex: 1; min-width: 0; color: var(--c-text); }
+.rp-dadd { background: var(--c-green-soft); }
+.rp-dadd .rp-sign { color: var(--c-green); }
+.rp-ddel { background: var(--c-danger-soft); }
+.rp-ddel .rp-sign { color: var(--c-danger); }
+
+/* 文件 (code with faint line-number gutter) */
+.rp-code { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7; }
+.rp-cline { display: flex; gap: var(--s-3); white-space: pre; }
+.rp-ln { flex: none; width: 2em; text-align: right; color: var(--c-text-4); user-select: none; }
+.rp-cc { flex: 1; min-width: 0; color: var(--c-text); }

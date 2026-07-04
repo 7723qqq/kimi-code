@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kimi Code · from-scratch prototype</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="features/modelpicker.css" />
+  <link rel="stylesheet" href="features/login.css" />
+  <link rel="stylesheet" href="features/rightpanel.css" />
+  <link rel="stylesheet" href="features/settings-pages.css" />
+</head>
+<body>
+  <!-- ============ SVG sprite ============ -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-collapse" viewBox="0 0 24 24" fill="none"><path d="M9 6 4 12l5 6M15 6l5 6-5 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-chat-new" viewBox="0 0 24 24" fill="none"><path d="M21 12a8 8 0 0 1-11.3 7.3L4 20l.7-5.7A8 8 0 1 1 21 12Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24" fill="none"><path d="M3.5 8.5v9a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-6.2l-1.6-2a2 2 0 0 0-1.6-.8H5.5a2 2 0 0 0-2 2Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="i-dots" viewBox="0 0 24 24" fill="none"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none"><path d="m5 12.5 4 4 10-10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24" fill="none"><path d="m9 6 6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24" fill="none"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-git" viewBox="0 0 24 24" fill="none"><g stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></g></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24" fill="none"><path d="M12 3c.5 4.5 2 6 6.5 6.5C14 10 12.5 11.5 12 16c-.5-4.5-2-6-6.5-6.5C10 9 11.5 7.5 12 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M5 15V5a2 2 0 0 1 2-2h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24" fill="none"><path d="m4 7 5 5-5 5M12 17h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/><circle cx="8.5" cy="9" r="1.5" fill="currentColor"/><path d="m3 17 5-5 4 4 3-3 6 6" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24" fill="none"><path d="M12 19V5m0 0-5 5m5-5 5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24" fill="none"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24" fill="none"><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6l-7-3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24" fill="none"><path d="M4 5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5Zm10 0a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V5ZM4 15a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-4Zm10 0a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-4Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.8"/><path d="M4 21a8 8 0 0 1 16 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24" fill="none"><path d="M4 7h10M18 7h2M4 17h2M10 17h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="16" cy="7" r="2" stroke="currentColor" stroke-width="1.8"/><circle cx="8" cy="17" r="2" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24" fill="none"><path d="M21 12a8 8 0 0 1-11.3 7.3L4 20l.7-5.7A8 8 0 1 1 21 12Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-arrow-up" viewBox="0 0 24 24" fill="none"><path d="M12 19V5m0 0-5 5m5-5 5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24" fill="none"><path d="M14 4h6v6M20 4l-9 9M10 7H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-panel" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M15 4v16" stroke="currentColor" stroke-width="1.7"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24" fill="none"><path d="M12 9v4M12 17h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M10.3 4.3 2.5 18a1.5 1.5 0 0 0 1.3 2.3h16.4a1.5 1.5 0 0 0 1.3-2.3L13.7 4.3a1.6 1.6 0 0 0-2.8 0Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M9.5 9a2.5 2.5 0 1 1 4.3 1.8c-.7.7-1.3 1.1-1.3 2.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="17" r="1" fill="currentColor"/></symbol>
+  </svg>
+
+  <!-- ============ App shell ============ -->
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="side">
+      <div class="sb-head">
+        <div class="brand">
+          <span class="logo">K</span>
+          <span class="brand-name">Kimi Code</span>
+          <span class="brand-endpoint">dev</span>
+        </div>
+        <button class="ic-btn" aria-label="折叠侧栏"><svg><use href="#i-collapse"/></svg></button>
+        <button class="ic-btn" aria-label="设置" data-open-settings><svg><use href="#i-settings"/></svg></button>
+      </div>
+
+      <button class="sb-search" type="button">
+        <svg><use href="#i-search"/></svg>
+        <span>搜索会话</span>
+        <span class="kbd">⌘K</span>
+      </button>
+      <button class="sb-new" type="button">
+        <svg><use href="#i-chat-new"/></svg>
+        <span>新建对话</span>
+      </button>
+
+      <div class="sb-scroll">
+        <div class="sec-label">
+          <span>工作区</span>
+          <span class="acts">
+            <button class="ic-btn" aria-label="展开全部"><svg><use href="#i-chevron-down"/></svg></button>
+            <button class="ic-btn" aria-label="选项"><svg><use href="#i-dots"/></svg></button>
+          </span>
+        </div>
+
+        <!-- Workspace 1 -->
+        <div class="ws">
+          <button class="ws-head">
+            <svg class="folder"><use href="#i-folder"/></svg>
+            <span class="ws-name">kimi-code-web3</span>
+            <span class="ws-actions">
+              <span class="ic-btn" aria-label="添加"><svg><use href="#i-plus"/></svg></span>
+              <span class="ic-btn" aria-label="更多"><svg><use href="#i-dots"/></svg></span>
+            </span>
+          </button>
+          <div class="ws-path">~/code/kimi-code-web3</div>
+          <button class="sess on">
+            <span class="lead"><span class="spin"></span></span>
+            <span class="t">继续完成这个任务，现在的问题是 前端的 UI 不对</span>
+            <span class="time">刚刚</span>
+            <span class="ic-btn kebab" aria-label="更多"><svg><use href="#i-dots"/></svg></span>
+          </button>
+          <button class="sess">
+            <span class="lead"><span class="dot run"></span></span>
+            <span class="t">调研一个任务，现在 TUI 里支持了思考等级</span>
+            <span class="time">22h</span>
+            <span class="ic-btn kebab" aria-label="更多"><svg><use href="#i-dots"/></svg></span>
+          </button>
+          <button class="sess">
+            <span class="lead"><span class="dot unread"></span></span>
+            <span class="t">修复一个问题，kimi-web 里的发送队列</span>
+            <span class="time">1d</span>
+            <span class="ic-btn kebab" aria-label="更多"><svg><use href="#i-dots"/></svg></span>
+          </button>
+          <button class="sess">
+            <span class="lead"></span>
+            <span class="t">我不想为了彩蛋而维护 kimi-web 的动画</span>
+            <span class="time">1d</span>
+            <span class="ic-btn kebab" aria-label="更多"><svg><use href="#i-dots"/></svg></span>
+          </button>
+          <button class="show-more">加载更多 (76)</button>
+        </div>
+
+        <!-- Workspace 2 -->
+        <div class="ws">
+          <button class="ws-head">
+            <svg class="folder"><use href="#i-folder"/></svg>
+            <span class="ws-name">kimi-code-web2</span>
+            <span class="ws-actions">
+              <span class="ic-btn" aria-label="添加"><svg><use href="#i-plus"/></svg></span>
+              <span class="ic-btn" aria-label="更多"><svg><use href="#i-dots"/></svg></span>
+            </span>
+          </button>
+          <button class="sess">
+            <span class="lead"></span>
+            <span class="t">看一下我们 main 上的最新的仓库</span>
+            <span class="time">2d</span>
+            <span class="ic-btn kebab" aria-label="更多"><svg><use href="#i-dots"/></svg></span>
+          </button>
+          <button class="sess">
+            <span class="lead"></span>
+            <span class="t">Fork: 看一下签名的实现</span>
+            <span class="time">2d</span>
+            <span class="ic-btn kebab" aria-label="更多"><svg><use href="#i-dots"/></svg></span>
+          </button>
+          <button class="show-more">加载更多 (55)</button>
+        </div>
+
+        <div class="ws">
+          <button class="ws-head">
+            <svg class="folder"><use href="#i-folder"/></svg>
+            <span class="ws-name">kimi-code-dev2</span>
+          </button>
+          <div class="ws-path">~/code/kimi-code-dev2</div>
+        </div>
+      </div>
+
+      <div class="sb-foot">
+        <button class="foot-fb"><svg><use href="#i-message"/></svg>问题与反馈</button>
+        <button class="ic-btn" data-open-login aria-label="登录"><svg><use href="#i-user"/></svg></button>
+        <span class="version">v0.1.2</span>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <!-- Mobile top bar (≤760px) -->
+      <div class="mob-bar">
+        <button class="ic-btn" data-act="mob-menu" aria-label="菜单"><svg><use href="#i-grid"/></svg></button>
+        <span class="mob-title" data-mob-title>Kimi Code</span>
+        <button class="ic-btn" data-act="mob-new" aria-label="新建对话"><svg><use href="#i-chat-new"/></svg></button>
+      </div>
+      <!-- Top bar -->
+      <div class="topbar">
+        <div class="tb-crumb">
+          <span class="ws-ref">kimi-code-web3</span>
+          <span class="sep">/</span>
+          <span class="sess-ref">继续完成这个任务，现在的问题是 前端的 UI 不对，帮我捋一下</span>
+        </div>
+        <div class="tb-meta">
+          <span class="branch"><svg><use href="#i-git"/></svg>main</span>
+          <span class="gitstat"><span class="add">+397</span> <span class="del">-358</span></span>
+          <span class="tb-tools">
+            <button class="ic-btn" aria-label="详情面板"><svg><use href="#i-panel"/></svg></button>
+          </span>
+        </div>
+      </div>
+
+      <!-- Conversation -->
+      <div class="conv">
+        <div class="conv-inner">
+
+          <!-- User -->
+          <div class="u-turn">
+            <div class="u-bub">继续完成这个任务，现在的问题是 前端的 UI 不对，帮我捋一下，给出一份从设计系统出发的重做方案。</div>
+          </div>
+
+          <!-- Assistant -->
+          <div class="a-msg">
+            <p class="lead">我先停下增量修补，按设计系统从第一性原理重新搭。这一版只关心三件事：<strong>信息层级、间距节奏、状态用填充而非边框</strong>。下面是我对当前问题的判断和重做计划。</p>
+
+            <!-- Thinking -->
+            <div class="think open" data-collapsible>
+              <div class="th-head"><svg class="spark"><use href="#i-spark"/></svg><span>思考过程</span><svg class="chev"><use href="#i-chevron-right"/></svg></div>
+              <div class="th-body">
+                <p>用户说"看不出区别"且"和例子大相径庭"。最可能的根因不是样式没改，而是旧的蓝色强调偏好把中性强调色盖掉了。</p>
+                <p>设计上，Kimi 的交互强调是 kimiDark（近黑/近白），蓝色只给品牌与数据。所以移除蓝色强调项，让默认体验回归中性，是第一刀。</p>
+              </div>
+            </div>
+
+            <!-- Code block -->
+            <div class="code">
+              <div class="code-head">
+                <span class="code-lang">style.css · tokens</span>
+                <span class="spacer"></span>
+                <button class="code-copy"><svg><use href="#i-copy"/></svg>复制</button>
+              </div>
+              <pre><span class="com">/* Interaction emphasis = kimiDark, not blue */</span>
+<span class="kw">:root</span> {
+  <span class="fn">--color-accent</span>: <span class="str">rgba(0, 0, 0, 0.9)</span>;
+  <span class="fn">--color-info</span>:   <span class="str">#1783ff</span>;  <span class="com">/* brand / data only */</span>
+  <span class="fn">--radius-md</span>:     <span class="num">10px</span>;
+}</pre>
+            </div>
+
+            <!-- Tool call (expanded) -->
+            <div class="tool open" data-collapsible>
+              <button class="tool-row">
+                <svg class="glyph"><use href="#i-terminal"/></svg>
+                <span class="tname">运行</span>
+                <span class="targ">pnpm --filter @moonshot-ai/kimi-web check:style</span>
+                <span class="ok"><svg><use href="#i-check"/></svg>通过</span>
+                <svg class="chev"><use href="#i-chevron-right"/></svg>
+              </button>
+              <div class="tool-body">
+                <pre>check-style: 9 finding(s) across 4 rule(s). (baseline mode — not failing)
+✓ built in 8.76s</pre>
+              </div>
+            </div>
+
+            <!-- Grouped tool calls -->
+            <div class="tool-group">
+              <button class="tg-head">
+                <span class="dot"></span>
+                <span class="tg-count">2 个工具调用</span>
+                <span class="tg-state">已完成</span>
+                <span class="spacer"></span>
+                <svg class="chev"><use href="#i-chevron-down"/></svg>
+              </button>
+              <div class="tg-items">
+                <button class="tool-row">
+                  <svg class="glyph"><use href="#i-search"/></svg>
+                  <span class="tname">搜索</span>
+                  <span class="targ">var\(--color-accent\)</span>
+                  <span class="ok"><svg><use href="#i-check"/></svg>53 处</span>
+                </button>
+                <button class="tool-row">
+                  <svg class="glyph"><use href="#i-terminal"/></svg>
+                  <span class="tname">运行</span>
+                  <span class="targ">pnpm --filter @moonshot-ai/kimi-web build</span>
+                  <span class="ok"><svg><use href="#i-check"/></svg>通过</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Approval -->
+            <div class="action-card">
+              <div class="action-head warn">
+                <svg class="ic"><use href="#i-alert"/></svg>
+                <span class="ttl">需要确认 · 运行写入命令</span>
+              </div>
+              <div class="action-body">
+                Agent 想在工作区执行以下命令，这会修改你的文件：
+                <code class="cmd">pnpm --filter @moonshot-ai/kimi-web build</code>
+              </div>
+              <div class="action-foot">
+                <button class="btn btn-secondary">拒绝</button>
+                <button class="btn btn-primary">允许</button>
+              </div>
+            </div>
+
+            <!-- Question -->
+            <div class="action-card">
+              <div class="action-head">
+                <svg class="ic"><use href="#i-help"/></svg>
+                <span class="ttl">一个问题 · 想确认你的偏好</span>
+              </div>
+              <div class="action-body">设置弹窗里，你更希望分段控件的选中态是哪种？</div>
+              <div class="q-opts">
+                <button class="q-opt">
+                  <span class="k">A</span>
+                  <span><span class="qt">深色胶囊（推荐）</span><span class="qd">和参考样稿一致，选中更明确。</span></span>
+                </button>
+                <button class="q-opt">
+                  <span class="k">B</span>
+                  <span><span class="qt">浅色浮起</span><span class="qd">更克制，但选中对比更弱。</span></span>
+                </button>
+              </div>
+            </div>
+
+            <p class="prose">计划分四步：先纠正强调色，再把设置弹窗对齐参考结构，随后用同样的 token 重做侧栏与聊天主表面，最后把这套设计落回真实组件。要不要我继续？</p>
+
+            <div class="status-line"><span class="dot"></span>已完成本轮 · 等待你的下一条输入</div>
+          </div>
+
+          <!-- User 2 -->
+          <div class="u-turn">
+            <div class="u-bub">继续，把设置弹窗先按参考对齐。</div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Composer -->
+      <div class="composer">
+        <div class="composer-inner">
+          <div class="cc">
+            <textarea class="cc-ta" rows="1" placeholder="输入消息…  Enter 发送 · Shift+Enter 换行"></textarea>
+            <div class="cc-bar">
+              <div class="cc-tools">
+                <button class="ic-btn" aria-label="添加图片"><svg><use href="#i-image"/></svg></button>
+                <button class="pill perm perm-yolo" data-act="perm-menu"><svg><use href="#i-shield"/></svg><span data-perm-label>自动通过</span></button>
+                <button class="pill" data-act="modes-menu"><svg><use href="#i-grid"/></svg>模式<span class="tag" data-modes-tags>Plan</span></button>
+              </div>
+              <div class="cc-right">
+                <span class="ctx">
+                  <svg class="ring" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-opacity=".2" stroke-width="3"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="56" stroke-dashoffset="34" stroke-linecap="round" transform="rotate(-90 12 12)"/></svg>
+                  89k/1049k
+                </span>
+                <button class="pill" data-open-models><span data-model-label>Coding Model · thinking</span><svg><use href="#i-chevron-down"/></svg></button>
+                <button class="send" aria-label="发送"><svg><use href="#i-send"/></svg></button>
+              </div>
+            </div>
+          </div>
+          <div class="pop wide" data-pop="slash" hidden></div>
+          <div class="pop wide" data-pop="mention" hidden></div>
+          <div class="pop" data-pop="perm" hidden></div>
+          <div class="pop" data-pop="modes" hidden></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ============ Settings overlay ============ -->
+  <div class="overlay" data-overlay="settings">
+    <section class="modal settings" role="dialog" aria-modal="true" aria-labelledby="stTitle">
+      <header class="st-head">
+        <span class="h-ic"><svg><use href="#i-settings"/></svg></span>
+        <h2 id="stTitle">设置</h2>
+        <span class="spacer"></span>
+        <button class="ic-btn" aria-label="关闭" data-close><svg><use href="#i-close"/></svg></button>
+      </header>
+      <div class="st-body">
+        <nav class="st-nav">
+          <div class="nav-label">设置</div>
+          <button class="nav-item on" data-tab="general"><svg><use href="#i-settings"/></svg>通用</button>
+          <button class="nav-item" data-tab="agent"><svg><use href="#i-spark"/></svg>Agent</button>
+          <button class="nav-item" data-tab="account"><svg><use href="#i-user"/></svg>账户</button>
+          <button class="nav-item" data-tab="advanced"><svg><use href="#i-sliders"/></svg>高级</button>
+        </nav>
+        <div class="st-panel">
+          <div class="ph-kicker">GENERAL</div>
+          <h3 class="ph-title">通用</h3>
+          <p class="ph-desc">管理外观、通知、偏好引导和通用能力设置。</p>
+
+          <div class="card">
+            <div class="card-title">外观</div>
+            <div class="srow">
+              <div><div class="name">明暗</div><div class="desc">选择界面主题，默认跟随系统。</div></div>
+              <div class="ctrl"><div class="seg" data-seg><button class="on">月之亮面</button><button>月之暗面</button><button>跟随系统</button></div></div>
+            </div>
+            <div class="srow">
+              <div><div class="name">字体大小</div><div class="desc">对话与代码块的基础字号。</div></div>
+              <div class="ctrl"><span class="num"><input data-fontsize type="number" min="12" max="20" value="14"><span class="u">px</span></span></div>
+            </div>
+            <div class="srow">
+              <div><div class="name">语言</div><div class="desc">界面显示语言。</div></div>
+              <div class="ctrl"><div class="seg" data-seg><button>English</button><button class="on">中文</button></div></div>
+            </div>
+            <div class="srow">
+              <div><div class="name">显示对话目录</div><div class="desc">在右侧显示可点击跳转的对话目录。</div></div>
+              <div class="ctrl"><button class="sw on" data-sw><i></i></button></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">通知</div>
+            <div class="srow">
+              <div><div class="name">会话完成时通知</div><div class="desc">Agent 完成任务后发送系统通知。</div></div>
+              <div class="ctrl"><button class="sw on" data-sw><i></i></button></div>
+            </div>
+            <div class="srow">
+              <div><div class="name">待回答时通知</div><div class="desc">有待回答的提问时发送系统通知。</div></div>
+              <div class="ctrl"><button class="sw on" data-sw><i></i></button></div>
+            </div>
+            <div class="srow">
+              <div><div class="name">会话完成或待回答时播放提示音</div></div>
+              <div class="ctrl"><button class="sw" data-sw><i></i></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============ Add-workspace overlay ============ -->
+  <div class="overlay" data-overlay="aw">
+    <section class="modal aw" role="dialog" aria-modal="true" aria-labelledby="awTitle">
+      <header class="aw-head">
+        <h2 id="awTitle">添加工作区</h2>
+        <button class="ic-btn" aria-label="关闭" data-close><svg><use href="#i-close"/></svg></button>
+      </header>
+      <div class="aw-body">
+        <nav class="crumb">
+          <button class="up" aria-label="上级"><svg><use href="#i-arrow-up"/></svg></button>
+          <button>~</button><span class="sep">/</span>
+          <button>Desktop</button><span class="sep">/</span>
+          <span class="cur">fitness</span>
+        </nav>
+        <div class="field">
+          <svg><use href="#i-search"/></svg>
+          <input type="search" placeholder="搜索文件夹，或输入 / 开头的绝对路径" />
+        </div>
+        <ul class="dir">
+          <li class="dir-row"><svg class="dic"><use href="#i-folder"/></svg><span class="dname">..</span></li>
+          <li class="dir-row"><svg class="dic"><use href="#i-folder"/></svg><span class="dname">packages</span></li>
+          <li class="dir-row on"><svg class="dic"><use href="#i-folder"/></svg><span class="dname">src</span></li>
+          <li class="dir-row"><svg class="dic"><use href="#i-folder"/></svg><span class="dname">scripts</span></li>
+          <li class="dir-row"><svg class="dic"><use href="#i-folder"/></svg><span class="dname">README.md</span></li>
+        </ul>
+      </div>
+      <footer class="aw-foot">
+        <button class="btn btn-secondary" data-close>取消</button>
+        <button class="btn btn-primary">添加 src</button>
+      </footer>
+    </section>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast success" data-toast hidden><svg><use href="#i-check"/></svg>已复制到剪贴板</div>
+
+  <!-- ============ Search sessions overlay (⌘K) ============ -->
+  <div class="overlay" data-overlay="search">
+    <section class="modal search-modal" role="dialog" aria-modal="true" aria-label="搜索会话">
+      <div class="field" style="margin:0">
+        <svg><use href="#i-search"/></svg>
+        <input data-search-input type="search" placeholder="搜索会话标题…" autocomplete="off">
+      </div>
+      <ul class="search-list" data-search-list></ul>
+    </section>
+  </div>
+
+  <!-- ============ Confirm host overlay ============ -->
+  <div class="overlay" data-overlay="confirm">
+    <section class="modal confirm-modal" role="alertdialog" aria-modal="true">
+      <div class="confirm-title" data-confirm-title></div>
+      <div class="confirm-msg" data-confirm-msg></div>
+      <div class="confirm-foot">
+        <button class="btn btn-secondary" data-confirm-cancel>取消</button>
+        <button class="btn btn-danger" data-confirm-ok>确认</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============ Server auth overlay ============ -->
+  <div class="overlay" data-overlay="serverauth">
+    <section class="modal confirm-modal" role="dialog" aria-modal="true">
+      <div class="confirm-title">需要连接令牌</div>
+      <div class="confirm-msg">此服务已开启保护。请输入本地服务启动时打印的 bearer token（原型中任意值均可通过）。</div>
+      <div class="field" style="margin-top:14px">
+        <svg><use href="#i-shield"/></svg>
+        <input data-token-input type="password" placeholder="Token" autocomplete="off">
+      </div>
+      <div class="confirm-foot">
+        <button class="btn btn-primary" data-token-connect>连接</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- Mount point for feature modules (prototype/features/*) to inject overlays/panels -->
+  <div id="feature-mount"></div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+  <script src="live.js"></script>
+  <script src="features/modelpicker.js"></script>
+  <script src="features/login.js"></script>
+  <script src="features/rightpanel.js"></script>
+  <script src="features/settings-pages.js"></script>
+</body>
+</html>

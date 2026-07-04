@@ -1,0 +1,59 @@
+/* Model picker feature (prototype/features/modelpicker.js)
+   Token-only rules for parts not already covered by styles.css. */
+
+/* scrollable list area (reuses .search-list metrics) */
+[data-overlay="models"] [data-mp-list] {
+  margin: 10px 0 0;
+  padding: 0;
+  max-height: calc(72vh - 80px);
+  overflow-y: auto;
+}
+
+/* uppercase group label ("星标" / "MOONSHOT" / "OPENAI" ...) */
+[data-overlay="models"] .mp-group {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--c-text-3);
+  user-select: none;
+}
+
+/* leading check slot (fixed width so names stay aligned) */
+[data-overlay="models"] .mp-lead {
+  width: 16px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text);
+}
+[data-overlay="models"] .mp-lead svg { width: 15px; height: 15px; }
+
+/* model name */
+[data-overlay="models"] .mp-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* row (a div styled via .mi) */
+[data-overlay="models"] .mp-row { cursor: pointer; }
+[data-overlay="models"] .mp-row:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+
+/* star toggle: faint when off, near-black emphasis when on */
+[data-overlay="models"] .mp-star { color: var(--c-text-4); }
+[data-overlay="models"] .mp-star.on { color: var(--c-text); }
+
+/* empty result */
+[data-overlay="models"] .mp-empty {
+  padding: 18px;
+  text-align: center;
+  color: var(--c-text-3);
+  font-size: 13px;
+}

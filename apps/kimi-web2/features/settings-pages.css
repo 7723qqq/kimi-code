@@ -1,0 +1,22 @@
+/* settings-pages feature — only new rule needed: a styled <select> for the
+   default-model control (styles.css has no select styling). Tokens only. */
+.st-panel .st-select {
+  height: 34px;
+  min-width: 200px;
+  padding: 0 12px;
+  border: 0.5px solid var(--c-sep);
+  border-radius: var(--r-md);
+  background: var(--c-fill-1);
+  color: var(--c-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  outline: none;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+.st-panel .st-select:hover { background: var(--c-fill-2); }
+.st-panel .st-select:focus {
+  background: var(--c-bg);
+  border-color: var(--c-brand);
+  box-shadow: 0 0 0 3px var(--c-fill-2);
+}

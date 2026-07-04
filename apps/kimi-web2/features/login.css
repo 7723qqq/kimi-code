@@ -1,0 +1,53 @@
+/* Feature module: login — only rules not already provided by styles.css.
+ * Tokens only (var(--c-*) / var(--r-*) / var(--s-*) / var(--font-*)); no hex, gradients or glass. */
+
+.login-modal { width: min(440px, 96vw); }
+.login-head {
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  height: 56px; padding: 0 18px 0 22px; border-bottom: 0.5px solid var(--c-sep);
+}
+.login-head h2 { font-size: 16px; font-weight: 500; color: var(--c-text); }
+.login-body { padding: 22px; display: flex; flex-direction: column; }
+
+/* centered states: starting / success / expired */
+.login-state {
+  display: flex; flex-direction: column; align-items: center; gap: var(--s-3);
+  padding: var(--s-6) 0; text-align: center;
+}
+.login-state .spin { width: 22px; height: 22px; }
+.login-state-t { font-size: 15px; font-weight: 500; color: var(--c-text); }
+.login-state-s { font-size: 13px; color: var(--c-text-3); }
+.login-state .btn { margin-top: var(--s-2); }
+.login-check, .login-alert {
+  width: 44px; height: 44px; border-radius: var(--r-full);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.login-check { background: var(--c-green-soft); color: var(--c-green); }
+.login-alert { background: var(--c-orange-soft); color: var(--c-orange); }
+.login-check svg, .login-alert svg { width: 22px; height: 22px; }
+
+/* code step */
+.login-lead { margin: 0 0 var(--s-4); font-size: 14px; line-height: 1.6; color: var(--c-text-2); }
+.login-auth-btn { width: 100%; }
+.login-auth-btn svg { width: 15px; height: 15px; }
+.login-or {
+  display: flex; align-items: center; gap: var(--s-3);
+  margin: var(--s-4) 0; font-size: 12px; color: var(--c-text-3);
+}
+.login-or::before, .login-or::after { content: ''; flex: 1; height: 0.5px; background: var(--c-sep); }
+.login-fallback { margin: 0 0 var(--s-3); font-size: 13px; color: var(--c-text-3); }
+.login-code-row {
+  display: flex; align-items: center; gap: var(--s-3);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-4);
+  background: var(--c-fill-1); border-radius: var(--r-md);
+}
+.login-code {
+  flex: 1; text-align: center;
+  font-family: var(--font-mono); font-size: 22px; font-weight: 500; letter-spacing: .14em; color: var(--c-text);
+}
+.login-status {
+  display: flex; align-items: center; gap: var(--s-2);
+  margin-top: var(--s-4); font-size: 13px; color: var(--c-text-3);
+}
+.login-status-t { flex: 1; }
+.login-countdown { font-family: var(--font-mono); color: var(--c-text-2); }
