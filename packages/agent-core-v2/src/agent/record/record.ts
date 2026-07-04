@@ -97,7 +97,6 @@ export interface IAgentRecordService {
    * Returns a disposable that unregisters the facets (and the resumer).
    */
   define<K extends keyof AgentRecordMap>(type: K, facets: RecordFacets<K>): IDisposable;
-
   /**
    * Append a record to the replay read model directly. Used when the projected
    * data is computed inside a domain handler rather than derived from a single
@@ -125,9 +124,9 @@ export interface IAgentRecordService {
   buildReplay(): readonly AgentReplayRecord[];
   /** When true, live `append` calls also feed the replay read model. */
   captureLiveRecords: boolean;
-
   readonly restoring: WireRecordRestoringContext | null;
   readonly postRestoring: boolean;
+
   readonly hooks: IAgentWireRecordService['hooks'];
 }
 

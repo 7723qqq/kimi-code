@@ -28,10 +28,11 @@ export interface TurnErrorContext {
   retry: boolean;
 }
 
-export interface RunTurnOptions {
+export interface RunOptions {
+  readonly turnId: number;
   readonly signal?: AbortSignal;
   /** Fires on the first model response event for a step, or at step completion. */
-  readonly onStepStarted?: (step: number) => void;
+  readonly onStarted?: (step: number) => void;
 }
 
 export interface TurnResult {
@@ -42,12 +43,14 @@ export interface TurnResult {
 
 export interface IAgentLoopService {
   readonly _serviceBrand: undefined;
+
+  run(options: RunOptions): Promise<TurnResult>;
+
   readonly hooks: Hooks<{
     beforeStep: TurnBeforeStepContext;
     afterStep: TurnAfterStepContext;
     onError: TurnErrorContext;
   }>;
-  runTurn(turnId: number, options?: RunTurnOptions): Promise<TurnResult>;
 }
 
 export const IAgentLoopService = createDecorator<IAgentLoopService>('agentLoopService');
