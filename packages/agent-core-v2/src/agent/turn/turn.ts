@@ -1,6 +1,6 @@
 import { createDecorator } from "#/_base/di";
 import type { TurnResult } from '#/agent/loop';
-import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
+import type { PromptOrigin } from '#/agent/contextMemory';
 import type { Hooks } from '#/hooks';
 
 export type { TurnResult } from '#/agent/loop';
@@ -16,33 +16,6 @@ export interface Turn {
    */
   readonly ready: Promise<void>;
   readonly result: Promise<TurnResult>;
-}
-
-export interface TurnRunContext {
-  readonly turn: Turn;
-  readonly origin: PromptOrigin;
-  readonly promptMessage?: ContextMessage;
-  result?: TurnResult;
-}
-
-export type TurnUserPromptDecision =
-  | {
-      readonly action: 'append';
-      readonly event: string;
-      readonly message: string;
-      readonly text: string;
-    }
-  | {
-      readonly action: 'block';
-      readonly event: string;
-      readonly message: string;
-      readonly text: string;
-    };
-
-export interface TurnUserPromptSubmitContext {
-  readonly turn: Turn;
-  readonly promptMessage: ContextMessage;
-  decision?: TurnUserPromptDecision;
 }
 
 export interface TurnEndedContext {
@@ -63,7 +36,6 @@ export interface IAgentTurnService {
 
   readonly hooks: Hooks<{
     onLaunched: { turn: Turn };
-    onWillSubmitUserPrompt: TurnUserPromptSubmitContext;
     onEnded: TurnEndedContext;
   }>;
 }

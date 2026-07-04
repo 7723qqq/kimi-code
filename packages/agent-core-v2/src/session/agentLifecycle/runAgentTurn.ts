@@ -58,20 +58,20 @@ export interface RunAgentTurnOptions {
 }
 
 /**
- * Submit a prompt (or a retry) to `target` and return the running `Turn` plus
- * a promise of the distilled summary/usage. Throws when the underlying
+ * Submit a prompt (or a retry) to `target` and resolve to the running `Turn`
+ * plus a promise of the distilled summary/usage. Throws when the underlying
  * `IAgentPromptService.prompt/retry` refuses to launch a turn (busy / no head).
  */
-export function runAgentTurn(
+export async function runAgentTurn(
   target: IAgentScopeHandle,
   request: AgentRunRequest,
   options: RunAgentTurnOptions,
-): AgentRunHandle {
+): Promise<AgentRunHandle> {
   options.signal.throwIfAborted();
   const promptService = target.accessor.get(IAgentPromptService);
   const turn =
     request.kind === 'prompt'
-      ? promptService.prompt({
+      ? await promptService.prompt({
           role: 'user',
           content: [{ type: 'text', text: request.prompt }],
           toolCalls: [],
@@ -140,7 +140,7 @@ async function distillSummary(
 
   const promptService = target.accessor.get(IAgentPromptService);
   for (let attempt = 0; attempt < policy.retries; attempt++) {
-    const turn = promptService.prompt({
+    const turn = await promptService.prompt({
       role: 'user',
       content: [{ type: 'text', text: policy.continuationPrompt }],
       toolCalls: [],

@@ -71,7 +71,7 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
       },
     ];
 
-    return this.recordActivation(
+    const turn = await this.recordActivation(
       {
         kind: 'skill_activation',
         activationId: randomUUID(),
@@ -83,17 +83,24 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
         skillArgs: input.args,
       },
       content,
-    )!;
+    );
+    if (turn === undefined) {
+      throw new KimiError(
+        ErrorCodes.TURN_AGENT_BUSY,
+        'Cannot activate skill while another turn is active',
+      );
+    }
+    return turn;
   }
 
   recordModelToolActivation(origin: SkillActivationOrigin): void {
-    this.recordActivation(origin);
+    void this.recordActivation(origin);
   }
 
-  private recordActivation(
+  private async recordActivation(
     origin: SkillActivationOrigin,
     input?: readonly ContentPart[],
-  ): Turn | undefined {
+  ): Promise<Turn | undefined> {
     this.records.append({ type: 'skill.activate', origin });
     this.publishActivation(origin);
 

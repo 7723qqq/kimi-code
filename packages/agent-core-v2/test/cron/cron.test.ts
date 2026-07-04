@@ -75,10 +75,10 @@ describe('SessionCronService', () => {
     };
 
     ix.stub(IAgentPromptService, {
-      prompt: () => undefined,
+      prompt: () => Promise.resolve(undefined),
       steer: (message) => {
         steered.push(message);
-        return fakeTurn();
+        return Promise.resolve(fakeTurn());
       },
       retry: () => undefined,
       undo: () => 0,

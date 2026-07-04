@@ -200,7 +200,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     return child;
   }
 
-  run(agentId: string, request: AgentRunRequest, opts: RunAgentOptions): AgentRunHandle {
+  run(agentId: string, request: AgentRunRequest, opts: RunAgentOptions): Promise<AgentRunHandle> {
     const handle = this.handles.get(agentId);
     if (handle === undefined) throw new Error(`Agent "${agentId}" does not exist`);
     return runAgentTurn(handle, request, {

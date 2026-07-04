@@ -11,12 +11,20 @@ import {
 import { IAgentLoopService } from '#/agent/loop';
 import { IAgentRecordService } from '#/agent/record';
 import { IAgentTurnService, type Turn } from '#/agent/turn';
-import { IAgentPromptService } from './prompt';
+import { OrderedHookSlot } from '#/hooks';
+import {
+  IAgentPromptService,
+  type PromptSubmitContext,
+} from './prompt';
 
 export class AgentPromptService implements IAgentPromptService {
   declare readonly _serviceBrand: undefined;
   private readonly steerQueue: ContextMessage[] = [];
   private observedTurn: Turn | undefined;
+
+  readonly hooks = {
+    onWillSubmitPrompt: new OrderedHookSlot<PromptSubmitContext>(),
+  };
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -36,25 +44,27 @@ export class AgentPromptService implements IAgentPromptService {
     });
   }
 
-  prompt(message: ContextMessage): Turn | undefined {
+  async prompt(message: ContextMessage): Promise<Turn | undefined> {
     if (this.emitBusyIfActive()) return undefined;
     const stamped = ensureMessageId(message);
     this.append(stamped);
+    if (await this.applyPromptHook(stamped, false)) return undefined;
     const turn = this.turnService.launch(stamped.origin ?? USER_PROMPT_ORIGIN, stamped.id);
     this.observe(turn);
     return turn;
   }
 
-  steer(message: ContextMessage): Turn | undefined {
+  async steer(message: ContextMessage): Promise<Turn | undefined> {
+    const stamped = ensureMessageId(message);
     const activeTurn = this.turnService.getActiveTurn();
     if (activeTurn !== undefined) {
-      this.steerQueue.push(ensureMessageId(message));
+      this.steerQueue.push(stamped);
       this.observe(activeTurn);
       return undefined;
     }
 
-    const stamped = ensureMessageId(message);
     this.append(stamped);
+    if (await this.applyPromptHook(stamped, true)) return undefined;
     const turn = this.turnService.launch(stamped.origin ?? USER_PROMPT_ORIGIN, stamped.id);
     this.observe(turn);
     return turn;
@@ -116,6 +126,16 @@ export class AgentPromptService implements IAgentPromptService {
   private append(...messages: ContextMessage[]): void {
     if (messages.length === 0) return;
     this.context.splice(this.context.get().length, 0, messages);
+  }
+
+  private async applyPromptHook(promptMessage: ContextMessage, isSteer: boolean): Promise<boolean> {
+    const hookContext: PromptSubmitContext = {
+      promptMessage,
+      isSteer,
+      block: false,
+    };
+    await this.hooks.onWillSubmitPrompt.run(hookContext);
+    return hookContext.block;
   }
 
   private observe(turn: Turn): void {

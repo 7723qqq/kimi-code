@@ -21,6 +21,7 @@ import type {
   PromptAbortResponse,
   PromptItem,
   PromptListResponse,
+  PromptStatus,
   PromptSteerResult,
   PromptSubmission,
   PromptSubmitResult,
@@ -69,8 +70,8 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
       this.queued.push(record);
       return toItem(record, 'queued');
     }
-    const turn = this.launch(record);
-    return toItem(record, turn === undefined ? 'queued' : 'running');
+    const status = await this.launch(record);
+    return toItem(record, status);
   }
 
   async steer(promptIds: readonly string[]): Promise<PromptSteerResult> {
@@ -96,7 +97,7 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
     selected.reverse();
 
     const content = selected.flatMap((record) => contentToCoreParts(record.body.content));
-    this.prompt.steer({
+    await this.prompt.steer({
       role: 'user',
       content,
       toolCalls: [],
@@ -138,12 +139,12 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
     };
   }
 
-  private launch(record: PromptRecord): Turn | undefined {
+  private async launch(record: PromptRecord): Promise<PromptStatus> {
     const parts = contentToCoreParts(record.body.content);
     if (parts.length === 0) {
       throw new KimiError(ErrorCodes.REQUEST_INVALID, 'prompt content has no supported parts');
     }
-    const turn = this.prompt.prompt({
+    const turn = await this.prompt.prompt({
       id: record.promptId,
       role: 'user',
       content: parts,
@@ -151,14 +152,17 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
       origin: { kind: 'user' },
     });
     if (turn === undefined) {
-      // Busy with a turn started outside the legacy service (e.g. via /api/v2);
-      // keep the record queued so it runs once the agent is idle.
-      this.queued.unshift(record);
-      return undefined;
+      if (this.turnService.getActiveTurn() !== undefined) {
+        // Busy with a turn started outside the legacy service (e.g. via /api/v2);
+        // keep the record queued so it runs once the agent is idle.
+        this.queued.unshift(record);
+        return 'queued';
+      }
+      return 'blocked';
     }
     this.active = { ...record, turn };
     void turn.result.then((result) => this.onTurnSettled(record.promptId, result));
-    return turn;
+    return 'running';
   }
 
   private onTurnSettled(promptId: string, result: TurnResult): void {
@@ -173,7 +177,7 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
     if (this.active !== undefined) return;
     const next = this.queued.shift();
     if (next === undefined) return;
-    this.launch(next);
+    void this.launch(next);
   }
 
   private async applyOverrides(body: PromptSubmission): Promise<void> {
@@ -189,7 +193,7 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
   }
 }
 
-function toItem(record: PromptRecord, status: 'running' | 'queued'): PromptItem {
+function toItem(record: PromptRecord, status: PromptStatus): PromptItem {
   return {
     prompt_id: record.promptId,
     user_message_id: record.userMessageId,

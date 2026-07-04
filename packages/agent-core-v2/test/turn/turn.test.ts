@@ -619,7 +619,7 @@ describe('Agent turn flow', () => {
     );
   });
 
-  it('emits a friendly model.not_configured error when no model is configured', async () => {
+  it('emits a model.not_configured error when no model is configured', async () => {
     const ctx = testAgent(configServices(() => ({ providers: {} })), { autoConfigure: false });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello without login' }] });
@@ -628,10 +628,10 @@ describe('Agent turn flow', () => {
       [wire] context.splice   { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello without login" } ], "toolCalls": [], "id": "<msg-1>" } ], "time": "<time>" }
       [wire] turn.launch      { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>", "time": "<time>" }
       [emit] turn.started     { "turnId": 0, "origin": { "kind": "user" }, "promptMessageId": "<msg-1>" }
-      [emit] turn.ended       { "turnId": 0, "reason": "failed", "error": { "code": "model.not_configured", "message": "LLM not set, send \\"/login\\" to login", "name": "KimiError", "details": { "turnId": 0 }, "retryable": false } }
+      [emit] turn.ended       { "turnId": 0, "reason": "failed", "error": { "code": "model.not_configured", "message": "Model not set", "name": "KimiError", "details": { "turnId": 0 }, "retryable": false } }
     `);
     expect(ctx.newEvents()).toMatchInlineSnapshot(
-      `[emit] error   { "code": "model.not_configured", "message": "LLM not set, send \\"/login\\" to login", "name": "KimiError", "details": { "turnId": 0 }, "retryable": false }`,
+      `[emit] error   { "code": "model.not_configured", "message": "Model not set", "name": "KimiError", "details": { "turnId": 0 }, "retryable": false }`,
     );
   });
 
@@ -741,7 +741,7 @@ describe('Agent turn flow', () => {
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'turn.ended',
-        args: expect.objectContaining({ reason: 'blocked' }),
+        args: expect.objectContaining({ reason: 'completed' }),
       }),
     );
     expect(ctx.contextData().history).toMatchObject([
@@ -780,11 +780,17 @@ describe('Agent turn flow', () => {
     const ctx = testAgent({ hookEngine });
     ctx.configure();
 
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'bad words here' }] });
-    const events = await ctx.untilTurnEnd();
+    const result = await ctx.rpc.prompt({ input: [{ type: 'text', text: 'bad words here' }] });
+    const events = ctx.newEvents();
 
     const hookResult = '<hook_result hook_event="UserPromptSubmit">\nno profanity\n</hook_result>';
+    expect(result).toBeUndefined();
     expect(ctx.llmCalls).toHaveLength(0);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        event: 'turn.started',
+      }),
+    );
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'hook.result',
@@ -824,37 +830,41 @@ describe('Agent turn flow', () => {
     `);
   });
 
-  it('cancels while waiting for a UserPromptSubmit hook without appending stale output', async () => {
+  it('ignores timed out UserPromptSubmit hook output before launching the turn', async () => {
     const hookEngine = new HookEngine([
       {
         event: 'UserPromptSubmit',
         command: 'node -e "setTimeout(() => process.stdout.write(\\"late hook\\"), 250)"',
-        timeout: 5,
+        timeout: 0.01,
       },
     ]);
     const ctx = testAgent({ hookEngine });
     ctx.configure();
+    ctx.mockNextResponse({ type: 'text', text: 'model after timeout' });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'hook will sleep' }] });
-    await ctx.rpc.cancel({ turnId: 0 });
     const events = await ctx.untilTurnEnd();
 
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'turn.ended',
-        args: expect.objectContaining({ reason: 'cancelled' }),
+        args: expect.objectContaining({ reason: 'completed' }),
       }),
     );
     expect(events).not.toContainEqual(
       expect.objectContaining({
-        event: 'assistant.delta',
-        args: expect.objectContaining({ delta: expect.stringContaining('late hook') }),
+        event: 'hook.result',
       }),
     );
     expect(ctx.contextData().history).toMatchObject([
       {
         role: 'user',
         content: [{ type: 'text', text: 'hook will sleep' }],
+        toolCalls: [],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'model after timeout' }],
         toolCalls: [],
       },
     ]);

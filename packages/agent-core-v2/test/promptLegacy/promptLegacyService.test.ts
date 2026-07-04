@@ -6,6 +6,7 @@ import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMo
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn/turn';
+import { createHooks } from '#/hooks';
 import type { PromptSubmission } from '@moonshot-ai/protocol';
 
 import { IAgentPromptLegacyService, AgentPromptLegacyService } from '#/agent/promptLegacy';
@@ -40,7 +41,7 @@ interface Harness {
   readonly steered: string[];
 }
 
-function createHarness(): Harness {
+function createHarness(options: { readonly blockPrompt?: boolean } = {}): Harness {
   const disposables = new DisposableStore();
   onTestFinished(() => disposables.dispose());
 
@@ -53,7 +54,8 @@ function createHarness(): Harness {
   const prompt: IAgentPromptService = {
     _serviceBrand: undefined,
     prompt: () => {
-      if (activeTurn !== undefined) return undefined;
+      if (options.blockPrompt === true) return Promise.resolve(undefined);
+      if (activeTurn !== undefined) return Promise.resolve(undefined);
       const { turn, settle } = controlledTurn(nextTurnId++);
       activeTurn = turn;
       activeSettle = settle;
@@ -64,17 +66,18 @@ function createHarness(): Harness {
           activeSettle = undefined;
         }
       });
-      return turn;
+      return Promise.resolve(turn);
     },
     steer: (message) => {
       for (const part of message.content) {
         if (part.type === 'text') steered.push(part.text);
       }
-      return undefined;
+      return Promise.resolve(undefined);
     },
     retry: () => undefined,
     undo: () => 0,
     clear: () => {},
+    hooks: createHooks(['onWillSubmitPrompt']) as IAgentPromptService['hooks'],
   };
 
   const turnService: IAgentTurnService = {
@@ -136,11 +139,20 @@ describe('AgentPromptLegacyService', () => {
     expect(list.queued.map((q) => q.prompt_id)).toEqual([second.prompt_id]);
   });
 
+  it('reports blocked without queueing when no turn is launched', async () => {
+    const { service, turns } = createHarness({ blockPrompt: true });
+    const result = await service.submit(textBody('blocked'));
+    expect(result.status).toBe('blocked');
+    expect(turns).toHaveLength(0);
+    expect(service.list()).toEqual({ active: null, queued: [] });
+  });
+
   it('auto-launches the next queued prompt when the active turn settles', async () => {
     const { service, turns, settleActive } = createHarness();
     await service.submit(textBody('first'));
     const second = await service.submit(textBody('second'));
     settleActive({ reason: 'completed' });
+    await Promise.resolve();
     await Promise.resolve();
     expect(turns).toHaveLength(2);
     expect(service.list().active?.prompt_id).toBe(second.prompt_id);
@@ -153,6 +165,7 @@ describe('AgentPromptLegacyService', () => {
     const aborted = await service.abort(first.prompt_id);
     expect(aborted.aborted).toBe(true);
     settleActive({ reason: 'cancelled' });
+    await Promise.resolve();
     await Promise.resolve();
     expect(turns).toHaveLength(2);
     expect(service.list().active?.prompt_id).toBe(second.prompt_id);

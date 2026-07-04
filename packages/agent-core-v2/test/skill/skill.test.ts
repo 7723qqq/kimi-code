@@ -55,11 +55,11 @@ describe('AgentSkillService', () => {
         reg.definePartialInstance(IAgentPromptService, {
           prompt: (message) => {
             prompted.push(message);
-            return fakeTurn();
+            return Promise.resolve(fakeTurn());
           },
           steer: (message) => {
             prompted.push(message);
-            return undefined;
+            return Promise.resolve(undefined);
           },
           retry: () => undefined,
           undo: () => 0,
@@ -152,11 +152,11 @@ describe('SkillTool', () => {
         reg.definePartialInstance(IAgentPromptService, {
           prompt: (message: ContextMessage) => {
             prompted.push(message);
-            return fakeTurn();
+            return Promise.resolve(fakeTurn());
           },
           steer: (message: ContextMessage) => {
             prompted.push(message);
-            return undefined;
+            return Promise.resolve(undefined);
           },
           retry: () => undefined,
           undo: () => 0,

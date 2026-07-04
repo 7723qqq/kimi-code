@@ -3,10 +3,11 @@
  * hook commands.
  *
  * Listens to hook slots owned by the agent behavior/lifecycle domains
- * (`toolExecutor`, `permissionGate`, `turn`, `loop`, `fullCompaction`, and
+ * (`toolExecutor`, `permissionGate`, `prompt`, `turn`, `loop`, `fullCompaction`, and
  * `task`) and translates those minimal contexts into the configured external
- * HookEngine events. Appends Stop hook continuation prompts through
- * `contextMemory`. The `SubagentStart` / `SubagentStop` pair is the one
+ * HookEngine events. Appends UserPromptSubmit hook results and Stop hook
+ * continuation prompts through `contextMemory`. The `SubagentStart` /
+ * `SubagentStop` pair is the one
  * exception: the `agentLifecycle` tool wrapper has no hook service of its own,
  * so `mirrorAgentRun` invokes `runAgentTaskStart` / `notifyAgentTaskStop` on
  * this service directly.
@@ -18,7 +19,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { isUserCancellation } from '#/_base/utils/abort';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
 import { IAgentTaskService, type AgentTaskNotificationContext } from '#/agent/task';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentContextMemoryService, USER_PROMPT_ORIGIN } from '#/agent/contextMemory';
 import {
   IAgentFullCompactionService,
   type FullCompactionDidCompactContext,
@@ -29,6 +30,11 @@ import {
   IAgentPermissionGate,
   type PermissionApprovalResultContext,
 } from '#/agent/permissionGate';
+import {
+  IAgentPromptService,
+  type PromptSubmitContext,
+} from '#/agent/prompt';
+import { IAgentRecordService } from '#/agent/record';
 import type {
   ExecutableToolResult,
   ToolDidExecuteContext,
@@ -38,8 +44,6 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import {
   IAgentTurnService,
   type TurnEndedContext,
-  type TurnUserPromptDecision,
-  type TurnUserPromptSubmitContext,
 } from '#/agent/turn';
 import { IBootstrapService } from '#/app/bootstrap';
 import { IConfigService } from '#/app/config';
@@ -84,6 +88,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
   constructor(
     private readonly options: ExternalHooksServiceOptions = {},
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    @IAgentRecordService private readonly record: IAgentRecordService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IConfigService private readonly config: IConfigService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
@@ -113,6 +118,10 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
 
     this.registerPermissionHooks(
       this.instantiation.invokeFunction((accessor) => accessor.get(IAgentPermissionGate)),
+    );
+
+    this.registerPromptHooks(
+      this.instantiation.invokeFunction((accessor) => accessor.get(IAgentPromptService)),
     );
 
     this.registerTurnHooks(
@@ -180,17 +189,19 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     );
   }
 
-  private registerTurnHooks(turn: IAgentTurnService): void {
+  private registerPromptHooks(prompt: IAgentPromptService): void {
     this._register(
-      turn.hooks.onWillSubmitUserPrompt.register('externalHooks', async (ctx, next) => {
-        const decision = await this.runUserPromptSubmit(ctx);
-        if (decision !== undefined) {
-          ctx.decision = decision;
-          if (decision.action === 'block') return;
+      prompt.hooks.onWillSubmitPrompt.register('externalHooks', async (ctx, next) => {
+        if (await this.runPromptSubmitHook(ctx)) {
+          ctx.block = true;
+          return;
         }
         await next();
       }),
     );
+  }
+
+  private registerTurnHooks(turn: IAgentTurnService): void {
     this._register(
       turn.hooks.onEnded.register('externalHooks', async (ctx, next) => {
         this.notifyTurnEnded(ctx);
@@ -293,24 +304,53 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     );
   }
 
-  private async runUserPromptSubmit(
-    ctx: TurnUserPromptSubmitContext,
-  ): Promise<TurnUserPromptDecision | undefined> {
-    const signal = ctx.turn.abortController.signal;
+  private async runPromptSubmitHook(
+    ctx: PromptSubmitContext,
+  ): Promise<boolean> {
+    if ((ctx.promptMessage.origin ?? USER_PROMPT_ORIGIN).kind !== 'user') return false;
+
+    const signal = new AbortController().signal;
     const input = ctx.promptMessage.content;
     signal.throwIfAborted();
     const results = await this.engine()?.trigger('UserPromptSubmit', {
       matcherValue: input,
       signal,
-      inputData: { prompt: input },
+      inputData: { prompt: input, isSteer: ctx.isSteer },
     });
     signal.throwIfAborted();
 
     const block = renderUserPromptHookBlockResult(results);
-    if (block !== undefined) return { action: 'block', ...block };
+    if (block !== undefined) {
+      this.context.splice(this.context.get().length, 0, [{
+        role: 'assistant',
+        content: [{ type: 'text', text: block.text }],
+        toolCalls: [],
+        origin: { kind: 'hook_result', event: block.event, blocked: true },
+      }]);
+      this.record.signal({
+        type: 'hook.result',
+        hookEvent: block.event,
+        content: block.message,
+        blocked: true,
+      });
+      return true;
+    }
 
     const append = renderUserPromptHookResult(results);
-    return append === undefined ? undefined : { action: 'append', ...append };
+    if (append !== undefined) {
+      this.context.splice(this.context.get().length, 0, [{
+        role: 'user',
+        content: [{ type: 'text', text: append.text }],
+        toolCalls: [],
+        origin: { kind: 'hook_result', event: append.event },
+      }]);
+      this.record.signal({
+        type: 'hook.result',
+        hookEvent: append.event,
+        content: append.message,
+      });
+    }
+    return false;
   }
 
   private notifyTurnEnded(ctx: TurnEndedContext): void {

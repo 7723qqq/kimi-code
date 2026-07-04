@@ -369,7 +369,8 @@ export interface RemoveKimiProviderPayload {
  * Result returned when a prompt/steer submission is accepted. The turn is the
  * submission's identity and lifecycle (`turn.started` / `turn.ended` carry the
  * rest over the event stream), so the handle is just the turn id. `undefined`
- * means the submission was not accepted (e.g. the agent was busy).
+ * means no turn was launched (e.g. the agent was busy, or a prompt hook blocked
+ * before launch).
  */
 export interface PromptLaunchResult {
   readonly turn_id: number;

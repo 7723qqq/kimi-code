@@ -13,6 +13,7 @@ import { ILogService } from '#/app/log';
 import { IAgentPromptService } from '#/agent/prompt';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle';
 import { IAgentTurnService } from '#/agent/turn';
+import { createHooks } from '#/hooks';
 import { stubLog } from '../log/stubs';
 import { stubTurn } from '../turn/stubs';
 
@@ -51,12 +52,13 @@ describe('RestGateway', () => {
       _serviceBrand: undefined,
       prompt: (message) => {
         promptCalls.push(message);
-        return undefined;
+        return Promise.resolve(undefined);
       },
-      steer: () => undefined,
+      steer: () => Promise.resolve(undefined),
       retry: () => undefined,
       undo: () => 0,
       clear: () => {},
+      hooks: createHooks(['onWillSubmitPrompt']) as IAgentPromptService['hooks'],
     };
 
     const agentHandle: IAgentScopeHandle = {

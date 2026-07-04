@@ -119,7 +119,7 @@ export interface IAgentLifecycleService {
    * surface this run (the `Agent` tool, the swarm) mirrors it itself. Throws
    * when the agent does not exist or a turn cannot be started (busy / no head).
    */
-  run(agentId: string, request: AgentRunRequest, opts: RunAgentOptions): AgentRunHandle;
+  run(agentId: string, request: AgentRunRequest, opts: RunAgentOptions): Promise<AgentRunHandle>;
   getHandle(agentId: string): IAgentScopeHandle | undefined;
   list(filter?: AgentListFilter): readonly IAgentScopeHandle[];
   remove(agentId: string): Promise<void>;

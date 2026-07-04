@@ -547,7 +547,7 @@ export interface AssistantDeltaEvent {
 
 export interface HookResultEvent {
   readonly type: 'hook.result';
-  readonly turnId: number;
+  readonly turnId?: number;
   readonly hookEvent: string;
   readonly content: string;
   readonly blocked?: boolean;
@@ -693,7 +693,7 @@ export interface PromptSubmittedEvent {
   readonly type: 'prompt.submitted';
   readonly promptId: string;
   readonly userMessageId: string;
-  readonly status: 'running' | 'queued';
+  readonly status: 'running' | 'queued' | 'blocked';
   readonly content: readonly MessageContent[];
   readonly createdAt: string;
 }
@@ -1253,7 +1253,7 @@ export const assistantDeltaEventSchema = z.object({
 
 export const hookResultEventSchema = z.object({
   type: z.literal('hook.result'),
-  turnId: z.number(),
+  turnId: z.number().optional(),
   hookEvent: z.string(),
   content: z.string(),
   blocked: z.boolean().optional(),
@@ -1389,7 +1389,7 @@ export const promptSubmittedEventSchema = z.object({
   type: z.literal('prompt.submitted'),
   promptId: z.string(),
   userMessageId: z.string(),
-  status: z.enum(['running', 'queued']),
+  status: z.enum(['running', 'queued', 'blocked']),
   content: z.array(messageContentSchema),
   createdAt: isoDateTimeSchema,
 }) satisfies z.ZodType<PromptSubmittedEvent>;

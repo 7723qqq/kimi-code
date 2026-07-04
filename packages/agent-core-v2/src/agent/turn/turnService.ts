@@ -2,9 +2,8 @@ import { createControlledPromise } from '@antfu/utils';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
-import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
-import { IAgentContextMemoryService, USER_PROMPT_ORIGIN } from '#/agent/contextMemory';
+import { toKimiErrorPayload } from '#/errors';
+import type { PromptOrigin } from '#/agent/contextMemory';
 import { OrderedHookSlot } from '#/hooks';
 import { IAgentLoopService } from '#/agent/loop';
 import { IAgentTelemetryContextService, ITelemetryService } from '#/app/telemetry';
@@ -12,7 +11,6 @@ import { IAgentRecordService } from '#/agent/record';
 import type {
   Turn,
   TurnEndedContext,
-  TurnUserPromptSubmitContext,
   TurnResult,
 } from './turn';
 import { IAgentTurnService } from './turn';
@@ -35,14 +33,12 @@ export class AgentTurnService implements IAgentTurnService {
 
   readonly hooks = {
     onLaunched: new OrderedHookSlot<{ turn: Turn }>(),
-    onWillSubmitUserPrompt: new OrderedHookSlot<TurnUserPromptSubmitContext>(),
     onEnded: new OrderedHookSlot<TurnEndedContext>(),
   };
 
   constructor(
     @IAgentLoopService private readonly loop: IAgentLoopService,
     @IAgentRecordService private readonly record: IAgentRecordService,
-    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentTelemetryContextService private readonly telemetryContext: IAgentTelemetryContextService,
   ) {
@@ -105,11 +101,6 @@ export class AgentTurnService implements IAgentTurnService {
         origin,
         promptMessageId: turn.promptMessageId,
       });
-      const promptHookResult = await this.applyUserPromptHook(turn, origin);
-      if (promptHookResult !== undefined) {
-        result = promptHookResult;
-        return result;
-      }
       result = await this.loop.runTurn(turn.id, {
         signal: turn.abortController.signal,
         onStepStarted: () => ready.resolve(),
@@ -123,19 +114,25 @@ export class AgentTurnService implements IAgentTurnService {
       result = { reason: 'failed', error };
       return result;
     } finally {
-      ready.reject(createTurnReadyError(result));
+      ready.reject(new Error('Turn ended before first step', { cause: result?.error }));
       if (this.activeTurn === turn) {
         this.activeTurn = undefined;
       }
       if (result !== undefined) {
         this.lastEndedReasonValue = result.reason;
-        const ended = toTurnEndedEvent(turn, result, Date.now() - startedAt);
-        this.record.signal(ended);
-        if (ended.error !== undefined) {
-          this.record.signal({ type: 'error', ...ended.error });
+        const error = result.error !== undefined ? toKimiErrorPayload(result.error) : undefined;
+        this.record.signal({
+          type: 'turn.ended',
+          turnId: turn.id,
+          reason: result.reason,
+          error,
+          durationMs: Date.now() - startedAt,
+        });
+        if (error !== undefined) {
+          this.record.signal({ type: 'error', ...error });
         }
-        if (ended.reason !== 'completed') {
-          turnTelemetry.track('turn_interrupted', { at_step: result.steps ?? 0 });
+        if (result.reason !== 'completed') {
+          turnTelemetry.track('turn_interrupted', { at_step: result.steps ?? null });
         }
       }
       if (result !== undefined) {
@@ -149,116 +146,11 @@ export class AgentTurnService implements IAgentTurnService {
       this.nextTurnId = turnId + 1;
     }
   }
-
-  private async applyUserPromptHook(
-    turn: Turn,
-    origin: PromptOrigin,
-  ): Promise<TurnResult | undefined> {
-    if (origin.kind !== 'user') return undefined;
-    const promptMessage = this.context.get().at(-1);
-    if (!shouldRunUserPromptHook(promptMessage)) return undefined;
-
-    const hookContext: TurnUserPromptSubmitContext = { turn, promptMessage };
-    await this.hooks.onWillSubmitUserPrompt.run(hookContext);
-    const hookResult = hookContext.decision;
-    if (hookResult?.action === 'block') {
-      this.append({
-        role: 'assistant',
-        content: [{ type: 'text', text: hookResult.text }],
-        toolCalls: [],
-        origin: { kind: 'hook_result', event: hookResult.event, blocked: true },
-      });
-      this.record.signal({
-        type: 'hook.result',
-        turnId: turn.id,
-        hookEvent: hookResult.event,
-        content: hookResult.message,
-        blocked: true,
-      });
-      return { reason: 'blocked' };
-    }
-
-    if (hookResult?.action === 'append') {
-      this.append({
-        role: 'user',
-        content: [{ type: 'text', text: hookResult.text }],
-        toolCalls: [],
-        origin: { kind: 'hook_result', event: hookResult.event },
-      });
-      this.record.signal({
-        type: 'hook.result',
-        turnId: turn.id,
-        hookEvent: hookResult.event,
-        content: hookResult.message,
-      });
-    }
-    return undefined;
-  }
-
-  private append(...messages: ContextMessage[]): void {
-    if (messages.length === 0) return;
-    this.context.splice(this.context.get().length, 0, messages);
-  }
-
-}
-
-function shouldRunUserPromptHook(message: ContextMessage | undefined): message is ContextMessage {
-  if (message === undefined || message.role !== 'user') return false;
-  return (message.origin ?? USER_PROMPT_ORIGIN).kind === 'user';
-}
-
-function toTurnEndedEvent(
-  turn: Turn,
-  result: TurnResult,
-  durationMs: number,
-): {
-  type: 'turn.ended';
-  turnId: number;
-  reason: TurnResult['reason'];
-  error?: KimiErrorPayload;
-  durationMs: number;
-} {
-  if (result.reason !== 'failed' || result.error === undefined) {
-    return { type: 'turn.ended', turnId: turn.id, reason: result.reason, durationMs };
-  }
-  return {
-    type: 'turn.ended',
-    turnId: turn.id,
-    reason: result.reason,
-    error: summarizeTurnError(result.error, turn.id),
-    durationMs,
-  };
-}
-
-const LLM_NOT_SET_MESSAGE = 'LLM not set, send "/login" to login';
-
-function summarizeTurnError(error: unknown, turnId: number): KimiErrorPayload {
-  const payload = toKimiErrorPayload(error);
-  const details = { ...payload.details, turnId };
-  // Substitute a friendlier, login-aware message for model-not-configured. The
-  // raw "Model not set" / "Provider not set" text is not actionable.
-  if (payload.code === 'model.not_configured') {
-    return { ...payload, message: LLM_NOT_SET_MESSAGE, details };
-  }
-  return { ...payload, details };
 }
 
 type MutableTurn = {
   -readonly [K in keyof Turn]: Turn[K];
 };
-
-function createTurnReadyError(result: TurnResult | undefined): Error {
-  const cause = turnReadyFailureCause(result);
-  return cause === undefined
-    ? new Error('Turn ended before first step')
-    : new Error('Turn ended before first step', { cause });
-}
-
-function turnReadyFailureCause(result: TurnResult | undefined): unknown {
-  if (result === undefined) return undefined;
-  if ('error' in result && result.error !== undefined) return result.error;
-  return result.reason;
-}
 
 registerScopedService(
   LifecycleScope.Agent,

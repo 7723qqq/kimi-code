@@ -392,9 +392,9 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
       toolCalls: [],
       origin,
     };
-    const turn = promptService.steer(message);
+    void promptService.steer(message);
     this.telemetry.track(CRON_MISSED, { count: tasks.length });
-    return turn;
+    return undefined;
   }
 
   emitScheduled(task: CronTask): void {
@@ -448,14 +448,15 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
       origin,
     };
     this.signalRecord({ type: 'cron.fired', origin, prompt: task.prompt });
-    const turn = promptService.steer(message);
+    const buffered = mainHandle.accessor.get(IAgentTurnService).getActiveTurn() !== undefined;
+    void promptService.steer(message);
     this.telemetry.track(CRON_FIRED, {
       recurring: task.recurring !== false,
       coalesced_count: ctx.coalescedCount,
       stale: origin.stale,
-      buffered: turn === undefined,
+      buffered,
     });
-    return turn;
+    return undefined;
   }
 
   private advanceCursor(id: string, lastFiredAt: number): void {

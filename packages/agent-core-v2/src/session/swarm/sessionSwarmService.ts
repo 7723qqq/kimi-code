@@ -172,14 +172,14 @@ export class SessionSwarmService implements ISessionSwarmService {
     return this.observe(caller, child.id, profileName, request, options);
   }
 
-  private observe(
+  private async observe(
     caller: IAgentScopeHandle,
     agentId: string,
     profileName: string,
     request: { kind: 'prompt'; prompt: string } | { kind: 'retry' },
     options: AgentRunAttemptOptions,
-  ): AgentRunAttemptHandle {
-    const run = this.lifecycle.run(agentId, request, {
+  ): Promise<AgentRunAttemptHandle> {
+    const run = await this.lifecycle.run(agentId, request, {
       signal: options.signal,
       onReady: options.onReady,
     });

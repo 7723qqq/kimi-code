@@ -31,7 +31,7 @@ function createClocks(initial: number = WALL_ANCHOR): ClockHarness {
 }
 
 function spySteer(prompt: IAgentPromptService) {
-  return vi.spyOn(prompt, 'steer').mockImplementation((_message: ContextMessage) => ({
+  return vi.spyOn(prompt, 'steer').mockImplementation((_message: ContextMessage) => Promise.resolve({
     id: 1,
     abortController: new AbortController(),
     ready: Promise.resolve(),

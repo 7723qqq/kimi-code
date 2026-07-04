@@ -43,7 +43,6 @@ function makeTurn(id: number): Turn {
 function makeHooks(): IAgentTurnService['hooks'] {
   return createHooks([
     'onLaunched',
-    'onWillSubmitUserPrompt',
     'onEnded',
   ]) as IAgentTurnService['hooks'];
 }

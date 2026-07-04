@@ -91,8 +91,8 @@ export class AgentRPCService implements IAgentRPCService {
     @ISessionMetadata private readonly metadata: ISessionMetadata,
   ) { }
 
-  prompt(payload: PromptPayload): PromptLaunchResult | undefined {
-    const turn = this.promptService.prompt({
+  async prompt(payload: PromptPayload): Promise<PromptLaunchResult | undefined> {
+    const turn = await this.promptService.prompt({
       role: 'user',
       content: [...payload.input],
       toolCalls: [],
@@ -169,9 +169,9 @@ export class AgentRPCService implements IAgentRPCService {
     this.shellCommandControllers.get(payload.commandId)?.abort(userCancellationReason());
   }
 
-  steer(payload: SteerPayload): PromptLaunchResult | undefined {
+  async steer(payload: SteerPayload): Promise<PromptLaunchResult | undefined> {
     this.telemetry.track('input_steer', { parts: payload.input.length });
-    const turn = this.promptService.steer({
+    const turn = await this.promptService.steer({
       role: 'user',
       content: [...payload.input],
       toolCalls: [],
@@ -312,7 +312,7 @@ export class AgentRPCService implements IAgentRPCService {
       commandArgs: origin.commandArgs,
       trigger: origin.trigger,
     });
-    this.promptService.prompt({
+    await this.promptService.prompt({
       role: 'user',
       content: [{ type: 'text', text: expanded }],
       toolCalls: [],

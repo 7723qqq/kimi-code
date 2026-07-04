@@ -813,7 +813,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   private async notifyAgentTask(info: AgentTaskInfo): Promise<void> {
     const context = await this.buildAgentTaskNotificationContext(info);
     if (context === undefined) return;
-    this.prompt.steer({
+    await this.prompt.steer({
       role: 'user',
       content: [...context.content],
       toolCalls: [],

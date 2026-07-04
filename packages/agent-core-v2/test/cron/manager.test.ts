@@ -61,7 +61,7 @@ function createSteerSpy(
   const calls: Array<{ content: readonly ContentPart[]; origin: PromptOrigin }> = [];
   vi.spyOn(prompt, 'steer').mockImplementation((message: ContextMessage) => {
     calls.push({ content: message.content, origin: message.origin as PromptOrigin });
-    return returnValue;
+    return Promise.resolve(returnValue);
   });
   return calls;
 }
@@ -610,7 +610,7 @@ describe('SessionCronService', () => {
       vi.spyOn(prompt, 'steer').mockImplementation((message: ContextMessage) => {
         if (shouldThrow) throw new Error('steer boom');
         delivered.push(message);
-        return undefined;
+        return Promise.resolve(undefined);
       });
       cron.addTask({ cron: '*/5 * * * *', prompt: 'retry me' });
       harness.advance(6 * 60_000);

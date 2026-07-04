@@ -270,7 +270,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
       runInBackground,
     });
 
-    const run = this.lifecycle.run(
+    const run = await this.lifecycle.run(
       agentId,
       { kind: 'prompt', prompt: promptText },
       { signal: controller.signal },
