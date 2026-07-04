@@ -8,6 +8,7 @@ export interface CompactionConfig {
   blockRatio: number;
   reservedContextSize: number;
   maxCompactionPerTurn: number;
+  maxOverflowCompactionAttempts: number;
   maxRecentMessages: number;
   maxRecentUserMessages: number;
   maxRecentSizeRatio: number;
@@ -19,6 +20,7 @@ export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
   blockRatio: 0.85, // Same as triggerRatio to disable async compaction
   reservedContextSize: 50_000,
   maxCompactionPerTurn: Infinity,
+  maxOverflowCompactionAttempts: 3,
   maxRecentMessages: 4,
   maxRecentUserMessages: Infinity,
   maxRecentSizeRatio: 0.2,
@@ -32,6 +34,7 @@ export interface CompactionStrategy {
   reduceCompactOnOverflow(messages: readonly Message[]): number;
   readonly checkAfterStep: boolean;
   readonly maxCompactionPerTurn: number;
+  readonly maxOverflowCompactionAttempts: number;
 }
 
 export class RuntimeCompactionStrategy implements CompactionStrategy {
@@ -59,6 +62,10 @@ export class RuntimeCompactionStrategy implements CompactionStrategy {
 
   get maxCompactionPerTurn(): number {
     return DEFAULT_COMPACTION_CONFIG.maxCompactionPerTurn;
+  }
+
+  get maxOverflowCompactionAttempts(): number {
+    return DEFAULT_COMPACTION_CONFIG.maxOverflowCompactionAttempts;
   }
 
   private delegate(): DefaultCompactionStrategy {
@@ -232,6 +239,10 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
 
   get maxCompactionPerTurn(): number {
     return this.config.maxCompactionPerTurn;
+  }
+
+  get maxOverflowCompactionAttempts(): number {
+    return this.config.maxOverflowCompactionAttempts;
   }
 }
 

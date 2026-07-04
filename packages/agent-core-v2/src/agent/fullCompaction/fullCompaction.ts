@@ -10,8 +10,6 @@ export type FullCompactionCompleteData = Omit<CompactionResult, 'summary'>;
 export interface CompactInput {
   readonly source: CompactionSource;
   readonly instruction?: string;
-  readonly customInstruction?: string;
-  readonly signal?: AbortSignal;
 }
 
 export interface FullCompactionWillCompactContext {

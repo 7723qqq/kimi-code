@@ -288,7 +288,13 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
           this.config.get<KimiModelOverrides>('modelOverrides')?.maxCompletionTokens,
       }),
       capability: resolved.modelCapabilities,
-      usedContextTokens: this.contextSize.getStatus().contextTokens,
+      // The remaining-window clamp only applies to requests built from the
+      // live context; overridden messages (e.g. compaction) are sized
+      // independently and would be squeezed to nothing at high water marks.
+      usedContextTokens:
+        overrides.messages === undefined
+          ? this.contextSize.getStatus().contextTokens
+          : undefined,
     });
 
     const messages = overrides.messages ?? this.context.get();

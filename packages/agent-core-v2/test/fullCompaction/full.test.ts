@@ -183,6 +183,7 @@ describe('FullCompaction', () => {
       blockRatio: 0.85,
       reservedContextSize: 50_000,
       maxCompactionPerTurn: 3,
+      maxOverflowCompactionAttempts: 3,
       maxRecentMessages: 3,
       maxRecentUserMessages: Infinity,
       maxRecentSizeRatio: 0.2,
@@ -2257,6 +2258,7 @@ const alwaysCompactOnce: CompactionStrategy = {
   reduceCompactOnOverflow: (messages: readonly Message[]) => messages.length,
   checkAfterStep: true,
   maxCompactionPerTurn: 1,
+  maxOverflowCompactionAttempts: 3,
 };
 
 function missingToolCall(): ToolCall {
@@ -2274,6 +2276,7 @@ function testCompactionStrategy(maxSize: number = 1_000): DefaultCompactionStrat
     blockRatio: 0.85,
     reservedContextSize: 0,
     maxCompactionPerTurn: 3,
+    maxOverflowCompactionAttempts: 3,
     maxRecentMessages: 10,
     maxRecentUserMessages: Infinity,
     maxRecentSizeRatio: 0.2,
@@ -2287,6 +2290,7 @@ function overflowOnlyCompactionStrategy(maxSize: number = 14): DefaultCompaction
     blockRatio: Infinity,
     reservedContextSize: 0,
     maxCompactionPerTurn: 3,
+    maxOverflowCompactionAttempts: 3,
     maxRecentMessages: 3,
     maxRecentUserMessages: Infinity,
     maxRecentSizeRatio: 0.2,

@@ -79,15 +79,22 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
   }
 
   private applySplice(record: AgentRecord<'context.splice'>): void {
-    const removedMessages =
-      record.deleteCount > 0 && record.start > 0
-        ? this.history.slice(record.start, record.start + record.deleteCount)
-        : [];
+    // A boundary splice (`start === 0 && deleteCount > 0`, i.e. compaction or
+    // clear — see `isUndoBoundaryRecord`) never touches the replay: the removed
+    // transcript stays visible, and what it inserts (a compaction summary) is
+    // context machinery represented by its owner's record, not a message.
+    // Every other splice mirrors itself into the replay.
+    const boundary = record.start === 0 && record.deleteCount > 0;
+    const removedMessages = boundary
+      ? []
+      : this.history.slice(record.start, record.start + record.deleteCount);
     const messages = record.messages.map(ensureMessageId);
     this.history.splice(record.start, record.deleteCount, ...messages);
-    this.record.removeLastMessages(new Set(removedMessages));
-    for (const message of messages) {
-      this.record.push({ type: 'message', message });
+    if (!boundary) {
+      this.record.removeLastMessages(new Set(removedMessages));
+      for (const message of messages) {
+        this.record.push({ type: 'message', message });
+      }
     }
     void this.hooks.onSpliced.run({
       start: record.start,
