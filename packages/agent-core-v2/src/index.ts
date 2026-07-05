@@ -6,7 +6,7 @@
 export * from './_base/di/index';
 export * from './errors';
 
-export * from '#/app/log';
+export * from '#/_base/log';
 export * from '#/session/sessionLog';
 export * from '#/app/telemetry';
 export * from '#/app/bootstrap';

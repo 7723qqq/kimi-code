@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { ILogService } from '#/app/log';
+import { ILogService } from '#/_base/log';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata';
 import { SessionMetadata } from '#/session/sessionMetadata/sessionMetadataService';

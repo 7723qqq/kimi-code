@@ -8,7 +8,7 @@ import {
   type LLMRequestRetryContext,
 } from '#/agent/llmRequester';
 import { IAgentProfileService } from '#/agent/profile';
-import type { ILogger as Logger, LogPayload } from '#/app/log';
+import type { ILogger as Logger, LogPayload } from '#/_base/log';
 import {
   configServices,
   createTestAgent,

@@ -7,7 +7,7 @@ import {
   parseProjectName,
   sanitizeRemoteUrl,
 } from '#/session/agentFs/gitContext';
-import type { ILogger } from '#/app/log';
+import type { ILogger } from '#/_base/log';
 import type { IProcess, ISessionProcessRunner } from '#/session/process';
 
 function processWith(stdout: string, exitCode: number, stderr = ''): IProcess {

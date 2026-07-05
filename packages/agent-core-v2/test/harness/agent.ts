@@ -64,7 +64,7 @@ import {
   type Tool as KosongTool,
   type generate as kosongGenerate,
 } from '#/app/llmProtocol/kosong';
-import type { ILogger, LogContext, LogLevel } from '#/app/log';
+import type { ILogger, LogContext, LogLevel } from '#/_base/log';
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,

@@ -26,7 +26,7 @@ import {
 } from '#/agent/tool';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type { ToolCall } from '#/app/llmProtocol';
-import { ILogService } from '#/app/log';
+import { ILogService } from '#/_base/log';
 import { ITelemetryService } from '#/app/telemetry';
 import { OrderedHookSlot } from '#/hooks';
 import {

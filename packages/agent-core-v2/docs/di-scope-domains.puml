@@ -20,7 +20,7 @@ endlegend
 
 package "App scope (process-wide)" #EAF3FB {
   rectangle "<b>bootstrap</b>\n<size:9><i>App</i></size>\n  IBootstrapService" as bootstrap #D6EAF8
-  rectangle "<b>log</b>\n<size:9><i>App</i></size>\n  ILogService\n  ILogWriterService" as log #D6EAF8
+  rectangle "<b>log</b>\n<size:9><i>_base · App binding</i></size>\n  ILogService" as log #D6EAF8
   rectangle "<b>telemetry</b>\n<size:9><i>App</i></size>\n  ITelemetryService" as telemetry #D6EAF8
   rectangle "<b>event</b>\n<size:9><i>App</i></size>\n  IEventService" as event #D6EAF8
   rectangle "<b>storage</b>\n<size:9><i>App</i></size>\n  IFileSystemStorageService\n  IAppendLogStore\n  IAtomicDocumentStore\n  IAtomicTomlDocumentStore" as storage #D6EAF8
@@ -52,7 +52,7 @@ package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>agentLifecycle</b>\n<size:9><i>Session</i></size>\n  IAgentLifecycleService" as agent_lifecycle #D5F5E3
   rectangle "<b>interaction</b>\n<size:9><i>Session</i></size>\n  IInteractionService" as interaction #D5F5E3
   rectangle "<b>workspaceContext</b>\n<size:9><i>Session</i></size>\n  IWorkspaceContext" as workspaceContext #D5F5E3
-  rectangle "<b>sessionLog</b>\n<size:9><i>Session</i></size>\n  ISessionLogService\n  ILogWriterService" as sessionLog #D5F5E3
+  rectangle "<b>sessionLog</b>\n<size:9><i>Session binding</i></size>\n  ILogService" as sessionLog #D5F5E3
   rectangle "<b>sessionSkillCatalog</b>\n<size:9><i>Session</i></size>\n  ISessionSkillCatalog\n  ISkillCatalogSink\n  Workspace/PluginSkillSource" as sessionSkillCatalog #D5F5E3
   rectangle "<b>execContext</b>\n<size:9><i>Session</i></size>\n  IExecContext (seed)" as execContext #D5F5E3
   rectangle "<b>agentFs</b>\n<size:9><i>Session</i></size>\n  IAgentFileSystem\n  IFsService" as agentFs #D5F5E3

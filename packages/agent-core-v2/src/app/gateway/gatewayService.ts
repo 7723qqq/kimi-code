@@ -14,7 +14,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IAgentRecordService } from '#/agent/record';
-import { ILogService, ISessionLogService } from '#/app/log';
+import { ILogService } from '#/_base/log';
 import { IAgentPromptService } from '#/agent/prompt';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle';
 import { IAgentTurnService } from '#/agent/turn';
@@ -78,7 +78,7 @@ export class RestGateway implements IRestGateway {
   async flushLogs(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (session === undefined) return;
-    await session.accessor.get(ISessionLogService).flush();
+    await session.accessor.get(ILogService).flush();
   }
 
   flushGlobalLogs(): Promise<void> {

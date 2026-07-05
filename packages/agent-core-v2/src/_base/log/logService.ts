@@ -1,25 +1,31 @@
 /**
- * `log` domain (L1) — `ILogService` implementation and built-in writers.
+ * `_base/log` (L0) — `BoundLogger` base and the App-scope `ILogService`.
  *
- * Filters entries by the configured `LogLevel` and writes them to the bound
- * `ILogWriterService`; provides the console and in-memory `ILogWriterService` implementations.
- * Bound at App scope.
+ * `BoundLogger` filters entries by level, extracts the payload into ctx/error,
+ * merges bound context, and writes to a plain `ILogWriter`. It extends
+ * `Disposable` so scope implementations can flush synchronously when their
+ * scope is disposed. `AppLogService` is the App-scope binding of the single
+ * `ILogService` token: it owns the global rotating file sink and reads its
+ * level from `ILogOptions`.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
+import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import {
   type ILogger,
+  type ILogWriter,
   type LogContext,
   type LogEntry,
   type LogEntryError,
   type LogLevel,
   type LogPayload,
   ILogService,
-  ILogWriterService,
   levelEnabled,
 } from './log';
+import { createFileLogWriter, type FileLogWriter } from './fileLog';
+import { ILogOptions } from './logConfig';
 
 interface ExtractedPayload {
   readonly ctx?: LogContext;
@@ -69,48 +75,18 @@ function extractPayload(payload: LogPayload): ExtractedPayload | undefined {
   return { ctx: { reason: stringifyPayload(payload) } };
 }
 
-export class MemoryLogWriterService implements ILogWriterService {
-  declare readonly _serviceBrand: undefined;
-  readonly entries: LogEntry[] = [];
-  write(entry: LogEntry): void {
-    this.entries.push(entry);
-  }
-}
-
-export class ConsoleLogWriterService implements ILogWriterService {
-  declare readonly _serviceBrand: undefined;
-  write(entry: LogEntry): void {
-    const line = entry.ctx !== undefined ? `${entry.msg} ${JSON.stringify(entry.ctx)}` : entry.msg;
-    switch (entry.level) {
-      case 'error':
-        // eslint-disable-next-line no-console
-        console.error(line);
-        break;
-      case 'warn':
-        // eslint-disable-next-line no-console
-        console.warn(line);
-        break;
-      case 'debug':
-        // eslint-disable-next-line no-console
-        console.debug(line);
-        break;
-      default:
-        // eslint-disable-next-line no-console
-        console.log(line);
-    }
-  }
-}
-
 export interface LogLevelState {
   level: LogLevel;
 }
 
-export class BoundLogger implements ILogger {
+export class BoundLogger extends Disposable implements ILogger {
   constructor(
-    protected readonly writer: ILogWriterService,
+    protected readonly writer: ILogWriter,
     private readonly levelState: LogLevelState,
     private readonly bound: LogContext = {},
-  ) {}
+  ) {
+    super();
+  }
 
   child(ctx: LogContext): ILogger {
     return new BoundLogger(this.writer, this.levelState, { ...this.bound, ...ctx });
@@ -154,13 +130,25 @@ export class BoundLogger implements ILogger {
   }
 }
 
-export class LogService extends BoundLogger implements ILogService {
+/**
+ * App-scope `ILogService`: writes the global rotating file under
+ * `<homeDir>/logs`, with its level seeded from `ILogOptions`. Flushes
+ * synchronously when the App scope is disposed (process shutdown).
+ */
+export class AppLogService extends BoundLogger implements ILogService {
   declare readonly _serviceBrand: undefined;
+  private readonly sink: FileLogWriter;
   private readonly rootLevel: LogLevelState;
 
-  constructor(@ILogWriterService writer: ILogWriterService) {
-    const rootLevel: LogLevelState = { level: 'info' };
-    super(writer, rootLevel);
+  constructor(@ILogOptions options: ILogOptions) {
+    const sink = createFileLogWriter({
+      path: options.globalLogPath,
+      maxBytes: options.globalMaxBytes,
+      files: options.globalFiles,
+    });
+    const rootLevel: LogLevelState = { level: options.level };
+    super(sink, rootLevel);
+    this.sink = sink;
     this.rootLevel = rootLevel;
   }
 
@@ -173,21 +161,20 @@ export class LogService extends BoundLogger implements ILogService {
   }
 
   flush(): Promise<void> {
-    return this.writer.flush?.() ?? Promise.resolve();
+    return this.sink.flush();
+  }
+
+  override dispose(): void {
+    this.sink.flushSync();
+    void this.sink.close();
+    super.dispose();
   }
 }
 
 registerScopedService(
   LifecycleScope.App,
-  ILogWriterService,
-  ConsoleLogWriterService,
-  InstantiationType.Eager,
-  'log',
-);
-registerScopedService(
-  LifecycleScope.App,
   ILogService,
-  LogService,
-  InstantiationType.Eager,
+  AppLogService,
+  InstantiationType.Delayed,
   'log',
 );

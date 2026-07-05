@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import type { ContextMessage } from '#/agent/contextMemory';
-import type { LogContext, LogPayload } from '#/app/log';
+import type { LogContext, LogPayload } from '#/_base/log';
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import { InMemorySkillCatalog } from '#/app/skillCatalog';
 import type { SkillDefinition } from '#/app/skillCatalog/types';

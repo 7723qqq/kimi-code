@@ -8,7 +8,7 @@ import { AgentLifecycleService } from '#/session/agentLifecycle/agentLifecycleSe
 import { IBootstrapService } from '#/app/bootstrap';
 import { IConfigService } from '#/app/config';
 import { IPluginSessionStartInjectorService } from '#/agent/contextInjector';
-import { ILogService } from '#/app/log';
+import { ILogService } from '#/_base/log';
 import { IPluginService } from '#/app/plugin';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';

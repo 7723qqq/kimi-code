@@ -32,7 +32,7 @@ import {
 } from '#/session/agentLifecycle';
 import { IExecContext } from '#/session/execContext';
 import { ISessionProcessRunner } from '#/session/process';
-import { ILogService } from '#/app/log';
+import { ILogService } from '#/_base/log';
 
 import {
   ISessionSwarmService,

@@ -11,7 +11,7 @@
 
 import { ErrorCodes, KimiError } from '#/errors';
 import type { McpServerConfig } from './config-schema';
-import type { ILogger as Logger } from '#/app/log';
+import type { ILogger as Logger } from '#/_base/log';
 import type { Tool } from '#/app/llmProtocol';
 
 import { abortable } from '#/_base/utils/abort';
@@ -70,8 +70,9 @@ export interface McpConnectionManagerOptions {
    */
   readonly oauthService?: McpOAuthService;
   /**
-   * Parent logger. Defaults to the global `log`; Session passes its own
-   * `session.log` so MCP events land in the session log too.
+   * Parent logger. The Session-scoped lifecycle injects the session logger
+   * (the Session binding of `ILogService`) so MCP events are written to the
+   * per-session log file; falls back to a no-op when omitted.
    */
   readonly log?: Logger;
 }

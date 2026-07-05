@@ -15,7 +15,7 @@
 
 import type { Readable } from 'node:stream';
 
-import type { ILogger } from '#/app/log';
+import type { ILogger } from '#/_base/log';
 import type { IProcess, ISessionProcessRunner } from '#/session/process';
 
 const GIT_TIMEOUT_MS = 5_000;

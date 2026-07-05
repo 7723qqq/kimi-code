@@ -25,7 +25,7 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap';
-import { ILogService } from '#/app/log';
+import { ILogService } from '#/_base/log';
 import { IAgentProfileCatalogService } from '#/app/agentProfileCatalog';
 import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog';
 import { AgentMcpService, IAgentMcpService } from '#/agent/mcp';

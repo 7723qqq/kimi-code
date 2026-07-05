@@ -1,11 +1,13 @@
 /**
- * `log` domain (L1) — structured logging facade.
+ * `_base/log` (L0) — structured logging contract.
  *
- * Defines the public contract of logging: the `LogEntry` / `LogLevel` model,
- * the `ILogger` / `ILogService` used by other domains to emit leveled entries,
- * the `ILogWriterService` they are written to, and the per-session `ISessionLogService`
- * that owns a session-scoped sink. `ILogService` is App-scoped;
- * `ISessionLogService` is Session-scoped.
+ * Defines the public logging model shared by every scope: the `LogEntry` /
+ * `LogLevel` types, the `ILogger` / `ILogService` facade used by other domains
+ * to emit leveled entries, and the plain `ILogWriter` sink shape. There is a
+ * single `ILogService` DI token; each scope binds its own `*LogService`
+ * implementation to it, so consumers just inject `@ILogService` and the scope
+ * decides where entries land. `ILogWriter` is a plain (non-DI) interface — sinks
+ * are created by the `*LogService` implementations, not registered.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
@@ -29,16 +31,16 @@ export interface LogEntry {
   readonly error?: LogEntryError;
 }
 
-export interface ILogWriterService {
-  readonly _serviceBrand: undefined;
-
+/**
+ * Plain sink interface (not a DI token). `*LogService` implementations own and
+ * create their sinks; tests construct sinks directly.
+ */
+export interface ILogWriter {
   write(entry: LogEntry): void;
   flush?(): Promise<void>;
   close?(): Promise<void>;
+  flushSync?(): void;
 }
-
-export const ILogWriterService: ServiceIdentifier<ILogWriterService> =
-  createDecorator<ILogWriterService>('logWriterService');
 
 export interface ILogger {
   error(message: string, payload?: LogPayload): void;
@@ -71,13 +73,3 @@ export function levelEnabled(level: LogLevel, configured: LogLevel): boolean {
   if (level === 'off' || configured === 'off') return false;
   return LEVEL_ORDER[level] <= LEVEL_ORDER[configured];
 }
-
-export interface ISessionLogService extends ILogger {
-  readonly _serviceBrand: undefined;
-
-  flush(): Promise<void>;
-  close(): Promise<void>;
-}
-
-export const ISessionLogService: ServiceIdentifier<ISessionLogService> =
-  createDecorator<ISessionLogService>('sessionLogService');

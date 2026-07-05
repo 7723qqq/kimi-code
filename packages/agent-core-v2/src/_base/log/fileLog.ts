@@ -1,24 +1,21 @@
 /**
- * `sessionLog` domain (L1) — rotating file writer.
+ * `_base/log` (L0) — plain (non-DI) log sinks.
  *
- * Writes formatted `LogEntry` lines to a size-rotated file, exposing `flush`
- * and a synchronous `flushSync` for process-exit paths; `FileLogWriterService` adapts
- * it to the `ILogWriterService` contract. Uses `node:fs` rather than `kaos` because
- * rotation needs atomic rename and synchronous append.
+ * Owns the `RotatingFileWriter` (size-rotated, async-serial, sync-flush on
+ * exit) and the `ILogWriter` implementations built on top of it (`FileLogWriter`),
+ * plus the in-memory and console sinks used by tests and debugging. All classes
+ * here are plain: constructed with an explicit options object, no `@IService`
+ * deps, never registered with the container — a `*LogService` creates and owns
+ * them. Uses `node:fs` rather than `kaos` because rotation needs atomic rename
+ * and synchronous append.
  */
 
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { mkdir, open, rename, stat, unlink } from 'node:fs/promises';
 import { dirname } from 'pathe';
 
-import { InstantiationType } from '#/_base/di/extensions';
-import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { ISessionContext } from '#/session/sessionContext';
-
-import { formatEntry, type FormatOptions } from '#/app/log/formatter';
-import { ILogWriterService, type LogEntry } from '#/app/log/log';
-import { ILogOptions, resolveSessionLogPath } from '#/app/log/logConfig';
+import { formatEntry, type FormatOptions } from './formatter';
+import type { ILogWriter, LogEntry } from './log';
 
 export const PENDING_MAX = 1000;
 const STDERR_NOTICE_INTERVAL_MS = 30_000;
@@ -31,13 +28,6 @@ class AsyncSerialQueue {
     this.tail = next.catch(() => {});
     return next;
   }
-}
-
-export interface RotatingWriter {
-  enqueue(line: string): void;
-  flush(): Promise<boolean>;
-  close(): Promise<void>;
-  flushSync(): void;
 }
 
 export interface RotatingFileWriterOptions {
@@ -56,7 +46,7 @@ async function syncDir(dirPath: string): Promise<void> {
   }
 }
 
-export class RotatingFileWriter implements RotatingWriter {
+export class RotatingFileWriter {
   private readonly queue = new AsyncSerialQueue();
   private pending: string[] = [];
   private dropped = 0;
@@ -244,16 +234,15 @@ export class RotatingFileWriter implements RotatingWriter {
   }
 }
 
-export interface FileLogWriterServiceOptions extends RotatingFileWriterOptions {
+export interface FileLogWriterOptions extends RotatingFileWriterOptions {
   readonly format?: FormatOptions;
 }
 
-export class FileLogWriterService implements ILogWriterService {
-  declare readonly _serviceBrand: undefined;
+export class FileLogWriter implements ILogWriter {
   private readonly sink: RotatingFileWriter;
   private readonly format: FormatOptions;
 
-  constructor(options: FileLogWriterServiceOptions) {
+  constructor(options: FileLogWriterOptions) {
     this.sink = new RotatingFileWriter(options);
     this.format = options.format ?? {};
   }
@@ -277,46 +266,36 @@ export class FileLogWriterService implements ILogWriterService {
   }
 }
 
-export class SessionFileLogWriterService extends Disposable implements ILogWriterService {
-  declare readonly _serviceBrand: undefined;
-  private readonly inner: FileLogWriterService;
+export function createFileLogWriter(options: FileLogWriterOptions): FileLogWriter {
+  return new FileLogWriter(options);
+}
 
-  constructor(
-    @ILogOptions options: ILogOptions,
-    @ISessionContext session: ISessionContext,
-  ) {
-    super();
-    this.inner = new FileLogWriterService({
-      path: resolveSessionLogPath(session.sessionDir),
-      maxBytes: options.sessionMaxBytes,
-      files: options.sessionFiles,
-      format: { omitContextKeys: ['sessionId'] },
-    });
-  }
-
+export class MemoryLogWriter implements ILogWriter {
+  readonly entries: LogEntry[] = [];
   write(entry: LogEntry): void {
-    this.inner.write(entry);
-  }
-
-  flush(): Promise<void> {
-    return this.inner.flush();
-  }
-
-  close(): Promise<void> {
-    return this.inner.close();
-  }
-
-  override dispose(): void {
-    this.inner.flushSync();
-    void this.inner.close();
-    super.dispose();
+    this.entries.push(entry);
   }
 }
 
-registerScopedService(
-  LifecycleScope.Session,
-  ILogWriterService,
-  SessionFileLogWriterService,
-  InstantiationType.Delayed,
-  'log',
-);
+export class ConsoleLogWriter implements ILogWriter {
+  write(entry: LogEntry): void {
+    const { text } = formatEntry(entry, { ansi: process.stderr.isTTY === true });
+    switch (entry.level) {
+      case 'error':
+        // eslint-disable-next-line no-console
+        console.error(text);
+        break;
+      case 'warn':
+        // eslint-disable-next-line no-console
+        console.warn(text);
+        break;
+      case 'debug':
+        // eslint-disable-next-line no-console
+        console.debug(text);
+        break;
+      default:
+        // eslint-disable-next-line no-console
+        console.log(text);
+    }
+  }
+}

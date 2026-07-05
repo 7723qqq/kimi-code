@@ -11,7 +11,7 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { AgentTurnService, IAgentTurnService } from '#/agent/turn';
 import { IConfigService } from '#/app/config';
 import { emptyUsage } from '#/app/llmProtocol';
-import { ILogService } from '#/app/log';
+import { ILogService } from '#/_base/log';
 import { IAgentTelemetryContextService, ITelemetryService } from '#/app/telemetry';
 import { ErrorCodes, KimiError } from '#/errors';
 

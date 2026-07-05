@@ -17,7 +17,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { escapeXmlAttr } from '#/_base/utils/xml-escape';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { ILogService } from '#/app/log';
+import { ILogService } from '#/_base/log';
 import { IPluginService } from '#/app/plugin';
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
