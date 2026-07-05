@@ -6,7 +6,7 @@
  *   DELETE /files/{file_id}  delete a file → { deleted: true }
  *
  * Backed by the v2 `IFileService` (Core scope), which stores bytes in
- * `IBlobStorage` and the metadata index alongside them. Mirrors the v1 server's
+ * `IBlobStore` and the metadata index alongside them. Mirrors the v1 server's
  * wire behavior (envelope codes 40407 / 41301, 50 MiB cap, content-disposition)
  * but resolves the store through `core.accessor.get` and streams downloads from
  * the byte store instead of a filesystem path.

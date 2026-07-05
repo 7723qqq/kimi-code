@@ -50,6 +50,7 @@
     "build": "tsdown",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "gen:contract-types": "node scripts/gen-contract-types.mjs",
     "lint:domain": "node scripts/check-domain-layers.mjs",
     "clean": "rm -rf dist",
     "dep-graph:analyze": "tsx scripts/dep-graph/cli.ts",

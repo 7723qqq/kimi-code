@@ -257,7 +257,7 @@ A domain may define several Services. Each Service gets its own pair of files re
 
 - **One pair per Service** → `<name>.ts` for the contract + `<name>Service.ts` for the implementation.
 - **Different scopes** → the scope prefix in the Service name makes this obvious (`logService.ts` for App `ILogService`, `sessionLogService.ts` for Session `ISessionLogService`).
-- **Same interface, multiple role tokens** (e.g. `IStorageService`, `IAppendLogStorage`, `IAtomicDocumentStorage`, `IBlobStorage`) → each token is its own Service identity and must live in its own `<name>.ts` + `<name>Service.ts` pair.
+- **Same interface, multiple role tokens** (e.g. `IAtomicDocumentStore` and `IAtomicTomlDocumentStore` share one interface type but are distinct DI tokens) → each token is its own Service identity and must be registered and resolved independently.
 
 The barrel (`index.ts`) re-exports every contract/impl pair so consumers still import the domain's surface from `./<domain>`.
 

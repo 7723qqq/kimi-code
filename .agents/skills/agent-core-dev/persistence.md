@@ -20,8 +20,7 @@ Business Service
    ▼
 ┌────────────────────────────────────────┐
 │ Storage  (byte layer)                   │  ← byte primitives
-│   IStorageService                       │     read/write/append/list/delete
-│   IAppendLogStorage / IAtomicDocumentStorage │  (same interface, distinct tokens)
+│   IFileSystemStorageService            │     read/write/append/list/delete
 └────────────────────────────────────────┘
    │ implements
    ▼
@@ -58,7 +57,7 @@ If business code contains any "how to persist" detail, it has punched through th
 | append offsets / sequential cursors | Store (log semantics) | `IAppendLogStore` |
 | `hash(data)` used as a key | Store (blob semantics) | `IBlobStore` |
 | `pathe.join / relative / basename` on `homeDir` etc. | Bootstrap (path layout) | `IBootstrapService.scope(...)` / scope contexts |
-| only `read/write/list/delete` on bytes | nothing — this is the byte layer | `IStorageService` directly ✅ |
+| only `read/write/list/delete` on bytes | nothing — this is the byte layer | `IFileSystemStorageService` directly ✅ |
 
 ## Where scopes come from — `IBootstrapService` and scope contexts
 
@@ -95,13 +94,13 @@ Need to persist
   │     └─ IBlobStore
   │
   ├─ custom byte layout (index / cache / binary) that read/write/list cover?
-  │     └─ IStorageService directly
+  │     └─ IFileSystemStorageService directly
   │
   ├─ new, reusable access semantics (multi-field query / time-range / graph)?
   │     └─ add a new Store; business depends on the Store
   │
   └─ business-specific, trivial, one or two lines?
-        └─ IStorageService directly; if it grows, extract a private Store
+        └─ IFileSystemStorageService directly; if it grows, extract a private Store
 ```
 
 ## Naming — Store by access pattern, not by business
@@ -124,38 +123,44 @@ ISessionIndex      query / enumerate sessions by workspace   ← business-specif
 
 Test: is the Store's semantics a *generic access pattern* (append-log / atomic-doc / blob) or *one domain's unique query*? Generic → name by pattern; unique → name by domain.
 
-## Storage — one interface, distinct tokens per backend role
+## Storage — a filesystem-specific byte layer
 
-The byte layer is a **single `IStorageService` interface** (read/write/append/list/delete). Different backends (File / Postgres / Redis) all implement it. To route different Stores to different backends, declare **distinct tokens of the same interface type**:
+The byte layer is a single `IFileSystemStorageService` interface (read / readStream / write / append / list / delete / watch / flush / close). As the name says, it is **filesystem-specific**: it exposes the two irreducible durable primitives a local filesystem implements optimally — atomic whole-value replacement (`write`, via tmp + rename) and ordered durable extension (`append`, via `open('a')`). The node-fs Store backends (`AppendLogStore`, `JsonAtomicDocumentStore`, `BlobStoreService`) are built on it.
 
 ```ts
-export interface IStorageService {
+export interface IFileSystemStorageService {
   read(scope: string, key: string): Promise<Uint8Array | undefined>;
+  readStream(scope: string, key: string): AsyncIterable<Uint8Array>;
   write(scope: string, key: string, data: Uint8Array, options?: { atomic?: boolean }): Promise<void>;
   append(scope: string, key: string, data: Uint8Array, options?: { durable?: boolean }): Promise<void>;
   list(scope: string, prefix?: string): Promise<readonly string[]>;
   delete(scope: string, key: string): Promise<void>;
+  watch?(scope: string, key: string): Event<void>;
   flush(): Promise<void>;
   close(): Promise<void>;
 }
-
-export const IAppendLogStorage = createDecorator<IStorageService>('appendLogStorage');
-export const IAtomicDocumentStorage = createDecorator<IStorageService>('atomicDocumentStorage');
 ```
 
-`IAppendLogStorage` and `IAtomicDocumentStorage` share the `IStorageService` type (so `AppendLogStore` / `AtomicDocumentStore` code is unchanged) but are distinct DI tokens, so the composition root can bind each to a different backend:
+Two backends implement it today, both bound at the composition root:
 
 ```ts
-// Local profile — both on the local filesystem
-collection.set(IAppendLogStorage, fileStorageService);
-collection.set(IAtomicDocumentStorage, fileStorageService);
+// Production — local filesystem rooted at homeDir
+collection.set(IFileSystemStorageService, new FileStorageService(homeDir));
 
-// Server profile — append-logs on Postgres, atomic documents on Redis
-collection.set(IAppendLogStorage, new PostgresStorageService(db, 'records'));
-collection.set(IAtomicDocumentStorage, new RedisStorageService(redis, 'config'));
+// Tests — in-memory backend seeded by the test harness
+collection.set(IFileSystemStorageService, new InMemoryStorageService());
 ```
 
-Use a token to express **backend role** (append-log / atomic-document / blob); use the `scope` parameter to express **business namespace** within a backend. Do not overload `scope` to route backends.
+**Non-filesystem backends (Postgres, S3, Redis) do not implement this interface.** Atomic-rename and byte-append have no native equivalent in those stores, so they implement the **Store** interfaces directly via their own clients instead:
+
+```ts
+// Server profile — append-logs on Postgres, atomic documents on Redis.
+// Each Store is backed by a native client; IFileSystemStorageService is not involved.
+collection.set(IAppendLogStore, new PostgresAppendLogStore(db, 'records'));
+collection.set(IAtomicDocumentStore, new RedisDocumentStore(redis, 'config'));
+```
+
+Use the `scope` parameter to express **business namespace** within a backend. Do not overload `scope` to route backends — bind a different Store implementation at the composition root instead.
 
 ## Store `acquire(scope, key)` — flush-on-dispose handle
 
@@ -175,12 +180,13 @@ export interface IAppendLogStore {
 
 `IAppendLogStore.acquire` flushes the log's pending appends on dispose — it exists because `append` is fire-and-forget. `IAtomicDocumentStore.acquire` is a no-op today (atomic documents are durable on write) and exists for interface symmetry. Businesses that do not need flush-on-dispose simply do not call `acquire`.
 
-## When Storage primitives may diverge
+## When the byte layer does not apply
 
-Keep `IStorageService` unified for byte storage. Diverge only when the semantics genuinely do not fit:
+`IFileSystemStorageService` covers only the local-filesystem byte primitives. It is not a universal storage abstraction:
 
-- **Blobs** do not fit `IStorageService` (large objects, hash-addressed, S3 has no native append) → `IBlobStore` is a separate interface with its own backends.
-- **A backend has a fast primitive the unified interface cannot express** (e.g. Postgres `COPY`) → as an exception, let that backend implement the Store interface directly, bypassing `IStorageService`. This is an exception, not the default.
+- **Non-filesystem backends** (Postgres / S3 / Redis) implement the **Store** interfaces directly via native clients — they never implement `IFileSystemStorageService`.
+- **Blobs** are a Store-level interface (`IBlobStore`) with their own backends; the node-fs `BlobStoreService` sits on `IFileSystemStorageService`, but an `S3BlobStore` would not.
+- **A backend has a fast primitive the Store interface cannot express** (e.g. Postgres `COPY`) → as an exception, extend that backend's Store implementation directly. This is an exception, not the default.
 
 ## Platform primitives are deployment-coupled, not core abstractions
 
@@ -192,7 +198,7 @@ Keep `IStorageService` unified for byte storage. Diverge only when the semantics
 - Business code never assembles scope strings from paths (`pathe.join / relative / basename` on `homeDir` / `sessionDir` / …). Use `IBootstrapService.scope(name)` for well-known scopes, `ISessionContext.scope(subKey?)` for session-rooted scopes, and `IAgentScopeContext.scope(subKey?)` for agent-rooted scopes.
 - Name generic Stores by access pattern (`IAppendLogStore` / `IAtomicDocumentStore` / `IBlobStore`), never by business concept (`IRecordStore` / `IConfigStore`).
 - Business-specific Stores (unique query semantics) are named after the domain (`ISessionIndex`).
-- `IStorageService` is the single byte-layer interface; route backends with **distinct tokens of the same type** (`IAppendLogStorage` / `IAtomicDocumentStorage`), not by overloading `scope`.
+- `IFileSystemStorageService` is the filesystem byte-layer interface; non-filesystem backends implement the **Store** interfaces directly. Route backends by binding a different Store implementation at the composition root, not by overloading `scope`.
 - `hostFs` is a local-only platform primitive; L2/L3 domains must not import `node:fs` or `hostFs` directly.
 - Only the file-backed bootstrap (`FileBootstrapService`) and file backends import `pathe`; business domains do not.
-- Do not create a pass-through `Store` that only forwards `read/write` — a Store must hide a real access-pattern concern, or it is noise; use `IStorageService` directly instead.
+- Do not create a pass-through `Store` that only forwards `read/write` — a Store must hide a real access-pattern concern, or it is noise; use `IFileSystemStorageService` directly instead.

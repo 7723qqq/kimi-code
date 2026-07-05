@@ -5,7 +5,7 @@ import {
   type AgentTaskInfo,
   type IAgentTaskService,
 } from '#/agent/task';
-import { AtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 
 export type TaskServiceTestManager = IAgentTaskService & {
@@ -20,7 +20,7 @@ export function createAgentTaskPersistence(homedir: string): AgentTaskPersistenc
   return new AgentTaskPersistence(
     join(homedir, TASK_TEST_SESSION_SCOPE),
     TASK_TEST_SESSION_SCOPE,
-    new AtomicDocumentStore(storage),
+    new JsonAtomicDocumentStore(storage),
     storage,
   );
 }
