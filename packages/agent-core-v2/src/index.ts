@@ -28,9 +28,9 @@ export * from '#/app/modelCatalog';
 export * from '#/app/agentProfileCatalog';
 export * from '#/app/plugin';
 
-export type { SkillSource } from '#/app/globalSkillCatalog';
+export type { SkillSource } from '#/app/skillCatalog';
 export * from '#/agent/skill';
-export * from '#/app/globalSkillCatalog';
+export * from '#/app/skillCatalog';
 export * from '#/session/sessionSkillCatalog';
 export * from '#/agent/permissionGate';
 import '#/app/flag';

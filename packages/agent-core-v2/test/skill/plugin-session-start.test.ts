@@ -4,8 +4,8 @@ import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import type { ContextMessage } from '#/agent/contextMemory';
 import type { LogContext, LogPayload } from '#/app/log';
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
-import { InMemorySkillCatalog } from '#/app/globalSkillCatalog';
-import type { SkillDefinition } from '#/app/globalSkillCatalog/types';
+import { InMemorySkillCatalog } from '#/app/skillCatalog';
+import type { SkillDefinition } from '#/app/skillCatalog/types';
 import { testAgent } from '../harness';
 import { stubSkill } from './stubs';
 

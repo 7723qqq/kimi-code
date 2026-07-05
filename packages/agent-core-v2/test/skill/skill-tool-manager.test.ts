@@ -9,7 +9,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentRecordService } from '#/agent/record';
-import { InMemorySkillCatalog, type SkillCatalog, type SkillDefinition } from '#/app/globalSkillCatalog';
+import { InMemorySkillCatalog, type SkillCatalog, type SkillDefinition } from '#/app/skillCatalog';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import {
   InMemoryWireRecordPersistence,

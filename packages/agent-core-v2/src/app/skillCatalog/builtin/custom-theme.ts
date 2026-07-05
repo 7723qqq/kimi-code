@@ -1,9 +1,9 @@
 /**
- * `globalSkillCatalog` domain (L5) — builtin `custom-theme` skill definition.
+ * `skillCatalog` domain (L3) — builtin `custom-theme` skill definition.
  */
 
-import type { SkillDefinition } from '#/app/globalSkillCatalog/types';
-import { parseSkillText } from '#/app/globalSkillCatalog/parser';
+import type { SkillDefinition } from '#/app/skillCatalog/types';
+import { parseSkillText } from '#/app/skillCatalog/parser';
 import CUSTOM_THEME_BODY from './custom-theme.md?raw';
 
 const PSEUDO_PATH = 'builtin://custom-theme';

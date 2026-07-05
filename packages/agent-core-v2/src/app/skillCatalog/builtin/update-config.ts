@@ -1,9 +1,9 @@
 /**
- * `globalSkillCatalog` domain (L5) — builtin `update-config` skill definition.
+ * `skillCatalog` domain (L3) — builtin `update-config` skill definition.
  */
 
-import type { SkillDefinition } from '#/app/globalSkillCatalog/types';
-import { parseSkillText } from '#/app/globalSkillCatalog/parser';
+import type { SkillDefinition } from '#/app/skillCatalog/types';
+import { parseSkillText } from '#/app/skillCatalog/parser';
 import UPDATE_CONFIG_BODY from './update-config.md?raw';
 
 const PSEUDO_PATH = 'builtin://update-config';

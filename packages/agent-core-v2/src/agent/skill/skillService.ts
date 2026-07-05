@@ -1,3 +1,14 @@
+/**
+ * `skill` domain (L3) — `IAgentSkillService` implementation.
+ *
+ * Owns user-slash skill activation (opens a fresh turn) and the shared
+ * activation recording used by the model-tool path: resolves skills from the
+ * Session `sessionSkillCatalog`, renders their prompts with the Session
+ * `sessionContext` `sessionId`, delivers the rendered message through `prompt`,
+ * and records/publishes activations through `record` and `telemetry`. Bound at
+ * Agent scope.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -8,11 +19,12 @@ import type { ContextMessage, SkillActivationOrigin } from '#/agent/contextMemor
 import { renderUserSlashSkillPrompt } from './prompt';
 import { Disposable } from "#/_base/di";
 import { ErrorCodes, KimiError } from "#/errors";
-import { isUserActivatableSkillType, type SkillDefinition } from '#/app/globalSkillCatalog/types';
+import { isUserActivatableSkillType, type SkillDefinition } from '#/app/skillCatalog/types';
 import { IAgentPromptService } from '#/agent/prompt';
 import { ITelemetryService } from '#/app/telemetry';
 import type { Turn } from '#/agent/turn';
 import { IAgentRecordService } from '#/agent/record';
+import { ISessionContext } from '#/session/sessionContext';
 import { IAgentSkillService, type SkillActivationInput } from './skill';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 
@@ -32,6 +44,7 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
     @IAgentPromptService private readonly prompt: IAgentPromptService,
     @IAgentRecordService private readonly records: IAgentRecordService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @ISessionContext private readonly sessionContext: ISessionContext,
   ) {
     super();
     this._register(
@@ -115,7 +128,9 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
   }
 
   private renderSkillPrompt(skill: SkillDefinition, rawArgs: string): string {
-    return this.skillCatalog.catalog.renderSkillPrompt(skill, rawArgs);
+    return this.skillCatalog.catalog.renderSkillPrompt(skill, rawArgs, {
+      sessionId: this.sessionContext.sessionId,
+    });
   }
 
   private publishActivation(origin: SkillActivationOrigin): void {

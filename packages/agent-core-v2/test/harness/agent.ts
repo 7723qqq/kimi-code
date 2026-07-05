@@ -47,7 +47,7 @@ import type {
 } from '#/agent/wireRecord';
 import { IOAuthService } from '#/app/auth/auth';
 import { IChatProviderFactory } from '#/app/chatProvider';
-import type { SkillCatalog } from '#/app/globalSkillCatalog/types';
+import type { SkillCatalog } from '#/app/skillCatalog/types';
 import {
   isToolCall,
   isToolCallPart,
@@ -614,6 +614,7 @@ function createSessionSkillCatalog(catalog: SkillCatalog): ISessionSkillCatalog 
     _serviceBrand: undefined,
     catalog,
     ready: Promise.resolve(),
+    onDidChange: Event.None as Event<void>,
     load: async () => {},
     reload: async () => {},
   };

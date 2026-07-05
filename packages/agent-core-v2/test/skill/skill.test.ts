@@ -6,8 +6,9 @@ import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentSkillService } from '#/agent/skill';
-import { InMemorySkillCatalog } from '#/app/globalSkillCatalog';
+import { InMemorySkillCatalog } from '#/app/skillCatalog';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
+import { ISessionContext } from '#/session/sessionContext';
 import { AgentSkillService } from '#/agent/skill/skillService';
 import {
   MAX_SKILL_QUERY_DEPTH,
@@ -31,6 +32,17 @@ const COMMIT_SKILL = stubSkill('commit', {
   metadata: {},
   source: 'user',
 });
+
+function stubSessionContext(sessionId = 'test-session'): ISessionContext {
+  return {
+    _serviceBrand: undefined,
+    sessionId,
+    workspaceId: 'test-workspace',
+    sessionDir: '/sessions/test',
+    metaScope: 'sessions/test',
+    scope: (subKey?: string) => (subKey ? `sessions/test/${subKey}` : 'sessions/test'),
+  };
+}
 
 function fakeTurn(): Turn {
   return {
@@ -74,6 +86,7 @@ describe('AgentSkillService', () => {
         reg.definePartialInstance(IAgentToolRegistryService, {
           register: () => ({ dispose: () => {} }),
         });
+        reg.defineInstance(ISessionContext, stubSessionContext());
       },
     });
     skills = new InMemorySkillCatalog();
@@ -82,6 +95,7 @@ describe('AgentSkillService', () => {
       _serviceBrand: undefined,
       catalog: skills,
       ready: Promise.resolve(),
+      onDidChange: () => ({ dispose: () => {} }),
       load: async () => {},
       reload: async () => {},
     };
@@ -119,6 +133,7 @@ describe('AgentSkillService', () => {
       _serviceBrand: undefined,
       catalog: skills,
       ready,
+      onDidChange: () => ({ dispose: () => {} }),
       load: async () => {},
       reload: async () => {},
     } satisfies ISessionSkillCatalog);
@@ -174,6 +189,7 @@ describe('SkillTool', () => {
         reg.definePartialInstance(IAgentToolRegistryService, {
           register: () => ({ dispose: () => {} }),
         });
+        reg.defineInstance(ISessionContext, stubSessionContext());
       },
     });
     skills = new InMemorySkillCatalog();
@@ -182,6 +198,7 @@ describe('SkillTool', () => {
       _serviceBrand: undefined,
       catalog: skills,
       ready: Promise.resolve(),
+      onDidChange: () => ({ dispose: () => {} }),
       load: async () => {},
       reload: async () => {},
     } satisfies ISessionSkillCatalog);
@@ -211,6 +228,7 @@ describe('SkillTool', () => {
       ix.get(ISessionSkillCatalog),
       ix.get(IAgentPromptService),
       stubSkillService(),
+      stubSessionContext(),
     );
     return depth === undefined ? tool : tool.withInitialQueryDepth(depth);
   }

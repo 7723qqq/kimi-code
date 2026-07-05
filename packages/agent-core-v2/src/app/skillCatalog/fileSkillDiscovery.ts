@@ -1,11 +1,12 @@
 /**
- * `globalSkillCatalog` domain (L5) — filesystem `ISkillDiscovery` backend.
+ * `skillCatalog` domain (L3) — filesystem `ISkillDiscovery` backend.
  *
- * Discovers skill bundles by walking skill roots on the local filesystem and
- * parsing each SKILL.md through `parser`. This is the only file in the skill
- * domain that imports `node:fs`; the rest of the domain depends on the
- * `ISkillDiscovery` interface and stays filesystem-agnostic. Bound at App
- * scope by the composition root (tests register the in-memory backend instead).
+ * Discovers skill bundles by walking the caller-supplied skill roots on the
+ * local filesystem and parsing each SKILL.md through `parser`. This is the only
+ * file in the skill domain that imports `node:fs`; the rest of the domain
+ * depends on the `ISkillDiscovery` interface and stays filesystem-agnostic.
+ * Bound at App scope by the composition root (tests register the in-memory
+ * backend instead).
  */
 
 import { promises as fs } from 'node:fs';
@@ -17,15 +18,8 @@ import {
   parseSkillText,
 } from './parser';
 import type { SkillDiscoveryResult, ISkillDiscovery } from './skillDiscovery';
-import type { SkillDefinition, SkillRoot, SkillSource, SkippedSkill } from './types';
+import type { SkillDefinition, SkillRoot, SkippedSkill } from './types';
 import { normalizeSkillName } from './types';
-
-// Relative to brandHomeDir, which already IS the brand data dir (~/.kimi-code or
-// $KIMI_CODE_HOME) — no '.kimi-code' segment here, or it would nest twice.
-const USER_BRAND_DIRS = ['skills'] as const;
-const USER_GENERIC_DIRS = ['.agents/skills'] as const;
-const PROJECT_BRAND_DIRS = ['.kimi-code/skills'] as const;
-const PROJECT_GENERIC_DIRS = ['.agents/skills'] as const;
 
 // Bounds recursion so a directory symlink cycle inside a skill root cannot
 // loop forever. Real skill trees are 1-3 levels deep.
@@ -34,45 +28,9 @@ const MAX_SKILL_SCAN_DEPTH = 8;
 export class FileSkillDiscovery implements ISkillDiscovery {
   declare readonly _serviceBrand: undefined;
 
-  async discoverProject(
-    workDir: string,
-    extraRoots?: readonly SkillRoot[],
-  ): Promise<SkillDiscoveryResult> {
-    const roots = await resolveProjectRoots(workDir, extraRoots);
+  async discover(roots: readonly SkillRoot[]): Promise<SkillDiscoveryResult> {
     return scanRoots(roots);
   }
-
-  async discoverUser(homeDir: string, osHomeDir: string): Promise<SkillDiscoveryResult> {
-    const roots = await resolveUserRoots(homeDir, osHomeDir);
-    return scanRoots(roots);
-  }
-}
-
-async function resolveProjectRoots(
-  workDir: string,
-  extraRoots?: readonly SkillRoot[],
-): Promise<readonly SkillRoot[]> {
-  const projectRoot = await findProjectRoot(workDir);
-  const roots: SkillRoot[] = [];
-  await pushBrandGroup(roots, PROJECT_BRAND_DIRS, projectRoot, 'project');
-  await pushFirstExisting(roots, PROJECT_GENERIC_DIRS, projectRoot, 'project');
-  if (extraRoots !== undefined) {
-    for (const root of extraRoots) {
-      await pushProvidedRoot(roots, root);
-    }
-  }
-  return roots;
-}
-
-async function resolveUserRoots(
-  homeDir: string,
-  osHomeDir: string,
-): Promise<readonly SkillRoot[]> {
-  const roots: SkillRoot[] = [];
-  // homeDir is already the brand data dir, so brand skills live at <homeDir>/skills.
-  await pushBrandGroup(roots, USER_BRAND_DIRS, homeDir, 'user');
-  await pushFirstExisting(roots, USER_GENERIC_DIRS, osHomeDir, 'user');
-  return roots;
 }
 
 async function scanRoots(roots: readonly SkillRoot[]): Promise<SkillDiscoveryResult> {
@@ -238,54 +196,6 @@ function sortSkills(skills: readonly SkillDefinition[]): readonly SkillDefinitio
   return [...skills].toSorted((a, b) => a.name.localeCompare(b.name));
 }
 
-async function pushFirstExisting(
-  out: SkillRoot[],
-  dirs: readonly string[],
-  base: string,
-  source: SkillSource,
-): Promise<void> {
-  for (const dir of dirs) {
-    if (await pushExistingRoot(out, path.join(base, dir), source)) return;
-  }
-}
-
-async function pushBrandGroup(
-  out: SkillRoot[],
-  dirs: readonly string[],
-  base: string,
-  source: SkillSource,
-): Promise<void> {
-  for (const dir of dirs) {
-    await pushExistingRoot(out, path.join(base, dir), source);
-  }
-}
-
-async function pushExistingRoot(
-  out: SkillRoot[],
-  dir: string,
-  source: SkillSource,
-): Promise<boolean> {
-  if (!(await isDir(dir))) return false;
-  const resolved = await realpath(dir);
-  if (!out.some((root) => root.path === resolved)) out.push({ path: resolved, source });
-  return true;
-}
-
-async function pushProvidedRoot(out: SkillRoot[], root: SkillRoot): Promise<boolean> {
-  if (!(await isDir(root.path))) return false;
-  const resolved = await realpath(root.path);
-  const existingIndex = out.findIndex((existing) => existing.path === resolved);
-  if (existingIndex < 0) {
-    out.push({ ...root, path: resolved });
-    return true;
-  }
-  const existing = out[existingIndex];
-  if (existing !== undefined && existing.plugin === undefined && root.plugin !== undefined) {
-    out[existingIndex] = { ...existing, plugin: root.plugin };
-  }
-  return true;
-}
-
 function qualifySubSkillName(parentName: string, skillName: string): string {
   if (skillName === parentName || skillName.startsWith(`${parentName}.`)) return skillName;
   return `${parentName}.${skillName}`;
@@ -316,30 +226,6 @@ async function isDir(p: string): Promise<boolean> {
 async function isFile(p: string): Promise<boolean> {
   try {
     return (await fs.stat(p)).isFile();
-  } catch {
-    return false;
-  }
-}
-
-async function realpath(p: string): Promise<string> {
-  return (await fs.realpath(p)).replaceAll('\\', '/');
-}
-
-async function findProjectRoot(workDir: string): Promise<string> {
-  const start = path.resolve(workDir);
-  let current = start;
-  while (true) {
-    if (await exists(path.join(current, '.git'))) return current;
-    const parent = path.dirname(current);
-    if (parent === current) return start;
-    current = parent;
-  }
-}
-
-async function exists(p: string): Promise<boolean> {
-  try {
-    await fs.stat(p);
-    return true;
   } catch {
     return false;
   }

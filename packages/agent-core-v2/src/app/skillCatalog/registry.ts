@@ -1,9 +1,10 @@
 /**
- * `globalSkillCatalog` domain (L5) — concrete in-memory skill catalog.
+ * `skillCatalog` domain (L3) — concrete in-memory skill catalog.
  *
  * Owns registered skill lookup, plugin-scoped skill lookup, prompt rendering,
- * and model-facing skill listings for `skill`. Held internally by the App
- * `IGlobalSkillCatalog` and Session `ISessionSkillCatalog`; it is not a scoped service.
+ * and model-facing skill listings for `skill`. Held internally by the Session
+ * skill-catalog sink (`ISessionSkillCatalog`) and composed directly by the edge
+ * to resolve a workspace's skills without a Session; it is not a scoped service.
  */
 
 import { escapeXmlAttr, escapeXmlTags } from '#/_base/utils/xml-escape';
@@ -29,20 +30,11 @@ export class SkillNotFoundError extends Error {
   }
 }
 
-export interface SkillRegistryOptions {
-  readonly sessionId?: string;
-}
-
 export class InMemorySkillCatalog implements SkillCatalog {
   private readonly byName = new Map<string, SkillDefinition>();
   private readonly byPluginAndName = new Map<string, SkillDefinition>();
   private readonly roots: string[] = [];
   private readonly skipped: SkippedSkill[] = [];
-  readonly sessionId?: string;
-
-  constructor(options: SkillRegistryOptions = {}) {
-    this.sessionId = options.sessionId;
-  }
 
   registerBuiltinSkill(skill: SkillDefinition): void {
     this.register(skill.source === 'builtin' ? skill : { ...skill, source: 'builtin' });
@@ -64,11 +56,15 @@ export class InMemorySkillCatalog implements SkillCatalog {
     return this.byPluginAndName.get(pluginSkillKey(pluginId, name));
   }
 
-  renderSkillPrompt(skill: SkillDefinition, rawArgs: string): string {
+  renderSkillPrompt(
+    skill: SkillDefinition,
+    rawArgs: string,
+    context?: { readonly sessionId?: string },
+  ): string {
     const argumentNames = skillArgumentNames(skill.metadata);
     const content = expandSkillParameters(skill.content, rawArgs, {
       skillDir: skill.dir,
-      sessionId: this.sessionId,
+      sessionId: context?.sessionId,
       argumentNames,
     });
     const plugin = skill.plugin;

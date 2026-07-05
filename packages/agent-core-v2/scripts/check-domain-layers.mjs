@@ -111,7 +111,7 @@ const DOMAIN_LAYER = new Map([
   // L3 — registries & capabilities
   ['tool', 3],
   ['skill', 3],
-  ['globalSkillCatalog', 3],
+  ['skillCatalog', 3],
   ['sessionSkillCatalog', 3],
   ['permissionGate', 3],
   ['flag', 3],
@@ -232,7 +232,7 @@ function domainFromRel(rel, { exemptRootFile }) {
  * shape for several of them. They are surfaced here (and in the dependency
  * report) for review rather than hidden.
  *
- *  - `bootstrap>globalSkillCatalog` : composition root wires the skill catalog
+ *  - `bootstrap>skillCatalog` : composition root wires the skill catalog
  *                              Store to its filesystem backend (same role as
  *                              the storage backend bindings).
  *
@@ -260,7 +260,7 @@ function domainFromRel(rel, { exemptRootFile }) {
  * layering violation to fix here.
  */
 const ALLOWED_EXCEPTIONS = new Set([
-  'bootstrap>globalSkillCatalog',
+  'bootstrap>skillCatalog',
   // bootstrap is the composition root — it wires backends by design.
   'bootstrap>persistence/backends',
   // `auth` (KimiOAuth, L2) owns the OAuth-backed `WebSearch` tool and registers

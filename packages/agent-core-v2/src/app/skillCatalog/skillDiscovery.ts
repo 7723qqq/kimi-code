@@ -1,9 +1,11 @@
 /**
- * `globalSkillCatalog` domain (L5) — catalog discovery contract.
+ * `skillCatalog` domain (L3) — catalog discovery contract.
  *
- * `ISkillDiscovery` is a business-specific interface that hides how skill
- * bundles are discovered: a backend walks a skill root, reads each SKILL.md,
- * and parses it into `SkillDefinition`s. The skill domain depends on this
+ * `ISkillDiscovery` is the single generic filesystem primitive that hides how
+ * skill bundles are discovered: a backend walks the caller-supplied skill
+ * roots, reads each SKILL.md, and parses it into `SkillDefinition`s. Global vs
+ * project discovery differ only by which roots are passed in — there is one
+ * `discover(roots)`, not per-kind methods. The skill domain depends on this
  * interface only and never touches `node:fs` / `hostFs`; the backend is chosen
  * at the composition root (file locally, in-memory for tests, object storage or
  * a DB on a server). App-scoped.
@@ -21,12 +23,7 @@ export interface SkillDiscoveryResult {
 
 export interface ISkillDiscovery {
   readonly _serviceBrand: undefined;
-
-  discoverProject(
-    workDir: string,
-    extraRoots?: readonly SkillRoot[],
-  ): Promise<SkillDiscoveryResult>;
-  discoverUser(homeDir: string, osHomeDir: string): Promise<SkillDiscoveryResult>;
+  discover(roots: readonly SkillRoot[]): Promise<SkillDiscoveryResult>;
 }
 
 export const ISkillDiscovery = createDecorator<ISkillDiscovery>('skillDiscovery');

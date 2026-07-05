@@ -1,5 +1,5 @@
 /**
- * `globalSkillCatalog` domain error codes.
+ * `skillCatalog` domain error codes.
  */
 
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors';

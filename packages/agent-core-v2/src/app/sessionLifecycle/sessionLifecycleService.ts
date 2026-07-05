@@ -121,7 +121,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     ) as ISessionScopeHandle;
     this.sessions.set(opts.sessionId, handle);
     await handle.accessor.get(ISessionMetadata).ready;
-    void handle.accessor.get(ISessionSkillCatalog).load();
+    void handle.accessor.get(ISessionSkillCatalog).ready;
     this._onDidCreateSession.fire({ sessionId: opts.sessionId, handle });
     return handle;
   }

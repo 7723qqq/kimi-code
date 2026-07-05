@@ -42,7 +42,7 @@ package "App scope (process-wide)" #EAF3FB {
   rectangle "<b>chatProvider</b>\n<size:9><i>App</i></size>\n  IChatProviderFactory" as chatProvider #D6EAF8
   rectangle "<b>model</b>\n<size:9><i>App</i></size>\n  IModelService" as model #D6EAF8
   rectangle "<b>modelCatalog</b>\n<size:9><i>App</i></size>\n  IModelCatalogService" as modelCatalog #D6EAF8
-  rectangle "<b>globalSkillCatalog</b>\n<size:9><i>App</i></size>\n  IGlobalSkillCatalog\n  ISkillCatalogStore" as globalSkillCatalog #D6EAF8
+  rectangle "<b>skillCatalog</b>\n<size:9><i>App</i></size>\n  ISkillDiscovery\n  ISkillSource\n  Builtin/UserSkillSource" as skillCatalog #D6EAF8
 }
 
 package "Session scope (per session)" #EAFAF1 {
@@ -53,7 +53,7 @@ package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>interaction</b>\n<size:9><i>Session</i></size>\n  IInteractionService" as interaction #D5F5E3
   rectangle "<b>workspaceContext</b>\n<size:9><i>Session</i></size>\n  IWorkspaceContext" as workspaceContext #D5F5E3
   rectangle "<b>sessionLog</b>\n<size:9><i>Session</i></size>\n  ISessionLogService\n  ILogWriterService" as sessionLog #D5F5E3
-  rectangle "<b>sessionSkillCatalog</b>\n<size:9><i>Session</i></size>\n  ISessionSkillCatalog" as sessionSkillCatalog #D5F5E3
+  rectangle "<b>sessionSkillCatalog</b>\n<size:9><i>Session</i></size>\n  ISessionSkillCatalog\n  ISkillCatalogSink\n  Workspace/PluginSkillSource" as sessionSkillCatalog #D5F5E3
   rectangle "<b>execContext</b>\n<size:9><i>Session</i></size>\n  IExecContext (seed)" as execContext #D5F5E3
   rectangle "<b>agentFs</b>\n<size:9><i>Session</i></size>\n  IAgentFileSystem\n  IFsService" as agentFs #D5F5E3
   rectangle "<b>approval</b>\n<size:9><i>Session</i></size>\n  IApprovalService" as approval #D5F5E3
@@ -136,10 +136,10 @@ modelCatalog --> config #34495E
 modelCatalog --> auth #34495E
 workspaceContext --> execContext #34495E
 sessionLog --> session_context #34495E
-sessionSkillCatalog --> globalSkillCatalog #34495E
+sessionSkillCatalog --> skillCatalog #34495E
 sessionSkillCatalog --> plugin #34495E
 sessionSkillCatalog --> workspaceContext #34495E
-globalSkillCatalog --> bootstrap #34495E
+skillCatalog --> bootstrap #34495E
 agentFs --> workspaceContext #34495E
 agentFs --> execContext #34495E
 agentFs --> process #34495E

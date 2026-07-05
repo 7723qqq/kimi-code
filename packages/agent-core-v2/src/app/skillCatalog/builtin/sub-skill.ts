@@ -1,9 +1,9 @@
 /**
- * `globalSkillCatalog` domain (L5) — builtin `sub-skill` bundle (parent + review + consolidate).
+ * `skillCatalog` domain (L3) — builtin `sub-skill` bundle (parent + review + consolidate).
  */
 
-import type { SkillDefinition } from '#/app/globalSkillCatalog/types';
-import { parseSkillText } from '#/app/globalSkillCatalog/parser';
+import type { SkillDefinition } from '#/app/skillCatalog/types';
+import { parseSkillText } from '#/app/skillCatalog/parser';
 import CONSOLIDATE_BODY from './sub-skill/consolidate/SKILL.md?raw';
 import REVIEW_BODY from './sub-skill/review/SKILL.md?raw';
 import PARENT_BODY from './sub-skill/SKILL.md?raw';

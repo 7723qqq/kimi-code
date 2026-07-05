@@ -1,5 +1,5 @@
 /**
- * `globalSkillCatalog` domain (L5) — SKILL.md parsing primitives.
+ * `skillCatalog` domain (L3) — SKILL.md parsing primitives.
  *
  * Parses a SKILL.md (frontmatter + body) into a `SkillDefinition` and extracts
  * flowchart blocks. Pure functions with no IO: callers (the catalog Store
