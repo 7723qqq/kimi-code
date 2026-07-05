@@ -78,19 +78,16 @@ const FRAMEWORK_BINDINGS: readonly { token: string; scope: ServiceScope; impl: s
  * `registerScopedService` registry, so these take precedence at runtime: they
  * override a static default where one exists (e.g. `ISkillDiscovery` →
  * `FileSkillDiscovery`) and supply the binding where the layer ships no
- * in-package default (the Storage-layer tokens → `FileStorageService`, whose
- * in-memory backend is no longer auto-registered). The analyzer mirrors that
- * so the graph reflects the backend that actually runs in production.
+ * in-package default (`IFileSystemStorageService` → `FileStorageService`, the
+ * byte layer the node-fs Store backends are built on). The analyzer mirrors
+ * that so the graph reflects the backend that actually runs in production.
  *
  * Each entry's `file`/`line`/`domain` are derived from the impl class
  * declaration at analysis time, so the node points at the real backend rather
  * than any registration site it replaces.
  */
 const PRODUCTION_OVERRIDES: readonly { token: string; scope: ServiceScope; impl: string }[] = [
-  { token: 'IStorageService', scope: 'App', impl: 'FileStorageService' },
-  { token: 'IAppendLogStorage', scope: 'App', impl: 'FileStorageService' },
-  { token: 'IAtomicDocumentStorage', scope: 'App', impl: 'FileStorageService' },
-  { token: 'IBlobStorage', scope: 'App', impl: 'FileStorageService' },
+  { token: 'IFileSystemStorageService', scope: 'App', impl: 'FileStorageService' },
   { token: 'ISkillDiscovery', scope: 'App', impl: 'FileSkillDiscovery' },
 ];
 

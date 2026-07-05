@@ -160,10 +160,10 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
   // route that creates a session (e.g. POST /sessions) would otherwise fail to
   // instantiate the Session scope. Resolve it from env + homeDir like the CLI.
   const logging = resolveLoggingConfig({ homeDir, env: process.env });
-  // `bootstrap()` seeds every storage role token (`IStorageService`,
-  // `IAtomicDocumentStorage`, `IAppendLogStorage`, `IBlobStorage`) with its own
-  // file-backed instance rooted at `homeDir`, so session metadata, wire
-  // records, blobs, and the session index all persist to disk.
+  // `bootstrap()` seeds `IFileSystemStorageService` with a `FileStorageService`
+  // rooted at `homeDir`, so the Store facades above it (append-log, atomic
+  // document, blob) — and in turn session metadata, wire records, blobs, and
+  // the session index — all persist to disk.
   const { app: core } = bootstrap({ homeDir, configPath }, [
     ...logSeed(logging),
     ...(opts.seeds ?? []),

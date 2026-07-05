@@ -4,6 +4,7 @@ dist-web/
 dist-single/
 dist-native/
 .tmp-api-extractor/
+.contract-types-tmp/
 .local/
 coverage/
 *.tsbuildinfo

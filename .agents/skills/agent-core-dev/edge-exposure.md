@@ -131,7 +131,7 @@ These fail §2 and must be wrapped in a facade that takes ids and returns data:
 | ILLMRequester | `AsyncIterable` stream | stream over WS, not RPC |
 | ISubagentHost | `SubagentHandle` | `subagents.spawn` / `resume` → info |
 | IProcessRunner | `IProcess` streams | terminal (separate WS protocol) |
-| Storage (IStorageService / IAppendLogStore / IAtomicDocumentStore) | bytes / streams | not for RPC |
+| Storage / Store (IFileSystemStorageService / IAppendLogStore / IAtomicDocumentStore / IBlobStore) | bytes / streams | not for RPC |
 | IAgentFileSystem | `withCwd` handle | `fs.read` / `write` → text/bytes |
 | IExternalHooksService | server-side outbound | not exposed |
 | IWireRecord | write-ahead log | internal |

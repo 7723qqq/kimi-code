@@ -12,7 +12,7 @@ import {
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
-import { AtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -60,7 +60,7 @@ describe('WorkspaceRegistryService (file-backed)', () => {
     const fileStorage = new FileStorageService(homeDir);
     const host = createScopedTestHost([
       stubPair(IFileSystemStorageService, fileStorage),
-      stubPair(IAtomicDocumentStore, new AtomicDocumentStore(fileStorage)),
+      stubPair(IAtomicDocumentStore, new JsonAtomicDocumentStore(fileStorage)),
     ]);
     currentHost = host;
     return host.app.accessor.get(IWorkspaceRegistry);

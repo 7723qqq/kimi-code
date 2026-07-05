@@ -1,8 +1,8 @@
 /**
- * `AtomicDocumentStore` — node-fs backend for `IAtomicDocumentStore`.
+ * `JsonAtomicDocumentStore` — node-fs backend for `IAtomicDocumentStore`.
  *
  * JSON and TOML codec implementations plus the `AtomicDocumentStoreBase`,
- * `AtomicDocumentStore`, and `TomlAtomicDocumentStore` classes. Reads and
+ * `JsonAtomicDocumentStore`, and `TomlAtomicDocumentStore` classes. Reads and
  * writes bytes through `IFileSystemStorageService`. Bound at
  * App scope.
  */
@@ -78,7 +78,7 @@ class AtomicDocumentStoreBase implements IAtomicDocumentStore {
   }
 }
 
-export class AtomicDocumentStore extends AtomicDocumentStoreBase {
+export class JsonAtomicDocumentStore extends AtomicDocumentStoreBase {
   constructor(@IFileSystemStorageService storage: IFileSystemStorageService) {
     super(storage, jsonDocumentCodec);
   }
@@ -93,7 +93,7 @@ export class TomlAtomicDocumentStore extends AtomicDocumentStoreBase {
 registerScopedService(
   LifecycleScope.App,
   IAtomicDocumentStore,
-  AtomicDocumentStore,
+  JsonAtomicDocumentStore,
   InstantiationType.Delayed,
   'storage',
 );

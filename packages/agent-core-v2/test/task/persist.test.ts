@@ -15,7 +15,7 @@ import {
   AgentTaskPersistence,
   type AgentTaskInfo,
 } from '#/agent/task';
-import { AtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -57,7 +57,7 @@ beforeEach(async () => {
   const ix = disposables.add(new TestInstantiationService());
   const fs = new FileStorageService(sessionDir, 0o700);
   ix.set(IFileSystemStorageService, fs);
-  ix.set(IAtomicDocumentStore, new SyncDescriptor(AtomicDocumentStore));
+  ix.set(IAtomicDocumentStore, new SyncDescriptor(JsonAtomicDocumentStore));
   const docs = ix.get(IAtomicDocumentStore);
   const bytes = ix.get(IFileSystemStorageService);
   persistence = new AgentTaskPersistence(sessionDir, SESSION_SCOPE, docs, bytes);

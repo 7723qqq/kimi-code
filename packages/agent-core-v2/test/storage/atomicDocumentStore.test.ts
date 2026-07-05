@@ -5,7 +5,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IAtomicDocumentStore, IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { AtomicDocumentStore, TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { JsonAtomicDocumentStore, TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 
 interface State {
@@ -13,7 +13,7 @@ interface State {
   readonly count?: number;
 }
 
-describe('AtomicDocumentStore', () => {
+describe('JsonAtomicDocumentStore', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let storage: InMemoryStorageService;
@@ -24,7 +24,7 @@ describe('AtomicDocumentStore', () => {
     ix = disposables.add(new TestInstantiationService());
     storage = new InMemoryStorageService();
     ix.stub(IFileSystemStorageService, storage);
-    ix.set(IAtomicDocumentStore, new SyncDescriptor(AtomicDocumentStore));
+    ix.set(IAtomicDocumentStore, new SyncDescriptor(JsonAtomicDocumentStore));
     config = ix.get(IAtomicDocumentStore);
   });
 

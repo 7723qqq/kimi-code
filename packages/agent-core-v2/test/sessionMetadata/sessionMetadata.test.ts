@@ -7,7 +7,7 @@ import { ILogService } from '#/app/log';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata';
 import { SessionMetadata } from '#/session/sessionMetadata/sessionMetadataService';
-import { AtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
@@ -36,7 +36,7 @@ describe('SessionMetadata', () => {
     ix.stub(ILogService, stubLog());
     ix.stub(ISessionContext, makeContext());
     ix.set(IFileSystemStorageService, new SyncDescriptor(InMemoryStorageService));
-    ix.set(IAtomicDocumentStore, new SyncDescriptor(AtomicDocumentStore));
+    ix.set(IAtomicDocumentStore, new SyncDescriptor(JsonAtomicDocumentStore));
     ix.set(ISessionMetadata, new SyncDescriptor(SessionMetadata));
   });
 
