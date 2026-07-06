@@ -496,6 +496,9 @@ importers:
       '@moonshot-ai/kimi-telemetry':
         specifier: workspace:^
         version: link:../telemetry
+      '@moonshot-ai/minidb':
+        specifier: workspace:^
+        version: link:../minidb
       '@moonshot-ai/protocol':
         specifier: workspace:^
         version: link:../protocol

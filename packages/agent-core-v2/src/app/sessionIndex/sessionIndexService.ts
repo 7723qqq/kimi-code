@@ -14,6 +14,16 @@
  * sessions written before the layouts were unified. Both timestamp
  * representations are normalized to epoch ms.
  *
+ * Read model (flag `persistence_minidb_readmodel`): when enabled, summaries are
+ * served from the `IQueryStore` derived read model instead of re-reading and
+ * re-parsing `state.json` on every call. Listing still enumerates the directory
+ * (a cheap `readdir`) to discover `(workspaceId, sessionId)` pairs, but each
+ * summary is resolved through the read model — falling back to a disk read +
+ * backfill on a cold miss. Writes (create / archive / metadata update) keep the
+ * read model warm via `SessionMetadata`; new sessions that have not been
+ * mirrored yet are simply a cold miss and backfilled on first read. The legacy
+ * N+1 path remains as the flag-off fallback.
+ *
  * This is the local-deployment backend of `ISessionIndex`; a server deployment
  * would substitute a database-backed `DbSessionIndex`. Bound at App scope.
  */
@@ -21,14 +31,17 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap';
+import { IFlagService } from '#/app/flag';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IQueryStore, type Page } from '#/persistence/interface/queryStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import type { Page } from '#/persistence/interface/queryStore';
 
 import { ISessionIndex, type SessionListQuery, type SessionSummary } from './sessionIndex';
 
 const META_SCOPE = 'session-meta';
 const META_KEY = 'state.json';
+const SESSION_COLLECTION = 'session';
+const READ_MODEL_FLAG = 'persistence_minidb_readmodel';
 
 /** Accept both v2 (epoch ms number) and v1 (ISO string) timestamps. */
 function parseTime(value: unknown): number {
@@ -43,15 +56,108 @@ function parseTime(value: unknown): number {
 export class FileSessionIndex implements ISessionIndex {
   declare readonly _serviceBrand: undefined;
 
+  private indexesEnsured = false;
+
   constructor(
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
     @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
+    @IQueryStore private readonly queryStore: IQueryStore,
+    @IFlagService private readonly flags: IFlagService,
   ) {}
 
   async list(query: SessionListQuery): Promise<Page<SessionSummary>> {
+    if (!this.readModelEnabled()) return this.listLegacy(query);
+
+    await this.ensureIndexes();
     if (query.sessionId !== undefined) {
       const summary = await this.get(query.sessionId);
+      const items =
+        summary !== undefined && (!summary.archived || query.includeArchived === true)
+          ? [summary]
+          : [];
+      return { items: query.limit !== undefined ? items.slice(0, query.limit) : items };
+    }
+
+    const workspaceIds =
+      query.workspaceId !== undefined ? [query.workspaceId] : await this.listWorkspaceIds();
+    const items: SessionSummary[] = [];
+    for (const workspaceId of workspaceIds) {
+      for (const sessionId of await this.listSessionIds(workspaceId)) {
+        const summary = await this.getCachedSummary(workspaceId, sessionId);
+        if (summary === undefined) continue;
+        if (summary.archived && query.includeArchived !== true) continue;
+        items.push(summary);
+      }
+    }
+    items.sort((a, b) => b.updatedAt - a.updatedAt);
+    return { items: query.limit !== undefined ? items.slice(0, query.limit) : items };
+  }
+
+  async get(id: string): Promise<SessionSummary | undefined> {
+    if (!this.readModelEnabled()) return this.getLegacy(id);
+
+    const cached = await this.queryStore.get<SessionSummary>(SESSION_COLLECTION, id);
+    if (cached !== undefined) return cached;
+    // Cold miss: locate the session on disk, then read + backfill.
+    for (const workspaceId of await this.listWorkspaceIds()) {
+      if (!(await this.hasSession(workspaceId, id))) continue;
+      return this.getCachedSummary(workspaceId, id);
+    }
+    return undefined;
+  }
+
+  async countActive(workspaceId: string): Promise<number> {
+    if (!this.readModelEnabled()) return this.countActiveLegacy(workspaceId);
+
+    let count = 0;
+    for (const sessionId of await this.listSessionIds(workspaceId)) {
+      const summary = await this.getCachedSummary(workspaceId, sessionId);
+      if (summary !== undefined && !summary.archived) count += 1;
+    }
+    return count;
+  }
+
+  private readModelEnabled(): boolean {
+    return this.flags.enabled(READ_MODEL_FLAG);
+  }
+
+  private async ensureIndexes(): Promise<void> {
+    if (this.indexesEnsured) return;
+    await this.queryStore.ensureIndex(SESSION_COLLECTION, {
+      kind: 'value',
+      name: 'byWorkspace',
+      field: 'workspaceId',
+    });
+    await this.queryStore.ensureIndex(SESSION_COLLECTION, {
+      kind: 'compound',
+      name: 'byWsUpdated',
+      groupBy: 'workspaceId',
+      orderBy: 'updatedAt',
+    });
+    this.indexesEnsured = true;
+  }
+
+  /**
+   * Resolve a summary through the read model, backfilling from disk on a cold
+   * miss. The read model is keyed by session id (globally unique).
+   */
+  private async getCachedSummary(
+    workspaceId: string,
+    sessionId: string,
+  ): Promise<SessionSummary | undefined> {
+    const cached = await this.queryStore.get<SessionSummary>(SESSION_COLLECTION, sessionId);
+    if (cached !== undefined) return cached;
+    const summary = await this.readSummary(workspaceId, sessionId);
+    if (summary !== undefined) {
+      await this.queryStore.put(SESSION_COLLECTION, sessionId, summary);
+    }
+    return summary;
+  }
+
+  private async listLegacy(query: SessionListQuery): Promise<Page<SessionSummary>> {
+    if (query.sessionId !== undefined) {
+      const summary = await this.getLegacy(query.sessionId);
       const items =
         summary !== undefined && (!summary.archived || query.includeArchived === true)
           ? [summary]
@@ -74,7 +180,7 @@ export class FileSessionIndex implements ISessionIndex {
     return { items: query.limit !== undefined ? items.slice(0, query.limit) : items };
   }
 
-  async get(id: string): Promise<SessionSummary | undefined> {
+  private async getLegacy(id: string): Promise<SessionSummary | undefined> {
     for (const workspaceId of await this.listWorkspaceIds()) {
       if (!(await this.hasSession(workspaceId, id))) continue;
       const summary = await this.readSummary(workspaceId, id);
@@ -83,7 +189,7 @@ export class FileSessionIndex implements ISessionIndex {
     return undefined;
   }
 
-  async countActive(workspaceId: string): Promise<number> {
+  private async countActiveLegacy(workspaceId: string): Promise<number> {
     let count = 0;
     for (const sessionId of await this.listSessionIds(workspaceId)) {
       const summary = await this.readSummary(workspaceId, sessionId);

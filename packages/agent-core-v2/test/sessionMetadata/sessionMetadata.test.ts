@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
+import { IFlagService } from '#/app/flag';
 import { ILogService } from '#/_base/log';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata';
@@ -11,8 +12,11 @@ import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDo
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { IQueryStore } from '#/persistence/interface/queryStore';
 
+import { stubFlag } from '../flag/stubs';
 import { stubLog } from '../log/stubs';
+import { stubQueryStore } from '../persistence/stubs';
 
 const META_SCOPE = 'sessions/wd_test/s1/session-meta';
 
@@ -36,12 +40,14 @@ describe('SessionMetadata', () => {
     ix = disposables.add(new TestInstantiationService());
     ix.stub(ILogService, stubLog());
     ix.stub(ISessionContext, makeContext());
+    ix.stub(IQueryStore, stubQueryStore());
+    ix.stub(IFlagService, stubFlag(false));
     ix.set(IFileSystemStorageService, new SyncDescriptor(InMemoryStorageService));
     ix.set(IAtomicDocumentStore, new SyncDescriptor(JsonAtomicDocumentStore));
     ix.set(ISessionMetadata, new SyncDescriptor(SessionMetadata));
   });
 
-  afterEach(() => disposables.dispose());
+  afterEach(() => { disposables.dispose(); });
 
   it('creates an initial document on first read', async () => {
     const meta = ix.get(ISessionMetadata);

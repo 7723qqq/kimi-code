@@ -324,6 +324,11 @@ const ALLOWED_EXCEPTIONS = new Set([
   'terminal>os/backends',
   'sessionFs>os/backends',
   'blobStore>persistence/backends',
+  // `sessionIndex` (L2) reads the `persistence_minidb_readmodel` experimental
+  // flag (L3) to switch session listings between the legacy N+1 disk read and
+  // the minidb-backed derived read model. A genuine, planned upward dependency
+  // on a cross-cutting capability switch — surfaced here for review.
+  'sessionIndex>flag',
 ]);
 
 // Matches: import ... from 'x' | export ... from 'x' | import('x') | require('x')

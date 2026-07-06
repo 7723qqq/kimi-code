@@ -64,6 +64,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-telemetry": "workspace:^",
+    "@moonshot-ai/minidb": "workspace:^",
     "@moonshot-ai/protocol": "workspace:^",
     "@mozilla/readability": "^0.6.0",
     "chokidar": "^4.0.3",

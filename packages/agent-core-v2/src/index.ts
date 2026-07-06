@@ -11,9 +11,6 @@ export {
   IAgentWireService,
   ISessionWireService,
   type IWireService,
-  type Signal,
-  type SignalMap,
-  type WireEmission,
 } from '#/wire';
 export * from '#/session/sessionLog';
 export * from '#/app/telemetry';
@@ -22,7 +19,7 @@ export * from '#/os/interface';
 export * from '#/os/backends/node-local';
 export * from '#/session/terminal';
 export * from '#/app/task';
-export { IEventService, type DomainEvent } from '#/app/event';
+export { IEventService, IEventBus, type DomainEvent, type GlobalEvent } from '#/app/event';
 export * from '#/app/llmProtocol';
 
 export * from '#/app/sessionIndex';
@@ -75,6 +72,7 @@ export * from '#/session/sessionFs';
 export * from '#/app/hostFolderBrowser';
 export * from '#/persistence/interface';
 export * from '#/persistence/backends/node-fs';
+export * from '#/persistence/backends/minidb';
 export * from '#/persistence/backends/memory';
 export * from '#/app/auth';
 export * from '#/app/authLegacy';

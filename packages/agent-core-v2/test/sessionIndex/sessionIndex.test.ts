@@ -5,21 +5,29 @@ import os from 'node:os';
 import { join } from 'node:path';
 
 import { InstantiationType } from '#/_base/di/extensions';
+import { ILogService } from '#/_base/log';
 import { LifecycleScope, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/app/bootstrap';
-import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
+import { IFlagService } from '#/app/flag';
+import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
 import { FileSessionIndex } from '#/app/sessionIndex/sessionIndexService';
-import { stubBootstrap } from '../bootstrap/stubs';
+import { MiniDbQueryStore } from '#/persistence/backends/minidb/miniDbQueryStore';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IQueryStore } from '#/persistence/interface/queryStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { stubBootstrap } from '../bootstrap/stubs';
+import { stubFlag } from '../flag/stubs';
+import { stubLog } from '../log/stubs';
+import { stubQueryStore } from '../persistence/stubs';
 
 const WORK_DIR = '/home/user/repo';
+const SESSION_COLLECTION = 'session';
 
-describe('FileSessionIndex', () => {
+describe('FileSessionIndex (legacy)', () => {
   let homeDir: string;
   let sessionsDir: string;
   let workspaceId: string;
@@ -45,8 +53,10 @@ describe('FileSessionIndex', () => {
       stubPair(IFileSystemStorageService, fileStorage),
       stubPair(IAtomicDocumentStore, new JsonAtomicDocumentStore(fileStorage)),
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
+      stubPair(IQueryStore, stubQueryStore()),
+      stubPair(IFlagService, stubFlag(false)),
     ]);
-    disposeHost = () => host.dispose();
+    disposeHost = () => { host.dispose(); };
     return host.app.accessor.get(ISessionIndex);
   }
 
@@ -119,5 +129,99 @@ describe('FileSessionIndex', () => {
     const store = build();
     expect(await store.countActive(workspaceId)).toBe(2);
     expect(await store.countActive('wd_unknown')).toBe(0);
+  });
+});
+
+describe('FileSessionIndex (read model)', () => {
+  let homeDir: string;
+  let sessionsDir: string;
+  let workspaceId: string;
+  let disposeHost: (() => void) | undefined;
+  let queryStore: IQueryStore;
+
+  beforeEach(async () => {
+    _clearScopedRegistryForTests();
+    registerScopedService(LifecycleScope.App, ISessionIndex, FileSessionIndex, InstantiationType.Delayed, 'sessionIndex');
+    registerScopedService(LifecycleScope.App, IQueryStore, MiniDbQueryStore, InstantiationType.Delayed, 'storage');
+    homeDir = await fsp.mkdtemp(join(os.tmpdir(), 'ws-sessions-rm-'));
+    sessionsDir = join(homeDir, 'sessions');
+    workspaceId = encodeWorkDirKey(WORK_DIR);
+  });
+
+  afterEach(async () => {
+    disposeHost?.();
+    disposeHost = undefined;
+    await fsp.rm(homeDir, { recursive: true, force: true });
+  });
+
+  function build(): ISessionIndex {
+    const fileStorage = new FileStorageService(homeDir);
+    const host = createScopedTestHost([
+      stubPair(IFileSystemStorageService, fileStorage),
+      stubPair(IAtomicDocumentStore, new JsonAtomicDocumentStore(fileStorage)),
+      stubPair(IBootstrapService, stubBootstrap(homeDir)),
+      stubPair(ILogService, stubLog()),
+      stubPair(IFlagService, stubFlag(true)),
+    ]);
+    disposeHost = () => { host.dispose(); };
+    queryStore = host.app.accessor.get(IQueryStore);
+    return host.app.accessor.get(ISessionIndex);
+  }
+
+  async function seedSession(
+    sessionId: string,
+    meta: Record<string, unknown>,
+    wsId: string = workspaceId,
+  ): Promise<void> {
+    const dir = join(sessionsDir, wsId, sessionId, 'session-meta');
+    await fsp.mkdir(dir, { recursive: true });
+    await fsp.writeFile(join(dir, 'state.json'), JSON.stringify(meta));
+  }
+
+  function summary(id: string, overrides: Partial<SessionSummary> = {}): SessionSummary {
+    return {
+      id,
+      workspaceId,
+      createdAt: 1,
+      updatedAt: 2,
+      archived: false,
+      ...overrides,
+    };
+  }
+
+  it('list backfills from disk on a cold read model, then serves from it', async () => {
+    await seedSession('active', { title: 'hello', createdAt: 1, updatedAt: 2 });
+    await seedSession('archived', { archived: true });
+
+    const store = build();
+    const first = await store.list({ workspaceId });
+    expect(first.items.map((s) => s.id)).toEqual(['active']);
+    expect(first.items[0]?.title).toBe('hello');
+
+    // A second list is served from the read model: mutate the read model to
+    // prove the disk is not re-read.
+    await queryStore.put(SESSION_COLLECTION, 'active', summary('active', { title: 'renamed', updatedAt: 3 }));
+    const second = await store.list({ workspaceId });
+    expect(second.items[0]?.title).toBe('renamed');
+  });
+
+  it('get prefers the read model over disk', async () => {
+    const store = build();
+    // Not seeded on disk — only present in the read model.
+    await queryStore.put(SESSION_COLLECTION, 'warm', summary('warm', { title: 'cached' }));
+    const got = await store.get('warm');
+    expect(got?.title).toBe('cached');
+  });
+
+  it('countActive reflects read-model updates', async () => {
+    await seedSession('a', {});
+    await seedSession('b', { archived: true });
+
+    const store = build();
+    expect(await store.countActive(workspaceId)).toBe(1);
+
+    // Archive `a` through the read model (as SessionMetadata would).
+    await queryStore.put(SESSION_COLLECTION, 'a', summary('a', { archived: true }));
+    expect(await store.countActive(workspaceId)).toBe(0);
   });
 });
