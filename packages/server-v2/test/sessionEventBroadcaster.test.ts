@@ -6,12 +6,14 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { IScopeHandle, Scope } from '@moonshot-ai/agent-core-v2';
+import type { IScopeHandle, Scope, WireEmission } from '@moonshot-ai/agent-core-v2';
 import {
-  IAgentEventSinkService,
   IAgentLifecycleService,
+  IAgentWireService,
   IEventService,
+  ISessionInteractionService,
   ISessionLifecycleService,
+  SessionInteractionService,
 } from '@moonshot-ai/agent-core-v2';
 import type { AgentEvent } from '@moonshot-ai/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -27,8 +29,8 @@ import type { EventEnvelope } from '../src/transport/ws/v1/sessionEventJournal';
 // ---------------------------------------------------------------------------
 
 class FakeSink {
-  private handlers: Array<(e: AgentEvent) => void> = [];
-  on(handler: (e: AgentEvent) => void) {
+  private handlers: Array<(e: WireEmission) => void> = [];
+  onEmission(handler: (e: WireEmission) => void) {
     this.handlers.push(handler);
     return {
       dispose: () => {
@@ -38,7 +40,8 @@ class FakeSink {
     };
   }
   emit(e: AgentEvent): void {
-    for (const h of [...this.handlers]) h(e);
+    const emission = { type: 'signal', signal: e } as unknown as WireEmission;
+    for (const h of [...this.handlers]) h(emission);
   }
 }
 
@@ -64,7 +67,7 @@ class FakeAgentHandle {
   readonly accessor;
   constructor(readonly id: string) {
     this.accessor = {
-      get: (t: unknown) => (t === IAgentEventSinkService ? this.sink : undefined),
+      get: (t: unknown) => (t === IAgentWireService ? this.sink : undefined),
     };
   }
   dispose(): void {}
@@ -72,6 +75,8 @@ class FakeAgentHandle {
 
 class FakeLifecycle {
   readonly handles: FakeAgentHandle[] = [];
+  /** Real interaction kernel — served at the session accessor. */
+  readonly interactions = new SessionInteractionService();
   private createHandlers: Array<(h: IScopeHandle) => void> = [];
   private disposeHandlers: Array<(id: string) => void> = [];
   list(): readonly FakeAgentHandle[] {
@@ -111,7 +116,11 @@ function makeCore(sessions: Map<string, FakeLifecycle>, eventBus = new FakeEvent
             const lifecycle = sessions.get(sid);
             if (lifecycle === undefined) return undefined;
             const sessionAccessor = {
-              get: (t: unknown) => (t === IAgentLifecycleService ? lifecycle : undefined),
+              get: (t: unknown) => {
+                if (t === IAgentLifecycleService) return lifecycle;
+                if (t === ISessionInteractionService) return lifecycle.interactions;
+                return undefined;
+              },
             };
             return { id: sid, kind: 1, accessor: sessionAccessor, dispose: () => {} };
           },
@@ -296,5 +305,152 @@ describe('SessionEventBroadcaster', () => {
   it('subscribe returns false for an unknown session', async () => {
     const { target } = collectingTarget();
     expect(await bc.subscribe('nope', target)).toBe(false);
+  });
+
+  it('broadcasts question requested / answered as durable v1 events', async () => {
+    const lc = new FakeLifecycle();
+    lc.addAgent('main');
+    sessions.set('s1', lc);
+    const { target, envelopes } = collectingTarget();
+    await bc.subscribe('s1', target);
+
+    lc.interactions.enqueue({
+      id: 'q1',
+      kind: 'question',
+      payload: {
+        toolCallId: 'call_1',
+        questions: [{ question: 'Pick one', options: [{ label: 'A' }, { label: 'B' }] }],
+      },
+    });
+    await bc.getCursor('s1');
+
+    expect(envelopes).toHaveLength(1);
+    expect(envelopes[0]).toMatchObject({
+      type: 'event.question.requested',
+      seq: 1,
+      session_id: 's1',
+      payload: {
+        type: 'event.question.requested',
+        agentId: 'main',
+        sessionId: 's1',
+        question_id: 'q1',
+        session_id: 's1',
+        tool_call_id: 'call_1',
+        questions: [{ id: 'q_0', question: 'Pick one', options: [{ id: 'opt_0_0', label: 'A' }, { id: 'opt_0_1', label: 'B' }] }],
+      },
+    });
+    expect(envelopes[0]!.volatile).toBeUndefined();
+
+    lc.interactions.respond('q1', { answers: { q_0: 'opt_0_0' }, method: 'enter' });
+    await bc.getCursor('s1');
+
+    expect(envelopes).toHaveLength(2);
+    expect(envelopes[1]).toMatchObject({
+      type: 'event.question.answered',
+      seq: 2,
+      session_id: 's1',
+      payload: {
+        question_id: 'q1',
+        answers: { q_0: 'opt_0_0' },
+      },
+    });
+    expect((envelopes[1]!.payload as { resolved_at?: string }).resolved_at).toBeTypeOf('string');
+  });
+
+  it('broadcasts question dismissed when resolved with null', async () => {
+    const lc = new FakeLifecycle();
+    lc.addAgent('main');
+    sessions.set('s1', lc);
+    const { target, envelopes } = collectingTarget();
+    await bc.subscribe('s1', target);
+
+    lc.interactions.enqueue({
+      id: 'q1',
+      kind: 'question',
+      payload: { questions: [{ question: 'Pick', options: [{ label: 'A' }] }] },
+    });
+    lc.interactions.respond('q1', null); // = ISessionQuestionService.dismiss
+    await bc.getCursor('s1');
+
+    expect(envelopes.map((e) => e.type)).toEqual([
+      'event.question.requested',
+      'event.question.dismissed',
+    ]);
+    expect(envelopes[1]!.payload).toMatchObject({ question_id: 'q1' });
+    expect((envelopes[1]!.payload as { dismissed_at?: string }).dismissed_at).toBeTypeOf('string');
+  });
+
+  it('broadcasts approval requested / resolved as durable v1 events', async () => {
+    const lc = new FakeLifecycle();
+    lc.addAgent('main');
+    sessions.set('s1', lc);
+    const { target, envelopes } = collectingTarget();
+    await bc.subscribe('s1', target);
+
+    lc.interactions.enqueue({
+      id: 'a1',
+      kind: 'approval',
+      payload: {
+        toolCallId: 'call_9',
+        toolName: 'Bash',
+        action: 'run',
+        display: { kind: 'command', command: 'ls' },
+      },
+      origin: { turnId: 3 },
+    });
+    await bc.getCursor('s1');
+
+    expect(envelopes).toHaveLength(1);
+    expect(envelopes[0]).toMatchObject({
+      type: 'event.approval.requested',
+      seq: 1,
+      session_id: 's1',
+      payload: {
+        approval_id: 'a1',
+        session_id: 's1',
+        turn_id: 3,
+        tool_call_id: 'call_9',
+        tool_name: 'Bash',
+        action: 'run',
+        tool_input_display: { kind: 'command', command: 'ls' },
+      },
+    });
+
+    lc.interactions.respond('a1', { decision: 'approved', scope: 'session' });
+    await bc.getCursor('s1');
+
+    expect(envelopes).toHaveLength(2);
+    expect(envelopes[1]).toMatchObject({
+      type: 'event.approval.resolved',
+      seq: 2,
+      session_id: 's1',
+      payload: {
+        approval_id: 'a1',
+        decision: 'approved',
+        scope: 'session',
+      },
+    });
+    expect((envelopes[1]!.payload as { resolved_at?: string }).resolved_at).toBeTypeOf('string');
+  });
+
+  it('does not re-announce interactions already pending at activation, but still broadcasts their resolution', async () => {
+    const lc = new FakeLifecycle();
+    lc.addAgent('main');
+    sessions.set('s1', lc);
+    // Pending before the session is activated — the snapshot covers it.
+    lc.interactions.enqueue({
+      id: 'q0',
+      kind: 'question',
+      payload: { questions: [{ question: 'Early', options: [{ label: 'A' }] }] },
+    });
+
+    const { target, envelopes } = collectingTarget();
+    await bc.subscribe('s1', target);
+    await bc.getCursor('s1');
+    expect(envelopes).toHaveLength(0);
+
+    lc.interactions.respond('q0', { answers: { q_0: 'opt_0_0' } });
+    await bc.getCursor('s1');
+    expect(envelopes.map((e) => e.type)).toEqual(['event.question.answered']);
   });
 });

@@ -10,7 +10,9 @@
  *   1. Subscribes to every agent's `IAgentWireService.onEmission` via
  *      `IAgentLifecycleService` reach-down-via-handle (and `onDidCreate` /
  *      `onDidDispose` for late agents); `record` emissions are persisted and not
- *      broadcast (see step 3).
+ *      broadcast (see step 3). Also subscribes to the session's
+ *      `ISessionInteractionService` and synthesizes the v1 approval/question
+ *      protocol events from pending-set changes and resolutions.
  *   2. Attaches `agentId`/`sessionId` to build the wire `Event`.
  *   3. Classifies durable vs volatile — `isVolatileSignal` for the agent
  *      wire-emission path (`isVolatileEventType` remains for the global/model path).
@@ -28,9 +30,12 @@
  */
 
 import type {
+  ApprovalResponse,
   DomainEvent,
   IAgentScopeHandle,
   IDisposable,
+  Interaction,
+  InteractionKind,
   ISessionScopeHandle,
   Scope,
   WireEmission,
@@ -39,6 +44,7 @@ import {
   IAgentLifecycleService,
   IAgentWireService,
   IEventService,
+  ISessionInteractionService,
   ISessionLifecycleService,
 } from '@moonshot-ai/agent-core-v2';
 import type {
@@ -49,6 +55,8 @@ import type {
 } from '@moonshot-ai/protocol';
 import { isVolatileEventType } from '@moonshot-ai/protocol';
 
+import { toWireApproval } from '../../../routes/approvals';
+import { toWireQuestion } from '../../../routes/questions';
 import { InFlightTurnTracker } from './inFlightTurnTracker';
 import {
   type EventEnvelope,
@@ -91,6 +99,8 @@ interface SessionState {
   /** agentId → sink subscription. */
   readonly agentDisposables: Map<string, IDisposable>;
   readonly lifecycleDisposables: IDisposable[];
+  /** Interactions already announced (or pre-existing at activation): id → kind. */
+  readonly knownInteractions: Map<string, InteractionKind>;
 }
 
 export const DEFAULT_MAX_BUFFER_SIZE = 1000;
@@ -211,9 +221,11 @@ export class SessionEventBroadcaster {
       queue: Promise.resolve(),
       agentDisposables: new Map(),
       lifecycleDisposables: [],
+      knownInteractions: new Map(),
     };
     this.sessions.set(sessionId, state);
     this.attachAgents(sessionId, session, state);
+    this.attachInteractions(sessionId, session, state);
     return state;
   }
 
@@ -234,6 +246,7 @@ export class SessionEventBroadcaster {
       queue: Promise.resolve(),
       agentDisposables: new Map(),
       lifecycleDisposables: [],
+      knownInteractions: new Map(),
     };
     this.sessions.set(GLOBAL_SESSION_ID, state);
     return state;
@@ -300,6 +313,49 @@ export class SessionEventBroadcaster {
     state.queue = state.queue
       .then(() => this.dispatch(state, event, isVolatileSignal(signal.type)))
       .catch(() => {});
+  }
+
+  /**
+   * Bridge the session's interaction kernel (approvals / questions) onto the
+   * v1 event stream. The kernel only emits in-process notifications
+   * (`onDidChangePending` / `onDidResolve`), so the v1 protocol events
+   * (`event.question.requested`, `event.approval.requested`, ...) are
+   * synthesized here — mirroring what v1's question/approval services
+   * published through the Core firehose.
+   */
+  private attachInteractions(
+    sessionId: string,
+    session: ISessionScopeHandle,
+    state: SessionState,
+  ): void {
+    const interactions = session.accessor.get(ISessionInteractionService);
+    // Seed silently: interactions already pending at activation are surfaced
+    // by the snapshot route (`pending_questions` / `pending_approvals`), so
+    // announcing them again would duplicate the snapshot.
+    for (const i of interactions.listPending()) {
+      state.knownInteractions.set(i.id, i.kind);
+    }
+    state.lifecycleDisposables.push(
+      interactions.onDidChangePending(() => {
+        for (const i of interactions.listPending()) {
+          if (state.knownInteractions.has(i.id)) continue;
+          state.knownInteractions.set(i.id, i.kind);
+          const event = interactionRequestedEvent(i, sessionId);
+          if (event !== undefined) this.enqueueDurable(state, event);
+        }
+      }),
+      interactions.onDidResolve(({ id, response }) => {
+        const kind = state.knownInteractions.get(id);
+        if (kind === undefined) return;
+        state.knownInteractions.delete(id);
+        const event = interactionResolvedEvent(kind, id, response, sessionId);
+        if (event !== undefined) this.enqueueDurable(state, event);
+      }),
+    );
+  }
+
+  private enqueueDurable(state: SessionState, event: Event): void {
+    state.queue = state.queue.then(() => this.dispatch(state, event, false)).catch(() => {});
   }
 
   private async dispatch(state: SessionState, event: Event, volatile: boolean): Promise<void> {
@@ -386,6 +442,85 @@ function isGlobalEvent(type: string): boolean {
     type.startsWith('event.config.') ||
     type.startsWith('event.model_catalog.')
   );
+}
+
+// ---------------------------------------------------------------------------
+// Interaction → v1 protocol event synthesis. Event names and payload shapes
+// mirror v1's question/approval services
+// (`packages/server/src/services/{question,approval}/*Service.ts`); the wire
+// request bodies are the same projections the REST/snapshot routes use.
+// ---------------------------------------------------------------------------
+
+function interactionRequestedEvent(interaction: Interaction, sessionId: string): Event | undefined {
+  const agentId = interaction.origin.agentId ?? 'main';
+  switch (interaction.kind) {
+    case 'question':
+      return {
+        type: 'event.question.requested',
+        agentId,
+        sessionId,
+        ...toWireQuestion(interaction, sessionId),
+      } as unknown as Event;
+    case 'approval':
+      return {
+        type: 'event.approval.requested',
+        agentId,
+        sessionId,
+        ...toWireApproval(interaction, sessionId),
+      } as unknown as Event;
+    default:
+      // 'user_tool' has no v1 protocol event.
+      return undefined;
+  }
+}
+
+function interactionResolvedEvent(
+  kind: InteractionKind,
+  id: string,
+  response: unknown,
+  sessionId: string,
+): Event | undefined {
+  const resolvedAt = new Date().toISOString();
+  switch (kind) {
+    case 'question': {
+      // `null` marks a dismissal (see `ISessionQuestionService.dismiss`).
+      if (response === null) {
+        return {
+          type: 'event.question.dismissed',
+          agentId: 'main',
+          sessionId,
+          question_id: id,
+          dismissed_at: resolvedAt,
+        } as unknown as Event;
+      }
+      // `QuestionResult` is either `{ answers, method? }` or a bare answers record.
+      const answers = (response as { answers?: unknown }).answers ?? response;
+      return {
+        type: 'event.question.answered',
+        agentId: 'main',
+        sessionId,
+        question_id: id,
+        answers,
+        resolved_at: resolvedAt,
+      } as unknown as Event;
+    }
+    case 'approval': {
+      const r = response as Partial<ApprovalResponse>;
+      return {
+        type: 'event.approval.resolved',
+        agentId: 'main',
+        sessionId,
+        approval_id: id,
+        decision: r.decision,
+        scope: r.scope,
+        feedback: r.feedback,
+        selected_label: r.selectedLabel,
+        resolved_at: resolvedAt,
+      } as unknown as Event;
+    }
+    default:
+      return undefined;
+  }
 }
 
 function modelCatalogChangedPayload(
