@@ -55,6 +55,7 @@ export * from '#/session/cron';
 
 export * from '#/session/agentLifecycle';
 export * from '#/app/sessionLifecycle';
+export * from '#/app/sessionExport';
 export * from '#/app/sessionLegacy';
 export * from '#/session/interaction';
 export * from '#/session/sessionContext';

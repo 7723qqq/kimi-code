@@ -27,6 +27,7 @@ package "App scope (process-wide)" #EAF3FB {
   rectangle "<b>filestore</b>\n<size:9><i>App</i></size>\n  IFileStore" as filestore #D6EAF8
   rectangle "<b>gateway</b>\n<size:9><i>App</i></size>\n  IRestGateway\n  IWSGateway" as gateway #D6EAF8
   rectangle "<b>sessionLifecycle</b>\n<size:9><i>App</i></size>\n  ISessionLifecycleService" as session_lifecycle #D6EAF8
+  rectangle "<b>sessionExport</b>\n<size:9><i>App</i></size>\n  ISessionExportService" as sessionExport #D6EAF8
   rectangle "<b>sessionIndex</b>\n<size:9><i>App</i></size>\n  ISessionIndex" as sessionIndex #D6EAF8
   rectangle "<b>hostFs</b>\n<size:9><i>App</i></size>\n  IHostFileSystem" as hostFs #D6EAF8
   rectangle "<b>workspaceRegistry</b>\n<size:9><i>App</i></size>\n  IWorkspaceRegistry" as workspaceRegistry #D6EAF8
@@ -115,6 +116,11 @@ sessionIndex --> storage #34495E
 session_lifecycle --> bootstrap #34495E
 session_lifecycle --> hostEnvironment #34495E
 session_lifecycle --> event #34495E
+sessionExport --> bootstrap #34495E
+sessionExport --> sessionIndex #34495E
+sessionExport --> session_lifecycle #34495E
+sessionExport --> workspaceRegistry #34495E
+sessionExport --> log #34495E
 hostFolderBrowser --> hostFs #34495E
 auth --> provider #34495E
 auth --> config #34495E

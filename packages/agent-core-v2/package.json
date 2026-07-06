@@ -83,6 +83,7 @@
     "ulid": "^3.0.1",
     "undici": "^7.27.1",
     "yauzl": "^3.3.0",
+    "yazl": "^3.3.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -95,6 +96,7 @@
     "@types/retry": "0.12.0",
     "@types/sinon": "^21.0.1",
     "@types/yauzl": "^2.10.3",
+    "@types/yazl": "^2.4.6",
     "@vitejs/plugin-react": "^4.4.1",
     "@xyflow/react": "^12.4.0",
     "react": "^19.1.0",

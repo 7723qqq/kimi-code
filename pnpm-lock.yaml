@@ -435,6 +435,9 @@ importers:
       yauzl:
         specifier: ^3.3.0
         version: 3.3.0
+      yazl:
+        specifier: ^3.3.1
+        version: 3.3.1
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -584,6 +587,9 @@ importers:
       '@types/yauzl':
         specifier: ^2.10.3
         version: 2.10.3
+      '@types/yazl':
+        specifier: ^2.4.6
+        version: 2.4.6
       '@vitejs/plugin-react':
         specifier: ^4.4.1
         version: 4.7.0(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))

@@ -25,6 +25,7 @@ import { PluginErrors } from '#/app/plugin/errors';
 import { ProfileErrors } from '#/agent/profile/errors';
 import { PromptErrors } from '#/agent/prompt/errors';
 import { PromptLegacyErrors } from '#/agent/promptLegacy/errors';
+import { SessionExportErrors } from '#/app/sessionExport/errors';
 import { SessionErrors } from '#/session/errors';
 import { SkillErrors } from '#/app/skillCatalog/errors';
 import { TerminalErrors } from '#/os/interface/terminalErrors';
@@ -49,6 +50,7 @@ export { PluginErrors } from '#/app/plugin/errors';
 export { ProfileErrors } from '#/agent/profile/errors';
 export { PromptErrors } from '#/agent/prompt/errors';
 export { PromptLegacyErrors } from '#/agent/promptLegacy/errors';
+export { SessionExportErrors } from '#/app/sessionExport/errors';
 export { SessionErrors } from '#/session/errors';
 export { SkillErrors } from '#/app/skillCatalog/errors';
 export { TerminalErrors } from '#/os/interface/terminalErrors';
@@ -74,6 +76,7 @@ export const ErrorCodes = {
   ...ProfileErrors.codes,
   ...PromptErrors.codes,
   ...PromptLegacyErrors.codes,
+  ...SessionExportErrors.codes,
   ...SessionErrors.codes,
   ...SkillErrors.codes,
   ...TerminalErrors.codes,

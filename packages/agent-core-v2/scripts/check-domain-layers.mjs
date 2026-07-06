@@ -171,6 +171,7 @@ const DOMAIN_LAYER = new Map([
   // L6 — coordination
   ['agentLifecycle', 6],
   ['sessionLifecycle', 6],
+  ['sessionExport', 6],
   ['interaction', 6],
   ['sessionMetadata', 6],
   ['sessionActivity', 6],
