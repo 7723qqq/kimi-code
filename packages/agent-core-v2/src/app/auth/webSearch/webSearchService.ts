@@ -1,30 +1,58 @@
 /**
  * `auth` domain (cross-cutting) — `IWebSearchProviderService` implementation.
  *
- * Holds the host-injected `WebSearchProvider` (a `MoonshotWebSearchProvider`
- * the host builds from the OAuth token) and exposes it to the `WebSearch` tool
- * through `IWebSearchProviderService`. Returns `undefined` when no provider is
- * bound so the `WebSearch` tool is skipped. Owns no tool registration — the
- * `WebSearch` tool self-registers via `registerTool(...)` and reads this
- * service from the Agent-scope accessor. Bound at App scope.
+ * Resolves the OAuth-backed `WebSearch` backend for the managed Kimi OAuth
+ * provider. When `managed:kimi-code` is configured with an `oauth` ref (the
+ * state after a successful Kimi login), this service builds a
+ * `MoonshotWebSearchProvider` whose bearer token comes from
+ * `IOAuthService.resolveTokenProvider(...)`; otherwise it yields `undefined`
+ * so the self-registering `WebSearch` tool stays hidden. Owns no tool
+ * registration — the `WebSearch` tool self-registers via `registerTool(...)`
+ * and reads this service from the Agent-scope accessor. Tests and hosts that
+ * need a custom backend bind `IWebSearchProviderService` directly. Bound at
+ * App scope.
  */
+
+import {
+  KIMI_CODE_PROVIDER_NAME,
+  kimiCodeBaseUrl,
+} from '@moonshot-ai/kimi-code-oauth';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { IOAuthService } from '#/app/auth/auth';
+import { IProviderService } from '#/app/provider/provider';
 
+import { MoonshotWebSearchProvider } from './providers/moonshot-web-search';
 import type { WebSearchProvider } from './tools/web-search';
-import { IWebSearchProviderService, type WebSearchProviderOptions } from './webSearch';
+import { IWebSearchProviderService } from './webSearch';
 
 export class WebSearchProviderService implements IWebSearchProviderService {
   declare readonly _serviceBrand: undefined;
-  private readonly provider: WebSearchProvider | undefined;
 
-  constructor(options: WebSearchProviderOptions = {}) {
-    this.provider = options.provider;
-  }
+  constructor(
+    @IProviderService private readonly providers: IProviderService,
+    @IOAuthService private readonly oauth: IOAuthService,
+  ) {}
 
   getWebSearchProvider(): WebSearchProvider | undefined {
-    return this.provider;
+    const provider = this.providers.get(KIMI_CODE_PROVIDER_NAME);
+    if (provider?.type !== 'kimi' || provider.oauth === undefined) {
+      return undefined;
+    }
+    const tokenProvider = this.oauth.resolveTokenProvider(
+      KIMI_CODE_PROVIDER_NAME,
+      provider.oauth,
+    );
+    if (tokenProvider === undefined) {
+      return undefined;
+    }
+    const baseUrl = `${(provider.baseUrl ?? kimiCodeBaseUrl()).replace(/\/+$/, '')}/search`;
+    return new MoonshotWebSearchProvider({
+      baseUrl,
+      tokenProvider,
+      customHeaders: provider.customHeaders,
+    });
   }
 }
 

@@ -12,6 +12,8 @@ import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IAuthSummaryService, IOAuthService, IOAuthToolkit } from '#/app/auth/auth';
 import { AuthSummaryService, OAuthService } from '#/app/auth/authService';
+import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
+import { WebSearchProviderService } from '#/app/auth/webSearch/webSearchService';
 import { AuthLegacyService, IAuthLegacyService } from '#/app/authLegacy';
 import { IConfigService } from '#/app/config/config';
 import { type DomainEvent, IEventService } from '#/app/event/event';
@@ -48,6 +50,7 @@ describe('OAuthService', () => {
   let ix: TestInstantiationService;
   let providers: Record<string, ProviderConfig>;
   let models: Record<string, ModelAlias>;
+  let services: Record<string, unknown> | undefined;
   let defaultModel: string | undefined;
   let defaultThinking: boolean | undefined;
   let toolkit: FakeToolkit;
@@ -68,6 +71,7 @@ describe('OAuthService', () => {
     };
     providerSet = vi.fn().mockResolvedValue(undefined);
     models = {};
+    services = undefined;
     defaultModel = undefined;
     defaultThinking = undefined;
     configSet = vi.fn().mockResolvedValue(undefined);
@@ -127,7 +131,7 @@ describe('OAuthService', () => {
   }
 
   function configBacking(): Record<string, unknown> {
-    return { providers, models, defaultModel, defaultThinking };
+    return { providers, models, services, defaultModel, defaultThinking };
   }
 
   it('startLogin resolves a device-code flow and flips to authenticated on success', async () => {
@@ -245,6 +249,85 @@ describe('OAuthService', () => {
       storage: 'file',
       key: 'oauth/kimi-code',
     });
+    expect(configReplace).toHaveBeenCalledWith('providers', {
+      [NON_OAUTH_PROVIDER]: { type: 'openai', apiKey: 'sk-test' },
+    });
+  });
+
+  it('logout removes managed provider models and dangling defaults', async () => {
+    models = {
+      'kimi-code/kimi-k2': {
+        provider: OAUTH_PROVIDER,
+        model: 'kimi-k2',
+        maxContextSize: 131072,
+      },
+      'custom-default': {
+        provider: NON_OAUTH_PROVIDER,
+        model: 'gpt-4o',
+        maxContextSize: 8192,
+      },
+    };
+    defaultModel = 'kimi-code/kimi-k2';
+    defaultThinking = true;
+    const svc = createService();
+
+    const result = await svc.logout(OAUTH_PROVIDER);
+
+    expect(result).toEqual({ logged_out: true, provider: OAUTH_PROVIDER });
+    expect(configReplace).toHaveBeenCalledWith('providers', {
+      [NON_OAUTH_PROVIDER]: { type: 'openai', apiKey: 'sk-test' },
+    });
+    expect(configReplace).toHaveBeenCalledWith('models', {
+      'custom-default': {
+        provider: NON_OAUTH_PROVIDER,
+        model: 'gpt-4o',
+        maxContextSize: 8192,
+      },
+    });
+    expect(configSet).toHaveBeenCalledWith('defaultModel', undefined);
+    expect(configSet).toHaveBeenCalledWith('defaultThinking', undefined);
+  });
+
+  it('logout removes managed web services while preserving unrelated services', async () => {
+    services = {
+      moonshotSearch: {
+        baseUrl: 'https://api.example.com/search',
+        apiKey: '',
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+      },
+      moonshotFetch: {
+        baseUrl: 'https://api.example.com/fetch',
+        apiKey: '',
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+      },
+      customService: {
+        baseUrl: 'https://service.example.com',
+      },
+    };
+    const svc = createService();
+
+    await expect(svc.logout(OAUTH_PROVIDER)).resolves.toEqual({
+      logged_out: true,
+      provider: OAUTH_PROVIDER,
+    });
+
+    expect(configReplace).toHaveBeenCalledWith('services', {
+      customService: {
+        baseUrl: 'https://service.example.com',
+      },
+    });
+  });
+
+  it('logout surfaces managed provider cleanup write failures', async () => {
+    const failure = new Error('config write failed');
+    configReplace.mockRejectedValueOnce(failure);
+    const svc = createService();
+
+    await expect(svc.logout(OAUTH_PROVIDER)).rejects.toThrow('config write failed');
+    expect(toolkit.logout).toHaveBeenCalledWith(OAUTH_PROVIDER, {
+      storage: 'file',
+      key: 'oauth/kimi-code',
+    });
   });
 
   it('status reports loggedIn based on the cached access token', async () => {
@@ -326,6 +409,112 @@ describe('OAuthService', () => {
         payload: result,
       },
     ]);
+  });
+});
+
+describe('WebSearchProviderService', () => {
+  let disposables: DisposableStore;
+  let ix: TestInstantiationService;
+  let providers: Record<string, ProviderConfig>;
+  let resolveTokenProvider: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+    providers = {};
+    resolveTokenProvider = vi
+      .fn()
+      .mockReturnValue({ getAccessToken: async () => 'access-token' });
+    ix = createServices(disposables, {
+      additionalServices: (reg) => {
+        reg.definePartialInstance(IProviderService, {
+          get: ((name: string) => providers[name]) as IProviderService['get'],
+        });
+        reg.definePartialInstance(IOAuthService, {
+          resolveTokenProvider:
+            resolveTokenProvider as unknown as IOAuthService['resolveTokenProvider'],
+        });
+        reg.define(IWebSearchProviderService, WebSearchProviderService);
+      },
+    });
+  });
+  afterEach(() => {
+    disposables.dispose();
+    vi.unstubAllGlobals();
+  });
+
+  function createService(): IWebSearchProviderService {
+    return ix.get(IWebSearchProviderService);
+  }
+
+  it('returns undefined when the managed provider is not configured', () => {
+    providers = { [NON_OAUTH_PROVIDER]: { type: 'openai', apiKey: 'sk-test' } };
+    expect(createService().getWebSearchProvider()).toBeUndefined();
+    expect(resolveTokenProvider).not.toHaveBeenCalled();
+  });
+
+  it('returns undefined when the managed provider is not an OAuth kimi provider', () => {
+    providers = { [OAUTH_PROVIDER]: { type: 'kimi', apiKey: 'sk-test' } };
+    expect(createService().getWebSearchProvider()).toBeUndefined();
+    expect(resolveTokenProvider).not.toHaveBeenCalled();
+  });
+
+  it('returns undefined when the oauth service yields no token provider', () => {
+    providers = {
+      [OAUTH_PROVIDER]: {
+        type: 'kimi',
+        baseUrl: 'https://api.example.com',
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+      },
+    };
+    resolveTokenProvider.mockReturnValue(undefined);
+    expect(createService().getWebSearchProvider()).toBeUndefined();
+  });
+
+  it('builds a search provider from the managed provider oauth ref', () => {
+    providers = {
+      [OAUTH_PROVIDER]: {
+        type: 'kimi',
+        baseUrl: 'https://api.example.com/v1',
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+      },
+    };
+    expect(createService().getWebSearchProvider()).not.toBeUndefined();
+    expect(resolveTokenProvider).toHaveBeenCalledWith(OAUTH_PROVIDER, {
+      storage: 'file',
+      key: 'oauth/kimi-code',
+    });
+  });
+
+  it('searches against /search with the OAuth access token and custom headers', async () => {
+    providers = {
+      [OAUTH_PROVIDER]: {
+        type: 'kimi',
+        baseUrl: 'https://api.example.com/v1/',
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+        customHeaders: { 'X-Custom': 'yes' },
+      },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      json: async () => ({
+        search_results: [{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = createService().getWebSearchProvider();
+    expect(provider).not.toBeUndefined();
+    const results = await provider!.search('hello', { limit: 2 });
+
+    expect(results).toEqual([
+      { title: 'Title', url: 'https://example.com', snippet: 'Snippet' },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.example.com/v1/search');
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Authorization']).toBe('Bearer access-token');
+    expect(headers['X-Custom']).toBe('yes');
   });
 });
 

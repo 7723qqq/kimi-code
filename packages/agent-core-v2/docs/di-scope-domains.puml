@@ -121,6 +121,7 @@ auth --> config #34495E
 auth --> bootstrap #34495E
 auth --> telemetry #34495E
 auth --> log #34495E
+auth --> event #34495E
 provider --> config #34495E
 flag --> bootstrap #34495E
 flag --> config #34495E

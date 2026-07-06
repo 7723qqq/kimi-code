@@ -21,6 +21,7 @@ import {
   kimiCodeBaseUrl,
   OAuthError,
   applyManagedKimiCodeConfig,
+  clearManagedKimiCodeConfig,
   fetchManagedKimiCodeModels,
   resolveKimiCodeOAuthRef,
   resolveKimiCodeRuntimeAuth,
@@ -55,6 +56,7 @@ const TERMINAL_RETENTION_MS = 5 * 60 * 1000;
 const DEFAULT_DEVICE_EXPIRES_IN_SEC = 15 * 60;
 const DEFAULT_MODEL_SECTION = 'defaultModel';
 const DEFAULT_THINKING_SECTION = 'defaultThinking';
+const SERVICES_SECTION = 'services';
 
 interface FlowState {
   readonly flowId: string;
@@ -68,6 +70,10 @@ interface FlowState {
   errorMessage: string | undefined;
   resolvedAt: string | undefined;
 }
+
+type ManagedKimiUserConfigShape = ManagedKimiConfigShape & {
+  defaultThinking?: boolean;
+};
 
 export class OAuthService extends Disposable implements IOAuthService {
   declare readonly _serviceBrand: undefined;
@@ -179,6 +185,7 @@ export class OAuthService extends Disposable implements IOAuthService {
     const oauthRef = this.readOAuthRefOptional(provider);
     const result = await this.toolkit.logout(provider, oauthRef);
     this.abortExisting(provider);
+    await this.deprovisionProvider(provider);
     return { logged_out: true, provider: result.providerName };
   }
 
@@ -289,15 +296,18 @@ export class OAuthService extends Disposable implements IOAuthService {
     return result;
   }
 
-  private readUserConfigShape(): ManagedKimiConfigShape {
+  private readUserConfigShape(): ManagedKimiUserConfigShape {
     const providers =
       this.config.inspect<Record<string, ProviderConfig>>(PROVIDERS_SECTION).userValue ?? {};
     const models = this.config.inspect<Record<string, ModelAlias>>(MODELS_SECTION).userValue ?? {};
+    const services =
+      this.config.inspect<ManagedKimiConfigShape['services']>(SERVICES_SECTION).userValue;
     const defaultModel = this.config.inspect<string>(DEFAULT_MODEL_SECTION).userValue;
     const defaultThinking = this.config.inspect<boolean>(DEFAULT_THINKING_SECTION).userValue;
     return {
       providers: { ...providers } as ManagedKimiConfigShape['providers'],
       models: { ...models } as ManagedKimiConfigShape['models'],
+      services: services === undefined ? undefined : { ...services },
       defaultModel,
       defaultThinking,
     };
@@ -355,6 +365,36 @@ export class OAuthService extends Disposable implements IOAuthService {
         provider,
         error: error instanceof Error ? error.message : String(error),
       });
+    }
+  }
+
+  private async deprovisionProvider(provider: string): Promise<void> {
+    if (provider !== KIMI_CODE_PROVIDER_NAME) return;
+    const next = structuredClone(this.readUserConfigShape());
+    const cleanup = clearManagedKimiCodeConfig(next);
+    if (
+      !cleanup.removedProvider &&
+      cleanup.removedModels.length === 0 &&
+      !cleanup.defaultModelCleared &&
+      cleanup.removedServices.length === 0
+    ) {
+      return;
+    }
+    if (cleanup.defaultModelCleared) {
+      next.defaultThinking = undefined;
+    }
+    if (cleanup.removedProvider) {
+      await this.config.replace(PROVIDERS_SECTION, next.providers);
+    }
+    if (cleanup.removedModels.length > 0) {
+      await this.config.replace(MODELS_SECTION, next.models ?? {});
+    }
+    if (cleanup.removedServices.length > 0) {
+      await this.config.replace(SERVICES_SECTION, next.services);
+    }
+    if (cleanup.defaultModelCleared) {
+      await this.config.set(DEFAULT_MODEL_SECTION, undefined);
+      await this.config.set(DEFAULT_THINKING_SECTION, undefined);
     }
   }
 
@@ -591,7 +631,7 @@ function restoreProviderAliases(
 }
 
 function restoreDefaultSelection(
-  config: ManagedKimiConfigShape,
+  config: ManagedKimiUserConfigShape,
   defaultModel: string | undefined,
   defaultThinking: boolean | undefined,
 ): void {
@@ -601,7 +641,7 @@ function restoreDefaultSelection(
   config.defaultThinking = capabilities.includes('always_thinking') ? true : defaultThinking;
 }
 
-function clampDanglingDefault(config: ManagedKimiConfigShape): void {
+function clampDanglingDefault(config: ManagedKimiUserConfigShape): void {
   if (config.defaultModel !== undefined && config.models?.[config.defaultModel] === undefined) {
     config.defaultModel = undefined;
     config.defaultThinking = undefined;
