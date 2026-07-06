@@ -53,7 +53,6 @@ export * from '#/app/sessionLegacy';
 export * from '#/session/interaction';
 export * from '#/session/sessionContext';
 export * from '#/session/sessionActivity';
-export * from '#/session/session';
 
 import '#/session/approval';
 export { ISessionApprovalService } from '#/session/approval';
