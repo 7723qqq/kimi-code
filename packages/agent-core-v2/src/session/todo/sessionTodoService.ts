@@ -4,16 +4,19 @@
  * Holds the session's shared in-memory todo list. Every mutation appends a
  * `todo.set` record to the main agent's wire (the single source of truth and
  * replayable timeline); on resume the main agent's wire replay runs the
- * `todo.set` resumer and rebuilds the in-memory list. Binds the `TodoListTool`
- * and the stale-todo reminder into every agent (`onDidCreate`), and the resume
- * resumer into the main agent (`onDidCreateMain`), borrowing each agent's
- * services through its `IAgentScopeHandle.accessor`. Per-agent bindings are
- * disposed when the agent is disposed. Bound at Session scope.
+ * `todo.set` resumer and rebuilds the in-memory list. Binds the stale-todo
+ * reminder into every agent (`onDidCreate`), and the resume resumer into the
+ * main agent (`onDidCreateMain`), borrowing each agent's services through its
+ * `IAgentScopeHandle.accessor`. Per-agent bindings are disposed when the agent
+ * is disposed. The `TodoListTool` itself is NOT bound here: it self-registers
+ * via `registerTool` and is instantiated per agent by `AgentBuiltinToolsRegistrar`
+ * (creating it from this Session-scope constructor would re-enter
+ * `ISessionTodoService` while it is still being constructed and trip a
+ * `sessionTodoService → sessionTodoService` cycle). Bound at Session scope.
  */
 
 import { Disposable, toDisposable, type IDisposable } from '#/_base/di';
 import { InstantiationType } from '#/_base/di/extensions';
-import { IInstantiationService } from '#/_base/di/instantiation';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
 
@@ -21,13 +24,11 @@ import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentRecordService } from '#/agent/record';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentLifecycleService } from '#/session/agentLifecycle';
 
 import { ISessionTodoService } from './sessionTodo';
 import { TODO_LIST_TOOL_NAME, type TodoItem } from './todoItem';
 import { TODO_LIST_REMINDER_VARIANT, todoListStaleReminder } from './todoListReminder';
-import { TodoListTool } from './tools/todo-list';
 
 declare module '#/agent/wireRecord' {
   interface WireRecordMap {
@@ -114,11 +115,6 @@ export class SessionTodoService extends Disposable implements ISessionTodoServic
   }
 
   private bindAgent(handle: IAgentScopeHandle): void {
-    const instantiation = handle.accessor.get(IInstantiationService);
-    const registry = handle.accessor.get(IAgentToolRegistryService);
-    const tool = instantiation.createInstance(TodoListTool);
-    this.trackAgentBinding(handle.id, registry.register(tool, { source: 'builtin' }));
-
     const injector = handle.accessor.get(IAgentContextInjectorService);
     this.trackAgentBinding(
       handle.id,

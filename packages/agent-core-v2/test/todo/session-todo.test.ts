@@ -209,7 +209,7 @@ describe('SessionTodoService', () => {
     expect(service.getTodos()).toEqual([{ title: 'x', status: 'pending' }]);
   });
 
-  it('binds the TodoList tool and reminder into every created agent', () => {
+  it('binds the stale-todo reminder into every created agent', () => {
     const lifecycle = makeLifecycleStub();
     const service = new SessionTodoService(lifecycle.service);
     void service;
@@ -219,9 +219,10 @@ describe('SessionTodoService', () => {
     lifecycle.fireCreate(main.handle);
     lifecycle.fireCreate(sub.handle);
 
-    expect(main.registeredTools).toContain('TodoListTool');
+    // The TodoList tool itself is contributed via `registerTool` and registered
+    // by the Agent-scope builtin-tools registrar — SessionTodoService only owns
+    // the per-agent reminder.
     expect(main.registeredVariants).toContain(TODO_LIST_REMINDER_VARIANT);
-    expect(sub.registeredTools).toContain('TodoListTool');
     expect(sub.registeredVariants).toContain(TODO_LIST_REMINDER_VARIANT);
   });
 
@@ -254,7 +255,7 @@ describe('SessionTodoService', () => {
     const main = makeFakeAgent('main');
     lifecycle.fireCreate(main.handle);
 
-    expect(main.registeredTools).toHaveLength(1);
+    expect(main.registeredVariants).toContain(TODO_LIST_REMINDER_VARIANT);
     // Disposal should not throw and should leave the service usable.
     expect(() => lifecycle.fireDispose('main')).not.toThrow();
     expect(service.getTodos()).toEqual([]);
