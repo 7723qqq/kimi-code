@@ -15,6 +15,7 @@ import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ILogService } from '#/_base/log';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle';
+import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentTurnService } from '#/agent/turn';
 
 import { IRestGateway, IWSGateway } from './gateway';

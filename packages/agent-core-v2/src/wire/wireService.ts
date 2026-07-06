@@ -20,7 +20,7 @@
 
 import type { IDisposable } from '#/_base/di/lifecycle';
 
-import type { DeepReadonly, ModelDef } from './model';
+import type { DeepReadonly, DerivedModelDef, ModelDef } from './model';
 import type { Op } from './op';
 import type { Signal } from './signal';
 
@@ -52,9 +52,10 @@ export interface IWireService {
   signal(signal: Signal): void;
   flush(): Promise<void>;
 
-  getModel<S>(model: ModelDef<S>): DeepReadonly<S>;
+  attach<S>(model: DerivedModelDef<S>): IDisposable;
+  getModel<S>(model: ModelDef<S> | DerivedModelDef<S>): DeepReadonly<S>;
   subscribe<S>(
-    model: ModelDef<S>,
+    model: ModelDef<S> | DerivedModelDef<S>,
     handler: (state: DeepReadonly<S>, prev: DeepReadonly<S>) => void,
   ): IDisposable;
   onEmission(handler: (emission: WireEmission) => void): IDisposable;

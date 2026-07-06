@@ -1,9 +1,7 @@
 /**
- * `replayBuilder` barrel — shared resume read-model types.
- *
- * Cross-domain types for the resume result consumed by the edge (`rpc` /
- * `core-api`): `ResumeSessionResult` / `ResumedAgentState` and the replay
- * record shapes they embed.
+ * `replayBuilder` barrel — shared resume read-model types and the
+ * `ReplayTimelineModel` derived wire model.
  */
 
+export * from './replayTimelineModel';
 export * from './types';

@@ -51,7 +51,7 @@ import { IAgentBlobService } from '#/agent/blob';
 import type { ContentPart } from '#/app/llmProtocol';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 
-import type { DeepReadonly, ModelDef, PartsRehydrator } from './model';
+import type { DeepReadonly, DerivedModelDef, ModelDef, PartsRehydrator } from './model';
 import type { Op } from './op';
 import { OP_REGISTRY } from './op';
 import type { Signal } from './signal';
@@ -94,11 +94,20 @@ interface ModelInstance {
   emitter: Emitter<ModelChange<any>>;
 }
 
+interface ReducerEntry {
+  readonly inst: ModelInstance;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly reducer: (state: any, payload: any) => any;
+}
+
 export class WireService extends Disposable implements IWireService {
   declare readonly _serviceBrand: undefined;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private readonly models = new Map<ModelDef<any>, ModelInstance>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private readonly derivedModels = new Map<DerivedModelDef<any>, ModelInstance>();
+  private readonly reducerIndex = new Map<string, ReducerEntry[]>();
   private readonly emissionEmitter = this._register(new Emitter<WireEmission>());
   private readonly restoredEmitter = this._register(new Emitter<void>());
 
@@ -118,15 +127,22 @@ export class WireService extends Disposable implements IWireService {
     }
   }
 
-  getModel<S>(model: ModelDef<S>): DeepReadonly<S> {
+  getModel<S>(model: ModelDef<S> | DerivedModelDef<S>): DeepReadonly<S> {
+    if ('reducers' in model) {
+      const inst = this.derivedModels.get(model);
+      return (inst?.state ?? Object.freeze(model.initial())) as DeepReadonly<S>;
+    }
     return this.ensureModel(model).state as DeepReadonly<S>;
   }
 
   subscribe<S>(
-    model: ModelDef<S>,
+    model: ModelDef<S> | DerivedModelDef<S>,
     handler: (state: DeepReadonly<S>, prev: DeepReadonly<S>) => void,
   ): IDisposable {
-    const inst = this.ensureModel(model);
+    const inst = 'reducers' in model
+      ? this.derivedModels.get(model)
+      : this.ensureModel(model);
+    if (inst === undefined) return { dispose: () => {} };
     return inst.emitter.event((change) =>
       handler(change.state as DeepReadonly<S>, change.prev as DeepReadonly<S>),
     );
@@ -138,6 +154,38 @@ export class WireService extends Disposable implements IWireService {
 
   onRestored(handler: () => void): IDisposable {
     return this.restoredEmitter.event(handler);
+  }
+
+  attach<S>(model: DerivedModelDef<S>): IDisposable {
+    const inst: ModelInstance = {
+      state: Object.freeze(model.initial()),
+      emitter: new Emitter<ModelChange<unknown>>(),
+    };
+    this._register(inst.emitter);
+    this.derivedModels.set(model, inst);
+
+    for (const opType of Object.keys(model.reducers)) {
+      let list = this.reducerIndex.get(opType);
+      if (list === undefined) {
+        list = [];
+        this.reducerIndex.set(opType, list);
+      }
+      list.push({ inst, reducer: model.reducers[opType]! });
+    }
+
+    return {
+      dispose: () => {
+        this.derivedModels.delete(model);
+        for (const [opType, list] of this.reducerIndex) {
+          const filtered = list.filter((e) => e.inst !== inst);
+          if (filtered.length === 0) {
+            this.reducerIndex.delete(opType);
+          } else if (filtered.length !== list.length) {
+            this.reducerIndex.set(opType, filtered);
+          }
+        }
+      },
+    };
   }
 
   dispatch(...ops: Op[]): void {
@@ -197,6 +245,17 @@ export class WireService extends Disposable implements IWireService {
       }
       if (inst.state !== prev) {
         changes.push({ inst, change: { state: inst.state, prev } });
+      }
+
+      const entries = this.reducerIndex.get(op.type);
+      if (entries !== undefined) {
+        for (const entry of entries) {
+          const dPrev = entry.inst.state;
+          entry.inst.state = Object.freeze(entry.reducer(dPrev, op.payload));
+          if (entry.inst.state !== dPrev) {
+            changes.push({ inst: entry.inst, change: { state: entry.inst.state, prev: dPrev } });
+          }
+        }
       }
     }
 
@@ -281,6 +340,11 @@ export class WireService extends Disposable implements IWireService {
         parts as readonly ContentPart[],
       ) as Promise<readonly unknown[]>;
     for (const [def, inst] of this.models) {
+      if (def.rehydrate === undefined) continue;
+      const result = def.rehydrate(inst.state, rehydrateParts);
+      inst.state = Object.freeze(isPromise(result) ? await result : result);
+    }
+    for (const [def, inst] of this.derivedModels) {
       if (def.rehydrate === undefined) continue;
       const result = def.rehydrate(inst.state, rehydrateParts);
       inst.state = Object.freeze(isPromise(result) ? await result : result);

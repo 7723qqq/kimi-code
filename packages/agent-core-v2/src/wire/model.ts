@@ -40,6 +40,14 @@ export interface ModelDef<S> {
   readonly rehydrate?: ModelRehydrateFn<S>;
 }
 
+export interface DerivedModelDef<S> {
+  readonly name: string;
+  readonly initial: () => S;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly reducers: Readonly<Record<string, (state: S, payload: any) => S>>;
+  readonly rehydrate?: ModelRehydrateFn<S>;
+}
+
 export function defineModel<S>(
   name: string,
   initial: () => S,
@@ -47,6 +55,16 @@ export function defineModel<S>(
 ): ModelDef<S> {
   return { name, initial, rehydrate: opts?.rehydrate };
 }
+
+export function defineDerivedModel<S>(
+  name: string,
+  initial: () => S,
+  reducers: Record<string, (state: S, payload: any) => S>,
+  opts?: { rehydrate?: ModelRehydrateFn<S> },
+): DerivedModelDef<S> {
+  return { name, initial, reducers, rehydrate: opts?.rehydrate };
+}
+
 
 export type DeepReadonly<T> = T extends (...args: infer A) => infer R
   ? (...args: A) => R
