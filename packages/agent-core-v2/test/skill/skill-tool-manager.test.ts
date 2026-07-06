@@ -14,7 +14,6 @@ import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import {
   InMemoryWireRecordPersistence,
   createTestAgent,
-  execEnvServices,
   skillServices,
   telemetryServices,
   wireRecordPersistenceServices,
@@ -394,7 +393,7 @@ describe('ToolManager SkillTool workspace refresh', () => {
     skills.register(skill);
 
     ctx = createTestAgent(
-      execEnvServices({ execContext: { cwd: workDir } }),
+      { cwd: workDir },
       skillServices(skills),
     );
     profile = ctx.get(IAgentProfileService);

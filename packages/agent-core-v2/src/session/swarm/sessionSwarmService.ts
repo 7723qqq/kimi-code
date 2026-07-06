@@ -30,7 +30,7 @@ import {
   IAgentLifecycleService,
   mirrorAgentRun,
 } from '#/session/agentLifecycle';
-import { IExecContext } from '#/session/execContext';
+import { ISessionContext } from '#/session/sessionContext';
 import { ISessionProcessRunner } from '#/session/process';
 import { ILogService } from '#/_base/log';
 
@@ -63,7 +63,7 @@ export class SessionSwarmService implements ISessionSwarmService {
   constructor(
     @IAgentLifecycleService private readonly lifecycle: IAgentLifecycleService,
     @IAgentProfileCatalogService private readonly catalog: IAgentProfileCatalogService,
-    @IExecContext private readonly execContext: IExecContext,
+    @ISessionContext private readonly sessionContext: ISessionContext,
     @ISessionProcessRunner private readonly processRunner: ISessionProcessRunner,
     @ILogService private readonly log: ILogService,
   ) {}
@@ -137,7 +137,7 @@ export class SessionSwarmService implements ISessionSwarmService {
       runInBackground: options.runInBackground,
     });
     const promptText = await applyProfilePromptPrefix(profile, options.prompt, {
-      cwd: this.execContext.cwd,
+      cwd: this.sessionContext.cwd,
       runner: this.processRunner,
       log: this.log,
     });

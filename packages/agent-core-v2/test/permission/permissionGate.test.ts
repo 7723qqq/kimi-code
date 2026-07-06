@@ -105,6 +105,7 @@ describe('AgentPermissionGate', () => {
           sessionDir: '/tmp/test-session',
           sessionScope: 'sessions/test-workspace/test-session',
           metaScope: 'sessions/test-workspace/test-session/session-meta',
+          cwd: '/tmp/test-session',
         }));
         reg.definePartialInstance(IAgentPlanService, {
           status: async () => null,

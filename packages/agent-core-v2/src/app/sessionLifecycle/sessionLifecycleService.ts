@@ -29,7 +29,6 @@ import { IEventService } from '#/app/event';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { createExecContext, execContextSeed } from '#/session/execContext';
 import { ISessionActivity } from '#/session/sessionActivity';
 import { ISessionIndex } from '#/app/sessionIndex';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
@@ -98,6 +97,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       workspaceId,
       sessionDir,
       metaScope,
+      cwd: opts.workDir,
       scope: (subKey?: string): string =>
         subKey === undefined || subKey === '' ? sessionScope : `${sessionScope}/${subKey}`,
     };
@@ -107,16 +107,12 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     // synchronously in their constructors, so the probe must have landed by
     // the time the first Session-scoped service is resolved.
     await this.hostEnv.ready;
-    const execCtx = createExecContext(opts.workDir);
     const handle = createScopedChildHandle(
       this.instantiation,
       LifecycleScope.Session,
       opts.sessionId,
       {
-        extra: [
-          ...sessionContextSeed(ctx),
-          ...execContextSeed(execCtx),
-        ],
+        extra: [...sessionContextSeed(ctx)],
       },
     ) as ISessionScopeHandle;
     this.sessions.set(opts.sessionId, handle);

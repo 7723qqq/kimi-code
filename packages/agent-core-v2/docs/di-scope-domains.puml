@@ -55,7 +55,6 @@ package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>workspaceContext</b>\n<size:9><i>Session</i></size>\n  IWorkspaceContext" as workspaceContext #D5F5E3
   rectangle "<b>sessionLog</b>\n<size:9><i>Session binding</i></size>\n  ILogService" as sessionLog #D5F5E3
   rectangle "<b>sessionSkillCatalog</b>\n<size:9><i>Session</i></size>\n  ISessionSkillCatalog\n  ISkillCatalogSink\n  Workspace/PluginSkillSource" as sessionSkillCatalog #D5F5E3
-  rectangle "<b>execContext</b>\n<size:9><i>Session</i></size>\n  IExecContext (seed)" as execContext #D5F5E3
   rectangle "<b>sessionFs</b>\n<size:9><i>Session</i></size>\n  ISessionFsService" as sessionFs #D5F5E3
   rectangle "<b>approval</b>\n<size:9><i>Session</i></size>\n  IApprovalService" as approval #D5F5E3
   rectangle "<b>question</b>\n<size:9><i>Session</i></size>\n  IQuestionService" as question #D5F5E3
@@ -135,16 +134,15 @@ modelCatalog --> provider #34495E
 modelCatalog --> model #34495E
 modelCatalog --> config #34495E
 modelCatalog --> auth #34495E
-workspaceContext --> execContext #34495E
+workspaceContext --> session_context #34495E
 sessionLog --> session_context #34495E
 sessionSkillCatalog --> skillCatalog #34495E
 sessionSkillCatalog --> plugin #34495E
 sessionSkillCatalog --> workspaceContext #34495E
 skillCatalog --> bootstrap #34495E
 sessionFs --> workspaceContext #34495E
-sessionFs --> execContext #34495E
 sessionFs --> process #34495E
-process --> execContext #34495E
+process --> session_context #34495E
 terminal_session --> terminal_app #34495E
 terminal_session --> workspaceContext #34495E
 terminal_session --> session_context #34495E
@@ -340,7 +338,7 @@ edit_app --> hostFs #34495E
 shellTools --> toolRegistry #34495E
 shellTools --> process #34495E
 shellTools --> hostEnvironment
-shellTools --> execContext #34495E
+shellTools --> session_context #34495E
 shellTools --> task #34495E
 web --> toolRegistry #34495E
 auth --> toolRegistry #34495E

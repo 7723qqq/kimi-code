@@ -29,7 +29,7 @@ import { resolveThinkingEffort } from './thinking';
 import type { LoopControl } from '#/agent/loop/configSection';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IExecContext } from '#/session/execContext';
+import { ISessionContext } from '#/session/sessionContext';
 import { isMcpToolName } from '#/agent/tool';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
@@ -82,7 +82,7 @@ export class AgentProfileService implements IAgentProfileService {
     @IModelResolver private readonly modelFactory: IModelResolver,
     @IHostEnvironment private readonly env: IHostEnvironment,
     @IHostFileSystem private readonly fs: IHostFileSystem,
-    @IExecContext private readonly execCtx: IExecContext,
+    @ISessionContext private readonly sessionContext: ISessionContext,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
     @IAgentProfileCatalogService private readonly catalog: IAgentProfileCatalogService,
@@ -195,7 +195,7 @@ export class AgentProfileService implements IAgentProfileService {
   async applyProfile(profile: ResolvedAgentProfile, options?: ApplyProfileOptions): Promise<void> {
     const context = await prepareSystemPromptContext(
       { fs: this.fs, homeDir: this.env.homeDir },
-      this.execCtx.cwd,
+      this.sessionContext.cwd,
       this.bootstrap.homeDir,
       {
         additionalDirs: options?.additionalDirs ?? this.workspace.additionalDirs,
@@ -401,7 +401,7 @@ export class AgentProfileService implements IAgentProfileService {
   }
 
   private async buildSystemPromptContext(cwd?: string): Promise<SystemPromptContext> {
-    const effectiveCwd = cwd ?? this.execCtx.cwd;
+    const effectiveCwd = cwd ?? this.sessionContext.cwd;
     const base = await prepareSystemPromptContext(
       { fs: this.fs, homeDir: this.env.homeDir },
       effectiveCwd,

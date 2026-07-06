@@ -23,6 +23,7 @@ function makeContext(): ISessionContext {
     sessionDir: '/tmp/sessions/wd_test/s1',
     sessionScope: 'sessions/wd_test/s1',
     metaScope: META_SCOPE,
+    cwd: '/tmp/sessions/wd_test/s1',
   });
 }
 

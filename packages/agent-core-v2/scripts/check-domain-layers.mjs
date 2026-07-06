@@ -63,12 +63,9 @@ const DOMAIN_LAYER = new Map([
   // `_base/event` `Emitter`. Foundational substrate that any domain may
   // publish/subscribe through, so it sits in L1 (not the edge boundary).
   ['event', 1],
-  // `execContext` is the Session-scope seeded immutable value (`cwd`,
-  // `envLayers`); same layer as the other low-level bridges.
-  ['execContext', 1],
   // `sessionContext` is the Session-scope seeded immutable facts value
-  // (`sessionId`/`workspaceId`/`sessionDir`/`metaScope`); like `execContext`
-  // it is a pure seed with no IO, so it sits in L1.
+  // (`sessionId`/`workspaceId`/`sessionDir`/`metaScope`/`cwd`); a pure seed
+  // with no IO, so it sits in L1.
   ['sessionContext', 1],
   // `git` is the App-scope `IGitService` that runs `git status` / `git diff`
   // against a local repo. Process spawning goes through `os/interface`

@@ -40,6 +40,7 @@ function stubSessionContext(sessionId = 'test-session'): ISessionContext {
     workspaceId: 'test-workspace',
     sessionDir: '/sessions/test',
     metaScope: 'sessions/test',
+    cwd: '/sessions/test',
     scope: (subKey?: string) => (subKey ? `sessions/test/${subKey}` : 'sessions/test'),
   };
 }

@@ -55,6 +55,7 @@ function testSessionSeed() {
     sessionDir,
     sessionScope: 'sessions/test-workspace/s1',
     metaScope: 'sessions/test-workspace/s1/session-meta',
+    cwd: sessionDir,
   }));
 }
 

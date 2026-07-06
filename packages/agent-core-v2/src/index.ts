@@ -62,7 +62,6 @@ export * from '#/app/gateway';
 
 export * from '#/session/workspaceContext';
 export * from '#/app/workspaceRegistry';
-export * from '#/session/execContext';
 export * from '#/session/process';
 export * from '#/session/sessionFs';
 export * from '#/app/hostFolderBrowser';

@@ -132,7 +132,6 @@ import {
   type ServiceIdentifier,
 } from '#/index';
 import type { ApprovalResponse } from '#/session/approval';
-import { IExecContext, createExecContext } from '#/session/execContext';
 import {
   ISessionInteractionService,
   type Interaction,
@@ -309,6 +308,7 @@ export interface TestAgentOptions {
     | undefined;
   readonly initialConfig?: Partial<KimiConfig> | undefined;
   readonly autoConfigure?: boolean | undefined;
+  readonly cwd?: string | undefined;
   readonly [key: string]: unknown;
 }
 
@@ -390,33 +390,25 @@ function defineServiceValue<T>(
   }
 }
 
-type ExecContextOverride = {
-  readonly cwd?: string;
-  readonly envLayers?: readonly Record<string, string>[];
-};
-
 /**
  * Session-scope override for the execution environment and derived atoms.
+ *
+ * The session cwd is controlled via `TestAgentOptions.cwd` (seeded into
+ * `ISessionContext.cwd`); this override only swaps the host-fs and process
+ * runner atoms that depend on it.
  */
 export interface ExecEnvOverride {
-  readonly execContext?: ExecContextOverride;
   readonly hostFs?: IHostFileSystem | Partial<IHostFileSystem>;
   readonly processRunner?: ISessionProcessRunner | Partial<ISessionProcessRunner>;
 }
 
 /**
  * Register a fake execution-environment set for a test session. Any
- * unspecified atom keeps the harness default `IExecContext` and the real
- * services backed by it.
+ * unspecified atom keeps the harness default and the real services backed by
+ * it.
  */
 export function execEnvServices(override: ExecEnvOverride = {}): TestAgentServiceOverride {
   return sessionServices((reg) => {
-    if (override.execContext !== undefined) {
-      reg.defineInstance(
-        IExecContext,
-        createExecContext(override.execContext.cwd ?? '/workspace', override.execContext.envLayers),
-      );
-    }
     if (override.hostFs !== undefined) {
       reg.defineInstance(IHostFileSystem, resolveHostFsOverride(override.hostFs));
     }
@@ -911,6 +903,7 @@ export class AgentTestContext {
 
   constructor(overrides: readonly TestAgentServiceOverride[] = [], options: TestAgentOptions = {}) {
     this.options = options;
+    if (options.cwd !== undefined) this.cwd = options.cwd;
     this.serviceOverrides = flattenServiceOverrides(overrides);
     this.emitter.on('error', () => {});
     this.kimiConfig = applyTestAgentOptionsToConfig(emptyConfig(), options);
@@ -985,13 +978,13 @@ export class AgentTestContext {
               workspaceId,
               sessionDir: bootstrap.sessionDir(workspaceId, sessionId),
               metaScope: `${sessionScope}/session-meta`,
+              cwd: this.cwd,
               scope: (subKey?: string): string =>
                 subKey === undefined || subKey === '' ? sessionScope : `${sessionScope}/${subKey}`,
             });
             reg.defineInstance(ISessionInteractionService, this.createInteractionService());
             reg.defineInstance(ISessionApprovalService, this.createApprovalService());
             reg.defineInstance(ISessionQuestionService, this.createQuestionService());
-            reg.defineInstance(IExecContext, createExecContext(this.cwd));
             // Note: the os `IHostFileSystem` (App scope) and `ISessionProcessRunner`
             // are auto-registered by their service files. Tests that need a fake
             // filesystem override it via `execEnvServices({ hostFs })`.
@@ -1502,9 +1495,8 @@ export class AgentTestContext {
     const profile = this.get(IAgentProfileService);
     const configSnapshot = structuredClone(this.get(IConfigService).getAll() as KimiConfig);
     const resumed = createTestAgent(
-      { autoConfigure: false },
+      { autoConfigure: false, cwd: profile.data().cwd },
       ...this.serviceOverrides,
-      createResumeNoSideEffectExecEnv(profile.data().cwd),
       configServices(() => configSnapshot),
       llmGenerateServices(failOnResumeGenerate),
       wireRecordPersistenceServices(
@@ -1896,14 +1888,6 @@ function createHostTerminalService(): IHostTerminalService {
 const failOnResumeGenerate: GenerateFn = async () => {
   throw new Error('Resume replay unexpectedly called the LLM');
 };
-
-function createResumeNoSideEffectExecEnv(initialCwd: string): TestAgentServiceOverride {
-  return execEnvServices({
-    execContext: { cwd: initialCwd },
-    // Any fs/process interaction during a resume replay is a bug — surface it
-    // loudly instead of silently no-oping.
-  });
-}
 
 function resumeStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot {
   const tasks = ctx.get(IAgentTaskService);

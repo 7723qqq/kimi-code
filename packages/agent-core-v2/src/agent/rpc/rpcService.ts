@@ -13,7 +13,6 @@ import { userCancellationReason } from '#/_base/utils/abort';
 import { IAgentPermissionGate } from '#/agent/permissionGate';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPlanService } from '#/agent/plan';
-import { IExecContext } from '#/session/execContext';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { expandCommandArguments, IPluginService } from '#/app/plugin';
 import { IAgentProfileService } from '#/agent/profile';
@@ -77,7 +76,6 @@ export class AgentRPCService implements IAgentRPCService {
     @IAgentFullCompactionService private readonly fullCompaction: IAgentFullCompactionService,
     @IAgentUserToolService private readonly userTools: IAgentUserToolService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
-    @IExecContext private readonly execContext: IExecContext,
     @IHostEnvironment private readonly hostEnv: IHostEnvironment,
     @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
