@@ -1,5 +1,5 @@
 /**
- * `agentFs` domain (L2) — wire-shaped filesystem operations.
+ * `sessionFs` domain (L2) — wire-shaped filesystem operations.
  *
  * Defines the `ISessionFsService` that backs the fs REST surface: content search,
  * content grep, and git status/diff. It orchestrates the os `IHostFileSystem`

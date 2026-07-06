@@ -98,7 +98,7 @@ const DOMAIN_LAYER = new Map([
   ['blob', 2],
   ['file', 2],
   ['config', 2],
-  ['agentFs', 2],
+  ['sessionFs', 2],
   ['process', 2],
   ['workspaceRegistry', 2],
   ['hostFolderBrowser', 2],
@@ -147,10 +147,11 @@ const DOMAIN_LAYER = new Map([
   ['microCompaction', 4],
   ['loop', 4],
   ['media', 4],
-  // `edit` owns the EditTool plus its pure TextModel / EditService and the
-  // os-backed FileEditService adapter. It is an Agent-entry tool that depends
-  // on the L3 tool contract / registry and the L1 host bridges, so it sits in
-  // L4 beside the other agent-behaviour tools.
+  // `edit` spans two scopes: the App-scope `IFileEditService` capability (pure
+  // TextModel / EditService + os-backed read/write over the L1 hostFs bridge)
+  // and the Agent-scope `EditTool` adapter (depends on the L3 tool contract /
+  // registry and the L1 host bridges). The Agent adapter's L3 dependencies pin
+  // the domain to L4 beside the other agent-behaviour tools.
   ['edit', 4],
   ['llmRequester', 4],
   ['profile', 4],
@@ -320,7 +321,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'filestore>persistence/backends',
   'process>os/backends',
   'terminal>os/backends',
-  'agentFs>os/backends',
+  'sessionFs>os/backends',
   'blobStore>persistence/backends',
 ]);
 

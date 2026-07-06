@@ -1,5 +1,5 @@
 /**
- * `agentFs` domain error codes.
+ * `sessionFs` domain error codes.
  */
 
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors';

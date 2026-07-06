@@ -1,5 +1,5 @@
 /**
- * `agentFs` domain — shared ripgrep (`rg`) binary locator.
+ * `sessionFs` domain — shared ripgrep (`rg`) binary locator.
  *
  * Single place that decides which `rg` the Glob and Grep paths run. The lookup
  * mirrors v1's `ensureRgPath` intent (bundled-or-system, graceful degradation)

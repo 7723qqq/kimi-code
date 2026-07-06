@@ -13,8 +13,8 @@ import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { IGitService } from '#/app/git';
 import { ErrorCodes, KimiError } from '#/errors';
 import { type HostDirEntry, IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { ISessionFsService } from '#/session/agentFs/fs';
-import { SessionFsService } from '#/session/agentFs/fsService';
+import { ISessionFsService } from '#/session/sessionFs/fs';
+import { SessionFsService } from '#/session/sessionFs/fsService';
 import { ISessionProcessRunner, type IProcess } from '#/session/process';
 import { ITelemetryService } from '#/app/telemetry';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
@@ -204,7 +204,7 @@ beforeEach(() => {
     ISessionFsService,
     SessionFsService,
     InstantiationType.Delayed,
-    'agentFs',
+    'sessionFs',
   );
 });
 

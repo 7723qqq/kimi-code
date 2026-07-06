@@ -8,7 +8,7 @@
  * place — `withCwd` / `withEnv` return derived contexts.
  *
  * Consumed by:
- *   - `session/agentFs` — the fs implementation resolves relative paths
+ *   - `session/sessionFs` — the fs implementation resolves relative paths
  *     against `cwd`
  *   - `session/process` — the process runner uses `cwd` and merges the env
  *     layers onto every spawn

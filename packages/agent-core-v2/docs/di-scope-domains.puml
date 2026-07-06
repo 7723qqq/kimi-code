@@ -35,6 +35,7 @@ package "App scope (process-wide)" #EAF3FB {
   rectangle "<b>hostProcess</b>\n<size:9><i>App</i></size>\n  IHostProcessService" as hostProcess #D6EAF8
   rectangle "<b>auth</b>\n<size:9><i>App</i></size>\n  IOAuthService\n  IAuthSummaryService\n  IWebSearchProviderService" as auth #D6EAF8
   rectangle "<b>web</b>\n<size:9><i>App</i></size>\n  IWebFetchService" as web #D6EAF8
+  rectangle "<b>edit</b>\n<size:9><i>App</i></size>\n  IFileEditService" as edit_app #D6EAF8
   rectangle "<b>provider</b>\n<size:9><i>App</i></size>\n  IProviderService" as provider #D6EAF8
   rectangle "<b>flag</b>\n<size:9><i>App</i></size>\n  IFlagService\n  IFlagRegistry" as flag #D6EAF8
   rectangle "<b>config</b>\n<size:9><i>App</i></size>\n  IConfigRegistry\n  IConfigService" as config #D6EAF8
@@ -55,7 +56,7 @@ package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>sessionLog</b>\n<size:9><i>Session binding</i></size>\n  ILogService" as sessionLog #D5F5E3
   rectangle "<b>sessionSkillCatalog</b>\n<size:9><i>Session</i></size>\n  ISessionSkillCatalog\n  ISkillCatalogSink\n  Workspace/PluginSkillSource" as sessionSkillCatalog #D5F5E3
   rectangle "<b>execContext</b>\n<size:9><i>Session</i></size>\n  IExecContext (seed)" as execContext #D5F5E3
-  rectangle "<b>agentFs</b>\n<size:9><i>Session</i></size>\n  IAgentFileSystem\n  IFsService" as agentFs #D5F5E3
+  rectangle "<b>sessionFs</b>\n<size:9><i>Session</i></size>\n  ISessionFsService" as sessionFs #D5F5E3
   rectangle "<b>approval</b>\n<size:9><i>Session</i></size>\n  IApprovalService" as approval #D5F5E3
   rectangle "<b>question</b>\n<size:9><i>Session</i></size>\n  IQuestionService" as question #D5F5E3
   rectangle "<b>process</b>\n<size:9><i>Session</i></size>\n  IProcessRunner\n  IProcess" as process #D5F5E3
@@ -102,7 +103,7 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>usage</b>\n<size:9><i>Agent</i></size>\n  IAgentUsageService" as usage #FDEBD0
   rectangle "<b>rpc</b>\n<size:9><i>Agent</i></size>\n  IAgentRPCService" as rpc #FDEBD0
   rectangle "<b>fileTools</b>\n<size:9><i>Agent</i></size>\n  Read/Write/Grep/Glob tools" as fileTools #FDEBD0
-  rectangle "<b>edit</b>\n<size:9><i>Agent</i></size>\n  EditTool\n  FileEditService" as edit #FDEBD0
+  rectangle "<b>edit</b>\n<size:9><i>Agent</i></size>\n  EditTool" as edit #FDEBD0
   rectangle "<b>shellTools</b>\n<size:9><i>Agent</i></size>\n  IAgentShellToolsService" as shellTools #FDEBD0
   rectangle "<b>scopeContext</b>\n<size:9><i>Agent</i></size>\n  IAgentScopeContext (seed)" as scopeContext #FDEBD0
 }
@@ -140,9 +141,9 @@ sessionSkillCatalog --> skillCatalog #34495E
 sessionSkillCatalog --> plugin #34495E
 sessionSkillCatalog --> workspaceContext #34495E
 skillCatalog --> bootstrap #34495E
-agentFs --> workspaceContext #34495E
-agentFs --> execContext #34495E
-agentFs --> process #34495E
+sessionFs --> workspaceContext #34495E
+sessionFs --> execContext #34495E
+sessionFs --> process #34495E
 process --> execContext #34495E
 terminal_session --> terminal_app #34495E
 terminal_session --> workspaceContext #34495E
@@ -229,7 +230,7 @@ permissionRules --> config #34495E
 plan --> contextMemory #34495E
 plan --> wireRecord #34495E
 plan --> record #34495E
-plan --> agentFs #34495E
+plan --> sessionFs #34495E
 plan --> profile #34495E
 plan --> record #34495E
 plan --> toolRegistry #34495E
@@ -332,9 +333,10 @@ fileTools --> hostProcess #34495E
 fileTools --> workspaceContext #34495E
 fileTools --> telemetry #34495E
 edit --> toolRegistry #34495E
-edit --> hostFs #34495E
+edit --> edit_app #34495E
 edit --> hostEnvironment #34495E
 edit --> workspaceContext #34495E
+edit_app --> hostFs #34495E
 shellTools --> toolRegistry #34495E
 shellTools --> process #34495E
 shellTools --> hostEnvironment

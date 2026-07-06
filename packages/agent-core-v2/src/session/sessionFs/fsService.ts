@@ -1,5 +1,5 @@
 /**
- * `agentFs` domain (L2) — `ISessionFsService` implementation.
+ * `sessionFs` domain (L2) — `ISessionFsService` implementation.
  *
  * Backs the fs REST surface (search / grep / git status / git diff) by
  * orchestrating the os `IHostFileSystem` (file IO, resolved against the
@@ -957,5 +957,5 @@ registerScopedService(
   ISessionFsService,
   SessionFsService,
   InstantiationType.Delayed,
-  'agentFs',
+  'sessionFs',
 );

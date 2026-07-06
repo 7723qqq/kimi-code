@@ -56,7 +56,7 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentRecordService private readonly record: IAgentRecordService,
-    @IHostFileSystem private readonly agentFs: IHostFileSystem,
+    @IHostFileSystem private readonly hostFs: IHostFileSystem,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -179,7 +179,7 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
     if (this.planId === null || this._planFilePath === null) return null;
     let content = '';
     try {
-      content = await this.agentFs.readText(this._planFilePath);
+      content = await this.hostFs.readText(this._planFilePath);
     } catch (error) {
       if (!isMissingFileError(error)) throw error;
     }
@@ -340,11 +340,11 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
 
   private async writeEmptyPlanFile(path: string): Promise<void> {
     await this.ensurePlanDirectory(path);
-    await this.agentFs.writeText(path, '');
+    await this.hostFs.writeText(path, '');
   }
 
   private async ensurePlanDirectory(path: string): Promise<void> {
-    await this.agentFs.mkdir(dirname(path), { recursive: true });
+    await this.hostFs.mkdir(dirname(path), { recursive: true });
   }
 
   private currentCwd(): string {

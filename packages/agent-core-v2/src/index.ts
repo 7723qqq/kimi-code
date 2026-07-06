@@ -37,8 +37,6 @@ import '#/app/flag';
 export * from '#/app/flag';
 
 import '#/agent/turn';
-import '#/agent/edit';
-export * from '#/agent/edit';
 export * from '#/agent/plan';
 export * from '#/agent/goal';
 export * from '#/agent/swarm';
@@ -67,7 +65,7 @@ export * from '#/session/workspaceContext';
 export * from '#/app/workspaceRegistry';
 export * from '#/session/execContext';
 export * from '#/session/process';
-export * from '#/session/agentFs';
+export * from '#/session/sessionFs';
 export * from '#/app/hostFolderBrowser';
 export * from '#/persistence/interface';
 export * from '#/persistence/backends/node-fs';
@@ -75,6 +73,7 @@ export * from '#/persistence/backends/memory';
 export * from '#/app/auth';
 export * from '#/app/authLegacy';
 export * from '#/app/file';
+export * from '#/app/edit';
 export * from '#/app/web';
 
 // Ported agent services. These keep the current service boundaries during the migration.

@@ -1,5 +1,5 @@
 /**
- * `agentFs` domain — shared ripgrep subprocess plumbing.
+ * `sessionFs` domain — shared ripgrep subprocess plumbing.
  *
  * Single place that knows how Glob spawns `rg` through the session
  * `ISessionProcessRunner`: timeout / abort handling, capped stdout / stderr
@@ -11,7 +11,7 @@
  * v2 `ISessionProcessRunner`. Grep keeps its own `runCommand` path in
  * `fsService` (it streams JSON and has a pure-node fallback); this helper is
  * shared in the sense that the previously inline Glob plumbing now lives in one
- * reusable module under the same `agentFs` domain as Grep's search code.
+ * reusable module under the same `sessionFs` domain as Grep's search code.
  */
 
 import type { Readable } from 'node:stream';

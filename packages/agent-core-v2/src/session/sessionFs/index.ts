@@ -1,5 +1,5 @@
 /**
- * `agentFs` domain barrel — re-exports the session fs facade (`ISessionFsService`)
+ * `sessionFs` domain barrel — re-exports the session fs facade (`ISessionFsService`)
  * and its helpers.
  */
 

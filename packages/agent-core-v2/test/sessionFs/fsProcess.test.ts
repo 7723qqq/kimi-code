@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { type IProcess, type ISessionProcessRunner } from '#/session/process';
 
-import { runCommand, type RunCommandOptions } from '#/session/agentFs/fsProcess';
+import { runCommand, type RunCommandOptions } from '#/session/sessionFs/fsProcess';
 
 interface FakeProcessOptions {
   readonly stdout?: string;
