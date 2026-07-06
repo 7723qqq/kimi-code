@@ -76,7 +76,7 @@ function createStore(
     IAgentScopeContext,
     makeAgentScopeContext({ agentId: 'test', agentScope: '' }),
   );
-  ix.set(IAgentBlobService, new SyncDescriptor(ctor, [{}]));
+  ix.set(IAgentBlobService, new SyncDescriptor(ctor));
   return ix.get(IAgentBlobService);
 }
 

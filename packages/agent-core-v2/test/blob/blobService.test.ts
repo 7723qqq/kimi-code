@@ -47,7 +47,7 @@ describe('AgentBlobServiceImpl', () => {
       ],
       [
         IAgentBlobService as ServiceIdentifier<unknown>,
-        new SyncDescriptor(AgentBlobServiceImpl, [{}]),
+        new SyncDescriptor(AgentBlobServiceImpl),
       ],
     ]);
     return agent.accessor.get(IAgentBlobService);
@@ -146,7 +146,7 @@ describe('AgentBlobServiceImpl', () => {
       ],
       [
         IAgentBlobService as ServiceIdentifier<unknown>,
-        new SyncDescriptor(AgentBlobServiceImpl, [{}]),
+        new SyncDescriptor(AgentBlobServiceImpl),
       ],
     ]);
     const store = agent.accessor.get(IAgentBlobService);

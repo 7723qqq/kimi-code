@@ -142,7 +142,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
           ],
           [IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{ homedir: agentHomedir }])],
           [IAgentWireService, new SyncDescriptor(WireService, [{ logScope: agentScope, logKey: WIRE_RECORD_FILENAME, blobSelector: contextBlobSelector }])],
-          [IAgentBlobService, new SyncDescriptor(AgentBlobServiceImpl, [{}])],
+          [IAgentBlobService, new SyncDescriptor(AgentBlobServiceImpl)],
           [
             IAgentMcpService,
             new SyncDescriptor(AgentMcpService, [
