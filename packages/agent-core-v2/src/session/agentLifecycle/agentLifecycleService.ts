@@ -17,6 +17,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter } from '#/_base/event';
+import { sessionMediaOriginalsDir } from '#/_base/tools/support/image-originals';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import {
   createScopedChildHandle,
@@ -30,8 +31,10 @@ import { IAgentProfileCatalogService } from '#/app/agentProfileCatalog';
 import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog';
 import { AgentMcpService, IAgentMcpService } from '#/agent/mcp';
 import { McpConnectionManager } from '#/agent/mcp/connection-manager';
+import { createMcpOAuthStore, McpOAuthService } from '#/agent/mcp/oauth';
 import { resolveSessionMcpConfig } from '#/agent/mcp/session-config';
 import { IPluginService } from '#/app/plugin';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionContext } from '#/session/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
@@ -87,6 +90,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     @IPluginService private readonly plugins: IPluginService,
     @ILogService private readonly log: ILogService,
     @IAgentProfileCatalogService private readonly catalog: IAgentProfileCatalogService,
+    @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
   ) {
     super();
   }
@@ -124,7 +128,15 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
           [IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{ homedir: agentHomedir }])],
           [IAgentWireService, new SyncDescriptor(WireService, [{ logScope: 'wire', logKey: wireRecordPersistKey(agentHomedir), blobSelector: contextBlobSelector }])],
           [IAgentBlobService, new SyncDescriptor(AgentBlobServiceImpl, [{}])],
-          [IAgentMcpService, new SyncDescriptor(AgentMcpService, [{ manager: this.getMcpManager() }])],
+          [
+            IAgentMcpService,
+            new SyncDescriptor(AgentMcpService, [
+              {
+                manager: this.getMcpManager(),
+                originalsDir: sessionMediaOriginalsDir(this.ctx.sessionDir),
+              },
+            ]),
+          ],
           // External hooks carries a leading static `options` param; the scoped
           // registry supplies none, so seed an empty one to satisfy the DI
           // contract (static args must fill the slots before the first `@IX`).
@@ -227,7 +239,14 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
    */
   private getMcpManager(): McpConnectionManager {
     if (this.mcpManager !== undefined) return this.mcpManager;
-    const manager = new McpConnectionManager({ log: this.log });
+    const oauthService = new McpOAuthService({
+      store: createMcpOAuthStore(this.atomicDocs),
+    });
+    const manager = new McpConnectionManager({
+      log: this.log,
+      oauthService,
+      stdioCwd: this.workspace.workDir,
+    });
     this.mcpManager = manager;
     this._register({ dispose: () => void manager.shutdown() });
     void this.connectMcpServers(manager).catch((error: unknown) => {

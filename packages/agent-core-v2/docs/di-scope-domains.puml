@@ -151,6 +151,7 @@ modelProvider --> config #34495E
 session_metadata --> session_context #34495E
 session_metadata --> storage #34495E
 session_metadata --> log #34495E
+agent_lifecycle --> storage #34495E
 session_activity --> agent_lifecycle #34495E
 session_activity --> interaction #34495E
 wireRecord --> blobStore #34495E

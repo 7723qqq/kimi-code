@@ -60,6 +60,11 @@ const defaultLog: Logger = {
 export interface McpConnectionManagerOptions {
   readonly envLookup?: (name: string) => string | undefined;
   /**
+   * Session workspace cwd for stdio MCP servers whose config omits `cwd`.
+   * Relative `cwd` values are resolved from this base, matching v1 Session MCP.
+   */
+  readonly stdioCwd?: string;
+  /**
    * Optional OAuth orchestrator. When provided, remote servers without a
    * static bearer token participate in the OAuth-via-synthetic-tool flow:
    *  - If `oauthService.hasTokens(name, url)` is true, the provider is
@@ -349,7 +354,7 @@ export class McpConnectionManager {
   private async createClient(config: McpServerConfig, name: string): Promise<RuntimeMcpClient> {
     const toolCallTimeoutMs = config.toolTimeoutMs;
     if (config.transport === 'stdio') {
-      return new StdioMcpClient(config, { toolCallTimeoutMs });
+      return new StdioMcpClient(config, { toolCallTimeoutMs, defaultCwd: this.options.stdioCwd });
     }
     if (config.transport === 'sse') {
       return new SseMcpClient(config, {

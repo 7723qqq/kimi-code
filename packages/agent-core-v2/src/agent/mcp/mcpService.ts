@@ -229,9 +229,10 @@ export class AgentMcpService extends Disposable implements IAgentMcpService {
       }
       seenInThisCall.set(qualified, tool.name);
       const disposable = this._register(
-        this.registry.register(createMcpTool(qualified, tool, client), {
-          source: 'mcp',
-        }),
+        this.registry.register(
+          createMcpTool(qualified, tool, client, { originalsDir: this.options.originalsDir }),
+          { source: 'mcp' },
+        ),
       );
       this.mcpTools.set(qualified, { disposable, serverName });
       qualifiedNames.push(qualified);
