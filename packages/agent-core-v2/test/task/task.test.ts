@@ -39,20 +39,6 @@ describe('TaskService', () => {
       expect(handle.state).toBe('failed');
     });
 
-    it('delivers output through onDidOutput', async () => {
-      const chunks: string[] = [];
-      const handle = svc.run(async (_signal, output) => {
-        output('hello');
-        output('world');
-      });
-      handle.onDidOutput((data) => chunks.push(data));
-      // Output fires synchronously within the executor, but the executor
-      // runs in a microtask. Wait for settlement.
-      await handle.result;
-      // The listener was registered after run() but the output calls happen
-      // within the same microtask — retest with pre-registered listener.
-    });
-
     it('delivers output to pre-registered listeners', async () => {
       const chunks: string[] = [];
       const handle = svc.run(async (_signal, output) => {
@@ -174,19 +160,6 @@ describe('TaskService', () => {
       // 'running' was already fired before listener was attached
     });
 
-    it('captures full transition sequence when listener is pre-registered', async () => {
-      const states: TaskState[] = [];
-      // Create the service fresh to attach listener before run
-      const handle = svc.run(async () => 'ok');
-      // We need to register before the microtask fires
-      handle.onDidChangeState((s) => states.push(s));
-      await handle.result;
-      // 'running' fires synchronously in the constructor, so by the time
-      // we register the listener it has already fired. 'completed' fires
-      // when the promise resolves.
-      expect(states).toEqual(['completed']);
-    });
-
     it('resolve/reject after settlement is ignored on deferred', () => {
       const states: TaskState[] = [];
       const handle = svc.defer<number>();
@@ -202,14 +175,14 @@ describe('TaskService', () => {
   // ── Four consumption patterns ─────────────────────────────
 
   describe('consumption patterns', () => {
-    it('sync: await handle.result', async () => {
+    it('resolves the value and completes when awaiting handle.result', async () => {
       const handle = svc.run(async () => 'value');
       const result = await handle.result;
       expect(result).toBe('value');
       expect(handle.state).toBe('completed');
     });
 
-    it('async: track by id, retrieve later', async () => {
+    it('resolves the value when a handle is tracked by id and awaited later', async () => {
       const registry = new Map<string, ITaskHandle>();
       const handle = svc.run(async () => {
         await new Promise((r) => setTimeout(r, 10));
@@ -223,7 +196,7 @@ describe('TaskService', () => {
       expect(result).toBe('async-result');
     });
 
-    it('sync→async: race against detach signal', async () => {
+    it('lets a detach signal win the race while the task keeps running', async () => {
       const detach = new Promise<'detach'>((r) => setTimeout(() => r('detach'), 5));
       const handle = svc.run(async (signal) => {
         await new Promise<void>((resolve) => {
@@ -247,7 +220,7 @@ describe('TaskService', () => {
       handle.cancel();
     });
 
-    it('async wait: reattach to existing handle', async () => {
+    it('resolves a deferred handle settled from outside the awaiting turn', async () => {
       const handle = svc.defer<string>();
 
       // Simulate resolving from a different "turn"

@@ -55,7 +55,7 @@ import {
 import { OrderedHookSlot } from '#/hooks';
 
 // The `full_compaction.*` record shapes stay declared in `WireRecordMap`
-// because the records still ride the shared `'wire'` log read by
+// because the records still ride the per-agent `wire.jsonl` log read by
 // `wireRecord.restore()` / `getRecords()`: `microCompaction` registers a
 // `full_compaction.complete` resumer against that stream. fullCompaction itself
 // no longer registers resumers here — its state rebuilds from the same log via
@@ -102,7 +102,6 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   declare readonly _serviceBrand: undefined;
   readonly hooks: IAgentFullCompactionService['hooks'] = {
     onWillCompact: new OrderedHookSlot<FullCompactionWillCompactContext>(),
-    onDidCompact: new OrderedHookSlot<FullCompactionDidCompactContext>(),
   };
 
   private readonly strategy: CompactionStrategy;
@@ -138,10 +137,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       new RuntimeCompactionStrategy(() => this.profile.resolveModelContext());
     this._register(this.wire.onRestored(() => this.normalizeAfterReplay()));
     this._register(
-      turnService.hooks.onLaunched.register('full-compaction-reset', async (_ctx, next) => {
-        this.resetForTurn();
-        await next();
-      }),
+      this.eventBus.subscribe('turn.started', () => this.resetForTurn()),
     );
     this._register(
       loopService.hooks.beforeStep.register('full-compaction', async (ctx, next) => {
@@ -342,11 +338,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       if (this.compacting !== active) return;
       this.lastCompactedTokenCount = finalResult.tokensAfter;
       this.markCompleted(completeData(finalResult));
-      this.eventBus.publish({ type: 'compaction.completed', result: finalResult });
-      void this.hooks.onDidCompact.run({
-        trigger: data.source,
-        estimatedTokenCount: finalResult.tokensAfter,
-      }).catch(() => undefined);
+      this.eventBus.publish({ type: 'compaction.completed', result: finalResult, trigger: data.source });
     } catch (error) {
       if (isAbortError(error)) return;
       const blockedByTurn = this.compacting === active && active.blockedByTurn;

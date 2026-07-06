@@ -565,7 +565,7 @@ describe('AgentTaskService', () => {
     });
   });
 
-  it('handles process stream errors before process wait settles', async () => {
+  it('fails the process task once wait settles after an earlier stream error', async () => {
     const { manager } = createAgentTaskService();
     const { proc, failStdout, resolveWait } = processWithStdoutErrorBeforeWait();
     const taskId = registerProcess(

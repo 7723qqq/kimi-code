@@ -166,7 +166,7 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
     });
   });
 
-  it('handles revision requests with feedback through plan resolution telemetry', async () => {
+  it('records a revise outcome with feedback and keeps plan mode active when the user requests changes', async () => {
     const exitPlanMode = vi.fn();
     const result = await makePolicy(exitPlanMode).evaluate(policyContext(planReviewDisplay()));
     if (result?.kind !== 'ask') throw new Error('expected ask');
@@ -194,7 +194,7 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
     });
   });
 
-  it('handles plain rejections without exiting plan mode', async () => {
+  it('keeps plan mode active and records a rejected outcome when the user rejects the plan', async () => {
     const exitPlanMode = vi.fn();
     const result = await makePolicy(exitPlanMode).evaluate(policyContext(planReviewDisplay()));
     if (result?.kind !== 'ask') throw new Error('expected ask');
@@ -215,7 +215,7 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
     });
   });
 
-  it('handles dismissed approval dialogs without exiting plan mode', async () => {
+  it('keeps plan mode active and records a dismissed outcome when the approval dialog is cancelled', async () => {
     const exitPlanMode = vi.fn();
     const result = await makePolicy(exitPlanMode).evaluate(policyContext(planReviewDisplay()));
     if (result?.kind !== 'ask') throw new Error('expected ask');
@@ -236,7 +236,7 @@ describe('ExitPlanModeReviewAskPermissionPolicyService telemetry', () => {
     });
   });
 
-  it('handles reject-and-exit and exits plan mode', async () => {
+  it('exits plan mode and records a rejected_and_exited outcome when the user chooses reject and exit', async () => {
     const exitPlanMode = vi.fn();
     const result = await makePolicy(exitPlanMode).evaluate(policyContext(planReviewDisplay()));
     if (result?.kind !== 'ask') throw new Error('expected ask');

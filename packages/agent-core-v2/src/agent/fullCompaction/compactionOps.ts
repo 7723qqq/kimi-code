@@ -33,9 +33,9 @@
  * interface-merge (`error` is already declared by `mcp`, so it is not
  * re-declared). The `full_compaction.*` record shapes stay declared in
  * `WireRecordMap` (see `fullCompactionService.ts`) because the records still
- * ride the shared `'wire'` log read by `wireRecord.restore()` / `getRecords()`
- * — `microCompaction` registers a `full_compaction.complete` resumer against
- * that stream. Consumed by the Agent-scope `fullCompactionService`.
+ * ride the per-agent `wire.jsonl` log read by `wireRecord.restore()` /
+ * `getRecords()` — `microCompaction` registers a `full_compaction.complete`
+ * resumer against that stream. Consumed by the Agent-scope `fullCompactionService`.
  */
 
 import type {
@@ -47,7 +47,7 @@ import type {
 import { defineModel, defineOp } from '#/wire';
 
 import type { FullCompactionCompleteData } from './fullCompaction';
-import type { CompactionBeginData } from './types';
+import type { CompactionBeginData, CompactionSource } from './types';
 
 export type CompactionPhase = 'idle' | 'running' | 'cancelled' | 'completed';
 
@@ -64,7 +64,7 @@ declare module '#/app/event/eventBus' {
     'compaction.started': Omit<CompactionStartedEvent, 'type'>;
     'compaction.blocked': Omit<CompactionBlockedEvent, 'type'>;
     'compaction.cancelled': Omit<CompactionCancelledEvent, 'type'>;
-    'compaction.completed': Omit<CompactionCompletedEvent, 'type'>;
+    'compaction.completed': Omit<CompactionCompletedEvent, 'type'> & { readonly trigger: CompactionSource };
   }
 }
 

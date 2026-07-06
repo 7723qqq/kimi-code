@@ -18,7 +18,6 @@ import {
   AgentContextMemoryService,
   contextBlobSelector,
   ContextModel,
-  contextAppendLoopEvent,
   contextAppendMessage,
   contextApplyCompaction,
   contextClear,
@@ -214,11 +213,6 @@ describe('AgentContextMemoryService (wire-backed)', () => {
     expect(model()).not.toBe(prev);
     expect(model()).toHaveLength(0);
 
-    prev = model();
-    host.wire.dispatch(contextAppendLoopEvent({ message: userMessage('d') }));
-    expect(model()).not.toBe(prev);
-    expect(model()).toHaveLength(1);
-
     await host.wire.flush();
     const records = await readRecords(host.log);
     expect(records.every((record) => 'payload' in record === false)).toBe(true);
@@ -228,7 +222,6 @@ describe('AgentContextMemoryService (wire-backed)', () => {
       'context.undo',
       'context.apply_compaction',
       'context.clear',
-      'context.append_loop_event',
     ]);
   });
 

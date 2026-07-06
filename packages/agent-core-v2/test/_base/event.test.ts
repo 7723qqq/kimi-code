@@ -48,7 +48,7 @@ describe('Emitter / Event', () => {
     emitter.dispose();
   });
 
-  it('thisArg binds the listener correctly', () => {
+  it('binds thisArg so the listener sees the supplied context', () => {
     const emitter = new Emitter<string>();
     const context = { tag: 'ctx', got: [] as string[] };
 

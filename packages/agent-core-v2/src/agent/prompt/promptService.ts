@@ -8,7 +8,9 @@ import {
   type ContextMessage,
 } from '#/agent/contextMemory';
 import { IAgentLoopService } from '#/agent/loop';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IAgentTurnService, type Turn } from '#/agent/turn';
+import type { ExecutableToolResult, ToolDidExecuteContext } from '#/agent/tool';
 import { OrderedHookSlot } from '#/hooks';
 import {
   IAgentPromptService,
@@ -35,6 +37,7 @@ export class AgentPromptService implements IAgentPromptService {
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
     @IAgentLoopService loopService: IAgentLoopService,
+    @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
   ) {
     loopService.hooks.beforeStep.register('prompt-service-steer-before-step', async (_ctx, next) => {
       this.flushSteerQueue();
@@ -44,6 +47,10 @@ export class AgentPromptService implements IAgentPromptService {
       if (this.flushSteerQueue()) {
         ctx.continue = true;
       }
+      await next();
+    });
+    toolExecutor.hooks.onDidExecuteTool.register('prompt-service-delivery', async (ctx, next) => {
+      await this.deliverToolResult(ctx);
       await next();
     });
   }
@@ -77,6 +84,29 @@ export class AgentPromptService implements IAgentPromptService {
     };
   }
 
+  private async deliverToolResult(ctx: ToolDidExecuteContext): Promise<void> {
+    const delivery = ctx.result.delivery;
+    if (delivery === undefined) return;
+
+    // Consume the side channel: strip it from the result so it never reaches the
+    // loop / persistence, then perform the declared delivery here on the agent
+    // (L4) side where `steer` lives (the L3 executor only threads it through).
+    const { delivery: _consumed, ...rest } = ctx.result;
+    ctx.result = rest as ExecutableToolResult;
+
+    switch (delivery.kind) {
+      case 'steer':
+        // The tool built a full user `ContextMessage`; the L3 contract carries it
+        // as an opaque `ToolDeliveryMessage`, so restore the type at the L4 edge.
+        await this.steer(delivery.message as ContextMessage).launched;
+        return;
+      default: {
+        const _exhaustive: never = delivery.kind;
+        void _exhaustive;
+      }
+    }
+  }
+
   retry(trigger?: string): Turn | undefined {
     return this.launch();
   }
@@ -84,26 +114,7 @@ export class AgentPromptService implements IAgentPromptService {
   undo(count: number): number {
     if (count <= 0) return 0;
 
-    const history = this.context.get();
-    let removedCount = 0;
-    let stoppedAtCompaction = false;
-    for (let index = history.length - 1; index >= 0 && removedCount < count; index--) {
-      const message = history[index];
-      if (message === undefined || message.origin?.kind === 'injection') continue;
-      if (message.origin?.kind === 'compaction_summary') {
-        stoppedAtCompaction = true;
-        break;
-      }
-
-      this.context.splice(index, 1, []);
-      if (isRealUserPrompt(message)) {
-        removedCount++;
-      }
-    }
-
-    // `undo` is only ever invoked live (user / RPC); the legacy `context.undo`
-    // record is migrated to `context.splice` and replayed by contextMemory, so
-    // this method never runs during restore and needs no restoring-phase guard.
+    const { removedCount, stoppedAtCompaction } = this.context.undo(count);
     if (removedCount < count) {
       throw new KimiError(
         ErrorCodes.REQUEST_INVALID,
@@ -123,14 +134,11 @@ export class AgentPromptService implements IAgentPromptService {
 
   clear(): void {
     this.discardQueuedSteers();
-    const historyLength = this.context.get().length;
-    if (historyLength > 0) {
-      this.context.splice(0, historyLength, []);
-    }
+    this.context.clear();
   }
 
   private append(...messages: ContextMessage[]): void {
-    this.context.splice(this.context.get().length, 0, messages);
+    this.context.append(...messages);
   }
 
   private launch(): Turn {
@@ -205,16 +213,6 @@ function steerAlreadyEmittedError(): KimiError {
     ErrorCodes.REQUEST_INVALID,
     'Cannot remove a steer after it has been emitted',
     { details: { reason: 'steer_already_emitted' } },
-  );
-}
-
-function isRealUserPrompt(message: ContextMessage): boolean {
-  if (message.role !== 'user') return false;
-  const origin = message.origin;
-  if (origin === undefined || origin.kind === 'user') return true;
-  return (
-    (origin.kind === 'skill_activation' || origin.kind === 'plugin_command') &&
-    origin.trigger === 'user-slash'
   );
 }
 

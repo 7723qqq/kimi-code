@@ -6,10 +6,12 @@ import { IAgentLoopService } from '#/agent/loop';
 import { AgentPromptService, IAgentPromptService } from '#/agent/prompt';
 import type { PromptSubmitContext } from '#/agent/prompt';
 import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
+import type { ToolDidExecuteContext } from '#/agent/tool';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IAgentTurnService, type Turn } from '#/agent/turn';
 
 import { stubContextMemory } from '../contextMemory/stubs';
-import { stubLoopWithHooks, stubTurn } from '../turn/stubs';
+import { stubLoopWithHooks, stubToolExecutor, stubTurn } from '../turn/stubs';
 
 function userMessage(text: string, origin: ContextMessage['origin']): ContextMessage {
   return {
@@ -27,12 +29,14 @@ function createHarness(options: { readonly hasActiveTurn?: boolean } = {}) {
   const context = stubContextMemory();
   const loop = stubLoopWithHooks();
   const turn = stubTurn({ hasActiveTurn: options.hasActiveTurn });
+  const toolExecutor = stubToolExecutor();
   const ix = createServices(disposables, {
     strict: true,
     additionalServices: (reg) => {
       reg.defineInstance(IAgentContextMemoryService, context);
       reg.defineInstance(IAgentTurnService, turn);
       reg.defineInstance(IAgentLoopService, loop);
+      reg.defineInstance(IAgentToolExecutorService, toolExecutor);
       reg.define(IAgentPromptService, AgentPromptService);
     },
   });
@@ -41,6 +45,7 @@ function createHarness(options: { readonly hasActiveTurn?: boolean } = {}) {
     context,
     loop,
     prompt: ix.get(IAgentPromptService),
+    toolExecutor,
     turn,
   };
 }
@@ -150,5 +155,50 @@ describe('AgentPromptService', () => {
     expect(result).toBeUndefined();
     expect(turn.launches).toEqual([]);
     expect(context.messages).toHaveLength(1);
+  });
+
+  it('delivers a declared steer through onDidExecuteTool and strips delivery', async () => {
+    const { context, loop, turn, toolExecutor } = createHarness({ hasActiveTurn: true });
+    const activeTurn = turn.launch();
+
+    const origin = {
+      kind: 'skill_activation',
+      activationId: 'a1',
+      skillName: 'commit',
+      trigger: 'model-tool',
+    } as const;
+    const didCtx: ToolDidExecuteContext = {
+      turnId: activeTurn.id,
+      signal: activeTurn.abortController.signal,
+      toolCall: { type: 'function', id: 'call_skill', name: 'Skill', arguments: '{}' },
+      toolCalls: [],
+      args: {},
+      result: {
+        output: 'ack',
+        delivery: {
+          kind: 'steer',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'injected skill body' }],
+            toolCalls: [],
+            origin,
+          },
+        },
+      },
+    };
+
+    await toolExecutor.hooks.onDidExecuteTool.run(didCtx);
+
+    // The hook consumes the side channel so it never reaches the loop/persistence.
+    expect(didCtx.result.delivery).toBeUndefined();
+
+    await flushSteers(loop, activeTurn);
+    expect(context.messages.map((message) => message.content[0])).toMatchObject([
+      { type: 'text', text: 'injected skill body' },
+    ]);
+    expect(context.messages[0]?.origin).toMatchObject({
+      kind: 'skill_activation',
+      skillName: 'commit',
+    });
   });
 });

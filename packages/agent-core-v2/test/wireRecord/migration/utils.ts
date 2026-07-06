@@ -1,5 +1,4 @@
 import {
-  applyWireMigrations,
   type WireMigration,
   type WireMigrationRecord,
 } from '#/agent/wireRecord/migration';
@@ -10,15 +9,6 @@ export function runMigration(
   records: readonly WireMigrationRecord[],
 ) {
   return wireSnapshot(records.map((record) => migrateRecord(migration, record)));
-}
-
-export function runMigrationRecords(
-  migration: WireMigration,
-  records: readonly WireMigrationRecord[],
-) {
-  return wireSnapshot(
-    applyWireMigrations(records, [migration]).map((record) => updateMetadata(migration, record)),
-  );
 }
 
 function migrateRecord(
