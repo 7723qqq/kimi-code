@@ -193,7 +193,17 @@ export interface CompactionMarkerMetadata {
 // Prompt
 // ---------------------------------------------------------------------------
 
-export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+/**
+ * Runtime thinking level. 'off' disables extended thinking; 'on' is the
+ * enable signal for legacy boolean models (those without `support_efforts`);
+ * any other string is a model-declared effort level (e.g. 'low'/'high'/'max').
+ *
+ * `support_efforts` is the single source of truth for which concrete levels a
+ * model accepts; providers silently drop unknown efforts rather than erroring.
+ * Collapses to `string` at runtime — this is a semantic marker, not a closed
+ * enum. Mirrors kosong's `ThinkingEffort`.
+ */
+export type ThinkingLevel = 'off' | 'on' | (string & {});
 
 export interface PromptSubmission {
   content: AppMessageContent[];
@@ -550,6 +560,11 @@ export interface AppModel {
   maxContextSize: number;
   /** Optional capability tags (e.g. ["vision", "thinking"]) */
   capabilities?: string[];
+  /** Effort levels this model supports for extended thinking (e.g. ["low", "high", "max"]).
+      Sourced from the model catalog (managed) or config [models.<id>.overrides]. */
+  supportEfforts?: readonly string[];
+  /** Catalog-declared default effort for extended thinking. */
+  defaultEffort?: string;
 }
 
 export interface AppProvider {
@@ -629,8 +644,8 @@ export interface AppSessionWarning {
 
 export interface KimiWebApi {
   getHealth(): Promise<{ status: 'ok'; uptimeSec: number }>;
-  getMeta(): Promise<{ serverVersion: string; serverId: string; startedAt: string; capabilities: Record<string, boolean>; openInApps: string[] }>;
-  listSessions(input?: PageRequest & { status?: AppSessionStatus; workspaceId?: string; includeArchive?: boolean; excludeEmpty?: boolean }): Promise<Page<AppSession>>;
+  getMeta(): Promise<{ serverVersion: string; serverId: string; startedAt: string; capabilities: Record<string, boolean>; openInApps: string[]; dangerousBypassAuth: boolean }>;
+  listSessions(input?: PageRequest & { status?: AppSessionStatus; workspaceId?: string; includeArchive?: boolean; archivedOnly?: boolean; excludeEmpty?: boolean }): Promise<Page<AppSession>>;
   createSession(input: { title?: string; cwd?: string; model?: string; workspaceId?: string }): Promise<AppSession>;
   /** Fetch one session by id (deep links beyond the first listSessions page). */
   getSession(sessionId: string): Promise<AppSession>;
@@ -638,6 +653,7 @@ export interface KimiWebApi {
   getSessionStatus(sessionId: string): Promise<AppSessionRuntimeStatus>;
   getSessionWarnings(sessionId: string): Promise<AppSessionWarning[]>;
   archiveSession(sessionId: string): Promise<{ archived: true }>;
+  restoreSession(sessionId: string): Promise<AppSession>;
   listMessages(sessionId: string, input?: PageRequest & { role?: AppMessageRole }): Promise<Page<AppMessage>>;
   /** v2 initial sync: atomic session state + `asOfSeq` watermark + epoch. */
   getSessionSnapshot(sessionId: string): Promise<AppSessionSnapshot>;
@@ -660,6 +676,8 @@ export interface KimiWebApi {
   respondQuestion(sessionId: string, questionId: string, response: QuestionResponse): Promise<{ resolved: true; resolvedAt: string }>;
   dismissQuestion(sessionId: string, questionId: string): Promise<{ dismissed: true; dismissedAt: string }>;
   listSkills(sessionId: string): Promise<AppSkill[]>;
+  /** List skills for a workspace (no session required) — GET /workspaces/{id}/skills. */
+  listSkillsForWorkspace(workspaceId: string): Promise<AppSkill[]>;
   activateSkill(sessionId: string, skillName: string, args?: string): Promise<{ activated: true; skillName: string }>;
   listTasks(sessionId: string, status?: AppTaskStatus): Promise<AppTask[]>;
   getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number }): Promise<AppTask>;
@@ -702,6 +720,8 @@ export interface KimiWebApi {
   // File upload / download
   uploadFile(input: { file: Blob; name?: string }): Promise<{ id: string; name: string; mediaType: string; size: number }>;
   getFileUrl(fileId: string): string;
+  /** Fetch a file's bytes with auth — feed the resulting Blob to a blob URL for <video>/<img> src. */
+  getFileBlob(fileId: string): Promise<Blob>;
 
   // Config — REAL endpoints
   getConfig(): Promise<AppConfig>;
