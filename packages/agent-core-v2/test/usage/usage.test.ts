@@ -123,7 +123,7 @@ describe('AgentUsageService (wire-backed)', () => {
 
     const records = await readRecords();
     expect(records).toEqual([
-      { type: 'usage.record', model: 'model-a', usage: a1, time: expect.any(Number) },
+      { type: 'usage.record', model: 'model-a', usage: a1 },
     ]);
     expect('payload' in records[0]!).toBe(false);
   });

@@ -1,12 +1,12 @@
 import type { ModelCapability } from '#/app/llmProtocol';
-import type { ChatProvider } from '#/app/llmProtocol/provider';
+import type { Model } from '#/app/model';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   applyCompletionBudget,
   computeCompletionBudgetCap,
   resolveCompletionBudget,
-} from '#/_base/utils/completion-budget';
+} from '#/app/model/completionBudget';
 
 function makeCapability(maxContextTokens: number): ModelCapability {
   return {
@@ -65,25 +65,25 @@ describe('computeCompletionBudgetCap', () => {
 
 describe('applyCompletionBudget', () => {
   let withMaxCompletionTokens: ReturnType<typeof vi.fn>;
-  let original: ChatProvider;
+  let original: Model;
 
   beforeEach(() => {
-    const cloneFactory = (tokens: number): ChatProvider =>
-      ({ ...original, _maxTokensApplied: tokens }) as unknown as ChatProvider;
+    const cloneFactory = (tokens: number): Model =>
+      ({ ...original, _maxTokensApplied: tokens }) as unknown as Model;
     withMaxCompletionTokens = vi.fn(cloneFactory);
     original = {
       name: 'mock',
       modelName: 'mock-model',
       thinkingEffort: null,
-      generate: vi.fn() as unknown as ChatProvider['generate'],
-      withThinking: vi.fn() as unknown as ChatProvider['withThinking'],
-      withMaxCompletionTokens: withMaxCompletionTokens as unknown as (n: number) => ChatProvider,
-    };
+      generate: vi.fn(),
+      withThinking: vi.fn(),
+      withMaxCompletionTokens: withMaxCompletionTokens as unknown as (n: number) => Model,
+    } as unknown as Model;
   });
 
-  it('returns the original provider when no budget is configured', () => {
+  it('returns the original model when no budget is configured', () => {
     const result = applyCompletionBudget({
-      provider: original,
+      model: original,
       budget: undefined,
       capability: makeCapability(10000),
     });
@@ -92,23 +92,9 @@ describe('applyCompletionBudget', () => {
     expect(withMaxCompletionTokens).not.toHaveBeenCalled();
   });
 
-  it('returns the original provider when withMaxCompletionTokens is not implemented', () => {
-    const { withMaxCompletionTokens: _drop, ...rest } = original;
-    void _drop;
-    const opaque = rest as unknown as ChatProvider;
-
-    expect(
-      applyCompletionBudget({
-        provider: opaque,
-        budget: { hardCap: 8192 },
-        capability: makeCapability(10000),
-      }),
-    ).toBe(opaque);
-  });
-
-  it('clones the provider with the model context window when budget is configured', () => {
+  it('clones the model with the model context window when budget is configured', () => {
     const result = applyCompletionBudget({
-      provider: original,
+      model: original,
       budget: { fallback: 32000 },
       capability: makeCapability(10000),
     });
@@ -118,9 +104,9 @@ describe('applyCompletionBudget', () => {
     expect(result).not.toBe(original);
   });
 
-  it('passes used and max context tokens to the provider budget hook', () => {
+  it('passes used and max context tokens to the model budget hook', () => {
     applyCompletionBudget({
-      provider: original,
+      model: original,
       budget: { hardCap: 4096 },
       capability: makeCapability(10000),
       usedContextTokens: 2500,

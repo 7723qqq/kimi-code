@@ -92,9 +92,9 @@ describe('wire.jsonl round-trip', () => {
 
     // Format zero-change: flat `{ type, ...payload }`, no nested `payload` key.
     expect(records).toEqual([
-      { type: 'compat.counter.set', value: 3, time: expect.any(Number) },
-      { type: 'compat.tags.add', tag: 'a', time: expect.any(Number) },
-      { type: 'compat.tags.add', tag: 'b', time: expect.any(Number) },
+      { type: 'compat.counter.set', value: 3 },
+      { type: 'compat.tags.add', tag: 'a' },
+      { type: 'compat.tags.add', tag: 'b' },
     ]);
     for (const record of records) {
       expect('payload' in record).toBe(false);

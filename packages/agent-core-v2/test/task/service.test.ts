@@ -15,6 +15,7 @@ import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
+import { IAgentWireService, type IWireService } from '#/wire';
 
 import { stubContextMemory, stubWireRecord } from '../contextMemory/stubs';
 
@@ -28,6 +29,21 @@ function fakeProcessTask(): AgentTask {
   };
 }
 
+function stubWireService(): IWireService {
+  return {
+    _serviceBrand: undefined,
+    dispatch: () => {},
+    replay: async () => {},
+    signal: () => {},
+    flush: async () => {},
+    attach: () => toDisposable(() => {}),
+    getModel: () => ({}),
+    subscribe: () => toDisposable(() => {}),
+    onEmission: () => toDisposable(() => {}),
+    onRestored: () => toDisposable(() => {}),
+  } as unknown as IWireService;
+}
+
 describe('AgentTaskService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
@@ -36,6 +52,7 @@ describe('AgentTaskService', () => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     ix.stub(IAgentWireRecordService, stubWireRecord());
+    ix.stub(IAgentWireService, stubWireService());
     ix.stub(IAgentContextMemoryService, stubContextMemory());
     ix.stub(ITelemetryService, { track: () => {} });
     ix.stub(IAgentToolRegistryService, {

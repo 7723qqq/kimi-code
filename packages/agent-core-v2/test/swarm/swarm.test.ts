@@ -113,7 +113,7 @@ describe('AgentSwarmService', () => {
       records.push(record);
     }
     expect(records).toEqual([
-      { type: 'swarm_mode.enter', trigger: 'manual', time: expect.any(Number) },
+      { type: 'swarm_mode.enter', trigger: 'manual' },
     ]);
 
     const ix2 = disposables.add(new TestInstantiationService());

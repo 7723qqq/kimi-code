@@ -14,6 +14,7 @@ import {
   IAgentBlobService,
   type IAgentBlobService as AgentBlobService,
 } from '#/agent/blob';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
@@ -45,7 +46,7 @@ import type {
   WireRecordRestoreResult,
 } from '#/agent/wireRecord';
 import { IOAuthService } from '#/app/auth/auth';
-import { IChatProviderFactory } from '#/app/chatProvider';
+import { IProtocolAdapterRegistry, type ProtocolAdapterConfig } from '#/app/protocol';
 import type { SkillCatalog } from '#/app/skillCatalog/types';
 import {
   isToolCall,
@@ -61,7 +62,7 @@ import type { generate as kosongGenerate } from '#/app/llmProtocol/generate';
 import type { ChatProvider, GenerateOptions, StreamedMessage } from '#/app/llmProtocol/provider';
 import type { ProviderConfig } from '#/app/llmProtocol/providers';
 import { KimiChatProvider } from '#/app/llmProtocol/providers/kimi';
-import type { ILogger, LogContext, LogLevel } from '#/_base/log';
+import { ILogOptions, type ILogger, type LogContext, type LogLevel } from '#/_base/log';
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
@@ -83,7 +84,6 @@ import {
   IAgentContextMemoryService,
   IAgentContextProjectorService,
   IAgentContextSizeService,
-  IAgentEventSinkService,
   IAgentExternalHooksService,
   IAgentFullCompactionService,
   IAgentLLMRequesterService,
@@ -128,6 +128,10 @@ import {
   type ScopeSeed,
   type ServiceIdentifier,
 } from '#/index';
+import { IAgentWireService, WireService } from '#/wire';
+import { IModelResolver, IModelService, ModelResolverService, type Model } from '#/app/model';
+import { IPlatformService } from '#/app/platform';
+import { IProviderService } from '#/app/provider';
 import type { ApprovalResponse } from '#/session/approval';
 import {
   ISessionInteractionService,
@@ -136,11 +140,6 @@ import {
   type InteractionPendingChangedEvent,
   type InteractionResolution,
 } from '#/session/interaction';
-import {
-  ISessionModelResolver,
-  SessionModelResolver,
-  type ResolvedModel,
-} from '#/session/modelRuntime';
 import type { IProcess } from '#/session/process';
 import { ISessionQuestionService, type QuestionResult } from '#/session/question/question';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
@@ -492,16 +491,16 @@ export function additionalDirServices(additionalDirs: readonly string[]): TestAg
 }
 
 export function modelProviderServices(
-  modelResolver: ISessionModelResolver,
+  modelResolver: IModelResolver,
 ): TestAgentServiceOverride {
-  return sessionService(ISessionModelResolver, modelResolver);
+  return appService(IModelResolver, modelResolver);
 }
 
 export function modelProviderOptionServices(
   options: TestModelProviderOptions,
 ): TestAgentServiceOverride {
-  return sessionService(
-    ISessionModelResolver,
+  return appService(
+    IModelResolver,
     new SyncDescriptor(ConfigBackedModelResolver, [options]),
   );
 }
@@ -522,7 +521,7 @@ export function logServices(logger: Logger): TestAgentServiceOverride {
 }
 
 export function llmGenerateServices(generate: GenerateFn): TestAgentServiceOverride {
-  return appService(IChatProviderFactory, createGenerateBackedChatProviderFactory(generate));
+  return appService(IProtocolAdapterRegistry, createGenerateBackedProtocolRegistry(generate));
 }
 
 export function telemetryServices(telemetry: ITelemetryService): TestAgentServiceOverride {
@@ -798,32 +797,23 @@ class PersistenceAppendLogStore implements IAppendLogStore {
   }
 }
 
-class ConfigBackedModelResolver extends SessionModelResolver {
+class ConfigBackedModelResolver extends ModelResolverService {
   constructor(
     private readonly options: TestModelProviderOptions = {},
     @IConfigService config: IConfigService,
+    @IProviderService providers: IProviderService,
+    @IPlatformService platforms: IPlatformService,
+    @IModelService models: IModelService,
     @IOAuthService oauth: IOAuthService,
+    @IProtocolAdapterRegistry protocolRegistry: IProtocolAdapterRegistry,
   ) {
-    super(config, oauth);
+    super(config, providers, platforms, models, oauth, protocolRegistry);
   }
 
-  override resolve(model: string): ResolvedModel {
-    const resolved = super.resolve(model);
-    if (resolved.provider.type !== 'kimi') return resolved;
-    return {
-      ...resolved,
-      provider: {
-        ...resolved.provider,
-        generationKwargs: {
-          ...resolved.provider.generationKwargs,
-          prompt_cache_key: this.options.promptCacheKey,
-        },
-        defaultHeaders: {
-          ...this.options.kimiRequestHeaders,
-          ...resolved.provider.defaultHeaders,
-        },
-      },
-    };
+  override resolve(id: string): Model {
+    const model = super.resolve(id);
+    if (this.options.promptCacheKey === undefined) return model;
+    return model.withGenerationKwargs({ prompt_cache_key: this.options.promptCacheKey });
   }
 }
 
@@ -940,16 +930,53 @@ export class AgentTestContext {
             ),
           );
           reg.defineInstance(ILogService, createLogService(undefined));
+          // Per-scope `*LogService` bindings (e.g. SessionLogService) resolve their
+          // level/paths from the App-scope `ILogOptions`. Seed a quiet config so
+          // harness-built agents can construct them; logs go under the throwaway
+          // test home dir and `level: 'off'` keeps them from being emitted.
           reg.defineInstance(
-            IChatProviderFactory,
-            createGenerateBackedChatProviderFactory(
+            ILogOptions,
+            {
+              level: 'off',
+              globalLogPath: '/tmp/kimi-code-agent-app-v2-test/logs/kimi-code.log',
+              globalMaxBytes: 6 * 1024 * 1024,
+              globalFiles: 1,
+              sessionMaxBytes: 5 * 1024 * 1024,
+              sessionFiles: 1,
+            } satisfies ILogOptions,
+          );
+          reg.defineInstance(
+            IProtocolAdapterRegistry,
+            createGenerateBackedProtocolRegistry(
               options.generate ?? this.scriptedGenerate.generate,
             ),
+          );
+          reg.defineDescriptor(
+            IModelResolver,
+            new SyncDescriptor(ConfigBackedModelResolver, [{}]),
           );
           if (options.telemetry !== undefined) {
             reg.defineInstance(ITelemetryService, options.telemetry);
           }
           reg.defineInstance(IHostTerminalService, createHostTerminalService());
+          // The real `HostEnvironmentService` probes the host asynchronously (`ready`);
+          // builtin tools (e.g. `BashTool`) read `osKind`/`shellName` synchronously at
+          // construction, which throws "accessed before ready". Seed a fully-populated
+          // POSIX snapshot so agent-scope tools construct without awaiting the probe.
+          reg.defineInstance(
+            IHostEnvironment,
+            {
+              _serviceBrand: undefined,
+              osKind: 'Linux',
+              osArch: 'x64',
+              osVersion: 'test',
+              shellName: 'bash',
+              shellPath: '/bin/bash',
+              pathClass: 'posix',
+              homeDir: TEST_HOME_DIR,
+              ready: Promise.resolve(),
+            } satisfies IHostEnvironment,
+          );
           reg.defineDescriptor(ICronTaskPersistence, new SyncDescriptor(CronTaskPersistenceService));
         },
       ],
@@ -986,10 +1013,6 @@ export class AgentTestContext {
               new SyncDescriptor(SessionWorkspaceContextService),
             );
             reg.defineDescriptor(
-              ISessionModelResolver,
-              new SyncDescriptor(ConfigBackedModelResolver, [{}]),
-            );
-            reg.defineDescriptor(
               ISessionCronService,
               new SyncDescriptor(SessionCronServiceImpl),
             );
@@ -1010,6 +1033,24 @@ export class AgentTestContext {
               new SyncDescriptor(RecordingWireRecordService, [
                 (event: PersistedWireRecord) => this.captureRecord(event),
               ]),
+            );
+            reg.defineDescriptor(
+              IAgentWireService,
+              new SyncDescriptor(WireService, [{ logScope: 'wire', logKey: agentId }]),
+            );
+            // Override the scoped `AgentBlobServiceImpl`: it is registered via
+            // `registerScopedService`, which builds a 0-static SyncDescriptor, but its
+            // constructor takes a leading non-injected `options` arg — DI rejects that
+            // ("conflicts with 0 static arguments"). The wire only consults the blob
+            // service when a `blobSelector` is configured (the harness does not), so a
+            // pass-through stub is enough.
+            reg.defineInstance(
+              IAgentBlobService,
+              {
+                _serviceBrand: undefined,
+                offloadParts: async (parts: ContentPart[]) => parts,
+                rehydrateParts: async (parts: ContentPart[]) => parts,
+              } as unknown as IAgentBlobService,
             );
             reg.defineDescriptor(IAgentProfileService, new SyncDescriptor(AgentProfileService));
             reg.defineDescriptor(
@@ -1074,10 +1115,18 @@ export class AgentTestContext {
 
     this.initializeRestorableServices();
 
-    const events = this.get(IAgentEventSinkService);
+    const wire = this.get(IAgentWireService);
     this.disposables.push(
-      events.on((event) => {
-        const { type, ...args } = event;
+      wire.onEmission((e) => {
+        if (e.type === 'record') {
+          // The new wire engine (`IWireService.dispatch`) persists records through the
+          // append log and emits them here; the legacy `IAgentWireRecordService.append`
+          // path that used to feed `[wire]` snapshot entries is no longer on the
+          // dispatch path. Forward the record so `[wire]` events are still captured.
+          this.captureRecord(e.record as PersistedWireRecord);
+          return;
+        }
+        const { type, ...args } = e.signal;
         this.recordRpc(type, args);
       }),
     );
@@ -1097,8 +1146,8 @@ export class AgentTestContext {
     return this.agent.accessor.get(id);
   }
 
-  get modelResolver(): ISessionModelResolver {
-    return this.session.accessor.get(ISessionModelResolver);
+  get modelResolver(): IModelResolver {
+    return this.session.accessor.get(IModelResolver);
   }
 
   get context(): IAgentContextMemoryService {
@@ -2186,15 +2235,28 @@ function createLogService(logger: Logger | undefined, bindings: LogContext = {})
   };
 }
 
-function createGenerateBackedChatProviderFactory(generate: GenerateFn): IChatProviderFactory {
+function createGenerateBackedProtocolRegistry(generate: GenerateFn): IProtocolAdapterRegistry {
   return {
     _serviceBrand: undefined,
-    create: (config) =>
-      config.type === 'kimi'
-        ? new GenerateBackedKimiChatProvider(config, generate)
-        : new GenerateBackedChatProvider(config, generate),
-    register: () => { },
-  };
+    supportedProtocols: () =>
+      ['kimi', 'anthropic', 'openai', 'openai_responses', 'google-genai', 'vertexai'] as const,
+    createChatProvider: (input: ProtocolAdapterConfig) => {
+      const config = {
+        type: input.protocol,
+        model: input.modelName,
+        baseUrl: input.baseUrl,
+        apiKey: input.apiKey,
+        customHeaders: input.customHeaders as Record<string, string> | undefined,
+        ...(input.extras ?? {}),
+      } as ProviderConfig;
+      return input.protocol === 'kimi'
+        ? new GenerateBackedKimiChatProvider(
+            config as Extract<ProviderConfig, { type: 'kimi' }>,
+            generate,
+          )
+        : new GenerateBackedChatProvider(config, generate);
+    },
+  } as IProtocolAdapterRegistry;
 }
 
 class GenerateBackedKimiChatProvider extends KimiChatProvider {

@@ -9,6 +9,7 @@ import { ToolAccesses, type ExecutableTool, type ExecutableToolContext, type Exe
 import { IAgentToolExecutorService, AgentToolExecutorService, parseToolCallArguments } from '#/agent/toolExecutor';
 import { IAgentToolRegistryService, AgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
+import { IAgentWireService, WireService } from '#/wire';
 import { ITelemetryService } from '#/app/telemetry';
 import { stubWireRecord } from '../contextMemory/stubs';
 import { registerLogServices } from '../log/stubs';
@@ -35,16 +36,21 @@ beforeEach(() => {
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
       reg.define(IAgentToolExecutorService, AgentToolExecutorService);
       reg.defineInstance(IAgentWireRecordService, stubWireRecord());
+      reg.defineInstance(
+        IAgentWireService,
+        disposables.add(new WireService({ logScope: 'wire', logKey: 'tool-executor' })),
+      );
       reg.defineInstance(ITelemetryService, recordingTelemetry(telemetryEvents));
       registerLogServices(reg);
     },
     strict: true,
   });
-  // TODO(phase-4.6): rewrite against wire event sink — IAgentRecordService/AgentRecordService facade deleted
-  // ix.set(IAgentRecordService, new SyncDescriptor(AgentRecordService, [{}]));
-  // ix.get(IAgentRecordService).on((event) => {
-  //   protocolEvents.push(event);
-  // });
+  const wire = ix.get(IAgentWireService);
+  disposables.add(
+    wire.onEmission((e) => {
+      if (e.type === 'signal') protocolEvents.push(e.signal as unknown as AgentEvent);
+    }),
+  );
   executor = ix.get(IAgentToolExecutorService);
   registry = ix.get(IAgentToolRegistryService);
 });

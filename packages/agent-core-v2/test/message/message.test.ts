@@ -6,6 +6,7 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
 import { AgentContextMemoryService } from '#/agent/contextMemory/contextMemoryService';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
+import { IAgentWireService, WireService } from '#/wire';
 import { stubWireRecord } from '../contextMemory/stubs';
 
 function textMessage(role: ContextMessage['role'], text: string): ContextMessage {
@@ -36,6 +37,7 @@ describe('message history (IAgentContextMemoryService)', () => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     ix.stub(IAgentWireRecordService, stubWireRecord());
+    ix.set(IAgentWireService, new SyncDescriptor(WireService, [{ logScope: 'wire', logKey: 'message' }]));
     ix.set(IAgentContextMemoryService, new SyncDescriptor(AgentContextMemoryService));
   });
   afterEach(() => disposables.dispose());
@@ -55,7 +57,9 @@ describe('message history (IAgentContextMemoryService)', () => {
     ctx.splice(0, 0, [textMessage('user', 'keep')]);
 
     const view = ctx.get();
-    (view as ContextMessage[]).splice(0, view.length);
+    // Wire-backed state is frozen, so the returned view cannot be mutated in place —
+    // stronger than a defensive copy: the internal history is unaffected either way.
+    expect(() => (view as ContextMessage[]).splice(0, view.length)).toThrow();
 
     expect(ctx.get().map(textOf)).toEqual(['keep']);
   });

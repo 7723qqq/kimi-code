@@ -109,7 +109,7 @@ describe('AgentUserToolService (wire-backed)', () => {
 
     const records = await readRecords();
     expect(records).toEqual([
-      { type: 'tools.register_user_tool', ...toolA, time: expect.any(Number) },
+      { type: 'tools.register_user_tool', ...toolA },
     ]);
     expect(records.every((record) => 'payload' in record === false)).toBe(true);
   });
@@ -124,8 +124,8 @@ describe('AgentUserToolService (wire-backed)', () => {
 
     const records = await readRecords();
     expect(records).toEqual([
-      { type: 'tools.register_user_tool', ...toolA, time: expect.any(Number) },
-      { type: 'tools.unregister_user_tool', name: toolA.name, time: expect.any(Number) },
+      { type: 'tools.register_user_tool', ...toolA },
+      { type: 'tools.unregister_user_tool', name: toolA.name },
     ]);
   });
 

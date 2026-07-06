@@ -524,7 +524,7 @@ function withTime<T extends WireMigrationRecord>(
 
 function turnIdOf(event: V1_4LoopRecordedEvent): number | undefined {
   if (event.type === 'tool.result') return undefined;
-  const turnId = event.turnId;
+  const turnId = Number(event.turnId);
   return Number.isInteger(turnId) && turnId >= 0 ? turnId : undefined;
 }
 

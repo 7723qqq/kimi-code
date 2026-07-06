@@ -16,7 +16,6 @@ import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IExecContext } from '#/session/execContext';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { IAgentWireService, WireService, type IWireService, type PersistedRecord } from '#/wire';
@@ -72,7 +71,6 @@ function buildHost(key: string): {
   host.stub(IModelResolver, createModelResolverStub());
   host.stub(IHostEnvironment, stubUnused());
   host.stub(IHostFileSystem, stubUnused());
-  host.stub(IExecContext, stubUnused());
   host.stub(IBootstrapService, stubUnused());
   host.stub(ISessionWorkspaceContext, stubUnused());
   host.stub(IAgentProfileCatalogService, stubUnused());
@@ -127,9 +125,8 @@ describe('AgentProfileService (wire-backed config.update)', () => {
         type: 'config.update',
         profileName: DEFAULT_AGENT_PROFILE_NAME,
         systemPrompt: 'You are helpful.',
-        time: expect.any(Number),
       },
-      { type: 'config.update', thinkingLevel: 'high', time: expect.any(Number) },
+      { type: 'config.update', thinkingLevel: 'high' },
     ]);
     expect(records.every((record) => 'payload' in record === false)).toBe(true);
   });

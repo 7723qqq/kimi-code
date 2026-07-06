@@ -67,7 +67,7 @@ describe('AgentToolStateService (wire-backed)', () => {
 
     const records = await readRecords();
     expect(records).toEqual([
-      { type: 'tools.update_store', key: 'answer', value: 42, time: expect.any(Number) },
+      { type: 'tools.update_store', key: 'answer', value: 42 },
     ]);
     expect('payload' in records[0]!).toBe(false);
   });

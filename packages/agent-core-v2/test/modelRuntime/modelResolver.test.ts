@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import type { IOAuthService } from '#/app/auth';
-import type { IConfigService } from '#/app/config';
+import { IOAuthService } from '#/app/auth';
+import { IConfigService } from '#/app/config';
+import { IModelResolver } from '#/app/model';
+import { createAppScope } from '#/_base/di/scope';
 import { ErrorCodes, KimiError } from '#/errors';
-import { SessionModelResolver } from '#/session/modelRuntime';
+// Load every domain barrel so all App-scope services (provider / platform /
+// model / protocol / config registry) are registered before we build a scope.
+import '#/index';
 
 function stubConfig(sections: Record<string, unknown>): IConfigService {
   return {
@@ -36,10 +40,8 @@ function stubOAuth(): IOAuthService {
 
 function baseSections(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    defaultProvider: 'kimi',
-    defaultModel: 'k1',
     providers: {
-      kimi: { type: 'kimi', apiKey: 'sk-test' },
+      kimi: { type: 'kimi', apiKey: 'sk-test', baseUrl: 'https://api.example.test/v1' },
     },
     models: {
       k1: { provider: 'kimi', model: 'kimi-model', maxContextSize: 128000 },
@@ -48,36 +50,40 @@ function baseSections(overrides: Record<string, unknown> = {}): Record<string, u
   };
 }
 
-describe('SessionModelResolver', () => {
+function createResolver(sections: Record<string, unknown>): IModelResolver {
+  const scope = createAppScope({
+    extra: [
+      [IConfigService, stubConfig(sections)],
+      [IOAuthService, stubOAuth()],
+    ],
+  });
+  return scope.accessor.get(IModelResolver);
+}
+
+describe('ModelResolver', () => {
   it('resolves a configured model to its provider', () => {
-    const resolver = new SessionModelResolver(stubConfig(baseSections()), stubOAuth());
+    const resolver = createResolver(baseSections());
     const resolved = resolver.resolve('k1');
     expect(resolved.providerName).toBe('kimi');
-    expect(resolved.provider).toMatchObject({ model: 'kimi-model' });
-    expect(resolved.modelCapabilities).toBeDefined();
-  });
-
-  it('exposes defaultModel from config', () => {
-    const resolver = new SessionModelResolver(stubConfig(baseSections()), stubOAuth());
-    expect(resolver.defaultModel).toBe('k1');
+    expect(resolved.name).toBe('kimi-model');
+    expect(resolved.protocol).toBe('kimi');
+    expect(resolved.capabilities).toBeDefined();
   });
 
   it('reads providers and models from the config service', () => {
-    const config = stubConfig(baseSections());
-    const resolver = new SessionModelResolver(config, stubOAuth());
-    expect(resolver.defaultModel).toBe('k1');
+    const resolver = createResolver(baseSections());
     expect(resolver.resolve('k1').providerName).toBe('kimi');
   });
 
   it('throws CONFIG_INVALID for an unknown model', () => {
-    const resolver = new SessionModelResolver(stubConfig(baseSections()), stubOAuth());
+    const resolver = createResolver(baseSections());
     expect(() => resolver.resolve('does-not-exist')).toThrowError(
       expect.objectContaining({ code: ErrorCodes.CONFIG_INVALID } as Partial<KimiError>),
     );
   });
 
   it('throws CONFIG_INVALID when model has no provider and no defaultProvider', () => {
-    const config = stubConfig(
+    const resolver = createResolver(
       baseSections({
         defaultProvider: undefined,
         models: {
@@ -86,14 +92,13 @@ describe('SessionModelResolver', () => {
         },
       }),
     );
-    const resolver = new SessionModelResolver(config, stubOAuth());
     expect(() => resolver.resolve('orphan')).toThrowError(
       expect.objectContaining({ code: ErrorCodes.CONFIG_INVALID } as Partial<KimiError>),
     );
   });
 
   it('throws CONFIG_INVALID when provider is not configured', () => {
-    const config = stubConfig(
+    const resolver = createResolver(
       baseSections({
         models: {
           k1: { provider: 'kimi', model: 'kimi-model', maxContextSize: 128000 },
@@ -101,7 +106,6 @@ describe('SessionModelResolver', () => {
         },
       }),
     );
-    const resolver = new SessionModelResolver(config, stubOAuth());
     expect(() => resolver.resolve('ghost')).toThrowError(
       expect.objectContaining({ code: ErrorCodes.CONFIG_INVALID } as Partial<KimiError>),
     );

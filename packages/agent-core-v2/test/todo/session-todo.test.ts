@@ -16,6 +16,7 @@ import {
   TODO_LIST_REMINDER_VARIANT,
   type TodoItem,
 } from '#/session/todo';
+import { IAgentWireService, type IWireService } from '#/wire';
 
 interface RecordedTodoSet {
   readonly todos: readonly TodoItem[];
@@ -68,6 +69,40 @@ function makeFakeAgent(agentId: string): FakeAgent {
     isToolActive: () => false,
   };
 
+  let todoState: readonly TodoItem[] = [];
+  const wireStub: IWireService = {
+    _serviceBrand: undefined,
+    dispatch: (...ops: unknown[]) => {
+      for (const raw of ops) {
+        const op = raw as { type: string; payload: unknown };
+        const payload = op.payload;
+        if (payload !== null && typeof payload === 'object' && !Array.isArray(payload)) {
+          const record = payload as Record<string, unknown>;
+          if (Array.isArray(record['todos'])) {
+            todoState = record['todos'] as readonly TodoItem[];
+          }
+          appended.push({ type: op.type, ...record } as unknown as RecordedTodoSet);
+        } else {
+          appended.push({ type: op.type, payload } as unknown as RecordedTodoSet);
+        }
+      }
+    },
+    replay: async () => {},
+    signal: () => {},
+    flush: async () => {},
+    attach: () => toDisposable(() => {}),
+    getModel: () => todoState,
+    subscribe: () => toDisposable(() => {}),
+    onEmission: () => toDisposable(() => {}),
+    onRestored: (handler: () => void) => {
+      resumers.push((record: RecordedTodoSet) => {
+        todoState = record.todos;
+        handler();
+      });
+      return toDisposable(() => {});
+    },
+  } as unknown as IWireService;
+
   const accessor: ServicesAccessor = {
     get: <T>(id: ServiceIdentifier<T>): T => {
       if (id === IAgentToolRegistryService) return registryStub as unknown as T;
@@ -75,6 +110,7 @@ function makeFakeAgent(agentId: string): FakeAgent {
       if (id === IInstantiationService) return instantiationStub as unknown as T;
       if (id === IAgentContextMemoryService) return memoryStub as unknown as T;
       if (id === IAgentProfileService) return profileStub as unknown as T;
+      if (id === IAgentWireService) return wireStub as unknown as T;
       throw new Error(`unexpected service request in fake agent: ${String(id)}`);
     },
   };

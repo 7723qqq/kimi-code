@@ -162,6 +162,10 @@ describe('AgentLoopService onStarted', () => {
           get: <T>() => undefined as T,
         });
         reg.defineInstance(ILogService, stubLog());
+        reg.defineInstance(
+          IAgentWireService,
+          disposables.add(new WireService({ logScope: 'wire', logKey: 'turn-ready-onstarted' })),
+        );
         reg.define(IAgentLoopService, AgentLoopService);
       },
     });
@@ -331,7 +335,7 @@ describe('AgentTurnService wire state', () => {
     turnService.launch();
 
     const records = await readRecords();
-    expect(records).toEqual([{ type: 'turn.launch', turnId: 0, time: expect.any(Number) }]);
+    expect(records).toEqual([{ type: 'turn.launch', turnId: 0 }]);
     expect('payload' in records[0]!).toBe(false);
   });
 

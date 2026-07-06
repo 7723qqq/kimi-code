@@ -21,6 +21,7 @@ import {
   AGENT_WIRE_PROTOCOL_VERSION,
   IFileSystemStorageService,
   IAppendLogStore,
+  IAgentScopeContext,
   IAgentWireRecordService,
   type PersistedWireRecord,
   AgentWireRecordService,
@@ -100,7 +101,13 @@ async function createWireHarness(): Promise<{
   ix.stub(IBootstrapService, stubBootstrap(dir));
   ix.stub(IHostFileSystem, new HostFileSystem());
   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
-  ix.set(IAgentBlobService, new SyncDescriptor(AgentBlobServiceImpl));
+  ix.set(IAgentBlobService, new SyncDescriptor(AgentBlobServiceImpl, [{}]));
+  ix.stub(IAgentScopeContext, {
+    _serviceBrand: undefined,
+    agentId: 'agent',
+    scope: (subKey?: string): string =>
+      subKey === undefined || subKey === '' ? SCOPE : `${SCOPE}/${subKey}`,
+  });
   ix.set(IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{}]));
   ix.set(IAgentContextMemoryService, new SyncDescriptor(AgentContextMemoryService));
   ix.get(IAgentContextMemoryService);
@@ -285,7 +292,11 @@ describe('AppendLogStore file persistence', () => {
 });
 
 describe('AgentWireRecordService persistence', () => {
-  it('offloads large content part data URIs to blobsDir during append', async () => {
+  // Blob offload for `context.splice` moved to the wire engine
+  // (`contextBlobSelector` in `agent/contextMemory/contextOps`, covered by
+  // `test/contextMemory/splice-replay.test.ts`); the legacy AgentWireRecordService
+  // no longer registers a `context.splice` blob selector, so it does not offload.
+  it.skip('offloads large content part data URIs to blobsDir during append', async () => {
     const { dir, storage, wire } = await createWireHarness();
     const payload = 'X'.repeat(5000);
     const dataUri = `data:image/png;base64,${payload}`;

@@ -30,6 +30,7 @@ import { IBootstrapService } from '#/app/bootstrap';
 import { IConfigService } from '#/app/config';
 import { IPluginService } from '#/app/plugin';
 import { createHooks } from '#/hooks';
+import { IAgentWireService, WireService } from '#/wire';
 
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLoopWithHooks, stubToolExecutor, stubTurnWithHooks } from '../turn/stubs';
@@ -172,6 +173,10 @@ describe('HookEngine integration', () => {
           reg.definePartialInstance(IAgentTaskService, {
             hooks: createHooks(['onDidNotify']),
           });
+          reg.defineInstance(
+            IAgentWireService,
+            disposables.add(new WireService({ logScope: 'wire', logKey: 'external-hooks' })),
+          );
         },
       });
       ix.set(
