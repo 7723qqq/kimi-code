@@ -13,9 +13,7 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { IAgentRecordService } from '#/agent/record';
 import { ILogService } from '#/_base/log';
-import { IAgentPromptService } from '#/agent/prompt';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle';
 import { IAgentTurnService } from '#/agent/turn';
 
@@ -27,7 +25,7 @@ export class RestGateway implements IRestGateway {
   constructor(
     @ISessionLifecycleService private readonly sessions: ISessionLifecycleService,
     @ILogService private readonly log: ILogService,
-  ) {}
+  ) { }
 
   private agent(sessionId: string, agentId: string): IAgentScopeHandle {
     const session = this.sessions.get(sessionId);
@@ -92,8 +90,7 @@ export class WSGateway implements IWSGateway {
 
   constructor(
     @ISessionLifecycleService _sessions: ISessionLifecycleService,
-    @IAgentRecordService _record: IAgentRecordService,
-  ) {}
+  ) { }
 
   connect(connectionId: string): void {
     this.connections.add(connectionId);

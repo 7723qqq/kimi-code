@@ -7,7 +7,12 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction';
 import { IAgentGoalService } from '#/agent/goal';
-import { IAgentRecordService } from '#/agent/record';
+import type {
+  PluginCommandActivatedEvent,
+  ShellOutputEvent,
+  ShellStartedEvent,
+} from '@moonshot-ai/protocol';
+import { IAgentWireService, type IWireService } from '#/wire';
 import { ErrorCodes, KimiError } from '#/errors';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { IAgentPermissionGate } from '#/agent/permissionGate';
@@ -59,6 +64,14 @@ import {
   titleFromPromptMetadataText,
 } from './prompt-metadata';
 
+declare module '#/wire' {
+  interface SignalMap {
+    'shell.output': Omit<ShellOutputEvent, 'type'>;
+    'shell.started': Omit<ShellStartedEvent, 'type'>;
+    'plugin_command.activated': Omit<PluginCommandActivatedEvent, 'type'>;
+  }
+}
+
 const SHELL_FOREGROUND_TIMEOUT_S = 2 * 60;
 
 export class AgentRPCService implements IAgentRPCService {
@@ -84,7 +97,7 @@ export class AgentRPCService implements IAgentRPCService {
     @IAgentUsageService private readonly usage: IAgentUsageService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentGoalService private readonly goal: IAgentGoalService,
-    @IAgentRecordService private readonly record: IAgentRecordService,
+    @IAgentWireService private readonly wire: IWireService,
     @IPluginService private readonly plugins: IPluginService,
     @ISessionMetadata private readonly metadata: ISessionMetadata,
   ) { }
@@ -135,12 +148,12 @@ export class AgentRPCService implements IAgentRPCService {
           else if (update.kind === 'stderr') stderr += update.text ?? '';
           else return;
           if (payload.commandId !== undefined) {
-            this.record.signal({ type: 'shell.output', commandId: payload.commandId, update });
+            this.wire.signal({ type: 'shell.output', commandId: payload.commandId, update });
           }
         },
         onForegroundTaskStart: (taskId: string) => {
           if (payload.commandId !== undefined) {
-            this.record.signal({ type: 'shell.started', commandId: payload.commandId, taskId });
+            this.wire.signal({ type: 'shell.started', commandId: payload.commandId, taskId });
           }
         },
       });
@@ -302,7 +315,7 @@ export class AgentRPCService implements IAgentRPCService {
       commandArgs: payload.args,
       trigger: 'user-slash' as const,
     };
-    this.record.signal({
+    this.wire.signal({
       type: 'plugin_command.activated',
       activationId: origin.activationId,
       pluginId: origin.pluginId,

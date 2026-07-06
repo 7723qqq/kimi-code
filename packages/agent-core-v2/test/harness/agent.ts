@@ -31,7 +31,6 @@ import type { PermissionRule } from '#/agent/permissionRules';
 import { IAgentPlanService } from '#/agent/plan';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
-import { AgentRecordService, IAgentRecordService, type RecordServiceOptions } from '#/agent/record';
 import type { AgentAPI } from '#/agent/rpc/core-api';
 import { IAgentSkillService } from '#/agent/skill/skill';
 import { AgentSkillService } from '#/agent/skill/skillService';
@@ -51,19 +50,17 @@ import type { SkillCatalog } from '#/app/skillCatalog/types';
 import {
   isToolCall,
   isToolCallPart,
-  type ChatProvider,
   type ContentPart,
-  type GenerateOptions,
-  KimiChatProvider,
   type Message as KosongMessage,
   type ModelCapability,
-  type ProviderConfig,
-  type StreamedMessage,
   type StreamedMessagePart,
   type ThinkingEffort,
   type Tool as KosongTool,
-  type generate as kosongGenerate,
-} from '#/app/llmProtocol/kosong';
+} from '#/app/llmProtocol';
+import type { generate as kosongGenerate } from '#/app/llmProtocol/generate';
+import type { ChatProvider, GenerateOptions, StreamedMessage } from '#/app/llmProtocol/provider';
+import type { ProviderConfig } from '#/app/llmProtocol/providers';
+import { KimiChatProvider } from '#/app/llmProtocol/providers/kimi';
 import type { ILogger, LogContext, LogLevel } from '#/_base/log';
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import {
@@ -298,14 +295,14 @@ export interface TestAgentOptions {
   readonly telemetry?: ITelemetryService | undefined;
   readonly persistence?: WireRecordPersistence | undefined;
   readonly microCompaction?:
-    | {
-        readonly config?: Partial<MicroCompactionConfig> | undefined;
-      }
-    | undefined;
+  | {
+    readonly config?: Partial<MicroCompactionConfig> | undefined;
+  }
+  | undefined;
   readonly fullCompaction?: FullCompactionServiceOptions | undefined;
   readonly hookEngine?:
-    | Pick<HookEngine, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>
-    | undefined;
+  | Pick<HookEngine, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>
+  | undefined;
   readonly initialConfig?: Partial<KimiConfig> | undefined;
   readonly autoConfigure?: boolean | undefined;
   readonly cwd?: string | undefined;
@@ -515,9 +512,9 @@ export function configServices(readConfig: () => KimiConfig): TestAgentServiceOv
 
 export function wireRecordPersistenceServices(
   persistence: WireRecordPersistence,
-  onRead: (event: PersistedWireRecord) => void = () => {},
+  onRead: (event: PersistedWireRecord) => void = () => { },
 ): TestAgentServiceOverride {
-  return appService(IAppendLogStore, new PersistenceAppendLogStore(persistence, () => {}, onRead));
+  return appService(IAppendLogStore, new PersistenceAppendLogStore(persistence, () => { }, onRead));
 }
 
 export function logServices(logger: Logger): TestAgentServiceOverride {
@@ -607,8 +604,8 @@ function createSessionSkillCatalog(catalog: SkillCatalog): ISessionSkillCatalog 
     catalog,
     ready: Promise.resolve(),
     onDidChange: Event.None as Event<void>,
-    load: async () => {},
-    reload: async () => {},
+    load: async () => { },
+    reload: async () => { },
   };
 }
 
@@ -621,10 +618,6 @@ export function swarmServices(swarmService: ISessionSwarmService): TestAgentServ
 
 export function goalServices(options: GoalServiceOptions): TestAgentServiceOverride {
   return agentService(IAgentGoalService, new SyncDescriptor(AgentGoalService, [options]));
-}
-
-export function replayServices(options: RecordServiceOptions = {}): TestAgentServiceOverride {
-  return agentService(IAgentRecordService, new SyncDescriptor(AgentRecordService, [options]));
 }
 
 /**
@@ -686,13 +679,13 @@ function mergeTestAgentOptions(base: TestAgentOptions, next: TestAgentOptions): 
       base.microCompaction === undefined && next.microCompaction === undefined
         ? undefined
         : {
-            ...base.microCompaction,
-            ...next.microCompaction,
-            config: {
-              ...base.microCompaction?.config,
-              ...next.microCompaction?.config,
-            },
+          ...base.microCompaction,
+          ...next.microCompaction,
+          config: {
+            ...base.microCompaction?.config,
+            ...next.microCompaction?.config,
           },
+        },
     initialConfig: {
       ...base.initialConfig,
       ...next.initialConfig,
@@ -772,7 +765,7 @@ class PersistenceAppendLogStore implements IAppendLogStore {
     private readonly persistence: WireRecordPersistence,
     private readonly onAppend: (event: PersistedWireRecord) => void,
     private readonly onRead: (event: PersistedWireRecord) => void,
-  ) {}
+  ) { }
 
   append<R>(_scope: string, _key: string, record: R): void {
     const event = record as PersistedWireRecord;
@@ -801,7 +794,7 @@ class PersistenceAppendLogStore implements IAppendLogStore {
   }
 
   acquire(_scope: string, _key: string): IDisposable {
-    return toDisposable(() => {});
+    return toDisposable(() => { });
   }
 }
 
@@ -870,7 +863,7 @@ function renderPluginSessionStartReminder(
     }
     blocks.push(
       `<plugin_session_start plugin="${escapeXmlAttr(sessionStart.pluginId)}" ` +
-        `skill="${escapeXmlAttr(skill.name)}">\n${catalog.renderSkillPrompt(skill, '')}\n</plugin_session_start>`,
+      `skill="${escapeXmlAttr(skill.name)}">\n${catalog.renderSkillPrompt(skill, '')}\n</plugin_session_start>`,
     );
   }
   return blocks.length > 0 ? blocks.join('\n') : undefined;
@@ -905,7 +898,7 @@ export class AgentTestContext {
     this.options = options;
     if (options.cwd !== undefined) this.cwd = options.cwd;
     this.serviceOverrides = flattenServiceOverrides(overrides);
-    this.emitter.on('error', () => {});
+    this.emitter.on('error', () => { });
     this.kimiConfig = applyTestAgentOptionsToConfig(emptyConfig(), options);
 
     const sessionId = 'test-session';
@@ -940,7 +933,7 @@ export class AgentTestContext {
             IAppendLogStore,
             new PersistenceAppendLogStore(
               persistence,
-              () => {},
+              () => { },
               (event) => {
                 this.recordHistory.push(cloneRecord(event));
               },
@@ -1828,7 +1821,7 @@ function createWorkspaceContextStub(
 function createPermissionModeService(initialMode: PermissionMode): IAgentPermissionModeService {
   let mode = initialMode;
   const emptyHook = {
-    register: () => toDisposable(() => {}),
+    register: () => toDisposable(() => { }),
     run: () => Promise.resolve(),
   };
   return {
@@ -1850,7 +1843,7 @@ function createPermissionRulesStub(
 ): IAgentPermissionRulesService {
   let rules = [...initialRules];
   const emptyHook = {
-    register: () => ({ dispose: () => {} }),
+    register: () => ({ dispose: () => { } }),
     run: () => Promise.resolve(),
   };
   return {
@@ -1864,7 +1857,7 @@ function createPermissionRulesStub(
     addRules: (nextRules) => {
       rules = [...rules, ...nextRules];
     },
-    recordApprovalResult: () => {},
+    recordApprovalResult: () => { },
     hooks: {
       onChanged: emptyHook,
       onApprovalRecorded: emptyHook,
@@ -1878,9 +1871,9 @@ function createHostTerminalService(): IHostTerminalService {
     spawn: async () => ({
       onData: Event.None as Event<string>,
       onExit: Event.None as Event<{ exitCode: number | null }>,
-      write: () => {},
-      resize: () => {},
-      kill: () => {},
+      write: () => { },
+      resize: () => { },
+      kill: () => { },
     }),
   };
 }
@@ -1987,8 +1980,8 @@ function configService(readConfig: () => KimiConfig): IConfigService {
   return {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
-    onDidChangeConfiguration: () => ({ dispose: () => {} }),
-    onDidSectionChange: () => ({ dispose: () => {} }),
+    onDidChangeConfiguration: () => ({ dispose: () => { } }),
+    onDidSectionChange: () => ({ dispose: () => { } }),
     get: <T>(domain: string) => (effectiveConfig() as Record<string, unknown>)[domain] as T,
     inspect: (domain: string) => {
       const value = (effectiveConfig() as Record<string, unknown>)[domain];
@@ -2200,7 +2193,7 @@ function createGenerateBackedChatProviderFactory(generate: GenerateFn): IChatPro
       config.type === 'kimi'
         ? new GenerateBackedKimiChatProvider(config, generate)
         : new GenerateBackedChatProvider(config, generate),
-    register: () => {},
+    register: () => { },
   };
 }
 

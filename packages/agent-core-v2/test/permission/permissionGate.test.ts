@@ -31,7 +31,7 @@ import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IAgentTurnService } from '#/agent/turn';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
-import type { ToolCall } from '#/app/llmProtocol/kosong';
+import type { ToolCall } from '#/app/llmProtocol';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 
 import { stubApprovalService } from '../approval/stubs';

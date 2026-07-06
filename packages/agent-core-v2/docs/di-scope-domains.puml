@@ -67,7 +67,7 @@ package "Session scope (per session)" #EAFAF1 {
 
 package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>wireRecord</b>\n<size:9><i>Agent</i></size>\n  IAgentWireRecordService (event hub)" as wireRecord #FDEBD0
-  rectangle "<b>record</b>\n<size:9><i>Agent</i></size>\n  IAgentRecordService" as record #FDEBD0
+  rectangle "<b>wire</b>\n<size:9><i>Agent</i></size>\n  IAgentWireService" as wire #FDEBD0
   rectangle "<b>blobStore</b>\n<size:9><i>Agent</i></size>\n  IAgentBlobStoreService" as blobStore #FDEBD0
   rectangle "<b>contextMemory</b>\n<size:9><i>Agent</i></size>\n  IAgentContextMemoryService" as contextMemory #FDEBD0
   rectangle "<b>contextProjector</b>\n<size:9><i>Agent</i></size>\n  IAgentContextProjectorService" as contextProjector #FDEBD0
@@ -81,7 +81,7 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>llmRequester</b>\n<size:9><i>Agent</i></size>\n  IAgentLLMRequesterService" as llmRequester #FDEBD0
   rectangle "<b>toolRegistry</b>\n<size:9><i>Agent</i></size>\n  IAgentToolRegistryService" as toolRegistry #FDEBD0
   rectangle "<b>toolExecutor</b>\n<size:9><i>Agent</i></size>\n  IAgentToolExecutorService" as toolExecutor #FDEBD0
-  rectangle "<b>toolStore</b>\n<size:9><i>Agent</i></size>\n  IAgentToolStoreService" as toolStore #FDEBD0
+  rectangle "<b>toolState</b>\n<size:9><i>Agent</i></size>\n  IAgentToolState" as toolState #FDEBD0
   rectangle "<b>toolDedup</b>\n<size:9><i>Agent</i></size>\n  IAgentToolDedupeService" as toolDedup #FDEBD0
   rectangle "<b>permissionGate</b>\n<size:9><i>Agent</i></size>\n  IAgentPermissionGate" as permissionGate #FDEBD0
   rectangle "<b>permissionMode</b>\n<size:9><i>Agent</i></size>\n  IAgentPermissionModeService" as permissionMode #FDEBD0
@@ -110,7 +110,6 @@ package "Agent scope (per agent)" #FDF5E6 {
 ' ---- DI injection (solid) ----
 gateway --> session_lifecycle #34495E
 gateway --> log #34495E
-gateway --> record #34495E
 sessionIndex --> bootstrap #34495E
 sessionIndex --> storage #34495E
 session_lifecycle --> bootstrap #34495E
@@ -160,20 +159,17 @@ wireRecord --> storage #34495E
 blobStore --> storage #34495E
 blobStore --> environment #34495E
 filestore --> storage #34495E
-record --> wireRecord #34495E
-contextMemory --> wireRecord #34495E
-contextMemory --> record #34495E
+wire --> blobStore #34495E
+contextMemory --> wire #34495E
 contextInjector --> contextMemory #34495E
 contextInjector --> turn #34495E
 contextInjector --> loop #34495E
 contextInjector --> systemReminder #34495E
 contextSize --> contextMemory #34495E
-contextSize --> record #34495E
-contextSize --> wireRecord #34495E
+contextSize --> wire #34495E
 systemReminder --> contextMemory #34495E
 profile --> wireRecord #34495E
-profile --> record #34495E
-profile --> record #34495E
+profile --> wire #34495E
 profile --> telemetry #34495E
 profile --> config #34495E
 profile --> modelProvider #34495E
@@ -182,16 +178,14 @@ prompt --> contextMemory #34495E
 prompt --> turn #34495E
 prompt --> loop #34495E
 prompt --> wireRecord #34495E
-prompt --> record #34495E
 turn --> loop #34495E
-turn --> record #34495E
-turn --> wireRecord #34495E
+turn --> wire #34495E
 turn --> contextMemory #34495E
 turn --> telemetry #34495E
 loop --> contextMemory #34495E
 loop --> contextSize #34495E
 loop --> llmRequester #34495E
-loop --> record #34495E
+loop --> wire #34495E
 loop --> toolExecutor #34495E
 loop --> profile #34495E
 loop --> config #34495E
@@ -205,9 +199,9 @@ llmRequester --> usage #34495E
 llmRequester --> modelProvider #34495E
 llmRequester --> config #34495E
 toolExecutor --> toolRegistry #34495E
-toolExecutor --> record #34495E
+toolExecutor --> wire #34495E
 toolExecutor --> telemetry #34495E
-toolStore --> wireRecord #34495E
+toolState --> wire #34495E
 toolDedup --> telemetry #34495E
 toolDedup --> loop #34495E
 toolDedup --> toolExecutor #34495E
@@ -218,26 +212,21 @@ permissionGate --> telemetry #34495E
 permissionGate --> toolExecutor #34495E
 permissionPolicy --> plan #34495E
 permissionPolicy --> swarm #34495E
-permissionMode --> wireRecord #34495E
-permissionMode --> record #34495E
-permissionMode --> record #34495E
+permissionMode --> wire #34495E
 permissionMode --> contextInjector #34495E
-permissionRules --> wireRecord #34495E
-permissionRules --> record #34495E
+permissionRules --> wire #34495E
 permissionRules --> config #34495E
 plan --> contextMemory #34495E
 plan --> wireRecord #34495E
 plan --> record #34495E
 plan --> sessionFs #34495E
 plan --> profile #34495E
-plan --> record #34495E
 plan --> toolRegistry #34495E
 plan --> contextInjector #34495E
 plan --> telemetry #34495E
 goal --> wireRecord #34495E
-goal --> record #34495E
+goal --> wire #34495E
 goal --> systemReminder #34495E
-goal --> record #34495E
 goal --> telemetry #34495E
 goal --> contextInjector #34495E
 goal --> contextMemory #34495E
@@ -246,8 +235,7 @@ goal --> loop #34495E
 goal --> toolRegistry #34495E
 goal --> permissionMode #34495E
 skill --> prompt #34495E
-skill --> record #34495E
-skill --> wireRecord #34495E
+skill --> wire #34495E
 skill --> telemetry #34495E
 skill --> sessionSkillCatalog #34495E
 questionTools --> question #34495E
@@ -256,8 +244,7 @@ questionTools --> task #34495E
 questionTools --> telemetry #34495E
 userTool --> toolRegistry #34495E
 userTool --> profile #34495E
-userTool --> wireRecord #34495E
-task --> record #34495E
+userTool --> wire #34495E
 task --> wireRecord #34495E
 task --> telemetry #34495E
 task --> prompt #34495E
@@ -266,43 +253,40 @@ task --> config #34495E
 task --> storage #34495E
 task --> session_context #34495E
 cron --> prompt #34495E
-cron --> record #34495E
 cron --> wireRecord #34495E
 cron --> turn #34495E
 cron --> telemetry #34495E
 cron --> toolRegistry #34495E
 cron --> config #34495E
 cron --> storage #34495E
-swarm --> wireRecord #34495E
-swarm --> record #34495E
+swarm --> wire #34495E
 swarm --> systemReminder #34495E
 mcp --> toolRegistry #34495E
-mcp --> record #34495E
+mcp --> wire #34495E
 mcp --> toolExecutor #34495E
 fullCompaction --> contextMemory #34495E
 fullCompaction --> contextSize #34495E
 fullCompaction --> llmRequester #34495E
 fullCompaction --> profile #34495E
-fullCompaction --> toolStore #34495E
+fullCompaction --> toolState #34495E
 fullCompaction --> telemetry #34495E
 fullCompaction --> wireRecord #34495E
-fullCompaction --> record #34495E
 fullCompaction --> turn #34495E
 fullCompaction --> loop #34495E
 microCompaction --> contextMemory #34495E
 microCompaction --> contextSize #34495E
-microCompaction --> wireRecord #34495E
+microCompaction --> wire #34495E
 microCompaction --> flag #34495E
 microCompaction --> profile #34495E
 microCompaction --> telemetry #34495E
 microCompaction --> loop #34495E
+microCompaction --> config #34495E
 externalHooks --> config #34495E
 externalHooks --> bootstrap #34495E
 externalHooks --> plugin #34495E
 externalHooks --> contextMemory #34495E
 todo --> agent_lifecycle #34495E
-usage --> wireRecord #34495E
-usage --> record #34495E
+usage --> wire #34495E
 rpc --> prompt #34495E
 rpc --> turn #34495E
 rpc --> profile #34495E
@@ -345,24 +329,25 @@ auth --> toolRegistry #34495E
 
 ' ---- event-driven (dashed) ----
 flag ..> config #16A085 : onDidChangeConfiguration
-permissionMode ..> wireRecord #16A085 : permission.set_mode
-userTool ..> wireRecord #16A085 : tools.register_/unregister_user_tool
-profile ..> wireRecord #16A085 : config.update / tools.set_active_tools
+permissionMode ..> wire #16A085 : permission.set_mode
+userTool ..> wire #16A085 : tools.register_/unregister_user_tool
+profile ..> wire #16A085 : config.update / tools.set_active_tools
+profile ..> wire #16A085 : agent.status.updated / warning
 contextMemory ..> wireRecord #16A085 : context.splice
 cron ..> wireRecord #16A085 : cron.add / delete / cursor
-todo ..> wireRecord #16A085 : todo.set
-fullCompaction ..> wireRecord #16A085 : full_compaction.begin/cancel/complete
+todo ..> wire #16A085 : todo.set (main agent)
+fullCompaction ..> wire #16A085 : full_compaction.begin/cancel/complete
 fullCompaction ..> loop #16A085 : hooks.onError
-permissionRules ..> wireRecord #16A085 : permission.rules.add / record_approval_result
-skill ..> wireRecord #16A085 : skill.activate
+permissionRules ..> wire #16A085 : permission.rules.add / record_approval_result
+skill ..> wire #16A085 : skill.activate
 goal ..> wireRecord #16A085 : goal.create/update/clear
 goal ..> turn #16A085 : turn lifecycle hooks
 goal ..> loop #16A085 : step/usage hooks
 goal ..> eventSink #16A085 : hook.result / goal.updated
-microCompaction ..> wireRecord #16A085 : micro_compaction.apply / full_compaction.complete
-swarm ..> wireRecord #16A085 : swarm_mode.enter/exit
+microCompaction ..> wire #16A085 : micro_compaction.apply
+swarm ..> wire #16A085 : swarm_mode.enter/exit
 swarm ..> turn #16A085 : hooks.onEnded
-task ..> wireRecord #16A085 : task.started/terminated
+task ..> wire #16A085 : task.started/terminated
 task ..> contextMemory #16A085 : hooks.onSpliced
 externalHooks ..> toolExecutor #16A085 : onWillExecuteTool / onDidExecuteTool
 externalHooks ..> permissionGate #16A085 : approval hooks
@@ -371,12 +356,12 @@ externalHooks ..> loop #16A085 : stop hook
 externalHooks ..> fullCompaction #16A085 : compaction hooks
 externalHooks ..> task #16A085 : notification hook
 agent_lifecycle ..> externalHooks #16A085 : SubagentStart/Stop (mirrorAgentRun)
-toolStore ..> wireRecord #16A085 : tools.update_store
-usage ..> wireRecord #16A085 : usage.record
-contextSize ..> contextMemory #16A085 : hooks.onSpliced
-contextSize ..> wireRecord #16A085 : context_size.measured
+toolState ..> wire #16A085 : tools.update_store
+usage ..> wire #16A085 : usage.record
+turn ..> wire #16A085 : turn.launch
+contextSize ..> wire #16A085 : context_size.measured
 loop ..> contextMemory #16A085 : hooks.onSpliced
 loop ..> wireRecord #16A085 : hooks.onResumeEnded
-plan ..> wireRecord #16A085 : plan_mode.enter/cancel/exit
+plan ..> wire #16A085 : plan_mode.enter/cancel/exit
 
 @enduml

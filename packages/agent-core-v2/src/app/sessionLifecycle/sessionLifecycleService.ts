@@ -43,6 +43,7 @@ import {
   wireRecordPersistKey,
   type PersistedWireRecord,
 } from '#/agent/wireRecord';
+import { IAgentWireService, type PersistedRecord } from '#/wire';
 
 import {
   type CreateSessionOptions,
@@ -155,7 +156,11 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       // is registered; otherwise the wire replay applies splices into a void and
       // the restored transcript never lands in context memory.
       main.accessor.get(IAgentContextMemoryService);
-      await main.accessor.get(IAgentWireRecordService).restore();
+      const mainWireRecord = main.accessor.get(IAgentWireRecordService);
+      await mainWireRecord.restore();
+      await main
+        .accessor.get(IAgentWireService)
+        .replay(...(mainWireRecord.getRecords() as readonly PersistedRecord[]));
     }
     return handle;
   }
@@ -279,7 +284,11 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
           sourceAgent.labels ??
           (sourceAgent.swarmItem !== undefined ? { swarmItem: sourceAgent.swarmItem } : undefined),
       });
-      await agentHandle.accessor.get(IAgentWireRecordService).restore();
+      const forkWireRecord = agentHandle.accessor.get(IAgentWireRecordService);
+      await forkWireRecord.restore();
+      await agentHandle
+        .accessor.get(IAgentWireService)
+        .replay(...(forkWireRecord.getRecords() as readonly PersistedRecord[]));
     }
 
     this._onDidForkSession.fire({

@@ -7,6 +7,14 @@ export * from './_base/di/index';
 export * from './errors';
 
 export * from '#/_base/log';
+export {
+  IAgentWireService,
+  ISessionWireService,
+  type IWireService,
+  type Signal,
+  type SignalMap,
+  type WireEmission,
+} from '#/wire';
 export * from '#/session/sessionLog';
 export * from '#/app/telemetry';
 export * from '#/app/bootstrap';
@@ -95,7 +103,6 @@ export * from '#/agent/prompt';
 export * from '#/agent/promptLegacy';
 export * from '#/app/messageLegacy';
 export * from '#/agent/replayBuilder';
-export * from '#/agent/record';
 export * from '#/agent/rpc';
 export * from '#/agent/scopeContext';
 export * from '#/session/btw';

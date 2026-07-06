@@ -20,7 +20,8 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { linkAbortSignal } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { IAgentProfileService } from '#/agent/profile';
-import { IAgentRecordService } from '#/agent/record';
+import type { SubagentSuspendedEvent } from '@moonshot-ai/protocol';
+import { IAgentWireService } from '#/wire';
 import {
   applyProfilePromptPrefix,
   IAgentProfileCatalogService,
@@ -48,6 +49,12 @@ import {
   type AgentRunBatchLauncher,
   type AgentRunAttemptHandle,
 } from './agentRunBatch';
+
+declare module '#/wire' {
+  interface SignalMap {
+    'subagent.suspended': Omit<SubagentSuspendedEvent, 'type'>;
+  }
+}
 
 /**
  * Requester-facing label for a resumed agent whose profile binding is unknown.
@@ -83,7 +90,7 @@ export class SessionSwarmService implements ISessionSwarmService {
       retry: (agentId, options) => this.resumeAttempt(callerAgentId, agentId, options, true),
       suspended: (event) => {
         const caller = this.lifecycle.getHandle(callerAgentId);
-        caller?.accessor.get(IAgentRecordService)?.signal({
+        caller?.accessor.get(IAgentWireService)?.signal({
           type: 'subagent.suspended',
           subagentId: event.agentId,
           reason: event.reason,

@@ -8,7 +8,6 @@ import { Emitter } from '#/_base/event';
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentProfileService } from '#/agent/profile';
-import { IAgentRecordService } from '#/agent/record';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentLifecycleService } from '#/session/agentLifecycle';
 import {
@@ -35,20 +34,6 @@ function makeFakeAgent(agentId: string): FakeAgent {
   const registeredVariants: string[] = [];
   const appended: RecordedTodoSet[] = [];
   const resumers: Array<(record: RecordedTodoSet) => void> = [];
-
-  const recordStub = {
-    _serviceBrand: undefined,
-    append: (record: RecordedTodoSet) => {
-      appended.push(record);
-    },
-    define: (_type: string, facets: { resume?: (r: RecordedTodoSet) => void }) => {
-      if (facets.resume !== undefined) resumers.push(facets.resume);
-      return toDisposable(() => {});
-    },
-    signal: () => {},
-    on: () => toDisposable(() => {}),
-    hooks: {},
-  };
 
   const registryStub = {
     _serviceBrand: undefined,
@@ -85,7 +70,6 @@ function makeFakeAgent(agentId: string): FakeAgent {
 
   const accessor: ServicesAccessor = {
     get: <T>(id: ServiceIdentifier<T>): T => {
-      if (id === IAgentRecordService) return recordStub as unknown as T;
       if (id === IAgentToolRegistryService) return registryStub as unknown as T;
       if (id === IAgentContextInjectorService) return injectorStub as unknown as T;
       if (id === IInstantiationService) return instantiationStub as unknown as T;

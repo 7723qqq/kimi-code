@@ -1,5 +1,4 @@
-import { APIConnectionError, emptyUsage } from '#/app/llmProtocol/kosong';
-import type { StreamedMessagePart } from '#/app/llmProtocol/kosong';
+import { APIConnectionError, emptyUsage, type StreamedMessagePart } from '#/app/llmProtocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {

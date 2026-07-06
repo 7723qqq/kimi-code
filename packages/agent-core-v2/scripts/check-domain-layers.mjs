@@ -45,7 +45,7 @@ const DOMAIN_LAYER = new Map([
   // `llmProtocol` is v2's public wire-type namespace (`Message`,
   // `ContentPart`, `Tool`, `TokenUsage`, `FinishReason`, error classes,
   // etc.). It has no v2 dependencies of its own (it vendors the kosong wire
-  // implementation under `llmProtocol/kosong`); every domain — including
+  // implementation directly within `llmProtocol`); every domain — including
   // `_base/utils/tokens` and `_base/errors/serialize` — may import wire types
   // through it, so it sits at L0.
   ['llmProtocol', 0],
@@ -92,6 +92,10 @@ const DOMAIN_LAYER = new Map([
   // L2 — data & cross-cutting capabilities
   ['records', 2],
   ['wireRecord', 2],
+  // `wire` is the scope-agnostic Model/Op/Signal state-machine layer: it
+  // consumes `persistence/interface` (L1) and is consumed by the scope tiers,
+  // so it sits in L2 beside the other data/cross-cutting layers.
+  ['wire', 2],
   ['blob', 2],
   ['file', 2],
   ['config', 2],

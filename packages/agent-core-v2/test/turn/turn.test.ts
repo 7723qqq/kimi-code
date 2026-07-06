@@ -9,11 +9,11 @@ import {
   APIEmptyResponseError,
   APIStatusError,
   APITimeoutError,
-  type ChatProvider,
   type ModelCapability,
   type ProviderRequestAuth,
   type ToolCall,
-} from '#/app/llmProtocol/kosong';
+} from '#/app/llmProtocol';
+import type { ChatProvider } from '#/app/llmProtocol/provider';
 import { describe, expect, it, vi } from 'vitest';
 
 import { abortError, abortable } from '#/_base/utils/abort';

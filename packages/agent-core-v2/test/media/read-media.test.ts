@@ -5,7 +5,7 @@
  * be exercised without the missing composition root.
  */
 
-import type { ContentPart, ModelCapability } from '#/app/llmProtocol/kosong';
+import type { ContentPart, ModelCapability } from '#/app/llmProtocol';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
