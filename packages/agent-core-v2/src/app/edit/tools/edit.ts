@@ -1,12 +1,14 @@
 /**
- * `edit` domain — {@link EditTool}, the Agent entry for exact string
+ * `edit` domain (L4) — {@link EditTool}, the Agent entry for exact string
  * replacement in a text file.
  *
+ * Agent-scope adapter over the App-scope {@link IFileEditService} capability.
  * Keeps only the Agent-facing responsibilities: path resolution, the file
- * access declaration, the diff display, the approval rule, and the no-op
- * pre-check. The actual edit is delegated to {@link FileEditService}
- * (os-backed adapter over `IHostFileSystem`), which runs the pure
- * {@link TextModel} / {@link EditService} logic.
+ * access declaration, the diff display, the approval rule, the no-op
+ * pre-check, and mapping the domain-neutral `FileEditResult` into an
+ * `ExecutableToolResult`. The actual read/edit/write is delegated to
+ * {@link IFileEditService} (os-backed adapter over `IHostFileSystem`), which
+ * runs the pure `TextModel` / `EditService` logic.
  *
  * Line endings are preserved by the model view: the raw file is normalized to
  * LF for matching (so pure CRLF files can be edited with LF `old_string`),
@@ -23,15 +25,14 @@ import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '#/_base/tools/support/rule-match';
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
 import { renderPrompt } from '#/_base/utils/render-prompt';
+import { IFileEditService } from '../fileEdit';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 import { registerTool } from '#/agent/toolRegistry';
 
 import editDescriptionTemplate from './edit.md?raw';
-import { FileEditService } from './fileEditService';
 
 // `old_string` must be non-empty: the non-replace_all branch walks
 // occurrences with `content.indexOf("", pos)`, which would loop forever
@@ -68,15 +69,11 @@ export class EditTool implements BuiltinTool<EditInput> {
   readonly description = EDIT_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(EditInputSchema);
 
-  private readonly editor: FileEditService;
-
   constructor(
-    @IHostFileSystem fs: IHostFileSystem,
+    @IFileEditService private readonly editor: IFileEditService,
     @IHostEnvironment private readonly env: IHostEnvironment,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
-  ) {
-    this.editor = new FileEditService(fs);
-  }
+  ) {}
 
   private get workspaceConfig(): WorkspaceConfig {
     return {
@@ -120,13 +117,18 @@ export class EditTool implements BuiltinTool<EditInput> {
       };
     }
 
-    return this.editor.edit({
+    const result = await this.editor.edit({
       path: safePath,
       displayPath: args.path,
       old_string: args.old_string,
       new_string: args.new_string,
       replace_all: args.replace_all ?? false,
     });
+    if (!result.ok) {
+      return { isError: true, output: result.error };
+    }
+    const word = result.count === 1 ? 'occurrence' : 'occurrences';
+    return { output: `Replaced ${String(result.count)} ${word} in ${args.path}` };
   }
 }
 
