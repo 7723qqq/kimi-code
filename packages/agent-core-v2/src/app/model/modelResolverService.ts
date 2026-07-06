@@ -22,11 +22,11 @@ import { IOAuthService } from '#/app/auth';
 import { IConfigService } from '#/app/config';
 import { ErrorCodes, KimiError } from '#/errors';
 import {
-  UNKNOWN_CAPABILITY,
   type ModelCapability,
   type ProviderRequestAuth,
   type ThinkingEffort,
 } from '#/app/llmProtocol';
+import { getModelCapability } from '#/app/llmProtocol/providers';
 import { IPlatformService, UNKNOWN_PLATFORM_KEY } from '#/app/platform';
 import type { OAuthRef, ProviderConfig } from '#/app/provider';
 import { IProviderService } from '#/app/provider';
@@ -110,14 +110,13 @@ export class ModelResolverService extends Disposable implements IModelResolver {
       );
     }
 
+    const capabilities = resolveModelCapabilities(
+      model.capabilities,
+      protocol,
+      wireName,
+      model.maxContextSize,
+    );
     const declared = new Set((model.capabilities ?? []).map((c) => c.trim().toLowerCase()));
-    const capabilities: ModelCapability = {
-      ...UNKNOWN_CAPABILITY,
-      max_context_tokens: model.maxContextSize,
-      image_in: declared.has('image_in') || UNKNOWN_CAPABILITY.image_in,
-      video_in: declared.has('video_in') || UNKNOWN_CAPABILITY.video_in,
-      tool_use: declared.has('tool_use') || UNKNOWN_CAPABILITY.tool_use,
-    };
     const alwaysThinking = declared.has('always_thinking');
 
     const impl = new ModelImpl({
@@ -314,6 +313,24 @@ function parseThinkingEffort(value: string | undefined): ThinkingEffort | undefi
   return normalized !== undefined && (THINKING_EFFORTS as readonly string[]).includes(normalized)
     ? (normalized as ThinkingEffort)
     : undefined;
+}
+
+function resolveModelCapabilities(
+  declaredCapabilities: readonly string[] | undefined,
+  protocol: Protocol,
+  wireName: string,
+  maxContextSize: number,
+): ModelCapability {
+  const declared = new Set((declaredCapabilities ?? []).map((c) => c.trim().toLowerCase()));
+  const detected = getModelCapability(protocol, wireName);
+  return {
+    image_in: declared.has('image_in') || detected.image_in,
+    video_in: declared.has('video_in') || detected.video_in,
+    audio_in: declared.has('audio_in') || detected.audio_in,
+    thinking: declared.has('thinking') || declared.has('always_thinking') || detected.thinking,
+    tool_use: declared.has('tool_use') || detected.tool_use,
+    max_context_tokens: maxContextSize,
+  };
 }
 
 /** Treat an empty / whitespace string as absent (matches production's

@@ -23,7 +23,11 @@ import { type ModelConfig, IModelResolver, IModelService } from '#/app/model';
 import { ModelResolverService } from '#/app/model/modelResolverService';
 import { IPlatformService } from '#/app/platform';
 import { type ProviderConfig, IProviderService } from '#/app/provider';
-import { IProtocolAdapterRegistry } from '#/app/protocol';
+import {
+  type ChatProvider,
+  IProtocolAdapterRegistry,
+  type ProtocolAdapterConfig,
+} from '#/app/protocol';
 
 describe('ModelResolverService', () => {
   let disposables: DisposableStore;
@@ -32,6 +36,7 @@ describe('ModelResolverService', () => {
   let models: Record<string, ModelConfig>;
   let configValues: Record<string, unknown>;
   let resolveTokenProvider: ReturnType<typeof vi.fn>;
+  let createdProtocolConfigs: Record<string, unknown>[];
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -39,6 +44,7 @@ describe('ModelResolverService', () => {
     models = {};
     configValues = {};
     resolveTokenProvider = vi.fn();
+    createdProtocolConfigs = [];
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IConfigService, {
@@ -61,6 +67,12 @@ describe('ModelResolverService', () => {
         });
         reg.definePartialInstance(IProtocolAdapterRegistry, {
           supportedProtocols: () => [],
+          createChatProvider: (input: ProtocolAdapterConfig) => {
+            createdProtocolConfigs.push(input as unknown as Record<string, unknown>);
+            return fakeChatProvider;
+          },
+        } as Partial<IProtocolAdapterRegistry> & {
+          createChatProvider(input: ProtocolAdapterConfig): ChatProvider;
         });
         reg.define(IModelResolver, ModelResolverService);
       },
@@ -131,6 +143,65 @@ describe('ModelResolverService', () => {
     expect(auth).toEqual({ apiKey: 'oauth-token' });
   });
 
+  describe('provider headers', () => {
+    it('passes provider customHeaders to protocol adapters as defaultHeaders', async () => {
+      providers['p'] = {
+        type: 'kimi',
+        baseUrl: 'https://example.test/v1',
+        apiKey: 'sk',
+        customHeaders: { 'X-Test': '1' },
+      };
+      models['m'] = { provider: 'p', model: 'wire-name', maxContextSize: 1000 };
+
+      const model = ix.get(IModelResolver).resolve('m');
+      for await (const _event of model.request({ systemPrompt: '', tools: [], messages: [] })) {
+        void _event;
+      }
+
+      expect(createdProtocolConfigs).toHaveLength(1);
+      expect(createdProtocolConfigs[0]).toMatchObject({
+        protocol: 'kimi',
+        defaultHeaders: { 'X-Test': '1' },
+      });
+      expect(createdProtocolConfigs[0]).not.toHaveProperty('customHeaders');
+    });
+  });
+
+  describe('capabilities', () => {
+    it('merges every declared capability with the model context window', () => {
+      providers['p'] = { type: 'kimi', baseUrl: 'https://example.test/v1', apiKey: 'sk' };
+      models['m'] = {
+        provider: 'p',
+        model: 'wire-name',
+        maxContextSize: 1000,
+        capabilities: ['audio_in', 'thinking', 'always_thinking'],
+      };
+
+      expect(ix.get(IModelResolver).resolve('m').capabilities).toEqual({
+        image_in: false,
+        video_in: false,
+        audio_in: true,
+        thinking: true,
+        tool_use: false,
+        max_context_tokens: 1000,
+      });
+    });
+
+    it('detects catalogued provider/model capabilities like v1 ProviderManager', () => {
+      providers['p'] = { type: 'openai', baseUrl: 'https://example.test/v1', apiKey: 'sk' };
+      models['m'] = { provider: 'p', model: 'gpt-4o', maxContextSize: 128000 };
+
+      expect(ix.get(IModelResolver).resolve('m').capabilities).toEqual({
+        image_in: true,
+        video_in: false,
+        audio_in: false,
+        thinking: false,
+        tool_use: true,
+        max_context_tokens: 128000,
+      });
+    });
+  });
+
   describe('default thinking', () => {
     function resolveEffort(capabilities?: string[]): string | null {
       providers['p'] = { type: 'kimi', baseUrl: 'https://example.test/v1', apiKey: 'sk' };
@@ -194,3 +265,23 @@ describe('ModelResolverService', () => {
     });
   });
 });
+
+const fakeChatProvider: ChatProvider = {
+  name: 'fake',
+  modelName: 'wire-name',
+  thinkingEffort: null,
+  async generate() {
+    return {
+      id: null,
+      usage: null,
+      finishReason: 'completed',
+      rawFinishReason: null,
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text' as const, text: 'ok' };
+      },
+    };
+  },
+  withThinking() {
+    return this;
+  },
+};

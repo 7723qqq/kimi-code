@@ -2249,7 +2249,7 @@ function createGenerateBackedProtocolRegistry(generate: GenerateFn): IProtocolAd
         model: input.modelName,
         baseUrl: input.baseUrl,
         apiKey: input.apiKey,
-        customHeaders: input.customHeaders as Record<string, string> | undefined,
+        defaultHeaders: input.defaultHeaders as Record<string, string> | undefined,
         ...(input.extras ?? {}),
       } as ProviderConfig;
       return input.protocol === 'kimi'

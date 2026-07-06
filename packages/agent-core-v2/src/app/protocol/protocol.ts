@@ -34,14 +34,14 @@ export type Protocol = z.infer<typeof ProtocolSchema>;
  * Configuration passed to the protocol adapter to produce a request handler.
  * Keep this shape wire-agnostic: identity comes from `protocol` + `baseUrl`,
  * secrets come from `auth` (resolved by the caller from Platform / Model
- * overrides), knobs come from `headers`.
+ * overrides), constructor-level headers come from `defaultHeaders`.
  */
 export interface ProtocolAdapterConfig {
   readonly protocol: Protocol;
   readonly baseUrl: string;
   readonly modelName: string;
   readonly apiKey?: string;
-  readonly customHeaders?: Readonly<Record<string, string>>;
+  readonly defaultHeaders?: Readonly<Record<string, string>>;
   /** Escape hatch for per-protocol tuning that doesn't fit the common shape. */
   readonly extras?: Readonly<Record<string, unknown>>;
 }

@@ -58,7 +58,7 @@ function toKosongProviderConfig(input: ProtocolAdapterConfig): KosongProviderCon
     model: input.modelName,
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
-    customHeaders: input.customHeaders as Record<string, string> | undefined,
+    defaultHeaders: input.defaultHeaders as Record<string, string> | undefined,
     ...(input.extras ?? {}),
   };
   return base as KosongProviderConfig;

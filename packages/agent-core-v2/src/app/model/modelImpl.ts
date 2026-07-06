@@ -165,7 +165,7 @@ export class ModelImpl implements Model {
       protocol: this.protocol,
       baseUrl: this.baseUrl,
       modelName: this.name,
-      customHeaders: this.headers,
+      defaultHeaders: this.headers,
       extras: this.extras,
     });
     for (const transform of this.transforms) provider = transform(provider);
