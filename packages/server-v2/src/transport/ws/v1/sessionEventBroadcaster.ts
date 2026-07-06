@@ -45,6 +45,7 @@ import {
   IEventBus,
   IEventService,
   ISessionInteractionService,
+  ISessionIndex,
   ISessionLifecycleService,
 } from '@moonshot-ai/agent-core-v2';
 import type {
@@ -52,6 +53,7 @@ import type {
   InFlightTurn,
   ModelCatalogChangedEvent,
   SessionCursor,
+  SessionMetaUpdatedEvent,
 } from '@moonshot-ai/protocol';
 import { isVolatileEventType } from '@moonshot-ai/protocol';
 
@@ -174,7 +176,10 @@ export class SessionEventBroadcaster {
 
   async getCursor(sessionId: string): Promise<{ seq: number; epoch: string }> {
     const state = await this.ensureState(sessionId);
-    if (state === undefined) return { seq: 0, epoch: '' };
+    if (state === undefined) {
+      const cold = await this.readColdWatermark(sessionId);
+      return cold ?? { seq: 0, epoch: '' };
+    }
     await state.queue;
     return { seq: state.journal.seq, epoch: state.journal.epoch };
   }
@@ -182,13 +187,39 @@ export class SessionEventBroadcaster {
   /** Atomic-at-queue watermark + in-flight turn, for the snapshot route. */
   async getSnapshotState(sessionId: string): Promise<SessionSnapshotState> {
     const state = await this.ensureState(sessionId);
-    if (state === undefined) return { seq: 0, epoch: '', inFlightTurn: null };
+    if (state === undefined) {
+      const cold = await this.readColdWatermark(sessionId);
+      return cold !== undefined
+        ? { ...cold, inFlightTurn: null }
+        : { seq: 0, epoch: '', inFlightTurn: null };
+    }
     await state.queue;
     return {
       seq: state.journal.seq,
       epoch: state.journal.epoch,
       inFlightTurn: state.tracker.get(sessionId),
     };
+  }
+
+  /**
+   * Watermark for a session that is not live in this process but exists on disk
+   * (carried over from a prior process, or created by v1). Opens the journal
+   * transiently — no agent/interaction listeners and not cached in
+   * `this.sessions` — so a later live activation still attaches subscriptions.
+   * Returns `undefined` when the session is unknown to the index (truly absent).
+   */
+  private async readColdWatermark(
+    sessionId: string,
+  ): Promise<{ seq: number; epoch: string } | undefined> {
+    const summary = await this.opts.core.accessor.get(ISessionIndex).get(sessionId);
+    if (summary === undefined) return undefined;
+    const journal = await SessionEventJournal.open(
+      sessionJournalPath(this.opts.eventsDir, sessionId),
+      this.opts.logger,
+    );
+    const watermark = { seq: journal.seq, epoch: journal.epoch };
+    await journal.close();
+    return watermark;
   }
 
   async close(): Promise<void> {
@@ -253,15 +284,34 @@ export class SessionEventBroadcaster {
   }
 
   private onCoreEvent(event: GlobalEvent): void {
-    if (event.type !== 'event.model_catalog.changed') return;
-    const payload = modelCatalogChangedPayload(event.payload);
-    if (payload === undefined) return;
-    const modelEvent: ModelCatalogChangedEvent = { type: 'event.model_catalog.changed', ...payload };
-    void this.dispatchGlobal({
-      ...modelEvent,
-      agentId: 'main',
-      sessionId: GLOBAL_SESSION_ID,
-    });
+    if (event.type === 'event.model_catalog.changed') {
+      const payload = modelCatalogChangedPayload(event.payload);
+      if (payload === undefined) return;
+      const modelEvent: ModelCatalogChangedEvent = {
+        type: 'event.model_catalog.changed',
+        ...payload,
+      };
+      void this.dispatchGlobal({
+        ...modelEvent,
+        agentId: 'main',
+        sessionId: GLOBAL_SESSION_ID,
+      });
+      return;
+    }
+    if (event.type === 'session.meta.updated') {
+      const payload = sessionMetaUpdatedPayload(event.payload);
+      if (payload === undefined) return;
+      // v1 broadcasts title changes to every connection (not just subscribers of
+      // the session) so session lists stay in sync — route via the global state,
+      // and `isGlobalEvent` fans it out to all targets. agentId/sessionId are
+      // attached here (the protocol event itself carries only title/patch).
+      void this.dispatchGlobal({
+        type: 'session.meta.updated',
+        ...payload,
+        agentId: 'main',
+        sessionId: GLOBAL_SESSION_ID,
+      } as Event);
+    }
   }
 
   private async dispatchGlobal(event: Event): Promise<void> {
@@ -433,6 +483,7 @@ function isVolatileSignal(type: string): boolean {
 /** Session/workspace/config/model-catalog events are broadcast to every connection. */
 function isGlobalEvent(type: string): boolean {
   return (
+    type === 'session.meta.updated' ||
     type.startsWith('event.session.') ||
     type.startsWith('event.workspace.') ||
     type.startsWith('event.config.') ||
@@ -536,4 +587,26 @@ function modelCatalogChangedPayload(
     unchanged: candidate.unchanged,
     failed: candidate.failed,
   };
+}
+
+/**
+ * Validate the `session.meta.updated` payload published on the core
+ * `IEventService` by the `POST /sessions/{id}/profile` route. The route wraps
+ * the v1 fields under `payload`; we unwrap them here and re-attach
+ * agentId/sessionId at the edge.
+ */
+function sessionMetaUpdatedPayload(
+  payload: unknown,
+): Pick<SessionMetaUpdatedEvent, 'title' | 'patch'> | undefined {
+  if (typeof payload !== 'object' || payload === null) return undefined;
+  const candidate = payload as Partial<SessionMetaUpdatedEvent>;
+  const title = typeof candidate.title === 'string' ? candidate.title : undefined;
+  const patch =
+    typeof candidate.patch === 'object' &&
+    candidate.patch !== null &&
+    !Array.isArray(candidate.patch)
+      ? candidate.patch
+      : undefined;
+  if (title === undefined && patch === undefined) return undefined;
+  return { title, patch };
 }

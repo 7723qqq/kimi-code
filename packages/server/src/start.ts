@@ -563,7 +563,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       };
       wsGw.setFsWatchHandler(fsWatchHandler);
 
-      a.get(IFileService);
+      a.get(IFileStore);
 
       a.get(IWorkspaceRegistry);
 

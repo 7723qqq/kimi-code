@@ -16,7 +16,9 @@ import { IAgentContextMemoryService, toProtocolMessage, type ContextMessage } fr
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import { ErrorCodes, isKimiError, KimiError } from '#/errors';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction';
+import { IAgentGoalService } from '#/agent/goal';
 import { IAgentPermissionModeService } from '#/agent/permissionMode';
+import type { PermissionMode } from '#/agent/permissionPolicy';
 import { IAgentPlanService } from '#/agent/plan';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentPromptService } from '#/agent/prompt';
@@ -38,6 +40,7 @@ import type {
   SessionStatusResponse,
   UndoSessionRequest,
   UndoSessionResponse,
+  UpdateSessionProfileRequest,
 } from '@moonshot-ai/protocol';
 
 import {
@@ -71,6 +74,53 @@ export class SessionLegacyService implements ISessionLegacyService {
     @IWorkspaceRegistry private readonly workspaceRegistry: IWorkspaceRegistry,
   ) {}
 
+  async updateProfile(
+    sessionId: string,
+    body: UpdateSessionProfileRequest,
+  ): Promise<SessionWireFields> {
+    const session = this.lifecycle.get(sessionId);
+    if (session === undefined) {
+      throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
+    }
+    const metadata = session.accessor.get(ISessionMetadata);
+
+    if (typeof body.title === 'string') {
+      await metadata.setTitle(body.title);
+    }
+
+    // v1 `ISessionService.update` writes the wire metadata patch straight into
+    // `custom` (replace, not deep-merge); `toProtocolSession` then spreads
+    // `custom` back onto the wire `Session.metadata`. An empty patch is a no-op
+    // (matches v1's `Object.keys(...).length > 0` guard).
+    const metadataPatch = body.metadata;
+    if (metadataPatch !== undefined && Object.keys(metadataPatch).length > 0) {
+      await metadata.update({ custom: { ...(metadataPatch as Record<string, unknown>) } });
+    }
+
+    const agentConfig = body.agent_config;
+    if (agentConfig !== undefined) {
+      const agent = await this.resolveMainAgent(sessionId);
+      await this.applyAgentConfig(agent, agentConfig);
+    }
+
+    const meta = await metadata.read();
+    // `ISessionContext` carries the frozen work dir (gap G3 closed), so an
+    // unregistered workspace does not collapse `cwd` here — matches v1, which
+    // stores `workDir` on the session itself.
+    const ctx = session.accessor.get(ISessionContext);
+    return {
+      id: meta.id,
+      workspaceId: ctx.workspaceId,
+      root: ctx.cwd,
+      title: meta.title,
+      lastPrompt: meta.lastPrompt,
+      createdAt: meta.createdAt,
+      updatedAt: meta.updatedAt,
+      archived: meta.archived,
+      custom: meta.custom,
+    };
+  }
+
   async fork(sessionId: string, body: ForkSessionRequest): Promise<SessionWireFields> {
     const handle = await this.lifecycle.fork({
       sourceSessionId: sessionId,
@@ -78,12 +128,11 @@ export class SessionLegacyService implements ISessionLegacyService {
       metadata: body.metadata as Record<string, unknown> | undefined,
     });
     const meta = await handle.accessor.get(ISessionMetadata).read();
-    const workspaceId = handle.accessor.get(ISessionContext).workspaceId;
-    const workspace = await this.workspaceRegistry.get(workspaceId);
+    const ctx = handle.accessor.get(ISessionContext);
     return {
       id: meta.id,
-      workspaceId,
-      root: workspace?.root ?? '',
+      workspaceId: ctx.workspaceId,
+      root: ctx.cwd,
       title: meta.title,
       lastPrompt: meta.lastPrompt,
       createdAt: meta.createdAt,
@@ -105,12 +154,11 @@ export class SessionLegacyService implements ISessionLegacyService {
       },
     });
     const meta = await handle.accessor.get(ISessionMetadata).read();
-    const workspaceId = handle.accessor.get(ISessionContext).workspaceId;
-    const workspace = await this.workspaceRegistry.get(workspaceId);
+    const ctx = handle.accessor.get(ISessionContext);
     return {
       id: meta.id,
-      workspaceId,
-      root: workspace?.root ?? '',
+      workspaceId: ctx.workspaceId,
+      root: ctx.cwd,
       title: meta.title,
       lastPrompt: meta.lastPrompt,
       createdAt: meta.createdAt,
@@ -160,9 +208,11 @@ export class SessionLegacyService implements ISessionLegacyService {
     );
     const page = slice.slice(0, pageSize);
     const items = await Promise.all(page.map((s) => this.projectSummary(s)));
-    // `status` is accepted for wire compatibility but not applied — the v2
-    // realtime status is not projected into the index summary, and the wire
-    // projection reports a hardcoded 'idle' (matches `GET /sessions`).
+    // `status` is layered on at the route edge: this adapter returns
+    // protocol-free fields, and the route projects the live
+    // `ISessionActivity.status()` onto each item and filters the page by the
+    // `status` query (post-page, matching v1). `has_more` reflects the
+    // pre-filter page.
     return { items, has_more: slice.length > pageSize };
   }
 
@@ -245,11 +295,14 @@ export class SessionLegacyService implements ISessionLegacyService {
   }
 
   private async projectSummary(summary: SessionSummary): Promise<SessionWireFields> {
-    const workspace = await this.workspaceRegistry.get(summary.workspaceId);
+    // Prefer the cwd persisted on the session summary (gap G3 closed); fall
+    // back to the registry only for sessions written before `cwd` was stored.
+    const root =
+      summary.cwd ?? (await this.workspaceRegistry.get(summary.workspaceId))?.root ?? '';
     return {
       id: summary.id,
       workspaceId: summary.workspaceId,
-      root: workspace?.root ?? '',
+      root,
       title: summary.title,
       lastPrompt: summary.lastPrompt,
       createdAt: summary.createdAt,
@@ -264,6 +317,68 @@ export class SessionLegacyService implements ISessionLegacyService {
    * `resumeSession`; delegates to the `agentLifecycle` domain's
    * `ensureMainAgent` bootstrap helper).
    */
+  /**
+   * Apply the v1 `agent_config` patch onto the main agent. Mirrors v1's
+   * `IPromptService.applyAgentState` (`promptService.ts:650-743`) in both order
+   * (model → thinking → permission → plan → swarm → goal) and diff behaviour:
+   * the non-idempotent `plan.enter` / `swarm.enter` are guarded behind a state
+   * read so a repeated `true` does not throw ('Already in plan mode'); the
+   * idempotent setters (model / thinking / permission) fire directly. Goal
+   * actions are one-shot and let domain errors (`goal.*`) propagate to the
+   * route's `sendMappedError`.
+   */
+  private async applyAgentConfig(
+    agent: IAgentScopeHandle,
+    agentConfig: NonNullable<UpdateSessionProfileRequest['agent_config']>,
+  ): Promise<void> {
+    const profile = agent.accessor.get(IAgentProfileService);
+    if (agentConfig.model !== undefined && agentConfig.model !== '') {
+      await profile.setModel(agentConfig.model);
+    }
+    if (agentConfig.thinking !== undefined) {
+      profile.setThinking(agentConfig.thinking);
+    }
+    if (agentConfig.permission_mode !== undefined) {
+      agent
+        .accessor.get(IAgentPermissionModeService)
+        .setMode(agentConfig.permission_mode as PermissionMode);
+    }
+    if (agentConfig.plan_mode !== undefined) {
+      const plan = agent.accessor.get(IAgentPlanService);
+      const active = (await plan.status()) !== null;
+      if (active !== agentConfig.plan_mode) {
+        if (agentConfig.plan_mode) await plan.enter();
+        else plan.exit();
+      }
+    }
+    if (agentConfig.swarm_mode !== undefined) {
+      const swarm = agent.accessor.get(IAgentSwarmService);
+      if (swarm.isActive !== agentConfig.swarm_mode) {
+        if (agentConfig.swarm_mode) swarm.enter('manual');
+        else swarm.exit();
+      }
+    }
+    if (agentConfig.goal_objective !== undefined) {
+      await agent
+        .accessor.get(IAgentGoalService)
+        .createGoal({ objective: agentConfig.goal_objective });
+    }
+    if (agentConfig.goal_control !== undefined) {
+      const goal = agent.accessor.get(IAgentGoalService);
+      switch (agentConfig.goal_control) {
+        case 'pause':
+          await goal.pauseGoal({});
+          break;
+        case 'resume':
+          await goal.resumeGoal({});
+          break;
+        case 'cancel':
+          await goal.cancelGoal({});
+          break;
+      }
+    }
+  }
+
   private async resolveMainAgent(sessionId: string): Promise<IAgentScopeHandle> {
     const session = this.lifecycle.get(sessionId);
     if (session === undefined) {

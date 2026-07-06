@@ -147,7 +147,7 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
     const path = state.planFilePath ?? this.planFilePathFor(state.id);
     let content = '';
     try {
-      content = await this.hostFs.readText(this._planFilePath);
+      content = await this.hostFs.readText(path);
     } catch (error) {
       if (!isMissingFileError(error)) throw error;
     }

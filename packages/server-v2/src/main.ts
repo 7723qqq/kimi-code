@@ -3,7 +3,8 @@
  * DI engine) in the foreground and blocks until SIGINT/SIGTERM.
  *
  * Flags: `--port <n>` (default 58627), `--host <h>` (default 127.0.0.1),
- * `--log-level <level>` (default info).
+ * `--log-level <level>` (default info), `--dangerous-bypass-auth` (disable
+ * bearer-token auth on every route — trusted networks only).
  */
 
 import type { ServerLogLevel } from './services/pinoLoggerService';
@@ -13,6 +14,7 @@ interface CliOptions {
   readonly host?: string;
   readonly port?: number;
   readonly logLevel?: ServerLogLevel;
+  readonly disableAuth?: boolean;
 }
 
 const LOG_LEVELS: readonly ServerLogLevel[] = [
@@ -29,6 +31,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
   let host: string | undefined;
   let port: number | undefined;
   let logLevel: ServerLogLevel | undefined;
+  let disableAuth: boolean | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -47,10 +50,12 @@ function parseArgs(argv: readonly string[]): CliOptions {
     ) {
       logLevel = next as ServerLogLevel;
       i++;
+    } else if (arg === '--dangerous-bypass-auth') {
+      disableAuth = true;
     }
   }
 
-  return { host, port, logLevel };
+  return { host, port, logLevel, disableAuth };
 }
 
 async function main(): Promise<never> {
@@ -59,6 +64,7 @@ async function main(): Promise<never> {
     host: opts.host,
     port: opts.port,
     logLevel: opts.logLevel ?? 'info',
+    disableAuth: opts.disableAuth,
   });
 
   const origin = `http://${server.host}:${server.port}`;

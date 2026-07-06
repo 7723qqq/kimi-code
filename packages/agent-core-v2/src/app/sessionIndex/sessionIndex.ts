@@ -16,6 +16,15 @@ import type { Page } from '#/persistence/interface/queryStore';
 export interface SessionSummary {
   readonly id: string;
   readonly workspaceId: string;
+  /**
+   * Absolute working directory frozen at session creation (wire
+   * `metadata.cwd`). Sourced from the session's own metadata document so it is
+   * independent of the workspace registry — sessions whose workspace was
+   * unregistered still surface their original cwd (closes gap G3; matches v1's
+   * `summary.workDir`). Optional only for sessions written before `cwd` was
+   * persisted; the edge falls back to the workspace registry for those.
+   */
+  readonly cwd?: string;
   readonly title?: string;
   readonly lastPrompt?: string;
   readonly createdAt: number;

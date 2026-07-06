@@ -7,13 +7,13 @@
  *   GET    /sessions                  list
  *   GET    /sessions/{session_id}     get
  *   GET    /sessions/{session_id}/profile
- *   POST   /sessions/{session_id}/profile      update title (partial)
+ *   POST   /sessions/{session_id}/profile      update title / metadata / agent_config
  *   POST   /sessions/{tail}                    action: fork / compact / undo /
  *                                              abort / btw / archive
  *   GET    /sessions/{session_id}/children     list child sessions
  *   POST   /sessions/{session_id}/children     create child session (fork+tag)
  *   GET    /sessions/{session_id}/status       best-effort
- *   GET    /sessions/{session_id}/warnings     empty (no warning sources ported)
+ *   GET    /sessions/{session_id}/warnings     agents-md-oversized notice
  *
  * The `POST /sessions/{tail}` actions (`fork` / `compact` / `undo` / `abort` /
  * `btw` / `archive`) and the `/sessions/{id}/children` endpoints are dispatched
@@ -22,27 +22,42 @@
  * `create`, `fork`, and child creation publish `event.session.created` on the
  * core event bus, matching v1.
  *
- * `GET /sessions/{id}/warnings` returns `{ warnings: [] }`: the only v1 warning
- * (`agents-md-oversized`) is computed by `prepareSystemPromptContext`, which is
- * not ported to v2 yet. This is within v1's observable behaviour — it falls back
- * to `[]` whenever the underlying computation throws.
+ * `GET /sessions/{id}/warnings` surfaces the only v1 warning
+ * (`agents-md-oversized`) by projecting the main agent's
+ * `IAgentProfileService.getAgentsMdWarning()` — computed and cached when the
+ * agent binds a profile (via `prepareSystemPromptContext`) — into the v1
+ * `{ code, message, severity }` wire shape. An unbound main agent yields an
+ * empty list, matching v1's "no warning" case.
  *
  * **Wire fidelity**: mirrors v1's `toProtocolSession`
  * (`packages/agent-core/src/services/session/session.ts`), which populates
  * only the index/metadata fields and returns placeholders for the heavy ones
  * (`agent_config:{model:''}`, `usage:zeros`, `permission_rules:[]`,
- * `message_count:0`, `last_seq:0`, hardcoded `status:'idle'`). v2 produces the
- * same placeholder shape from `ISessionIndex` + `IWorkspaceRegistry`, and now
+ * `message_count:0`, `last_seq:0`). v2 produces the same placeholder shape
+ * from `ISessionIndex` (with `cwd` persisted on the session itself), and now
  * also surfaces `last_prompt` and the merged custom `metadata`.
  *
- * **cwd resolution (gap G3)**: v2 does not store the original work dir on the
- * session; we recover `metadata.cwd` from `IWorkspaceRegistry`
- * (`workspaceId → root`). Sessions whose workspace is not registered cannot be
- * represented and are filtered from list / 404 on get.
+ * **Status**: v1's `SessionService` overwrites the placeholder `status` with the
+ * live value before projecting (`_patchSessionStatus`). v2 does the same:
+ * `toWireSession` takes the live `ISessionActivity.status()` resolved from the
+ * session's scope (or `'idle'` when the session is cold), so the wire `status`
+ * is real on every session-producing endpoint here. `GET /sessions` and
+ * `GET /sessions/{id}/children` filter their projected page by the `status`
+ * query param (post-page, matching v1 — `has_more` reflects the pre-filter
+ * page). The `aborted` phase is not derived yet (gap G10); v2 never reports it.
+ *
+ * **cwd resolution (gap G3 closed)**: the session's frozen work dir is
+ * persisted on its metadata document (`ISessionMetadata`) and surfaced on the
+ * `ISessionIndex` summary, so `metadata.cwd` comes from the session itself —
+ * not from `IWorkspaceRegistry`. Sessions whose workspace was unregistered keep
+ * their original cwd and stay listed / gettable (matching v1, which stores
+ * `workDir` on the session). `IWorkspaceRegistry` is consulted only as a
+ * back-compat fallback for sessions written before `cwd` was persisted.
  */
 
 import {
   ErrorCodes,
+  IAgentProfileService,
   IAuthSummaryService,
   ISessionBtwService,
   ISessionActivity,
@@ -77,13 +92,15 @@ import {
   undoSessionRequestSchema,
   undoSessionResponseSchema,
   updateSessionProfileRequestSchema,
+  workspaceIdSchema,
 } from '@moonshot-ai/protocol';
-import type { Session } from '@moonshot-ai/protocol';
+import type { Session, SessionStatus } from '@moonshot-ai/protocol';
 import { ulid } from 'ulid';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
+import { ensureMainAgent } from '../transport/mainAgent';
 import { parseActionSuffix } from './action-suffix';
 
 interface SessionRouteHost {
@@ -111,11 +128,13 @@ const booleanQueryParam = z.preprocess((value) => {
   return value;
 }, z.boolean().optional());
 
-// NOTE: `status` filtering is accepted for wire compatibility but not applied
-// (gap G5). `before_id`/`after_id` id-cursors and `page_size` ARE applied in
-// the route handler (the `FileSessionIndex` does not implement `cursor`, so we
-// page over its recency-sorted result). `include_archive` → `includeArchived`;
-// `workspace_id` → `workspaceId`; `exclude_empty` drops sessions with no prompt.
+// NOTE: mirrors v1's `GET /sessions` query. `before_id`/`after_id` id-cursors
+// and `page_size` ARE applied in the route handler (the `FileSessionIndex` does
+// not implement `cursor`, so we page over its recency-sorted result); `status`
+// filters the projected page (post-page, matching v1). `include_archive` →
+// `includeArchived`; `archived_only` forces `includeArchived` and then keeps
+// only archived sessions; `workspace_id` → `workspaceId`; `exclude_empty` drops
+// sessions with no prompt.
 const sessionsListQueryCoercion = z
   .object({
     before_id: z.string().min(1).optional(),
@@ -124,7 +143,8 @@ const sessionsListQueryCoercion = z
     status: sessionStatusSchema.optional(),
     include_archive: booleanQueryParam,
     exclude_empty: booleanQueryParam,
-    workspace_id: z.string().min(1).optional(),
+    archived_only: booleanQueryParam,
+    workspace_id: workspaceIdSchema.optional(),
   })
   .superRefine((value, ctx) => {
     if (value.before_id !== undefined && value.after_id !== undefined) {
@@ -135,15 +155,24 @@ const sessionsListQueryCoercion = z
         params: { code: ErrorCode.VALIDATION_FAILED },
       });
     }
+    if (value.archived_only === true && value.include_archive === true) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'archived_only and include_archive are mutually exclusive',
+        path: ['archived_only'],
+        params: { code: ErrorCode.VALIDATION_FAILED },
+      });
+    }
   });
 
 const sessionIdParamSchema = z.object({
   session_id: z.string().min(1),
 });
 
-// Mirrors v1's children query: id-cursors + page_size + status. `status` is
-// accepted for wire compatibility but not applied by `ISessionLegacyService`
-// (the wire projection reports a hardcoded 'idle'; see gap G10 / G5).
+// Mirrors v1's children query: id-cursors + page_size + status. The route
+// projects the live `ISessionActivity.status()` onto each child and filters the
+// page by `status` (post-page, matching v1); `ISessionLegacyService` stays
+// protocol-free and does not apply the filter itself.
 const sessionChildrenListQueryCoercion = z
   .object({
     before_id: z.string().min(1).optional(),
@@ -257,7 +286,11 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         await handle.accessor.get(ISessionMetadata).setTitle(body.title);
       }
       const meta = await handle.accessor.get(ISessionMetadata).read();
-      const session = toWireSession({ ...meta, workspaceId: touched.id }, touched.root);
+      const session = toWireSession(
+        { ...meta, workspaceId: touched.id },
+        touched.root,
+        handle.accessor.get(ISessionActivity).status(),
+      );
       core.accessor.get(IEventService).publish({
         type: 'event.session.created',
         payload: { agentId: 'main', sessionId: session.id, session },
@@ -279,6 +312,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
       success: { data: pageResponseSchema(sessionSchema) },
       errors: {
         [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
+        [ErrorCode.WORKSPACE_NOT_FOUND]: {},
       },
       description: 'List sessions',
       tags: ['sessions'],
@@ -286,26 +320,47 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
     async (req, reply) => {
       const raw = req.query;
       const pageSize = raw.page_size;
-
-      // `FileSessionIndex` does not implement `cursor` (gap G5 closed here), so
-      // we fetch the full recency-sorted set (no `limit`) and apply the id
-      // cursor in this handler. `list()` already orders by `updatedAt` desc and
-      // filters by workspace / archived.
-      const page = await core.accessor.get(ISessionIndex).list({
-        workspaceId: raw.workspace_id,
-        includeArchived: raw.include_archive,
-      });
+      const archivedOnly = raw.archived_only === true;
 
       const workspaces = await core.accessor.get(IWorkspaceRegistry).list();
       const roots = new Map(workspaces.map((w) => [w.id, w.root]));
 
+      // v1 resolves `workspace_id` to its root and 40410s when it is unknown;
+      // the index filters by `workspaceId` directly, so only the existence
+      // check is needed here (the root itself is not used by the query).
+      if (raw.workspace_id !== undefined && !roots.has(raw.workspace_id)) {
+        reply.send(
+          errEnvelope(
+            ErrorCode.WORKSPACE_NOT_FOUND,
+            `workspace ${raw.workspace_id} does not exist`,
+            req.id,
+          ),
+        );
+        return;
+      }
+
+      // `FileSessionIndex` does not implement `cursor` (gap G5 closed here), so
+      // we fetch the full recency-sorted set (no `limit`) and apply the id
+      // cursor in this handler. `list()` already orders by `updatedAt` desc and
+      // filters by workspace / archived. `archived_only` forces archived rows
+      // into the set, then the filter below keeps only them.
+      const page = await core.accessor.get(ISessionIndex).list({
+        workspaceId: raw.workspace_id,
+        includeArchived: archivedOnly ? true : raw.include_archive,
+      });
+
       // Filter down to the sequence the client actually sees BEFORE computing
       // the cursor position and the page boundary, so a cursor carried over
-      // from a previous page always resolves to the same index.
+      // from a previous page always resolves to the same index. `cwd` is read
+      // from the session's own summary first (gap G3 closed — an unregistered
+      // workspace no longer drops the session); the registry `roots` map is
+      // only a back-compat fallback for sessions written before `cwd` was
+      // persisted. A session with no recoverable cwd is still skipped.
       const eligible: { summary: (typeof page.items)[number]; cwd: string }[] = [];
       for (const summary of page.items) {
-        const cwd = roots.get(summary.workspaceId);
-        if (cwd === undefined) continue; // gap G3: cannot represent cwd
+        const cwd = summary.cwd ?? roots.get(summary.workspaceId);
+        if (cwd === undefined) continue;
+        if (archivedOnly && summary.archived !== true) continue;
         if (raw.exclude_empty === true && (summary.lastPrompt ?? '').length === 0) continue;
         eligible.push({ summary, cwd });
       }
@@ -330,9 +385,18 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
       const window = eligible.slice(start, end);
       const limit = pageSize ?? window.length;
       const hasMore = window.length > limit;
-      const items: Session[] = window
+      const projected: Session[] = window
         .slice(0, limit)
-        .map(({ summary, cwd }) => toWireSession(summary, cwd));
+        .map(({ summary, cwd }) =>
+          toWireSession(summary, cwd, resolveSessionStatus(core, summary.id)),
+        );
+      // v1 filters the projected page by `status` (post-page); `has_more` keeps
+      // reflecting the pre-filter page, so a filtered page may be short or empty
+      // while `has_more` is still true — match that exactly.
+      const items =
+        raw.status !== undefined
+          ? projected.filter((session) => session.status === raw.status)
+          : projected;
       reply.send(okEnvelope({ items, has_more: hasMore }, req.id));
     },
   );
@@ -364,20 +428,24 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         );
         return;
       }
-      const workspace = await core.accessor.get(IWorkspaceRegistry).get(summary.workspaceId);
-      if (workspace === undefined) {
-        // gap G3: persisted session whose workspace is not registered → cwd
-        // cannot be recovered.
+      const cwd =
+        summary.cwd ??
+        (await core.accessor.get(IWorkspaceRegistry).get(summary.workspaceId))?.root;
+      if (cwd === undefined) {
+        // Persisted session with no `cwd` on disk and no registered workspace
+        // to fall back to (predates gap-G3 persistence) — cannot project cwd.
         reply.send(
           errEnvelope(
             ErrorCode.SESSION_NOT_FOUND,
-            `session ${session_id} workspace missing`,
+            `session ${session_id} has no recoverable cwd`,
             req.id,
           ),
         );
         return;
       }
-      reply.send(okEnvelope(toWireSession(summary, workspace.root), req.id));
+      reply.send(
+        okEnvelope(toWireSession(summary, cwd, resolveSessionStatus(core, session_id)), req.id),
+      );
     },
   );
   app.get(
@@ -408,18 +476,22 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         );
         return;
       }
-      const workspace = await core.accessor.get(IWorkspaceRegistry).get(summary.workspaceId);
-      if (workspace === undefined) {
+      const cwd =
+        summary.cwd ??
+        (await core.accessor.get(IWorkspaceRegistry).get(summary.workspaceId))?.root;
+      if (cwd === undefined) {
         reply.send(
           errEnvelope(
             ErrorCode.SESSION_NOT_FOUND,
-            `session ${session_id} workspace missing`,
+            `session ${session_id} has no recoverable cwd`,
             req.id,
           ),
         );
         return;
       }
-      reply.send(okEnvelope(toWireSession(summary, workspace.root), req.id));
+      reply.send(
+        okEnvelope(toWireSession(summary, cwd, resolveSessionStatus(core, session_id)), req.id),
+      );
     },
   );
   app.get(
@@ -439,36 +511,34 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
         [ErrorCode.SESSION_NOT_FOUND]: {},
       },
-      description: 'Update session profile (title only in this slice)',
+      description: 'Update session profile (title, metadata, agent_config)',
       tags: ['sessions'],
     },
     async (req, reply) => {
-      const { session_id } = req.params;
-      const handle = core.accessor.get(ISessionLifecycleService).get(session_id);
-      if (handle === undefined) {
-        reply.send(
-          errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${session_id} does not exist`, req.id),
-        );
-        return;
+      try {
+        const { session_id } = req.params;
+        const fields = await core
+          .accessor.get(ISessionLegacyService)
+          .updateProfile(session_id, req.body);
+        const session = toWireSession(fields, fields.root, resolveSessionStatus(core, fields.id));
+        // Broadcast the title change to every connection (including clients not
+        // subscribed to this session, and covering inactive sessions), so session
+        // lists stay in sync — mirrors v1's `session.meta.updated` publish.
+        if (typeof req.body.title === 'string' && req.body.title.trim().length > 0) {
+          core.accessor.get(IEventService).publish({
+            type: 'session.meta.updated',
+            payload: {
+              agentId: 'main',
+              sessionId: session_id,
+              title: session.title,
+              patch: { title: session.title, isCustomTitle: true },
+            },
+          });
+        }
+        reply.send(okEnvelope(session, req.id));
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
       }
-      const title = req.body.title;
-      if (typeof title === 'string') {
-        await handle.accessor.get(ISessionMetadata).setTitle(title);
-      }
-      const meta = await handle.accessor.get(ISessionMetadata).read();
-      const workspaceId = handle.accessor.get(ISessionContext).workspaceId;
-      const workspace = await core.accessor.get(IWorkspaceRegistry).get(workspaceId);
-      if (workspace === undefined) {
-        reply.send(
-          errEnvelope(
-            ErrorCode.SESSION_NOT_FOUND,
-            `session ${session_id} workspace missing`,
-            req.id,
-          ),
-        );
-        return;
-      }
-      reply.send(okEnvelope(toWireSession({ ...meta, workspaceId }, workspace.root), req.id));
     },
   );
   app.post(
@@ -523,7 +593,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         if (parsed.action === 'fork') {
           const body = forkSessionRequestSchema.parse(req.body);
           const fields = await legacy.fork(parsed.id, body);
-          const session = toWireSession(fields, fields.root);
+          const session = toWireSession(fields, fields.root, resolveSessionStatus(core, fields.id));
           core.accessor.get(IEventService).publish({
             type: 'event.session.created',
             payload: { agentId: 'main', sessionId: session.id, session },
@@ -597,16 +667,19 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const page = await core.accessor.get(ISessionLegacyService).listChildren(session_id, req.query);
-        reply.send(
-          okEnvelope(
-            {
-              items: page.items.map((fields) => toWireSession(fields, fields.root)),
-              has_more: page.has_more,
-            },
-            req.id,
-          ),
+        const page = await core
+          .accessor.get(ISessionLegacyService)
+          .listChildren(session_id, req.query);
+        const projected = page.items.map((fields) =>
+          toWireSession(fields, fields.root, resolveSessionStatus(core, fields.id)),
         );
+        // v1 filters the projected page by `status` (post-page); `has_more`
+        // reflects the pre-filter page.
+        const items =
+          req.query.status !== undefined
+            ? projected.filter((session) => session.status === req.query.status)
+            : projected;
+        reply.send(okEnvelope({ items, has_more: page.has_more }, req.id));
       } catch (error) {
         sendMappedError(reply, req.id, error);
       }
@@ -639,7 +712,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         const fields = await core
           .accessor.get(ISessionLegacyService)
           .createChild(session_id, req.body);
-        const session = toWireSession(fields, fields.root);
+        const session = toWireSession(fields, fields.root, resolveSessionStatus(core, fields.id));
         core.accessor.get(IEventService).publish({
           type: 'event.session.created',
           payload: { agentId: 'main', sessionId: session.id, session },
@@ -720,18 +793,34 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
     },
     async (req, reply) => {
       const { session_id } = req.params;
-      const summary = await core.accessor.get(ISessionIndex).get(session_id);
-      if (summary === undefined) {
+      const session = core.accessor.get(ISessionLifecycleService).get(session_id);
+      if (session === undefined) {
         reply.send(
           errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${session_id} does not exist`, req.id),
         );
         return;
       }
-      // No warning sources are ported to v2 yet (the v1 `agents-md-oversized`
-      // detection lives in `prepareSystemPromptContext`, which is not wired
-      // here). Return an empty list — within v1's own observable behaviour,
-      // since it falls back to `[]` whenever the underlying computation throws.
-      reply.send(okEnvelope({ warnings: [] }, req.id));
+      try {
+        // Surface the v2 `agents-md-oversized` notice in the v1 wire shape. The
+        // warning is computed (and cached) by `IAgentProfileService` when the main
+        // agent binds a profile; an unbound main agent yields `undefined` → `[]`,
+        // matching v1's "no warning" case.
+        const agent = await ensureMainAgent(session);
+        const agentsMdWarning = agent.accessor.get(IAgentProfileService).getAgentsMdWarning();
+        const warnings =
+          agentsMdWarning === undefined
+            ? []
+            : [
+                {
+                  code: 'agents-md-oversized',
+                  message: agentsMdWarning,
+                  severity: 'warning' as const,
+                },
+              ];
+        reply.send(okEnvelope({ warnings }, req.id));
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
+      }
     },
   );
   app.get(
@@ -758,14 +847,18 @@ export interface SessionWireFields {
   readonly custom?: Record<string, unknown>;
 }
 
-export function toWireSession(fields: SessionWireFields, cwd: string): Session {
+export function toWireSession(
+  fields: SessionWireFields,
+  cwd: string,
+  status: SessionStatus,
+): Session {
   return {
     id: fields.id,
     workspace_id: fields.workspaceId,
     title: fields.title ?? '',
     created_at: new Date(fields.createdAt).toISOString(),
     updated_at: new Date(fields.updatedAt).toISOString(),
-    status: 'idle',
+    status,
     archived: fields.archived,
     last_prompt: fields.lastPrompt,
     metadata: buildWireMetadata(fields.custom, cwd),
@@ -775,6 +868,19 @@ export function toWireSession(fields: SessionWireFields, cwd: string): Session {
     message_count: 0,
     last_seq: 0,
   };
+}
+
+/**
+ * Resolve a session's live wire `status`. Mirrors v1's
+ * `SessionService._patchSessionStatus`: the live `ISessionActivity.status()`
+ * wins, and a cold session (no live handle) reports `'idle'` — it carries no
+ * pending approval/question and no active turn. The `aborted` phase is not
+ * derived in v2 yet (gap G10), so it is never returned here.
+ */
+function resolveSessionStatus(core: Scope, sessionId: string): SessionStatus {
+  const handle = core.accessor.get(ISessionLifecycleService).get(sessionId);
+  if (handle === undefined) return 'idle';
+  return handle.accessor.get(ISessionActivity).status();
 }
 
 /**
@@ -836,6 +942,24 @@ function sendMappedError(
         return;
       case 'session.undo_unavailable':
         reply.send(errEnvelope(ErrorCode.SESSION_UNDO_UNAVAILABLE, err.message, requestId));
+        return;
+      case ErrorCodes.GOAL_ALREADY_EXISTS:
+        reply.send(errEnvelope(ErrorCode.GOAL_ALREADY_EXISTS, err.message, requestId));
+        return;
+      case ErrorCodes.GOAL_NOT_FOUND:
+        reply.send(errEnvelope(ErrorCode.GOAL_NOT_FOUND, err.message, requestId));
+        return;
+      case ErrorCodes.GOAL_STATUS_INVALID:
+        reply.send(errEnvelope(ErrorCode.GOAL_STATUS_INVALID, err.message, requestId));
+        return;
+      case ErrorCodes.GOAL_NOT_RESUMABLE:
+        reply.send(errEnvelope(ErrorCode.GOAL_NOT_RESUMABLE, err.message, requestId));
+        return;
+      case ErrorCodes.GOAL_OBJECTIVE_EMPTY:
+        reply.send(errEnvelope(ErrorCode.GOAL_OBJECTIVE_EMPTY, err.message, requestId));
+        return;
+      case ErrorCodes.GOAL_OBJECTIVE_TOO_LONG:
+        reply.send(errEnvelope(ErrorCode.GOAL_OBJECTIVE_TOO_LONG, err.message, requestId));
         return;
       case 'request.invalid':
       case 'validation.failed':

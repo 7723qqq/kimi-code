@@ -105,6 +105,19 @@ describe('FileSessionIndex (legacy)', () => {
     expect(await store.get('missing')).toBeUndefined();
   });
 
+  it('recovers cwd from the metadata document (v2 cwd, v1 workDir, custom.cwd)', async () => {
+    await seedSession('v2', { cwd: '/repo/v2' });
+    await seedSession('v1', { workDir: '/repo/v1' });
+    await seedSession('old', { custom: { cwd: '/repo/old' } });
+    await seedSession('none', { title: 'no cwd' });
+
+    const store = build();
+    expect((await store.get('v2'))?.cwd).toBe('/repo/v2');
+    expect((await store.get('v1'))?.cwd).toBe('/repo/v1');
+    expect((await store.get('old'))?.cwd).toBe('/repo/old');
+    expect((await store.get('none'))?.cwd).toBeUndefined();
+  });
+
   it('list filters by sessionId without enumerating all sessions', async () => {
     await seedSession('active', { title: 'hello' });
     await seedSession('archived', { archived: true });

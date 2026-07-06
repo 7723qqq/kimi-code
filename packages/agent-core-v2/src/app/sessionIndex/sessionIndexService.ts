@@ -53,6 +53,26 @@ function parseTime(value: unknown): number {
   return 0;
 }
 
+/**
+ * Recover the session's frozen working directory from its metadata document.
+ *
+ * Precedence: v2 `cwd` → v1 `workDir` → older v1 `custom.cwd`. Returns
+ * `undefined` only for documents predating every cwd record; the edge falls
+ * back to the workspace registry for those.
+ */
+function recoverCwd(meta: Record<string, unknown>): string | undefined {
+  if (typeof meta['cwd'] === 'string' && meta['cwd'].length > 0) return meta['cwd'];
+  if (typeof meta['workDir'] === 'string' && meta['workDir'].length > 0) {
+    return meta['workDir'];
+  }
+  const custom = meta['custom'];
+  if (custom !== null && typeof custom === 'object' && !Array.isArray(custom)) {
+    const fromCustom = (custom as Record<string, unknown>)['cwd'];
+    if (typeof fromCustom === 'string' && fromCustom.length > 0) return fromCustom;
+  }
+  return undefined;
+}
+
 export class FileSessionIndex implements ISessionIndex {
   declare readonly _serviceBrand: undefined;
 
@@ -243,6 +263,7 @@ export class FileSessionIndex implements ISessionIndex {
     return {
       id: sessionId,
       workspaceId,
+      cwd: recoverCwd(meta),
       title: typeof meta['title'] === 'string' ? meta['title'] : undefined,
       lastPrompt: typeof meta['lastPrompt'] === 'string' ? meta['lastPrompt'] : undefined,
       createdAt: parseTime(meta['createdAt']),

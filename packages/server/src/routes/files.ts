@@ -13,7 +13,7 @@ import {
 } from '@moonshot-ai/protocol';
 import { z } from 'zod';
 
-import { DEFAULT_MAX_UPLOAD_BYTES, FileNotFoundError, FileTooLargeError, IFileService, type IInstantiationService } from '@moonshot-ai/agent-core';
+import { DEFAULT_MAX_UPLOAD_BYTES, FileNotFoundError, FileTooLargeError, IFileStore, type IInstantiationService } from '@moonshot-ai/agent-core';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
@@ -119,7 +119,7 @@ export function registerFilesRoutes(
         const nameOverride = readFieldString(part.fields['name']);
         const expiresInSec = readFieldNumber(part.fields['expires_in_sec']);
 
-        const store = ix.invokeFunction((a) => a.get(IFileService));
+        const store = ix.invokeFunction((a) => a.get(IFileStore));
 
         const partFile = part.file as NodeJS.ReadableStream & { truncated?: boolean };
         let busboyTruncated = false;
@@ -178,7 +178,7 @@ export function registerFilesRoutes(
     async (req, reply) => {
       try {
         const { file_id } = req.params;
-        const store = ix.invokeFunction((a) => a.get(IFileService));
+        const store = ix.invokeFunction((a) => a.get(IFileStore));
         const { meta, blobPath } = await store.get(file_id);
         const r = reply as unknown as FilesReply;
         const size = meta.size;
@@ -226,7 +226,7 @@ export function registerFilesRoutes(
     async (req, reply) => {
       try {
         const { file_id } = req.params;
-        const store = ix.invokeFunction((a) => a.get(IFileService));
+        const store = ix.invokeFunction((a) => a.get(IFileStore));
         await store.delete(file_id);
         reply.send(okEnvelope({ deleted: true as const }, req.id));
       } catch (err) {

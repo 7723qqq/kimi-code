@@ -24,6 +24,7 @@ import { registerFsRoutes } from './fs';
 import { registerGuiStoreRoutes } from './guiStore';
 import { registerMessagesRoutes } from './messages';
 import type { IGuiStoreService } from '../services/guiStore/guiStore';
+import type { ISnapshotReader } from '../services/snapshot';
 import { registerMetaRoute } from './meta';
 import { registerModelCatalogRoutes } from './modelCatalog';
 import { registerOAuthRoutes } from './oauth';
@@ -63,6 +64,13 @@ export interface RegisterApiV1RoutesOptions {
   readonly onShutdown: () => void;
   readonly connectionRegistry: IConnectionRegistry;
   readonly broadcaster: SessionEventBroadcaster;
+  readonly snapshotReader: ISnapshotReader;
+  /**
+   * Surface `dangerous_bypass_auth` in the `/meta` payload. Set by `start.ts`
+   * from the `disableAuth` server option (the `--dangerous-bypass-auth` CLI
+   * flag).
+   */
+  readonly dangerousBypassAuth?: boolean;
 }
 
 export async function registerApiV1Routes(
@@ -78,6 +86,7 @@ export async function registerApiV1Routes(
         serverVersion: opts.serverVersion,
         serverId: ulid(),
         startedAt: new Date().toISOString(),
+        dangerousBypassAuth: opts.dangerousBypassAuth === true,
       });
 
       registerAuthRoute(apiV1 as unknown as Parameters<typeof registerAuthRoute>[0], core);
@@ -134,6 +143,7 @@ export async function registerApiV1Routes(
       registerSnapshotRoutes(apiV1 as unknown as Parameters<typeof registerSnapshotRoutes>[0], {
         core,
         broadcaster: opts.broadcaster,
+        reader: opts.snapshotReader,
       });
       if (opts.enableShutdown !== false) {
         registerShutdownRoutes(apiV1 as unknown as Parameters<typeof registerShutdownRoutes>[0], {

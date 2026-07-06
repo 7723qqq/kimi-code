@@ -3,7 +3,7 @@
  * snapshot shape and watermark consistency.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -12,6 +12,8 @@ import {
   IAgentEventSinkService,
   IAgentLifecycleService,
   IAgentPromptLegacyService,
+  ILogService,
+  ISessionActivity,
   ISessionInteractionService,
   ISessionContext,
   ISessionLifecycleService,
@@ -22,6 +24,7 @@ import { sessionSnapshotResponseSchema, type AgentEvent } from '@moonshot-ai/pro
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { registerSnapshotRoutes } from '../src/routes/snapshot';
+import { SnapshotNotFoundError } from '../src/services/snapshot';
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
 
@@ -69,6 +72,7 @@ describe('server-v2 snapshot route enrichment', () => {
         ],
         [IAgentLifecycleService, { getHandle: () => main }],
         [ISessionInteractionService, { listPending: () => [] }],
+        [ISessionActivity, { status: () => 'idle' }],
       ]),
     };
     const core = {
@@ -96,14 +100,28 @@ describe('server-v2 snapshot route enrichment', () => {
           reply: { send(payload: unknown): unknown },
         ) => Promise<void> | void)
       | undefined;
-    registerSnapshotRoutes(
-      {
-        get: (_path, _options, handler) => {
-          routeHandler = handler;
+    // Exercise the legacy (resume + live assembly) path — the fakes model the
+    // live scope, not the on-disk reader.
+    const previousReaderMode = process.env['KIMI_SNAPSHOT_READER'];
+    process.env['KIMI_SNAPSHOT_READER'] = 'legacy';
+    const unusedReader = { read: async () => ({}) as never };
+    try {
+      registerSnapshotRoutes(
+        {
+          get: (_path, _options, handler) => {
+            routeHandler = handler;
+          },
         },
-      },
-      { core: core as never, broadcaster: broadcaster as never },
-    );
+        {
+          core: core as never,
+          broadcaster: broadcaster as never,
+          reader: unusedReader as never,
+        },
+      );
+    } finally {
+      if (previousReaderMode === undefined) delete process.env['KIMI_SNAPSHOT_READER'];
+      else process.env['KIMI_SNAPSHOT_READER'] = previousReaderMode;
+    }
 
     let payload: unknown;
     await routeHandler?.(
@@ -123,6 +141,83 @@ describe('server-v2 snapshot route enrichment', () => {
       assistant_text: 'Hello',
       current_prompt_id: promptId,
     });
+  });
+});
+
+describe('server-v2 snapshot route error mapping', () => {
+  function captureHandler(
+    deps: { core: unknown; broadcaster: unknown; reader: unknown },
+    env?: Record<string, string>,
+  ) {
+    const previous = new Map<string, string | undefined>();
+    for (const [k, v] of Object.entries(env ?? {})) {
+      previous.set(k, process.env[k]);
+      process.env[k] = v;
+    }
+    let handler:
+      | ((
+          req: { id: string; params: { session_id: string } },
+          reply: { send(payload: unknown): unknown },
+        ) => Promise<void> | void)
+      | undefined;
+    try {
+      registerSnapshotRoutes(
+        {
+          get: (_path, _options, h) => {
+            handler = h;
+          },
+        },
+        deps as never,
+      );
+    } finally {
+      for (const [k, v] of previous) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+    return handler!;
+  }
+
+  it('maps SnapshotNotFoundError to 40401', async () => {
+    const warns: unknown[] = [];
+    const core = {
+      accessor: fakeAccessor([[ILogService, { warn: (...a: unknown[]) => warns.push(a) }]]),
+    };
+    const reader = {
+      read: async () => {
+        throw new SnapshotNotFoundError('sess_missing');
+      },
+    };
+    const handler = captureHandler({ core, broadcaster: {}, reader });
+    let payload: unknown;
+    await handler(
+      { id: 'req_404', params: { session_id: 'sess_missing' } },
+      { send: (v) => (payload = v) },
+    );
+    expect((payload as { code: number }).code).toBe(40401);
+    expect(warns).toHaveLength(0);
+  });
+
+  it('maps SnapshotTimeoutError to 50001 and logs snapshot.timeout', async () => {
+    const warns: unknown[] = [];
+    const core = {
+      accessor: fakeAccessor([[ILogService, { warn: (...a: unknown[]) => warns.push(a) }]]),
+    };
+    const reader = {
+      read: () => new Promise<never>(() => {}), // hangs → triggers the timeout race
+    };
+    const handler = captureHandler(
+      { core, broadcaster: {}, reader },
+      { KIMI_SNAPSHOT_TIMEOUT_MS: '150' },
+    );
+    let payload: unknown;
+    await handler(
+      { id: 'req_to', params: { session_id: 'sess_slow' } },
+      { send: (v) => (payload = v) },
+    );
+    expect((payload as { code: number }).code).toBe(50001);
+    expect(warns).toHaveLength(1);
+    expect((warns[0] as unknown[])[0]).toBe('snapshot.timeout');
   });
 });
 
@@ -237,6 +332,55 @@ describe('server-v2 GET /api/v1/sessions/:id/snapshot', () => {
 
     const snap = await snapshot(sid);
     expect(snap.session.id).toBe(sid);
+  });
+
+  // The auto reader must source messages from `agents/main/wire.jsonl` on disk
+  // — not from a live (resumed) context. We seed a wire log, restart so the
+  // session is genuinely cold, then assert the snapshot returns the on-disk
+  // transcript while the scope stays un-materialized.
+  it('auto reader returns messages read directly from wire.jsonl for a cold session', async () => {
+    const sid = await createSession();
+    const live = server!.core.accessor.get(ISessionLifecycleService).get(sid);
+    if (live === undefined) throw new Error(`session ${sid} not found`);
+    const metaScope = live.accessor.get(ISessionContext).metaScope;
+
+    const wireDir = join(home as string, metaScope, 'agents', 'main');
+    await mkdir(wireDir, { recursive: true });
+    const records = [
+      { type: 'metadata', protocol_version: '1.4', created_at: Date.now() },
+      {
+        type: 'context.append_message',
+        message: { role: 'user', content: [{ type: 'text', text: 'hello-from-disk' }], toolCalls: [] },
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'hi-from-disk' }],
+          toolCalls: [],
+        },
+      },
+    ];
+    await writeFile(
+      join(wireDir, 'wire.jsonl'),
+      records.map((r) => JSON.stringify(r)).join('\n') + '\n',
+      'utf-8',
+    );
+
+    await server!.close();
+    server = undefined;
+    server = await startServer({ host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    base = `http://127.0.0.1:${server.port}`;
+
+    // Guard: still cold — the auto reader must serve from disk, not resume.
+    expect(server!.core.accessor.get(ISessionLifecycleService).get(sid)).toBeUndefined();
+
+    const snap = await snapshot(sid);
+    expect(snap.session.id).toBe(sid);
+    expect(snap.messages.items).toHaveLength(2);
+    expect((snap.messages.items[0]!.content[0] as { text: string }).text).toBe('hello-from-disk');
+    expect((snap.messages.items[1]!.content[0] as { text: string }).text).toBe('hi-from-disk');
+    expect(snap.epoch).toMatch(/^ep_/);
   });
 
   // Regression for the v1-layout 50001 ("Invalid time value"): v1 persists

@@ -4,6 +4,9 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { IEventService } from '@moonshot-ai/agent-core-v2';
+import { sessionWarningsResponseSchema } from '@moonshot-ai/protocol';
+
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
 
@@ -81,6 +84,14 @@ describe('server-v2 /api/v1/sessions', () => {
 
   async function getJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
     const res = await fetch(`${base}${path}`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
+    return { status: res.status, body: (await res.json()) as Envelope<T> };
+  }
+
+  async function deleteJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
+    const res = await fetch(`${base}${path}`, {
+      method: 'DELETE',
       headers: authHeaders(server as RunningServer),
     } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
@@ -381,10 +392,239 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(status).toBe(200);
     expect(body.code).toBe(0);
     expect(body.data).toEqual({ warnings: [] });
+    // Lock the wire shape to the shared protocol schema (schema-fidelity rule):
+    // a mirror route must keep the v1 envelope byte-compatible.
+    expect(sessionWarningsResponseSchema.parse(body.data)).toEqual({ warnings: [] });
   });
 
   it('returns 40401 for warnings of a missing session', async () => {
     const { body } = await getJson<null>('/api/v1/sessions/sess_missing_warnings/warnings');
+    expect(body.code).toBe(40401);
+  });
+
+  it('lists only archived sessions with archived_only', async () => {
+    const cwd = home as string;
+    const a = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const b = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    expect(a.body.code).toBe(0);
+    expect(b.body.code).toBe(0);
+    const archivedId = a.body.data.id;
+    const liveId = b.body.data.id;
+
+    const archived = await postJson<{ archived: boolean }>(
+      `/api/v1/sessions/${archivedId}:archive`,
+    );
+    expect(archived.body.code).toBe(0);
+
+    // Default list hides archived sessions.
+    const normal = await getJson<PageWire>('/api/v1/sessions');
+    expect(normal.body.data.items.some((s) => s.id === liveId)).toBe(true);
+    expect(normal.body.data.items.some((s) => s.id === archivedId)).toBe(false);
+
+    // archived_only shows only the archived one.
+    const onlyArchived = await getJson<PageWire>('/api/v1/sessions?archived_only=true');
+    expect(onlyArchived.body.code).toBe(0);
+    expect(onlyArchived.body.data.items.some((s) => s.id === archivedId)).toBe(true);
+    expect(onlyArchived.body.data.items.some((s) => s.id === liveId)).toBe(false);
+
+    // include_archive shows both.
+    const all = await getJson<PageWire>('/api/v1/sessions?include_archive=true');
+    expect(all.body.data.items.some((s) => s.id === liveId)).toBe(true);
+    expect(all.body.data.items.some((s) => s.id === archivedId)).toBe(true);
+  });
+
+  it('rejects archived_only combined with include_archive (40001)', async () => {
+    const { body } = await getJson<null>(
+      '/api/v1/sessions?archived_only=true&include_archive=true',
+    );
+    expect(body.code).toBe(40001);
+  });
+
+  it('rejects a malformed workspace_id when listing (40001)', async () => {
+    const { body } = await getJson<null>('/api/v1/sessions?workspace_id=not-a-workspace-id');
+    expect(body.code).toBe(40001);
+  });
+
+  it('returns 40410 for an unknown workspace_id when listing', async () => {
+    const { body } = await getJson<null>('/api/v1/sessions?workspace_id=wd_missing_000000000000');
+    expect(body.code).toBe(40410);
+  });
+
+  it('filters listed sessions by the status query (post-page, like v1)', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const id = created.body.data.id;
+    // A freshly-created session has no turn, so the live activity is `idle` —
+    // the wire status is the resolved activity, not a constant placeholder.
+    expect(created.body.data.status).toBe('idle');
+
+    const idle = await getJson<PageWire>('/api/v1/sessions?status=idle');
+    expect(idle.body.code).toBe(0);
+    expect(idle.body.data.items.some((s) => s.id === id)).toBe(true);
+
+    const running = await getJson<PageWire>('/api/v1/sessions?status=running');
+    expect(running.body.code).toBe(0);
+    expect(running.body.data.items.some((s) => s.id === id)).toBe(false);
+  });
+
+  it('filters child sessions by the status query', async () => {
+    const cwd = home as string;
+    const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const parentId = parent.body.data.id;
+    const child = await postJson<SessionWire>(`/api/v1/sessions/${parentId}/children`, {});
+    const childId = child.body.data.id;
+    expect(child.body.data.status).toBe('idle');
+
+    const idle = await getJson<PageWire>(`/api/v1/sessions/${parentId}/children?status=idle`);
+    expect(idle.body.code).toBe(0);
+    expect(idle.body.data.items.some((s) => s.id === childId)).toBe(true);
+
+    const running = await getJson<PageWire>(`/api/v1/sessions/${parentId}/children?status=running`);
+    expect(running.body.code).toBe(0);
+    expect(running.body.data.items.some((s) => s.id === childId)).toBe(false);
+  });
+
+  it('keeps a session listable and gettable with cwd after its workspace is unregistered (gap G3)', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      title: 'g3',
+      metadata: { cwd },
+    });
+    expect(created.body.code).toBe(0);
+    const id = created.body.data.id;
+    const workspaceId = created.body.data.workspace_id;
+
+    // Unregister the workspace without removing on-disk content. The session
+    // persists its frozen cwd, so it must remain listable / gettable with the
+    // original cwd instead of being filtered (list) or 404 (get/profile).
+    const del = await deleteJson<{ deleted: boolean }>(`/api/v1/workspaces/${workspaceId}`);
+    expect(del.body.code).toBe(0);
+
+    const listed = await getJson<PageWire>('/api/v1/sessions');
+    expect(listed.body.code).toBe(0);
+    const found = listed.body.data.items.find((s) => s.id === id);
+    expect(found).toBeDefined();
+    expect(found?.metadata.cwd).toBe(cwd);
+
+    const got = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
+    expect(got.body.code).toBe(0);
+    expect(got.body.data.metadata.cwd).toBe(cwd);
+
+    const profile = await getJson<SessionWire>(`/api/v1/sessions/${id}/profile`);
+    expect(profile.body.code).toBe(0);
+    expect(profile.body.data.metadata.cwd).toBe(cwd);
+  });
+
+  it('merges metadata via profile and keeps cwd authoritative', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const id = created.body.data.id;
+
+    const first = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+      metadata: { foo: 'bar' },
+    });
+    expect(first.body.code).toBe(0);
+    expect(first.body.data.metadata['foo']).toBe('bar');
+    expect(first.body.data.metadata.cwd).toBe(cwd);
+
+    const got = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
+    expect(got.body.data.metadata['foo']).toBe('bar');
+    expect(got.body.data.metadata.cwd).toBe(cwd);
+  });
+
+  it('replaces custom metadata on a second profile update (v1 semantics)', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const id = created.body.data.id;
+
+    await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, { metadata: { foo: 'bar' } });
+    const second = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+      metadata: { baz: 1 },
+    });
+    expect(second.body.code).toBe(0);
+    // v1 writes the patch straight into `custom` (replace, not deep-merge): the
+    // first key is gone, the new key is present, and cwd still wins.
+    expect(second.body.data.metadata['foo']).toBeUndefined();
+    expect(second.body.data.metadata['baz']).toBe(1);
+    expect(second.body.data.metadata.cwd).toBe(cwd);
+  });
+
+  it('applies agent_config.permission_mode via profile idempotently', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const id = created.body.data.id;
+
+    const first = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+      agent_config: { permission_mode: 'yolo' },
+    });
+    expect(first.body.code).toBe(0);
+
+    // Re-applying the same mode must not error (the setter is idempotent).
+    const again = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+      agent_config: { permission_mode: 'yolo' },
+    });
+    expect(again.body.code).toBe(0);
+  });
+
+  it('guards agent_config.plan_mode so a repeated true does not re-enter', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const id = created.body.data.id;
+
+    const first = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+      agent_config: { plan_mode: true },
+    });
+    expect(first.body.code).toBe(0);
+
+    // Without the diff-guard this second enter would throw 'Already in plan mode'
+    // and surface as a non-zero code.
+    const again = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+      agent_config: { plan_mode: true },
+    });
+    expect(again.body.code).toBe(0);
+  });
+
+  it('maps goal already_exists from agent_config.goal_objective (40913)', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const id = created.body.data.id;
+
+    const first = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+      agent_config: { goal_objective: 'ship the feature' },
+    });
+    expect(first.body.code).toBe(0);
+
+    const dup = await postJson<null>(`/api/v1/sessions/${id}/profile`, {
+      agent_config: { goal_objective: 'ship the feature' },
+    });
+    expect(dup.body.code).toBe(40913);
+  });
+
+  it('publishes session.meta.updated on the core bus when renaming via profile', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const id = created.body.data.id;
+
+    const events: { type: string; payload: unknown }[] = [];
+    const sub = (server as RunningServer).core.accessor
+      .get(IEventService)
+      .subscribe((event) => events.push(event));
+
+    const updated = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+      title: 'renamed-via-profile',
+    });
+    expect(updated.body.code).toBe(0);
+    sub.dispose();
+
+    const meta = events.find((e) => e.type === 'session.meta.updated');
+    expect(meta).toBeDefined();
+    expect((meta?.payload as { title?: string } | undefined)?.title).toBe('renamed-via-profile');
+  });
+
+  it('returns 40401 when updating the profile of a missing session', async () => {
+    const { body } = await postJson<null>('/api/v1/sessions/sess_missing_profile/profile', {
+      title: 'nope',
+    });
     expect(body.code).toBe(40401);
   });
 });

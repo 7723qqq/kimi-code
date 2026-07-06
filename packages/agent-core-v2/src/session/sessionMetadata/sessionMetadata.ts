@@ -47,6 +47,15 @@ export interface SessionMeta {
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly archived: boolean;
+  /**
+   * Absolute working directory frozen at session creation (`metadata.cwd` on
+   * the wire). Persisted so the session read model (`sessionIndex`) can surface
+   * it without reverse-resolving the workspace registry — a session whose
+   * workspace was unregistered keeps its original cwd (closes gap G3). Mirrors
+   * v1, which stores `workDir` on the session. Optional only for documents
+   * predating this field; `load()` always writes it for new sessions.
+   */
+  readonly cwd?: string;
   readonly forkedFrom?: string;
   /** Registry of agents belonging to this session, keyed by agent id. */
   readonly agents?: Readonly<Record<string, AgentMeta>>;

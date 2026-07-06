@@ -26,6 +26,7 @@ import { acquireLock, ServerLockedError } from './lock';
 import { transformOpenApiDocument } from './openapi/transforms';
 import { resolveRequestId } from './request-id';
 import { registerApiV1Routes } from './routes/registerApiV1Routes';
+import { registerWebAssetRoutes } from './routes/webAssets';
 import {
   createServerLogger,
   type ServerLogger,
@@ -54,6 +55,7 @@ import { createOriginHook, isOriginAllowed, parseCorsOrigins } from './middlewar
 import { createSecurityHeadersHook } from './middleware/securityHeaders';
 import { createAuthHook } from './middleware/auth';
 import { GuiStoreService } from './services/guiStore/guiStoreService';
+import { loadSnapshotConfig, SnapshotReader } from './services/snapshot';
 import { ModelCatalogRefreshScheduler } from './services/modelCatalog/modelCatalogRefreshScheduler';
 import { createAuthFailureLimiter } from './middleware/rateLimit';
 import {
@@ -92,6 +94,12 @@ export interface ServerStartOptions {
   readonly rpcToken?: string;
   /** Extra scope seeds applied at bootstrap (e.g. a host-provided `ISessionModelResolver`). */
   readonly seeds?: ScopeSeed;
+  /**
+   * Directory of the built Kimi web UI (`dist-web`). When set, `GET /` and the
+   * `/*` SPA fallback serve these assets (auth-exempt, matching v1). Omit to run
+   * the API server without the web UI.
+   */
+  readonly webAssetsDir?: string;
 }
 
 export interface RunningServer {
@@ -211,6 +219,17 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
       'onRequest',
       createAuthHook(authTokenService, { limiter: authFailureLimiter, validateCredential }),
     );
+  } else {
+    // `--dangerous-bypass-auth`: the operator explicitly disabled the
+    // bearer-token gate on every REST and WebSocket route. Warn loudly —
+    // especially on a non-loopback bind, where this grants unauthenticated
+    // remote session / filesystem / shell access to anyone who can reach the
+    // port. The `/api/v1/meta` payload advertises the state so the web UI can
+    // connect without a token.
+    logger.warn(
+      { host, exposureClass },
+      'DANGEROUS: bearer-token auth is DISABLED (--dangerous-bypass-auth) — every REST and WebSocket route accepts unauthenticated requests',
+    );
   }
   if (exposureClass !== 'loopback') {
     app.addHook('onSend', createSecurityHeadersHook({ tls: false }));
@@ -229,6 +248,14 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     eventsDir: join(homeDir, 'server', 'events'),
     core,
     logger,
+  });
+
+  const snapshotReader = new SnapshotReader({
+    homeDir,
+    core,
+    broadcaster,
+    logger,
+    config: loadSnapshotConfig(),
   });
 
   const serverVersion = getServerVersion();
@@ -285,6 +312,8 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     },
     connectionRegistry,
     broadcaster,
+    snapshotReader,
+    dangerousBypassAuth: opts.disableAuth === true,
   });
 
   registerRpcRoutes(app, core, { token: opts.rpcToken });
@@ -371,6 +400,14 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     const openApiDocument = (app as unknown as { swagger(): unknown }).swagger();
     return reply.type('application/json').send(openApiDocument);
   });
+
+  // Web UI static assets (mirrors v1). Registered LAST so the `/*` SPA fallback
+  // only catches paths not already handled by `/api/*`, `/openapi.json`, or
+  // `/asyncapi.json`. The global auth hook already bypasses non-`/api` paths, so
+  // the page loads without a token; API calls carry it.
+  if (opts.webAssetsDir !== undefined) {
+    await registerWebAssetRoutes(app, opts.webAssetsDir);
+  }
 
   // Bind with port+1 retry on EADDRINUSE (mirrors v1). The single-instance
   // lock is acquired above, so any "address in use" here is a third-party

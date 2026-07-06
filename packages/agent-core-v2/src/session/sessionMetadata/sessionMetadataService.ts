@@ -98,6 +98,7 @@ export class SessionMetadata extends Disposable implements ISessionMetadata {
       await this.queryStore.put(SESSION_COLLECTION, this.ctx.sessionId, {
         id: this.data.id,
         workspaceId: this.ctx.workspaceId,
+        cwd: this.ctx.cwd,
         title: this.data.title,
         lastPrompt: this.data.lastPrompt,
         createdAt: this.data.createdAt,
@@ -123,6 +124,7 @@ export class SessionMetadata extends Disposable implements ISessionMetadata {
     this.data = {
       id: this.ctx.sessionId,
       version: SESSION_META_VERSION,
+      cwd: this.ctx.cwd,
       createdAt: now,
       updatedAt: now,
       archived: false,
@@ -143,20 +145,34 @@ export class SessionMetadata extends Disposable implements ISessionMetadata {
  * left untouched until an explicit write, so a read-only snapshot of a v1
  * session does not migrate it.
  */
-function normalizeSessionMeta(raw: SessionMeta, sessionId: string): SessionMeta {
-  if (raw.version === SESSION_META_VERSION) return raw;
-  const legacy = raw as unknown as { createdAt?: unknown; updatedAt?: unknown };
+export function normalizeSessionMeta(raw: SessionMeta, sessionId: string): SessionMeta {
+  const legacy = raw as unknown as {
+    createdAt?: unknown;
+    updatedAt?: unknown;
+    workDir?: unknown;
+  };
+  // Backfill `cwd` for legacy v1 documents, which store the working directory
+  // as `workDir` (older v1 sessions used `custom.cwd`). New v2 documents already
+  // carry `cwd` and pass through unchanged.
+  const cwd =
+    raw.cwd ?? (typeof legacy.workDir === 'string' && legacy.workDir.length > 0
+      ? legacy.workDir
+      : undefined);
+  if (raw.version === SESSION_META_VERSION) {
+    return cwd === raw.cwd ? raw : { ...raw, cwd };
+  }
   return {
     ...raw,
     id: sessionId,
     version: SESSION_META_VERSION,
+    cwd,
     createdAt: toEpochMs(legacy.createdAt),
     updatedAt: toEpochMs(legacy.updatedAt),
   };
 }
 
 /** Coerce a persisted timestamp (v2 epoch-ms number or v1 ISO string) to epoch ms. */
-function toEpochMs(value: unknown): number {
+export function toEpochMs(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
     const parsed = Date.parse(value);

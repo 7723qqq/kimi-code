@@ -14,7 +14,7 @@
 import { join } from 'node:path';
 
 import { shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
-import { startServer, type RunningServer } from '@moonshot-ai/server';
+import { startServer, type ServerLogger } from '@moonshot-ai/server';
 import chalk from 'chalk';
 import { Option, type Command } from 'commander';
 
@@ -47,6 +47,33 @@ import {
 } from './shared';
 
 const WEB_ASSETS_DIR = 'dist-web';
+
+/**
+ * Master experimental switch. When set to a truthy value (`1`/`true`/`yes`/`on`),
+ * `kimi server run` boots the DI × Scope engine server (`@moonshot-ai/server-v2`)
+ * instead of the default `@moonshot-ai/server`. Read directly from the env
+ * (matching `cli/update/rollout.ts`) because the CLI must not depend on the
+ * core flag registry. Unset / any other value keeps the v1 server.
+ */
+const SERVER_V2_ENV = 'KIMI_CODE_EXPERIMENTAL_FLAG';
+const SERVER_V2_TRUTHY_VALUES = new Set(['1', 'true', 'yes', 'on']);
+
+export function isServerV2Enabled(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return SERVER_V2_TRUTHY_VALUES.has((env[SERVER_V2_ENV] ?? '').trim().toLowerCase());
+}
+
+/**
+ * Minimal surface `runServerInProcess` needs from either server flavor. v1's
+ * `RunningServer` already satisfies it; v2's `RunningServer` is adapted to it
+ * (it returns `{ host, port, close }` instead of `{ address, logger, close }`).
+ */
+interface RoutedServer {
+  readonly address: string;
+  readonly logger: ServerLogger;
+  close(): Promise<void>;
+}
 
 export interface RunCliOptions extends ServerCliOptions {
   open?: boolean;
@@ -342,7 +369,7 @@ async function runServerInProcess(
   const version = getVersion();
   const telemetry = initializeServerTelemetry({ version });
 
-  let running: RunningServer | undefined;
+  let running: RoutedServer | undefined;
   let stopping = false;
 
   // Idle auto-shutdown is only for the on-demand personal daemon. It is skipped
@@ -375,30 +402,77 @@ async function runServerInProcess(
     process.exit(0);
   }
 
-  running = await startServer({
-    host: options.host,
-    port: options.port,
-    logLevel: options.logLevel,
-    debugEndpoints: options.debugEndpoints,
-    insecureNoTls: options.insecureNoTls,
-    allowRemoteShutdown: options.allowRemoteShutdown,
-    allowRemoteTerminals: options.allowRemoteTerminals,
-    dangerousBypassAuth: options.dangerousBypassAuth,
-    allowedHosts: options.allowedHosts,
-    webAssetsDir: serverWebAssetsDir(),
-    coreProcessOptions: {
-      identity: createKimiCodeHostIdentity(version),
-      telemetry,
-    },
-    wsGatewayOptions: {
-      telemetry,
-      onConnectionCountChange: idle
-        ? (size) => {
-            idle.onConnectionCountChange(size);
-          }
-        : undefined,
-    },
-  });
+  if (isServerV2Enabled()) {
+    // Experimental: boot the DI × Scope engine server. v2 speaks the same
+    // `/api/v1` wire interface but its `startServer` returns `{ host, port,
+    // close }` rather than `{ address, logger, close }`, so adapt it to the
+    // `RoutedServer` surface the rest of this runner consumes. Loaded lazily so
+    // the default (flag-off) path keeps the exact v1-only module graph — v2 and
+    // its agent-core-v2 engine are only resolved when the flag is on.
+    const { createServerLogger: createServerV2Logger, startServer: startServerV2 } =
+      await import('@moonshot-ai/server-v2');
+    const logger = createServerV2Logger({ level: options.logLevel });
+    const v2 = await startServerV2({
+      host: options.host,
+      port: options.port,
+      logLevel: options.logLevel,
+      logger,
+      debugEndpoints: options.debugEndpoints,
+      insecureNoTls: options.insecureNoTls,
+      allowRemoteShutdown: options.allowRemoteShutdown,
+      allowRemoteTerminals: options.allowRemoteTerminals,
+      allowedHosts: options.allowedHosts,
+      disableAuth: options.dangerousBypassAuth,
+      webAssetsDir: serverWebAssetsDir(),
+    });
+    // v2's connection registry exposes no count-change hook, so forward
+    // add/remove to the daemon's idle-shutdown handler (a no-op when `idle`
+    // is undefined, e.g. foreground or --keep-alive).
+    if (idle !== undefined) {
+      const registry = v2.connectionRegistry;
+      const add = registry.add.bind(registry);
+      const remove = registry.remove.bind(registry);
+      registry.add = (conn) => {
+        add(conn);
+        idle.onConnectionCountChange(registry.size());
+      };
+      registry.remove = (connId) => {
+        remove(connId);
+        idle.onConnectionCountChange(registry.size());
+      };
+    }
+    logger.info('server-v2 (KIMI_CODE_EXPERIMENTAL_FLAG) is serving the REST/WS API and the bundled web UI');
+    running = {
+      address: `http://${v2.host}:${v2.port}`,
+      logger: logger as unknown as ServerLogger,
+      close: () => v2.close(),
+    };
+  } else {
+    running = await startServer({
+      host: options.host,
+      port: options.port,
+      logLevel: options.logLevel,
+      debugEndpoints: options.debugEndpoints,
+      insecureNoTls: options.insecureNoTls,
+      allowRemoteShutdown: options.allowRemoteShutdown,
+      allowRemoteTerminals: options.allowRemoteTerminals,
+      dangerousBypassAuth: options.dangerousBypassAuth,
+      allowedHosts: options.allowedHosts,
+      webAssetsDir: serverWebAssetsDir(),
+      coreProcessOptions: {
+        identity: createKimiCodeHostIdentity(version),
+        telemetry,
+      },
+      wsGatewayOptions: {
+        telemetry,
+        onConnectionCountChange: idle
+          ? (size) => {
+              idle.onConnectionCountChange(size);
+            }
+          : undefined,
+      },
+    });
+  }
 
   track('server_started', { daemon: mode.daemon });
 

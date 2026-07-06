@@ -2,8 +2,10 @@
  * `sessionLegacy` domain (L7 edge adapter) — v1-compatible session actions.
  *
  * Implements the legacy `/api/v1/sessions/{tail}` action contract (`fork` /
- * `compact` / `undo` / `abort` / `btw`) and the `/sessions/{id}/children`
- * endpoints (`createChild` / `listChildren`) on top of the native v2 services
+ * `compact` / `undo` / `abort` / `btw`), the `/sessions/{id}/children`
+ * endpoints (`createChild` / `listChildren`), and `POST /sessions/{id}/profile`
+ * (`updateProfile` — title rename, metadata merge, and the cross-domain
+ * `agent_config` patch) on top of the native v2 services
  * (`ISessionLifecycleService`, `ISessionIndex`, `IAgentRPCService`,
  * `IAgentFullCompactionService`, `IAgentPromptService`, …). The native services keep serving
  * `/api/v2` and are left untouched; this adapter exists only so clients of the
@@ -21,6 +23,7 @@ import type {
   SessionStatus,
   UndoSessionRequest,
   UndoSessionResponse,
+  UpdateSessionProfileRequest,
 } from '@moonshot-ai/protocol';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
@@ -59,6 +62,7 @@ export interface SessionChildrenPage {
 export interface ISessionLegacyService {
   readonly _serviceBrand: undefined;
 
+  updateProfile(sessionId: string, body: UpdateSessionProfileRequest): Promise<SessionWireFields>;
   fork(sessionId: string, body: ForkSessionRequest): Promise<SessionWireFields>;
   createChild(sessionId: string, body: CreateSessionChildRequest): Promise<SessionWireFields>;
   listChildren(sessionId: string, query: SessionChildrenQuery): Promise<SessionChildrenPage>;

@@ -96,6 +96,9 @@ importers:
       '@moonshot-ai/server':
         specifier: workspace:^
         version: link:../../packages/server
+      '@moonshot-ai/server-v2':
+        specifier: workspace:^
+        version: link:../../packages/server-v2
       '@moonshot-ai/vis-server':
         specifier: workspace:^
         version: link:../vis/server

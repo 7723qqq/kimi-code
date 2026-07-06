@@ -35,6 +35,11 @@ export interface MetaRouteOptions {
   readonly serverVersion: string;
   readonly serverId: string;
   readonly startedAt: string;
+  /**
+   * Whether the server was started with `--dangerous-bypass-auth`. Surfaced so
+   * the web UI can skip the token prompt and connect without a credential.
+   */
+  readonly dangerousBypassAuth: boolean;
 }
 
 export function registerMetaRoute(app: RouteHost, opts: MetaRouteOptions): void {
@@ -51,6 +56,7 @@ export function registerMetaRoute(app: RouteHost, opts: MetaRouteOptions): void 
     server_id: opts.serverId,
     started_at: opts.startedAt,
     open_in_apps: [],
+    dangerous_bypass_auth: opts.dangerousBypassAuth,
   });
 
   const route = defineRoute(

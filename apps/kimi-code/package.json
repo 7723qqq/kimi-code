@@ -87,6 +87,7 @@
     "@moonshot-ai/migration-legacy": "workspace:^",
     "@moonshot-ai/pi-tui": "workspace:^",
     "@moonshot-ai/server": "workspace:^",
+    "@moonshot-ai/server-v2": "workspace:^",
     "@moonshot-ai/vis-server": "workspace:^",
     "@moonshot-ai/vis-web": "workspace:*",
     "@types/semver": "^7.7.0",
