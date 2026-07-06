@@ -12,7 +12,6 @@ import { escapeXmlAttr } from '#/_base/utils/xml-escape';
 import type { AgentTaskInfo } from '#/agent/task';
 import {
   IAgentBlobService,
-  type IAgentBlobService as AgentBlobService,
 } from '#/agent/blob';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
@@ -41,7 +40,6 @@ import type {
 } from '#/agent/tool';
 import type {
   PersistedWireRecord,
-  WireRecord,
   WireRecordRestoreOptions,
   WireRecordRestoreResult,
 } from '#/agent/wireRecord';
@@ -129,7 +127,7 @@ import {
   type ServiceIdentifier,
 } from '#/index';
 import { IEventBus } from '#/app/event';
-import { IAgentWireService, WireService } from '#/wire';
+import { IAgentWireService, WireService, type PersistedRecord } from '#/wire';
 import { IModelResolver, IModelService, ModelResolverService, type Model } from '#/app/model';
 import { IPlatformService } from '#/app/platform';
 import { IProviderService } from '#/app/provider';
@@ -820,24 +818,6 @@ class ConfigBackedModelResolver extends ModelResolverService {
   }
 }
 
-class RecordingWireRecordService extends AgentWireRecordService {
-  constructor(
-    private readonly onAppend: (record: PersistedWireRecord) => void,
-    @IBootstrapService bootstrap: IBootstrapService,
-    @IAgentBlobService blobStore?: AgentBlobService,
-    @IAppendLogStore log?: IAppendLogStore,
-  ) {
-    super({}, bootstrap, blobStore, log);
-  }
-
-  override append(record: WireRecord): void {
-    const stamped: WireRecord =
-      record.time !== undefined ? record : ({ ...record, time: Date.now() } as WireRecord);
-    this.onAppend(stamped);
-    super.append(stamped);
-  }
-}
-
 function renderPluginSessionStartReminder(
   sessionStarts: readonly EnabledPluginSessionStart[],
   catalog: SkillCatalog,
@@ -1033,9 +1013,7 @@ export class AgentTestContext {
           (reg) => {
             reg.defineDescriptor(
               IAgentWireRecordService,
-              new SyncDescriptor(RecordingWireRecordService, [
-                (event: PersistedWireRecord) => this.captureRecord(event),
-              ]),
+              new SyncDescriptor(AgentWireRecordService, [{}]),
             );
             reg.defineDescriptor(
               IAgentWireService,
@@ -1168,11 +1146,22 @@ export class AgentTestContext {
   }
 
   async restorePersisted(options?: WireRecordRestoreOptions): Promise<WireRecordRestoreResult> {
-    return this.wireRecord.restore(undefined, options);
+    const restoredStart = this.wireRecord.getRecords().length;
+    const result = await this.wireRecord.restore(undefined, options);
+    await this.replayRestoredRecordsSince(restoredStart);
+    return result;
   }
 
   private async restoreRecordsOnly(records: readonly PersistedWireRecord[]): Promise<void> {
+    const restoredStart = this.wireRecord.getRecords().length;
     await this.wireRecord.restore(records);
+    await this.replayRestoredRecordsSince(restoredStart);
+  }
+
+  private async replayRestoredRecordsSince(restoredStart: number): Promise<void> {
+    const restored = this.wireRecord.getRecords().slice(restoredStart);
+    if (restored.length === 0) return;
+    await this.get(IAgentWireService).replay(...(restored as readonly PersistedRecord[]));
   }
 
   private async closeWireRecord(): Promise<void> {
@@ -1851,6 +1840,9 @@ function createWorkspaceContextStub(
     },
     setWorkDir: (next) => {
       workDir = resolve(next);
+    },
+    setAdditionalDirs: (dirs) => {
+      additionalDirs = dirs.map((dir) => resolve(dir));
     },
     resolve: (path) => (isAbsolute(path) ? resolve(path) : resolve(workDir, path)),
     isWithin,

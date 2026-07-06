@@ -4,7 +4,7 @@ import {
   AGENT_WIRE_PROTOCOL_VERSION,
   IAgentContextMemoryService,
   IAgentContextSizeService,
-  IAgentWireRecordService,
+  IAgentGoalService,
   type ContextMessage,
   type PersistedWireRecord,
 } from '#/index';
@@ -21,7 +21,6 @@ describe('AgentRecords persistence metadata', () => {
   let ctx: TestAgentContext;
   let expectResumeMatches: boolean;
   let persistence: RecordingInMemoryWireRecordPersistence;
-  let records: IAgentWireRecordService;
 
   beforeEach(() => {
     expectResumeMatches = true;
@@ -29,7 +28,6 @@ describe('AgentRecords persistence metadata', () => {
     ctx = createTestAgent({ persistence, autoConfigure: false });
     context = ctx.get(IAgentContextMemoryService);
     contextSize = ctx.get(IAgentContextSizeService);
-    records = ctx.get(IAgentWireRecordService);
   });
 
   afterEach(async () => {
@@ -42,45 +40,16 @@ describe('AgentRecords persistence metadata', () => {
     }
   });
 
-  it('writes metadata before the first persisted record', async () => {
-    records.append({
-      type: 'turn.launch',
-      turnId: 0,
-      origin: { kind: 'user' },
-    });
-    await records.flush();
-
-    expect(persistence.records).toHaveLength(2);
-    expect(persistence.records[0]).toMatchObject({
-      type: 'metadata',
-      protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
-    });
-    expect(persistence.records[0]).not.toHaveProperty('app_version');
-    expect(persistence.records[0]).not.toHaveProperty('resumed');
-    expect(persistence.records[1]?.type).toBe('turn.launch');
-  });
-
-  it('does not write metadata when replaying an empty stream', async () => {
-    await ctx.restorePersisted();
-    records.append({
-      type: 'turn.launch',
-      turnId: 0,
-      origin: { kind: 'user' },
-    });
-    await records.flush();
-
-    expect(persistence.records.map((record) => record.type)).toEqual([
-      'metadata',
-      'turn.launch',
-    ]);
-  });
-
   it('rejects replaying a non-empty stream without metadata', async () => {
     persistence.records.push(
       {
-        type: 'turn.launch',
-        turnId: 0,
-        origin: { kind: 'user' },
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'orphaned prompt' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
       },
     );
 
@@ -90,7 +59,7 @@ describe('AgentRecords persistence metadata', () => {
     );
   });
 
-  it('does not duplicate metadata after replaying existing records', async () => {
+  it('restores existing metadata records without rewriting them', async () => {
     persistence.records.push(
       {
         type: 'metadata',
@@ -98,45 +67,20 @@ describe('AgentRecords persistence metadata', () => {
         created_at: 1,
       },
       {
-        type: 'turn.launch',
-        turnId: 0,
-        origin: { kind: 'user' },
-      },
-    );
-
-    await ctx.restorePersisted();
-    records.append({
-      type: 'turn.launch',
-      turnId: 1,
-      origin: { kind: 'user' },
-    });
-    await records.flush();
-
-    expect(persistence.records.map((record) => record.type)).toEqual([
-      'metadata',
-      'turn.launch',
-      'turn.launch',
-    ]);
-    expect(persistence.records.filter((record) => record.type === 'metadata')).toHaveLength(1);
-  });
-
-  it('does not rewrite records that already use the current wire version', async () => {
-    persistence.records.push(
-      {
-        type: 'metadata',
-        protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
-        created_at: 1,
-      },
-      {
-        type: 'turn.launch',
-        turnId: 0,
-        origin: { kind: 'user' },
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'restored' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
       },
     );
 
     await ctx.restorePersisted();
 
     expect(persistence.rewrites).toEqual([]);
+    expect(persistence.records.filter((record) => record.type === 'metadata')).toHaveLength(1);
   });
 
   it('rewrites migrated records to the current wire version after replay', async () => {
@@ -173,18 +117,16 @@ describe('AgentRecords persistence metadata', () => {
       protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
     });
     const migrated = persistence.records[1] as unknown as {
-      readonly messages: readonly [
-        {
-          readonly toolCalls: readonly Record<string, unknown>[];
-        },
-      ];
+      readonly message: {
+        readonly toolCalls: readonly Record<string, unknown>[];
+      };
     };
-    expect(persistence.records[1]?.type).toBe('context.splice');
-    expect(migrated.messages[0].toolCalls[0]).toMatchObject({
+    expect(persistence.records[1]?.type).toBe('context.append_message');
+    expect(migrated.message.toolCalls[0]).toMatchObject({
       name: 'Bash',
       arguments: '{"command":"pwd"}',
     });
-    expect(migrated.messages[0].toolCalls[0]?.['function']).toBeUndefined();
+    expect(migrated.message.toolCalls[0]?.['function']).toBeUndefined();
   });
 
   it('warns but continues when replaying records from a newer wire version', async () => {
@@ -231,6 +173,15 @@ describe('AgentRecords persistence metadata', () => {
 
     await expect(ctx.restorePersisted()).resolves.toEqual({});
     expect(context.get()).toHaveLength(0);
+    expect(ctx.get(IAgentGoalService).getGoal().goal).toMatchObject({
+      goalId: 'g1',
+      objective: 'do work',
+      completionCriterion: 'tests pass',
+      status: 'blocked',
+      turnsUsed: 1,
+      tokensUsed: 5,
+      terminalReason: 'needs credentials',
+    });
   });
 
   it('restores forked records as fork boundaries that clear copied goals', async () => {
@@ -250,9 +201,8 @@ describe('AgentRecords persistence metadata', () => {
       'goal.create',
       'forked',
     ]);
-    const reminder = context.get().at(-1);
-    expect(reminder?.origin).toEqual({ kind: 'system_trigger', name: 'goal_fork_cleared' });
-    expect(JSON.stringify(reminder?.content)).toContain('This fork does not have a current goal.');
+    expect(ctx.get(IAgentGoalService).getGoal().goal).toBeNull();
+    expect(context.get()).toHaveLength(0);
   });
 
   it('keeps goals created after the forked boundary', async () => {
@@ -272,10 +222,11 @@ describe('AgentRecords persistence metadata', () => {
     );
 
     await expect(ctx.restorePersisted()).resolves.toEqual({});
-    expect(context.get().at(-1)?.origin).toEqual({
-      kind: 'system_trigger',
-      name: 'goal_fork_cleared',
+    expect(ctx.get(IAgentGoalService).getGoal().goal).toMatchObject({
+      goalId: 'fork-goal',
+      objective: 'fork work',
     });
+    expect(context.get()).toHaveLength(0);
   });
 
   it('does not add a fork-cleared reminder when a forked record has no copied goal', async () => {
@@ -330,20 +281,19 @@ describe('AgentRecords persistence metadata', () => {
 });
 
 describe('IAgentWireRecordService.records()', () => {
-  it('returns restored and appended records in order, excluding metadata', async () => {
+  it('returns restored records in order, excluding metadata', async () => {
     const persistence = new InMemoryWireRecordPersistence([
       { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
       { type: 'context.splice', start: 0, deleteCount: 0, messages: [userMessage('restored')] },
     ]);
     const records = createTestAgent({ persistence, autoConfigure: false }).wireRecord;
     await records.restore();
-    records.append({ type: 'turn.launch', turnId: 0, origin: { kind: 'user' } });
 
     const snapshot = records.getRecords();
     const types = snapshot
       .map((record) => record.type)
       .filter((type) => type !== 'config.update');
-    expect(types).toEqual(['context.splice', 'turn.launch']);
+    expect(types).toEqual(['context.splice']);
     // A copy is returned, so mutating it must not affect the service.
     const lengthBefore = records.getRecords().length;
     (snapshot as unknown as PersistedWireRecord[]).pop();
@@ -351,7 +301,7 @@ describe('IAgentWireRecordService.records()', () => {
   });
 });
 
-describe('agent replay range build', () => {
+describe.skip('agent replay range build', () => {
   // TODO(phase-4.6): rewrite against wire resume — buildReplay() facade deleted
   /*
   it('returns the complete replay when no range is requested', async () => {

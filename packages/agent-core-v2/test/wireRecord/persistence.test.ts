@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
@@ -8,27 +8,15 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentBlobService, AgentBlobServiceImpl } from '#/agent/blob';
-import { IBlobStore } from '#/persistence/interface/blobStore';
-import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
-import { IBootstrapService } from '#/app/bootstrap';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import { AgentContextMemoryService } from '#/agent/contextMemory/contextMemoryService';
-import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
 import {
   AppendLogStore,
   AGENT_WIRE_PROTOCOL_VERSION,
   IFileSystemStorageService,
   IAppendLogStore,
-  IAgentScopeContext,
-  IAgentWireRecordService,
   type PersistedWireRecord,
-  AgentWireRecordService,
 } from '#/index';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { stubBootstrap } from '../bootstrap/stubs';
 
 const cleanups: string[] = [];
 const disposables: DisposableStore[] = [];
@@ -83,47 +71,6 @@ async function collect<R>(log: IAppendLogStore, scope = SCOPE, key = KEY): Promi
     records.push(record);
   }
   return records;
-}
-
-async function createWireHarness(): Promise<{
-  readonly dir: string;
-  readonly storage: IFileSystemStorageService;
-  readonly wire: IAgentWireRecordService;
-}> {
-  const dir = await makeDir('wire-service-test');
-  const disposable = new DisposableStore();
-  disposables.push(disposable);
-
-  const storage = new FileStorageService(dir);
-  const ix = disposable.add(new TestInstantiationService());
-  ix.stub(IFileSystemStorageService, storage);
-  ix.set(IBlobStore, new SyncDescriptor(BlobStoreService));
-  ix.stub(IBootstrapService, stubBootstrap(dir));
-  ix.stub(IHostFileSystem, new HostFileSystem());
-  ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
-  ix.set(IAgentBlobService, new SyncDescriptor(AgentBlobServiceImpl, [{}]));
-  ix.stub(IAgentScopeContext, {
-    _serviceBrand: undefined,
-    agentId: 'agent',
-    scope: (subKey?: string): string =>
-      subKey === undefined || subKey === '' ? SCOPE : `${SCOPE}/${subKey}`,
-  });
-  ix.set(IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{}]));
-  ix.set(IAgentContextMemoryService, new SyncDescriptor(AgentContextMemoryService));
-  ix.get(IAgentContextMemoryService);
-
-  return {
-    dir,
-    storage,
-    wire: ix.get(IAgentWireRecordService),
-  };
-}
-
-async function readPersistedWireRecords(
-  storage: IFileSystemStorageService,
-): Promise<readonly PersistedWireRecord[]> {
-  const log = createAppendLogHarness(storage);
-  return collect<PersistedWireRecord>(log, '', 'wire.jsonl');
 }
 
 describe('AppendLogStore file persistence', () => {
@@ -285,44 +232,6 @@ describe('AppendLogStore file persistence', () => {
     });
 
     await expect(log.flush()).rejects.toBeInstanceOf(Error);
-  });
-});
-
-describe('AgentWireRecordService persistence', () => {
-  // Blob offload for `context.splice` moved to the wire engine
-  // (`contextBlobSelector` in `agent/contextMemory/contextOps`, covered by
-  // `test/contextMemory/splice-replay.test.ts`); the legacy AgentWireRecordService
-  // no longer registers a `context.splice` blob selector, so it does not offload.
-  it.skip('offloads large content part data URIs to blobsDir during append', async () => {
-    const { dir, storage, wire } = await createWireHarness();
-    const payload = 'X'.repeat(5000);
-    const dataUri = `data:image/png;base64,${payload}`;
-    const message: ContextMessage = {
-      role: 'user',
-      content: [{ type: 'image_url', imageUrl: { url: dataUri } }],
-      toolCalls: [],
-      origin: { kind: 'user' },
-    };
-
-    wire.append({
-      type: 'context.splice',
-      start: 0,
-      deleteCount: 0,
-      messages: [message],
-    });
-    await wire.flush();
-
-    const records = await readPersistedWireRecords(storage);
-    expect(records.map((record) => record.type)).toEqual(['metadata', 'context.splice']);
-    const record = records[1] as Extract<PersistedWireRecord, { type: 'context.splice' }>;
-    const url = (
-      record.messages[0]!.content[0] as unknown as { imageUrl: { url: string } }
-    ).imageUrl.url;
-    expect(url.startsWith('blobref:')).toBe(true);
-
-    const blobFiles = await readdir(join(dir, 'blobs'));
-    expect(blobFiles).toHaveLength(1);
-    expect((await readFile(join(dir, 'blobs', blobFiles[0]!))).toString('base64')).toBe(payload);
   });
 });
 

@@ -4,6 +4,7 @@
 
 export * from './wireRecord';
 export * from './wireRecordService';
+export * from './metadataOps';
 export * from '#/agent/wireRecord/migration';
 
 export interface WireRecordMap {}

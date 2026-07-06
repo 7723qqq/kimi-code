@@ -8,7 +8,6 @@ import {
 } from "#/_base/di";
 import { IAgentBlobService } from '#/agent/blob';
 import { IBootstrapService } from '#/app/bootstrap';
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { OrderedHookSlot } from '#/hooks';
 import type { WireRecord, WireRecordMap } from './index';
@@ -44,10 +43,8 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
     BlobSelector<keyof WireRecordMap>[]
   >();
   private readonly wireScope: string;
-  private persistentAppendQueue: Promise<void> = Promise.resolve();
   private _restoring: { time?: number } | null = null;
   private _postRestoring = false;
-  private metadataInitialized = false;
   readonly hooks = {
     onRestoredRecord: new OrderedHookSlot<WireRecordRestoredContext>(),
     onResumeEnded: new OrderedHookSlot<{}>(),
@@ -77,14 +74,6 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
 
   get postRestoring() {
     return this._postRestoring;
-  }
-
-  append(record: WireRecord): void {
-    if (this._restoring !== null) return;
-    const stamped: WireRecord =
-      record.time !== undefined ? record : ({ ...record, time: Date.now() } as WireRecord);
-    this.records.push(stamped);
-    this.appendPersistent(stamped);
   }
 
   getRecords(): readonly PersistedWireRecord[] {
@@ -151,7 +140,6 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
         if (!isWireRecordMetadata(firstRecord)) {
           throw new Error('WireRecord restore expected metadata protocol_version');
         }
-        this.metadataInitialized = true;
         const readVersion = firstRecord.protocol_version;
         if (isNewerWireVersion(readVersion)) {
           warning = `Session wire protocol version ${readVersion} is newer than the current version ${AGENT_WIRE_PROTOCOL_VERSION}. Records will be restored without migration.`;
@@ -175,7 +163,6 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
           ...migratedRecord,
           protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
         };
-        this.metadataInitialized = true;
       }
       restoredRecords?.push(migratedRecord);
       if (migratedRecord.type === 'metadata') continue;
@@ -202,45 +189,11 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
   }
 
   async flush(): Promise<void> {
-    await this.persistentAppendQueue;
     await this.log?.flush();
   }
 
   async close(): Promise<void> {
-    await this.persistentAppendQueue;
     await this.log?.close();
-  }
-
-  private appendPersistent(record: PersistedWireRecord): void {
-    if (this.log === undefined) return;
-    let metadata: WireRecordMetadata | undefined;
-    if (!this.metadataInitialized && record.type !== 'metadata') {
-      metadata = {
-        type: 'metadata',
-        protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
-        created_at: Date.now(),
-      };
-      this.metadataInitialized = true;
-    }
-    if (record.type === 'metadata') {
-      this.metadataInitialized = true;
-    }
-
-    const append = this.persistentAppendQueue.then(async () => {
-      if (this.log === undefined) return;
-      if (metadata !== undefined) {
-        this.log.append(this.wireScope, WIRE_RECORD_FILENAME, metadata, {
-          onError: (error) => this.reportPersistenceError(error, metadata),
-        });
-      }
-      const prepared = await this.preparePersistentRecord(record);
-      this.log.append(this.wireScope, WIRE_RECORD_FILENAME, prepared, {
-        onError: (error) => this.reportPersistenceError(error, prepared),
-      });
-    });
-    this.persistentAppendQueue = append.catch((error: unknown) => {
-      this.reportPersistenceError(error, record);
-    });
   }
 
   private async restoreRecord(record: WireRecord): Promise<boolean> {
@@ -271,13 +224,6 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
     }
   }
 
-  private reportPersistenceError(
-    error: unknown,
-    _record?: PersistedWireRecord,
-  ): void {
-    onUnexpectedError(error);
-  }
-
   private registerBlobSelector<T extends keyof WireRecordMap>(
     type: T,
     selector: BlobSelector<keyof WireRecordMap> | undefined,
@@ -293,27 +239,14 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
     return selectors;
   }
 
-  private async preparePersistentRecord(record: PersistedWireRecord): Promise<PersistedWireRecord> {
-    if (record.type === 'metadata') return record;
-    if (!this.blobSelectors.has(record.type as keyof WireRecordMap)) return record;
-    return this.offloadRecord(record as WireRecord);
-  }
-
-  private async offloadRecord<T extends keyof WireRecordMap>(
-    record: WireRecord<T>,
-  ): Promise<WireRecord<T>> {
-    return this.applyBlobSelectors(record, 'offload');
-  }
-
   private async rehydrateRecord<T extends keyof WireRecordMap>(
     record: WireRecord<T>,
   ): Promise<WireRecord<T>> {
-    return this.applyBlobSelectors(record, 'rehydrate');
+    return this.applyBlobSelectors(record);
   }
 
   private async applyBlobSelectors<T extends keyof WireRecordMap>(
     record: WireRecord<T>,
-    direction: 'offload' | 'rehydrate',
   ): Promise<WireRecord<T>> {
     const blobStore = this.blobStore;
     if (blobStore === undefined) return record;
@@ -324,10 +257,7 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
     let current = record;
     for (const selector of [...selectors] as BlobSelector<T>[]) {
       for (const target of selector(current)) {
-        const parts =
-          direction === 'offload'
-            ? await blobStore.offloadParts(target.parts)
-            : await blobStore.rehydrateParts(target.parts);
+        const parts = await blobStore.rehydrateParts(target.parts);
         if (parts !== target.parts) {
           current = target.replace(current, parts);
         }

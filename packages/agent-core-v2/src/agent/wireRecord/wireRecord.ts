@@ -66,12 +66,11 @@ export interface IAgentWireRecordService {
 
   readonly restoring: WireRecordRestoringContext | null;
   readonly postRestoring: boolean;
-  append(record: WireRecord): void;
   /**
-   * Snapshot of every record currently held in memory (live-appended and
-   * restored), in order, excluding the leading `metadata` envelope record.
-   * Intended for callers that need to replay the same history into another
-   * agent via {@link restore} (e.g. session fork).
+   * Snapshot of every restored record currently held in memory, in order,
+   * excluding the leading `metadata` envelope record. Intended for callers that
+   * need to replay the same history into another agent via {@link restore}
+   * (e.g. session fork).
    */
   getRecords(): readonly PersistedWireRecord[];
   register<T extends keyof WireRecordMap>(

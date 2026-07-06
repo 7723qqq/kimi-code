@@ -36,6 +36,7 @@ import { createMcpOAuthStore, McpOAuthService } from '#/agent/mcp/oauth';
 import { resolveSessionMcpConfig } from '#/agent/mcp/session-config';
 import { IPluginService } from '#/app/plugin';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { ISessionContext } from '#/session/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
@@ -43,7 +44,15 @@ import { IAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentProfileService } from '#/agent/profile';
 import { contextBlobSelector, IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentBuiltinToolsRegistrar } from '#/agent/toolRegistry';
-import { IAgentWireRecordService, AgentWireRecordService, WIRE_RECORD_FILENAME } from '#/agent/wireRecord';
+import {
+  AGENT_WIRE_PROTOCOL_VERSION,
+  AgentWireRecordService,
+  IAgentWireRecordService,
+  type PersistedWireRecord,
+  type WireMetadataPayload,
+  WIRE_RECORD_FILENAME,
+  wireMetadata,
+} from '#/agent/wireRecord';
 import { IAgentWireService, WireService } from '#/wire';
 import { IAgentBlobService, AgentBlobServiceImpl } from '#/agent/blob';
 import {
@@ -94,6 +103,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     @IAgentProfileCatalogService private readonly catalog: IAgentProfileCatalogService,
     @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IAppendLogStore private readonly appendLog?: IAppendLogStore,
   ) {
     super();
   }
@@ -178,10 +188,38 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     // tools would never register until something explicitly requests the service.
     handle.accessor.get(IAgentMcpService);
     await mcpReady;
+    await this.ensureWireMetadata(handle, agentScope);
     if (opts.binding !== undefined) {
       await handle.accessor.get(IAgentProfileService).bind(opts.binding);
     }
     return handle;
+  }
+
+  private async ensureWireMetadata(
+    handle: IAgentScopeHandle,
+    agentScope: string,
+  ): Promise<void> {
+    const appendLog = this.appendLog;
+    if (appendLog === undefined) return;
+    let firstRecord: PersistedWireRecord | undefined;
+    const remainingRecords: PersistedWireRecord[] = [];
+    for await (const record of appendLog.read<PersistedWireRecord>(agentScope, WIRE_RECORD_FILENAME)) {
+      if (firstRecord === undefined) {
+        firstRecord = record;
+        if (firstRecord.type === 'metadata') return;
+        continue;
+      }
+      remainingRecords.push(record);
+    }
+    if (firstRecord === undefined) {
+      handle.accessor.get(IAgentWireService).dispatch(wireMetadata(freshMetadataPayload()));
+      return;
+    }
+    await appendLog.rewrite(agentScope, WIRE_RECORD_FILENAME, [
+      freshMetadataRecord(),
+      firstRecord,
+      ...remainingRecords,
+    ]);
   }
 
   ensureMcpReady(): Promise<void> {
@@ -320,6 +358,20 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     this.onDidDisposeEmitter.fire(agentId);
     return Promise.resolve();
   }
+}
+
+function freshMetadataPayload(): WireMetadataPayload {
+  return {
+    protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
+    created_at: Date.now(),
+  };
+}
+
+function freshMetadataRecord(): PersistedWireRecord {
+  return {
+    type: 'metadata',
+    ...freshMetadataPayload(),
+  };
 }
 
 registerScopedService(LifecycleScope.Session, IAgentLifecycleService, AgentLifecycleService, InstantiationType.Delayed, 'agentLifecycle');

@@ -17,7 +17,7 @@ import { IAgentWireRecordService } from '#/agent/wireRecord';
 /**
  * A no-op `IAgentWireRecordService`. `register` returns a disposable so services that
  * `_register(wireRecord.register(...))` in their constructor can be disposed
- * cleanly; `append` is a no-op (in-memory history is driven by `applySplice`).
+ * cleanly.
  */
 export function stubWireRecord(): IAgentWireRecordService {
   const hooks = createHooks(['onRestoredRecord', 'onResumeEnded']) as IAgentWireRecordService['hooks'];
@@ -26,7 +26,6 @@ export function stubWireRecord(): IAgentWireRecordService {
     restoring: null,
     postRestoring: false,
     hooks,
-    append: () => {},
     register: () => toDisposable(() => {}),
     restore: () => Promise.resolve({}),
     flush: () => Promise.resolve(),

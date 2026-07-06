@@ -420,7 +420,6 @@ function stubAgentWire(flush: () => Promise<void> = async () => {}): IAgentWireR
     _serviceBrand: undefined,
     restoring: null,
     postRestoring: false,
-    append: () => {},
     getRecords: () => [],
     register: () => noopDisposable,
     restore: async () => ({}),
