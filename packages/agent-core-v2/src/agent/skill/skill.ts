@@ -13,9 +13,10 @@ export interface IAgentSkillService {
   activate(input: SkillActivationInput): Promise<Turn>;
   /**
    * Records a model-tool skill activation (an inline skill loaded through the
-   * `Skill` tool) without opening a new turn — the tool builds and steers its
-   * own message into the current turn. Publishes the activation and emits
-   * telemetry, matching the user-slash `activate` path's side effects.
+   * `Skill` tool) without opening a new turn — the tool returns a
+   * `delivery: 'steer'` for the executor to inject into the current turn.
+   * Publishes the activation and emits telemetry, matching the user-slash
+   * `activate` path's side effects.
    */
   recordModelToolActivation(origin: SkillActivationOrigin): void;
 }

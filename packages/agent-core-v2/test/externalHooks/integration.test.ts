@@ -8,7 +8,7 @@ import {
 } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { emptyUsage } from '#/app/llmProtocol';
-import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
+import { computeUndoCut, ensureMessageId, IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
 import { IAgentTaskService } from '#/agent/task';
 import {
   AgentExternalHooksService,
@@ -77,6 +77,22 @@ function stubContextMemory(): IAgentContextMemoryService & {
   return {
     _serviceBrand: undefined,
     get: () => [...messages],
+    append: (...inserted) => {
+      messages.push(...inserted.map(ensureMessageId));
+    },
+    clear: () => {
+      messages.splice(0, messages.length);
+    },
+    undo: (count) => {
+      const cut = computeUndoCut(messages, count);
+      if (cut.cutIndex >= 0 && cut.removedCount >= count) {
+        messages.splice(cut.cutIndex, messages.length - cut.cutIndex);
+      }
+      return cut;
+    },
+    applyCompaction: ({ count, summary }) => {
+      messages.splice(0, count, ensureMessageId(summary));
+    },
     splice: (start, deleteCount, inserted) => {
       messages.splice(start, deleteCount, ...inserted);
     },

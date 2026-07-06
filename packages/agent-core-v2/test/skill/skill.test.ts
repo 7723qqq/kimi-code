@@ -229,7 +229,6 @@ describe('SkillTool', () => {
   function makeTool(ix: TestInstantiationService, depth?: number): SkillTool {
     const tool = new SkillTool(
       ix.get(ISessionSkillCatalog),
-      ix.get(IAgentPromptService),
       stubSkillService(),
       stubSessionContext(),
     );
@@ -303,40 +302,42 @@ describe('SkillTool', () => {
       output: 'Skill "commit" loaded inline. Follow its instructions.',
     });
     expect(result.output).not.toContain('# Commit');
-    expect(prompted).toHaveLength(1);
-    expect(prompted[0]!.origin).toMatchObject({
+    // The tool only declares a `delivery`; the agent (L4) layer performs the steer.
+    expect(prompted).toHaveLength(0);
+    expect(result.delivery?.kind).toBe('steer');
+    expect(result.delivery?.message.origin).toMatchObject({
       kind: 'skill_activation',
       skillName: 'commit',
       trigger: 'model-tool',
     });
-    expect(prompted[0]!.content[0]).toMatchObject({
+    expect(result.delivery?.message.content[0]).toMatchObject({
       type: 'text',
       text: expect.stringContaining(
         '<kimi-skill-loaded name="commit" trigger="model-tool" source="user" dir="/skills/commit" args="src/app.ts">',
       ),
     });
-    expect(prompted[0]!.content[0]).toMatchObject({
+    expect(result.delivery?.message.content[0]).toMatchObject({
       type: 'text',
       text: expect.stringContaining('ARGUMENTS: src/app.ts'),
     });
   });
 
   it('honors initialQueryDepth as an alias for queryDepth', async () => {
-    await executeTool(
+    const nested = await executeTool(
       makeTool(ix, 2),
       toolContext({ skill: 'commit' }),
     );
-    await executeTool(
+    const root = await executeTool(
       makeTool(ix, 0),
       toolContext({ skill: 'commit' }),
     );
 
-    expect(prompted).toHaveLength(2);
-    expect(prompted[0]!.origin).toMatchObject({
+    expect(prompted).toHaveLength(0);
+    expect(nested.delivery?.message.origin).toMatchObject({
       kind: 'skill_activation',
       trigger: 'nested-skill',
     });
-    expect(prompted[1]!.origin).toMatchObject({
+    expect(root.delivery?.message.origin).toMatchObject({
       kind: 'skill_activation',
       trigger: 'model-tool',
     });

@@ -8,10 +8,13 @@
  *
  * The model-facing wrapping lives here on purpose: resolving the skill from
  * the catalog, the inline-only / `disableModelInvocation` gates, the `isError`
- * tool result, and the `prompt.steer` delivery into the *current* turn all
+ * tool result, and the declared `delivery: 'steer'` into the *current* turn all
  * assume the caller is already inside a turn — which is exactly the edge a
- * tool runs at. `IAgentSkillService` keeps only the user-slash `activate`
- * primitive (it opens a fresh turn) and the shared activation recording.
+ * tool runs at. The tool only declares the `delivery`; the agent (L4) layer
+ * performs the actual steer, so the tool never reaches into
+ * `IAgentPromptService`. `IAgentSkillService` keeps only the user-slash
+ * `activate` primitive (it opens a fresh turn) and the shared activation
+ * recording.
  *
  * Anti-loop: `MAX_SKILL_QUERY_DEPTH` caps Skill→Skill recursion so a
  * skill that re-invokes itself (or chains into another) cannot recurse
@@ -22,12 +25,11 @@ import { randomUUID } from 'node:crypto';
 
 import { z } from 'zod';
 
-import type { ContextMessage, SkillActivationOrigin } from '#/agent/contextMemory';
-import { IAgentPromptService } from '#/agent/prompt';
+import type { SkillActivationOrigin } from '#/agent/contextMemory';
 import { IAgentSkillService } from '#/agent/skill/skill';
 import { renderModelToolSkillPrompt } from '#/agent/skill/prompt';
 import type { BuiltinTool } from '#/agent/tool';
-import type { ExecutableToolResult, ToolExecution } from '#/agent/tool';
+import type { ExecutableToolResult, ToolDeliveryMessage, ToolExecution } from '#/agent/tool';
 import { registerTool } from '#/agent/toolRegistry';
 import { isInlineSkillType } from '#/app/skillCatalog/types';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
@@ -80,7 +82,6 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
 
   constructor(
     @ISessionSkillCatalog private readonly catalog: ISessionSkillCatalog,
-    @IAgentPromptService private readonly prompt: IAgentPromptService,
     @IAgentSkillService private readonly skill: IAgentSkillService,
     @ISessionContext private readonly sessionContext: ISessionContext,
   ) {}
@@ -96,7 +97,7 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
   }
 
   withInitialQueryDepth(initialQueryDepth: number): SkillTool {
-    const clone = new SkillTool(this.catalog, this.prompt, this.skill, this.sessionContext);
+    const clone = new SkillTool(this.catalog, this.skill, this.sessionContext);
     clone.queryDepth = initialQueryDepth;
     return clone;
   }
@@ -104,7 +105,6 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
   private async execution(args: SkillToolInput): Promise<ExecutableToolResult> {
     return executeModelSkill(
       this.catalog,
-      this.prompt,
       this.skill,
       args,
       this.queryDepth,
@@ -117,7 +117,6 @@ registerTool(SkillTool);
 
 export async function executeModelSkill(
   catalog: ISessionSkillCatalog,
-  prompt: IAgentPromptService,
   skillService: IAgentSkillService,
   args: SkillToolInput,
   queryDepth: number,
@@ -164,7 +163,7 @@ export async function executeModelSkill(
     skillSource: skill.source,
   };
   const skillContent = catalog.catalog.renderSkillPrompt(skill, skillArgs, { sessionId });
-  const message: ContextMessage = {
+  const message: ToolDeliveryMessage = {
     role: 'user',
     content: [
       {
@@ -183,9 +182,9 @@ export async function executeModelSkill(
     origin,
   };
   skillService.recordModelToolActivation(origin);
-  await prompt.steer(message).launched;
   return {
     output: `Skill "${skill.name}" loaded inline. Follow its instructions.`,
+    delivery: { kind: 'steer', message },
   };
 }
 

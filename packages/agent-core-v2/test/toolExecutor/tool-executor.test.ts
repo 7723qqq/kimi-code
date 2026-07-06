@@ -10,6 +10,7 @@ import { IAgentToolExecutorService, AgentToolExecutorService, parseToolCallArgum
 import { IAgentToolRegistryService, AgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
 import { IAgentWireService, WireService } from '#/wire';
+import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry';
 import { stubWireRecord } from '../contextMemory/stubs';
 import { registerLogServices } from '../log/stubs';
@@ -41,16 +42,18 @@ beforeEach(() => {
         disposables.add(new WireService({ logScope: 'wire', logKey: 'tool-executor' })),
       );
       reg.defineInstance(ITelemetryService, recordingTelemetry(telemetryEvents));
+      reg.defineInstance(IEventBus, {
+        publish: (event: { type: string }) => {
+          if (event.type.startsWith('tool.')) {
+            protocolEvents.push(event as unknown as AgentEvent);
+          }
+        },
+        subscribe: (..._args: unknown[]) => ({ dispose: () => {} }),
+      } as IEventBus);
       registerLogServices(reg);
     },
     strict: true,
   });
-  const wire = ix.get(IAgentWireService);
-  disposables.add(
-    wire.onEmission((e) => {
-      if (e.type === 'signal') protocolEvents.push(e.signal as unknown as AgentEvent);
-    }),
-  );
   executor = ix.get(IAgentToolExecutorService);
   registry = ix.get(IAgentToolRegistryService);
 });
@@ -561,6 +564,29 @@ describe('AgentToolExecutorService', () => {
         output: 'hook output',
         isError: true,
       }),
+    });
+  });
+  it('threads a declared delivery onto the yielded result for the agent layer to consume', async () => {
+    const message = {
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text: 'injected' }],
+      toolCalls: [],
+      origin: { kind: 'skill_activation', skillName: 'commit', trigger: 'model-tool' },
+    };
+    const tool = new TestTool('skillish', {
+      result: { output: 'ack', delivery: { kind: 'steer', message } },
+    });
+    registry.register(tool);
+
+    const results = await execute([toolCall('call_skillish', 'skillish', {})]);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]!.output).toBe('ack');
+    // The executor only threads `delivery`; an L4 hook (AgentPromptService) is
+    // what consumes and strips it — that hook is not registered in this unit test.
+    expect(results[0]!.delivery).toMatchObject({
+      kind: 'steer',
+      message: { content: [{ type: 'text', text: 'injected' }] },
     });
   });
 });
