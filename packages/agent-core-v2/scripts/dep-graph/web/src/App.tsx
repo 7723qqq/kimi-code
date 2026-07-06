@@ -4,28 +4,46 @@ import graph from 'virtual:dep-graph';
 import type { EdgeKind, ServiceScope } from '../../analyzer/types';
 import { Filters, type FilterState } from './Filters';
 import { GraphView } from './GraphView';
+import { readQueryParams } from './query-params';
 import { EDGE_KINDS } from './style';
 import { collectTagCounts, loadTags, saveTags, tagsEqual, type TagMap } from './tags';
 
 const ALL_SCOPES: ServiceScope[] = ['App', 'Session', 'Agent'];
 
 export function App(): JSX.Element {
+  // Read once at mount — deep-link params seed the initial filters; later
+  // interaction is purely client-side and does not write back to the URL.
+  const queryParams = useMemo(() => readQueryParams(window.location.search), []);
+
   const domains = useMemo(
     () => [...new Set(graph.services.map((s) => s.domain))].sort(),
     [],
   );
 
-  const [filters, setFilters] = useState<FilterState>({
-    scopes: new Set<ServiceScope>(ALL_SCOPES),
-    kinds: new Set<EdgeKind>(EDGE_KINDS),
-    hiddenDomains: new Set<string>(),
-    search: '',
-    hideOrphans: false,
-    groupByScope: false,
-    activeTags: new Set<string>(),
+  const [filters, setFilters] = useState<FilterState>(() => {
+    const visibleDomains = queryParams.domains ? new Set(queryParams.domains) : undefined;
+    return {
+      scopes: queryParams.scopes
+        ? new Set<ServiceScope>(queryParams.scopes)
+        : new Set<ServiceScope>(ALL_SCOPES),
+      kinds: queryParams.kinds
+        ? new Set<EdgeKind>(queryParams.kinds)
+        : new Set<EdgeKind>(EDGE_KINDS),
+      hiddenDomains: visibleDomains
+        ? new Set<string>(domains.filter((d) => !visibleDomains.has(d)))
+        : new Set<string>(),
+      search: queryParams.search ?? '',
+      hideOrphans: queryParams.hideOrphans ?? false,
+      groupByScope: queryParams.groupByScope ?? false,
+      activeTags: new Set<string>(),
+    };
   });
 
-  const [selectedId, setSelectedId] = useState<string | undefined>();
+  const [selectedId, setSelectedId] = useState<string | undefined>(() =>
+    queryParams.focus && graph.services.some((s) => s.id === queryParams.focus)
+      ? queryParams.focus
+      : undefined,
+  );
 
   // User-authored node tags, keyed by `ServiceNode.id`. Loaded once from
   // localStorage and re-persisted on every change.
