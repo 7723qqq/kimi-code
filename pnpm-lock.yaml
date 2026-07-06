@@ -622,8 +622,6 @@ importers:
         specifier: ^1.15.5
         version: 1.15.5
 
-  packages/kimi-migration-legacy: {}
-
   packages/kosong:
     dependencies:
       '@anthropic-ai/sdk':
