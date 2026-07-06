@@ -3,6 +3,7 @@ import { createToolMessage, type ContentPart, type Message } from '@moonshot-ai/
 import type { Agent } from '..';
 import { ErrorCodes, KimiError } from '../../errors';
 import type { ExecutableToolResult, LoopRecordedEvent } from '../../loop';
+import { extractImageCompressionCaptions } from '../../tools/support/image-compress';
 import { estimateTokens, estimateTokensForMessages } from '../../utils/tokens';
 import { escapeXml } from '../../utils/xml-escape';
 import {
@@ -22,6 +23,7 @@ import {
   type ProjectOptions,
   trimTrailingOpenToolExchange,
 } from './projector';
+import { stripDynamicToolContext } from './dynamic-tools';
 import {
   USER_PROMPT_ORIGIN,
   type AgentContextData,
@@ -30,6 +32,7 @@ import {
 } from './types';
 
 export * from './types';
+export * from './dynamic-tools';
 
 const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
 const TOOL_EMPTY_STATUS = '<system>Tool output is empty.</system>';
@@ -66,9 +69,23 @@ export class ContextMemory {
     origin: PromptOrigin = USER_PROMPT_ORIGIN,
   ): void {
     if (content.length === 0) return;
+    // Prompt ingestion (server upload/base64 route, TUI paste, ACP) annotates
+    // a compressed image with an inline `<system>` caption next to the image.
+    // Left inside the user message, that raw markup is user-visible in every
+    // history projection (TUI replay, vis, export). Reroute each caption
+    // through the built-in system-reminder injection — hidden by its
+    // `injection` origin — and keep only the real user content here.
+    const { captions, parts } =
+      origin.kind === 'user'
+        ? splitImageCompressionCaptions(content)
+        : { captions: [], parts: [...content] };
+    for (const caption of captions) {
+      this.appendSystemReminder(caption, { kind: 'injection', variant: 'image_compression' });
+    }
+    if (parts.length === 0) return;
     this.appendMessage({
       role: 'user',
-      content: [...content],
+      content: parts,
       toolCalls: [],
       origin,
     });
@@ -160,6 +177,7 @@ export class ContextMemory {
     this._lastAssistantAt = null;
     this.agent.microCompaction.reset();
     this.agent.injection.onContextClear();
+    this.agent.tools.onContextCleared();
     this.agent.emitStatusUpdated();
   }
 
@@ -336,6 +354,7 @@ export class ContextMemory {
     this.tokenCountCoveredMessageCount = this._history.length;
     this.agent.microCompaction.reset();
     this.agent.injection.onContextCompacted();
+    this.agent.tools.onContextCompacted();
     this.agent.emitStatusUpdated();
     return result;
   }
@@ -361,8 +380,15 @@ export class ContextMemory {
   }
 
   project(messages: readonly ContextMessage[], options?: ProjectOptions): Message[] {
+    // Shape for the current model BEFORE projecting: a model without the
+    // select_tools capability must not see dynamic-tool schema messages or
+    // loadable-tools announcements (the canonical history keeps them; only
+    // this outgoing view is shaped). Must run pre-projection — project()
+    // strips `origin`, the only anchor for the announcements. setModel never
+    // rewrites history, so a mid-session switch degrades/upgrades losslessly.
+    const shaped = this.agent.toolSelectEnabled ? messages : stripDynamicToolContext(messages);
     const anomalies: ProjectionAnomaly[] = [];
-    const result = project(this.agent.microCompaction.compact(messages), {
+    const result = project(this.agent.microCompaction.compact(shaped), {
       ...options,
       onAnomaly: (anomaly) => {
         anomalies.push(anomaly);
@@ -605,6 +631,7 @@ export class ContextMemory {
           id: event.toolCallId,
           name: event.name,
           arguments: event.args === undefined ? null : JSON.stringify(event.args),
+          extras: event.extras,
         });
         this.pendingToolResultIds.add(event.toolCallId);
         return;
@@ -700,6 +727,35 @@ function toolResultOutputForModel(result: ExecutableToolResult): string | Conten
 
 function isEmptyEquivalentContentArray(output: readonly ContentPart[]): boolean {
   return output.every((part) => part.type === 'text' && part.text.trim().length === 0);
+}
+
+// Split inline image-compression captions (see buildImageCompressionCaption)
+// out of user prompt content. A caption may be a standalone text part (server
+// route, ACP) or merged into an adjacent text segment (TUI paste), so each
+// text part is scanned rather than matched whole. Text left empty once its
+// captions are removed is dropped entirely.
+function splitImageCompressionCaptions(content: readonly ContentPart[]): {
+  captions: readonly string[];
+  parts: ContentPart[];
+} {
+  const captions: string[] = [];
+  const parts: ContentPart[] = [];
+  for (const part of content) {
+    if (part.type !== 'text') {
+      parts.push(part);
+      continue;
+    }
+    const extracted = extractImageCompressionCaptions(part.text);
+    if (extracted.captions.length === 0) {
+      parts.push(part);
+      continue;
+    }
+    captions.push(...extracted.captions);
+    if (extracted.text.trim().length > 0) {
+      parts.push({ type: 'text', text: extracted.text });
+    }
+  }
+  return { captions, parts };
 }
 
 function isEmptyOutputText(output: string): boolean {

@@ -69,7 +69,6 @@
         ./packages/server-v2
         ./packages/server-e2e
         ./packages/kaos
-        ./packages/kimi-migration-legacy
         ./packages/kosong
         ./packages/migration-legacy
         ./packages/minidb
@@ -110,7 +109,6 @@
         "@moonshot-ai/vis-server"
         "@moonshot-ai/vis-web"
         "kimi-code-docs"
-        "kimi-migration-legacy"
       ];
     in
     {

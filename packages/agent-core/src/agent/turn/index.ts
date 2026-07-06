@@ -683,6 +683,10 @@ export class TurnFlow {
     // there is no active goal). Each goal continuation is its own turn, so this
     // re-injects the reminder once per turn rather than per step, preserving prompt caching.
     await this.agent.injection.injectGoal();
+    // Announce loadable-tool changes at the same boundary cadence: a diff is
+    // appended only when the loadable set actually changed, so quiet turns
+    // keep the prompt cache fully warm.
+    this.agent.injection.injectToolsDiff();
     while (true) {
       signal.throwIfAborted();
       const model = this.agent.config.model;
@@ -696,7 +700,10 @@ export class TurnFlow {
           buildMessages: () => this.agent.context.messages,
           buildMessagesStrict: () => this.agent.context.strictMessages,
           dispatchEvent: this.buildDispatchEvent(turnId),
-          tools: this.agent.tools.loopTools,
+          // Re-read per step (not snapshotted per turn) so a select_tools load
+          // is dispatchable on the very next step of the same turn.
+          buildTools: () => this.agent.tools.loopTools,
+          describeMissingTool: (name) => this.agent.tools.missingToolMessage(name),
           log: this.agent.log,
           maxSteps: loopControl?.maxStepsPerTurn,
           maxRetryAttempts: loopControl?.maxRetriesPerStep,
@@ -735,6 +742,28 @@ export class TurnFlow {
               // 1. Flush any steered user messages.
               if (this.flushSteerBuffer()) return { continue: true };
               signal.throwIfAborted();
+
+              // Print-mode drain: when `kimi -p` ends a turn while background
+              // subagents are still running, hold the turn open and idle-wait
+              // until they finish (or the drain deadline is reached). Their
+              // completions steer into the buffer during the wait and are
+              // flushed afterward, so the model gets one wrap-up step to react
+              // (nominate, backfill, ...) before the turn ends. Gated on a
+              // session flag so interactive / goal modes are unaffected.
+              if (this.agent.printDrainAgentTasksOnStop) {
+                const remaining = this.agent.printDrainDeadlineMs - Date.now();
+                const hasActiveAgentTask = this.agent.background
+                  .list(true)
+                  .some((task) => task.kind === 'agent');
+                if (hasActiveAgentTask && remaining > 0) {
+                  await this.agent.background.waitForActiveTasks(
+                    (task) => task.kind === 'agent',
+                    { timeoutMs: remaining, signal },
+                  );
+                  this.flushSteerBuffer();
+                  return { continue: true };
+                }
+              }
 
               // 2. After UpdateGoal marks a goal terminal, ask the model for one
               //    final user-facing outcome message before the turn ends.
