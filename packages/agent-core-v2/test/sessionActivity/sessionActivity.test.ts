@@ -59,6 +59,7 @@ function lifecycle(handles: readonly IAgentScopeHandle[]): IAgentLifecycleServic
     onDidCreateMain: () => ({ dispose: () => {} }),
     notifyMainCreated: () => {},
     create: () => Promise.resolve(handles[0]!),
+    ensureMcpReady: () => Promise.resolve(),
     fork: () => Promise.resolve(handles[0]!),
     run: () => {
       throw new Error('not implemented in test');

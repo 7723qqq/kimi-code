@@ -101,6 +101,12 @@ export interface IAgentLifecycleService {
   /** Create an agent from zero (empty context). */
   create(opts?: CreateAgentOptions): Promise<IAgentScopeHandle>;
   /**
+   * Resolve the session/plugin MCP config and wait for the initial connection
+   * attempt to finish. Per-server failures are reflected in MCP status entries
+   * rather than rejecting this promise.
+   */
+  ensureMcpReady(): Promise<void>;
+  /**
    * Fire {@link onDidCreateMain} for the given handle. Called exactly once by
    * the main-agent bootstrapper (`ensureMainAgent`) after main-only wirings
    * are attached, so main-only capabilities can subscribe without filtering

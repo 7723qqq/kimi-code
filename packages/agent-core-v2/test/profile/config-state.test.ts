@@ -211,12 +211,21 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
           model: 'kimi-deep-coder',
           maxContextSize: 128_000,
           capabilities: ['thinking', 'always_thinking', 'tool_use'],
+          supportEfforts: ['low', 'high', 'max'],
         },
         'kimi-code/toggle': {
           provider: 'kimi',
           model: 'kimi-for-coding',
           maxContextSize: 128_000,
           capabilities: ['thinking'],
+        },
+        'kimi-code/custom': {
+          provider: 'kimi',
+          model: 'kimi-custom-coder',
+          maxContextSize: 128_000,
+          capabilities: ['thinking'],
+          supportEfforts: ['low', 'medium', 'max'],
+          defaultEffort: 'max',
         },
       },
     };
@@ -252,6 +261,12 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
     profile.update({ modelAlias: 'kimi-code/toggle', thinkingLevel: 'off' });
 
     expect(profile.data().thinkingLevel).toBe('off');
+  });
+
+  it('maps thinking on to the model default effort', () => {
+    profile.update({ modelAlias: 'kimi-code/custom', thinkingLevel: 'on' });
+
+    expect(profile.data().thinkingLevel).toBe('max');
   });
 
   it('re-clamps when switching to an always-on model after thinking was off', () => {

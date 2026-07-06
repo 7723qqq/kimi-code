@@ -120,6 +120,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     this.sessions.set(opts.sessionId, handle);
     await handle.accessor.get(ISessionMetadata).ready;
     void handle.accessor.get(ISessionSkillCatalog).ready;
+    await handle.accessor.get(IAgentLifecycleService).ensureMcpReady();
     this._onDidCreateSession.fire({ sessionId: opts.sessionId, handle });
     return handle;
   }

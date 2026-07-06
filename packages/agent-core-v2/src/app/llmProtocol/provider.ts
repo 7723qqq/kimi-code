@@ -5,13 +5,14 @@ import type { TokenUsage } from './usage';
 /**
  * Normalized thinking effort level used across providers.
  *
- * Values above `high` are provider/model-specific and may be clamped by the
- * adapter when the native API has no matching level. OpenAI maps `max` to its
- * `xhigh` ceiling; Kimi and Gemini cap `xhigh`/`max` at `high`; Anthropic
- * supports `xhigh`/`max` only on selected models and otherwise clamps to
- * `high`.
+ * `'on'` is the boolean-thinking signal for models that do not expose named
+ * efforts. Values above `high` are provider/model-specific and may be clamped
+ * by the adapter when the native API has no matching level. OpenAI maps `max`
+ * to its `xhigh` ceiling; Kimi and Gemini cap `xhigh`/`max` at `high`;
+ * Anthropic supports `xhigh`/`max` only on selected models and otherwise clamps
+ * to `high`.
  */
-export type ThinkingEffort = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type ThinkingEffort = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * Optional context passed to {@link ChatProvider.withMaxCompletionTokens} so a

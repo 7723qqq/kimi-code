@@ -330,7 +330,17 @@ function supportsEffortParam(model: string, adaptive: boolean): boolean {
   return normalized.includes('opus-4-5') || normalized.includes('opus-4.5');
 }
 
-function clampEffort(effort: ThinkingEffort, model: string, adaptive: boolean): ThinkingEffort {
+type AnthropicThinkingEffort = Exclude<ThinkingEffort, 'on'>;
+
+function normalizeAnthropicEffort(effort: ThinkingEffort): AnthropicThinkingEffort {
+  return effort === 'on' ? 'high' : effort;
+}
+
+function clampEffort(
+  effort: AnthropicThinkingEffort,
+  model: string,
+  adaptive: boolean,
+): AnthropicThinkingEffort {
   if (effort === 'off') {
     return effort;
   }
@@ -343,7 +353,7 @@ function clampEffort(effort: ThinkingEffort, model: string, adaptive: boolean): 
   return effort;
 }
 
-function budgetTokensForEffort(effort: ThinkingEffort): number {
+function budgetTokensForEffort(effort: AnthropicThinkingEffort): number {
   switch (effort) {
     case 'low':
       return 1024;
@@ -1222,7 +1232,7 @@ export class AnthropicChatProvider implements ChatProvider {
       return clone;
     }
 
-    const effectiveEffort = clampEffort(effort, this._model, adaptive);
+    const effectiveEffort = clampEffort(normalizeAnthropicEffort(effort), this._model, adaptive);
     if (effectiveEffort === 'off') {
       throw new Error('Non-off thinking effort unexpectedly clamped to off.');
     }

@@ -31,7 +31,7 @@ import type {
   VideoUploadInput,
   VideoURLPart,
 } from '#/app/llmProtocol';
-import type { Protocol } from '#/app/protocol';
+import type { Protocol, ProtocolProviderOptions } from '#/app/protocol';
 
 /**
  * Closure that produces a fresh `ProviderRequestAuth` on demand. Wraps an
@@ -39,6 +39,9 @@ import type { Protocol } from '#/app/protocol';
  * Reading it always returns the current material — callers must not cache.
  */
 export interface AuthProvider {
+  /** Whether this auth source can force-refresh credentials after an upstream 401. */
+  readonly canRefresh?: boolean;
+
   /**
    * Get a `ProviderRequestAuth` for the next request. Returns `undefined`
    * when no auth material is available (anonymous endpoint, or the caller
@@ -96,6 +99,8 @@ export interface Model {
   readonly maxOutputSize?: number;
   readonly displayName?: string;
   readonly reasoningKey?: string;
+  readonly supportEfforts?: readonly string[];
+  readonly defaultEffort?: string;
   readonly thinkingEffort: ThinkingEffort | null;
   /**
    * True when this Model's capabilities include `always_thinking` — the
@@ -124,6 +129,9 @@ export interface Model {
 
   /** Return a new Model wrapper with additional generation kwargs applied. */
   withGenerationKwargs(kwargs: GenerationKwargs): Model;
+
+  /** Return a new Model wrapper with additional protocol-constructor options applied. */
+  withProviderOptions(options: ProtocolProviderOptions): Model;
 
   /**
    * Drive one LLM request end-to-end. Streams `LLMEvent`s until the stream

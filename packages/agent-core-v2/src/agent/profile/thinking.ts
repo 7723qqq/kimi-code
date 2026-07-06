@@ -7,15 +7,17 @@
  */
 
 import type { ThinkingEffort } from '#/app/llmProtocol';
+import {
+  type ModelThinkingMetadata,
+  resolveThinkingEffortForModel,
+} from '#/app/model/thinking';
 
 import type { ThinkingConfig } from './configSection';
-
-const DEFAULT_THINKING_EFFORT: ThinkingEffort = 'high';
-const THINKING_EFFORTS = new Set<ThinkingEffort>(['low', 'medium', 'high', 'xhigh', 'max']);
 
 export interface ResolveThinkingLevelOptions {
   readonly defaultThinking?: boolean;
   readonly thinking?: ThinkingConfig;
+  readonly model?: ModelThinkingMetadata;
 }
 
 export function resolveThinkingLevel(
@@ -29,27 +31,13 @@ export function resolveThinkingLevel(
         ? 'off'
         : undefined;
 
-  return resolveThinkingEffort(resolvedRequest, options.thinking);
+  return resolveThinkingEffort(resolvedRequest, options.thinking, options.model);
 }
 
 export function resolveThinkingEffort(
   requested: string | undefined,
   defaults: ThinkingConfig | undefined,
+  model?: ModelThinkingMetadata,
 ): ThinkingEffort {
-  const configEffort = parseEffort(defaults?.effort) ?? DEFAULT_THINKING_EFFORT;
-  const normalized = requested?.trim().toLowerCase();
-  if (!normalized) {
-    if (defaults?.mode === 'off') return 'off';
-    return configEffort;
-  }
-  if (normalized === 'off') return 'off';
-  if (normalized === 'on') return configEffort;
-  return parseEffort(normalized) ?? configEffort;
-}
-
-function parseEffort(value: string | undefined): ThinkingEffort | undefined {
-  const normalized = value?.trim().toLowerCase();
-  return normalized !== undefined && THINKING_EFFORTS.has(normalized as ThinkingEffort)
-    ? (normalized as ThinkingEffort)
-    : undefined;
+  return resolveThinkingEffortForModel(requested, defaults, model);
 }

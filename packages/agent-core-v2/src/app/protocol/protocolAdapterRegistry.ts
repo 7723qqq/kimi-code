@@ -59,9 +59,17 @@ function toKosongProviderConfig(input: ProtocolAdapterConfig): KosongProviderCon
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     defaultHeaders: input.defaultHeaders as Record<string, string> | undefined,
-    ...(input.extras ?? {}),
+    ...definedOptions(input.providerOptions ?? {}),
   };
   return base as KosongProviderConfig;
+}
+
+function definedOptions(options: object): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(options)) {
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
 }
 
 registerScopedService(

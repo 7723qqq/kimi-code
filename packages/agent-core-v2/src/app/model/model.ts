@@ -33,42 +33,60 @@ import { ProtocolSchema } from '#/app/protocol';
 
 export const MODELS_SECTION = 'models';
 
-export const ModelSchema = z
-  .object({
-    // Structured path — reference a Provider (which references a Platform).
-    providerId: z.string().optional(),
+const ModelBaseSchema = z.object({
+  // Structured path — reference a Provider (which references a Platform).
+  providerId: z.string().optional(),
 
-    // Flat path — inline endpoint + optional inline auth overrides. When
-    // providerId is absent, the resolver synthesizes a Provider from the
-    // baseUrl origin. When both are present, providerId wins and baseUrl
-    // acts as a per-Model override.
-    baseUrl: z.string().optional(),
-    apiKey: z.string().optional(),
-    oauth: OAuthRefSchema.optional(),
+  // Flat path — inline endpoint + optional inline auth overrides. When
+  // providerId is absent, the resolver synthesizes a Provider from the
+  // baseUrl origin. When both are present, providerId wins and baseUrl
+  // acts as a per-Model override.
+  baseUrl: z.string().optional(),
+  apiKey: z.string().optional(),
+  oauth: OAuthRefSchema.optional(),
 
-    // Wire protocol. Every Model declares exactly one; if the same physical
-    // model is served over two protocols (e.g. Anthropic direct + OpenAI-
-    // compat), that is two Model entries with different ids and a shared
-    // `name` (via `aliases`).
-    protocol: ProtocolSchema.optional(),
+  // Wire protocol. Every Model declares exactly one; if the same physical
+  // model is served over two protocols (e.g. Anthropic direct + OpenAI-
+  // compat), that is two Model entries with different ids and a shared
+  // `name` (via `aliases`).
+  protocol: ProtocolSchema.optional(),
 
-    // Wire-facing model identifier and routing aliases.
-    name: z.string().optional(),
-    aliases: z.array(z.string()).optional(),
+  // Wire-facing model identifier and routing aliases.
+  name: z.string().optional(),
+  aliases: z.array(z.string()).optional(),
 
-    // Existing capability / budget knobs — carried forward unchanged so
-    // legacy configs continue to load. Phase 4 migration lifts the old
-    // `provider`+`model` pair into the new `providerId`+`name` shape.
-    provider: z.string().optional(),
-    model: z.string().optional(),
-    maxContextSize: z.number().int().min(1).optional(),
-    maxOutputSize: z.number().int().min(1).optional(),
-    capabilities: z.array(z.string()).optional(),
-    displayName: z.string().optional(),
-    reasoningKey: z.string().optional(),
-    adaptiveThinking: z.boolean().optional(),
-  })
-  .passthrough();
+  // Existing capability / budget knobs — carried forward unchanged so
+  // legacy configs continue to load. Phase 4 migration lifts the old
+  // `provider`+`model` pair into the new `providerId`+`name` shape.
+  provider: z.string().optional(),
+  model: z.string().optional(),
+  maxContextSize: z.number().int().min(1).optional(),
+  maxOutputSize: z.number().int().min(1).optional(),
+  capabilities: z.array(z.string()).optional(),
+  displayName: z.string().optional(),
+  reasoningKey: z.string().optional(),
+  adaptiveThinking: z.boolean().optional(),
+  betaApi: z.boolean().optional(),
+  supportEfforts: z.array(z.string()).optional(),
+  defaultEffort: z.string().optional(),
+});
+
+export const ModelOverrideSchema = ModelBaseSchema.omit({
+  providerId: true,
+  baseUrl: true,
+  apiKey: true,
+  oauth: true,
+  protocol: true,
+  name: true,
+  aliases: true,
+  provider: true,
+  model: true,
+  betaApi: true,
+}).partial();
+
+export const ModelSchema = ModelBaseSchema.extend({
+  overrides: ModelOverrideSchema.optional(),
+}).passthrough();
 
 export type ModelConfig = z.infer<typeof ModelSchema>;
 

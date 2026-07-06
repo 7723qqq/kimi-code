@@ -20,3 +20,4 @@ export * from './modelOverrides';
 export * from './modelResolver';
 export * from './modelResolverService';
 export * from './modelService';
+export * from './thinking';

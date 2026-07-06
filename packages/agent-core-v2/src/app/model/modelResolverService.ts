@@ -30,7 +30,11 @@ import { getModelCapability } from '#/app/llmProtocol/providers';
 import { IPlatformService, UNKNOWN_PLATFORM_KEY } from '#/app/platform';
 import type { OAuthRef, ProviderConfig } from '#/app/provider';
 import { IProviderService } from '#/app/provider';
-import { IProtocolAdapterRegistry, type Protocol } from '#/app/protocol';
+import {
+  IProtocolAdapterRegistry,
+  type Protocol,
+  type ProtocolProviderOptions,
+} from '#/app/protocol';
 import { type ProtocolAdapterRegistry } from '#/app/protocol/protocolAdapterRegistry';
 
 import type { ModelConfig } from './model';
@@ -38,16 +42,7 @@ import { IModelService } from './model';
 import type { AuthProvider, Model } from './modelInstance';
 import { IModelResolver } from './modelResolver';
 import { ModelImpl, StaticAuthProvider } from './modelImpl';
-
-/**
- * Default thinking effort applied when the user has not disabled thinking
- * (matches `profile`'s `DEFAULT_THINKING_EFFORT`). Read here rather than
- * imported so `model` (L2) does not depend on `profile` (L4); the source of
- * truth for the value is the `thinking` / `defaultThinking` config sections,
- * which are shared via `IConfigService`.
- */
-const DEFAULT_THINKING_EFFORT: ThinkingEffort = 'high';
-const THINKING_EFFORTS: readonly ThinkingEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+import { resolveThinkingEffortForModel } from './thinking';
 
 /** Shape of the `thinking` config section (owned by `profile`); only the
  *  fields the resolver needs to mirror the production default are read here. */
@@ -61,6 +56,10 @@ interface ResolvedAuthMaterial {
   readonly oauth?: OAuthRef;
   readonly oauthProviderKey?: string;
 }
+
+type MutableProtocolProviderOptions = {
+  -readonly [K in keyof ProtocolProviderOptions]: ProtocolProviderOptions[K];
+};
 
 export class ModelResolverService extends Disposable implements IModelResolver {
   declare readonly _serviceBrand: undefined;
@@ -78,24 +77,25 @@ export class ModelResolverService extends Disposable implements IModelResolver {
   }
 
   resolve(id: string): Model {
-    const model = this.models.get(id);
-    if (model === undefined) {
+    const configuredModel = this.models.get(id);
+    if (configuredModel === undefined) {
       throw new KimiError(
         ErrorCodes.CONFIG_INVALID,
         `Model "${id}" is not configured in config.toml.`,
       );
     }
+    const model = effectiveModelConfig(configuredModel);
 
     const { providerConfig, providerName, resolvedBaseUrl: rawBaseUrl } = this.resolveProviderContext(id, model);
-    const auth = this.resolveAuth(model, providerConfig);
+    const auth = this.resolveAuth(id, model, providerConfig, providerName);
     const authProvider = this.buildAuthProvider(providerName, auth);
 
     const protocol = this.resolveProtocol(id, model, providerConfig);
-    // The Anthropic SDK appends `/v1/messages` to the baseUrl, so a provider
-    // whose baseUrl already ends in `/v1` (e.g. the managed Kimi endpoint) would
-    // otherwise produce a double `/v1/v1/messages` → 404. Match production v1
-    // (`provider-manager` strips a trailing `/v1` for the anthropic transport).
-    const resolvedBaseUrl = protocol === 'anthropic' ? stripTrailingV1(rawBaseUrl) : rawBaseUrl;
+    // Match production v1: strip a trailing `/v1` only when the model explicitly
+    // overrides into the Anthropic transport. Native Anthropic providers keep
+    // their configured `/v1` because the old provider manager did too.
+    const resolvedBaseUrl =
+      model.protocol === 'anthropic' ? stripTrailingV1(rawBaseUrl) : rawBaseUrl;
     const wireName = model.name ?? model.model;
     if (wireName === undefined) {
       throw new KimiError(
@@ -116,6 +116,12 @@ export class ModelResolverService extends Disposable implements IModelResolver {
       wireName,
       model.maxContextSize,
     );
+    const providerOptions = buildProtocolProviderOptions(
+      model,
+      protocol,
+      providerConfig,
+      resolvedBaseUrl,
+    );
     const declared = new Set((model.capabilities ?? []).map((c) => c.trim().toLowerCase()));
     const alwaysThinking = declared.has('always_thinking');
 
@@ -131,11 +137,13 @@ export class ModelResolverService extends Disposable implements IModelResolver {
       maxOutputSize: model.maxOutputSize,
       displayName: model.displayName,
       reasoningKey: model.reasoningKey,
+      supportEfforts: model.supportEfforts,
+      defaultEffort: model.defaultEffort,
       alwaysThinking,
       providerName,
       authProvider,
       protocolRegistry: this.protocolRegistry as ProtocolAdapterRegistry,
-      extras: buildProviderExtras(model),
+      providerOptions,
     });
 
     // Apply the production default thinking effort so a plain `model.request()`
@@ -143,7 +151,7 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     // same `thinking` / `defaultThinking` config). Required for models whose
     // endpoint rejects a request that omits thinking (e.g. kimi-k2.7 over the
     // Anthropic protocol returns 400 unless `thinking.type === 'enabled'`).
-    const effort = this.resolveDefaultThinking(alwaysThinking);
+    const effort = this.resolveDefaultThinking(model, alwaysThinking);
     return effort === 'off' ? impl : impl.withThinking(effort);
   }
 
@@ -152,18 +160,25 @@ export class ModelResolverService extends Disposable implements IModelResolver {
    * god-object's default matches the production agent path:
    *   - an explicit `defaultThinking === false` or `thinking.mode === 'off'`
    *     turns thinking off;
-   *   - otherwise the configured `thinking.effort` (default 'high') is used;
+   *   - otherwise the configured `thinking.effort` is used, falling back to the
+   *     model's declared default effort / middle supported effort / boolean `on`;
    *   - an `always_thinking` model clamps an explicit "off" back to on.
    */
-  private resolveDefaultThinking(alwaysThinking: boolean): ThinkingEffort {
+  private resolveDefaultThinking(
+    model: ModelConfig,
+    alwaysThinking: boolean,
+  ): ThinkingEffort {
     const defaultThinking = this.config.get<boolean | undefined>('defaultThinking');
     const thinking = this.config.get<ThinkingSection | undefined>('thinking');
-    const turnedOff = defaultThinking === false || thinking?.mode === 'off';
-    const configured = parseThinkingEffort(thinking?.effort) ?? DEFAULT_THINKING_EFFORT;
-    if (turnedOff && !alwaysThinking) {
-      return 'off';
-    }
-    return configured;
+    return resolveThinkingEffortForModel(
+      undefined,
+      {
+        defaultThinking,
+        mode: thinking?.mode,
+        effort: thinking?.effort,
+      },
+      { ...model, alwaysThinking },
+    );
   }
 
   findByName(name: string): readonly string[] {
@@ -202,7 +217,13 @@ export class ModelResolverService extends Disposable implements IModelResolver {
           `Provider "${providerId}" referenced by model "${id}" is not configured.`,
         );
       }
-      const baseUrl = model.baseUrl ?? providerConfig.baseUrl;
+      const baseUrl =
+        nonEmpty(model.baseUrl) ??
+        nonEmpty(providerConfig.baseUrl) ??
+        providerBaseUrlEnvFallback(
+          model.protocol ?? (providerConfig.type as Protocol | undefined),
+          providerConfig.env,
+        );
       if (baseUrl === undefined || baseUrl.length === 0) {
         throw new KimiError(
           ErrorCodes.CONFIG_INVALID,
@@ -214,17 +235,18 @@ export class ModelResolverService extends Disposable implements IModelResolver {
 
     // Flat path — Model carries its own baseUrl. Synthesize a Provider id
     // from the URL's origin so two flat Models on the same host converge.
-    if (model.baseUrl === undefined || model.baseUrl.length === 0) {
+    const modelBaseUrl = nonEmpty(model.baseUrl);
+    if (modelBaseUrl === undefined) {
       throw new KimiError(
         ErrorCodes.CONFIG_INVALID,
         `Model "${id}" must set either providerId or baseUrl in config.toml.`,
       );
     }
-    const originName = deriveProviderId(model.baseUrl);
+    const originName = deriveProviderId(modelBaseUrl);
     return {
       providerConfig: undefined,
       providerName: originName,
-      resolvedBaseUrl: model.baseUrl,
+      resolvedBaseUrl: modelBaseUrl,
     };
   }
 
@@ -255,10 +277,15 @@ export class ModelResolverService extends Disposable implements IModelResolver {
    * empty bearer token.
    */
   private resolveAuth(
+    id: string,
     model: ModelConfig,
     provider: ProviderConfig | undefined,
+    providerName: string,
   ): ResolvedAuthMaterial {
     const modelApiKey = nonEmpty(model.apiKey);
+    if (modelApiKey !== undefined && model.oauth !== undefined) {
+      throw authConflictError('Model', id);
+    }
     if (modelApiKey !== undefined) return { apiKey: modelApiKey };
     if (model.oauth !== undefined) {
       return { oauth: model.oauth, oauthProviderKey: model.providerId ?? model.provider };
@@ -267,7 +294,13 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     const platformId = provider?.platformId;
     if (platformId !== undefined && platformId !== UNKNOWN_PLATFORM_KEY) {
       const platform = this.platforms.get(platformId);
-      const platformApiKey = nonEmpty(platform?.auth?.apiKey);
+      const authType = provider?.type ?? model.protocol;
+      const platformApiKey =
+        nonEmpty(platform?.auth?.apiKey) ??
+        providerApiKeyEnvFallback(authType, platform?.auth?.env);
+      if (platformApiKey !== undefined && platform?.auth?.oauth !== undefined) {
+        throw authConflictError('Platform', platformId);
+      }
       if (platformApiKey !== undefined) return { apiKey: platformApiKey };
       if (platform?.auth?.oauth !== undefined) {
         return {
@@ -278,7 +311,12 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     }
 
     // Legacy: provider carried auth directly (pre-Phase 4 migration).
-    const providerApiKey = nonEmpty(provider?.apiKey);
+    const providerApiKey =
+      nonEmpty(provider?.apiKey) ??
+      providerApiKeyEnvFallback(provider?.type ?? model.protocol, provider?.env);
+    if (providerApiKey !== undefined && provider?.oauth !== undefined) {
+      throw authConflictError('Provider', providerName);
+    }
     if (providerApiKey !== undefined) return { apiKey: providerApiKey };
     if (provider?.oauth !== undefined) {
       return { oauth: provider.oauth, oauthProviderKey: model.providerId ?? model.provider };
@@ -294,25 +332,25 @@ export class ModelResolverService extends Disposable implements IModelResolver {
       const oauthRef = auth.oauth;
       const providerKey = auth.oauthProviderKey ?? providerName;
       const oauthService = this.oauth;
+      const loginRequired = (cause?: unknown): KimiError =>
+        new KimiError(
+          ErrorCodes.AUTH_LOGIN_REQUIRED,
+          `OAuth provider "${providerKey}" requires login before it can be used.`,
+          cause === undefined ? undefined : { cause },
+        );
       return {
+        canRefresh: true,
         async getAuth(options): Promise<ProviderRequestAuth | undefined> {
           const tokenProvider = oauthService.resolveTokenProvider(providerKey, oauthRef);
-          if (tokenProvider === undefined) return undefined;
+          if (tokenProvider === undefined) throw loginRequired();
           const apiKey = await tokenProvider.getAccessToken({ force: options?.force ?? false });
-          if (apiKey.trim().length === 0) return undefined;
+          if (apiKey.trim().length === 0) throw loginRequired();
           return { apiKey };
         },
       };
     }
     return new StaticAuthProvider(undefined);
   }
-}
-
-function parseThinkingEffort(value: string | undefined): ThinkingEffort | undefined {
-  const normalized = value?.trim().toLowerCase();
-  return normalized !== undefined && (THINKING_EFFORTS as readonly string[]).includes(normalized)
-    ? (normalized as ThinkingEffort)
-    : undefined;
 }
 
 function resolveModelCapabilities(
@@ -347,20 +385,145 @@ function stripTrailingV1(baseUrl: string): string {
   return baseUrl.replace(/\/v1\/?$/, '');
 }
 
-/** Provider knobs the wire adapter needs that aren't first-class ModelImpl
- *  fields. `adaptiveThinking` changes how the Anthropic adapter encodes the
- *  thinking param, so it must reach the provider for the default-thinking
- *  transform to produce the right shape on adaptive models. */
-function buildProviderExtras(model: ModelConfig): Readonly<Record<string, unknown>> | undefined {
-  const extras: Record<string, unknown> = {};
-  if (model.adaptiveThinking !== undefined) {
-    extras['adaptiveThinking'] = model.adaptiveThinking;
+function effectiveModelConfig(model: ModelConfig): ModelConfig {
+  const { overrides, ...base } = model;
+  if (overrides === undefined) return model;
+  const effective: ModelConfig = { ...base, ...overrides };
+  if (
+    overrides.supportEfforts !== undefined &&
+    overrides.defaultEffort === undefined &&
+    effective.defaultEffort !== undefined &&
+    !overrides.supportEfforts.includes(effective.defaultEffort)
+  ) {
+    delete effective.defaultEffort;
   }
-  const betaApi = (model as Record<string, unknown>)['betaApi'];
-  if (betaApi !== undefined) {
-    extras['betaApi'] = betaApi;
+  return effective;
+}
+
+function authConflictError(kind: string, name: string): KimiError {
+  return new KimiError(
+    ErrorCodes.CONFIG_INVALID,
+    `${kind} "${name}" has both apiKey and oauth set in config.toml - they are mutually exclusive. Remove one.`,
+  );
+}
+
+function buildProtocolProviderOptions(
+  model: ModelConfig,
+  protocol: Protocol,
+  provider: ProviderConfig | undefined,
+  baseUrl: string,
+): ProtocolProviderOptions | undefined {
+  const options: MutableProtocolProviderOptions = {};
+
+  switch (protocol) {
+    case 'anthropic':
+      if (model.maxOutputSize !== undefined) options.defaultMaxTokens = model.maxOutputSize;
+      if (model.adaptiveThinking !== undefined) options.adaptiveThinking = model.adaptiveThinking;
+      if (model.betaApi !== undefined) options.betaApi = model.betaApi;
+      break;
+    case 'openai': {
+      const reasoningKey = nonEmpty(model.reasoningKey);
+      if (reasoningKey !== undefined) options.reasoningKey = reasoningKey;
+      break;
+    }
+    case 'kimi':
+      if (model.supportEfforts !== undefined) options.supportEfforts = model.supportEfforts;
+      break;
+    case 'vertexai': {
+      const project = vertexAIProject(provider);
+      const location = vertexAILocation(provider, baseUrl);
+      options.vertexai = project !== undefined && location !== undefined;
+      if (project !== undefined) options.project = project;
+      if (location !== undefined) options.location = location;
+      break;
+    }
+    case 'google-genai':
+    case 'openai_responses':
+      break;
+    default: {
+      const exhaustive: never = protocol;
+      void exhaustive;
+    }
   }
-  return Object.keys(extras).length > 0 ? extras : undefined;
+
+  return Object.values(options).some((value) => value !== undefined)
+    ? options
+    : undefined;
+}
+
+function providerBaseUrlEnvFallback(
+  protocol: Protocol | undefined,
+  env: Record<string, string> | undefined,
+): string | undefined {
+  if (protocol === undefined) return undefined;
+  switch (protocol) {
+    case 'anthropic':
+      return envValue(env, 'ANTHROPIC_BASE_URL');
+    case 'openai':
+    case 'openai_responses':
+      return envValue(env, 'OPENAI_BASE_URL');
+    case 'kimi':
+      return envValue(env, 'KIMI_BASE_URL');
+    case 'google-genai':
+      return envValue(env, 'GOOGLE_GEMINI_BASE_URL');
+    case 'vertexai':
+      return envValue(env, 'GOOGLE_VERTEX_BASE_URL');
+    default: {
+      const exhaustive: never = protocol;
+      return exhaustive;
+    }
+  }
+}
+
+function providerApiKeyEnvFallback(
+  protocol: Protocol | undefined,
+  env: Record<string, string> | undefined,
+): string | undefined {
+  if (protocol === undefined) return undefined;
+  switch (protocol) {
+    case 'anthropic':
+      return envValue(env, 'ANTHROPIC_API_KEY');
+    case 'openai':
+    case 'openai_responses':
+      return envValue(env, 'OPENAI_API_KEY');
+    case 'kimi':
+      return envValue(env, 'KIMI_API_KEY');
+    case 'google-genai':
+      return envValue(env, 'GOOGLE_API_KEY');
+    case 'vertexai':
+      return envValue(env, 'VERTEXAI_API_KEY') ?? envValue(env, 'GOOGLE_API_KEY');
+    default: {
+      const exhaustive: never = protocol;
+      return exhaustive;
+    }
+  }
+}
+
+function vertexAIProject(provider: ProviderConfig | undefined): string | undefined {
+  return envValue(provider?.env, 'GOOGLE_CLOUD_PROJECT');
+}
+
+function vertexAILocation(
+  provider: ProviderConfig | undefined,
+  baseUrl: string | undefined,
+): string | undefined {
+  return envValue(provider?.env, 'GOOGLE_CLOUD_LOCATION') ?? locationFromVertexAIBaseUrl(baseUrl);
+}
+
+function envValue(env: Record<string, string> | undefined, key: string): string | undefined {
+  return nonEmpty(env?.[key]);
+}
+
+function locationFromVertexAIBaseUrl(baseUrl: string | undefined): string | undefined {
+  const url = nonEmpty(baseUrl);
+  if (url === undefined) return undefined;
+  try {
+    const host = new URL(url).hostname;
+    const suffix = '-aiplatform.googleapis.com';
+    return host.endsWith(suffix) ? nonEmpty(host.slice(0, -suffix.length)) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

@@ -71,6 +71,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   private readonly onDidCreateMainEmitter = this._register(new Emitter<IAgentScopeHandle>());
   private readonly onDidDisposeEmitter = this._register(new Emitter<string>());
   private mcpManager: McpConnectionManager | undefined;
+  private mcpInitialLoad: Promise<void> | undefined;
 
   get onDidCreate() {
     return this.onDidCreateEmitter.event;
@@ -99,6 +100,8 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
 
   async create(opts: CreateAgentOptions = {}): Promise<IAgentScopeHandle> {
     const agentId = opts.agentId ?? `agent-${nextAgentId++}`;
+    const mcpManager = this.getMcpManager();
+    const mcpReady = this.ensureMcpReady();
     // Per-agent homedir → the wire-record persistence key (`hashKey(homedir)`).
     // Bootstrap computes it under the session dir, mirroring v1's
     // `<sessionDir>/agents/<id>`; business code never assembles the path itself.
@@ -134,7 +137,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
             IAgentMcpService,
             new SyncDescriptor(AgentMcpService, [
               {
-                manager: this.getMcpManager(),
+                manager: mcpManager,
                 originalsDir: sessionMediaOriginalsDir(this.ctx.sessionDir),
               },
             ]),
@@ -174,10 +177,21 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     // first turn — otherwise plugin/session MCP servers would connect but their
     // tools would never register until something explicitly requests the service.
     handle.accessor.get(IAgentMcpService);
+    await mcpReady;
     if (opts.binding !== undefined) {
       await handle.accessor.get(IAgentProfileService).bind(opts.binding);
     }
     return handle;
+  }
+
+  ensureMcpReady(): Promise<void> {
+    if (this.mcpInitialLoad !== undefined) return this.mcpInitialLoad;
+    const manager = this.getMcpManager();
+    const initialLoad = this.connectMcpServers(manager).catch((error: unknown) => {
+      this.log.error('mcp initial load failed', { error });
+    });
+    this.mcpInitialLoad = initialLoad;
+    return initialLoad;
   }
 
   notifyMainCreated(handle: IAgentScopeHandle): void {
@@ -235,9 +249,9 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   /**
    * One shared `McpConnectionManager` per session (built lazily, cached). All
    * agents in the session share it, matching v1's session-scoped MCP and
-   * avoiding a reconnect storm per agent. Connects the session-config
-   * servers merged with enabled plugin MCP servers (fire-and-forget; the
-   * manager's `initialLoad` gates tool use via `waitForInitialLoad`).
+   * avoiding a reconnect storm per agent. The initial connect is driven
+   * through `ensureMcpReady`, so session creation and first agent creation can
+   * await config resolution before tool execution starts.
    */
   private getMcpManager(): McpConnectionManager {
     if (this.mcpManager !== undefined) return this.mcpManager;
@@ -251,9 +265,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     });
     this.mcpManager = manager;
     this._register({ dispose: () => void manager.shutdown() });
-    void this.connectMcpServers(manager).catch((error: unknown) => {
-      this.log.error('mcp initial load failed', { error });
-    });
     return manager;
   }
 

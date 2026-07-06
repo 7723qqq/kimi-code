@@ -18,20 +18,22 @@
  */
 
 import { AsyncEventQueue } from '#/_base/asyncEventQueue';
-import type {
-  GenerateCallbacks,
-  GenerationKwargs,
-  MaxCompletionTokensOptions,
-  ModelCapability,
-  ProviderRequestAuth,
-  StreamDecodeStats,
-  ThinkingEffort,
-  VideoUploadInput,
-  VideoURLPart,
+import {
+  APIStatusError,
+  type GenerateCallbacks,
+  type GenerationKwargs,
+  type MaxCompletionTokensOptions,
+  type ModelCapability,
+  type ProviderRequestAuth,
+  type StreamDecodeStats,
+  type ThinkingEffort,
+  type VideoUploadInput,
+  type VideoURLPart,
 } from '#/app/llmProtocol';
-import type { ChatProvider, Protocol } from '#/app/protocol';
+import type { ChatProvider, Protocol, ProtocolProviderOptions } from '#/app/protocol';
 import { generate } from '#/app/protocol';
 import { type ProtocolAdapterRegistry } from '#/app/protocol/protocolAdapterRegistry';
+import { ErrorCodes, KimiError } from '#/errors';
 
 import type { AuthProvider, LLMEvent, LLMRequestInput, Model } from './modelInstance';
 
@@ -47,12 +49,13 @@ export interface ModelImplInit {
   readonly maxOutputSize?: number;
   readonly displayName?: string;
   readonly reasoningKey?: string;
+  readonly supportEfforts?: readonly string[];
+  readonly defaultEffort?: string;
   readonly alwaysThinking: boolean;
   readonly providerName: string;
   readonly authProvider: AuthProvider;
   readonly protocolRegistry: ProtocolAdapterRegistry;
-  /** Extra kosong-shaped config passed through when constructing the wire adapter. */
-  readonly extras?: Readonly<Record<string, unknown>>;
+  readonly providerOptions?: ProtocolProviderOptions;
 }
 
 export class ModelImpl implements Model {
@@ -67,13 +70,15 @@ export class ModelImpl implements Model {
   readonly maxOutputSize?: number;
   readonly displayName?: string;
   readonly reasoningKey?: string;
+  readonly supportEfforts?: readonly string[];
+  readonly defaultEffort?: string;
   readonly authProvider: AuthProvider;
   readonly thinkingEffort: ThinkingEffort | null;
   readonly alwaysThinking: boolean;
   readonly providerName: string;
 
   private readonly protocolRegistry: ProtocolAdapterRegistry;
-  private readonly extras: Readonly<Record<string, unknown>>;
+  private readonly providerOptions: ProtocolProviderOptions;
 
   /**
    * Chain of transforms applied to the raw kosong `ChatProvider` before use.
@@ -96,9 +101,11 @@ export class ModelImpl implements Model {
     this.maxOutputSize = init.maxOutputSize;
     this.displayName = init.displayName;
     this.reasoningKey = init.reasoningKey;
+    this.supportEfforts = init.supportEfforts;
+    this.defaultEffort = init.defaultEffort;
     this.authProvider = init.authProvider;
     this.protocolRegistry = init.protocolRegistry;
-    this.extras = init.extras ?? {};
+    this.providerOptions = init.providerOptions ?? {};
     this.transforms = transforms;
     this.alwaysThinking = init.alwaysThinking;
     this.providerName = init.providerName;
@@ -109,8 +116,9 @@ export class ModelImpl implements Model {
   }
 
   private clone(
-    transform: (p: ChatProvider) => ChatProvider,
+    transform: ((p: ChatProvider) => ChatProvider) | undefined,
     fieldOverride?: Partial<ModelImpl>,
+    initOverride?: { readonly providerOptions?: ProtocolProviderOptions },
   ): Model {
     const next = new ModelImpl(
       {
@@ -125,13 +133,15 @@ export class ModelImpl implements Model {
         maxOutputSize: this.maxOutputSize,
         displayName: this.displayName,
         reasoningKey: this.reasoningKey,
+        supportEfforts: this.supportEfforts,
+        defaultEffort: this.defaultEffort,
         alwaysThinking: this.alwaysThinking,
         providerName: this.providerName,
         authProvider: this.authProvider,
         protocolRegistry: this.protocolRegistry,
-        extras: this.extras,
+        providerOptions: initOverride?.providerOptions ?? this.providerOptions,
       },
-      [...this.transforms, transform],
+      transform === undefined ? this.transforms : [...this.transforms, transform],
     );
     if (fieldOverride !== undefined) {
       Object.assign(next, fieldOverride);
@@ -158,6 +168,12 @@ export class ModelImpl implements Model {
     });
   }
 
+  withProviderOptions(options: ProtocolProviderOptions): Model {
+    return this.clone(undefined, undefined, {
+      providerOptions: mergeProviderOptions(this.providerOptions, options),
+    });
+  }
+
   /** Materialize the transformed kosong ChatProvider. Cached per Model instance. */
   private resolveChatProvider(): ChatProvider {
     if (this.cachedChatProvider !== undefined) return this.cachedChatProvider;
@@ -166,7 +182,7 @@ export class ModelImpl implements Model {
       baseUrl: this.baseUrl,
       modelName: this.name,
       defaultHeaders: this.headers,
-      extras: this.extras,
+      providerOptions: this.providerOptions,
     });
     for (const transform of this.transforms) provider = transform(provider);
     this.cachedChatProvider = provider;
@@ -192,7 +208,10 @@ export class ModelImpl implements Model {
         `Model "${this.id}" (protocol=${this.protocol}) does not support video upload`,
       );
     }
-    return provider.uploadVideo(input, { signal: options?.signal });
+    const uploadVideo = provider.uploadVideo;
+    return this.runWithAuthRefresh((auth) =>
+      uploadVideo.call(provider, input, { signal: options?.signal, auth }),
+    );
   }
 
   private async runRequest(
@@ -218,30 +237,30 @@ export class ModelImpl implements Model {
       },
     };
 
-    const auth = await this.authProvider.getAuth();
-    requestStartedAt = Date.now();
-
-    const result = await generate(
-      provider,
-      input.systemPrompt,
-      [...input.tools],
-      [...input.messages],
-      callbacks,
-      {
-        signal,
-        auth,
-        onRequestStart: () => {
-          requestStartedAt = Date.now();
+    const result = await this.runWithAuthRefresh((auth) => {
+      requestStartedAt = Date.now();
+      return generate(
+        provider,
+        input.systemPrompt,
+        [...input.tools],
+        [...input.messages],
+        callbacks,
+        {
+          signal,
+          auth,
+          onRequestStart: () => {
+            requestStartedAt = Date.now();
+          },
+          onRequestSent: () => {
+            requestSentAt = Date.now();
+          },
+          onStreamEnd: (stats) => {
+            streamEndedAt = Date.now();
+            decodeStats = stats;
+          },
         },
-        onRequestSent: () => {
-          requestSentAt = Date.now();
-        },
-        onStreamEnd: (stats) => {
-          streamEndedAt = Date.now();
-          decodeStats = stats;
-        },
-      },
-    );
+      );
+    });
 
     // Non-streaming providers still populate `result.message`; surface its
     // content and tool calls as parts so downstream consumers see them.
@@ -279,6 +298,61 @@ export class ModelImpl implements Model {
       });
     }
   }
+
+  private async runWithAuthRefresh<T>(
+    run: (auth: ProviderRequestAuth | undefined) => Promise<T>,
+  ): Promise<T> {
+    const auth = await this.authProvider.getAuth();
+    try {
+      return await run(auth);
+    } catch (error) {
+      if (!this.shouldForceRefresh(error)) throw error;
+    }
+
+    const refreshedAuth = await this.authProvider.getAuth({ force: true });
+    try {
+      return await run(refreshedAuth);
+    } catch (error) {
+      if (isUnauthorizedStatusError(error)) throw toLoginRequiredError(error);
+      throw error;
+    }
+  }
+
+  private shouldForceRefresh(error: unknown): boolean {
+    return this.authProvider.canRefresh === true && isUnauthorizedStatusError(error);
+  }
+}
+
+function isUnauthorizedStatusError(error: unknown): error is APIStatusError {
+  return error instanceof APIStatusError && error.statusCode === 401;
+}
+
+function toLoginRequiredError(error: APIStatusError): KimiError {
+  return new KimiError(
+    ErrorCodes.AUTH_LOGIN_REQUIRED,
+    'OAuth provider credentials were rejected. Send /login to login.',
+    {
+      cause: error,
+      details: {
+        statusCode: error.statusCode,
+        requestId: error.requestId,
+      },
+    },
+  );
+}
+
+function mergeProviderOptions(
+  base: ProtocolProviderOptions,
+  next: ProtocolProviderOptions,
+): ProtocolProviderOptions {
+  return {
+    ...base,
+    ...next,
+    metadata:
+      base.metadata === undefined && next.metadata === undefined
+        ? undefined
+        : { ...base.metadata, ...next.metadata },
+  };
 }
 
 export function buildStreamTiming(
@@ -325,6 +399,8 @@ export function buildStreamTiming(
  * refresh semantics.
  */
 export class StaticAuthProvider implements AuthProvider {
+  readonly canRefresh = false;
+
   constructor(private readonly apiKey: string | undefined) {}
   async getAuth(): Promise<ProviderRequestAuth | undefined> {
     if (this.apiKey === undefined || this.apiKey.trim().length === 0) return undefined;

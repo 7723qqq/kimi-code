@@ -285,14 +285,30 @@ export class AgentProfileService implements IAgentProfileService {
   resolveModel(): Model | undefined {
     if (this.modelAlias === undefined) return undefined;
     let model: Model = this.modelFactory.resolve(this.modelAlias);
-    model = model.withThinking(this.thinkingLevel);
+    const thinkingLevel = this.thinkingLevel;
+    const kwargs: GenerationKwargs = {};
+    if (model.protocol === 'kimi') {
+      kwargs.prompt_cache_key = this.sessionContext.sessionId;
+    } else if (model.protocol === 'anthropic') {
+      model = model.withProviderOptions({
+        metadata: { user_id: this.sessionContext.sessionId },
+      });
+    }
     const overrides = this.config.get<KimiModelOverrides>('modelOverrides');
     if (overrides !== undefined) {
-      const kwargs: GenerationKwargs = {};
       if (overrides.temperature !== undefined) kwargs.temperature = overrides.temperature;
       if (overrides.topP !== undefined) kwargs.top_p = overrides.topP;
-      if (Object.keys(kwargs).length > 0) model = model.withGenerationKwargs(kwargs);
+      if (
+        model.protocol === 'kimi' &&
+        thinkingLevel !== 'off' &&
+        overrides.thinkingKeep !== undefined &&
+        overrides.thinkingKeep.length > 0
+      ) {
+        kwargs.extra_body = { thinking: { keep: overrides.thinkingKeep } };
+      }
     }
+    if (Object.keys(kwargs).length > 0) model = model.withGenerationKwargs(kwargs);
+    model = model.withThinking(thinkingLevel);
     return model;
   }
 
@@ -355,9 +371,11 @@ export class AgentProfileService implements IAgentProfileService {
     if (changed.modelAlias !== undefined) payload.modelAlias = changed.modelAlias;
     if (changed.profileName !== undefined) payload.profileName = changed.profileName;
     if (changed.thinkingLevel !== undefined) {
+      const model = this.resolveModelForThinking(changed.modelAlias);
       payload.thinkingLevel = resolveThinkingEffort(
         changed.thinkingLevel,
         this.config.get<ThinkingConfig>(THINKING_SECTION),
+        model,
       );
     }
     if (changed.systemPrompt !== undefined) payload.systemPrompt = changed.systemPrompt;
@@ -423,7 +441,11 @@ export class AgentProfileService implements IAgentProfileService {
   private get thinkingLevel(): ThinkingEffort {
     const stored = this.profileState.thinkingLevel;
     if (stored === 'off' && this.alwaysThinkingModel) {
-      return resolveThinkingEffort('on', this.config.get<ThinkingConfig>(THINKING_SECTION));
+      return resolveThinkingEffort(
+        'on',
+        this.config.get<ThinkingConfig>(THINKING_SECTION),
+        this.tryResolveRawModel(),
+      );
     }
     return stored;
   }
@@ -434,6 +456,10 @@ export class AgentProfileService implements IAgentProfileService {
 
   private tryResolveRawModel(): Model | undefined {
     const alias = this.modelAlias;
+    return this.resolveModelForThinking(alias);
+  }
+
+  private resolveModelForThinking(alias: string | undefined): Model | undefined {
     if (alias === undefined) return undefined;
     try {
       return this.modelFactory.resolve(alias);

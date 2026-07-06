@@ -138,6 +138,29 @@ function atomicDocumentStoreStub(): IAtomicDocumentStore {
   };
 }
 
+function agentLifecycleStub(): IAgentLifecycleService {
+  return {
+    _serviceBrand: undefined,
+    onDidCreate: () => ({ dispose: () => {} }),
+    onDidCreateMain: () => ({ dispose: () => {} }),
+    onDidDispose: () => ({ dispose: () => {} }),
+    create: () => Promise.reject(new Error('not implemented')),
+    notifyMainCreated: () => {},
+    ensureMcpReady: () => Promise.resolve(),
+    fork: () => Promise.reject(new Error('not implemented')),
+    run: () => {
+      throw new Error('not implemented');
+    },
+    getHandle: () => undefined,
+    list: () => [],
+    remove: () => Promise.resolve(),
+  };
+}
+
+function tick(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe('SessionLifecycleService', () => {
   let host: ScopedTestHost | undefined;
 
@@ -168,6 +191,7 @@ describe('SessionLifecycleService', () => {
       stubPair(IAppendLogStore, appendLogStoreStub()),
       stubPair(IAtomicDocumentStore, atomicDocumentStoreStub()),
       stubPair(IEventService, eventStub()),
+      stubPair(IAgentLifecycleService, agentLifecycleStub()),
       ...extra,
     ]);
     return host.app.accessor.get(ISessionLifecycleService);
@@ -211,6 +235,7 @@ describe('SessionLifecycleService', () => {
         },
       }),
       stubPair(IAgentLifecycleService, {
+        ...agentLifecycleStub(),
         _serviceBrand: undefined,
         list: () => [agentHandle],
         remove: (id: string) => {
@@ -245,6 +270,31 @@ describe('SessionLifecycleService', () => {
     expect(captured).toMatchObject({ sessionId: 's1', handle: h });
   });
 
+  it('waits for MCP initialization before create returns', async () => {
+    let resolveMcpReady: (() => void) | undefined;
+    const mcpReady = new Promise<void>((resolve) => {
+      resolveMcpReady = resolve;
+    });
+    const svc = build([
+      stubPair(IAgentLifecycleService, {
+        ...agentLifecycleStub(),
+        ensureMcpReady: () => mcpReady,
+      }),
+    ]);
+
+    let settled = false;
+    const create = svc.create({ sessionId: 's1', workDir: '/tmp/proj' }).then(() => {
+      settled = true;
+    });
+
+    await tick();
+    expect(settled).toBe(false);
+
+    resolveMcpReady?.();
+    await create;
+    expect(settled).toBe(true);
+  });
+
   it('fires onDidCloseSession when a session is closed', async () => {
     const svc = build();
     const closed: string[] = [];
@@ -257,6 +307,7 @@ describe('SessionLifecycleService', () => {
   it('fires onDidArchiveSession when a session is archived', async () => {
     const svc = build([
       stubPair(IAgentLifecycleService, {
+        ...agentLifecycleStub(),
         _serviceBrand: undefined,
         list: () => [],
         remove: () => Promise.resolve(),

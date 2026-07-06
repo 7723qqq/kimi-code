@@ -184,6 +184,8 @@ interface ModelConfigForConfig {
   readonly maxContextSize: number;
   readonly maxOutputSize?: number;
   readonly capabilities?: readonly string[];
+  readonly supportEfforts?: readonly string[];
+  readonly defaultEffort?: string;
 }
 
 interface ProviderConfigForConfig {
@@ -2250,7 +2252,7 @@ function createGenerateBackedProtocolRegistry(generate: GenerateFn): IProtocolAd
         baseUrl: input.baseUrl,
         apiKey: input.apiKey,
         defaultHeaders: input.defaultHeaders as Record<string, string> | undefined,
-        ...(input.extras ?? {}),
+        ...(input.providerOptions ?? {}),
       } as ProviderConfig;
       return input.protocol === 'kimi'
         ? new GenerateBackedKimiChatProvider(

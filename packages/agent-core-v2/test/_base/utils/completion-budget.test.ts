@@ -78,6 +78,7 @@ describe('applyCompletionBudget', () => {
       generate: vi.fn(),
       withThinking: vi.fn(),
       withMaxCompletionTokens: withMaxCompletionTokens as unknown as (n: number) => Model,
+      withProviderOptions: vi.fn(),
     } as unknown as Model;
   });
 

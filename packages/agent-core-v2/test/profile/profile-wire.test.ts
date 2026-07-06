@@ -8,7 +8,8 @@ import { ProfileModel } from '#/agent/profile/profileOps';
 import { DEFAULT_AGENT_PROFILE_NAME, IAgentProfileCatalogService } from '#/app/agentProfileCatalog';
 import { IBootstrapService } from '#/app/bootstrap';
 import { IConfigService } from '#/app/config';
-import { IModelResolver } from '#/app/model';
+import type { GenerationKwargs, ThinkingEffort } from '#/app/llmProtocol';
+import { IModelResolver, type Model } from '#/app/model';
 import { ITelemetryService } from '#/app/telemetry';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -16,6 +17,7 @@ import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { ISessionContext } from '#/session/sessionContext';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext';
 import { IAgentWireService, WireService, type IWireService, type PersistedRecord } from '#/wire';
@@ -33,7 +35,7 @@ function createTelemetryStub(): ITelemetryService {
 function createConfigStub(): IConfigService {
   return {
     _serviceBrand: undefined,
-    get: () => undefined,
+    get: ((key: string) => configValues[key]) as unknown as IConfigService['get'],
   } as unknown as IConfigService;
 }
 
@@ -50,11 +52,28 @@ function stubUnused<T>(): T {
   return { _serviceBrand: undefined } as unknown as T;
 }
 
+function createSessionContextStub(): ISessionContext {
+  return {
+    _serviceBrand: undefined,
+    sessionId: 'session-test',
+    workspaceId: 'workspace-test',
+    sessionDir: '/tmp/session-test',
+    metaScope: 'sessions/workspace-test/session-test',
+    cwd: '/tmp',
+    scope: (subKey?: string) =>
+      subKey === undefined || subKey.length === 0
+        ? 'sessions/workspace-test/session-test'
+        : `sessions/workspace-test/session-test/${subKey}`,
+  };
+}
+
 let disposables: DisposableStore;
 let ix: TestInstantiationService;
 let log: IAppendLogStore;
 let wire: IWireService;
 let svc: IAgentProfileService;
+let configValues: Record<string, unknown>;
+let modelResolver: IModelResolver;
 
 function buildHost(key: string): {
   ix: TestInstantiationService;
@@ -68,10 +87,11 @@ function buildHost(key: string): {
   host.set(IAgentWireService, new SyncDescriptor(WireService, [{ logScope: SCOPE, logKey: key }]));
   host.stub(ITelemetryService, createTelemetryStub());
   host.stub(IConfigService, createConfigStub());
-  host.stub(IModelResolver, createModelResolverStub());
+  host.stub(IModelResolver, modelResolver);
   host.stub(IHostEnvironment, stubUnused());
   host.stub(IHostFileSystem, stubUnused());
   host.stub(IBootstrapService, stubUnused());
+  host.stub(ISessionContext, createSessionContextStub());
   host.stub(ISessionWorkspaceContext, stubUnused());
   host.stub(IAgentProfileCatalogService, stubUnused());
   host.stub(ISessionSkillCatalog, stubUnused());
@@ -86,6 +106,8 @@ function buildHost(key: string): {
 
 beforeEach(() => {
   disposables = new DisposableStore();
+  configValues = {};
+  modelResolver = createModelResolverStub();
   const host = buildHost(KEY);
   ix = host.ix;
   wire = host.wire;
@@ -107,6 +129,52 @@ function modelOf(target: IWireService) {
   return target.getModel(ProfileModel);
 }
 
+function createRecordingModel(
+  generationKwargs: GenerationKwargs[],
+  thinkingEfforts: ThinkingEffort[],
+  providerOptions: unknown[] = [],
+  protocol: Model['protocol'] = 'kimi',
+): Model {
+  const build = (thinkingEffort: ThinkingEffort | null): Model => ({
+    id: 'kimi-code',
+    name: 'kimi-for-coding',
+    aliases: [],
+    protocol,
+    baseUrl: 'https://example.test/v1',
+    headers: {},
+    capabilities: {
+      image_in: false,
+      video_in: false,
+      audio_in: false,
+      thinking: true,
+      tool_use: false,
+      max_context_tokens: 1000,
+    },
+    maxContextSize: 1000,
+    thinkingEffort,
+    alwaysThinking: false,
+    providerName: 'kimi',
+    authProvider: { getAuth: async () => undefined },
+    withThinking: (effort) => {
+      thinkingEfforts.push(effort);
+      return build(effort);
+    },
+    withMaxCompletionTokens: () => build(thinkingEffort),
+    withGenerationKwargs: (kwargs) => {
+      generationKwargs.push(kwargs);
+      return build(thinkingEffort);
+    },
+    withProviderOptions: (options) => {
+      providerOptions.push(options);
+      return build(thinkingEffort);
+    },
+    request: async function* () {
+      return;
+    },
+  });
+  return build(null);
+}
+
 describe('AgentProfileService (wire-backed config.update)', () => {
   it('update persists a flat config.update record and resolves thinkingLevel at the call site', async () => {
     svc.update({ profileName: DEFAULT_AGENT_PROFILE_NAME, systemPrompt: 'You are helpful.' });
@@ -115,8 +183,9 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     const model = modelOf(wire);
     expect(model.profileName).toBe(DEFAULT_AGENT_PROFILE_NAME);
     expect(model.systemPrompt).toBe('You are helpful.');
-    // 'on' resolves against the default effort (no thinking config section) → 'high'.
-    expect(model.thinkingLevel).toBe('high');
+    // Explicit 'on' persists as the boolean-thinking signal when no model
+    // declares named efforts.
+    expect(model.thinkingLevel).toBe('on');
     expect(svc.getSystemPrompt()).toBe('You are helpful.');
 
     const records = await readRecords();
@@ -126,7 +195,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
         profileName: DEFAULT_AGENT_PROFILE_NAME,
         systemPrompt: 'You are helpful.',
       },
-      { type: 'config.update', thinkingLevel: 'high' },
+      { type: 'config.update', thinkingLevel: 'on' },
     ]);
     expect(records.every((record) => 'payload' in record === false)).toBe(true);
   });
@@ -188,9 +257,93 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     const records = await readRecords();
 
     // Fresh host whose config section would resolve differently is irrelevant:
-    // the persisted resolved value ('high') is restored verbatim.
+    // the persisted resolved value ('on') is restored verbatim.
     const host = buildHost('profile-replay-thinking');
     host.wire.replay(...records);
-    expect(modelOf(host.wire).thinkingLevel).toBe('high');
+    expect(modelOf(host.wire).thinkingLevel).toBe('on');
+  });
+
+  it('applies thinking.keep model override when thinking is enabled', () => {
+    const generationKwargs: GenerationKwargs[] = [];
+    const thinkingEfforts: ThinkingEffort[] = [];
+    modelResolver = {
+      _serviceBrand: undefined,
+      resolve: () => createRecordingModel(generationKwargs, thinkingEfforts),
+      findByName: () => [],
+    };
+    const host = buildHost('profile-thinking-keep');
+    host.svc.configure({ emitStatusUpdated: () => undefined });
+    configValues['modelOverrides'] = { temperature: 0.3, thinkingKeep: 'all' };
+
+    host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
+    const model = host.svc.resolveModel();
+
+    expect(model?.thinkingEffort).toBe('high');
+    expect(thinkingEfforts).toEqual(['high']);
+    expect(generationKwargs).toEqual([
+      {
+        prompt_cache_key: 'session-test',
+        temperature: 0.3,
+        extra_body: { thinking: { keep: 'all' } },
+      },
+    ]);
+  });
+
+  it('does not apply thinking.keep model override when thinking is off', () => {
+    const generationKwargs: GenerationKwargs[] = [];
+    const thinkingEfforts: ThinkingEffort[] = [];
+    modelResolver = {
+      _serviceBrand: undefined,
+      resolve: () => createRecordingModel(generationKwargs, thinkingEfforts),
+      findByName: () => [],
+    };
+    const host = buildHost('profile-thinking-keep-off');
+    host.svc.configure({ emitStatusUpdated: () => undefined });
+    configValues['modelOverrides'] = { temperature: 0.3, thinkingKeep: 'all' };
+
+    host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'off' });
+    host.svc.resolveModel();
+
+    expect(thinkingEfforts).toEqual(['off']);
+    expect(generationKwargs).toEqual([{ prompt_cache_key: 'session-test', temperature: 0.3 }]);
+  });
+
+  it('uses the session id as a Kimi prompt cache hint', () => {
+    const generationKwargs: GenerationKwargs[] = [];
+    const thinkingEfforts: ThinkingEffort[] = [];
+    modelResolver = {
+      _serviceBrand: undefined,
+      resolve: () => createRecordingModel(generationKwargs, thinkingEfforts),
+      findByName: () => [],
+    };
+    const host = buildHost('profile-prompt-cache-key');
+    host.svc.configure({ emitStatusUpdated: () => undefined });
+
+    host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
+    host.svc.resolveModel();
+
+    expect(thinkingEfforts).toEqual(['high']);
+    expect(generationKwargs).toEqual([{ prompt_cache_key: 'session-test' }]);
+  });
+
+  it('does not apply the Kimi prompt cache hint to other protocols', () => {
+    const generationKwargs: GenerationKwargs[] = [];
+    const thinkingEfforts: ThinkingEffort[] = [];
+    const providerOptions: unknown[] = [];
+    modelResolver = {
+      _serviceBrand: undefined,
+      resolve: () =>
+        createRecordingModel(generationKwargs, thinkingEfforts, providerOptions, 'anthropic'),
+      findByName: () => [],
+    };
+    const host = buildHost('profile-prompt-cache-key-anthropic');
+    host.svc.configure({ emitStatusUpdated: () => undefined });
+
+    host.svc.update({ modelAlias: 'claude-sonnet', thinkingLevel: 'high' });
+    host.svc.resolveModel();
+
+    expect(thinkingEfforts).toEqual(['high']);
+    expect(generationKwargs).toEqual([]);
+    expect(providerOptions).toEqual([{ metadata: { user_id: 'session-test' } }]);
   });
 });

@@ -17,8 +17,8 @@ import {
   MODELS_SECTION,
   ModelsSectionSchema,
 } from '#/app/model/model';
+import { modelsFromToml, modelsToToml } from '#/app/model/configSection';
 import { ModelService } from '#/app/model/modelService';
-import '#/app/model/configSection';
 import { ENV_MODEL_PROVIDER_KEY } from '#/app/provider/provider';
 
 describe('ModelService', () => {
@@ -94,6 +94,65 @@ describe('ModelService', () => {
     const svc = ix.get(IModelService);
     await svc.delete('missing');
     expect(configReplace).not.toHaveBeenCalled();
+  });
+});
+
+describe('models TOML transforms', () => {
+  it('camelCases nested model overrides from TOML', () => {
+    expect(
+      modelsFromToml({
+        kimi: {
+          provider: 'p',
+          model: 'm',
+          max_context_size: 1000,
+          support_efforts: ['low', 'high', 'max'],
+          overrides: {
+            max_context_size: 500,
+            support_efforts: ['low', 'high'],
+          },
+        },
+      }),
+    ).toEqual({
+      kimi: {
+        provider: 'p',
+        model: 'm',
+        maxContextSize: 1000,
+        supportEfforts: ['low', 'high', 'max'],
+        overrides: {
+          maxContextSize: 500,
+          supportEfforts: ['low', 'high'],
+        },
+      },
+    });
+  });
+
+  it('snakeCases nested model overrides for TOML', () => {
+    expect(
+      modelsToToml(
+        {
+          kimi: {
+            provider: 'p',
+            model: 'm',
+            maxContextSize: 1000,
+            overrides: {
+              maxContextSize: 500,
+              supportEfforts: ['low', 'high'],
+            },
+          },
+        },
+        {},
+      ),
+    ).toEqual({
+      kimi: {
+        provider: 'p',
+        model: 'm',
+        max_context_size: 1000,
+        overrides: {
+          max_context_size: 500,
+          support_efforts: ['low', 'high'],
+        },
+      },
+    });
   });
 });
 

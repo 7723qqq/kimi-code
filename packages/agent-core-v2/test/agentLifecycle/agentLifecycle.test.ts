@@ -4,7 +4,8 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { Event } from '#/_base/event';
-import { IAgentMcpService } from '#/agent/mcp';
+import { IAgentMcpService, type McpServerConfig } from '#/agent/mcp';
+import { McpConnectionManager } from '#/agent/mcp/connection-manager';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { AgentLifecycleService } from '#/session/agentLifecycle/agentLifecycleService';
 import { IBootstrapService } from '#/app/bootstrap';
@@ -49,6 +50,10 @@ const pluginServiceStub = {
   enabledMcpServers: async () => ({}),
   enabledHooks: async () => [],
 } as unknown as IPluginService;
+
+function tick(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 describe('AgentLifecycleService', () => {
   let disposables: DisposableStore;
@@ -197,6 +202,48 @@ describe('AgentLifecycleService', () => {
         { access_token: 'session-token', token_type: 'Bearer' },
       ],
     ]);
+  });
+
+  it('waits for MCP config resolution and initial connect before returning an agent', async () => {
+    let resolvePluginServers:
+      | ((servers: Record<string, McpServerConfig>) => void)
+      | undefined;
+    const pluginServers = new Promise<Record<string, McpServerConfig>>((resolve) => {
+      resolvePluginServers = resolve;
+    });
+    ix.stub(IPluginService, {
+      ...pluginServiceStub,
+      enabledMcpServers: () => pluginServers,
+    } as unknown as IPluginService);
+
+    let resolveConnect: (() => void) | undefined;
+    const connected = new Promise<void>((resolve) => {
+      resolveConnect = resolve;
+    });
+    const connectAll = vi
+      .spyOn(McpConnectionManager.prototype, 'connectAll')
+      .mockReturnValue(connected);
+
+    const svc = ix.get(IAgentLifecycleService);
+    let settled = false;
+    const create = svc.create({ agentId: 'main' }).then(() => {
+      settled = true;
+    });
+
+    await tick();
+    expect(settled).toBe(false);
+    expect(connectAll).not.toHaveBeenCalled();
+
+    resolvePluginServers?.({
+      delayed: { transport: 'stdio', command: process.execPath },
+    });
+    await tick();
+    expect(connectAll).toHaveBeenCalledTimes(1);
+    expect(settled).toBe(false);
+
+    resolveConnect?.();
+    await create;
+    expect(settled).toBe(true);
   });
 
   it('fork throws when the source agent does not exist', async () => {

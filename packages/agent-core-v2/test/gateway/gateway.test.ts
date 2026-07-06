@@ -80,6 +80,7 @@ describe('RestGateway', () => {
       onDidCreateMain: () => ({ dispose: () => {} }),
       notifyMainCreated: () => {},
       create: () => Promise.resolve(agentHandle),
+      ensureMcpReady: () => Promise.resolve(),
       fork: () => Promise.resolve(agentHandle),
       run: () => {
         throw new Error('not implemented in test');

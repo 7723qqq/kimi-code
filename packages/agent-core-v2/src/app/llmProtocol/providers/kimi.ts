@@ -27,7 +27,6 @@ import {
   normalizeOpenAIFinishReason,
   type OpenAIContentPart,
   type OpenAIToolParam,
-  reasoningEffortToThinkingEffort,
   toolToOpenAI,
 } from './openai-common';
 import {
@@ -47,6 +46,7 @@ export interface KimiOptions {
   stream?: boolean | undefined;
   defaultHeaders?: Record<string, string> | undefined;
   generationKwargs?: GenerationKwargs | undefined;
+  supportEfforts?: readonly string[];
   clientFactory?: (auth: ProviderRequestAuth) => OpenAI;
 }
 
@@ -365,6 +365,7 @@ export class KimiChatProvider implements ChatProvider {
   private _baseUrl: string;
   private _defaultHeaders: Record<string, string> | undefined;
   private _generationKwargs: GenerationKwargs;
+  private readonly _supportEfforts: readonly string[];
   private _client: OpenAI | undefined;
   private _clientFactory: ((auth: ProviderRequestAuth) => OpenAI) | undefined;
   private _files: KimiFiles | undefined;
@@ -378,6 +379,7 @@ export class KimiChatProvider implements ChatProvider {
     this._model = options.model;
     this._stream = options.stream ?? true;
     this._generationKwargs = { ...options.generationKwargs };
+    this._supportEfforts = options.supportEfforts ?? [];
     this._client =
       this._apiKey === undefined
         ? undefined
@@ -414,7 +416,11 @@ export class KimiChatProvider implements ChatProvider {
   }
 
   get thinkingEffort(): ThinkingEffort | null {
-    return reasoningEffortToThinkingEffort(this._generationKwargs.reasoning_effort);
+    const thinking = this._generationKwargs.extra_body?.thinking;
+    if (thinking === undefined) return null;
+    if (thinking.type === 'disabled') return 'off';
+    const effort = thinking['effort'];
+    return typeof effort === 'string' ? (effort as ThinkingEffort) : 'on';
   }
 
   get modelParameters(): Record<string, unknown> {
@@ -500,28 +506,21 @@ export class KimiChatProvider implements ChatProvider {
   }
 
   withThinking(effort: ThinkingEffort): KimiChatProvider {
-    const thinking: ThinkingConfig = {
-      type: effort === 'off' ? 'disabled' : 'enabled',
-    };
-    let reasoningEffort: string | undefined;
-    switch (effort) {
-      case 'off':
-        reasoningEffort = undefined;
-        break;
-      case 'low':
-        reasoningEffort = 'low';
-        break;
-      case 'medium':
-        reasoningEffort = 'medium';
-        break;
-      case 'high':
-      case 'xhigh':
-      case 'max':
-        reasoningEffort = 'high';
-        break;
+    let thinking: ThinkingConfig;
+    if (effort === 'off') {
+      thinking = { type: 'disabled' };
+    } else {
+      thinking = this._supportEfforts.includes(effort)
+        ? { type: 'enabled', effort }
+        : { type: 'enabled' };
     }
-    return this._withGenerationKwargs({ reasoning_effort: reasoningEffort }).withExtraBody({
-      thinking,
+    const oldExtra = this._generationKwargs.extra_body ?? {};
+    const keep = oldExtra.thinking?.keep;
+    if (keep !== undefined) {
+      thinking = { ...thinking, keep };
+    }
+    return this._withGenerationKwargs({
+      extra_body: { ...oldExtra, thinking },
     });
   }
 
