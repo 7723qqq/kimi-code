@@ -10,10 +10,6 @@ import type {
 } from '#/agent/tool';
 import type { Hooks } from '#/hooks';
 
-export interface PermissionGateOptions {
-  readonly agentId?: string;
-}
-
 export type PermissionApprovalRequestContext = ApprovalRequest & {
   readonly sessionId?: string;
   readonly agentId?: string;

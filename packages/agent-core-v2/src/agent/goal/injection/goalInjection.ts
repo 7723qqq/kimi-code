@@ -8,7 +8,6 @@ import GOAL_PAUSED_REMINDER from './goal-paused-reminder.md?raw';
 
 export interface GoalInjectionOptions {
   readonly getGoal: () => GoalSnapshot | null;
-  readonly enabled?: () => boolean;
 }
 
 export class GoalInjection extends Disposable {
@@ -21,7 +20,6 @@ export class GoalInjection extends Disposable {
   }
 
   private reminder(): string | undefined {
-    if (this.options.enabled?.() === false) return undefined;
     const goal = this.options.getGoal();
     if (goal === null) return undefined;
     if (goal.status === 'active') return buildGoalReminder(goal);

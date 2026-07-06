@@ -225,6 +225,60 @@ describe('AgentContextMemoryService (wire-backed)', () => {
     ]);
   });
 
+  it('folds v1 context.append_loop_event records into the ContextModel on replay', async () => {
+    const records: PersistedRecord[] = [
+      { type: 'context.append_message', message: userMessage('q') },
+      { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 's1', turnId: '0', step: 1 } },
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'content.part',
+          uuid: 'p1',
+          turnId: '0',
+          step: 1,
+          stepUuid: 's1',
+          part: { type: 'text', text: 'hello' },
+        },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.call',
+          uuid: 'c1',
+          turnId: '0',
+          step: 1,
+          stepUuid: 's1',
+          toolCallId: 'call_1',
+          name: 'Bash',
+          args: { command: 'echo hi' },
+        },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.result',
+          parentUuid: 'c1',
+          toolCallId: 'call_1',
+          result: { output: 'hi' },
+        },
+      },
+      { type: 'context.append_loop_event', event: { type: 'step.end', uuid: 's1', turnId: '0', step: 1 } },
+    ];
+
+    const replay = buildHost(REPLAY_KEY);
+    await replay.wire.replay(...records);
+
+    const model = replay.wire.getModel(ContextModel) as readonly ContextMessage[];
+    expect(model.map((message) => message.role)).toEqual(['user', 'assistant', 'tool']);
+    expect(model[1]!.content).toEqual([{ type: 'text', text: 'hello' }]);
+    expect(model[1]!.partial).toBeUndefined();
+    expect(model[1]!.toolCalls).toHaveLength(1);
+    expect(model[1]!.toolCalls[0]!.id).toBe('call_1');
+    expect(model[1]!.toolCalls[0]!.name).toBe('Bash');
+    expect(model[2]!.role).toBe('tool');
+    expect(model[2]!.toolCallId).toBe('call_1');
+  });
+
   it('offloads an oversized content part on dispatch and rehydrates it byte-for-byte on replay', async () => {
     const host = buildHost(KEY);
     const big = 'A'.repeat(200);

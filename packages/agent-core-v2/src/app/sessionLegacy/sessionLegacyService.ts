@@ -387,6 +387,11 @@ export class SessionLegacyService implements ISessionLegacyService {
     return ensureMainAgent(session);
   }
 
+  async status(sessionId: string): Promise<SessionStatusResponse> {
+    const agent = await this.resolveMainAgent(sessionId);
+    return this.assembleStatus(sessionId, agent);
+  }
+
   private async assembleStatus(sessionId: string, agent: IAgentScopeHandle): Promise<SessionStatusResponse> {
     const session = this.lifecycle.get(sessionId);
     const profile = agent.accessor.get(IAgentProfileService);

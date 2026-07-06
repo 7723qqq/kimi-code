@@ -21,6 +21,7 @@ import type {
   ForkSessionRequest,
   SessionAbortResponse,
   SessionStatus,
+  SessionStatusResponse,
   UndoSessionRequest,
   UndoSessionResponse,
   UpdateSessionProfileRequest,
@@ -70,6 +71,7 @@ export interface ISessionLegacyService {
   undo(sessionId: string, body: UndoSessionRequest): Promise<UndoSessionResponse>;
   abort(sessionId: string): Promise<SessionAbortResponse>;
   archive(sessionId: string): Promise<ArchiveSessionResponse>;
+  status(sessionId: string): Promise<SessionStatusResponse>;
 }
 
 export const ISessionLegacyService: ServiceIdentifier<ISessionLegacyService> =

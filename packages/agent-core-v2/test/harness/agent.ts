@@ -13,6 +13,7 @@ import type { AgentTaskInfo } from '#/agent/task';
 import {
   IAgentBlobService,
 } from '#/agent/blob';
+import { AgentBlobServiceImpl } from '#/agent/blob/agentBlobServiceImpl';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import type { ContextMessage } from '#/agent/contextMemory';
@@ -21,11 +22,9 @@ import { SessionCronServiceImpl } from '#/session/cron/sessionCronServiceImpl';
 import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
 import { CronTaskPersistenceService } from '#/app/cron/cronTaskPersistenceService';
 import type { HookEngine } from '#/agent/externalHooks/engine';
-import type { FullCompactionServiceOptions } from '#/agent/fullCompaction';
-import { AgentGoalService, IAgentGoalService, type GoalServiceOptions } from '#/agent/goal';
+import { AgentGoalService, IAgentGoalService } from '#/agent/goal';
 import type { McpServiceOptions } from '#/agent/mcp';
 import { MICRO_COMPACTION_SECTION, type MicroCompactionConfig } from '#/agent/microCompaction';
-import type { PermissionGateOptions } from '#/agent/permissionGate';
 import type { PermissionMode } from '#/agent/permissionPolicy';
 import type { PermissionRule } from '#/agent/permissionRules';
 import { IAgentPlanService } from '#/agent/plan';
@@ -299,7 +298,6 @@ export interface TestAgentOptions {
     readonly config?: Partial<MicroCompactionConfig> | undefined;
   }
   | undefined;
-  readonly fullCompaction?: FullCompactionServiceOptions | undefined;
   readonly hookEngine?:
   | Pick<HookEngine, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>
   | undefined;
@@ -551,15 +549,6 @@ export function microCompactionServices(options: {
   }));
 }
 
-export function fullCompactionServices(
-  options: FullCompactionServiceOptions,
-): TestAgentServiceOverride {
-  return agentService(
-    IAgentFullCompactionService,
-    new SyncDescriptor(AgentFullCompactionService, [options]),
-  );
-}
-
 export function permissionModeServices(mode: PermissionMode): TestAgentServiceOverride {
   return agentService(IAgentPermissionModeService, createPermissionModeService(mode));
 }
@@ -614,10 +603,6 @@ export function swarmServices(swarmService: ISessionSwarmService): TestAgentServ
     sessionService(ISessionSwarmService, swarmService),
     agentService(IAgentSwarmService, new SyncDescriptor(AgentSwarmService)),
   ];
-}
-
-export function goalServices(options: GoalServiceOptions): TestAgentServiceOverride {
-  return agentService(IAgentGoalService, new SyncDescriptor(AgentGoalService, [options]));
 }
 
 /**
@@ -1019,20 +1004,7 @@ export class AgentTestContext {
               IAgentWireService,
               new SyncDescriptor(WireService, [{ logScope: 'wire', logKey: agentId }]),
             );
-            // Override the scoped `AgentBlobServiceImpl`: it is registered via
-            // `registerScopedService`, which builds a 0-static SyncDescriptor, but its
-            // constructor takes a leading non-injected `options` arg — DI rejects that
-            // ("conflicts with 0 static arguments"). The wire only consults the blob
-            // service when a `blobSelector` is configured (the harness does not), so a
-            // pass-through stub is enough.
-            reg.defineInstance(
-              IAgentBlobService,
-              {
-                _serviceBrand: undefined,
-                offloadParts: async (parts: ContentPart[]) => parts,
-                rehydrateParts: async (parts: ContentPart[]) => parts,
-              } as unknown as IAgentBlobService,
-            );
+            reg.defineDescriptor(IAgentBlobService, new SyncDescriptor(AgentBlobServiceImpl));
             reg.defineDescriptor(IAgentProfileService, new SyncDescriptor(AgentProfileService));
             reg.defineDescriptor(
               IAgentLLMRequesterService,
@@ -1050,7 +1022,7 @@ export class AgentTestContext {
             );
             reg.defineDescriptor(
               IAgentFullCompactionService,
-              new SyncDescriptor(AgentFullCompactionService, [options.fullCompaction ?? {}]),
+              new SyncDescriptor(AgentFullCompactionService),
             );
             reg.defineDescriptor(
               IAgentPermissionRulesService,
@@ -1058,18 +1030,14 @@ export class AgentTestContext {
             );
             reg.defineDescriptor(
               IAgentPermissionGate,
-              new SyncDescriptor(AgentPermissionGate, [
-                {
-                  agentId,
-                } satisfies PermissionGateOptions,
-              ]),
+              new SyncDescriptor(AgentPermissionGate),
             );
             reg.defineDescriptor(
               IAgentTaskService,
               new SyncDescriptor(AgentTaskService),
             );
             reg.defineDescriptor(IAgentMcpService, new SyncDescriptor(AgentMcpService, [{}]));
-            reg.defineDescriptor(IAgentGoalService, new SyncDescriptor(AgentGoalService, [{}]));
+            reg.defineDescriptor(IAgentGoalService, new SyncDescriptor(AgentGoalService));
             reg.defineDescriptor(IAgentSkillService, new SyncDescriptor(AgentSkillService));
             reg.defineDescriptor(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
             const agentScope = bootstrap.agentScope(workspaceId, sessionId, agentId);

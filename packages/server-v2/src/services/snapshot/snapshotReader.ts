@@ -21,6 +21,8 @@ import { join } from 'node:path';
 
 import {
   computeUndoCut,
+  foldAppendMessage,
+  foldLoopEvent,
   IAgentLifecycleService,
   IAgentPromptLegacyService,
   ISessionActivity,
@@ -29,8 +31,10 @@ import {
   ISessionLifecycleService,
   IWorkspaceRegistry,
   normalizeSessionMeta,
+  resetFold,
   toProtocolMessage,
   type ContextMessage,
+  type LoopRecordedEvent,
   type Scope,
   type SessionMeta,
 } from '@moonshot-ai/agent-core-v2';
@@ -281,16 +285,24 @@ interface ContextRecord {
 
 /**
  * Reduce folded `context.*` wire records into the live `ContextMessage[]` view,
- * applying the exact `contextOps.ts` semantics:
- *   append_message → push · splice → array splice · clear → drop all ·
- *   apply_compaction → `[summary, ...state.slice(count)]` · undo → trailing cut.
+ * routing through the exact `contextOps.ts` reducers (`foldAppendMessage` /
+ * `foldLoopEvent` / `resetFold`) so the result is byte-identical to the live
+ * `IAgentContextMemoryService.get()` view:
+ *   append_message → push (deferred while a tool exchange is open) ·
+ *   append_loop_event → v1 fold (step/content/tool) · splice → array splice ·
+ *   clear → drop all · apply_compaction → `[summary, ...state.slice(count)]` ·
+ *   undo → trailing cut.
  */
 export function reduceContextRecords(records: Iterable<ContextRecord>): ContextMessage[] {
-  let state: ContextMessage[] = [];
+  let state: readonly ContextMessage[] = [];
   for (const record of records) {
     switch (record.type) {
       case 'context.append_message': {
-        state = [...state, record['message'] as ContextMessage];
+        state = foldAppendMessage(state, record['message'] as ContextMessage);
+        break;
+      }
+      case 'context.append_loop_event': {
+        state = foldLoopEvent(state, record['event'] as LoopRecordedEvent);
         break;
       }
       case 'context.splice': {
@@ -300,17 +312,17 @@ export function reduceContextRecords(records: Iterable<ContextRecord>): ContextM
         if (deleteCount === 0 && messages.length === 0) break;
         const next = state.slice();
         next.splice(start, deleteCount, ...messages);
-        state = next;
+        state = resetFold(next);
         break;
       }
       case 'context.clear': {
-        if (state.length !== 0) state = [];
+        if (state.length !== 0) state = resetFold([]);
         break;
       }
       case 'context.apply_compaction': {
         const count = record['count'] as number;
         const summary = record['summary'] as ContextMessage;
-        state = [summary, ...state.slice(count)];
+        state = resetFold([summary, ...state.slice(count)]);
         break;
       }
       case 'context.undo': {
@@ -318,14 +330,14 @@ export function reduceContextRecords(records: Iterable<ContextRecord>): ContextM
         if (count <= 0 || state.length === 0) break;
         const { cutIndex, removedCount } = computeUndoCut(state, count);
         if (cutIndex < 0 || removedCount < count) break;
-        state = state.slice(0, cutIndex);
+        state = resetFold(state.slice(0, cutIndex));
         break;
       }
       default:
         break;
     }
   }
-  return state;
+  return state as ContextMessage[];
 }
 
 /**

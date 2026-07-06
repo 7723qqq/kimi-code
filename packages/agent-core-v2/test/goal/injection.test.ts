@@ -11,7 +11,6 @@ import { IAgentProfileService } from '#/agent/profile';
 import {
   InMemoryWireRecordPersistence,
   createTestAgent,
-  goalServices,
   wireRecordPersistenceServices,
   type TestAgentContext,
 } from '../harness';
@@ -325,36 +324,4 @@ describe('GoalInjection integration', () => {
     });
   });
 
-  describe('disabled goal injection', () => {
-    let ctx: TestAgentContext;
-    let goals: GoalServiceTestManager;
-    let injector: InjectableContextInjector;
-    let persistence: InMemoryWireRecordPersistence;
-
-    beforeEach(() => {
-      persistence = new InMemoryWireRecordPersistence();
-      ctx = createTestAgent(
-        wireRecordPersistenceServices(persistence),
-        goalServices({ enabled: false }),
-      );
-      goals = ctx.get(IAgentGoalService) as GoalServiceTestManager;
-      injector = ctx.get(IAgentContextInjectorService) as InjectableContextInjector;
-    });
-
-    afterEach(async () => {
-      try {
-        await ctx.expectResumeMatches();
-      } finally {
-        await ctx.dispose();
-      }
-    });
-
-    it('subagent dynamic injection does not add a goal reminder', async () => {
-      await goals.createGoal({ objective: 'Ship feature X' });
-
-      await injectDynamic(injector);
-
-      await expect(flushedGoalReminderRecords(ctx, persistence)).resolves.toHaveLength(0);
-    });
-  });
 });

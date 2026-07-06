@@ -11,8 +11,6 @@ export {
   cronServices,
   execEnvServices,
   externalHookServices,
-  fullCompactionServices,
-  goalServices,
   homeDirServices,
   InMemoryWireRecordPersistence,
   llmGenerateServices,

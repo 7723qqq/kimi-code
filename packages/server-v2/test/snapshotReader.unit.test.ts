@@ -186,6 +186,62 @@ describe('SnapshotReader.read', () => {
     ]);
   });
 
+  it('folds v1 context.append_loop_event records into assistant and tool messages', async () => {
+    const f = await makeFixtureAsync();
+    await seedSession(f, 'sess_loop');
+    await writeWire(f.sessionDir('sess_loop'), [
+      { type: 'metadata', protocol_version: '1.4', created_at: 1 },
+      { type: 'context.append_message', message: userMessage('question') },
+      { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 's1', turnId: '0', step: 1 } },
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'content.part',
+          uuid: 'p1',
+          turnId: '0',
+          step: 1,
+          stepUuid: 's1',
+          part: { type: 'text', text: 'hello' },
+        },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.call',
+          uuid: 'c1',
+          turnId: '0',
+          step: 1,
+          stepUuid: 's1',
+          toolCallId: 'call_1',
+          name: 'Bash',
+          args: { command: 'echo hi' },
+        },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.result',
+          parentUuid: 'c1',
+          toolCallId: 'call_1',
+          result: { output: 'hi' },
+        },
+      },
+      { type: 'context.append_loop_event', event: { type: 'step.end', uuid: 's1', turnId: '0', step: 1 } },
+    ]);
+    const snap = await f.reader.read('sess_loop');
+    expect(snap.messages.items.map((m) => m.role)).toEqual(['user', 'assistant', 'tool']);
+    const assistant = snap.messages.items[1]!;
+    expect((assistant.content[0] as { text: string }).text).toBe('hello');
+    const toolUse = assistant.content.find((p) => p.type === 'tool_use') as
+      | { tool_call_id: string; tool_name: string }
+      | undefined;
+    expect(toolUse?.tool_call_id).toBe('call_1');
+    expect(toolUse?.tool_name).toBe('Bash');
+    const tool = snap.messages.items[2]!;
+    expect(tool.role).toBe('tool');
+    expect((tool.content[0] as { tool_call_id: string }).tool_call_id).toBe('call_1');
+  });
+
   it('reduces context.apply_compaction to [summary, ...tail]', async () => {
     const f = await makeFixtureAsync();
     await seedSession(f, 'sess_compact');
@@ -304,6 +360,73 @@ describe('reduceContextRecords', () => {
     ]);
     expect(out).toHaveLength(2);
     expect((out[1]!.content[0] as { text: string }).text).toBe('b');
+  });
+
+  it('folds context.append_loop_event (step/content/tool) into messages', () => {
+    const out = reduceContextRecords([
+      { type: 'context.append_message', message: userMessage('q') },
+      { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 's1' } },
+      {
+        type: 'context.append_loop_event',
+        event: { type: 'content.part', stepUuid: 's1', part: { type: 'text', text: 'hello' } },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.call',
+          stepUuid: 's1',
+          toolCallId: 'call_1',
+          name: 'Bash',
+          args: { command: 'echo hi' },
+        },
+      },
+      {
+        type: 'context.append_loop_event',
+        event: { type: 'tool.result', toolCallId: 'call_1', result: { output: 'hi' } },
+      },
+      { type: 'context.append_loop_event', event: { type: 'step.end', uuid: 's1' } },
+    ]);
+    expect(out.map((m) => m.role)).toEqual(['user', 'assistant', 'tool']);
+    expect((out[1]!.content[0] as { text: string }).text).toBe('hello');
+    expect(out[1]!.toolCalls).toHaveLength(1);
+    expect(out[1]!.toolCalls[0]!.id).toBe('call_1');
+    expect(out[1]!.partial).toBeUndefined();
+    expect(out[2]!.toolCallId).toBe('call_1');
+  });
+
+  it('defers context.append_message until the open tool exchange closes', () => {
+    const out = reduceContextRecords([
+      { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 's1' } },
+      {
+        type: 'context.append_loop_event',
+        event: { type: 'tool.call', stepUuid: 's1', toolCallId: 'call_1', name: 'Bash', args: {} },
+      },
+      // Arrives while the tool exchange is still open — must not land between
+      // the assistant and its tool result.
+      { type: 'context.append_message', message: userMessage('injected') },
+      {
+        type: 'context.append_loop_event',
+        event: { type: 'tool.result', toolCallId: 'call_1', result: { output: 'ok' } },
+      },
+      { type: 'context.append_loop_event', event: { type: 'step.end', uuid: 's1' } },
+    ]);
+    expect(out.map((m) => m.role)).toEqual(['assistant', 'tool', 'user']);
+    expect((out[2]!.content[0] as { text: string }).text).toBe('injected');
+  });
+
+  it('synthesizes an interrupted result for a tool call left open at a step boundary', () => {
+    const out = reduceContextRecords([
+      { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 's1' } },
+      {
+        type: 'context.append_loop_event',
+        event: { type: 'tool.call', stepUuid: 's1', toolCallId: 'call_1', name: 'Bash', args: {} },
+      },
+      // No tool.result before the next step begins — the dangling call is closed.
+      { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 's2' } },
+      { type: 'context.append_loop_event', event: { type: 'step.end', uuid: 's2' } },
+    ]);
+    expect(out.map((m) => m.role)).toEqual(['assistant', 'tool', 'assistant']);
+    expect(out[1]!.isError).toBe(true);
   });
 });
 

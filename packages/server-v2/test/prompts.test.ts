@@ -146,4 +146,21 @@ describe('server-v2 /api/v1 prompts', () => {
     });
     expect(body.code).toBe(40401);
   });
+
+  it('lists prompts for a persisted session with no live handle (cold resume)', async () => {
+    const id = await createSession(home as string);
+    // Drop the in-memory handle so the session only exists on disk / in the
+    // index — the state a session is in after a server restart. The route must
+    // cold-resume it rather than report 40401.
+    await server!.core.accessor.get(ISessionLifecycleService).close(id);
+    expect(server!.core.accessor.get(ISessionLifecycleService).get(id)).toBeUndefined();
+
+    const list = await call<{ active: PromptItemWire | null; queued: PromptItemWire[] }>(
+      'GET',
+      `/api/v1/sessions/${id}/prompts`,
+    );
+    expect(list.body.code).toBe(0);
+    expect(list.body.data.active).toBeNull();
+    expect(list.body.data.queued).toEqual([]);
+  });
 });

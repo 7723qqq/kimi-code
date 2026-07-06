@@ -54,7 +54,11 @@ const sessionIdParamSchema = z.object({
 const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
 async function resolveLegacy(core: Scope, sessionId: string): Promise<IAgentPromptLegacyService> {
-  const session = core.accessor.get(ISessionLifecycleService).get(sessionId);
+  // `resume` (not `get`) so a persisted-but-cold session — created by a previous
+  // process, by v1, or closed in this one — is loaded from disk instead of
+  // being reported as `session.not_found`. Mirrors the snapshot route. Returns
+  // `undefined` only when the session is unknown or its workspace is gone.
+  const session = await core.accessor.get(ISessionLifecycleService).resume(sessionId);
   if (session === undefined) {
     throw new KimiError('session.not_found', `session ${sessionId} does not exist`);
   }

@@ -71,13 +71,6 @@ declare module '#/agent/wireRecord' {
 export const MAX_COMPACTION_RETRY_ATTEMPTS = 5;
 const DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS = 128 * 1024;
 
-export interface FullCompactionServiceOptions {
-  // Optional override for the compaction strategy. Defaults to the
-  // model-window-driven RuntimeCompactionStrategy. Tests inject a fixed
-  // strategy to force compaction without configuring a tiny model window.
-  readonly compactionStrategy?: CompactionStrategy;
-}
-
 type CompactionTelemetryProperties = Record<string, string | number | boolean | undefined>;
 
 interface ActiveCompaction {
@@ -119,7 +112,6 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   private consecutiveOverflowCompactions = 0;
 
   constructor(
-    private readonly options: FullCompactionServiceOptions = {},
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
@@ -132,9 +124,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     @IAgentLoopService loopService: IAgentLoopService,
   ) {
     super();
-    this.strategy =
-      this.options.compactionStrategy ??
-      new RuntimeCompactionStrategy(() => this.profile.resolveModelContext());
+    this.strategy = new RuntimeCompactionStrategy(() => this.profile.resolveModelContext());
     this._register(this.wire.onRestored(() => this.normalizeAfterReplay()));
     this._register(
       this.eventBus.subscribe('turn.started', () => this.resetForTurn()),

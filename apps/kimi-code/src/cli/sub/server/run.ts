@@ -18,6 +18,7 @@ import { startServer, type ServerLogger } from '@moonshot-ai/server';
 import chalk from 'chalk';
 import { Option, type Command } from 'commander';
 
+import { isKimiV2Enabled } from '#/cli/experimental-v2';
 import { CLI_SHUTDOWN_TIMEOUT_MS } from '#/constant/app';
 import { getNativeWebAssetsDir } from '#/native/web-assets';
 import { darkColors } from '#/tui/theme/colors';
@@ -49,20 +50,14 @@ import {
 const WEB_ASSETS_DIR = 'dist-web';
 
 /**
- * Master experimental switch. When set to a truthy value (`1`/`true`/`yes`/`on`),
- * `kimi server run` boots the DI × Scope engine server (`@moonshot-ai/server-v2`)
- * instead of the default `@moonshot-ai/server`. Read directly from the env
- * (matching `cli/update/rollout.ts`) because the CLI must not depend on the
- * core flag registry. Unset / any other value keeps the v1 server.
+ * `kimi server run` → server-v2 routing is gated by the master experimental
+ * switch shared with the `kimi v2` prefix (`#/cli/experimental-v2`). When it is
+ * truthy, the in-process runner boots the DI × Scope engine server
+ * (`@moonshot-ai/server-v2`) instead of the default `@moonshot-ai/server`.
+ *
+ * Re-exported under the historical name so existing callers/tests keep working.
  */
-const SERVER_V2_ENV = 'KIMI_CODE_EXPERIMENTAL_FLAG';
-const SERVER_V2_TRUTHY_VALUES = new Set(['1', 'true', 'yes', 'on']);
-
-export function isServerV2Enabled(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): boolean {
-  return SERVER_V2_TRUTHY_VALUES.has((env[SERVER_V2_ENV] ?? '').trim().toLowerCase());
-}
+export const isServerV2Enabled = isKimiV2Enabled;
 
 /**
  * Minimal surface `runServerInProcess` needs from either server flavor. v1's
@@ -402,7 +397,7 @@ async function runServerInProcess(
     process.exit(0);
   }
 
-  if (isServerV2Enabled()) {
+  if (isKimiV2Enabled()) {
     // Experimental: boot the DI × Scope engine server. v2 speaks the same
     // `/api/v1` wire interface but its `startServer` returns `{ host, port,
     // close }` rather than `{ address, logger, close }`, so adapt it to the

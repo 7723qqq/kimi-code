@@ -16,7 +16,6 @@
   },
   "scripts": {
     "build": "tsdown",
-    "dev": "tsx --tsconfig ./tsconfig.dev.json --import ../../build/register-raw-text-loader.mjs --import ../../build/register-hash-imports-loader.mjs ./src/main.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist"

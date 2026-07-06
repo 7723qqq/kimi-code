@@ -14,7 +14,7 @@ import {
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { ResolvedToolExecutionHookContext } from '#/agent/tool';
 import { IAgentPermissionGate, AgentPermissionGate } from '#/agent/permissionGate';
-import type { PermissionGateOptions } from '#/agent/permissionGate';
+import { IAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentPermissionModeService } from '#/agent/permissionMode';
 import type { PermissionMode, PermissionPolicyEvaluation } from '#/agent/permissionPolicy';
 import { IAgentPermissionPolicyService } from '#/agent/permissionPolicy';
@@ -124,6 +124,11 @@ describe('AgentPermissionGate', () => {
         });
         reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
         reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
+        reg.defineInstance(IAgentScopeContext, {
+          _serviceBrand: undefined,
+          agentId: 'main',
+          scope: (subKey?: string): string => (subKey ? `main/${subKey}` : 'main'),
+        });
         reg.definePartialInstance(IAgentProfileService, {
           data: () => ({ cwd: '/workspace' }) as ProfileData,
         });
@@ -134,8 +139,8 @@ describe('AgentPermissionGate', () => {
     disposables.dispose();
   });
 
-  function make(options: PermissionGateOptions = {}): IAgentPermissionGate {
-    ix.set(IAgentPermissionGate, new SyncDescriptor(AgentPermissionGate, [options]));
+  function make(): IAgentPermissionGate {
+    ix.set(IAgentPermissionGate, new SyncDescriptor(AgentPermissionGate));
     return ix.get(IAgentPermissionGate);
   }
 
@@ -195,7 +200,12 @@ describe('AgentPermissionGate', () => {
 
   it('adds subagent retry guidance to policy deny messages', async () => {
     policyResult = { policyName: 'p', result: { kind: 'deny', message: 'nope' } };
-    const svc = make({ agentId: 'sub-1' });
+    ix.set(IAgentScopeContext, {
+      _serviceBrand: undefined,
+      agentId: 'sub-1',
+      scope: (subKey?: string): string => (subKey ? `sub-1/${subKey}` : 'sub-1'),
+    });
+    const svc = make();
     const retryGuidance =
       "Try a different approach — don't retry the same call, don't attempt to bypass the restriction.";
 

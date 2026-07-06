@@ -57,6 +57,7 @@ export function registerMetaRoute(app: RouteHost, opts: MetaRouteOptions): void 
     started_at: opts.startedAt,
     open_in_apps: [],
     dangerous_bypass_auth: opts.dangerousBypassAuth,
+    backend: 'v2' as const,
   });
 
   const route = defineRoute(

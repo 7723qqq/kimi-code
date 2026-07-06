@@ -31,7 +31,7 @@ import {
   type ContextMessage,
   type PromptOrigin,
 } from '#/agent/contextMemory';
-import { GoalInjection, type GoalInjectionOptions } from '#/agent/goal/injection/goalInjection';
+import { GoalInjection } from '#/agent/goal/injection/goalInjection';
 import {
   buildGoalBlockedReasonPrompt,
   buildGoalCompletionSummaryPrompt,
@@ -124,11 +124,6 @@ const GOAL_CONTINUATION_PROMPT = [
   'and do not ask the user for input unless a real blocker prevents progress.',
 ].join(' ');
 
-export interface GoalServiceOptions {
-  readonly enabled?: boolean | (() => boolean);
-  readonly injection?: GoalInjectionOptions;
-}
-
 export class AgentGoalService extends Disposable implements IAgentGoalService {
   declare readonly _serviceBrand: undefined;
 
@@ -138,7 +133,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   private readonly goalOutcomeContinuationTurns = new Set<number>();
 
   constructor(
-    private readonly options: GoalServiceOptions = {},
     @IAgentWireService private readonly wire: IWireService,
     @IEventBus private readonly eventBus: IEventBus,
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
@@ -151,9 +145,8 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     super();
     this._register(
       new GoalInjection(
-        options.injection ?? {
+        {
           getGoal: () => this.getGoal().goal,
-          enabled: () => this.enabled,
         },
         dynamicInjector,
       ),
@@ -182,11 +175,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
         );
       }),
     );
-  }
-
-  get enabled(): boolean {
-    const enabled = this.options.enabled;
-    return typeof enabled === 'function' ? enabled() : enabled !== false;
   }
 
   private get goalState(): GoalState | null {

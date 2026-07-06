@@ -15,11 +15,13 @@
  * The live write path emits the 1.4 Ops (`append_message` / `clear` /
  * `apply_compaction` / `undo`); assistant and tool messages are persisted already
  * folded (the loop appends whole messages, not raw loop events), so on-disk
- * records use the 1.4 type names without reintroducing a stateful loop-event
- * fold. `context.splice` (the pre-1.4 primitive) stays registered so
- * sessions written at wire protocol 1.5 still replay (newer-version passthrough,
- * no migration) and for the few internal single-delete mutations that have no 1.4
- * spelling.
+ * records use the 1.4 type names. Sessions written by the v1 loop stream a turn
+ * as `context.append_loop_event` records instead; `contextAppendLoopEvent` folds
+ * them back into assistant / tool messages at restore time (see
+ * `loopEventFold.ts`) so those sessions replay identically. `context.splice` (the
+ * pre-1.4 primitive) stays registered so sessions written at wire protocol 1.5
+ * still replay (newer-version passthrough, no migration) and for the few internal
+ * single-delete mutations that have no 1.4 spelling.
  *
  * Blob handling uses two complementary mechanisms:
  * - `contextBlobSelector` (record-level): offloads oversized content parts to
@@ -34,6 +36,12 @@
 import type { ContentPart } from '#/app/llmProtocol';
 import { defineModel, defineOp, type WireBlobSelector } from '#/wire';
 
+import {
+  foldAppendMessage,
+  foldLoopEvent,
+  resetFold,
+  type LoopRecordedEvent,
+} from './loopEventFold';
 import type { ContextMessage } from './types';
 
 export const ContextModel = defineModel<ContextMessage[]>('contextMemory', () => [], {
@@ -66,7 +74,7 @@ export const contextSplice = defineOp(ContextModel, 'context.splice', {
     if (p.deleteCount === 0 && p.messages.length === 0) return state;
     const next = state.slice();
     next.splice(p.start, p.deleteCount, ...p.messages);
-    return next;
+    return resetFold(next) as ContextMessage[];
   },
 });
 
@@ -75,11 +83,27 @@ export interface ContextMessagePayload {
 }
 
 export const contextAppendMessage = defineOp(ContextModel, 'context.append_message', {
-  apply: (state, p: ContextMessagePayload): ContextMessage[] => [...state, p.message],
+  apply: (state, p: ContextMessagePayload): ContextMessage[] =>
+    foldAppendMessage(state, p.message) as ContextMessage[],
+});
+
+export interface ContextLoopEventPayload {
+  readonly event: LoopRecordedEvent;
+}
+
+/**
+ * Restore-only Op: folds a v1 `context.append_loop_event` record into the
+ * history (see `loopEventFold.ts`). Never dispatched by the v2 live loop, so it
+ * is never persisted by v2 — registering it lets `WireService.replay` reduce
+ * v1-loop sessions instead of skipping the record.
+ */
+export const contextAppendLoopEvent = defineOp(ContextModel, 'context.append_loop_event', {
+  apply: (state, p: ContextLoopEventPayload): ContextMessage[] =>
+    foldLoopEvent(state, p.event) as ContextMessage[],
 });
 
 export const contextClear = defineOp(ContextModel, 'context.clear', {
-  apply: (state): ContextMessage[] => (state.length === 0 ? state : []),
+  apply: (state): ContextMessage[] => (state.length === 0 ? state : resetFold([]) as ContextMessage[]),
 });
 
 export interface ContextCompactionPayload {
@@ -88,10 +112,8 @@ export interface ContextCompactionPayload {
 }
 
 export const contextApplyCompaction = defineOp(ContextModel, 'context.apply_compaction', {
-  apply: (state, p: ContextCompactionPayload): ContextMessage[] => [
-    p.summary,
-    ...state.slice(p.count),
-  ],
+  apply: (state, p: ContextCompactionPayload): ContextMessage[] =>
+    resetFold([p.summary, ...state.slice(p.count)]) as ContextMessage[],
 });
 
 export interface ContextUndoPayload {
@@ -139,7 +161,7 @@ export const contextUndo = defineOp(ContextModel, 'context.undo', {
     if (p.count <= 0 || state.length === 0) return state;
     const { cutIndex, removedCount } = computeUndoCut(state, p.count);
     if (cutIndex < 0 || removedCount < p.count) return state;
-    return state.slice(0, cutIndex);
+    return resetFold(state.slice(0, cutIndex)) as ContextMessage[];
   },
 });
 

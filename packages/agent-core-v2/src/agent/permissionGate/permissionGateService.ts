@@ -21,11 +21,11 @@ import { IAgentPermissionRulesService } from '#/agent/permissionRules';
 import { ISessionContext } from '#/session/sessionContext';
 import { ITelemetryService } from '#/app/telemetry';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
+import { IAgentScopeContext } from '#/agent/scopeContext';
 import {
   IAgentPermissionGate,
   type PermissionApprovalRequestContext,
   type PermissionApprovalResultContext,
-  type PermissionGateOptions,
 } from './permissionGate';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -41,7 +41,7 @@ declare module '#/app/event/eventBus' {
 export class AgentPermissionGate extends Disposable implements IAgentPermissionGate {
   declare readonly _serviceBrand: undefined;
   constructor(
-    private readonly options: PermissionGateOptions = {},
+    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
     @IAgentPermissionRulesService private readonly rulesService: IAgentPermissionRulesService,
     @IAgentPermissionPolicyService private readonly policyService: IAgentPermissionPolicyService,
@@ -132,7 +132,7 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
       } as ToolInputDisplay);
     const approvalRequest = {
       sessionId: this.session.sessionId,
-      agentId: this.options.agentId ?? 'main',
+      agentId: this.scopeContext.agentId,
       turnId: context.turnId,
       toolCallId: context.toolCall.id,
       toolName: name,
@@ -269,7 +269,7 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
    * agent other than `main` is treated as worker-driven.
    */
   private usesWorkerRejectionGuidance(): boolean {
-    return this.options.agentId !== undefined && this.options.agentId !== 'main';
+    return this.scopeContext.agentId !== 'main';
   }
 }
 

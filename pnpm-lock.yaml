@@ -438,9 +438,6 @@ importers:
       yauzl:
         specifier: ^3.3.0
         version: 3.3.0
-      yazl:
-        specifier: ^3.3.1
-        version: 3.3.1
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -559,6 +556,9 @@ importers:
       yauzl:
         specifier: ^3.3.0
         version: 3.3.0
+      yazl:
+        specifier: ^3.3.1
+        version: 3.3.1
       zod:
         specifier: ^4.3.6
         version: 4.3.6

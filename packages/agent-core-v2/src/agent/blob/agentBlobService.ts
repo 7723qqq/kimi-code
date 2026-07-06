@@ -12,11 +12,6 @@ import { createDecorator } from "#/_base/di";
 export const BLOBREF_PROTOCOL = 'blobref:';
 export const MISSING_MEDIA_PLACEHOLDER = '[media missing]';
 
-export interface AgentBlobServiceOptions {
-  // Reserved for future overrides (threshold / cache size). The persistence
-  // root is derived from `IAgentScopeContext.scope('blobs')`.
-}
-
 export interface IAgentBlobService {
   readonly _serviceBrand: undefined;
 

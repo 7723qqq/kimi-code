@@ -282,6 +282,33 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(body.data.context_tokens).toBe(0);
   });
 
+  it('reflects plan/swarm/permission agent_config in GET /status', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const id = created.body.data.id;
+
+    const before = await getJson<{
+      plan_mode: boolean;
+      swarm_mode: boolean;
+      permission: string;
+    }>(`/api/v1/sessions/${id}/status`);
+    expect(before.body.data.plan_mode).toBe(false);
+    expect(before.body.data.swarm_mode).toBe(false);
+
+    await postJson(`/api/v1/sessions/${id}/profile`, {
+      agent_config: { plan_mode: true, swarm_mode: true, permission_mode: 'yolo' },
+    });
+
+    const after = await getJson<{
+      plan_mode: boolean;
+      swarm_mode: boolean;
+      permission: string;
+    }>(`/api/v1/sessions/${id}/status`);
+    expect(after.body.data.plan_mode).toBe(true);
+    expect(after.body.data.swarm_mode).toBe(true);
+    expect(after.body.data.permission).toBe('yolo');
+  });
+
   it('archives a session via :archive and reflects archived flag on get', async () => {
     const cwd = home as string;
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });

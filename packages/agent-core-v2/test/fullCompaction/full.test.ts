@@ -17,7 +17,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   DefaultCompactionStrategy,
-  type CompactionStrategy,
 } from '#/agent/fullCompaction/strategy';
 import { HookEngine } from '#/agent/externalHooks/engine';
 import type { HookEngineTriggerArgs } from '#/agent/externalHooks/types';
@@ -833,10 +832,14 @@ describe('FullCompaction', () => {
       attempts += 1;
       throw new APIStatusError(400, 'Bad request');
     };
-    const ctx = testAgent({ generate, fullCompaction: { compactionStrategy: alwaysCompactOnce } });
-    ctx.configure();
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: { ...CATALOGUED_MODEL_CAPABILITIES, max_context_tokens: 14 },
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 1);
 
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Trigger failed auto compaction' }] });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'x'.repeat(40) }] });
     const events = await ctx.untilTurnEnd();
 
     expect(attempts).toBe(1);
@@ -2077,46 +2080,6 @@ describe('FullCompaction', () => {
     );
   });
 
-  it('emits context.overflow and terminates the turn after too many auto compactions', async () => {
-    const ctx = testAgent({ fullCompaction: { compactionStrategy: alwaysCompactOnce } });
-    ctx.configure({ tools: SNAPSHOT_VISIBLE_TOOLS });
-
-    ctx.mockNextResponse({ type: 'text', text: 'First compacted summary.' });
-    ctx.mockNextResponse({ type: 'text', text: 'I need a tool.' }, missingToolCall());
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Trigger repeated compaction' }] });
-
-    const events = await ctx.untilTurnEnd();
-    expect(events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: '[wire]', event: 'context.splice' }),
-        expect.objectContaining({ type: '[wire]', event: 'turn.launch' }),
-        expect.objectContaining({
-          type: '[rpc]',
-          event: 'turn.ended',
-          args: expect.objectContaining({
-            reason: 'failed',
-            error: expect.objectContaining({ code: 'context.overflow' }),
-          }),
-        }),
-      ]),
-    );
-    expect(ctx.newEvents()).toMatchInlineSnapshot(
-      `[emit] error   { "code": "context.overflow", "message": "Compaction limit exceeded (1)", "name": "KimiError", "details": { "maxCompactions": 1, "turnId": 0 }, "retryable": true }`,
-    );
-    expect(ctx.llmInputs()).toMatchInlineSnapshot(`
-      call 1:
-        system: <system-prompt>
-        tools: Agent, AgentSwarm, CronCreate, CronDelete, CronList, EnterPlanMode, ExitPlanMode
-        messages:
-          user: text "Trigger repeated compaction"
-          user: text <compaction-instruction>
-
-      call 2:
-        messages:
-          assistant: text "First compacted summary."
-    `);
-    await ctx.expectResumeMatches();
-  });
 
   it('appends the todo list to the compaction summary', async () => {
     const ctx = testAgent();
@@ -2295,25 +2258,6 @@ function realKosongGenerate(
       },
     };
     return runKosongGenerate(provider, systemPrompt, tools, history, callbacks, options);
-  };
-}
-
-const alwaysCompactOnce: CompactionStrategy = {
-  shouldCompact: () => true,
-  shouldBlock: () => true,
-  computeCompactCount: (messages: readonly Message[]) => messages.length,
-  reduceCompactOnOverflow: (messages: readonly Message[]) => messages.length,
-  checkAfterStep: true,
-  maxCompactionPerTurn: 1,
-  maxOverflowCompactionAttempts: 3,
-};
-
-function missingToolCall(): ToolCall {
-  return {
-    type: 'function',
-    id: 'call_missing',
-    name: 'MissingTool',
-    arguments: '{}',
   };
 }
 

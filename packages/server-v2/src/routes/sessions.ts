@@ -743,33 +743,13 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
       tags: ['sessions'],
     },
     async (req, reply) => {
-      const { session_id } = req.params;
-      const handle = core.accessor.get(ISessionLifecycleService).get(session_id);
-      if (handle === undefined) {
-        reply.send(
-          errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${session_id} does not exist`, req.id),
-        );
-        return;
+      try {
+        const { session_id } = req.params;
+        const status = await core.accessor.get(ISessionLegacyService).status(session_id);
+        reply.send(okEnvelope(status, req.id));
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
       }
-      const status = handle.accessor.get(ISessionActivity).status();
-      // Rich fields (model / thinking_level / permission / plan_mode /
-      // swarm_mode / context_*) require the main agent's scope; not wired yet
-      // (gap G10). Return safe defaults for the first slice.
-      reply.send(
-        okEnvelope(
-          {
-            status,
-            thinking_level: '',
-            permission: '',
-            plan_mode: false,
-            swarm_mode: false,
-            context_tokens: 0,
-            max_context_tokens: 0,
-            context_usage: 0,
-          },
-          req.id,
-        ),
-      );
     },
   );
   app.get(

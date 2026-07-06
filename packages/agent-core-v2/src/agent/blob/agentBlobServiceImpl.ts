@@ -17,7 +17,6 @@ import {
   BLOBREF_PROTOCOL,
   IAgentBlobService,
   MISSING_MEDIA_PLACEHOLDER,
-  type AgentBlobServiceOptions,
 } from './agentBlobService';
 
 const DEFAULT_THRESHOLD = 4096;
@@ -33,7 +32,6 @@ export class AgentBlobServiceImpl implements IAgentBlobService {
   private currentCacheSize = 0;
 
   constructor(
-    private readonly options: AgentBlobServiceOptions = {},
     @IBlobStore private readonly blobs: IBlobStore,
     @IAgentScopeContext agentCtx: IAgentScopeContext,
   ) {
