@@ -26,6 +26,7 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap';
+import { ITelemetryService } from '#/app/telemetry';
 import { ILogService } from '#/_base/log';
 import { IAgentProfileCatalogService } from '#/app/agentProfileCatalog';
 import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog';
@@ -91,6 +92,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     @ILogService private readonly log: ILogService,
     @IAgentProfileCatalogService private readonly catalog: IAgentProfileCatalogService,
     @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     super();
   }
@@ -263,6 +265,29 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     const servers = { ...base?.servers, ...pluginServers };
     if (Object.keys(servers).length === 0) return;
     await manager.connectAll(servers);
+    this.trackMcpInitialLoad(manager);
+  }
+
+  private trackMcpInitialLoad(manager: McpConnectionManager): void {
+    const entries = manager.list().filter((entry) => entry.status !== 'disabled');
+    const totalCount = entries.length;
+    if (totalCount === 0) return;
+
+    const connectedCount = entries.filter((entry) => entry.status === 'connected').length;
+    if (connectedCount > 0) {
+      this.telemetry.track('mcp_connected', {
+        server_count: connectedCount,
+        total_count: totalCount,
+      });
+    }
+
+    const failedCount = entries.filter((entry) => entry.status === 'failed').length;
+    if (failedCount > 0) {
+      this.telemetry.track('mcp_failed', {
+        failed_count: failedCount,
+        total_count: totalCount,
+      });
+    }
   }
 
   getHandle(agentId: string): IAgentScopeHandle | undefined {
