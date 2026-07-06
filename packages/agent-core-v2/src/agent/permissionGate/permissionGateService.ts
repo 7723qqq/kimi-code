@@ -1,6 +1,9 @@
-import type {
-  ApprovalResponse,
-  PermissionData,
+import {
+  IAgentPermissionPolicyService,
+  type ApprovalResponse,
+  type PermissionData,
+  type PermissionPolicyResolution,
+  type PermissionPolicyResult,
 } from '#/agent/permissionPolicy';
 import {
   Disposable,
@@ -14,11 +17,6 @@ import type {
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import { ISessionApprovalService } from "#/session/approval/approval";
 import { IAgentPermissionModeService } from '#/agent/permissionMode';
-import {
-  IAgentPermissionPolicyService,
-  type PermissionPolicyResolution,
-  type PermissionPolicyResult,
-} from '#/agent/permissionPolicy';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules';
 import { ISessionContext } from '#/session/sessionContext';
 import { ITelemetryService } from '#/app/telemetry';
@@ -129,6 +127,19 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
         summary: action,
         detail: context.args,
       } as ToolInputDisplay);
+    const approvalRequest = {
+      sessionId: this.session.sessionId,
+      agentId: this.options.agentId ?? 'main',
+      turnId: context.turnId,
+      toolCallId: context.toolCall.id,
+      toolName: name,
+      action,
+      display,
+    };
+    const approvalContext = {
+      ...approvalRequest,
+      toolInput: context.args,
+    } satisfies PermissionApprovalRequestContext;
     const startedAt = Date.now();
 
     let response: ApprovalResponse;
@@ -136,25 +147,10 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
     if (approvalService === undefined) {
       response = { decision: 'approved' };
     } else {
-      void this.hooks.onDidRequestApproval.run({
-        turnId: context.turnId,
-        toolCallId: context.toolCall.id,
-        toolName: name,
-        action,
-        toolInput: context.args,
-        display,
-      }).catch(() => undefined);
+      void this.hooks.onDidRequestApproval.run(approvalContext).catch(() => undefined);
       try {
         response = await abortable(
-          approvalService.request({
-            sessionId: this.session.sessionId,
-            agentId: this.options.agentId ?? 'main',
-            turnId: context.turnId,
-            toolCallId: context.toolCall.id,
-            toolName: name,
-            action,
-            display,
-          }),
+          approvalService.request(approvalRequest),
           context.signal,
         );
         context.signal.throwIfAborted();
@@ -171,10 +167,7 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
           has_feedback: false,
         });
         void this.hooks.onDidResolveApproval.run({
-          turnId: context.turnId,
-          toolCallId: context.toolCall.id,
-          toolName: name,
-          action,
+          ...approvalContext,
           decision: 'error',
           error: error instanceof Error ? error.message : String(error),
         }).catch(() => undefined);
@@ -192,14 +185,8 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
         : undefined;
     if (approvalService !== undefined) {
       void this.hooks.onDidResolveApproval.run({
-        turnId: context.turnId,
-        toolCallId: context.toolCall.id,
-        toolName: name,
-        action,
-        decision: response.decision,
-        scope: response.scope,
-        feedback: response.feedback,
-        selectedLabel: response.selectedLabel,
+        ...approvalContext,
+        ...response,
       }).catch(() => undefined);
     }
     this.rulesService.recordApprovalResult({

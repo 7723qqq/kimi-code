@@ -6,9 +6,11 @@ import { createServices } from '#/_base/di/test';
 import type { TestInstantiationService } from '#/_base/di/test';
 import { createHooks } from '#/hooks';
 import type { Hooks } from '#/hooks';
-import type { ApprovalResponse } from '#/session/approval/approval';
-import type { ApprovalRequest } from '#/session/approval/approval';
-import { ISessionApprovalService } from '#/session/approval/approval';
+import {
+  ISessionApprovalService,
+  type ApprovalRequest,
+  type ApprovalResponse,
+} from '#/session/approval/approval';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { ResolvedToolExecutionHookContext } from '#/agent/tool';
 import { IAgentPermissionGate, AgentPermissionGate } from '#/agent/permissionGate';
@@ -17,12 +19,11 @@ import { IAgentPermissionModeService } from '#/agent/permissionMode';
 import type { PermissionMode, PermissionPolicyEvaluation } from '#/agent/permissionPolicy';
 import { IAgentPermissionPolicyService } from '#/agent/permissionPolicy';
 import { AgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicyService';
-import type {
-  IAgentPermissionRulesService as PermissionRulesServiceContract,
-  PermissionApprovalResultRecord,
+import {
+  IAgentPermissionRulesService,
+  type PermissionApprovalResultRecord,
+  type PermissionRule,
 } from '#/agent/permissionRules';
-import type { PermissionRule } from '#/agent/permissionRules';
-import { IAgentPermissionRulesService } from '#/agent/permissionRules';
 import { IAgentPlanService } from '#/agent/plan';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext';
@@ -400,6 +401,8 @@ describe('AgentPermissionGate', () => {
 
     expect(request).toHaveBeenCalledTimes(1);
     expect(permissionRequest).toHaveBeenCalledWith({
+      sessionId: 'test-session',
+      agentId: 'main',
       turnId: 1,
       toolCallId: 'call-Bash',
       toolName: 'Bash',
@@ -412,10 +415,18 @@ describe('AgentPermissionGate', () => {
       },
     });
     expect(permissionResult).toHaveBeenCalledWith({
+      sessionId: 'test-session',
+      agentId: 'main',
       turnId: 1,
       toolCallId: 'call-Bash',
       toolName: 'Bash',
       action: 'Approve Bash',
+      toolInput: { command: 'printf first' },
+      display: {
+        kind: 'generic',
+        summary: 'Approve Bash',
+        detail: { command: 'printf first' },
+      },
       decision: 'approved',
       selectedLabel: 'Approve once',
     });
@@ -529,7 +540,7 @@ interface MutableRulesOptions {
 
 function mutablePermissionRulesService(
   options: MutableRulesOptions,
-): PermissionRulesServiceContract {
+): IAgentPermissionRulesService {
   return {
     _serviceBrand: undefined,
     get rules() {

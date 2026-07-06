@@ -35,7 +35,7 @@ import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLoopWithHooks, stubToolExecutor, stubTurnWithHooks } from '../turn/stubs';
 
 function nodeCommand(source: string): string {
-  return `node -e ${JSON.stringify(source.replace(/\s*\n\s*/g, ' '))}`;
+  return `node -e ${JSON.stringify(source.replaceAll(/\s*\n\s*/g, ' '))}`;
 }
 
 function stdinScript(body: string): string {
@@ -222,6 +222,104 @@ describe('HookEngine integration', () => {
         }),
       );
       expect(stopInputs).toEqual([{ stopHookActive: false }, { stopHookActive: false }]);
+    } finally {
+      ix?.dispose();
+      disposables.dispose();
+    }
+  });
+
+  it('passes permission approval contexts through to PermissionRequest and PermissionResult hooks', async () => {
+    const disposables = new DisposableStore();
+    let ix: TestInstantiationService | undefined;
+    try {
+      const permissionHooks = createHooks([
+        'onDidRequestApproval',
+        'onDidResolveApproval',
+      ]) as IAgentPermissionGate['hooks'];
+      const fired: Array<{
+        event: string;
+        matcherValue?: unknown;
+        inputData?: unknown;
+      }> = [];
+      const hookEngine = {
+        trigger: async () => [],
+        triggerBlock: async () => undefined,
+        fireAndForgetTrigger: async (
+          event: string,
+          args: { matcherValue?: unknown; inputData?: unknown },
+        ) => {
+          fired.push({
+            event,
+            matcherValue: args.matcherValue,
+            inputData: args.inputData,
+          });
+        },
+      };
+
+      ix = createServices(disposables, {
+        strict: true,
+        additionalServices: (reg) => {
+          reg.defineInstance(IBootstrapService, stubBootstrap());
+          reg.definePartialInstance(IConfigService, {});
+          reg.definePartialInstance(IPluginService, {});
+          reg.defineInstance(IAgentContextMemoryService, stubContextMemory());
+          reg.defineInstance(IAgentRecordService, stubRecord());
+          reg.defineInstance(IAgentLoopService, stubLoopWithHooks());
+          reg.definePartialInstance(IAgentPromptService, {
+            hooks: createHooks(['onWillSubmitPrompt']),
+          });
+          reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
+          reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
+          reg.definePartialInstance(IAgentPermissionGate, {
+            hooks: permissionHooks,
+          });
+          reg.definePartialInstance(IAgentFullCompactionService, {
+            hooks: createHooks(['onWillCompact', 'onDidCompact']),
+          });
+          reg.definePartialInstance(IAgentTaskService, {
+            hooks: createHooks(['onDidNotify']),
+          });
+        },
+      });
+      ix.set(
+        IAgentExternalHooksService,
+        new SyncDescriptor(AgentExternalHooksService, [{ hookEngine }]),
+      );
+      ix.get(IAgentExternalHooksService);
+
+      const requestContext = {
+        sessionId: 'session-1',
+        agentId: 'main',
+        turnId: 7,
+        toolCallId: 'call-bash',
+        toolName: 'Bash',
+        action: 'Run command',
+        toolInput: { command: 'pwd' },
+        display: { kind: 'command' as const, command: 'pwd' },
+      };
+      await permissionHooks.onDidRequestApproval.run(requestContext);
+      await permissionHooks.onDidResolveApproval.run({
+        ...requestContext,
+        decision: 'approved',
+        selectedLabel: 'Approve once',
+      });
+
+      expect(fired).toEqual([
+        {
+          event: 'PermissionRequest',
+          matcherValue: 'Bash',
+          inputData: requestContext,
+        },
+        {
+          event: 'PermissionResult',
+          matcherValue: 'Bash',
+          inputData: {
+            ...requestContext,
+            decision: 'approved',
+            selectedLabel: 'Approve once',
+          },
+        },
+      ]);
     } finally {
       ix?.dispose();
       disposables.dispose();

@@ -28,7 +28,6 @@ import {
 import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop';
 import {
   IAgentPermissionGate,
-  type PermissionApprovalResultContext,
 } from '#/agent/permissionGate';
 import {
   IAgentPromptService,
@@ -173,14 +172,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
       permission.hooks.onDidRequestApproval.register('externalHooks', async (ctx, next) => {
         void this.engine()?.fireAndForgetTrigger('PermissionRequest', {
           matcherValue: ctx.toolName,
-          inputData: {
-            turnId: ctx.turnId,
-            toolCallId: ctx.toolCallId,
-            toolName: ctx.toolName,
-            action: ctx.action,
-            toolInput: ctx.toolInput,
-            display: ctx.display,
-          },
+          inputData: { ...ctx },
         });
         await next();
       }),
@@ -189,7 +181,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
       permission.hooks.onDidResolveApproval.register('externalHooks', async (ctx, next) => {
         void this.engine()?.fireAndForgetTrigger('PermissionResult', {
           matcherValue: ctx.toolName,
-          inputData: permissionResultInputData(ctx),
+          inputData: { ...ctx },
         });
         await next();
       }),
@@ -467,31 +459,6 @@ function toolOutputText(output: ExecutableToolResult['output']): string {
     })
     .map((part) => part.text)
     .join('');
-}
-
-function permissionResultInputData(
-  payload: PermissionApprovalResultContext,
-): Record<string, unknown> {
-  if (payload.decision === 'error') {
-    return {
-      turnId: payload.turnId,
-      toolCallId: payload.toolCallId,
-      toolName: payload.toolName,
-      action: payload.action,
-      decision: payload.decision,
-      error: payload.error,
-    };
-  }
-  return {
-    turnId: payload.turnId,
-    toolCallId: payload.toolCallId,
-    toolName: payload.toolName,
-    action: payload.action,
-    decision: payload.decision,
-    scope: payload.scope,
-    feedback: payload.feedback,
-    selectedLabel: payload.selectedLabel,
-  };
 }
 
 registerScopedService(
