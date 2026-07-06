@@ -162,9 +162,6 @@ export class AgentRPCService implements IAgentRPCService {
       if (typeof result.output === 'string' && result.output.startsWith('task_id: ')) {
         return { stdout: result.output, stderr: '', isError: false, backgrounded: true };
       }
-      if (!isError && stdout.length === 0 && typeof result.output === 'string') {
-        stdout = result.output;
-      }
       if (isError && stdout.length === 0 && stderr.length === 0) {
         stderr = typeof result.output === 'string' ? result.output : 'Command failed.';
       }
