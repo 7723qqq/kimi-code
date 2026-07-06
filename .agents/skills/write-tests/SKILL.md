@@ -31,7 +31,10 @@ it('does not fire while the agent is busy, then fires once it goes idle', ...);
 ## Name and structure
 
 - `describe('<slice> (<responsibilities>)'` — name the **responsibility**, not the class.
-- `it('does <behavior> when <condition>')` — read as a sentence stating the contract.
+- An `it(...)` reads as a sentence, but it must still encode three things — the **behavior / method**, the **state or condition**, and the **expected outcome**: `it('<behavior> when <condition>, <outcome>')`. A name like `does X when Y` with no result is too vague to fail usefully.
+  - Use spaces, not the Java-style `method_state_outcome` underscores — that convention exists only because Java test methods cannot contain spaces. vitest `it()` takes a string, and the repo already reads this way, e.g. `it('fires a one-shot task by steering the main agent, then auto-deletes it')`.
+  - Good: `it('returns 401 when the caller is unauthorized')` · `it('advances the cursor and does not double-fire on a repeat tick')`
+  - Bad: `it('works')` · `it('handles auth correctly')` — no condition, no outcome
 - Arrange / Act / Assert. A short `// Given` `// When` `// Then` is fine when it aids reading; do not paste it mechanically on trivial tests.
 
 ## Build a small rig
@@ -90,7 +93,7 @@ Start each `*.example.ts` with a short header comment: the **scenario**, the **r
 
 - `*.example.ts` under `examples/`; `pnpm check:blackbox` passes
 - Resolved through `accessor.get(IX)`; no impl-module import
-- One behavior per `it`, sentence-shaped name, AAA
+- One behavior per `it`; name carries behavior + condition + outcome; AAA
 - Stubbed only the true external seam; time via knobs, not `useFakeTimers`
 - Literal expectations; relevant assertions only
 - Env/mocks/host restored in `afterEach`; hermetic, no flakes
