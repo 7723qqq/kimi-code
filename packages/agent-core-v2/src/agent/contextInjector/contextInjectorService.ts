@@ -9,22 +9,20 @@ import { IEventBus } from '#/app/event/eventBus';
 import type { ContextMessage } from '#/agent/contextMemory';
 import {
   IAgentContextInjectorService,
-  type ContextInjectionOptions,
   type ContextInjectionProvider,
 } from './contextInjector';
 
 interface ContextInjectionEntry {
-  readonly cadence: ContextInjectionOptions['cadence'];
   readonly provider: ContextInjectionProvider;
-  readonly variant: string;
+  readonly name: string;
   /** Live positions of this variant's injection messages, ascending. */
   readonly positions: number[];
-  turnConsumed: boolean;
 }
 
 export class AgentContextInjectorService extends Disposable implements IAgentContextInjectorService {
   declare readonly _serviceBrand: undefined;
   private readonly entries = new Set<ContextInjectionEntry>();
+  private isNewTurn = true;
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -41,27 +39,21 @@ export class AgentContextInjectorService extends Disposable implements IAgentCon
     );
     this._register(
       this.eventBus.subscribe('turn.started', () => {
-        for (const entry of this.entries) {
-          entry.turnConsumed = false;
-        }
+        this.isNewTurn = true;
       }),
     );
     this.eventBus.subscribe('context.spliced', (e) => this.handleSplice(e));
   }
 
   register(
-    variant: string,
+    name: string,
     provider: ContextInjectionProvider,
-    options: ContextInjectionOptions = {},
   ) {
-    const cadence = options.cadence ?? 'step';
-    const positions = findInjections(this.context.get(), variant);
+    const positions = findInjections(this.context.get(), name);
     const entry: ContextInjectionEntry = {
-      cadence,
       provider,
-      variant,
+      name,
       positions,
-      turnConsumed: cadence === 'turn' && positions.length > 0,
     };
     this.entries.add(entry);
     return toDisposable(() => {
@@ -70,21 +62,29 @@ export class AgentContextInjectorService extends Disposable implements IAgentCon
   }
 
   private async inject(): Promise<void> {
+    const isNewTurn = this.isNewTurn;
+    this.isNewTurn = false;
     for (const entry of this.entries) {
-      if (entry.cadence === 'turn') {
-        if (entry.turnConsumed) continue;
-        entry.turnConsumed = true;
-      }
       const injectedPositions: readonly number[] = [...entry.positions];
       const content = await entry.provider({
         injectedPositions,
         lastInjectedAt: injectedPositions.at(-1) ?? null,
+        isNewTurn,
       });
       if (!this.entries.has(entry)) continue;
-      if (content === undefined || content.trim().length === 0) continue;
-      this.reminders.appendSystemReminder(content, {
-        kind: 'injection',
-        variant: entry.variant,
+      if (content === undefined) continue;
+      const origin = { kind: 'injection' as const, variant: entry.name };
+      if (typeof content === 'string') {
+        if (content.trim().length === 0) continue;
+        this.reminders.appendSystemReminder(content, origin);
+        continue;
+      }
+      if (content.length === 0) continue;
+      this.context.append({
+        role: 'user',
+        content: [...content],
+        toolCalls: [],
+        origin,
       });
     }
   }
@@ -106,7 +106,7 @@ export class AgentContextInjectorService extends Disposable implements IAgentCon
     const deletedEnd = splice.start + splice.deleteCount;
     const delta = splice.messages.length - splice.deleteCount;
     for (const entry of this.entries) {
-      const adopted = insertedInjections?.get(entry.variant) ?? [];
+      const adopted = insertedInjections?.get(entry.name) ?? [];
       const positions = entry.positions;
       if (adopted.length === 0 && positions.length === 0) continue;
       // Mirror the context splice onto the ascending positions array: shift
@@ -120,9 +120,6 @@ export class AgentContextInjectorService extends Disposable implements IAgentCon
         positions[index] = positions[index]! + delta;
       }
       positions.splice(lo, hi - lo, ...adopted);
-      if (adopted.length > 0 && entry.cadence === 'turn') {
-        entry.turnConsumed = true;
-      }
     }
   }
 }

@@ -89,6 +89,30 @@ describe('AgentContextInjectorService', () => {
     });
   });
 
+  it('appends provider content parts verbatim without system-reminder wrapping', async () => {
+    injector(ix).register('media_test', () => [
+      { type: 'text', text: 'caption' },
+      { type: 'image_url', imageUrl: { url: 'https://example.com/a.png' } },
+    ]);
+
+    await injector(ix).inject();
+
+    const message = context.get().at(-1);
+    expect(message?.content).toEqual([
+      { type: 'text', text: 'caption' },
+      { type: 'image_url', imageUrl: { url: 'https://example.com/a.png' } },
+    ]);
+    expect(message?.origin).toEqual({ kind: 'injection', variant: 'media_test' });
+  });
+
+  it('skips injection when the provider returns an empty content array', async () => {
+    injector(ix).register('empty_test', () => []);
+
+    await injector(ix).inject();
+
+    expect(context.get()).toHaveLength(0);
+  });
+
   it('passes the previous injection index back to the provider', async () => {
     const seen: Array<number | null> = [];
 

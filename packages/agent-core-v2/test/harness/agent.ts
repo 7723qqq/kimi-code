@@ -1212,7 +1212,6 @@ export class AgentTestContext {
             this.options['log'] as { warn(message: string, payload?: unknown): void } | undefined,
           );
         },
-        { cadence: 'turn' },
       );
     }
 

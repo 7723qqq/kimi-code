@@ -45,7 +45,6 @@ export class AgentPluginService extends Disposable implements IAgentPluginServic
           if (injectedPositions.length > 0) return undefined;
           return this.renderSessionStartReminder();
         },
-        { cadence: 'turn' },
       ),
     );
     this._register(
