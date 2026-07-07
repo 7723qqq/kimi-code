@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { HookEngine } from '#/agent/externalHooks/engine';
 
 function nodeCommand(source: string): string {
-  return `node -e ${JSON.stringify(source.replace(/\s*\n\s*/g, ' '))}`;
+  return `node -e ${JSON.stringify(source.replaceAll(/\s*\n\s*/g, ' '))}`;
 }
 
 describe('HookEngine', () => {
@@ -287,6 +287,21 @@ describe('HookEngine', () => {
     const results = await engine.trigger('Stop', { inputData: {} });
 
     expect(results).toHaveLength(1);
+  });
+
+  it('does not dedupe hooks that share a command but have different cwd', async () => {
+    const command = nodeCommand('process.stdout.write(process.cwd() + "\\n");');
+    const engine = new HookEngine([
+      { event: 'Stop', command, timeout: 5, cwd: process.cwd() },
+      { event: 'Stop', command, timeout: 5, cwd: tmpdir() },
+    ]);
+
+    const results = await engine.trigger('Stop', { inputData: {} });
+
+    expect(results).toHaveLength(2);
+    expect(new Set(results.map((result) => result.stdout?.trim()))).toEqual(
+      new Set([realpathSync(process.cwd()), realpathSync(tmpdir())]),
+    );
   });
 
   it('silently skips hooks whose matcher is not a valid regex', async () => {

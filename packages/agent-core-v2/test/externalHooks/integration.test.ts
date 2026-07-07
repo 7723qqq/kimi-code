@@ -25,6 +25,7 @@ import {
 import { HookEngine } from '#/agent/externalHooks/engine';
 import {
   HookDefSchema,
+  HOOKS_SECTION,
   hooksFromToml,
   hooksToToml,
 } from '#/agent/externalHooks/configSection';
@@ -33,9 +34,11 @@ import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop';
 import { IAgentPermissionGate } from '#/agent/permissionGate';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import { IAgentTurnService, type Turn } from '#/agent/turn';
+import { IAgentTurnService } from '#/agent/turn';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { IEventBus } from '#/app/event/eventBus';
+import { EventBusService } from '#/app/event/eventBusService';
 import { IPluginService } from '#/app/plugin/plugin';
 import { createHooks } from '#/hooks';
 import { IAgentWireService, WireService } from '#/wire';
@@ -56,15 +59,6 @@ function stdinScript(body: string): string {
     body,
     '});',
   ].join('\n'));
-}
-
-function makeTurn(id: number): Turn {
-  return {
-    id,
-    abortController: new AbortController(),
-    ready: Promise.resolve(),
-    result: Promise.resolve({ reason: 'completed' }),
-  };
 }
 
 function makeAfterStep(signal: AbortSignal): TurnAfterStepContext {
@@ -89,7 +83,7 @@ function stubContextMemory(): IAgentContextMemoryService & {
       messages.push(...inserted.map(ensureMessageId));
     },
     clear: () => {
-      messages.splice(0, messages.length);
+      messages.splice(0);
     },
     undo: (count) => {
       const cut = computeUndoCut(messages, count);
@@ -108,9 +102,13 @@ function stubContextMemory(): IAgentContextMemoryService & {
     splice: (start, deleteCount, inserted) => {
       messages.splice(start, deleteCount, ...inserted);
     },
-    hooks: createHooks(['onSpliced']) as IAgentContextMemoryService['hooks'],
     messages,
   };
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 describe('HookEngine integration', () => {
@@ -167,7 +165,6 @@ describe('HookEngine integration', () => {
     let ix: TestInstantiationService | undefined;
     try {
       const loop = stubLoopWithHooks();
-      const turnService = stubTurnWithHooks();
       const context = stubContextMemory();
       const stopInputs: unknown[] = [];
       const hookEngine = {
@@ -187,20 +184,17 @@ describe('HookEngine integration', () => {
           reg.definePartialInstance(IPluginService, {});
           reg.defineInstance(IAgentContextMemoryService, context);
           reg.defineInstance(IAgentLoopService, loop);
+          reg.define(IEventBus, EventBusService);
           reg.definePartialInstance(IAgentPromptService, {
             hooks: createHooks(['onWillSubmitPrompt']),
           });
-          reg.defineInstance(IAgentTurnService, turnService);
+          reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
           reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
-          reg.definePartialInstance(IAgentPermissionGate, {
-            hooks: createHooks(['onDidRequestApproval', 'onDidResolveApproval']),
-          });
+          reg.definePartialInstance(IAgentPermissionGate, {});
           reg.definePartialInstance(IAgentFullCompactionService, {
-            hooks: createHooks(['onWillCompact', 'onDidCompact']),
+            hooks: createHooks(['onWillCompact']),
           });
-          reg.definePartialInstance(IAgentTaskService, {
-            hooks: createHooks(['onDidNotify']),
-          });
+          reg.definePartialInstance(IAgentTaskService, {});
           reg.defineInstance(
             IAgentWireService,
             disposables.add(new WireService({ logScope: 'wire', logKey: 'external-hooks' })),
@@ -212,6 +206,7 @@ describe('HookEngine integration', () => {
         new SyncDescriptor(AgentExternalHooksService, [{ hookEngine }]),
       );
       ix.get(IAgentExternalHooksService);
+      const eventBus = ix.get(IEventBus);
 
       const signal = new AbortController().signal;
       const filtered: TurnAfterStepContext = {
@@ -239,9 +234,11 @@ describe('HookEngine integration', () => {
       expect(second.continue).toBe(false);
       expect(stopInputs).toEqual([{ stopHookActive: false }]);
 
-      await turnService.hooks.onEnded.run({
-        turn: makeTurn(0),
-        result: { reason: 'completed' },
+      eventBus.publish({
+        type: 'turn.ended',
+        turnId: 0,
+        reason: 'completed',
+        durationMs: 0,
       });
 
       const nextTurn = makeAfterStep(signal);
@@ -265,10 +262,6 @@ describe('HookEngine integration', () => {
     const disposables = new DisposableStore();
     let ix: TestInstantiationService | undefined;
     try {
-      const permissionHooks = createHooks([
-        'onDidRequestApproval',
-        'onDidResolveApproval',
-      ]) as IAgentPermissionGate['hooks'];
       const fired: Array<{
         event: string;
         matcherValue?: unknown;
@@ -296,22 +289,18 @@ describe('HookEngine integration', () => {
           reg.definePartialInstance(IConfigService, {});
           reg.definePartialInstance(IPluginService, {});
           reg.defineInstance(IAgentContextMemoryService, stubContextMemory());
-          reg.defineInstance(IAgentRecordService, stubRecord());
           reg.defineInstance(IAgentLoopService, stubLoopWithHooks());
+          reg.define(IEventBus, EventBusService);
           reg.definePartialInstance(IAgentPromptService, {
             hooks: createHooks(['onWillSubmitPrompt']),
           });
           reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
           reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
-          reg.definePartialInstance(IAgentPermissionGate, {
-            hooks: permissionHooks,
-          });
+          reg.definePartialInstance(IAgentPermissionGate, {});
           reg.definePartialInstance(IAgentFullCompactionService, {
-            hooks: createHooks(['onWillCompact', 'onDidCompact']),
+            hooks: createHooks(['onWillCompact']),
           });
-          reg.definePartialInstance(IAgentTaskService, {
-            hooks: createHooks(['onDidNotify']),
-          });
+          reg.definePartialInstance(IAgentTaskService, {});
         },
       });
       ix.set(
@@ -319,6 +308,7 @@ describe('HookEngine integration', () => {
         new SyncDescriptor(AgentExternalHooksService, [{ hookEngine }]),
       );
       ix.get(IAgentExternalHooksService);
+      const eventBus = ix.get(IEventBus);
 
       const requestContext = {
         sessionId: 'session-1',
@@ -330,12 +320,17 @@ describe('HookEngine integration', () => {
         toolInput: { command: 'pwd' },
         display: { kind: 'command' as const, command: 'pwd' },
       };
-      await permissionHooks.onDidRequestApproval.run(requestContext);
-      await permissionHooks.onDidResolveApproval.run({
+      eventBus.publish({
+        type: 'permission.approval.requested',
+        ...requestContext,
+      });
+      eventBus.publish({
+        type: 'permission.approval.resolved',
         ...requestContext,
         decision: 'approved',
         selectedLabel: 'Approve once',
       });
+      await flushMicrotasks();
 
       expect(fired).toEqual([
         {
@@ -353,6 +348,88 @@ describe('HookEngine integration', () => {
           },
         },
       ]);
+    } finally {
+      ix?.dispose();
+      disposables.dispose();
+    }
+  });
+
+  it('waits for dynamic hooks to load before running the first blocking hook', async () => {
+    const disposables = new DisposableStore();
+    let ix: TestInstantiationService | undefined;
+    try {
+      const loop = stubLoopWithHooks();
+      const context = stubContextMemory();
+      let resolveReady!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        resolveReady = resolve;
+      });
+
+      ix = createServices(disposables, {
+        strict: true,
+        additionalServices: (reg) => {
+          reg.defineInstance(IBootstrapService, stubBootstrap());
+          reg.definePartialInstance(IConfigService, {
+            ready,
+            get: <T = unknown>(domain: string): T =>
+              (domain === HOOKS_SECTION
+                ? [
+                  {
+                    event: 'Stop' as const,
+                    command: nodeCommand('process.stderr.write("loaded stop hook"); process.exit(2);'),
+                    timeout: 5,
+                  },
+                ]
+                : undefined) as T,
+          });
+          reg.definePartialInstance(IPluginService, {
+            enabledHooks: async () => [],
+            onDidReload: Event.None as IPluginService['onDidReload'],
+          });
+          reg.defineInstance(IAgentContextMemoryService, context);
+          reg.defineInstance(IAgentLoopService, loop);
+          reg.define(IEventBus, EventBusService);
+          reg.definePartialInstance(IAgentPromptService, {
+            hooks: createHooks(['onWillSubmitPrompt']),
+          });
+          reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
+          reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
+          reg.definePartialInstance(IAgentPermissionGate, {});
+          reg.definePartialInstance(IAgentFullCompactionService, {
+            hooks: createHooks(['onWillCompact']),
+          });
+          reg.definePartialInstance(IAgentTaskService, {});
+          reg.defineInstance(
+            IAgentWireService,
+            disposables.add(new WireService({ logScope: 'wire', logKey: 'external-hooks' })),
+          );
+        },
+      });
+      ix.set(
+        IAgentExternalHooksService,
+        new SyncDescriptor(AgentExternalHooksService, [{}]),
+      );
+      ix.get(IAgentExternalHooksService);
+
+      const afterStep = makeAfterStep(new AbortController().signal);
+      let completed = false;
+      const pending = loop.hooks.afterStep.run(afterStep).then(() => {
+        completed = true;
+      });
+      await flushMicrotasks();
+      expect(completed).toBe(false);
+
+      resolveReady();
+      await pending;
+
+      expect(afterStep.continue).toBe(true);
+      expect(context.messages.at(-1)).toEqual(
+        expect.objectContaining({
+          role: 'user',
+          content: [{ type: 'text', text: 'loaded stop hook' }],
+          origin: { kind: 'system_trigger', name: 'stop_hook' },
+        }),
+      );
     } finally {
       ix?.dispose();
       disposables.dispose();
