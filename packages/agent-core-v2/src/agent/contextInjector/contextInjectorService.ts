@@ -5,7 +5,6 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentLoopService } from '#/agent/loop';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
-import { IAgentTurnService } from '#/agent/turn';
 import { IEventBus } from '#/app/event/eventBus';
 import type { ContextMessage } from '#/agent/contextMemory';
 import {
@@ -29,7 +28,6 @@ export class AgentContextInjectorService extends Disposable implements IAgentCon
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-    @IAgentTurnService turnService: IAgentTurnService,
     @IAgentLoopService loopService: IAgentLoopService,
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
     @IEventBus private readonly eventBus: IEventBus,

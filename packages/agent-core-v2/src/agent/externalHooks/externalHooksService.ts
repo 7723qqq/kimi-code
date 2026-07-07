@@ -1,16 +1,15 @@
 /**
- * `externalHooks` domain (L5) — Agent-scope adapter for external
+ * `externalHooks` domain (L6) — Agent-scope adapter for external
  * hook commands.
  *
- * Listens to hook slots owned by the agent behavior/lifecycle domains
- * (`toolExecutor`, `permissionGate`, `prompt`, `turn`, `loop`, `fullCompaction`, and
- * `task`) and translates those minimal contexts into the configured external
- * HookEngine events. Appends UserPromptSubmit hook results and Stop hook
- * continuation prompts through `contextMemory`. The `SubagentStart` /
- * `SubagentStop` pair is the one
- * exception: the `agentLifecycle` tool wrapper has no hook service of its own,
- * so `mirrorAgentRun` invokes `runAgentTaskStart` / `notifyAgentTaskStop` on
- * this service directly.
+ * Listens to hook slots and agent events owned by the agent behavior/lifecycle
+ * domains (`toolExecutor`, `permissionGate`, `prompt`, `turn`, `loop`,
+ * `fullCompaction`, `task`, and the `agentLifecycle` run hooks) and translates
+ * those minimal contexts into the configured external HookEngine events —
+ * including `SubagentStart` / `SubagentStop`, which it now observes via the
+ * `IAgentRunHooksService` slots rather than being invoked directly by the
+ * `agentLifecycle` wrapper. Appends UserPromptSubmit hook results and Stop hook
+ * continuation prompts through `contextMemory`.
  */
 
 import { IInstantiationService } from '#/_base/di/instantiation';
@@ -48,13 +47,16 @@ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IPluginService } from '#/app/plugin/plugin';
 import { toKimiErrorPayload } from '#/errors';
+import {
+  IAgentRunHooksService,
+  type AgentTaskStartHookContext,
+  type AgentTaskStopHookContext,
+} from '#/session/agentLifecycle/runHooks';
 
 import { HOOKS_SECTION, type HookDefConfig } from './configSection';
 import { HookEngine } from './engine';
 import {
   IAgentExternalHooksService,
-  type AgentTaskStartHookContext,
-  type AgentTaskStopHookContext,
   type ExternalHooksServiceOptions,
 } from './externalHooks';
 import {
@@ -156,6 +158,9 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
       this.instantiation.invokeFunction((accessor) => accessor.get(IAgentTaskService)),
     );
 
+    this.registerAgentTaskHooks(
+      this.instantiation.invokeFunction((accessor) => accessor.get(IAgentRunHooksService)),
+    );
   }
 
   private registerToolHooks(toolExecutor: IAgentToolExecutorService): void {
@@ -254,6 +259,21 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
       this.eventBus.subscribe('task.notified', (e) => {
         const { type: _type, ...ctx } = e;
         this.notifyTaskNotification(ctx);
+      }),
+    );
+  }
+
+  private registerAgentTaskHooks(runHooks: IAgentRunHooksService): void {
+    this._register(
+      runHooks.hooks.onWillStartAgentTask.register('externalHooks', async (ctx, next) => {
+        await this.runSubagentStart(ctx);
+        await next();
+      }),
+    );
+    this._register(
+      runHooks.hooks.onDidStopAgentTask.register('externalHooks', (ctx, next) => {
+        this.notifySubagentStop(ctx);
+        return next();
       }),
     );
   }
@@ -433,7 +453,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     );
   }
 
-  async runAgentTaskStart(ctx: AgentTaskStartHookContext): Promise<void> {
+  private async runSubagentStart(ctx: AgentTaskStartHookContext): Promise<void> {
     ctx.signal.throwIfAborted();
     const engine = await this.readyEngine();
     await engine?.trigger('SubagentStart', {
@@ -447,7 +467,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     ctx.signal.throwIfAborted();
   }
 
-  notifyAgentTaskStop(ctx: AgentTaskStopHookContext): void {
+  private notifySubagentStop(ctx: AgentTaskStopHookContext): void {
     this.fireAndForget(
       'SubagentStop',
       {

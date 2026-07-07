@@ -21,9 +21,13 @@ import {
   SessionExportService,
 } from '#/app/sessionExport/sessionExportService';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
-import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
+import {
+  ISessionLifecycleService,
+  type SessionLifecycleHooks,
+} from '#/app/sessionLifecycle/sessionLifecycle';
 import { IWorkspaceRegistry } from '#/app/workspaceRegistry/workspaceRegistry';
 import { KimiError } from '#/errors';
+import { createHooks } from '#/hooks';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
 
@@ -306,6 +310,10 @@ function registerSessionExportServices(
     onDidCloseSession: noopEvent,
     onDidArchiveSession: noopEvent,
     onDidForkSession: noopEvent,
+    hooks: createHooks<SessionLifecycleHooks, keyof SessionLifecycleHooks>([
+      'onDidCreateSession',
+      'onWillCloseSession',
+    ]),
     create: async () => {
       throw new Error('create should not be called by session export');
     },

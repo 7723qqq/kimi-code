@@ -3,8 +3,9 @@
  *
  * Owns the process-wide registry of open Session child scopes, creating them
  * through the DI scope tree and seeding each with its identity and storage
- * addressing, and tearing them down on close/archive — archiving flags the
- * session's `sessionMetadata`, removes its `agentLifecycle` agents, and
+ * addressing, running lifecycle hook slots, and tearing them down on
+ * close/archive — archiving flags the session's `sessionMetadata`, removes
+ * its `agentLifecycle` agents, and
  * broadcasts through `event`. Materializes the session's initial metadata on
  * creation by resolving `sessionMetadata`. Bound at App scope. Persisted
  * sessions are the `sessionIndex` read model.
@@ -35,9 +36,11 @@ import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IWorkspaceRegistry } from '#/app/workspaceRegistry/workspaceRegistry';
+import { ISessionExternalHooksService } from '#/session/externalHooks/externalHooks';
 import { ISessionContext, sessionContextSeed } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { createHooks } from '#/hooks';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
   IAgentWireRecordService,
@@ -54,6 +57,8 @@ import {
   type SessionClosedEvent,
   type SessionCreatedEvent,
   type SessionForkedEvent,
+  type SessionLifecycleHooks,
+  type SessionWillCloseEvent,
   ISessionLifecycleService,
 } from './sessionLifecycle';
 
@@ -68,6 +73,10 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
   readonly onDidArchiveSession: Event<SessionArchivedEvent> = this._onDidArchiveSession.event;
   private readonly _onDidForkSession = this._register(new Emitter<SessionForkedEvent>());
   readonly onDidForkSession: Event<SessionForkedEvent> = this._onDidForkSession.event;
+  readonly hooks = createHooks<SessionLifecycleHooks, keyof SessionLifecycleHooks>([
+    'onDidCreateSession',
+    'onWillCloseSession',
+  ]);
   /** In-flight `resume` promises, keyed by session id — de-dupes concurrent
    *  cold loads so a hot read path (e.g. snapshot retry) cannot materialize
    *  the same session twice and leak a handle. */
@@ -87,6 +96,12 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
   }
 
   async create(opts: CreateSessionOptions): Promise<ISessionScopeHandle> {
+    const handle = await this.materializeSession(opts);
+    await this.announceCreated({ sessionId: opts.sessionId, handle, source: 'startup' });
+    return handle;
+  }
+
+  private async materializeSession(opts: CreateSessionOptions): Promise<ISessionScopeHandle> {
     const workspaceId = encodeWorkDirKey(opts.workDir);
     const sessionScope = this.bootstrap.sessionScope(workspaceId, opts.sessionId);
     const sessionDir = this.bootstrap.sessionDir(workspaceId, opts.sessionId);
@@ -122,8 +137,13 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     await handle.accessor.get(ISessionMetadata).ready;
     void handle.accessor.get(ISessionSkillCatalog).ready;
     await handle.accessor.get(IAgentLifecycleService).ensureMcpReady();
-    this._onDidCreateSession.fire({ sessionId: opts.sessionId, handle });
+    handle.accessor.get(ISessionExternalHooksService);
     return handle;
+  }
+
+  private async announceCreated(event: SessionCreatedEvent): Promise<void> {
+    await this.hooks.onDidCreateSession.run(event);
+    this._onDidCreateSession.fire(event);
   }
 
   get(sessionId: string): ISessionScopeHandle | undefined {
@@ -151,7 +171,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     const workspace = await this.workspaceRegistry.get(summary.workspaceId);
     if (workspace === undefined) return undefined;
 
-    const handle = await this.create({ sessionId, workDir: workspace.root });
+    const handle = await this.materializeSession({ sessionId, workDir: workspace.root });
     const agents = handle.accessor.get(IAgentLifecycleService);
     if (agents.getHandle(MAIN_AGENT_ID) === undefined) {
       const main = await ensureMainAgent(handle);
@@ -165,6 +185,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
         .accessor.get(IAgentWireService)
         .replay(...(mainWireRecord.getRecords() as readonly PersistedRecord[]));
     }
+    await this.announceCreated({ sessionId, handle, source: 'resume' });
     return handle;
   }
 
@@ -175,6 +196,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
   async close(sessionId: string): Promise<void> {
     const handle = this.sessions.get(sessionId);
     if (handle === undefined) return;
+    await this.announceWillClose({ sessionId, handle, reason: 'exit' });
     this.sessions.delete(sessionId);
     handle.dispose();
     this._onDidCloseSession.fire({ sessionId });
@@ -193,9 +215,14 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       type: 'event.session.archived',
       payload: { sessionId },
     });
+    await this.announceWillClose({ sessionId, handle, reason: 'exit' });
     this.sessions.delete(sessionId);
     handle.dispose();
     this._onDidArchiveSession.fire({ sessionId });
+  }
+
+  private async announceWillClose(event: SessionWillCloseEvent): Promise<void> {
+    await this.hooks.onWillCloseSession.run(event);
   }
 
   async fork(opts: ForkSessionOptions): Promise<ISessionScopeHandle> {
@@ -245,7 +272,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     }
 
     // 6. Materialize the target session scope (fresh metadata + storage).
-    const target = await this.create({ sessionId: targetId, workDir: workspace.root });
+    const target = await this.materializeSession({ sessionId: targetId, workDir: workspace.root });
     const targetCtx = target.accessor.get(ISessionContext);
     const targetMeta = target.accessor.get(ISessionMetadata);
 
@@ -299,6 +326,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       sessionId: targetId,
       handle: target,
     });
+    await this.announceCreated({ sessionId: targetId, handle: target, source: 'fork' });
     return target;
   }
 

@@ -17,8 +17,8 @@ export * from './tools/subagent-task';
 export { AGENT_RUN_PROMPT_ORIGIN } from './runAgentTurn';
 export * from './mainAgent';
 export * from './mirrorAgentRun';
-// Deliberately last: `tools/agent` reaches `sessionSwarmService` through
-// `mirrorAgentRun` → `externalHooks` → `permissionPolicy` → `agent/swarm`,
-// and `sessionSwarmService` imports this barrel back. The `./agentLifecycle`
-// contract (service decorator) must be evaluated before that cycle re-enters.
+export * from './runHooks';
+// Deliberately last: `tools/agent` transitively reaches `sessionSwarmService`,
+// which imports this barrel back. The `./agentLifecycle` contract (service
+// decorator) must be evaluated before that cycle re-enters.
 import './tools/agent';

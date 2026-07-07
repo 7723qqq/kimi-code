@@ -20,7 +20,6 @@ import type { TurnEndedEvent, TurnStartedEvent } from '@moonshot-ai/protocol';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError, toKimiErrorPayload } from '#/errors';
-import { OrderedHookSlot } from '#/hooks';
 import { IAgentLoopService } from '#/agent/loop';
 import { IEventBus } from '#/app/event/eventBus';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';

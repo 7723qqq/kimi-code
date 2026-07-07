@@ -57,6 +57,7 @@ package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>workspaceCommand</b>\n<size:9><i>Session</i></size>\n  ISessionWorkspaceCommandService" as workspaceCommand #D5F5E3
   rectangle "<b>sessionLog</b>\n<size:9><i>Session binding</i></size>\n  ILogService" as sessionLog #D5F5E3
   rectangle "<b>sessionSkillCatalog</b>\n<size:9><i>Session</i></size>\n  ISessionSkillCatalog\n  ISkillCatalogSink\n  Workspace/PluginSkillSource" as sessionSkillCatalog #D5F5E3
+  rectangle "<b>externalHooks</b>\n<size:9><i>Session</i></size>\n  ISessionExternalHooksService" as sessionExternalHooks #D5F5E3
   rectangle "<b>sessionFs</b>\n<size:9><i>Session</i></size>\n  ISessionFsService" as sessionFs #D5F5E3
   rectangle "<b>approval</b>\n<size:9><i>Session</i></size>\n  IApprovalService" as approval #D5F5E3
   rectangle "<b>question</b>\n<size:9><i>Session</i></size>\n  IQuestionService" as question #D5F5E3
@@ -298,6 +299,10 @@ externalHooks --> config #34495E
 externalHooks --> bootstrap #34495E
 externalHooks --> plugin #34495E
 externalHooks --> contextMemory #34495E
+sessionExternalHooks --> session_lifecycle #34495E
+sessionExternalHooks --> config #34495E
+sessionExternalHooks --> plugin #34495E
+sessionExternalHooks --> session_context #34495E
 todo --> agent_lifecycle #34495E
 usage --> wire #34495E
 rpc --> prompt #34495E
@@ -368,7 +373,8 @@ externalHooks ..> turn #16A085 : prompt/end hooks
 externalHooks ..> loop #16A085 : stop hook
 externalHooks ..> fullCompaction #16A085 : compaction hooks
 externalHooks ..> task #16A085 : notification hook
-agent_lifecycle ..> externalHooks #16A085 : SubagentStart/Stop (mirrorAgentRun)
+sessionExternalHooks ..> session_lifecycle #16A085 : SessionStart/End hooks
+externalHooks ..> agent_lifecycle #16A085 : SubagentStart/Stop (observes run hooks)
 toolState ..> wire #16A085 : tools.update_store
 usage ..> wire #16A085 : usage.record
 turn ..> wire #16A085 : turn.launch

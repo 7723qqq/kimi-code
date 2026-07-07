@@ -1,7 +1,12 @@
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
+import type { ISessionScopeHandle } from '#/_base/di/scope';
 import {
   createServices,
   type TestInstantiationService,
@@ -22,6 +27,10 @@ import {
   AgentExternalHooksService,
   IAgentExternalHooksService,
 } from '#/agent/externalHooks';
+import {
+  AgentRunHooksService,
+  IAgentRunHooksService,
+} from '#/session/agentLifecycle/runHooks';
 import { HookEngine } from '#/agent/externalHooks/engine';
 import {
   HookDefSchema,
@@ -40,7 +49,16 @@ import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 import { IPluginService } from '#/app/plugin/plugin';
+import {
+  ISessionLifecycleService,
+  type SessionLifecycleHooks,
+} from '#/app/sessionLifecycle/sessionLifecycle';
 import { createHooks } from '#/hooks';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import {
+  ISessionExternalHooksService,
+  SessionExternalHooksService,
+} from '#/session/externalHooks';
 import { IAgentWireService, WireService } from '#/wire';
 
 import { stubBootstrap } from '../bootstrap/stubs';
@@ -109,6 +127,60 @@ function stubContextMemory(): IAgentContextMemoryService & {
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function hookLogPath(): string {
+  return join(mkdtempSync(join(tmpdir(), 'session-external-hooks-')), 'events.jsonl');
+}
+
+function appendHookLogCommand(path: string): string {
+  return stdinScript([
+    'const fs = require("node:fs");',
+    'fs.appendFileSync(',
+    `  ${JSON.stringify(path)},`,
+    '  JSON.stringify({',
+    '    event: parsed.hook_event_name,',
+    '    source: parsed.source,',
+    '    reason: parsed.reason,',
+    '    sessionId: parsed.session_id,',
+    '    cwd: parsed.cwd,',
+    '  }) + "\\n",',
+    ');',
+  ].join('\n'));
+}
+
+function readHookLog(path: string): Array<Record<string, unknown>> {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, 'utf8')
+    .trim()
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+function stubSessionLifecycle(): ISessionLifecycleService {
+  return {
+    _serviceBrand: undefined,
+    hooks: createHooks<SessionLifecycleHooks, keyof SessionLifecycleHooks>([
+      'onDidCreateSession',
+      'onWillCloseSession',
+    ]),
+    onDidCreateSession: Event.None as ISessionLifecycleService['onDidCreateSession'],
+    onDidCloseSession: Event.None as ISessionLifecycleService['onDidCloseSession'],
+    onDidArchiveSession: Event.None as ISessionLifecycleService['onDidArchiveSession'],
+    onDidForkSession: Event.None as ISessionLifecycleService['onDidForkSession'],
+    create: async () => {
+      throw new Error('not implemented');
+    },
+    get: () => undefined,
+    list: () => [],
+    resume: async () => undefined,
+    close: async () => {},
+    archive: async () => {},
+    fork: async () => {
+      throw new Error('not implemented');
+    },
+  };
 }
 
 describe('HookEngine integration', () => {
@@ -201,6 +273,7 @@ describe('HookEngine integration', () => {
           );
         },
       });
+      ix.set(IAgentRunHooksService, new SyncDescriptor(AgentRunHooksService));
       ix.set(
         IAgentExternalHooksService,
         new SyncDescriptor(AgentExternalHooksService, [{ hookEngine }]),
@@ -303,6 +376,7 @@ describe('HookEngine integration', () => {
           reg.definePartialInstance(IAgentTaskService, {});
         },
       });
+      ix.set(IAgentRunHooksService, new SyncDescriptor(AgentRunHooksService));
       ix.set(
         IAgentExternalHooksService,
         new SyncDescriptor(AgentExternalHooksService, [{ hookEngine }]),
@@ -346,6 +420,117 @@ describe('HookEngine integration', () => {
             decision: 'approved',
             selectedLabel: 'Approve once',
           },
+        },
+      ]);
+    } finally {
+      ix?.dispose();
+      disposables.dispose();
+    }
+  });
+
+  it('observes the agent-run hook slots to fire SubagentStart and SubagentStop', async () => {
+    const disposables = new DisposableStore();
+    let ix: TestInstantiationService | undefined;
+    try {
+      const fired: Array<{
+        event: string;
+        matcherValue?: unknown;
+        inputData?: unknown;
+      }> = [];
+      const triggered: Array<{
+        event: string;
+        matcherValue?: unknown;
+        inputData?: unknown;
+        signal?: unknown;
+      }> = [];
+      const hookEngine = {
+        trigger: async (
+          event: string,
+          args: { matcherValue?: unknown; inputData?: unknown; signal?: unknown },
+        ) => {
+          triggered.push({
+            event,
+            matcherValue: args.matcherValue,
+            inputData: args.inputData,
+            signal: args.signal,
+          });
+          return [];
+        },
+        triggerBlock: async () => undefined,
+        fireAndForgetTrigger: async (
+          event: string,
+          args: { matcherValue?: unknown; inputData?: unknown },
+        ) => {
+          fired.push({
+            event,
+            matcherValue: args.matcherValue,
+            inputData: args.inputData,
+          });
+          return [];
+        },
+      };
+
+      ix = createServices(disposables, {
+        strict: true,
+        additionalServices: (reg) => {
+          reg.defineInstance(IBootstrapService, stubBootstrap());
+          reg.definePartialInstance(IConfigService, {});
+          reg.definePartialInstance(IPluginService, {
+            onDidReload: Event.None as IPluginService['onDidReload'],
+          });
+          reg.defineInstance(IAgentContextMemoryService, stubContextMemory());
+          reg.defineInstance(IAgentLoopService, stubLoopWithHooks());
+          reg.define(IEventBus, EventBusService);
+          reg.definePartialInstance(IAgentPromptService, {
+            hooks: createHooks(['onWillSubmitPrompt']),
+          });
+          reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
+          reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
+          reg.definePartialInstance(IAgentPermissionGate, {});
+          reg.definePartialInstance(IAgentFullCompactionService, {
+            hooks: createHooks(['onWillCompact']),
+          });
+          reg.definePartialInstance(IAgentTaskService, {});
+        },
+      });
+      ix.set(IAgentRunHooksService, new SyncDescriptor(AgentRunHooksService));
+      ix.set(
+        IAgentExternalHooksService,
+        new SyncDescriptor(AgentExternalHooksService, [{ hookEngine }]),
+      );
+
+      // Construct the observer first so it registers on the run-hook slots,
+      // then drive the slots the way `mirrorAgentRun` does.
+      ix.get(IAgentExternalHooksService);
+      const runHooks = ix.get(IAgentRunHooksService);
+
+      await runHooks.hooks.onWillStartAgentTask.run({
+        agentName: 'coder',
+        prompt: 'Fix the bug',
+        signal: new AbortController().signal,
+      });
+      await runHooks.hooks.onDidStopAgentTask.run({
+        agentName: 'coder',
+        response: 'Bug fixed',
+      });
+
+      expect(triggered).toEqual([
+        {
+          event: 'SubagentStart',
+          matcherValue: 'coder',
+          inputData: { agentName: 'coder', prompt: 'Fix the bug' },
+          signal: expect.any(AbortSignal),
+        },
+      ]);
+
+      // SubagentStop is fire-and-forget; flush until it lands.
+      await flushMicrotasks();
+      await flushMicrotasks();
+      expect(fired).toEqual([
+        {
+          event: 'SubagentStop',
+          matcherValue: 'coder',
+          inputData: { agentName: 'coder', response: 'Bug fixed' },
         },
       ]);
     } finally {
@@ -405,6 +590,7 @@ describe('HookEngine integration', () => {
           );
         },
       });
+      ix.set(IAgentRunHooksService, new SyncDescriptor(AgentRunHooksService));
       ix.set(
         IAgentExternalHooksService,
         new SyncDescriptor(AgentExternalHooksService, [{}]),
@@ -617,6 +803,103 @@ describe('HookEngine integration', () => {
       inputData: { sessionId: 's1', reason: 'clear' },
     });
     expect(unmatched).toHaveLength(0);
+  });
+
+  it('runs session external hooks from lifecycle callbacks', async () => {
+    const disposables = new DisposableStore();
+    let ix: TestInstantiationService | undefined;
+    try {
+      const lifecycle = stubSessionLifecycle();
+      const path = hookLogPath();
+      const command = appendHookLogCommand(path);
+      const cwd = mkdtempSync(join(tmpdir(), 'session-external-hooks-cwd-'));
+      const handle = {} as ISessionScopeHandle;
+
+      ix = createServices(disposables, {
+        strict: true,
+        additionalServices: (reg) => {
+          reg.defineInstance(ISessionContext, {
+            _serviceBrand: undefined,
+            sessionId: 'session-1',
+            workspaceId: 'workspace-1',
+            sessionDir: '/tmp/session-1',
+            metaScope: 'sessions/workspace-1/session-1',
+            cwd,
+            scope: (subKey?: string) =>
+              subKey === undefined || subKey === ''
+                ? 'sessions/workspace-1/session-1'
+                : `sessions/workspace-1/session-1/${subKey}`,
+          });
+          reg.defineInstance(ISessionLifecycleService, lifecycle);
+          reg.definePartialInstance(IConfigService, {
+            ready: Promise.resolve(),
+            get: <T = unknown>(domain: string): T =>
+              (domain === HOOKS_SECTION
+                ? [
+                  { event: 'SessionStart' as const, command, timeout: 5 },
+                  { event: 'SessionEnd' as const, command, timeout: 5 },
+                ]
+                : undefined) as T,
+          });
+          reg.definePartialInstance(IPluginService, {
+            enabledHooks: async () => [],
+            onDidReload: Event.None as IPluginService['onDidReload'],
+          });
+        },
+      });
+      ix.set(ISessionExternalHooksService, new SyncDescriptor(SessionExternalHooksService));
+      ix.get(ISessionExternalHooksService);
+
+      await lifecycle.hooks.onDidCreateSession.run({
+        sessionId: 'session-1',
+        handle,
+        source: 'startup',
+      });
+      await lifecycle.hooks.onDidCreateSession.run({
+        sessionId: 'session-1',
+        handle,
+        source: 'resume',
+      });
+      await lifecycle.hooks.onDidCreateSession.run({
+        sessionId: 'session-1',
+        handle,
+        source: 'fork',
+      });
+      await lifecycle.hooks.onDidCreateSession.run({
+        sessionId: 'other-session',
+        handle,
+        source: 'startup',
+      });
+      await lifecycle.hooks.onWillCloseSession.run({
+        sessionId: 'session-1',
+        handle,
+        reason: 'exit',
+      });
+
+      expect(readHookLog(path)).toEqual([
+        {
+          event: 'SessionStart',
+          source: 'startup',
+          sessionId: 'session-1',
+          cwd,
+        },
+        {
+          event: 'SessionStart',
+          source: 'resume',
+          sessionId: 'session-1',
+          cwd,
+        },
+        {
+          event: 'SessionEnd',
+          reason: 'exit',
+          sessionId: 'session-1',
+          cwd,
+        },
+      ]);
+    } finally {
+      ix?.dispose();
+      disposables.dispose();
+    }
   });
 
   it('fires a SubagentStart hook with the agent_name payload field', async () => {

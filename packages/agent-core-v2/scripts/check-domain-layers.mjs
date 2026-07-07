@@ -165,13 +165,13 @@ const DOMAIN_LAYER = new Map([
   ['agentTask', 5],
   ['mcp', 5],
   ['cron', 5],
-  ['externalHooks', 5],
   // `btw` forks a single side-question sub-agent via `agentLifecycle`,
   // parallel to how the `Agent` tool spawns child agents. Agent-scope, L5.
   ['btw', 5],
   // L6 — coordination
   ['agentLifecycle', 6],
   ['sessionLifecycle', 6],
+  ['externalHooks', 6],
   ['sessionExport', 6],
   ['interaction', 6],
   ['sessionMetadata', 6],
