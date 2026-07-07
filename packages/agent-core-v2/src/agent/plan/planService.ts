@@ -139,7 +139,7 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
   }
 
   private currentCwd(): string {
-    return this.profile.data().cwd ?? process.cwd();
+    return this.profile.data().cwd;
   }
 }
 
