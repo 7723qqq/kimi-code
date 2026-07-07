@@ -177,6 +177,13 @@ const DOMAIN_LAYER = new Map([
   ['sessionActivity', 6],
   ['session', 6],
   ['terminal', 6],
+  // `workspaceCommand` orchestrates session-level workspace mutations
+  // (`addAdditionalDir`): it reaches through `agentLifecycle` (L6) to the
+  // `main` agent's `contextMemory` (L4) to mirror the action's stdout, and
+  // reads/writes the workspace-local config through `os/interface` (L1). Its
+  // highest real dependency is `agentLifecycle`, so it sits in L6 beside the
+  // other coordination domains.
+  ['workspaceCommand', 6],
   // L7 — boundary
   ['approval', 7],
   ['question', 7],

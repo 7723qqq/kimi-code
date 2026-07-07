@@ -260,6 +260,60 @@ describe('SnapshotReader.read', () => {
     expect(texts).toEqual(['summary', 'after']);
   });
 
+  it('reduces v1-shaped string summary compaction records', async () => {
+    const f = await makeFixtureAsync();
+    await seedSession(f, 'sess_compact_v1');
+    await writeWire(f.sessionDir('sess_compact_v1'), [
+      { type: 'context.append_message', message: userMessage('old-1') },
+      { type: 'context.append_message', message: userMessage('old-2') },
+      {
+        type: 'context.apply_compaction',
+        summary: 'summary',
+        compactedCount: 2,
+        tokensBefore: 100,
+        tokensAfter: 20,
+      },
+      { type: 'context.append_message', message: userMessage('after') },
+    ]);
+    const snap = await f.reader.read('sess_compact_v1');
+    const messages = snap.messages.items;
+    const texts = messages.map((m) => (m.content[0] as { text: string }).text);
+    expect(texts).toEqual(['summary', 'after']);
+    expect(messages[0]?.metadata).toEqual({ origin: { kind: 'compaction_summary' } });
+  });
+
+  it('reduces new compaction records to kept user messages followed by contextSummary', async () => {
+    const f = await makeFixtureAsync();
+    await seedSession(f, 'sess_compact_kept_users');
+    await writeWire(f.sessionDir('sess_compact_kept_users'), [
+      { type: 'context.append_message', message: userMessage('old user') },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'old assistant' }],
+          toolCalls: [],
+        },
+      },
+      { type: 'context.append_message', message: userMessage('recent user') },
+      {
+        type: 'context.apply_compaction',
+        summary: 'raw summary',
+        contextSummary: 'model-facing summary',
+        compactedCount: 3,
+        tokensBefore: 100,
+        tokensAfter: 20,
+        keptUserMessageCount: 2,
+      },
+    ]);
+    const snap = await f.reader.read('sess_compact_kept_users');
+    const messages = snap.messages.items;
+    const texts = messages.map((m) => (m.content[0] as { text: string }).text);
+    expect(messages.map((m) => m.role)).toEqual(['user', 'user', 'user']);
+    expect(texts).toEqual(['old user', 'recent user', 'model-facing summary']);
+    expect(messages[2]?.metadata).toEqual({ origin: { kind: 'compaction_summary' } });
+  });
+
   it('honors context.clear and context.undo', async () => {
     const f = await makeFixtureAsync();
     await seedSession(f, 'sess_ops');

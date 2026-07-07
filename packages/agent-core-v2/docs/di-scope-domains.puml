@@ -54,6 +54,7 @@ package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>agentLifecycle</b>\n<size:9><i>Session</i></size>\n  IAgentLifecycleService" as agent_lifecycle #D5F5E3
   rectangle "<b>interaction</b>\n<size:9><i>Session</i></size>\n  IInteractionService" as interaction #D5F5E3
   rectangle "<b>workspaceContext</b>\n<size:9><i>Session</i></size>\n  IWorkspaceContext" as workspaceContext #D5F5E3
+  rectangle "<b>workspaceCommand</b>\n<size:9><i>Session</i></size>\n  ISessionWorkspaceCommandService" as workspaceCommand #D5F5E3
   rectangle "<b>sessionLog</b>\n<size:9><i>Session binding</i></size>\n  ILogService" as sessionLog #D5F5E3
   rectangle "<b>sessionSkillCatalog</b>\n<size:9><i>Session</i></size>\n  ISessionSkillCatalog\n  ISkillCatalogSink\n  Workspace/PluginSkillSource" as sessionSkillCatalog #D5F5E3
   rectangle "<b>sessionFs</b>\n<size:9><i>Session</i></size>\n  ISessionFsService" as sessionFs #D5F5E3
@@ -141,6 +142,10 @@ modelCatalog --> model #34495E
 modelCatalog --> config #34495E
 modelCatalog --> auth #34495E
 workspaceContext --> session_context #34495E
+workspaceCommand --> bootstrap #34495E
+workspaceCommand --> workspaceContext #34495E
+workspaceCommand --> agent_lifecycle #34495E
+workspaceCommand --> hostFs #34495E
 sessionLog --> session_context #34495E
 sessionSkillCatalog --> skillCatalog #34495E
 sessionSkillCatalog --> plugin #34495E

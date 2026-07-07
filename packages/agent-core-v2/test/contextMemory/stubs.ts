@@ -11,7 +11,15 @@ import { toDisposable } from '#/_base/di/lifecycle';
 import type { ServiceRegistration } from '#/_base/di/test';
 import { createHooks } from '#/hooks';
 import type { Hooks } from '#/hooks';
-import { computeUndoCut, ensureMessageId, IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
+import {
+  buildContextCompactionShape,
+  computeUndoCut,
+  ensureMessageId,
+  IAgentContextMemoryService,
+  type ContextCompactionInput,
+  type ContextCompactionResult,
+  type ContextMessage,
+} from '#/agent/contextMemory';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
 
 /**
@@ -84,10 +92,19 @@ export function stubContextMemory(): StubContextMemory {
       }
       return cut;
     },
-    applyCompaction: ({ count, summary, tokens }) => {
-      const stamped = ensureMessageId(summary);
-      messages.splice(0, count, stamped);
-      void hooks.onSpliced.run({ start: 0, deleteCount: count, messages: [stamped], tokens });
+    applyCompaction: (input: ContextCompactionInput): ContextCompactionResult => {
+      const shape = buildContextCompactionShape(messages, input);
+      const previousLength = messages.length;
+      messages.splice(0, previousLength, ...shape.messages);
+      void hooks.onSpliced.run({
+        start: 0,
+        deleteCount: previousLength,
+        messages: [...shape.messages],
+        tokens: shape.tokensAfter,
+      });
+      const { messages: _messages, ...result } = shape;
+      void _messages;
+      return result;
     },
     splice: (start, deleteCount, inserted, tokens) => {
       const stamped = inserted.map(ensureMessageId);

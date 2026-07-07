@@ -17,6 +17,7 @@ export interface ISessionWorkspaceContext {
   readonly workDir: string;
   readonly additionalDirs: readonly string[];
   setWorkDir(workDir: string): void;
+  setAdditionalDirs(dirs: readonly string[]): void;
   resolve(rel: string): string;
   isWithin(absPath: string): boolean;
   assertAllowed(absPath: string, op: PathAccessOperation): string;
