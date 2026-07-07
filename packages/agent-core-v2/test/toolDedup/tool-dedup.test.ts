@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
+import { IEventBus } from '#/app/event/eventBus';
 import { type ToolCall } from '#/app/llmProtocol/message';
 import { emptyUsage } from '#/app/llmProtocol/usage';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -41,6 +42,12 @@ const ZERO_USAGE = emptyUsage();
 let disposables: DisposableStore;
 let telemetryEvents: TelemetryRecord[];
 
+const noopEventBus: IEventBus = {
+  _serviceBrand: undefined,
+  publish: () => {},
+  subscribe: () => ({ dispose: () => {} }),
+};
+
 beforeEach(() => {
   disposables = new DisposableStore();
   telemetryEvents = [];
@@ -53,7 +60,6 @@ interface Harness {
   readonly loop: IAgentLoopService;
   readonly executor: IAgentToolExecutorService;
   readonly registry: IAgentToolRegistryService;
-  readonly dedup: IAgentToolDedupeService;
 }
 
 /**
@@ -68,6 +74,7 @@ function createHarness(telemetry: ITelemetryService = recordingTelemetry(telemet
   const ix = createServices(disposables, {
     additionalServices: (reg) => {
       reg.defineInstance(ITelemetryService, telemetry);
+      reg.defineInstance(IEventBus, noopEventBus);
       reg.defineInstance(IAgentLoopService, loop);
       reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
@@ -82,10 +89,10 @@ function createHarness(telemetry: ITelemetryService = recordingTelemetry(telemet
     },
     strict: true,
   });
-  const dedup = ix.get(IAgentToolDedupeService);
+  ix.get(IAgentToolDedupeService);
   const executor = ix.get(IAgentToolExecutorService);
   const registry = ix.get(IAgentToolRegistryService);
-  return { ix, loop, executor, registry, dedup };
+  return { ix, loop, executor, registry };
 }
 
 function okResult(text: string): ToolDedupResult {
@@ -338,7 +345,6 @@ describe('AgentToolDedupeService', () => {
       const last = await runStreak(h, 2);
       expect(typeof last.output).toBe('string');
       expect(last.output as string).not.toContain('<system-reminder>');
-      expect(h.dedup.currentStreak).toBe(2);
     });
 
     it('injects reminder1 at exactly 3 consecutive', async () => {
@@ -348,7 +354,6 @@ describe('AgentToolDedupeService', () => {
       expect(last.output as string).toContain('<system-reminder>');
       expect(last.output as string).toContain('repeating the exact same tool call');
       expect(last.output as string).not.toContain('repeated_times');
-      expect(h.dedup.currentStreak).toBe(3);
     });
 
     it('keeps injecting reminder1 at 4 consecutive', async () => {
@@ -367,7 +372,6 @@ describe('AgentToolDedupeService', () => {
       expect(last.output as string).toContain('repeated_times: 5');
       expect(last.output as string).toContain('tool: Read');
       expect(last.output as string).toContain('arguments:');
-      expect(h.dedup.currentStreak).toBe(5);
     });
 
     it.each([6, 7])('keeps injecting reminder2 at %i consecutive', async (streak) => {
@@ -385,7 +389,6 @@ describe('AgentToolDedupeService', () => {
       const last = await runStreak(h, 8);
       expect(last.output as string).toContain('<system-reminder>');
       expect(last.output as string).toContain('stuck in a dead end');
-      expect(h.dedup.currentStreak).toBe(8);
     });
 
     it('resets streak when a different call is interleaved', async () => {
@@ -637,7 +640,6 @@ describe('AgentToolDedupeService', () => {
       // The underlying tool succeeded — force-stop must not flip it to error.
       expect(last.isError).toBeUndefined();
       expect(stopTurnOf(last)).toBe(true);
-      expect(h.dedup.currentStreak).toBe(12);
     });
 
     it('continues force-stopping past 12 consecutive', async () => {

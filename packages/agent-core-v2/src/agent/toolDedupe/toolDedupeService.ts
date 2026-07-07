@@ -191,7 +191,6 @@ export class AgentToolDedupeService extends Disposable implements IAgentToolDedu
     }
   }
 
-
   private checkToolCall(toolCallId: string, toolName: string, args: unknown): CheckedToolCall {
     const key = makeKey(toolName, args);
     const index = this.stepCalls.length;
@@ -286,10 +285,6 @@ export class AgentToolDedupeService extends Disposable implements IAgentToolDedu
 
     this.stepDeferreds.get(key)?.resolve(finalResult);
     return finalResult;
-  }
-
-  get currentStreak(): number {
-    return this.consecutiveCount;
   }
 }
 

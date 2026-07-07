@@ -5,9 +5,7 @@
  * `IAgentToolExecutorService`'s will/did hooks to suppress same-step duplicates and inject
  * cross-step repeat reminders. No other service injects it — the container
  * constructs it eagerly at Agent scope so its constructor registers the hooks.
- * The only public surface is the read-only `currentStreak` observation; the
- * step/result operations stay private to the service. Agent-scoped — one
- * instance per agent.
+ * Agent-scoped — one instance per agent.
  */
 
 import type { ContentPart } from '#/app/llmProtocol/message';
@@ -36,8 +34,6 @@ export type ToolDedupResult = ToolDedupSuccessResult | ToolDedupErrorResult;
 
 export interface IAgentToolDedupeService {
   readonly _serviceBrand: undefined;
-
-  readonly currentStreak: number;
 }
 
 export const IAgentToolDedupeService: ServiceIdentifier<IAgentToolDedupeService> =
