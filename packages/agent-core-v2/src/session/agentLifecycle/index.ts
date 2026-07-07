@@ -17,7 +17,6 @@ export * from './tools/subagent-task';
 export { AGENT_RUN_PROMPT_ORIGIN } from './runAgentTurn';
 export * from './mainAgent';
 export * from './mirrorAgentRun';
-export * from './runHooks';
 // Deliberately last: `tools/agent` transitively reaches `sessionSwarmService`,
 // which imports this barrel back. The `./agentLifecycle` contract (service
 // decorator) must be evaluated before that cycle re-enters.

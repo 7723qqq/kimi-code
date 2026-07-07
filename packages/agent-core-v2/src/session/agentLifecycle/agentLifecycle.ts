@@ -4,8 +4,11 @@
  * Defines the public contract of agent lifecycle: `create` (from zero, Profile
  * + Model), `fork` (inherit binding + context history), `run` (drive one
  * prompt/retry turn on an agent and await its distilled summary), plus lookup
- * (`getHandle` / `list`) and removal. Session-scoped — one instance per
- * session.
+ * (`getHandle` / `list`) and removal. Hosts the requester-side agent-run hook
+ * slots (`hooks.onWillStartAgentTask` / `onDidStopAgentTask`) that
+ * `mirrorAgentRun` runs when one agent drives another, so observers such as the
+ * Session-scope `externalHooks` adapter can translate them into external hook
+ * commands. Session-scoped — one instance per session.
  *
  * Invariants:
  * - The registry is flat: agents have no nesting. There is no parent/child or
@@ -29,6 +32,7 @@ import type { TokenUsage } from '#/app/llmProtocol/usage';
 import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import type { BindAgentInput } from '#/agent/profile';
 import type { Turn } from '#/agent/turn';
+import type { Hooks } from '#/hooks';
 
 export interface CreateAgentOptions {
   readonly agentId?: string;
@@ -84,8 +88,36 @@ export interface AgentListFilter {
   readonly prefix?: string;
 }
 
+/** Facts announced when an agent run this session is hosting is about to start. */
+export interface AgentTaskStartHookContext {
+  readonly agentName: string;
+  readonly prompt: string;
+  readonly signal: AbortSignal;
+}
+
+/** Facts announced when an agent run this session is hosting has stopped. */
+export interface AgentTaskStopHookContext {
+  readonly agentName: string;
+  readonly response: string;
+}
+
+export type AgentTaskHooks = {
+  readonly onWillStartAgentTask: AgentTaskStartHookContext;
+  readonly onDidStopAgentTask: AgentTaskStopHookContext;
+};
+
 export interface IAgentLifecycleService {
   readonly _serviceBrand: undefined;
+
+  /**
+   * Requester-side agent-run hook slots (`onWillStartAgentTask` /
+   * `onDidStopAgentTask`) run by `mirrorAgentRun` when one agent drives
+   * another. Observers — e.g. the Session-scope `externalHooks` adapter —
+   * register here to translate a run into `SubagentStart` / `SubagentStop`
+   * external hook commands. The slot host lives on the service that owns the
+   * run; callers never invoke the external hook commands directly.
+   */
+  readonly hooks: Hooks<AgentTaskHooks>;
 
   /** Fires after an agent is created and registered, with its scope handle. */
   readonly onDidCreate: Event<IAgentScopeHandle>;

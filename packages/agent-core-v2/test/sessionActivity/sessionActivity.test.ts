@@ -5,7 +5,11 @@ import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiati
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { type IAgentScopeHandle, LifecycleScope } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { createHooks } from '#/hooks';
+import {
+  type AgentTaskHooks,
+  IAgentLifecycleService,
+} from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionInteractionService, type Interaction, type InteractionKind } from '#/session/interaction/interaction';
 import { ISessionActivity } from '#/session/sessionActivity/sessionActivity';
 import { SessionActivity } from '#/session/sessionActivity/sessionActivityService';
@@ -54,6 +58,10 @@ function handle(id: string, active: boolean): IAgentScopeHandle {
 function lifecycle(handles: readonly IAgentScopeHandle[]): IAgentLifecycleService {
   return {
     _serviceBrand: undefined,
+    hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
+      'onWillStartAgentTask',
+      'onDidStopAgentTask',
+    ]),
     onDidCreate: () => ({ dispose: () => {} }),
     onDidDispose: () => ({ dispose: () => {} }),
     onDidCreateMain: () => ({ dispose: () => {} }),

@@ -31,10 +31,6 @@ import {
   ExternalHooksRunnerService,
   IExternalHooksRunnerService,
 } from '#/app/externalHooksRunner';
-import {
-  AgentRunHooksService,
-  IAgentRunHooksService,
-} from '#/session/agentLifecycle/runHooks';
 import { HookDefSchema, HOOKS_SECTION, hooksFromToml, hooksToToml } from '#/agent/externalHooks/configSection';
 import { makeHookRunner } from './runner-stub';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction';
@@ -54,6 +50,10 @@ import {
 } from '#/app/sessionLifecycle/sessionLifecycle';
 import { createHooks } from '#/hooks';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import {
+  type AgentTaskHooks,
+  IAgentLifecycleService,
+} from '#/session/agentLifecycle/agentLifecycle';
 import {
   ISessionExternalHooksService,
   SessionExternalHooksService,
@@ -283,7 +283,6 @@ describe('IExternalHooksRunnerService integration', () => {
           );
         },
       });
-      ix.set(IAgentRunHooksService, new SyncDescriptor(AgentRunHooksService));
       ix.set(IExternalHooksRunnerService, stubHookRunner(hookEngine));
       ix.set(IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService));
       ix.get(IAgentExternalHooksService);
@@ -384,7 +383,6 @@ describe('IExternalHooksRunnerService integration', () => {
           reg.definePartialInstance(IAgentTaskService, {});
         },
       });
-      ix.set(IAgentRunHooksService, new SyncDescriptor(AgentRunHooksService));
       ix.set(IExternalHooksRunnerService, stubHookRunner(hookEngine));
       ix.set(IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService));
       ix.get(IAgentExternalHooksService);
@@ -479,41 +477,42 @@ describe('IExternalHooksRunnerService integration', () => {
       ix = createServices(disposables, {
         strict: true,
         additionalServices: (reg) => {
-          reg.defineInstance(IBootstrapService, stubBootstrap());
-          reg.definePartialInstance(IConfigService, {});
-          reg.definePartialInstance(IPluginService, {
-            onDidReload: Event.None as IPluginService['onDidReload'],
+          reg.defineInstance(ISessionContext, {
+            _serviceBrand: undefined,
+            sessionId: 'session-1',
+            workspaceId: 'workspace-1',
+            sessionDir: '/tmp/session-1',
+            metaScope: 'sessions/workspace-1/session-1',
+            cwd: '/tmp',
+            scope: (subKey?: string) =>
+              subKey === undefined || subKey === ''
+                ? 'sessions/workspace-1/session-1'
+                : `sessions/workspace-1/session-1/${subKey}`,
           });
-          reg.defineInstance(IAgentContextMemoryService, stubContextMemory());
-          reg.defineInstance(IAgentLoopService, stubLoopWithHooks());
-          reg.define(IEventBus, EventBusService);
-          reg.definePartialInstance(IAgentPromptService, {
-            hooks: createHooks(['onWillSubmitPrompt']),
+          reg.defineInstance(ISessionLifecycleService, stubSessionLifecycle());
+          reg.definePartialInstance(IAgentLifecycleService, {
+            hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
+              'onWillStartAgentTask',
+              'onDidStopAgentTask',
+            ]),
           });
-          reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
-          reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
-          reg.definePartialInstance(IAgentPermissionGate, {});
-          reg.definePartialInstance(IAgentFullCompactionService, {
-            hooks: createHooks(['onWillCompact']),
-          });
-          reg.definePartialInstance(IAgentTaskService, {});
         },
       });
-      ix.set(IAgentRunHooksService, new SyncDescriptor(AgentRunHooksService));
       ix.set(IExternalHooksRunnerService, stubHookRunner(hookEngine));
-      ix.set(IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService));
+      ix.set(ISessionExternalHooksService, new SyncDescriptor(SessionExternalHooksService));
 
-      // Construct the observer first so it registers on the run-hook slots,
-      // then drive the slots the way `mirrorAgentRun` does.
-      ix.get(IAgentExternalHooksService);
-      const runHooks = ix.get(IAgentRunHooksService);
+      // Construct the observer first so it registers its listeners on the
+      // agent-lifecycle run-hook slots, then drive the slots the way
+      // `mirrorAgentRun` does.
+      ix.get(ISessionExternalHooksService);
+      const agentLifecycle = ix.get(IAgentLifecycleService);
 
-      await runHooks.hooks.onWillStartAgentTask.run({
+      await agentLifecycle.hooks.onWillStartAgentTask.run({
         agentName: 'coder',
         prompt: 'Fix the bug',
         signal: new AbortController().signal,
       });
-      await runHooks.hooks.onDidStopAgentTask.run({
+      await agentLifecycle.hooks.onDidStopAgentTask.run({
         agentName: 'coder',
         response: 'Bug fixed',
       });
@@ -594,7 +593,6 @@ describe('IExternalHooksRunnerService integration', () => {
           );
         },
       });
-      ix.set(IAgentRunHooksService, new SyncDescriptor(AgentRunHooksService));
       ix.set(IExternalHooksRunnerService, new SyncDescriptor(ExternalHooksRunnerService));
       ix.set(IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService));
       ix.get(IAgentExternalHooksService);
@@ -834,6 +832,12 @@ describe('IExternalHooksRunnerService integration', () => {
                 : `sessions/workspace-1/session-1/${subKey}`,
           });
           reg.defineInstance(ISessionLifecycleService, lifecycle);
+          reg.definePartialInstance(IAgentLifecycleService, {
+            hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
+              'onWillStartAgentTask',
+              'onDidStopAgentTask',
+            ]),
+          });
           reg.definePartialInstance(IConfigService, {
             ready: Promise.resolve(),
             get: <T = unknown>(domain: string): T =>

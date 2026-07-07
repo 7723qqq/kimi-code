@@ -16,7 +16,12 @@ import {
   IHostFileSystem,
 } from '#/os/interface/hostFileSystem';
 import { FileWorkspaceLocalConfigService } from '#/persistence/backends/node-fs/workspaceLocalConfigService';
-import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle';
+import { createHooks } from '#/hooks';
+import {
+  type AgentTaskHooks,
+  IAgentLifecycleService,
+  MAIN_AGENT_ID,
+} from '#/session/agentLifecycle';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext';
 import {
   ISessionWorkspaceCommandService,
@@ -156,6 +161,10 @@ function agentsStub(): AgentsStub {
   return {
     _serviceBrand: undefined,
     mainContext,
+    hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
+      'onWillStartAgentTask',
+      'onDidStopAgentTask',
+    ]),
     onDidCreate: () => ({ dispose: () => {} }),
     onDidCreateMain: mainCreated.event,
     onDidDispose: () => ({ dispose: () => {} }),

@@ -28,7 +28,10 @@ import {
 import { IWorkspaceRegistry } from '#/app/workspaceRegistry/workspaceRegistry';
 import { KimiError } from '#/errors';
 import { createHooks } from '#/hooks';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import {
+  type AgentTaskHooks,
+  IAgentLifecycleService,
+} from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
 
 import { stubBootstrap } from '../bootstrap/stubs';
@@ -407,6 +410,10 @@ function stubSessionMetadata(meta: SessionMeta): ISessionMetadata {
 function stubAgentLifecycle(agents: readonly IAgentScopeHandle[]): IAgentLifecycleService {
   return {
     _serviceBrand: undefined,
+    hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
+      'onWillStartAgentTask',
+      'onDidStopAgentTask',
+    ]),
     onDidCreate: noopEvent,
     onDidCreateMain: noopEvent,
     onDidDispose: noopEvent,

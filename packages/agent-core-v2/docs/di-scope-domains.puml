@@ -302,6 +302,7 @@ externalHooks --> bootstrap #34495E
 externalHooks --> plugin #34495E
 externalHooks --> contextMemory #34495E
 sessionExternalHooks --> session_lifecycle #34495E
+sessionExternalHooks --> agent_lifecycle #34495E
 sessionExternalHooks --> config #34495E
 sessionExternalHooks --> plugin #34495E
 sessionExternalHooks --> session_context #34495E
@@ -376,7 +377,7 @@ externalHooks ..> loop #16A085 : stop hook
 externalHooks ..> fullCompaction #16A085 : compaction hooks
 externalHooks ..> task #16A085 : notification hook
 sessionExternalHooks ..> session_lifecycle #16A085 : SessionStart/End hooks
-externalHooks ..> agent_lifecycle #16A085 : SubagentStart/Stop (observes run hooks)
+sessionExternalHooks ..> agent_lifecycle #16A085 : SubagentStart/Stop (observes run hooks)
 toolState ..> wire #16A085 : tools.update_store
 usage ..> wire #16A085 : usage.record
 turn ..> wire #16A085 : turn.launch

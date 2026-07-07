@@ -10,8 +10,10 @@
  *
  * External hooks (`SubagentStart` / `SubagentStop`) fire by observation, like
  * every other external hook: this wrapper announces "a run is about to start"
- * / "...has stopped" through the `IAgentRunHooksService` slots, and the
- * Agent-scope `externalHooks` adapter registers there to translate them.
+ * / "...has stopped" through the `IAgentLifecycleService` agent-run hook slots
+ * the lifecycle service hosts, and the Session-scope `externalHooks` adapter
+ * registers its own listeners there to translate them into the configured
+ * external hook commands.
  *
  * Wire shape note: the signals are still named `subagent.spawned / started /
  * completed / failed` and telemetry still tracks `subagent_created` so existing
@@ -24,7 +26,6 @@ import { userCancellationReason } from '#/_base/utils/abort';
 import { isProviderRateLimitError } from '#/app/llmProtocol/errors';
 import { type TokenUsage } from '#/app/llmProtocol/usage';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentRunHooksService } from './runHooks';
 import type {
   SubagentCompletedEvent,
   SubagentFailedEvent,
@@ -34,7 +35,7 @@ import type {
 import { IEventBus } from '#/app/event/eventBus';
 import { isAbortError } from '#/agent/loop/errors';
 
-import type { AgentRunHandle } from './agentLifecycle';
+import { type AgentRunHandle, IAgentLifecycleService } from './agentLifecycle';
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
@@ -59,9 +60,8 @@ export interface MirrorAgentRunOptions {
   readonly profileName: string;
   /**
    * Prompt text submitted to the target. When present the requester-side
-   * `onWillStartAgentTask` hook slot runs (which the external-hooks adapter
-   * translates into the `SubagentStart` external hook); omit for retry turns,
-   * which skip the slot.
+   * `SubagentStart` external hook runs (via `IAgentLifecycleService`); omit for
+   * retry turns, which skip the hook.
    */
   readonly prompt?: string;
   /** Skip the requester-side `subagent.failed` record for provider-rate-limit / aborted failures. */
@@ -111,11 +111,11 @@ export async function mirrorAgentRun(
   options: MirrorAgentRunOptions,
 ): Promise<{ summary: string; usage?: TokenUsage }> {
   const eventBus = requester.accessor.get(IEventBus);
-  const runHooks = requester.accessor.get(IAgentRunHooksService);
+  const agentLifecycle = requester.accessor.get(IAgentLifecycleService);
   eventBus?.publish({ type: 'subagent.started', subagentId: run.agentId });
   if (options.prompt !== undefined) {
     try {
-      await runHooks?.hooks.onWillStartAgentTask.run({
+      await agentLifecycle?.hooks.onWillStartAgentTask.run({
         agentName: options.profileName,
         prompt: options.prompt,
         signal: options.signal,
@@ -140,7 +140,7 @@ export async function mirrorAgentRun(
       resultSummary: result.summary,
       usage: result.usage,
     });
-    void runHooks?.hooks
+    void agentLifecycle?.hooks
       .onDidStopAgentTask.run({
         agentName: options.profileName,
         response: result.summary,

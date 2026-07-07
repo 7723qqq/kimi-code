@@ -59,7 +59,6 @@ import {
   AGENT_WIRE_PROTOCOL_VERSION,
   AgentTaskService,
   AgentExternalHooksService,
-  AgentRunHooksService,
   FileStorageService,
   InMemoryStorageService,
   AgentFullCompactionService,
@@ -78,7 +77,6 @@ import {
   IAgentContextSizeService,
   IAgentExternalHooksService,
   IExternalHooksRunnerService,
-  IAgentRunHooksService,
   IAgentFullCompactionService,
   IAgentLLMRequesterService,
   ILogService,
@@ -542,7 +540,6 @@ export function externalHookServices(
         : { ...noopHookRunner, ...hookRunner };
   return [
     appService(IExternalHooksRunnerService, runner),
-    agentService(IAgentRunHooksService, new SyncDescriptor(AgentRunHooksService)),
     agentService(IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService)),
   ];
 }

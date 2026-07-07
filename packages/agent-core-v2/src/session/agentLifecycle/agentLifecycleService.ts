@@ -57,10 +57,12 @@ import { IAgentWireService, WireService } from '#/wire';
 import { IAgentBlobService, AgentBlobServiceImpl } from '#/agent/blob';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 
+import { createHooks } from '#/hooks';
 import {
   type AgentListFilter,
   type AgentRunHandle,
   type AgentRunRequest,
+  type AgentTaskHooks,
   type CreateAgentOptions,
   type ForkAgentOptions,
   IAgentLifecycleService,
@@ -72,6 +74,10 @@ let nextAgentId = 0;
 
 export class AgentLifecycleService extends Disposable implements IAgentLifecycleService {
   declare readonly _serviceBrand: undefined;
+  readonly hooks = createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
+    'onWillStartAgentTask',
+    'onDidStopAgentTask',
+  ]);
   private readonly handles = new Map<string, IAgentScopeHandle>();
   private readonly onDidCreateEmitter = this._register(new Emitter<IAgentScopeHandle>());
   private readonly onDidCreateMainEmitter = this._register(new Emitter<IAgentScopeHandle>());

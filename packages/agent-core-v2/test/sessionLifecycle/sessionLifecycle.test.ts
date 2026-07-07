@@ -12,10 +12,14 @@ import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IEventService } from '#/app/event/event';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import {
+  type AgentTaskHooks,
+  IAgentLifecycleService,
+} from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
 import { SessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycleService';
 import { ISessionExternalHooksService } from '#/session/externalHooks/externalHooks';
+import { createHooks } from '#/hooks';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
@@ -143,6 +147,10 @@ function atomicDocumentStoreStub(): IAtomicDocumentStore {
 function agentLifecycleStub(): IAgentLifecycleService {
   return {
     _serviceBrand: undefined,
+    hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
+      'onWillStartAgentTask',
+      'onDidStopAgentTask',
+    ]),
     onDidCreate: () => ({ dispose: () => {} }),
     onDidCreateMain: () => ({ dispose: () => {} }),
     onDidDispose: () => ({ dispose: () => {} }),

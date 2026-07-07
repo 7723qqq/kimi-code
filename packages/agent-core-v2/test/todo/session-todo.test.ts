@@ -9,7 +9,11 @@ import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { createHooks } from '#/hooks';
+import {
+  type AgentTaskHooks,
+  IAgentLifecycleService,
+} from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionTodoService } from '#/session/todo/sessionTodo';
 import { SessionTodoService } from '#/session/todo/sessionTodoService';
 import { type TodoItem } from '#/session/todo/todoItem';
@@ -138,6 +142,10 @@ function makeLifecycleStub(handles: readonly IAgentScopeHandle[] = []): Lifecycl
 
   const service: IAgentLifecycleService = {
     _serviceBrand: undefined,
+    hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
+      'onWillStartAgentTask',
+      'onDidStopAgentTask',
+    ]),
     onDidCreate: onDidCreate.event,
     onDidCreateMain: onDidCreateMain.event,
     onDidDispose: onDidDispose.event,

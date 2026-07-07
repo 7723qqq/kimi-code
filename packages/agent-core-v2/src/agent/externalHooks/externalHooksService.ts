@@ -4,14 +4,14 @@
  *
  * Listens to hook slots and agent events owned by the agent behavior/lifecycle
  * domains (`toolExecutor`, `permissionGate`, `prompt`, `turn`, `loop`,
- * `fullCompaction`, `task`, and the `agentLifecycle` run hooks) and translates
- * those minimal contexts into the configured external hook commands, run
- * through the shared App-scope `IExternalHooksRunnerService` (so this adapter
- * never owns an engine lifecycle of its own) — including `SubagentStart` /
- * `SubagentStop`, which it now observes via the `IAgentRunHooksService` slots
- * rather than being invoked directly by the `agentLifecycle` wrapper. Appends
- * UserPromptSubmit hook results and Stop hook continuation prompts through
- * `contextMemory`.
+ * `fullCompaction`, and `task`) and translates those minimal contexts into the
+ * configured external hook commands, run through the shared App-scope
+ * `IExternalHooksRunnerService` (so this adapter never owns an engine lifecycle
+ * of its own). The requester-side `SubagentStart` / `SubagentStop` hooks are
+ * translated by the Session-scope `SessionExternalHooksService`, which observes
+ * the `agentLifecycle` run slots hosted on `IAgentLifecycleService`. Appends
+ * UserPromptSubmit hook results
+ * and Stop hook continuation prompts through `contextMemory`.
  */
 
 import { IInstantiationService } from '#/_base/di/instantiation';
@@ -46,11 +46,6 @@ import {
   IAgentTurnService,
 } from '#/agent/turn';
 import { toKimiErrorPayload } from '#/errors';
-import {
-  IAgentRunHooksService,
-  type AgentTaskStartHookContext,
-  type AgentTaskStopHookContext,
-} from '#/session/agentLifecycle/runHooks';
 
 import { IAgentExternalHooksService } from './externalHooks';
 import { IExternalHooksRunnerService } from '#/app/externalHooksRunner';
@@ -64,8 +59,6 @@ declare module '#/app/event/eventBus' {
     'hook.result': HookResultEvent;
   }
 }
-
-const SUBAGENT_HOOK_TEXT_PREVIEW_LENGTH = 500;
 
 export class AgentExternalHooksService extends Disposable implements IAgentExternalHooksService {
   declare readonly _serviceBrand: undefined;
@@ -124,10 +117,6 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
 
     this.registerTaskHooks(
       this.instantiation.invokeFunction((accessor) => accessor.get(IAgentTaskService)),
-    );
-
-    this.registerAgentTaskHooks(
-      this.instantiation.invokeFunction((accessor) => accessor.get(IAgentRunHooksService)),
     );
   }
 
@@ -227,21 +216,6 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
       this.eventBus.subscribe('task.notified', (e) => {
         const { type: _type, ...ctx } = e;
         this.notifyTaskNotification(ctx);
-      }),
-    );
-  }
-
-  private registerAgentTaskHooks(runHooks: IAgentRunHooksService): void {
-    this._register(
-      runHooks.hooks.onWillStartAgentTask.register('externalHooks', async (ctx, next) => {
-        await this.runSubagentStart(ctx);
-        await next();
-      }),
-    );
-    this._register(
-      runHooks.hooks.onDidStopAgentTask.register('externalHooks', (ctx, next) => {
-        this.notifySubagentStop(ctx);
-        return next();
       }),
     );
   }
@@ -399,30 +373,6 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
       { sink: 'context', ...ctx },
       ctx.notificationType,
       signal,
-    );
-  }
-
-  private async runSubagentStart(ctx: AgentTaskStartHookContext): Promise<void> {
-    ctx.signal.throwIfAborted();
-    await this.runner.trigger('SubagentStart', {
-      matcherValue: ctx.agentName,
-      signal: ctx.signal,
-      inputData: {
-        agentName: ctx.agentName,
-        prompt: ctx.prompt.slice(0, SUBAGENT_HOOK_TEXT_PREVIEW_LENGTH),
-      },
-    });
-    ctx.signal.throwIfAborted();
-  }
-
-  private notifySubagentStop(ctx: AgentTaskStopHookContext): void {
-    this.fireAndForget(
-      'SubagentStop',
-      {
-        agentName: ctx.agentName,
-        response: ctx.response.slice(0, SUBAGENT_HOOK_TEXT_PREVIEW_LENGTH),
-      },
-      ctx.agentName,
     );
   }
 }
