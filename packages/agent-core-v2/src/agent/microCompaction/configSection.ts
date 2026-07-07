@@ -12,13 +12,19 @@ import { registerConfigSection } from '#/app/config/configSectionContributions';
 
 export const MICRO_COMPACTION_SECTION = 'microCompaction';
 
-export const MicroCompactionConfigSchema = z.object({
-  keepRecentMessages: z.number().int().min(0).optional(),
-  minContentTokens: z.number().int().min(0).optional(),
-  cacheMissedThresholdMs: z.number().int().min(0).optional(),
-  truncatedMarker: z.string().optional(),
-  minContextUsageRatio: z.number().min(0).max(1).optional(),
-});
+const microCompactionConfigShape = {
+  keepRecentMessages: z.number().int().min(0),
+  minContentTokens: z.number().int().min(0),
+  cacheMissedThresholdMs: z.number().int().min(0),
+  truncatedMarker: z.string(),
+  minContextUsageRatio: z.number().min(0).max(1),
+};
+
+const microCompactionConfigObject = z.object(microCompactionConfigShape);
+
+export type MicroCompactionConfig = z.infer<typeof microCompactionConfigObject>;
+
+export const MicroCompactionConfigSchema = microCompactionConfigObject.partial();
 
 export type MicroCompactionConfigPatch = z.infer<typeof MicroCompactionConfigSchema>;
 

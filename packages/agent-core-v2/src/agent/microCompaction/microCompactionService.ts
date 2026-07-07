@@ -35,14 +35,11 @@ import { IAgentProfileService } from '#/agent/profile';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentWireService, type IWireService } from '#/wire';
-import {
-  IAgentMicroCompactionService,
-  type MicroCompactionConfig,
-  type MicroCompactionEffect,
-} from './microCompaction';
+import { IAgentMicroCompactionService } from './microCompaction';
 import { MicroCompactionModel, microCompactionApply } from './microCompactionOps';
 import {
   MICRO_COMPACTION_SECTION,
+  type MicroCompactionConfig,
   type MicroCompactionConfigPatch,
 } from './configSection';
 
@@ -225,7 +222,7 @@ export class AgentMicroCompactionService
   private measureEffect(
     messages: readonly ContextMessage[],
     cutoff: number,
-  ): MicroCompactionEffect {
+  ) {
     let markerTokenCount: number | undefined;
     let truncatedToolResultCount = 0;
     let truncatedToolResultTokensBefore = 0;
