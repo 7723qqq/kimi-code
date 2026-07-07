@@ -9,7 +9,7 @@ import { ref, type ComputedRef } from 'vue';
 import { getKimiWebApi } from '../../api';
 import type { AppMessage, AppModel, AppProvider, AppSession, AppSkill, ThinkingLevel } from '../../api/types';
 import { safeGetString, safeSetString, STORAGE_KEYS } from '../../lib/storage';
-import { coerceThinkingForModel } from '../../lib/modelThinking';
+import { coerceThinkingForModel, thinkingLevelForModelSwitch } from '../../lib/modelThinking';
 import type { ActivityState } from '../../types';
 import type { ExtendedState } from '../useKimiWebClient';
 
@@ -184,8 +184,11 @@ export function useModelProviderState(
    */
   async function setModel(modelId: string): Promise<void> {
     const sid = rawState.activeSessionId;
-    const nextThinking = coerceThinkingForModel(modelById(modelId), rawState.thinking);
+    const targetModel = modelById(modelId);
     const prevThinking = rawState.thinking;
+    const prevModel = sid === undefined ? undefined : rawState.sessions.find((s) => s.id === sid)?.model;
+    const isSwitch = prevModel !== modelId;
+    const nextThinking = thinkingLevelForModelSwitch(targetModel, prevThinking, isSwitch);
     if (!sid) {
       // New-session draft (onboarding composer): no backend session to update.
       // Remember the pick — startSessionAndSendPrompt applies it at create time.
@@ -195,7 +198,6 @@ export function useModelProviderState(
     }
     // Optimistic: show the chosen model immediately, but remember the previous
     // one so we can roll back if the switch never reaches the daemon.
-    const prevModel = rawState.sessions.find((s) => s.id === sid)?.model;
     updateSession(sid, (s) => ({ ...s, model: modelId }));
     if (nextThinking !== prevThinking) {
       rawState.thinking = nextThinking;
