@@ -84,7 +84,7 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>toolRegistry</b>\n<size:9><i>Agent</i></size>\n  IAgentToolRegistryService" as toolRegistry #FDEBD0
   rectangle "<b>toolExecutor</b>\n<size:9><i>Agent</i></size>\n  IAgentToolExecutorService" as toolExecutor #FDEBD0
   rectangle "<b>toolState</b>\n<size:9><i>Agent</i></size>\n  IAgentToolState" as toolState #FDEBD0
-  rectangle "<b>toolDedup</b>\n<size:9><i>Agent</i></size>\n  IAgentToolDedupeService" as toolDedup #FDEBD0
+  rectangle "<b>toolDedupe</b>\n<size:9><i>Agent</i></size>\n  IAgentToolDedupeService" as toolDedupe #FDEBD0
   rectangle "<b>permissionGate</b>\n<size:9><i>Agent</i></size>\n  IAgentPermissionGate" as permissionGate #FDEBD0
   rectangle "<b>permissionMode</b>\n<size:9><i>Agent</i></size>\n  IAgentPermissionModeService" as permissionMode #FDEBD0
   rectangle "<b>permissionPolicy</b>\n<size:9><i>Agent</i></size>\n  IAgentPermissionPolicyService" as permissionPolicy #FDEBD0
@@ -215,9 +215,9 @@ toolExecutor --> toolRegistry #34495E
 toolExecutor --> wire #34495E
 toolExecutor --> telemetry #34495E
 toolState --> wire #34495E
-toolDedup --> telemetry #34495E
-toolDedup --> loop #34495E
-toolDedup --> toolExecutor #34495E
+toolDedupe --> telemetry #34495E
+toolDedupe --> loop #34495E
+toolDedupe --> toolExecutor #34495E
 permissionGate --> permissionMode #34495E
 permissionGate --> permissionRules #34495E
 permissionGate --> permissionPolicy #34495E

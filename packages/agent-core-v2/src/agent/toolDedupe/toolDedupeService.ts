@@ -1,5 +1,5 @@
 /**
- * `toolDedup` domain (L4) — `IAgentToolDedupeService` implementation.
+ * `toolDedupe` domain (L4) — `IAgentToolDedupeService` implementation.
  *
  * Self-wiring plugin: its constructor registers `loop` beforeStep/afterStep
  * hooks and `toolExecutor` onWillExecuteTool/onDidExecuteTool hooks to drive
@@ -18,7 +18,7 @@ import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentLoopService } from '#/agent/loop';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import type { ContentPart } from '#/app/llmProtocol/message';
-import { IAgentToolDedupeService, type ToolDedupResult } from './toolDedupe';
+import { IAgentToolDedupeService, type ToolDedupeResult } from './toolDedupe';
 
 const REMINDER_TEXT_1 =
   '\n\n<system-reminder>\n' +
@@ -77,12 +77,12 @@ function argsHash(args: unknown): string {
 }
 
 interface CheckedToolCall {
-  readonly syntheticResult: ToolDedupResult | null;
+  readonly syntheticResult: ToolDedupeResult | null;
 }
 
 type ToolCallDupType = 'same_step' | 'cross_step';
 
-function appendReminder(result: ToolDedupResult, reminderText: string): ToolDedupResult {
+function appendReminder(result: ToolDedupeResult, reminderText: string): ToolDedupeResult {
   const output = result.output;
   let newOutput: string | ContentPart[];
   if (typeof output === 'string') {
@@ -102,16 +102,16 @@ function appendReminder(result: ToolDedupResult, reminderText: string): ToolDedu
     : { ...result, output: newOutput };
 }
 
-function forceStopResult(result: ToolDedupResult, reminderText: string): ToolDedupResult {
+function forceStopResult(result: ToolDedupeResult, reminderText: string): ToolDedupeResult {
   const withReminder = appendReminder(result, reminderText);
   return { ...withReminder, stopTurn: true };
 }
 
-const DEDUP_PLACEHOLDER_RESULT: ToolDedupResult = { output: '' };
+const DEDUPE_PLACEHOLDER_RESULT: ToolDedupeResult = { output: '' };
 
 export class AgentToolDedupeService extends Disposable implements IAgentToolDedupeService {
   declare readonly _serviceBrand: undefined;
-  private readonly stepDeferreds = new Map<string, Deferred<ToolDedupResult>>();
+  private readonly stepDeferreds = new Map<string, Deferred<ToolDedupeResult>>();
   private stepCalls: string[] = [];
   private readonly originalCallIndex = new Map<string, number>();
   private readonly syntheticCallIds = new Set<string>();
@@ -127,15 +127,15 @@ export class AgentToolDedupeService extends Disposable implements IAgentToolDedu
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
   ) {
     super();
-    loop.hooks.beforeStep.register('toolDedup', async (ctx, next) => {
+    loop.hooks.beforeStep.register('toolDedupe', async (ctx, next) => {
       this.beginStep(ctx.turnId, ctx.step);
       await next();
     });
-    loop.hooks.afterStep.register('toolDedup', async (_ctx, next) => {
+    loop.hooks.afterStep.register('toolDedupe', async (_ctx, next) => {
       this.endStep();
       await next();
     });
-    toolExecutor.hooks.onWillExecuteTool.register('toolDedup', async (ctx, next) => {
+    toolExecutor.hooks.onWillExecuteTool.register('toolDedupe', async (ctx, next) => {
       const checked = this.checkToolCall(ctx.toolCall.id, ctx.toolCall.name, ctx.args);
       if (checked.syntheticResult !== null) {
         ctx.decision = { syntheticResult: checked.syntheticResult };
@@ -143,7 +143,7 @@ export class AgentToolDedupeService extends Disposable implements IAgentToolDedu
       }
       await next();
     });
-    toolExecutor.hooks.onDidExecuteTool.register('toolDedup', async (ctx, next) => {
+    toolExecutor.hooks.onDidExecuteTool.register('toolDedupe', async (ctx, next) => {
       ctx.result = await this.finalizeResult(
         ctx.toolCall.id,
         ctx.toolCall.name,
@@ -201,9 +201,9 @@ export class AgentToolDedupeService extends Disposable implements IAgentToolDedu
     if (existing !== undefined) {
       this.syntheticCallIds.add(toolCallId);
       this.recordDupType(toolCallId, toolName, args, 'same_step');
-      return { syntheticResult: DEDUP_PLACEHOLDER_RESULT };
+      return { syntheticResult: DEDUPE_PLACEHOLDER_RESULT };
     }
-    this.stepDeferreds.set(key, makeDeferred<ToolDedupResult>());
+    this.stepDeferreds.set(key, makeDeferred<ToolDedupeResult>());
     this.originalCallIndex.set(toolCallId, index);
     if (this.consecutiveKey === key && this.consecutiveCount > 0) {
       this.recordDupType(toolCallId, toolName, args, 'cross_step');
@@ -218,7 +218,7 @@ export class AgentToolDedupeService extends Disposable implements IAgentToolDedu
     args: unknown,
     dupType: ToolCallDupType,
   ): void {
-    this.telemetry.track('tool_call_dedup_detected', {
+    this.telemetry.track('tool_call_dedupe_detected', {
       turn_id: this.activeTurnId ?? 0,
       step_no: this.activeStep,
       tool_call_id: toolCallId,
@@ -232,8 +232,8 @@ export class AgentToolDedupeService extends Disposable implements IAgentToolDedu
     toolCallId: string,
     toolName: string,
     args: unknown,
-    result: ToolDedupResult,
-  ): Promise<ToolDedupResult> {
+    result: ToolDedupeResult,
+  ): Promise<ToolDedupeResult> {
     const key = this.callKeyByCallId.get(toolCallId);
     if (key === undefined) return result;
     this.callKeyByCallId.delete(toolCallId);
@@ -303,5 +303,5 @@ registerScopedService(
   IAgentToolDedupeService,
   AgentToolDedupeService,
   InstantiationType.Eager,
-  'toolDedup',
+  'toolDedupe',
 );
