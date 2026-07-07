@@ -25,14 +25,21 @@ import { type ModelCapability } from '#/app/llmProtocol/capability';
 import { type ProviderRequestAuth } from '#/app/llmProtocol/request';
 import { type ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
 import { getModelCapability } from '#/app/llmProtocol/providers/providers';
-import { IPlatformService, UNKNOWN_PLATFORM_KEY } from '#/app/platform/platform';
-import type { OAuthRef, ProviderConfig } from '#/app/provider/provider';
+import { IPlatformService } from '#/app/platform/platform';
+import type { ProviderConfig } from '#/app/provider/provider';
 import { IProviderService } from '#/app/provider/provider';
 import { IProtocolAdapterRegistry, type Protocol, type ProtocolProviderOptions } from '#/app/protocol/protocol';
 import { type ProtocolAdapterRegistry } from '#/app/protocol/protocolAdapterRegistry';
 
 import type { ModelConfig } from './model';
 import { IModelService } from './model';
+import {
+  deriveProviderId,
+  effectiveModelConfig,
+  nonEmpty,
+  resolveModelAuthMaterial,
+  type ResolvedModelAuthMaterial,
+} from './modelAuth';
 import type { AuthProvider, Model } from './modelInstance';
 import { IModelResolver } from './modelResolver';
 import { ModelImpl, StaticAuthProvider } from './modelImpl';
@@ -43,12 +50,6 @@ import { resolveThinkingEffortForModel } from './thinking';
 interface ThinkingSection {
   readonly mode?: string;
   readonly effort?: string;
-}
-
-interface ResolvedAuthMaterial {
-  readonly apiKey?: string;
-  readonly oauth?: OAuthRef;
-  readonly oauthProviderKey?: string;
 }
 
 type MutableProtocolProviderOptions = {
@@ -81,7 +82,13 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     const model = effectiveModelConfig(configuredModel);
 
     const { providerConfig, providerName, resolvedBaseUrl: rawBaseUrl } = this.resolveProviderContext(id, model);
-    const auth = this.resolveAuth(id, model, providerConfig, providerName);
+    const auth = resolveModelAuthMaterial({
+      modelId: id,
+      model,
+      provider: providerConfig,
+      providerName,
+      getPlatform: (platformId) => this.platforms.get(platformId),
+    });
     const authProvider = this.buildAuthProvider(providerName, auth);
 
     const protocol = this.resolveProtocol(id, model, providerConfig);
@@ -215,7 +222,7 @@ export class ModelResolverService extends Disposable implements IModelResolver {
         nonEmpty(model.baseUrl) ??
         nonEmpty(providerConfig.baseUrl) ??
         providerBaseUrlEnvFallback(
-          model.protocol ?? (providerConfig.type as Protocol | undefined),
+          model.protocol ?? providerConfig.type,
           providerConfig.env,
         );
       if (baseUrl === undefined || baseUrl.length === 0) {
@@ -249,7 +256,7 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     model: ModelConfig,
     provider: ProviderConfig | undefined,
   ): Protocol {
-    const explicit = model.protocol ?? (provider?.type as Protocol | undefined);
+    const explicit = model.protocol ?? provider?.type;
     if (explicit === undefined) {
       throw new KimiError(
         ErrorCodes.CONFIG_INVALID,
@@ -259,66 +266,7 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     return explicit;
   }
 
-  /**
-   * Resolve raw auth material for the Model. Precedence:
-   *   1. Model-inline `apiKey` / `oauth` (flat-case override).
-   *   2. Provider.platformId → Platform.auth (structured shared auth).
-   *   3. Provider-legacy `apiKey` / `oauth` (pre-migration configs).
-   *
-   * An empty / whitespace `apiKey` is treated as absent (matching production's
-   * `nonEmptyString`), so a provider that carries both `api_key = ""` and an
-   * `oauth` block correctly falls through to OAuth instead of producing an
-   * empty bearer token.
-   */
-  private resolveAuth(
-    id: string,
-    model: ModelConfig,
-    provider: ProviderConfig | undefined,
-    providerName: string,
-  ): ResolvedAuthMaterial {
-    const modelApiKey = nonEmpty(model.apiKey);
-    if (modelApiKey !== undefined && model.oauth !== undefined) {
-      throw authConflictError('Model', id);
-    }
-    if (modelApiKey !== undefined) return { apiKey: modelApiKey };
-    if (model.oauth !== undefined) {
-      return { oauth: model.oauth, oauthProviderKey: model.providerId ?? model.provider };
-    }
-
-    const platformId = provider?.platformId;
-    if (platformId !== undefined && platformId !== UNKNOWN_PLATFORM_KEY) {
-      const platform = this.platforms.get(platformId);
-      const authType = provider?.type ?? model.protocol;
-      const platformApiKey =
-        nonEmpty(platform?.auth?.apiKey) ??
-        providerApiKeyEnvFallback(authType, platform?.auth?.env);
-      if (platformApiKey !== undefined && platform?.auth?.oauth !== undefined) {
-        throw authConflictError('Platform', platformId);
-      }
-      if (platformApiKey !== undefined) return { apiKey: platformApiKey };
-      if (platform?.auth?.oauth !== undefined) {
-        return {
-          oauth: platform.auth.oauth,
-          oauthProviderKey: platformId,
-        };
-      }
-    }
-
-    // Legacy: provider carried auth directly (pre-Phase 4 migration).
-    const providerApiKey =
-      nonEmpty(provider?.apiKey) ??
-      providerApiKeyEnvFallback(provider?.type ?? model.protocol, provider?.env);
-    if (providerApiKey !== undefined && provider?.oauth !== undefined) {
-      throw authConflictError('Provider', providerName);
-    }
-    if (providerApiKey !== undefined) return { apiKey: providerApiKey };
-    if (provider?.oauth !== undefined) {
-      return { oauth: provider.oauth, oauthProviderKey: model.providerId ?? model.provider };
-    }
-    return {};
-  }
-
-  private buildAuthProvider(providerName: string, auth: ResolvedAuthMaterial): AuthProvider {
+  private buildAuthProvider(providerName: string, auth: ResolvedModelAuthMaterial): AuthProvider {
     if (auth.apiKey !== undefined) {
       return new StaticAuthProvider(auth.apiKey);
     }
@@ -366,40 +314,11 @@ function resolveModelCapabilities(
   };
 }
 
-/** Treat an empty / whitespace string as absent (matches production's
- *  `nonEmptyString` used by the session resolver). */
-function nonEmpty(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
-}
-
 /** Strip a trailing `/v1` (with optional trailing slash) from a baseUrl, matching
  *  production v1's anthropic-transport normalization so the Anthropic SDK's
  *  `/v1/messages` suffix does not produce a double `/v1/v1/messages`. */
 function stripTrailingV1(baseUrl: string): string {
   return baseUrl.replace(/\/v1\/?$/, '');
-}
-
-function effectiveModelConfig(model: ModelConfig): ModelConfig {
-  const { overrides, ...base } = model;
-  if (overrides === undefined) return model;
-  const effective: ModelConfig = { ...base, ...overrides };
-  if (
-    overrides.supportEfforts !== undefined &&
-    overrides.defaultEffort === undefined &&
-    effective.defaultEffort !== undefined &&
-    !overrides.supportEfforts.includes(effective.defaultEffort)
-  ) {
-    delete effective.defaultEffort;
-  }
-  return effective;
-}
-
-function authConflictError(kind: string, name: string): KimiError {
-  return new KimiError(
-    ErrorCodes.CONFIG_INVALID,
-    `${kind} "${name}" has both apiKey and oauth set in config.toml - they are mutually exclusive. Remove one.`,
-  );
 }
 
 function buildProtocolProviderOptions(
@@ -470,30 +389,6 @@ function providerBaseUrlEnvFallback(
   }
 }
 
-function providerApiKeyEnvFallback(
-  protocol: Protocol | undefined,
-  env: Record<string, string> | undefined,
-): string | undefined {
-  if (protocol === undefined) return undefined;
-  switch (protocol) {
-    case 'anthropic':
-      return envValue(env, 'ANTHROPIC_API_KEY');
-    case 'openai':
-    case 'openai_responses':
-      return envValue(env, 'OPENAI_API_KEY');
-    case 'kimi':
-      return envValue(env, 'KIMI_API_KEY');
-    case 'google-genai':
-      return envValue(env, 'GOOGLE_API_KEY');
-    case 'vertexai':
-      return envValue(env, 'VERTEXAI_API_KEY') ?? envValue(env, 'GOOGLE_API_KEY');
-    default: {
-      const exhaustive: never = protocol;
-      return exhaustive;
-    }
-  }
-}
-
 function vertexAIProject(provider: ProviderConfig | undefined): string | undefined {
   return envValue(provider?.env, 'GOOGLE_CLOUD_PROJECT');
 }
@@ -518,22 +413,6 @@ function locationFromVertexAIBaseUrl(baseUrl: string | undefined): string | unde
     return host.endsWith(suffix) ? nonEmpty(host.slice(0, -suffix.length)) : undefined;
   } catch {
     return undefined;
-  }
-}
-
-/**
- * Derive a synthetic Provider id from a Model's flat baseUrl. Uses only the
- * origin (host, optionally port) per Phase 2 decision "a=origin only" — two
- * flat Models hitting the same host converge on one Provider identity.
- */
-function deriveProviderId(baseUrl: string): string {
-  try {
-    const url = new URL(baseUrl);
-    return url.host;
-  } catch {
-    // Fall back to the raw string; malformed URLs will fail downstream at
-    // request time with a clearer error.
-    return baseUrl;
   }
 }
 
