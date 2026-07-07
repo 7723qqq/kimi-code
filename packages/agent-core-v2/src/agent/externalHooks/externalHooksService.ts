@@ -65,7 +65,7 @@ import {
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
-    'hook.result': Omit<HookResultEvent, 'type'>;
+    'hook.result': HookResultEvent;
   }
 }
 

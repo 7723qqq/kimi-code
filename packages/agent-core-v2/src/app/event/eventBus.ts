@@ -11,11 +11,12 @@
  * former `IAgentWireService.onEmission`). Process-global events (model catalog,
  * session lifecycle, auth) stay on the legacy `IEventService` (`./event`),
  * which is retained as the global channel; its payload type is re-exported from
- * the barrel as `GlobalEvent`. Domains declare their agent-event payloads by
+ * the barrel as `GlobalEvent`. Domains declare their agent-event shapes by
  * augmenting `DomainEventMap` via `declare module '#/app/event/eventBus'`;
- * `DomainEvent` resolves to a `{ type } & payload` union over those
- * declarations. Durability classification (volatile vs durable) lives in the
- * server consumer, not here. Agent-scope; scope-agnostic contract.
+ * `DomainEvent` resolves to the map entry intersected with the key-derived
+ * `{ type }`, so domains can register either payload-only shapes or complete
+ * protocol event types. Durability classification (volatile vs durable) lives
+ * in the server consumer, not here. Agent-scope; scope-agnostic contract.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
@@ -25,7 +26,7 @@ import { type IDisposable } from '#/_base/di/lifecycle';
 export interface DomainEventMap {}
 
 export type DomainEvent<K extends keyof DomainEventMap = keyof DomainEventMap> = {
-  [T in K]: { readonly type: T } & Readonly<DomainEventMap[T]>;
+  [T in K]: Readonly<{ readonly type: T } & DomainEventMap[T]>;
 }[K];
 
 export interface IEventBus {

@@ -71,9 +71,9 @@ import {
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
-    'shell.output': Omit<ShellOutputEvent, 'type'>;
-    'shell.started': Omit<ShellStartedEvent, 'type'>;
-    'plugin_command.activated': Omit<PluginCommandActivatedEvent, 'type'>;
+    'shell.output': ShellOutputEvent;
+    'shell.started': ShellStartedEvent;
+    'plugin_command.activated': PluginCommandActivatedEvent;
   }
 }
 

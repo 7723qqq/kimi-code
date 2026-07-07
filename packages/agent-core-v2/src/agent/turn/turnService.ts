@@ -32,8 +32,8 @@ import { promptTurn, TurnModel } from './turnOps';
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
-    'turn.started': Omit<TurnStartedEvent, 'type'>;
-    'turn.ended': Omit<TurnEndedEvent, 'type'>;
+    'turn.started': TurnStartedEvent;
+    'turn.ended': TurnEndedEvent;
     // `error` is declared by the `mcp` domain (interface-merge); reused here, not
     // re-declared.
   }

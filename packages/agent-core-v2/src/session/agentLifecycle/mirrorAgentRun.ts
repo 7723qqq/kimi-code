@@ -37,10 +37,10 @@ import type { AgentRunHandle } from './agentLifecycle';
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
-    'subagent.spawned': Omit<SubagentSpawnedEvent, 'type'>;
-    'subagent.started': Omit<SubagentStartedEvent, 'type'>;
-    'subagent.completed': Omit<SubagentCompletedEvent, 'type'>;
-    'subagent.failed': Omit<SubagentFailedEvent, 'type'>;
+    'subagent.spawned': SubagentSpawnedEvent;
+    'subagent.started': SubagentStartedEvent;
+    'subagent.completed': SubagentCompletedEvent;
+    'subagent.failed': SubagentFailedEvent;
   }
 }
 

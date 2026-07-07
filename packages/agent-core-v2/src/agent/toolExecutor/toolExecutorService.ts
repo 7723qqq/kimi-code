@@ -43,9 +43,9 @@ import { ToolScheduler } from './toolScheduler';
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
-    'tool.call.started': Omit<ToolCallStartedEvent, 'type'>;
-    'tool.result': Omit<ToolResultEvent, 'type'>;
-    'tool.progress': Omit<ToolProgressEvent, 'type'>;
+    'tool.call.started': ToolCallStartedEvent;
+    'tool.result': ToolResultEvent;
+    'tool.progress': ToolProgressEvent;
   }
 }
 

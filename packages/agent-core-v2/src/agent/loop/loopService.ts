@@ -39,13 +39,13 @@ import {
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
-    'turn.step.started': Omit<TurnStepStartedEvent, 'type'>;
-    'turn.step.retrying': Omit<TurnStepRetryingEvent, 'type'>;
-    'turn.step.completed': Omit<TurnStepCompletedEvent, 'type'>;
-    'turn.step.interrupted': Omit<TurnStepInterruptedEvent, 'type'>;
-    'assistant.delta': Omit<AssistantDeltaEvent, 'type'>;
-    'thinking.delta': Omit<ThinkingDeltaEvent, 'type'>;
-    'tool.call.delta': Omit<ToolCallDeltaEvent, 'type'>;
+    'turn.step.started': TurnStepStartedEvent;
+    'turn.step.retrying': TurnStepRetryingEvent;
+    'turn.step.completed': TurnStepCompletedEvent;
+    'turn.step.interrupted': TurnStepInterruptedEvent;
+    'assistant.delta': AssistantDeltaEvent;
+    'thinking.delta': ThinkingDeltaEvent;
+    'tool.call.delta': ToolCallDeltaEvent;
   }
 }
 
