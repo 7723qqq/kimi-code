@@ -12,8 +12,6 @@ import {
   type Event,
   type GoalSnapshot,
   type HookResultEvent,
-  type KimiHarness,
-  type Session,
   type SessionStatus,
   type TelemetryClient,
 } from '@moonshot-ai/kimi-code-sdk';
@@ -21,6 +19,7 @@ import { resolve } from 'pathe';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, PROMPT_CLEANUP_TIMEOUT_MS } from '#/constant/app';
 
+import { isKimiV2Enabled } from './experimental-v2';
 import type { CLIOptions, PromptOutputFormat } from './options';
 import {
   formatGoalSummaryText,
@@ -29,6 +28,7 @@ import {
   parseHeadlessGoalCreate,
   type HeadlessGoalCreate,
 } from './goal-prompt';
+import type { PromptHarness, PromptSession } from './prompt-session';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
 import { createKimiCodeHostIdentity } from './version';
 
@@ -108,7 +108,7 @@ export async function runPrompt(
     withContext: withTelemetryContext,
     setContext: setTelemetryContext,
   };
-  const harness = createKimiHarness({
+  const harness = await createPromptHarness({
     homeDir: telemetryBootstrap.homeDir,
     identity: createKimiCodeHostIdentity(version),
     uiMode: PROMPT_UI_MODE,
@@ -204,8 +204,25 @@ export async function runPrompt(
   }
 }
 
+/**
+ * Select the engine that backs `kimi -p`.
+ *
+ * Default (flag off): the v1 engine via the SDK `createKimiHarness`. When
+ * `KIMI_CODE_EXPERIMENTAL_FLAG` is set, the agent-core-v2 engine is loaded
+ * through a lazy import so the v2 module graph stays off the default path.
+ */
+async function createPromptHarness(
+  options: Parameters<typeof createKimiHarness>[0],
+): Promise<PromptHarness> {
+  if (isKimiV2Enabled()) {
+    const { createV2Harness } = await import('./v2/create-v2-harness');
+    return createV2Harness(options);
+  }
+  return createKimiHarness(options);
+}
+
 async function runHeadlessGoal(
-  session: Session,
+  session: PromptSession,
   goal: HeadlessGoalCreate,
   model: string | undefined,
   outputFormat: PromptOutputFormat,
@@ -249,7 +266,7 @@ async function runHeadlessGoal(
 }
 
 interface ResolvedPromptSession {
-  readonly session: Session;
+  readonly session: PromptSession;
   readonly resumed: boolean;
   readonly restorePermission: () => Promise<void>;
   readonly telemetryModel?: string;
@@ -257,7 +274,7 @@ interface ResolvedPromptSession {
 }
 
 async function resolvePromptSession(
-  harness: KimiHarness,
+  harness: PromptHarness,
   opts: CLIOptions,
   workDir: string,
   defaultModel: string | undefined,
@@ -352,7 +369,7 @@ async function resolvePromptSession(
 }
 
 async function forcePromptPermission(
-  session: Session,
+  session: PromptSession,
   previousPermission: SessionStatus['permission'],
   setRestorePermission: (restorePermission: () => Promise<void>) => void,
 ): Promise<() => Promise<void>> {
@@ -385,7 +402,7 @@ function configuredModel(...models: readonly (string | undefined)[]): string | u
   return models.find((model) => model !== undefined && model.trim().length > 0);
 }
 
-function installHeadlessHandlers(session: Session): void {
+function installHeadlessHandlers(session: PromptSession): void {
   session.setApprovalHandler(() => ({ decision: 'approved' }));
   session.setQuestionHandler(() => null);
 }
@@ -424,7 +441,7 @@ function signalExitCode(signal: NodeJS.Signals): number {
 }
 
 function runPromptTurn(
-  session: Session,
+  session: PromptSession,
   prompt: string,
   outputFormat: PromptOutputFormat,
   stdout: PromptOutput,
