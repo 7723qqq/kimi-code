@@ -1,30 +1,11 @@
-import type {
-  ApprovalRequest,
-  ApprovalResponse,
-  PermissionData,
-} from '#/agent/permissionPolicy/types';
 import { createDecorator } from "#/_base/di/instantiation";
+import type {
+  PermissionData
+} from '#/agent/permissionPolicy/types';
 import type {
   AuthorizeToolExecutionResult,
   ResolvedToolExecutionHookContext,
 } from '#/agent/tool/toolHooks';
-import type { Hooks } from '#/hooks';
-
-export type PermissionApprovalRequestContext = ApprovalRequest & {
-  readonly sessionId?: string;
-  readonly agentId?: string;
-  readonly turnId: number;
-  readonly toolInput: unknown;
-};
-
-export type PermissionApprovalResultContext = PermissionApprovalRequestContext &
-  (
-    | ApprovalResponse
-    | {
-        readonly decision: 'error';
-        readonly error: string;
-      }
-  );
 
 export interface IAgentPermissionGate {
   readonly _serviceBrand: undefined;

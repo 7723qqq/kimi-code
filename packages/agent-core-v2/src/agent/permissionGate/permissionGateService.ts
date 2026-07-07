@@ -1,33 +1,48 @@
+import { InstantiationType } from '#/_base/di/extensions';
+import { IInstantiationService } from "#/_base/di/instantiation";
+import { Disposable } from "#/_base/di/lifecycle";
+import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { abortable, isUserCancellation } from '#/_base/utils/abort';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicy';
 import type {
+  ApprovalRequest,
   ApprovalResponse,
   PermissionData,
   PermissionPolicyResolution,
   PermissionPolicyResult,
 } from '#/agent/permissionPolicy/types';
-import { IInstantiationService } from "#/_base/di/instantiation";
-import { Disposable } from "#/_base/di/lifecycle";
-import { abortable, isUserCancellation } from '#/_base/utils/abort';
+import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import type {
   AuthorizeToolExecutionResult,
   ResolvedToolExecutionHookContext,
 } from '#/agent/tool/toolHooks';
-import type { ToolInputDisplay } from '@moonshot-ai/protocol';
-import { ISessionApprovalService } from "#/session/approval/approval";
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IEventBus } from '#/app/event/eventBus';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { ISessionApprovalService } from "#/session/approval/approval";
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import {
   IAgentPermissionGate,
-  type PermissionApprovalRequestContext,
-  type PermissionApprovalResultContext,
 } from './permissionGate';
-import { InstantiationType } from '#/_base/di/extensions';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IEventBus } from '#/app/event/eventBus';
+
+export type PermissionApprovalRequestContext = ApprovalRequest & {
+  readonly sessionId?: string;
+  readonly agentId?: string;
+  readonly turnId: number;
+  readonly toolInput: unknown;
+};
+
+export type PermissionApprovalResultContext = PermissionApprovalRequestContext &
+  (
+    | ApprovalResponse
+    | {
+        readonly decision: 'error';
+        readonly error: string;
+      }
+  );
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {

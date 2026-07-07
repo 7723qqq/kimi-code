@@ -5,17 +5,17 @@
  * `PermissionModeModel`, mutating it only through the `permission.set_mode` Op
  * (`wire.dispatch(setMode({ mode }))`) and reading it through `wire.getModel`.
  * The `onChanged` hook is driven by a `wire.subscribe` on that model (firing
- * only on actual changes), and the mode-aware reminder is registered through
- * `contextInjector`. Bound at Agent scope.
+ * only on actual changes), and mode-aware reminders are registered through the
+ * permission-mode injection helper. Bound at Agent scope.
  */
 
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
+import { IInstantiationService } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { OrderedHookSlot } from '#/hooks';
-import { registerPermissionModeInjection } from '#/agent/permissionMode/injection/permissionModeInjection';
+import { PermissionModeInjection } from '#/agent/permissionMode/injection/permissionModeInjection';
 import { IAgentWireService } from '#/wire/tokens';
 import type { IWireService } from '#/wire/wireService';
 import { IAgentPermissionModeService } from './permissionMode';
@@ -33,7 +33,7 @@ export class AgentPermissionModeService extends Disposable implements IAgentPerm
 
   constructor(
     @IAgentWireService private readonly wire: IWireService,
-    @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
+    @IInstantiationService instantiation: IInstantiationService,
   ) {
     super();
     this._register(
@@ -42,7 +42,7 @@ export class AgentPermissionModeService extends Disposable implements IAgentPerm
         void this.hooks.onChanged.run({ mode, previousMode });
       }),
     );
-    this._register(registerPermissionModeInjection(dynamicInjector, this));
+    this._register(instantiation.createInstance(PermissionModeInjection, this));
   }
 
   get mode(): PermissionMode {

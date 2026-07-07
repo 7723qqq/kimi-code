@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import {
+  IAgentContextInjectorService,
+  type ContextInjectionProvider,
+} from '#/agent/contextInjector/contextInjector';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { AgentPermissionModeService } from '#/agent/permissionMode/permissionModeService';
 import { PermissionModeModel } from '#/agent/permissionMode/permissionModeOps';
@@ -19,9 +22,23 @@ import { WireService } from '#/wire/wireServiceImpl';
 const SCOPE = 'wire';
 const KEY = 'permission-mode-test';
 
+let registeredInjection:
+  | {
+      readonly name: string;
+      readonly provider: ContextInjectionProvider;
+    }
+  | undefined;
+
 const injectorStub: IAgentContextInjectorService = {
   _serviceBrand: undefined,
-  register: () => ({ dispose: () => {} }),
+  register: (name, provider) => {
+    registeredInjection = { name, provider };
+    return {
+      dispose: () => {
+        if (registeredInjection?.provider === provider) registeredInjection = undefined;
+      },
+    };
+  },
 };
 
 let disposables: DisposableStore;
@@ -30,6 +47,7 @@ let log: IAppendLogStore;
 let svc: IAgentPermissionModeService;
 
 beforeEach(() => {
+  registeredInjection = undefined;
   disposables = new DisposableStore();
   ix = disposables.add(new TestInstantiationService());
   ix.stub(IFileSystemStorageService, new InMemoryStorageService());
@@ -49,6 +67,20 @@ async function readRecords(): Promise<PersistedRecord[]> {
     out.push(record);
   }
   return out;
+}
+
+async function runRegisteredInjection(): Promise<string | undefined> {
+  const provider = registeredInjection?.provider;
+  if (provider === undefined) throw new Error('expected permission mode injection provider');
+  const content = await provider({
+    injectedPositions: [],
+    lastInjectedAt: null,
+    isNewTurn: true,
+  });
+  if (typeof content !== 'string' && content !== undefined) {
+    throw new Error('expected permission mode injection provider to return text');
+  }
+  return content;
 }
 
 describe('AgentPermissionModeService (wire-backed)', () => {
@@ -77,6 +109,19 @@ describe('AgentPermissionModeService (wire-backed)', () => {
     const records = await readRecords();
     expect(records).toEqual([{ type: 'permission.set_mode', mode: 'auto' }]);
     expect('payload' in records[0]!).toBe(false);
+  });
+
+  it('registers auto-mode reminder injection through the injection service', async () => {
+    expect(registeredInjection?.name).toBe('permission_mode');
+
+    expect(await runRegisteredInjection()).toBeUndefined();
+
+    svc.setMode('auto');
+    expect(await runRegisteredInjection()).toContain('Auto permission mode is active');
+    expect(await runRegisteredInjection()).toBeUndefined();
+
+    svc.setMode('manual');
+    expect(await runRegisteredInjection()).toContain('Auto permission mode is no longer active');
   });
 
   it('replay rebuilds mode from a persisted record on a fresh WireService (silent)', async () => {
