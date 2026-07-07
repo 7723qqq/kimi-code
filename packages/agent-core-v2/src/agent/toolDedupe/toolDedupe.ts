@@ -1,5 +1,5 @@
 /**
- * `toolDedup` domain (L4) — per-turn tool-call deduplication.
+ * `toolDedupe` domain (L4) — per-turn tool-call deduplication.
  *
  * A self-wiring plugin: it participates in `turn` step boundaries and
  * `IAgentToolExecutorService`'s will/did hooks to suppress same-step duplicates and inject
@@ -12,25 +12,25 @@ import type { ContentPart } from '#/app/llmProtocol/message';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
-export type ToolDedupOutput = string | ContentPart[];
+export type ToolDedupeOutput = string | ContentPart[];
 
-export interface ToolDedupSuccessResult {
-  readonly output: ToolDedupOutput;
+export interface ToolDedupeSuccessResult {
+  readonly output: ToolDedupeOutput;
   readonly isError?: false | undefined;
   readonly stopTurn?: boolean | undefined;
   readonly message?: string | undefined;
   readonly truncated?: boolean | undefined;
 }
 
-export interface ToolDedupErrorResult {
-  readonly output: ToolDedupOutput;
+export interface ToolDedupeErrorResult {
+  readonly output: ToolDedupeOutput;
   readonly isError: true;
   readonly stopTurn?: boolean | undefined;
   readonly message?: string | undefined;
   readonly truncated?: boolean | undefined;
 }
 
-export type ToolDedupResult = ToolDedupSuccessResult | ToolDedupErrorResult;
+export type ToolDedupeResult = ToolDedupeSuccessResult | ToolDedupeErrorResult;
 
 export interface IAgentToolDedupeService {
   readonly _serviceBrand: undefined;

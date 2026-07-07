@@ -199,7 +199,7 @@ describe('Agent turn flow', () => {
     await ctx.untilTurnEnd();
 
     expect(records).toContainEqual({
-      event: 'tool_call_dedup_detected',
+      event: 'tool_call_dedupe_detected',
       properties: {
         turn_id: 0,
         step_no: 1,
@@ -237,7 +237,7 @@ describe('Agent turn flow', () => {
     await ctx.untilTurnEnd();
 
     expect(records).toContainEqual({
-      event: 'tool_call_dedup_detected',
+      event: 'tool_call_dedupe_detected',
       properties: {
         turn_id: 0,
         step_no: 2,
@@ -259,7 +259,7 @@ describe('Agent turn flow', () => {
     });
   });
 
-  it('fires PostToolUse for same-step dups with the original real output, not the dedup placeholder', async () => {
+  it('fires PostToolUse for same-step dups with the original real output, not the dedupe placeholder', async () => {
     // Hook command asserts the dup's PostToolUse payload carries the real
     // stdout ('dup'), not the placeholder ('').
     const assertScript = [
