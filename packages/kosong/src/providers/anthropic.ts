@@ -940,6 +940,15 @@ class AnthropicStreamedMessage implements StreamedMessage {
 export class AnthropicChatProvider implements ChatProvider {
   readonly name: string = 'anthropic';
 
+  /**
+   * See {@link ChatProvider.maxCompletionTokens}. `max_tokens` is required by
+   * the Messages API and is initialized in the constructor, so this reflects
+   * the wire value even when no completion budget was applied.
+   */
+  get maxCompletionTokens(): number | undefined {
+    return this._generationKwargs.max_tokens;
+  }
+
   private _model: string;
   private _stream: boolean;
   private _client: Anthropic | undefined;

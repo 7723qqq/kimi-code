@@ -2774,6 +2774,25 @@ describe('AnthropicChatProvider constructor max_tokens', () => {
 
     expect(provider).not.toBe(original);
     expect(body['max_tokens']).toBe(2048);
+    expect(provider.maxCompletionTokens).toBe(2048);
+  });
+
+  it('exposes the constructor-resolved max_tokens without any budget application', async () => {
+    // max_tokens is required by the Messages API, so even when completion
+    // budgeting is disabled the wire carries the constructor default; the
+    // exposed cap must reflect it for the request trace.
+    const provider = new AnthropicChatProvider({
+      model: 'claude-opus-4-7',
+      apiKey: 'test-key',
+      stream: false,
+    });
+    const history: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
+    ];
+    const body = await captureRequestBody(provider, '', [], history);
+
+    expect(provider.maxCompletionTokens).toBeDefined();
+    expect(provider.maxCompletionTokens).toBe(body['max_tokens']);
   });
 
   it('withMaxCompletionTokens lowers the inferred model default cap', async () => {
@@ -2803,6 +2822,9 @@ describe('AnthropicChatProvider constructor max_tokens', () => {
     const body = await captureRequestBody(provider, '', [], history);
 
     expect(body['max_tokens']).toBe(1024);
+    // The exposed effective cap tracks the preserved existing value, not the
+    // requested budget — the request trace records this field.
+    expect(provider.maxCompletionTokens).toBe(1024);
   });
 
   it('withMaxCompletionTokens preserves an existing higher max_tokens cap', async () => {
