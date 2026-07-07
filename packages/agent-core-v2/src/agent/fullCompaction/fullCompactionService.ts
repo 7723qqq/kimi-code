@@ -2,9 +2,13 @@ import { Disposable } from "#/_base/di/lifecycle";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { renderPrompt } from "#/_base/utils/render-prompt";
-import { estimateTokens, estimateTokensForMessages } from "#/_base/utils/tokens";
+import { estimateTokensForMessages } from "#/_base/utils/tokens";
 import type { ContextMessage } from '#/agent/contextMemory';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import {
+  buildCompactionSummaryText,
+  IAgentContextMemoryService,
+  isRealUserInput,
+} from '#/agent/contextMemory';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import {
   IAgentLLMRequesterService,
@@ -298,9 +302,11 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     try {
       const finalResult: CompactionResult = {
         summary: '',
+        contextSummary: '',
         compactedCount: 1,
         tokensBefore: 0,
         tokensAfter: 0,
+        keptUserMessageCount: 0,
       };
       let compactedCount = initialCompactedCount;
 
@@ -310,9 +316,13 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         if (this.compacting !== active) return;
 
         finalResult.summary = result.summary;
+        finalResult.contextSummary = result.contextSummary;
         finalResult.compactedCount += result.compactedCount - 1;
         finalResult.tokensBefore += result.tokensBefore - finalResult.tokensAfter;
         finalResult.tokensAfter = result.tokensAfter;
+        finalResult.keptUserMessageCount = result.keptUserMessageCount;
+        finalResult.keptHeadUserMessageCount = result.keptHeadUserMessageCount;
+        finalResult.droppedCount = result.droppedCount;
 
         if (result.tokensBefore - result.tokensAfter < 1024) break;
         if (!this.strategy.shouldBlock(result.tokensAfter)) break;
@@ -323,7 +333,9 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       if (this.compacting !== active) return;
       this.lastCompactedTokenCount = finalResult.tokensAfter;
       this.markCompleted(completeData(finalResult));
-      this.eventBus.publish({ type: 'compaction.completed', result: finalResult, trigger: data.source });
+      const { contextSummary: _contextSummary, ...eventResult } = finalResult;
+      void _contextSummary;
+      this.eventBus.publish({ type: 'compaction.completed', result: eventResult, trigger: data.source });
     } catch (error) {
       if (isAbortError(error)) return;
       const blockedByTurn = this.compacting === active && active.blockedByTurn;
@@ -428,20 +440,18 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         );
       }
 
-      if (!historyUnchanged(this.context.get(), originalHistory)) {
+      if (!historySafeToCompact(this.context.get(), originalHistory)) {
         this.cancel();
         return undefined;
       }
 
       const summary = this.postProcessSummary(attempt.summary);
-      const recent = originalHistory.slice(compactedCount);
-      const tokensAfter = estimateTokens(summary) + estimateTokensForMessages(recent);
-      const result: CompactionResult = {
+      const result = this.context.applyCompaction({
         summary,
+        contextSummary: buildCompactionSummaryText(summary),
         compactedCount,
         tokensBefore,
-        tokensAfter,
-      };
+      });
 
       this.telemetry.track('compaction_finished', {
         // Never send `data.instruction` (user-authored content) to telemetry.
@@ -454,12 +464,6 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         round,
         thinking_level: this.profile.data().thinkingLevel,
         ...usageTelemetry(attempt.usage),
-      });
-
-      this.context.applyCompaction({
-        count: compactedCount,
-        summary: createCompactionSummaryMessage(summary),
-        tokens: result.tokensAfter,
       });
       return result;
     } catch (error) {
@@ -514,34 +518,24 @@ function collectSummary(finish: LLMRequestFinish): CompactionAttemptResult {
   return { summary, usage: finish.usage };
 }
 
-function createCompactionSummaryMessage(summary: string): ContextMessage {
-  return {
-    role: 'assistant',
-    content: [{ type: 'text', text: summary }],
-    toolCalls: [],
-    origin: { kind: 'compaction_summary' },
-  };
-}
-
 function completeData(result: CompactionResult): FullCompactionCompleteData {
   return {
     compactedCount: result.compactedCount,
     tokensBefore: result.tokensBefore,
     tokensAfter: result.tokensAfter,
+    keptUserMessageCount: result.keptUserMessageCount,
+    keptHeadUserMessageCount: result.keptHeadUserMessageCount,
+    droppedCount: result.droppedCount,
   };
 }
 
-function historyUnchanged(
+function historySafeToCompact(
   current: readonly ContextMessage[],
   original: readonly ContextMessage[],
 ): boolean {
-  // Only the compacted prefix must be intact. Messages appended to the tail
-  // while the summary request was in flight are fine — unlike legacy's
-  // whole-history rebuild (which had to cancel when non-user messages grew the
-  // tail), the splice replaces just the prefix and leaves the appended tail in
-  // place, so nothing appended concurrently can be lost.
   if (current.length < original.length) return false;
-  return original.every((message, index) => message === current[index]);
+  if (!original.every((message, index) => message === current[index])) return false;
+  return current.slice(original.length).every(isRealUserInput);
 }
 
 function usageTelemetry(usage: TokenUsage | null): CompactionTelemetryProperties {

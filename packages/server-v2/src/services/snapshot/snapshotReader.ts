@@ -31,6 +31,7 @@ import {
   ISessionLifecycleService,
   IWorkspaceRegistry,
   normalizeSessionMeta,
+  applyContextCompactionRecord,
   resetFold,
   toProtocolMessage,
   type ContextMessage,
@@ -290,7 +291,7 @@ interface ContextRecord {
  * `IAgentContextMemoryService.get()` view:
  *   append_message → push (deferred while a tool exchange is open) ·
  *   append_loop_event → v1 fold (step/content/tool) · splice → array splice ·
- *   clear → drop all · apply_compaction → `[summary, ...state.slice(count)]` ·
+ *   clear → drop all · apply_compaction → `[summary, ...state.slice(compactedCount)]` ·
  *   undo → trailing cut.
  */
 export function reduceContextRecords(records: Iterable<ContextRecord>): ContextMessage[] {
@@ -320,9 +321,7 @@ export function reduceContextRecords(records: Iterable<ContextRecord>): ContextM
         break;
       }
       case 'context.apply_compaction': {
-        const count = record['count'] as number;
-        const summary = record['summary'] as ContextMessage;
-        state = resetFold([summary, ...state.slice(count)]);
+        state = applyContextCompactionRecord(state, record);
         break;
       }
       case 'context.undo': {

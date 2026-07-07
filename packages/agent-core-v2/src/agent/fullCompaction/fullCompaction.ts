@@ -5,7 +5,7 @@ import type {
 import { createDecorator } from "#/_base/di/instantiation";
 import type { Hooks } from '#/hooks';
 
-export type FullCompactionCompleteData = Omit<CompactionResult, 'summary'>;
+export type FullCompactionCompleteData = Omit<CompactionResult, 'summary' | 'contextSummary'>;
 
 export interface CompactInput {
   readonly source: CompactionSource;

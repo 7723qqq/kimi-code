@@ -27,6 +27,7 @@ function stubWorkspace(): ISessionWorkspaceContext {
     workDir: WORK_DIR,
     additionalDirs: [],
     setWorkDir: () => {},
+    setAdditionalDirs: () => {},
     resolve: (rel) => (isAbsolute(rel) ? rel : resolve(WORK_DIR, rel)),
     isWithin: (abs) => {
       const r = relative(WORK_DIR, abs);

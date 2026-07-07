@@ -8,7 +8,15 @@ import {
 } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { emptyUsage } from '#/app/llmProtocol/usage';
-import { computeUndoCut, ensureMessageId, IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
+import {
+  buildContextCompactionShape,
+  computeUndoCut,
+  ensureMessageId,
+  IAgentContextMemoryService,
+  type ContextCompactionInput,
+  type ContextCompactionResult,
+  type ContextMessage,
+} from '#/agent/contextMemory';
 import { IAgentTaskService } from '#/agent/task';
 import {
   AgentExternalHooksService,
@@ -90,8 +98,12 @@ function stubContextMemory(): IAgentContextMemoryService & {
       }
       return cut;
     },
-    applyCompaction: ({ count, summary }) => {
-      messages.splice(0, count, ensureMessageId(summary));
+    applyCompaction: (input: ContextCompactionInput): ContextCompactionResult => {
+      const shape = buildContextCompactionShape(messages, input);
+      messages.splice(0, messages.length, ...shape.messages);
+      const { messages: _messages, ...result } = shape;
+      void _messages;
+      return result;
     },
     splice: (start, deleteCount, inserted) => {
       messages.splice(start, deleteCount, ...inserted);

@@ -53,6 +53,7 @@ import {
   IAgentToolState,
   IAgentUsageService,
   ISessionWorkspaceContext,
+  ISessionWorkspaceCommandService,
   IWorkspaceRegistry,
 } from '@moonshot-ai/agent-core-v2';
 
@@ -152,7 +153,10 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
     'workspace:resolve': { service: ISessionWorkspaceContext, method: 'resolve', readonly: true },
     'workspace:isWithin': { service: ISessionWorkspaceContext, method: 'isWithin', readonly: true },
     'workspace:setWorkDir': { service: ISessionWorkspaceContext, method: 'setWorkDir' },
-    'workspace:addAdditionalDir': { service: ISessionWorkspaceContext, method: 'addAdditionalDir' },
+    'workspace:addAdditionalDir': {
+      service: ISessionWorkspaceCommandService,
+      method: 'addAdditionalDir',
+    },
     'workspace:removeAdditionalDir': { service: ISessionWorkspaceContext, method: 'removeAdditionalDir' },
 
     'fs:search': { service: ISessionFsService, method: 'search', readonly: true },
