@@ -469,6 +469,7 @@ export interface WarningEvent {
 export interface TurnStartedEvent {
   readonly type: 'turn.started';
   readonly turnId: number;
+  readonly origin: PromptOrigin;
 }
 
 export interface TurnEndedEvent {
@@ -1005,6 +1006,9 @@ export const kimiErrorCodeSchema = z.enum([
   'request.invalid',
   'request.work_dir_required',
   'request.prompt_input_empty',
+  'prompt.not_found',
+  'prompt.already_completed',
+  'session.busy',
   'shell.git_bash_not_found',
   'workspace.not_found',
   'terminal.not_found',
@@ -1012,6 +1016,14 @@ export const kimiErrorCodeSchema = z.enum([
   'file.too_large',
   'fs.path_not_found',
   'fs.permission_denied',
+  'fs.path_escapes',
+  'fs.is_directory',
+  'fs.is_binary',
+  'fs.too_large',
+  'fs.already_exists',
+  'fs.too_many_results',
+  'fs.grep_timeout',
+  'fs.git_unavailable',
   'validation.failed',
   'not_implemented',
   'internal',

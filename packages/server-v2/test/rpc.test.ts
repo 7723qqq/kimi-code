@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import {
   IAgentLifecycleService,
+  IEventService,
   ISessionLifecycleService,
 } from '@moonshot-ai/agent-core-v2';
 import type { ISessionIndex, ISessionMetadata } from '@moonshot-ai/agent-core-v2';
@@ -24,6 +25,7 @@ interface Envelope<T> {
 interface SessionMetaWire {
   id: string;
   title?: string;
+  lastPrompt?: string;
   createdAt: number;
   updatedAt: number;
   archived: boolean;
@@ -223,6 +225,57 @@ describe('server-v2 /api/v2 RPC', () => {
     );
     expect(body.code).toBe(0);
     expect(body.data.turn_id).toBe(0);
+  });
+
+  it('derives the session title and lastPrompt from the first prompt', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+
+    const events: { type: string; payload: unknown }[] = [];
+    const sub = (server as RunningServer).core.accessor
+      .get(IEventService)
+      .subscribe((event) => events.push(event));
+
+    const { body } = await call<{ turn_id: number }>(
+      'POST',
+      `/api/v2/session/${id}/agent/main/prompts:submit`,
+      { input: [{ type: 'text', text: 'hello title' }] },
+    );
+    expect(body.code).toBe(0);
+    sub.dispose();
+
+    const meta = await call<SessionMetaWire>('POST', `/api/v2/session/${id}/session:read`);
+    expect(meta.body.code).toBe(0);
+    expect(meta.body.data.title).toBe('hello title');
+    expect(meta.body.data.lastPrompt).toBe('hello title');
+
+    const updated = events.find((e) => e.type === 'session.meta.updated');
+    expect(updated).toBeDefined();
+    const payload = updated?.payload as
+      | { title?: string; patch?: { lastPrompt?: string } }
+      | undefined;
+    expect(payload?.title).toBe('hello title');
+    expect(payload?.patch?.lastPrompt).toBe('hello title');
+  });
+
+  it('keeps a custom title and only refreshes lastPrompt on a later prompt', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+
+    const renamed = await call<null>('POST', `/api/v2/session/${id}/session:setTitle`, 'keep-me');
+    expect(renamed.body.code).toBe(0);
+
+    const { body } = await call<{ turn_id: number }>(
+      'POST',
+      `/api/v2/session/${id}/agent/main/prompts:submit`,
+      { input: [{ type: 'text', text: 'should not become the title' }] },
+    );
+    expect(body.code).toBe(0);
+
+    const meta = await call<SessionMetaWire>('POST', `/api/v2/session/${id}/session:read`);
+    expect(meta.body.code).toBe(0);
+    expect(meta.body.data.title).toBe('keep-me');
+    expect(meta.body.data.lastPrompt).toBe('should not become the title');
   });
 
   it('runs a shell command through shell:run', async () => {

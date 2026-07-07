@@ -62,7 +62,7 @@ export const ErrorCodes = {
   COMPACTION_FAILED: 'compaction.failed',
   COMPACTION_UNABLE: 'compaction.unable',
 
-  BACKGROUND_TASK_ID_EMPTY: 'background.task_id_empty',
+  BACKGROUND_TASK_ID_EMPTY: 'task.task_id_empty',
   MCP_SERVER_NOT_FOUND: 'mcp.server_not_found',
   MCP_SERVER_DISABLED: 'mcp.server_disabled',
   MCP_STARTUP_FAILED: 'mcp.startup_failed',
@@ -373,7 +373,7 @@ export const KIMI_ERROR_INFO = {
     action: 'The current history has no prefix that can be compacted (e.g. only a pending user message). Start a new turn or session instead.',
   },
 
-  'background.task_id_empty': {
+  'task.task_id_empty': {
     title: 'Background task id is empty',
     retryable: false,
     public: true,

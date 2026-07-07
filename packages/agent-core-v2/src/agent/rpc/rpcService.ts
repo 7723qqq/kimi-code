@@ -12,7 +12,7 @@ import type {
   ShellOutputEvent,
   ShellStartedEvent,
 } from '@moonshot-ai/protocol';
-import { IEventBus } from '#/app/event';
+import { IEventBus, IEventService } from '#/app/event';
 import { ErrorCodes, KimiError } from '#/errors';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { IAgentPermissionGate } from '#/agent/permissionGate';
@@ -23,6 +23,7 @@ import { expandCommandArguments, IPluginService } from '#/app/plugin';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentPromptService } from '#/agent/prompt';
 import { ISessionMetadata, type SessionMetaPatch } from '#/session/sessionMetadata';
+import { ISessionContext } from '#/session/sessionContext';
 import { IAgentSkillService } from '#/agent/skill';
 import { IAgentSwarmService } from '#/agent/swarm';
 import { ITelemetryService } from '#/app/telemetry';
@@ -60,7 +61,9 @@ import type {
 } from './core-api';
 import { IAgentRPCService } from './rpc';
 import {
+  promptMetadataTextFromPayload,
   promptMetadataTextFromPluginCommand,
+  promptMetadataTextFromSkill,
   titleFromPromptMetadataText,
 } from './prompt-metadata';
 
@@ -98,11 +101,17 @@ export class AgentRPCService implements IAgentRPCService {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentGoalService private readonly goal: IAgentGoalService,
     @IEventBus private readonly eventBus: IEventBus,
+    @IEventService private readonly eventService: IEventService,
     @IPluginService private readonly plugins: IPluginService,
     @ISessionMetadata private readonly metadata: ISessionMetadata,
+    @ISessionContext private readonly sessionContext: ISessionContext,
   ) { }
 
   async prompt(payload: PromptPayload): Promise<PromptLaunchResult | undefined> {
+    // Mirror v1: persist `lastPrompt` and derive an easy title from the first
+    // prompt BEFORE launching the turn, so the web session title is populated as
+    // soon as the conversation starts (gap closed — v2 used to leave it empty).
+    await this.updatePromptMetadata(promptMetadataTextFromPayload(payload));
     const turn = await this.promptService.prompt({
       role: 'user',
       content: [...payload.input],
@@ -287,8 +296,9 @@ export class AgentRPCService implements IAgentRPCService {
     this.promptService.clear();
   }
 
-  activateSkill(payload: ActivateSkillPayload): void {
+  async activateSkill(payload: ActivateSkillPayload): Promise<void> {
     this.skills.activate(payload);
+    await this.updatePromptMetadata(promptMetadataTextFromSkill(payload));
   }
 
   async activatePluginCommand(payload: ActivatePluginCommandPayload): Promise<void> {
@@ -326,13 +336,18 @@ export class AgentRPCService implements IAgentRPCService {
       toolCalls: [],
       origin,
     });
-    await this.updatePluginCommandPromptMetadata(payload);
+    await this.updatePromptMetadata(promptMetadataTextFromPluginCommand(payload));
   }
 
-  private async updatePluginCommandPromptMetadata(
-    payload: ActivatePluginCommandPayload,
-  ): Promise<void> {
-    const text = promptMetadataTextFromPluginCommand(payload);
+  /**
+   * Mirror v1's `Session.updatePromptMetadata`: persist the prompt text as
+   * `lastPrompt` and, when the session is still untitled and has no custom
+   * title, derive an easy `title` from it. Then broadcast `session.meta.updated`
+   * on the global `IEventService` so the web session list / title updates live
+   * (the edge fans it out to every connection, not just this session's
+   * subscribers) — exactly like v1's `session.rpc.emitEvent`.
+   */
+  private async updatePromptMetadata(text: string | undefined): Promise<void> {
     if (text === undefined) return;
     const current = await this.metadata.read();
     const patch: { lastPrompt: string; title?: string; isCustomTitle?: boolean } = {
@@ -343,6 +358,19 @@ export class AgentRPCService implements IAgentRPCService {
       patch.isCustomTitle = false;
     }
     await this.metadata.update(patch satisfies SessionMetaPatch);
+    this.eventService.publish({
+      type: 'session.meta.updated',
+      payload: {
+        agentId: 'main',
+        sessionId: this.sessionContext.sessionId,
+        title: patch.title,
+        patch: {
+          title: patch.title,
+          isCustomTitle: patch.isCustomTitle,
+          lastPrompt: text,
+        },
+      },
+    });
   }
 
   createGoal(payload: CreateGoalPayload) {
