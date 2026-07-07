@@ -20,6 +20,8 @@ import { IHostEnvironment, type IHostEnvironment as HostEnvironmentService } fro
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPermissionPolicyService, type PermissionPolicyEvaluation } from '#/agent/permissionPolicy/permissionPolicy';
 import { DenyAllPermissionPolicyService } from '#/agent/permissionPolicy/policies/deny-all';
+import { AgentSwarmExclusiveDenyPermissionPolicyService } from '#/agent/permissionPolicy/policies/agent-swarm-exclusive-deny';
+import { SwarmModeAgentSwarmApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/swarm-mode-agent-swarm-approve';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { AgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicyService';
 import {
@@ -556,6 +558,117 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
       policyName: 'fallback-ask',
       result: { kind: 'ask' },
     });
+  });
+});
+
+describe('AgentSwarm permission policies', () => {
+  const agentSwarmArgs = {
+    description: 'Review files',
+    prompt_template: 'Review {{item}}',
+    items: ['src/a.ts', 'src/b.ts'],
+  };
+
+  it('approves only AgentSwarm when swarm mode is active', () => {
+    let swarmActive = false;
+    const swarm = {
+      get isActive() {
+        return swarmActive;
+      },
+    } as IAgentSwarmService;
+    const policy = new SwarmModeAgentSwarmApprovePermissionPolicyService(swarm);
+
+    expect(
+      policy.evaluate(policyContext({ toolName: 'AgentSwarm', args: agentSwarmArgs })),
+    ).toBeUndefined();
+    swarmActive = true;
+    expect(
+      policy.evaluate(policyContext({ toolName: 'AgentSwarm', args: agentSwarmArgs })),
+    ).toEqual({ kind: 'approve' });
+    expect(policy.evaluate(policyContext({ toolName: 'Agent', args: {} }))).toBeUndefined();
+  });
+
+  it('denies AgentSwarm mixed with other tool calls in the same response', () => {
+    const policy = new AgentSwarmExclusiveDenyPermissionPolicyService();
+    const agentSwarmCall = toolCall('call_agent_swarm', 'AgentSwarm', agentSwarmArgs);
+    const readCall = toolCall('call_read', 'Read', { path: 'src/a.ts' });
+
+    expect(
+      policy.evaluate(
+        policyContext({
+          toolName: 'AgentSwarm',
+          args: agentSwarmArgs,
+          toolCall: agentSwarmCall,
+          toolCalls: [agentSwarmCall, readCall],
+        }),
+      ),
+    ).toMatchObject({
+      kind: 'deny',
+      message: expect.stringContaining('AgentSwarm must be the only tool call'),
+      reason: {
+        agent_swarm_tool_calls: 1,
+        tool_calls: 2,
+      },
+    });
+    expect(
+      policy.evaluate(
+        policyContext({
+          toolName: 'Read',
+          args: { path: 'src/a.ts' },
+          toolCall: readCall,
+          toolCalls: [agentSwarmCall, readCall],
+        }),
+      ),
+    ).toMatchObject({ kind: 'deny' });
+  });
+
+  it('denies multiple AgentSwarm calls with one-at-a-time guidance', () => {
+    const policy = new AgentSwarmExclusiveDenyPermissionPolicyService();
+    const first = toolCall('call_agent_swarm_1', 'AgentSwarm', agentSwarmArgs);
+    const second = toolCall('call_agent_swarm_2', 'AgentSwarm', {
+      description: 'Review tests',
+      prompt_template: 'Review {{item}}',
+      items: ['test/a.ts', 'test/b.ts'],
+    });
+
+    const result = policy.evaluate(
+      policyContext({
+        toolName: 'AgentSwarm',
+        args: agentSwarmArgs,
+        toolCall: first,
+        toolCalls: [first, second],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: 'deny',
+      message: expect.stringContaining('Multiple AgentSwarm calls are not forbidden'),
+      reason: {
+        agent_swarm_tool_calls: 2,
+        tool_calls: 2,
+      },
+    });
+    expect(result).toMatchObject({
+      message: expect.stringContaining('call one AgentSwarm, wait for its result'),
+    });
+    expect(result).toMatchObject({
+      message: expect.stringContaining('merge the work into a single AgentSwarm'),
+    });
+  });
+
+  it('allows a single AgentSwarm call for later permission policies', () => {
+    const policy = new AgentSwarmExclusiveDenyPermissionPolicyService();
+    const agentSwarmCall = toolCall('call_agent_swarm', 'AgentSwarm', agentSwarmArgs);
+
+    expect(
+      policy.evaluate(
+        policyContext({
+          toolName: 'AgentSwarm',
+          args: agentSwarmArgs,
+          toolCall: agentSwarmCall,
+          toolCalls: [agentSwarmCall],
+        }),
+      ),
+    ).toBeUndefined();
   });
 });
 

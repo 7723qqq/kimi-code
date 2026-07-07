@@ -273,6 +273,16 @@ describe('AgentSwarmTool', () => {
     expect(execution.matchesRule).toBeUndefined();
   });
 
+  it('description states the enforced input requirements', () => {
+    const host = mockSwarmHost();
+    const tool = new AgentSwarmTool(host.swarmService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockSwarmMode());
+    // Mirrors the throws in createAgentSwarmSpecs (agent-swarm.ts): min-2-unless-resume,
+    // prompt_template required + must contain {{item}}, distinct resulting prompts.
+    expect(tool.description).toContain('at least 2');
+    expect(tool.description).toContain('{{item}}');
+    expect(tool.description.toLowerCase()).toContain('distinct');
+  });
+
   it('rejects invalid launch shapes at execution time', async () => {
     const cases = [
       {
