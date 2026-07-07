@@ -590,8 +590,6 @@ function isTodoItem(value: unknown): value is TodoItem {
   );
 }
 
-export { AgentFullCompactionService as FullCompaction };
-
 // Construct eagerly (not delayed): the service registers turn and loop hooks
 // (onLaunched / beforeStep / afterStep / onError) that drive auto
 // compaction. With delayed instantiation the eager `accessor.get(IAgentFullCompactionService)`

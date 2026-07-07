@@ -380,7 +380,7 @@ export class AgentRPCService implements IAgentRPCService {
   getContext(_payload: EmptyPayload) {
     return {
       history: this.context.get(),
-      tokenCount: this.contextSize.getStatus().contextTokens,
+      tokenCount: this.contextSize.get().measured,
     };
   }
 

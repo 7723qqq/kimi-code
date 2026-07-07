@@ -1180,7 +1180,7 @@ export class AgentTestContext {
     const microCompaction = this.get(IAgentMicroCompactionService);
     void microCompaction;
     void swarm.isActive;
-    contextSize.getStatus();
+    contextSize.get();
     usage.status();
     toolStore.data();
     tasks.list(false);
@@ -1249,7 +1249,7 @@ export class AgentTestContext {
     const contextSize = this.get(IAgentContextSizeService);
     return {
       history: context.get(),
-      tokenCount: contextSize.getStatus().contextTokens,
+      tokenCount: contextSize.get().measured,
     };
   }
 

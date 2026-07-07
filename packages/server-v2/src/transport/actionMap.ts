@@ -189,7 +189,7 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
 
     'usage:status': { service: IAgentUsageService, method: 'status', readonly: true },
 
-    'context:status': { service: IAgentContextSizeService, method: 'getStatus', readonly: true },
+    'context:status': { service: IAgentContextSizeService, method: 'get', readonly: true },
 
     'swarm:isActive': { service: IAgentSwarmService, method: 'isActive', readonly: true },
     'swarm:enter': { service: IAgentSwarmService, method: 'enter' },

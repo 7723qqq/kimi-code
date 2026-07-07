@@ -216,7 +216,7 @@ export class AgentMicroCompactionService
   private contextSizeRatio(): number {
     const maxContextTokens = this.profile.getModelCapabilities().max_context_tokens;
     if (maxContextTokens === undefined || maxContextTokens <= 0) return 1;
-    return this.contextSize.getStatus().contextTokensWithPending / maxContextTokens;
+    return this.contextSize.get().size / maxContextTokens;
   }
 
   private measureEffect(
