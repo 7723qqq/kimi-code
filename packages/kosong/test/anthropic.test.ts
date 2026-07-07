@@ -2619,6 +2619,7 @@ describe('AnthropicChatProvider', () => {
 describe('resolveDefaultMaxTokens', () => {
   it('returns per-version Messages-API caps for known Claude 4 models', () => {
     expect(resolveDefaultMaxTokens('claude-fable-5')).toBe(128000);
+    expect(resolveDefaultMaxTokens('claude-opus-4-8')).toBe(128000);
     expect(resolveDefaultMaxTokens('claude-opus-4-7')).toBe(128000);
     expect(resolveDefaultMaxTokens('claude-opus-4-6')).toBe(128000);
     expect(resolveDefaultMaxTokens('claude-opus-4-5-20251101')).toBe(64000);
@@ -2650,6 +2651,7 @@ describe('resolveDefaultMaxTokens', () => {
   });
 
   it('matches dotted version separators', () => {
+    expect(resolveDefaultMaxTokens('claude-opus-4.8')).toBe(128000);
     expect(resolveDefaultMaxTokens('claude-opus-4.7')).toBe(128000);
     expect(resolveDefaultMaxTokens('claude-opus-4.6')).toBe(128000);
     expect(resolveDefaultMaxTokens('claude-sonnet-4.6')).toBe(64000);
@@ -2672,12 +2674,15 @@ describe('resolveDefaultMaxTokens', () => {
     expect(resolveDefaultMaxTokens('anthropic.claude-3-5-sonnet-20240620-v1:0')).toBe(8192);
   });
 
-  it('falls back to family-only ceiling for unknown minor versions', () => {
-    // Future opus-4-X release: minor not in table, falls back to opus-4 = 32000.
-    // Better to under-quote and fail loudly than over-quote a model we can't verify.
-    expect(resolveDefaultMaxTokens('claude-opus-4-10')).toBe(32000);
+  it('falls back to the nearest lower catalogued minor for unknown minors', () => {
+    // opus-4-9/4-10 are not in the table; they reuse opus-4-8's 128k
+    // ceiling (a newer minor inherits at least its predecessor's cap).
+    expect(resolveDefaultMaxTokens('claude-opus-4-9')).toBe(128000);
+    expect(resolveDefaultMaxTokens('claude-opus-4-10')).toBe(128000);
     expect(resolveDefaultMaxTokens('claude-sonnet-4-9')).toBe(64000);
     expect(resolveDefaultMaxTokens('claude-haiku-4-9')).toBe(64000);
+    // A gap between catalogued minors also resolves to the nearest lower one.
+    expect(resolveDefaultMaxTokens('claude-opus-4-3')).toBe(32000);
   });
 
   it('matches case-insensitively', () => {
