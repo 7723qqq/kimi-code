@@ -736,6 +736,9 @@ function workspaceStub(initialWorkDir: string): ISessionWorkspaceContext {
     setWorkDir: (nextWorkDir) => {
       workDir = nextWorkDir;
     },
+    setAdditionalDirs: (dirs) => {
+      additionalDirs = [...dirs];
+    },
     resolve: (path) => path,
     isWithin: () => true,
     assertAllowed: (path) => path,

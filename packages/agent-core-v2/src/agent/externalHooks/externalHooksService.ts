@@ -1,30 +1,30 @@
 /**
- * `externalHooks` domain (L5) — Agent-scope adapter for external
+ * `externalHooks` domain (L6) — Agent-scope adapter for external
  * hook commands.
  *
- * Listens to hook slots owned by the agent behavior/lifecycle domains
- * (`toolExecutor`, `permissionGate`, `prompt`, `turn`, `loop`, `fullCompaction`, and
- * `task`) and translates those minimal contexts into the configured external
- * HookEngine events. Appends UserPromptSubmit hook results and Stop hook
- * continuation prompts through `contextMemory`. The `SubagentStart` /
- * `SubagentStop` pair is the one
- * exception: the `agentLifecycle` tool wrapper has no hook service of its own,
- * so `mirrorAgentRun` invokes `runAgentTaskStart` / `notifyAgentTaskStop` on
- * this service directly.
+ * Listens to hook slots and agent events owned by the agent behavior/lifecycle
+ * domains (`toolExecutor`, `permissionGate`, `prompt`, `turn`, `loop`,
+ * `fullCompaction`, `task`, and the `agentLifecycle` run hooks) and translates
+ * those minimal contexts into the configured external hook commands, run
+ * through the shared App-scope `IExternalHooksRunnerService` (so this adapter
+ * never owns an engine lifecycle of its own) — including `SubagentStart` /
+ * `SubagentStop`, which it now observes via the `IAgentRunHooksService` slots
+ * rather than being invoked directly by the `agentLifecycle` wrapper. Appends
+ * UserPromptSubmit hook results and Stop hook continuation prompts through
+ * `contextMemory`.
  */
 
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { isUserCancellation } from '#/_base/utils/abort';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
 import { IAgentTaskService, type AgentTaskNotificationContext } from '#/agent/task/task';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
 import {
   IAgentFullCompactionService,
-  type FullCompactionWillCompactContext,
+  type FullCompactionTask,
 } from '#/agent/fullCompaction/fullCompaction';
 import type { CompactionResult, CompactionSource } from '#/agent/fullCompaction/types';
 import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop/loop';
@@ -41,19 +41,15 @@ import type { ExecutableToolResult } from '#/agent/tool/toolContract';
 import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/agent/tool/toolHooks';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentTurnService } from '#/agent/turn/turn';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IConfigService } from '#/app/config/config';
-import { IPluginService } from '#/app/plugin/plugin';
 import { toKimiErrorPayload } from '#/errors';
-
-import { HOOKS_SECTION, type HookDefConfig } from './configSection';
-import { HookEngine } from './engine';
 import {
-  IAgentExternalHooksService,
+  IAgentRunHooksService,
   type AgentTaskStartHookContext,
   type AgentTaskStopHookContext,
-  type ExternalHooksServiceOptions,
-} from './externalHooks';
+} from '#/session/agentLifecycle/runHooks';
+
+import { IAgentExternalHooksService } from './externalHooks';
+import { IExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunner';
 import {
   renderUserPromptHookBlockResult,
   renderUserPromptHookResult,
@@ -61,56 +57,40 @@ import {
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
-    'hook.result': Omit<HookResultEvent, 'type'>;
+    'hook.result': HookResultEvent;
   }
 }
 
 const SUBAGENT_HOOK_TEXT_PREVIEW_LENGTH = 500;
 
-function fireAndForget(
-  engine: ExternalHooksServiceOptions['hookEngine'],
-  event: string,
-  inputData: Record<string, unknown>,
-  signal: AbortSignal,
-  matcherValue?: string,
-): void {
-  // Genuinely fire-and-forget: never throw on an already-aborted signal. A
-  // cancelled tool still finalizes its result (e.g. the "manually interrupted"
-  // output), and throwing here would clobber that with a finalize-abort error.
-  // Matches legacy `fireAndForgetTrigger`, which fires unconditionally.
-  void engine?.fireAndForgetTrigger(event, { matcherValue, signal, inputData });
-}
-
 export class AgentExternalHooksService extends Disposable implements IAgentExternalHooksService {
   declare readonly _serviceBrand: undefined;
 
-  private dynamicEngine: HookEngine | undefined;
   private stopHookContinuationUsed = false;
 
   constructor(
-    private readonly options: ExternalHooksServiceOptions = {},
+    @IExternalHooksRunnerService private readonly runner: IExternalHooksRunnerService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IEventBus private readonly eventBus: IEventBus,
     @IInstantiationService private readonly instantiation: IInstantiationService,
-    @IConfigService private readonly config: IConfigService,
-    @IBootstrapService private readonly bootstrap: IBootstrapService,
-    @IPluginService private readonly plugins: IPluginService,
   ) {
     super();
-    if (options.hookEngine === undefined) {
-      this.dynamicEngine = new HookEngine([], { cwd: this.bootstrap.cwd });
-      void this.loadDynamicHooks();
-      this._register(
-        this.plugins.onDidReload(() => {
-          void this.loadDynamicHooks();
-        }),
-      );
-    }
     this.registerListeners();
   }
 
-  private engine(): ExternalHooksServiceOptions['hookEngine'] {
-    return this.options.hookEngine ?? this.dynamicEngine;
+  private fireAndForget(
+    event: string,
+    inputData: Record<string, unknown>,
+    matcherValue?: string,
+    signal?: AbortSignal,
+  ): void {
+    // Genuinely fire-and-forget: never throw on an already-aborted signal. A
+    // cancelled tool still finalizes its result (e.g. the "manually interrupted"
+    // output), and throwing here would clobber that with a finalize-abort error.
+    // The runner mirrors the legacy fire-and-forget behavior.
+    try {
+      void this.runner.fireAndForgetTrigger(event, { matcherValue, signal, inputData });
+    } catch {}
   }
 
   private registerListeners(): void {
@@ -142,6 +122,9 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
       this.instantiation.invokeFunction((accessor) => accessor.get(IAgentTaskService)),
     );
 
+    this.registerAgentTaskHooks(
+      this.instantiation.invokeFunction((accessor) => accessor.get(IAgentRunHooksService)),
+    );
   }
 
   private registerToolHooks(toolExecutor: IAgentToolExecutorService): void {
@@ -163,23 +146,17 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     );
   }
 
-  private registerPermissionHooks(permission: IAgentPermissionGate): void {
+  private registerPermissionHooks(_permission: IAgentPermissionGate): void {
     this._register(
       this.eventBus.subscribe('permission.approval.requested', (e) => {
         const { type: _type, ...inputData } = e;
-        void this.engine()?.fireAndForgetTrigger('PermissionRequest', {
-          matcherValue: e.toolName,
-          inputData,
-        });
+        this.fireAndForget('PermissionRequest', inputData, e.toolName);
       }),
     );
     this._register(
       this.eventBus.subscribe('permission.approval.resolved', (e) => {
         const { type: _type, ...inputData } = e;
-        void this.engine()?.fireAndForgetTrigger('PermissionResult', {
-          matcherValue: e.toolName,
-          inputData,
-        });
+        this.fireAndForget('PermissionResult', inputData, e.toolName);
       }),
     );
   }
@@ -196,7 +173,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     );
   }
 
-  private registerTurnHooks(turn: IAgentTurnService): void {
+  private registerTurnHooks(_turn: IAgentTurnService): void {
     this._register(
       this.eventBus.subscribe('turn.ended', (e) => this.notifyTurnEnded(e)),
     );
@@ -241,7 +218,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     );
   }
 
-  private registerTaskHooks(tasks: IAgentTaskService): void {
+  private registerTaskHooks(_tasks: IAgentTaskService): void {
     this._register(
       this.eventBus.subscribe('task.notified', (e) => {
         const { type: _type, ...ctx } = e;
@@ -250,19 +227,25 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     );
   }
 
-  private async loadDynamicHooks(): Promise<void> {
-    await this.config.ready;
-    const configured = this.config.get(HOOKS_SECTION) as readonly HookDefConfig[] | undefined;
-    const pluginHooks = await this.plugins.enabledHooks();
-    this.dynamicEngine = new HookEngine([...(configured ?? []), ...pluginHooks], {
-      cwd: this.bootstrap.cwd,
-    });
+  private registerAgentTaskHooks(runHooks: IAgentRunHooksService): void {
+    this._register(
+      runHooks.hooks.onWillStartAgentTask.register('externalHooks', async (ctx, next) => {
+        await this.runSubagentStart(ctx);
+        await next();
+      }),
+    );
+    this._register(
+      runHooks.hooks.onDidStopAgentTask.register('externalHooks', (ctx, next) => {
+        this.notifySubagentStop(ctx);
+        return next();
+      }),
+    );
   }
 
   private async runPreToolUse(ctx: ToolWillExecuteContext): Promise<string | undefined> {
     ctx.signal.throwIfAborted();
     const toolInput = isPlainRecord(ctx.args) ? ctx.args : {};
-    const block = await this.engine()?.triggerBlock('PreToolUse', {
+    const block = await this.runner.triggerBlock('PreToolUse', {
       matcherValue: ctx.toolCall.name,
       signal: ctx.signal,
       inputData: {
@@ -278,8 +261,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
   private notifyPostToolUse(ctx: ToolDidExecuteContext): void {
     const output = toolOutputText(ctx.result.output);
     const isError = ctx.result.isError === true;
-    fireAndForget(
-      this.engine(),
+    this.fireAndForget(
       isError ? 'PostToolUseFailure' : 'PostToolUse',
       {
         toolName: ctx.toolCall.name,
@@ -288,8 +270,8 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
         error: isError ? toKimiErrorPayload(output) : undefined,
         toolOutput: isError ? undefined : output.slice(0, 2000),
       },
-      ctx.signal,
       ctx.toolCall.name,
+      ctx.signal,
     );
   }
 
@@ -301,7 +283,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     const signal = new AbortController().signal;
     const input = ctx.promptMessage.content;
     signal.throwIfAborted();
-    const results = await this.engine()?.trigger('UserPromptSubmit', {
+    const results = await this.runner.trigger('UserPromptSubmit', {
       matcherValue: input,
       signal,
       inputData: { prompt: input, isSteer: ctx.isSteer },
@@ -352,23 +334,20 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
       this.notifyStopFailure(event.error, new AbortController().signal);
     }
     if (event.reason === 'cancelled') {
-      void this.engine()?.fireAndForgetTrigger('Interrupt', {
-        inputData: { turnId: event.turnId, reason: 'cancelled' },
-      });
+      this.fireAndForget('Interrupt', { turnId: event.turnId, reason: 'cancelled' });
     }
   }
 
   private notifyStopFailure(error: unknown, signal: AbortSignal): void {
     const payload = toKimiErrorPayload(error);
-    fireAndForget(
-      this.engine(),
+    this.fireAndForget(
       'StopFailure',
       {
         errorType: payload.name,
         errorMessage: payload.message,
       },
-      signal,
       payload.name,
+      signal,
     );
   }
 
@@ -376,7 +355,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     ctx.signal.throwIfAborted();
     if (this.stopHookContinuationUsed) return undefined;
 
-    const block = await this.engine()?.triggerBlock('Stop', {
+    const block = await this.runner.triggerBlock('Stop', {
       signal: ctx.signal,
       inputData: { stopHookActive: false },
     });
@@ -384,43 +363,44 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     return block?.reason;
   }
 
-  private async runPreCompact(ctx: FullCompactionWillCompactContext): Promise<void> {
-    ctx.signal.throwIfAborted();
-    await this.engine()?.trigger('PreCompact', {
+  private async runPreCompact(ctx: FullCompactionTask): Promise<void> {
+    const signal = ctx.abortController.signal;
+    signal.throwIfAborted();
+    await this.runner.trigger('PreCompact', {
       matcherValue: ctx.trigger,
-      signal: ctx.signal,
+      signal,
       inputData: {
         trigger: ctx.trigger,
         tokenCount: ctx.tokenCount,
       },
     });
-    ctx.signal.throwIfAborted();
+    signal.throwIfAborted();
   }
 
   private notifyPostCompact(event: { trigger: CompactionSource; result: CompactionResult }): void {
-    void this.engine()?.fireAndForgetTrigger('PostCompact', {
-      matcherValue: event.trigger,
-      inputData: {
+    this.fireAndForget(
+      'PostCompact',
+      {
         trigger: event.trigger,
         estimatedTokenCount: event.result.tokensAfter,
       },
-    });
+      event.trigger,
+    );
   }
 
   private notifyTaskNotification(ctx: AgentTaskNotificationContext): void {
     const signal = new AbortController().signal;
-    fireAndForget(
-      this.engine(),
+    this.fireAndForget(
       'Notification',
       { sink: 'context', ...ctx },
-      signal,
       ctx.notificationType,
+      signal,
     );
   }
 
-  async runAgentTaskStart(ctx: AgentTaskStartHookContext): Promise<void> {
+  private async runSubagentStart(ctx: AgentTaskStartHookContext): Promise<void> {
     ctx.signal.throwIfAborted();
-    await this.engine()?.trigger('SubagentStart', {
+    await this.runner.trigger('SubagentStart', {
       matcherValue: ctx.agentName,
       signal: ctx.signal,
       inputData: {
@@ -431,14 +411,15 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     ctx.signal.throwIfAborted();
   }
 
-  notifyAgentTaskStop(ctx: AgentTaskStopHookContext): void {
-    void this.engine()?.fireAndForgetTrigger('SubagentStop', {
-      matcherValue: ctx.agentName,
-      inputData: {
+  private notifySubagentStop(ctx: AgentTaskStopHookContext): void {
+    this.fireAndForget(
+      'SubagentStop',
+      {
         agentName: ctx.agentName,
         response: ctx.response.slice(0, SUBAGENT_HOOK_TEXT_PREVIEW_LENGTH),
       },
-    });
+      ctx.agentName,
+    );
   }
 }
 

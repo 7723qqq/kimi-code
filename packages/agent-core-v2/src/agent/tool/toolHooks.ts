@@ -5,7 +5,7 @@
  * `onWillExecuteTool` / `onDidExecuteTool` hooks and the decision results
  * handlers may return. Owned by `tool` because they describe tool execution,
  * not the turn lifecycle or the loop: participants such as `permission`,
- * `toolDedup`, and `externalHooks` consume them without reaching upward into
+ * `toolDedupe`, and `externalHooks` consume them without reaching upward into
  * `loop` / `turn`. Pure contract (types only); no scoped service.
  */
 

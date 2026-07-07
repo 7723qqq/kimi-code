@@ -273,9 +273,10 @@ describe('AgentRecords persistence metadata', () => {
     ]);
 
     expect(context.get()).toHaveLength(1);
-    expect(contextSize.getStatus()).toEqual({
-      contextTokens: 42,
-      contextTokensWithPending: 42,
+    expect(contextSize.get()).toEqual({
+      size: 42,
+      measured: 42,
+      estimated: 0,
     });
   });
 });

@@ -27,12 +27,8 @@ export const MicroCompactionModel = defineModel<MicroCompactionState>('microComp
   cutoff: 0,
 }));
 
-export interface MicroCompactionApplyPayload {
-  readonly cutoff: number;
-}
-
 export const microCompactionApply = defineOp(MicroCompactionModel, 'micro_compaction.apply', {
-  apply: (s, p: MicroCompactionApplyPayload): MicroCompactionState => {
+  apply: (s, p: MicroCompactionState): MicroCompactionState => {
     const cutoff = Math.max(0, p.cutoff);
     return s.cutoff === cutoff ? s : { cutoff };
   },

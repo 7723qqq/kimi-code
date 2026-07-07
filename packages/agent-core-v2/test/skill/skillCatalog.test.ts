@@ -53,6 +53,7 @@ function workspaceStub(workDir: string): {
     setWorkDir: (dir: string) => {
       current = dir;
     },
+    setAdditionalDirs: () => {},
     resolve: (rel: string) => rel,
     isWithin: () => true,
     assertAllowed: (p: string) => p,

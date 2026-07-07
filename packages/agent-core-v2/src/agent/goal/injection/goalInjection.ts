@@ -16,7 +16,9 @@ export class GoalInjection extends Disposable {
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
   ) {
     super();
-    this._register(dynamicInjector.register('goal', () => this.reminder(), { cadence: 'turn' }));
+    this._register(
+      dynamicInjector.register('goal', ({ isNewTurn }) => (isNewTurn ? this.reminder() : undefined)),
+    );
   }
 
   private reminder(): string | undefined {

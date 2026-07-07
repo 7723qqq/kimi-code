@@ -61,7 +61,6 @@ import { WireService } from '#/wire/wireServiceImpl';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { AgentBlobServiceImpl } from '#/agent/blob/agentBlobServiceImpl';
 import { IAgentExternalHooksService } from '#/agent/externalHooks/externalHooks';
-import { AgentExternalHooksService } from '#/agent/externalHooks/externalHooksService';
 
 import {
   type AgentListFilter,
@@ -155,12 +154,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
               },
             ]),
           ],
-          // External hooks carries a leading static `options` param; the scoped
-          // registry supplies none, so seed an empty one to satisfy the DI
-          // contract (static args must fill the slots before the first `@IX`).
-          // It is force-instantiated below to attach listeners before the first
-          // turn.
-          [IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService, [{}])],
         ],
       },
     ) as IAgentScopeHandle;

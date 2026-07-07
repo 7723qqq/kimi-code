@@ -208,8 +208,12 @@ function killProcess(child: ChildProcessWithoutNullStreams): void {
 }
 
 function tryKillProcess(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): void {
+  if (process.platform === 'win32') {
+    killProcessTreeWindows(child, signal === 'SIGKILL');
+    return;
+  }
   try {
-    if (process.platform !== 'win32' && child.pid !== undefined) {
+    if (child.pid !== undefined) {
       process.kill(-child.pid, signal);
     } else {
       child.kill(signal);
@@ -217,6 +221,21 @@ function tryKillProcess(child: ChildProcessWithoutNullStreams, signal: NodeJS.Si
   } catch {
     try {
       child.kill(signal);
+    } catch {}
+  }
+}
+
+function killProcessTreeWindows(child: ChildProcessWithoutNullStreams, force: boolean): void {
+  if (child.pid === undefined) return;
+  const args = force
+    ? ['/T', '/F', '/PID', String(child.pid)]
+    : ['/T', '/PID', String(child.pid)];
+  try {
+    const killer = spawn('taskkill', args, { stdio: 'ignore', windowsHide: true });
+    killer.once('error', () => {});
+  } catch {
+    try {
+      child.kill('SIGTERM');
     } catch {}
   }
 }

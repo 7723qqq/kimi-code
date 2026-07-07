@@ -285,7 +285,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       // independently and would be squeezed to nothing at high water marks.
       usedContextTokens:
         overrides.messages === undefined
-          ? this.contextSize.getStatus().contextTokens
+          ? this.contextSize.get().measured
           : undefined,
     });
 

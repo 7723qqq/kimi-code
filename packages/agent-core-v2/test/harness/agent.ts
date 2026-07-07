@@ -19,12 +19,10 @@ import { ISessionCronService } from '#/session/cron/sessionCronService';
 import { SessionCronServiceImpl } from '#/session/cron/sessionCronServiceImpl';
 import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
 import { CronTaskPersistenceService } from '#/app/cron/cronTaskPersistenceService';
-import type { HookEngine } from '#/agent/externalHooks/engine';
 import { IAgentGoalService } from '#/agent/goal/goal';
 import { AgentGoalService } from '#/agent/goal/goalService';
 import type { McpServiceOptions } from '#/agent/mcp/mcp';
-import { MICRO_COMPACTION_SECTION } from '#/agent/microCompaction/configSection';
-import { type MicroCompactionConfig } from '#/agent/microCompaction/microCompaction';
+import { MICRO_COMPACTION_SECTION, type MicroCompactionConfig } from '#/agent/microCompaction/configSection';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import type { PermissionRule } from '#/agent/permissionRules/permissionRules';
 import { IAgentPlanService } from '#/agent/plan/plan';
@@ -60,6 +58,7 @@ import {
   AGENT_WIRE_PROTOCOL_VERSION,
   AgentTaskService,
   AgentExternalHooksService,
+  AgentRunHooksService,
   FileStorageService,
   InMemoryStorageService,
   AgentFullCompactionService,
@@ -77,6 +76,8 @@ import {
   IAgentContextProjectorService,
   IAgentContextSizeService,
   IAgentExternalHooksService,
+  IExternalHooksRunnerService,
+  IAgentRunHooksService,
   IAgentFullCompactionService,
   IAgentLLMRequesterService,
   ILogService,
@@ -299,7 +300,7 @@ export interface TestAgentOptions {
   }
   | undefined;
   readonly hookEngine?:
-  | Pick<HookEngine, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>
+  | Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>
   | undefined;
   readonly initialConfig?: Partial<KimiConfig> | undefined;
   readonly autoConfigure?: boolean | undefined;
@@ -532,13 +533,33 @@ export function questionServices(service: ISessionQuestionService): TestAgentSer
 }
 
 export function externalHookServices(
-  hookEngine: Pick<HookEngine, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'> | undefined,
+  hookRunner: Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'> | undefined,
 ): TestAgentServiceOverride {
-  return agentService(
-    IAgentExternalHooksService,
-    new SyncDescriptor(AgentExternalHooksService, [hookEngine === undefined ? {} : { hookEngine }]),
-  );
+  const runner: IExternalHooksRunnerService =
+    hookRunner === undefined
+      ? noopHookRunner
+      : isRunnerLike(hookRunner)
+        ? hookRunner
+        : { ...noopHookRunner, ...hookRunner };
+  return [
+    appService(IExternalHooksRunnerService, runner),
+    agentService(IAgentRunHooksService, new SyncDescriptor(AgentRunHooksService)),
+    agentService(IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService)),
+  ];
 }
+
+function isRunnerLike(
+  value: Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>,
+): value is IExternalHooksRunnerService {
+  return '_serviceBrand' in value;
+}
+
+const noopHookRunner: IExternalHooksRunnerService = {
+  _serviceBrand: undefined,
+  trigger: async () => [],
+  triggerBlock: async () => undefined,
+  fireAndForgetTrigger: async () => [],
+};
 
 export function microCompactionServices(options: {
   readonly config?: Partial<MicroCompactionConfig>;
@@ -1160,7 +1181,7 @@ export class AgentTestContext {
     const microCompaction = this.get(IAgentMicroCompactionService);
     void microCompaction;
     void swarm.isActive;
-    contextSize.getStatus();
+    contextSize.get();
     usage.status();
     toolStore.data();
     tasks.list(false);
@@ -1201,13 +1222,14 @@ export class AgentTestContext {
       this.pluginSessionStartRegistered = true;
       this.get(IAgentContextInjectorService).register(
         'plugin_session_start',
-        async () =>
-          renderPluginSessionStartReminder(
+        async ({ injectedPositions }) => {
+          if (injectedPositions.length > 0) return undefined;
+          return renderPluginSessionStartReminder(
             sessionStarts,
             skillCatalog,
             this.options['log'] as { warn(message: string, payload?: unknown): void } | undefined,
-          ),
-        { cadence: 'turn' },
+          );
+        },
       );
     }
 
@@ -1228,7 +1250,7 @@ export class AgentTestContext {
     const contextSize = this.get(IAgentContextSizeService);
     return {
       history: context.get(),
-      tokenCount: contextSize.getStatus().contextTokens,
+      tokenCount: contextSize.get().measured,
     };
   }
 

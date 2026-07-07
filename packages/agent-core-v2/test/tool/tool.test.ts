@@ -4,7 +4,7 @@ import type { ToolCall } from '#/app/llmProtocol/message';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { HookEngine } from '#/agent/externalHooks/engine';
+import { makeHookRunner } from '../externalHooks/runner-stub';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
@@ -41,7 +41,7 @@ describe('Agent tools', () => {
     beforeEach(() => {
       exec = vi.fn<ISessionProcessRunner['exec']>().mockRejectedValue(new Error('Bash should not execute'));
       triggered = [];
-      const hookEngine = new HookEngine(
+      const hookEngine = makeHookRunner(
         [
           {
             event: 'PreToolUse',
@@ -90,7 +90,7 @@ describe('Agent tools', () => {
 
     beforeEach(async () => {
       resolved = [];
-      const hookEngine = new HookEngine(
+      const hookEngine = makeHookRunner(
         [
           {
             event: 'PreToolUse',
@@ -150,7 +150,7 @@ describe('Agent tools', () => {
 
     beforeEach(async () => {
       resolved = [];
-      const hookEngine = new HookEngine(
+      const hookEngine = makeHookRunner(
         [
           {
             event: 'PostToolUseFailure',
@@ -241,7 +241,7 @@ describe('Agent tools', () => {
         arguments: '{"query":"moon"}',
       };
       resolved = [];
-      const hookEngine = new HookEngine(
+      const hookEngine = makeHookRunner(
         [
           {
             event: 'PostToolUseFailure',

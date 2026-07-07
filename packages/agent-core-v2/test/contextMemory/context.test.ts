@@ -545,13 +545,13 @@ describe('Agent context', () => {
 
   it('includes new user messages as pending until the next usage update', () => {
     ctx.appendAssistantTextWithUsage(1, 'previous answer', 1_000);
-    expect(contextSize.getStatus().contextTokens).toBe(1_000);
+    expect(contextSize.get().measured).toBe(1_000);
 
     ctx.appendUserMessage([{ type: 'text', text: 'next user prompt'.repeat(20) }]);
 
     const pendingMessages = context.get().slice(-1);
-    expect(contextSize.getStatus().contextTokensWithPending).toBe(
-      contextSize.getStatus().contextTokens + estimateTokensForMessages(pendingMessages),
+    expect(contextSize.get().size).toBe(
+      contextSize.get().measured + estimateTokensForMessages(pendingMessages),
     );
   });
 
@@ -582,22 +582,84 @@ describe('Agent context', () => {
     ]);
 
     const pendingMessages = context.get().slice(-1);
-    expect(contextSize.getStatus().contextTokens).toBe(1_280);
-    expect(contextSize.getStatus().contextTokensWithPending).toBe(
+    expect(contextSize.get().measured).toBe(1_280);
+    expect(contextSize.get().size).toBe(
       1_280 + estimateTokensForMessages(pendingMessages),
     );
   });
 
   it('keeps zero-usage steps pending instead of zeroing tokenCount', () => {
     ctx.appendAssistantTextWithUsage(1, 'previous answer', 1_000);
-    expect(contextSize.getStatus().contextTokens).toBe(1_000);
+    expect(contextSize.get().measured).toBe(1_000);
 
     ctx.appendUserMessage([{ type: 'text', text: 'next prompt' }]);
 
-    expect(contextSize.getStatus().contextTokens).toBe(1_000);
-    expect(contextSize.getStatus().contextTokensWithPending).toBeGreaterThanOrEqual(
-      contextSize.getStatus().contextTokens,
+    expect(contextSize.get().measured).toBe(1_000);
+    expect(contextSize.get().size).toBeGreaterThanOrEqual(
+      contextSize.get().measured,
     );
+  });
+
+  it('get(start, end) returns the size of a context-message range', () => {
+    ctx.appendAssistantTextWithUsage(1, 'previous answer', 1_000);
+    // The measured prefix covers the user + assistant pair (2 messages, 1_000 tokens).
+    expect(contextSize.get()).toEqual({ size: 1_000, measured: 1_000, estimated: 0 });
+
+    ctx.appendUserMessage([{ type: 'text', text: 'pending one'.repeat(20) }]);
+    ctx.appendUserMessage([{ type: 'text', text: 'pending two'.repeat(20) }]);
+
+    const messages = context.get();
+    const tailEstimate = estimateTokensForMessages(messages.slice(2));
+
+    // Whole context: measured prefix + estimated tail.
+    expect(contextSize.get()).toEqual({
+      size: 1_000 + tailEstimate,
+      measured: 1_000,
+      estimated: tailEstimate,
+    });
+
+    // A range fully inside the pending tail is purely estimated.
+    const firstPending = estimateTokensForMessages(messages.slice(2, 3));
+    expect(contextSize.get(2, 3)).toEqual({
+      size: firstPending,
+      measured: 0,
+      estimated: firstPending,
+    });
+
+    // The full measured prefix uses the deterministic aggregate.
+    expect(contextSize.get(0, 2)).toEqual({ size: 1_000, measured: 1_000, estimated: 0 });
+
+    // A sub-range of the prefix falls back to a per-message estimate.
+    const prefixHead = estimateTokensForMessages(messages.slice(0, 1));
+    expect(contextSize.get(0, 1)).toEqual({
+      size: prefixHead,
+      measured: prefixHead,
+      estimated: 0,
+    });
+
+    // A range spanning the measured/tail boundary splits both sides.
+    const assistant = estimateTokensForMessages(messages.slice(1, 2));
+    expect(contextSize.get(1, 3)).toEqual({
+      size: assistant + firstPending,
+      measured: assistant,
+      estimated: firstPending,
+    });
+
+    // Negative indices resolve like `Array.prototype.slice`.
+    expect(contextSize.get(-2)).toEqual({
+      size: tailEstimate,
+      measured: 0,
+      estimated: tailEstimate,
+    });
+    expect(contextSize.get(0, -2)).toEqual({ size: 1_000, measured: 1_000, estimated: 0 });
+    expect(contextSize.get(-3, -1)).toEqual({
+      size: assistant + firstPending,
+      measured: assistant,
+      estimated: firstPending,
+    });
+
+    // An inverted range is empty.
+    expect(contextSize.get(-1, -3)).toEqual({ size: 0, measured: 0, estimated: 0 });
   });
 
   it('undo only counts real user prompts, skipping task notifications', () => {

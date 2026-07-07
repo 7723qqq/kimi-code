@@ -1,6 +1,5 @@
 import { createDecorator } from "#/_base/di/instantiation";
 import type { TurnResult } from '#/agent/loop/loop';
-import type { Hooks } from '#/hooks';
 
 export type { TurnResult } from '#/agent/loop/loop';
 

@@ -626,11 +626,11 @@ describe('MicroCompaction', () => {
     const rawPending = ctx.context.get().slice(-1);
     const projectedPending = (ctx.get(IAgentMicroCompactionService) as any).compact(rawPending);
     expect(textOf(projectedPending[0])).toBe(DEFAULT_MARKER);
-    expect(ctx.contextSize.getStatus().contextTokensWithPending).toBe(
-      ctx.contextSize.getStatus().contextTokens + estimateTokensForMessages(rawPending),
+    expect(ctx.contextSize.get().size).toBe(
+      ctx.contextSize.get().measured + estimateTokensForMessages(rawPending),
     );
-    expect(ctx.contextSize.getStatus().contextTokensWithPending).toBeGreaterThan(
-      ctx.contextSize.getStatus().contextTokens + estimateTokensForMessages(projectedPending),
+    expect(ctx.contextSize.get().size).toBeGreaterThan(
+      ctx.contextSize.get().measured + estimateTokensForMessages(projectedPending),
     );
   });
 

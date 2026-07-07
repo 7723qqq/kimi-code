@@ -7,6 +7,7 @@ declare module '#/app/event/eventBus' {
   interface DomainEventMap {
     'test.a': { x: number };
     'test.b': { y: string };
+    'test.full': { readonly type: 'test.full'; readonly z: boolean };
   }
 }
 
@@ -69,5 +70,15 @@ describe('event bus (full-stream and per-type delivery, dispose and empty-publis
   it('does not throw when publishing with no subscribers', () => {
     const bus = new EventBusService();
     expect(() => bus.publish({ type: 'test.a', x: 1 })).not.toThrow();
+  });
+
+  it('accepts full event types in the domain event map', () => {
+    const bus = new EventBusService();
+    const seen: boolean[] = [];
+    bus.subscribe('test.full', (e) => seen.push(e.z));
+
+    bus.publish({ type: 'test.full', z: true });
+
+    expect(seen).toEqual([true]);
   });
 });
