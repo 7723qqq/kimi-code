@@ -38,16 +38,14 @@
  * resumer against that stream. Consumed by the Agent-scope `fullCompactionService`.
  */
 
+import { defineModel, defineOp } from '#/wire';
 import type {
   CompactionBlockedEvent,
   CompactionCancelledEvent,
   CompactionCompletedEvent,
   CompactionStartedEvent,
 } from '@moonshot-ai/protocol';
-import { defineModel, defineOp } from '#/wire';
-
-import type { FullCompactionCompleteData } from './fullCompaction';
-import type { CompactionBeginData, CompactionSource } from './types';
+import type { CompactionBeginData, CompactionSource, FullCompactionCompleteData } from './types';
 
 export type CompactionPhase = 'idle' | 'running' | 'cancelled' | 'completed';
 

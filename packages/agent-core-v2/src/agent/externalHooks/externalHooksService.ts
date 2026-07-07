@@ -23,7 +23,7 @@ import { IAgentTaskService, type AgentTaskNotificationContext } from '#/agent/ta
 import { IAgentContextMemoryService, USER_PROMPT_ORIGIN } from '#/agent/contextMemory';
 import {
   IAgentFullCompactionService,
-  type FullCompactionWillCompactContext,
+  type FullCompactionTask,
 } from '#/agent/fullCompaction';
 import type { CompactionResult, CompactionSource } from '#/agent/fullCompaction/types';
 import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop';
@@ -367,7 +367,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     return block?.reason;
   }
 
-  private async runPreCompact(ctx: FullCompactionWillCompactContext): Promise<void> {
+  private async runPreCompact(ctx: FullCompactionTask): Promise<void> {
     const signal = ctx.abortController.signal;
     signal.throwIfAborted();
     await this.runner.trigger('PreCompact', {

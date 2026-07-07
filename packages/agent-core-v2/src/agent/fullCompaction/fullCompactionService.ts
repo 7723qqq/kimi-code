@@ -32,9 +32,8 @@ import { IAgentWireService, type IWireService } from '#/wire';
 import compactionInstructionTemplate from './compaction-instruction.md?raw';
 import {
   IAgentFullCompactionService,
-  type CompactInput,
-  type FullCompactionCompleteData,
-  type FullCompactionWillCompactContext,
+  type FullCompactionInput,
+  type FullCompactionTask,
 } from './fullCompaction';
 import {
   RuntimeCompactionStrategy,
@@ -49,6 +48,7 @@ import {
 import {
   type CompactionBeginData,
   type CompactionResult,
+  type FullCompactionCompleteData,
 } from './types';
 import { OrderedHookSlot } from '#/hooks';
 
@@ -71,7 +71,7 @@ const DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS = 128 * 1024;
 
 type CompactionTelemetryProperties = Record<string, string | number | boolean | undefined>;
 
-interface ActiveCompaction extends FullCompactionWillCompactContext {
+interface ActiveCompaction extends FullCompactionTask {
   blockedByTurn: boolean;
 }
 
@@ -90,7 +90,7 @@ class CompactionTruncatedError extends Error {
 export class AgentFullCompactionService extends Disposable implements IAgentFullCompactionService {
   declare readonly _serviceBrand: undefined;
   readonly hooks: IAgentFullCompactionService['hooks'] = {
-    onWillCompact: new OrderedHookSlot<FullCompactionWillCompactContext>(),
+    onWillCompact: new OrderedHookSlot<FullCompactionTask>(),
   };
 
   private readonly strategy: CompactionStrategy;
@@ -144,11 +144,11 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     );
   }
 
-  get compacting(): FullCompactionWillCompactContext | null {
+  get compacting(): FullCompactionTask | null {
     return this._compacting;
   }
 
-  begin(input: CompactInput): boolean {
+  begin(input: FullCompactionInput): boolean {
     if (this._compacting) return false;
     const data: CompactionBeginData = { source: input.source, instruction: input.instruction };
     if (data.source === 'manual') {
@@ -520,7 +520,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   }
 
   private tokenCountWithPending(): number {
-    return this.contextSize.getStatus().contextTokensWithPending;
+    return this.contextSize.get().size;
   }
 }
 
