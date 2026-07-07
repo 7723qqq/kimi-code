@@ -64,7 +64,7 @@
   但 recordService 仍然 foldViews、仍然跑 facet——"进内存不进磁盘"完全隐式。
 
 **读路径**
-- R1 手写读模型 ~12 处（goal/usage/plan/swarm/permission*/toolState/turn/task/todo…），
+- R1 手写读模型 ~12 处（goal/usage/plan/swarm/permission*/turn/task/todo…），
   live 与 resume 两份 apply 靠人肉保持一致。
 - R2 replay 读模型双通道：声明式 `toReplay` + 命令式 `push/patchLast/removeLastMessages`；
   boundary 判定逻辑两处重复（`recordService.ts:55-64` vs `contextMemoryService.ts:137`）。
@@ -79,9 +79,8 @@
   permissionMode 一处使用。
 - V2 `agent.status.updated` 是"多域共写的散装快照事件"：plan/swarm/usage/
   contextSize/profile 各自手动拼不同字段。
-- V3 resume 期 signal 靠 `emitLive` 隐式压制（skill/swarm），toolState 却手动
-  if-guard（`toolStateService.ts:61`）——同一问题两种解法；"这个 signal 发不发得
-  出去"取决于调用时相位，调用点看不出来。
+- V3 resume 期 signal 靠 `emitLive` 隐式压制（skill/swarm）——"这个 signal 发不发
+  得出去"取决于调用时相位，调用点看不出来。
 - V4 `IEventService` payload 无类型、事件名裸字符串、同一事件两处发布者。
 - V5 `prompt.submitted` 协议里存在但无人发；`AsyncEmitter/handleVetos` 是死代码。
 

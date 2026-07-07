@@ -26,7 +26,6 @@ export type PermissionResource = ResourceShape<AgentManifest['permission']>;
 export type PermissionRulesResource = ResourceShape<AgentManifest['permissionRules']>;
 export type ProfileResource = ResourceShape<AgentManifest['profile'], ProfilePrecise>;
 export type MessagesResource = ResourceShape<AgentManifest['messages']>;
-export type ToolStoreResource = ResourceShape<AgentManifest['toolStore']>;
 export type McpResource = ResourceShape<AgentManifest['mcp']>;
 export type ToolsResource = ResourceShape<AgentManifest['tools']>;
 export type PromptsResource = ResourceShape<AgentManifest['prompts'], PromptsPrecise>;
@@ -45,7 +44,6 @@ export class AgentScope {
   readonly permissionRules: PermissionRulesResource;
   readonly profile: ProfileResource;
   readonly messages: MessagesResource;
-  readonly toolStore: ToolStoreResource;
   readonly mcp: McpResource;
   readonly tools: ToolsResource;
   readonly prompts: PromptsResource;
@@ -80,7 +78,6 @@ export class AgentScope {
       AGENT.profile,
     );
     this.messages = makeResource(rpc, 'agent', params, 'messages', AGENT.messages);
-    this.toolStore = makeResource(rpc, 'agent', params, 'toolStore', AGENT.toolStore);
     this.mcp = makeResource(rpc, 'agent', params, 'mcp', AGENT.mcp);
     this.tools = makeResource(rpc, 'agent', params, 'tools', AGENT.tools);
     this.prompts = makeResource<AgentManifest['prompts'], PromptsPrecise>(

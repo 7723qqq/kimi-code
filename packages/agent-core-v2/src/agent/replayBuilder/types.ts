@@ -43,7 +43,6 @@ export interface ResumedAgentState {
   readonly swarmMode?: boolean | undefined;
   readonly usage: UsageStatus;
   readonly tools: readonly ToolInfo[];
-  readonly toolStore?: Readonly<Record<string, unknown>>;
   readonly tasks: readonly AgentTaskInfo[];
 }
 

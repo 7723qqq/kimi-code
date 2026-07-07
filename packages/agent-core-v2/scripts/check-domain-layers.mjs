@@ -122,7 +122,6 @@ const DOMAIN_LAYER = new Map([
   ['flag', 3],
   ['toolExecutor', 3],
   ['toolRegistry', 3],
-  ['toolState', 3],
   ['userTool', 3],
   ['permissionMode', 3],
   ['permissionPolicy', 3],

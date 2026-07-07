@@ -384,8 +384,6 @@ export { IAgentBuiltinToolsRegistrar } from '#/agent/toolRegistry/builtinToolsRe
 export { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 export { registerTool } from '#/agent/toolRegistry/toolContribution';
 export type { ToolContribution, ToolContributionOptions } from '#/agent/toolRegistry/toolContribution';
-export * from '#/agent/toolState/toolState';
-export * from '#/agent/toolState/toolStateService';
 export * from '#/agent/userTool/userTool';
 export * from '#/agent/userTool/userToolOps';
 export * from '#/agent/userTool/userToolService';

@@ -308,35 +308,6 @@ describe('Agent resume', () => {
     await ctx.expectResumeMatches();
   });
 
-  it('restores tool store state from persisted records', async () => {
-    const persistence = new RecordingAgentPersistence([
-      {
-        type: 'metadata',
-        protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
-        created_at: 1,
-      },
-      {
-        type: 'tools.update_store',
-        key: 'todo',
-        value: [
-          { title: 'Inspect resume snapshot', status: 'done' },
-          { title: 'Hydrate TUI todo panel', status: 'in_progress' },
-        ],
-      },
-    ]);
-    const ctx = testAgent({ persistence, autoConfigure: false });
-
-    await ctx.restorePersisted();
-
-    expect(ctx.toolStoreData()).toEqual({
-      todo: [
-        { title: 'Inspect resume snapshot', status: 'done' },
-        { title: 'Hydrate TUI todo panel', status: 'in_progress' },
-      ],
-    });
-    await ctx.expectResumeMatches();
-  });
-
   it('applies wire migrations while replaying persisted records', async () => {
     const persistence = new RecordingAgentPersistence([
       {

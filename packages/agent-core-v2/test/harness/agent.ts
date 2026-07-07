@@ -94,7 +94,6 @@ import {
   IHostTerminalService,
   IAgentToolRegistryService,
   IAgentBuiltinToolsRegistrar,
-  IAgentToolState,
   IAgentUserToolService,
   IAgentUsageService,
   IAgentWireRecordService,
@@ -276,7 +275,6 @@ interface ResumeStateSnapshot {
     readonly tokenCount: number;
   };
   readonly permission: ReturnType<IAgentPermissionGate['data']>;
-  readonly toolStore: ReturnType<IAgentToolState['data']>;
   readonly usage: ReturnType<IAgentUsageService['status']>;
 }
 
@@ -1159,7 +1157,6 @@ export class AgentTestContext {
     const context = this.get(IAgentContextMemoryService);
     const contextSize = this.get(IAgentContextSizeService);
     const usage = this.get(IAgentUsageService);
-    const toolStore = this.get(IAgentToolState);
     const permissionMode = this.get(IAgentPermissionModeService);
     const permissionRules = this.get(IAgentPermissionRulesService);
     const cron = this.get(ISessionCronService);
@@ -1180,7 +1177,6 @@ export class AgentTestContext {
     void swarm.isActive;
     contextSize.get();
     usage.status();
-    toolStore.data();
     tasks.list(false);
     permission.data();
     void permissionMode.mode;
@@ -1266,11 +1262,6 @@ export class AgentTestContext {
       ...tool,
       active: profile.isToolActive(tool.name, tool.source),
     }));
-  }
-
-  toolStoreData(): ReturnType<IAgentToolState['data']> {
-    const toolStore = this.get(IAgentToolState);
-    return toolStore.data();
   }
 
   appendUserMessage(content: readonly ContentPart[]): void {
@@ -1918,14 +1909,12 @@ const failOnResumeGenerate: GenerateFn = async () => {
 function resumeStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot {
   const tasks = ctx.get(IAgentTaskService);
   const usage = ctx.get(IAgentUsageService);
-  const toolStore = ctx.get(IAgentToolState);
   const permission = ctx.get(IAgentPermissionGate);
   return {
     tasks: normalizeTaskSnapshot(tasks.list(false)),
     config: configStateSnapshot(ctx),
     context: resumeContextSnapshot(ctx),
     permission: permission.data(),
-    toolStore: toolStore.data(),
     usage: usage.status(),
   };
 }

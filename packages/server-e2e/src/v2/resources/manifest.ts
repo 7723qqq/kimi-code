@@ -92,7 +92,6 @@ export const AGENT = {
     setThinking: RW,
   },
   messages: { list: RO, splice: RW },
-  toolStore: { get: RO, data: RO, set: RW },
   mcp: { list: RO, reconnect: RW },
   tools: { list: RO },
   prompts: { submit: RW, steer: RW, undo: RW, clear: RW, cancel: RW },

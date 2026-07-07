@@ -85,7 +85,6 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>llmRequester</b>\n<size:9><i>Agent</i></size>\n  IAgentLLMRequesterService" as llmRequester #FDEBD0
   rectangle "<b>toolRegistry</b>\n<size:9><i>Agent</i></size>\n  IAgentToolRegistryService" as toolRegistry #FDEBD0
   rectangle "<b>toolExecutor</b>\n<size:9><i>Agent</i></size>\n  IAgentToolExecutorService" as toolExecutor #FDEBD0
-  rectangle "<b>toolState</b>\n<size:9><i>Agent</i></size>\n  IAgentToolState" as toolState #FDEBD0
   rectangle "<b>toolDedupe</b>\n<size:9><i>Agent</i></size>\n  IAgentToolDedupeService" as toolDedupe #FDEBD0
   rectangle "<b>permissionGate</b>\n<size:9><i>Agent</i></size>\n  IAgentPermissionGate" as permissionGate #FDEBD0
   rectangle "<b>permissionMode</b>\n<size:9><i>Agent</i></size>\n  IAgentPermissionModeService" as permissionMode #FDEBD0
@@ -217,7 +216,6 @@ llmRequester --> config #34495E
 toolExecutor --> toolRegistry #34495E
 toolExecutor --> wire #34495E
 toolExecutor --> telemetry #34495E
-toolState --> wire #34495E
 toolDedupe --> telemetry #34495E
 toolDedupe --> loop #34495E
 toolDedupe --> toolExecutor #34495E
@@ -284,7 +282,6 @@ fullCompaction --> contextMemory #34495E
 fullCompaction --> contextSize #34495E
 fullCompaction --> llmRequester #34495E
 fullCompaction --> profile #34495E
-fullCompaction --> toolState #34495E
 fullCompaction --> telemetry #34495E
 fullCompaction --> wireRecord #34495E
 fullCompaction --> turn #34495E
@@ -378,7 +375,6 @@ externalHooks ..> fullCompaction #16A085 : compaction hooks
 externalHooks ..> task #16A085 : notification hook
 sessionExternalHooks ..> session_lifecycle #16A085 : SessionStart/End hooks
 sessionExternalHooks ..> agent_lifecycle #16A085 : SubagentStart/Stop (observes run hooks)
-toolState ..> wire #16A085 : tools.update_store
 usage ..> wire #16A085 : usage.record
 turn ..> wire #16A085 : turn.launch
 contextSize ..> wire #16A085 : context_size.measured

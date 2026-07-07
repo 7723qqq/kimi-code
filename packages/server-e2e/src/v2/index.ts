@@ -55,7 +55,6 @@ export type {
   PermissionRulesResource,
   ProfileResource,
   MessagesResource,
-  ToolStoreResource,
   McpResource,
   ToolsResource,
   PromptsResource,

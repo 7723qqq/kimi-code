@@ -50,7 +50,6 @@ import {
   ISessionMetadata,
   IAgentSwarmService,
   IAgentToolRegistryService,
-  IAgentToolState,
   IAgentUsageService,
   ISessionWorkspaceContext,
   ISessionWorkspaceCommandService,
@@ -218,10 +217,6 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
 
     'messages:list': { service: IAgentContextMemoryService, method: 'get', readonly: true },
     'messages:splice': { service: IAgentContextMemoryService, method: 'splice' },
-
-    'toolStore:get': { service: IAgentToolState, method: 'get', readonly: true },
-    'toolStore:data': { service: IAgentToolState, method: 'data', readonly: true },
-    'toolStore:set': { service: IAgentToolState, method: 'set' },
 
     'mcp:list': { service: IAgentMcpService, method: 'list', readonly: true },
     'mcp:reconnect': { service: IAgentMcpService, method: 'reconnect' },
