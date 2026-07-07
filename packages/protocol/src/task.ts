@@ -27,3 +27,12 @@ export const taskSchema = z.object({
   output_bytes: z.number().int().nonnegative().optional(),
 });
 export type Task = z.infer<typeof taskSchema>;
+
+// Backward-compatible aliases for the legacy `BackgroundTask` naming. The
+// pre-v2 agent core (`packages/agent-core`), the SDK, and the TUI still import
+// these names from the protocol, while the v2 engine and the protocol itself
+// have moved to the `Task`/`TaskKind`/`TaskStatus` spelling. New code should
+// prefer the `Task*` names.
+export type BackgroundTaskKind = TaskKind;
+export type BackgroundTaskStatus = TaskStatus;
+export type BackgroundTask = Task;

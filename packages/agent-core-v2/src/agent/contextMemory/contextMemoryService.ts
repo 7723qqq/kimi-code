@@ -18,7 +18,8 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IEventBus } from '#/app/event/eventBus';
-import { IAgentWireService, type IWireService } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 
 import {
   IAgentContextMemoryService,
@@ -39,7 +40,7 @@ import {
 import { ensureMessageId } from './messageId';
 import type { ContextMessage } from './types';
 
-declare module '#/agent/wireRecord' {
+declare module '#/agent/wireRecord/wireRecord' {
   interface WireRecordMap {
     'context.splice': {
       start: number;

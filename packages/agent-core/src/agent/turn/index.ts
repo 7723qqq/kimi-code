@@ -1283,7 +1283,8 @@ type TelemetryInterruptReason =
   | 'aborted'
   | 'max_steps'
   | 'error'
-  | 'filtered';
+  | 'filtered'
+  | 'blocked';
 
 function telemetryInterruptReason(
   reason: LoopTurnInterruptedEvent['reason'] | Exclude<TurnEndedEvent['reason'], 'completed'>,
@@ -1294,6 +1295,7 @@ function telemetryInterruptReason(
   }
   if (reason === 'aborted' || reason === 'cancelled') return 'aborted';
   if (reason === 'failed') return 'error';
+  if (reason === 'blocked') return 'blocked';
   // Remaining values are `max_steps` | `error` | `filtered`, which match the
   // telemetry enum.
   return reason;

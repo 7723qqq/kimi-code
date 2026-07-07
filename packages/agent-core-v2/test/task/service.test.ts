@@ -3,19 +3,20 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentTaskService, type AgentTask } from '#/agent/task';
+import { IAgentTaskService, type AgentTask } from '#/agent/task/task';
 import { renderNotificationXml } from '#/agent/task/notificationXml';
 import { AgentTaskService } from '#/agent/task/taskService';
 import { IConfigRegistry, IConfigService } from '#/app/config/config';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentPromptService } from '#/agent/prompt';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { IAgentWireRecordService } from '#/agent/wireRecord';
-import { IAgentWireService, type IWireService } from '#/wire';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentWireRecordService } from '#/agent/wireRecord/wireRecord';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 
 import { stubContextMemory, stubWireRecord } from '../contextMemory/stubs';
 

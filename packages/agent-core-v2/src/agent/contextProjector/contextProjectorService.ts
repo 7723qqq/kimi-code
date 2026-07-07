@@ -3,7 +3,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { ErrorCodes, KimiError } from '#/errors';
-import { IAgentMicroCompactionService } from '#/agent/microCompaction';
+import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import type { ContentPart, Message } from '#/app/llmProtocol/message';
 import { IAgentContextProjectorService } from './contextProjector';
 
@@ -17,11 +17,76 @@ export class AgentContextProjectorService implements IAgentContextProjectorServi
     return project(this.microCompaction().compact(messages));
   }
 
+  projectStrict(messages: readonly ContextMessage[]): readonly Message[] {
+    return projectStrict(this.microCompaction().compact(messages));
+  }
+
   private microCompaction(): IAgentMicroCompactionService {
     return this.instantiation.invokeFunction((accessor) =>
       accessor.get(IAgentMicroCompactionService),
     );
   }
+}
+
+function projectStrict(history: readonly ContextMessage[]): Message[] {
+  const projected = project(history);
+  return dropLeadingNonUserMessages(mergeConsecutiveAssistantMessages(dedupeDuplicateToolCalls(projected)));
+}
+
+function dedupeDuplicateToolCalls(messages: readonly Message[]): Message[] {
+  const seenToolCallIds = new Set<string>();
+  const keptToolResultIndexes = new Map<string, number>();
+  const out: Message[] = [];
+  for (const message of messages) {
+    if (message.role === 'assistant' && message.toolCalls.length > 0) {
+      const kept = message.toolCalls.filter((toolCall) => {
+        if (seenToolCallIds.has(toolCall.id)) return false;
+        seenToolCallIds.add(toolCall.id);
+        return true;
+      });
+      if (kept.length === message.toolCalls.length) {
+        out.push(message);
+      } else if (kept.length > 0 || message.content.length > 0) {
+        out.push({ ...message, toolCalls: kept });
+      }
+      continue;
+    }
+    if (message.role === 'tool' && message.toolCallId !== undefined) {
+      const previousIndex = keptToolResultIndexes.get(message.toolCallId);
+      if (previousIndex !== undefined) {
+        if (isInterruptedToolResult(out[previousIndex]) && !isInterruptedToolResult(message)) {
+          out[previousIndex] = message;
+        }
+        continue;
+      }
+      keptToolResultIndexes.set(message.toolCallId, out.length);
+    }
+    out.push(message);
+  }
+  return out;
+}
+
+function mergeConsecutiveAssistantMessages(messages: readonly Message[]): Message[] {
+  const out: Message[] = [];
+  for (const message of messages) {
+    const previous = out.at(-1);
+    if (previous !== undefined && previous.role === 'assistant' && message.role === 'assistant') {
+      out[out.length - 1] = {
+        ...previous,
+        content: [...previous.content, ...message.content],
+        toolCalls: [...previous.toolCalls, ...message.toolCalls],
+      };
+      continue;
+    }
+    out.push(message);
+  }
+  return out;
+}
+
+function dropLeadingNonUserMessages(messages: readonly Message[]): Message[] {
+  let start = 0;
+  while (start < messages.length && messages[start]?.role !== 'user') start += 1;
+  return start === 0 ? [...messages] : messages.slice(start);
 }
 
 // Projects the stored context history into the wire messages sent to the
@@ -171,6 +236,12 @@ function createInterruptedToolResult(toolCallId: string): Message {
     toolCallId,
     partial: undefined,
   };
+}
+
+function isInterruptedToolResult(message: Message | undefined): boolean {
+  if (message?.role !== 'tool') return false;
+  const [part] = message.content;
+  return part?.type === 'text' && part.text === TOOL_INTERRUPTED_TEXT;
 }
 
 function isBlankText(part: ContentPart): boolean {

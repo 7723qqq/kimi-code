@@ -16,7 +16,8 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import { OrderedHookSlot } from '#/hooks';
-import { IAgentWireService, type IWireService } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 import {
   IAgentPermissionRulesService,
   type PermissionApprovalResultRecord,

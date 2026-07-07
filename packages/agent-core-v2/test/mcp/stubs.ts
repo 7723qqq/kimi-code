@@ -8,14 +8,14 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { Tool as KosongTool } from '#/app/llmProtocol/tool';
 import { z } from 'zod';
 
-import type { McpOAuthStore } from '#/agent/mcp/oauth';
+import type { McpOAuthStore } from '#/agent/mcp/oauth/store';
 import type { MCPClient, MCPToolDefinition } from '#/agent/mcp/types';
 import type {
   ExecutableTool,
   ExecutableToolContext,
   ExecutableToolResult,
   ToolExecution,
-} from '#/agent/tool';
+} from '#/agent/tool/toolContract';
 
 export const fixturesDir = new URL('./fixtures/', import.meta.url).pathname;
 export const stdioFixture = new URL('./fixtures/mock-stdio-server.mjs', import.meta.url).pathname;

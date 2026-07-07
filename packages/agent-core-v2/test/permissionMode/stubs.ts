@@ -9,8 +9,8 @@
 
 import { createHooks } from '#/hooks';
 import type { Hooks } from '#/hooks';
-import type { IAgentPermissionModeService } from '#/agent/permissionMode';
-import type { PermissionMode } from '#/agent/permissionPolicy';
+import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
 
 export function stubPermissionModeService(
   mode: () => PermissionMode,

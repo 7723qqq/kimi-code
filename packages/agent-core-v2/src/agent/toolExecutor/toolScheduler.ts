@@ -10,7 +10,7 @@
  * `toolExecutorService.ts`.
  */
 
-import { ToolAccesses } from '#/agent/tool';
+import { ToolAccesses } from '#/agent/tool/tool-access';
 
 // Scheduler
 

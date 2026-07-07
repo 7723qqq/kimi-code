@@ -15,15 +15,15 @@ import { z } from 'zod';
 
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
+import { ToolAccesses } from '#/agent/tool/tool-access';
 import type {
   BuiltinTool,
   ExecutableToolContext,
   ExecutableToolResult,
   ToolExecution,
-} from '#/agent/tool';
-import { ToolAccesses } from '#/agent/tool';
+} from '#/agent/tool/toolContract';
 import { ToolResultBuilder } from '#/agent/tool/result-builder';
-import { registerTool } from '#/agent/toolRegistry';
+import { registerTool } from '#/agent/toolRegistry/toolContribution';
 
 import { IWebSearchProviderService } from '../webSearch';
 import DESCRIPTION from './web-search.md?raw';

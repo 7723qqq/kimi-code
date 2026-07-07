@@ -19,10 +19,10 @@ function findPackageRoot(importer: string | undefined): string | undefined {
 
 /**
  * Resolve `#/` subpath imports scoped to the importer's owning package. Required
- * because the v2 SDK tests import `@moonshot-ai/server-v2`, which inlines
+ * because the v2 SDK tests import `@moonshot-ai/kap-server`, which inlines
  * `@moonshot-ai/agent-core-v2` source whose internal `#/foo` imports must
  * resolve against that package's own `src/`. Mirrors
- * `packages/server-v2/vitest.config.ts`.
+ * `packages/kap-server/vitest.config.ts`.
  */
 function hashImportsPlugin(): Plugin {
   return {
@@ -42,7 +42,7 @@ function hashImportsPlugin(): Plugin {
   };
 }
 
-// `rawTextPlugin` is required because importing `@moonshot-ai/server-v2` (for
+// `rawTextPlugin` is required because importing `@moonshot-ai/kap-server` (for
 // the v2 SDK tests) pulls in agent-core-v2's barrel, which imports `*.md?raw`
 // prompt templates. Both plugins are no-ops for the legacy v1 tests, which do
 // not import server-v2.

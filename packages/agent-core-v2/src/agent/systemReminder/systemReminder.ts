@@ -1,6 +1,6 @@
 import { createDecorator } from "#/_base/di/instantiation";
 
-import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
+import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 
 export interface IAgentSystemReminderService {
   readonly _serviceBrand: undefined;

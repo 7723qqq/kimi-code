@@ -1,4 +1,4 @@
-import type { WireMigration, WireMigrationRecord } from './index';
+import type { WireMigration, WireMigrationRecord } from './migration';
 
 /**
  * v1.2 -> v1.3 is a bump-only migration.

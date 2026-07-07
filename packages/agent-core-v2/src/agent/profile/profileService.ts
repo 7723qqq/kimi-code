@@ -40,15 +40,16 @@ import type { LoopControl } from '#/agent/loop/configSection';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { isMcpToolName } from '#/agent/tool';
+import { isMcpToolName } from '#/agent/tool/toolName';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import type { ResolvedAgentProfile, SystemPromptContext } from '#/agent/profile';
+import type { ResolvedAgentProfile, SystemPromptContext } from '#/agent/profile/profile';
 
 import type { WarningEvent } from '@moonshot-ai/protocol';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ToolSource } from '#/agent/tool';
-import { IAgentWireService, type IWireService } from '#/wire';
+import type { ToolSource } from '#/agent/tool/toolContract';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 import { IEventBus } from '#/app/event/eventBus';
 import { prepareSystemPromptContext } from './context';
 import type {
@@ -75,7 +76,7 @@ import {
   type ProfileModelState,
 } from './profileOps';
 
-declare module '#/agent/wireRecord' {
+declare module '#/agent/wireRecord/wireRecord' {
   interface WireRecordMap {
     'tools.set_active_tools': {
       names: readonly string[];
@@ -282,6 +283,11 @@ export class AgentProfileService implements IAgentProfileService {
     if (this.modelAlias === undefined) return undefined;
     let model: Model = this.modelFactory.resolve(this.modelAlias);
     const thinkingLevel = this.thinkingLevel;
+    const thinkingConfig = this.config.get<ThinkingConfig>(THINKING_SECTION);
+    const forcedKimiThinkingEffort =
+      model.protocol === 'kimi' && thinkingLevel !== 'off'
+        ? normalizeKimiThinkingEffort(thinkingConfig?.effort)
+        : undefined;
     const kwargs: GenerationKwargs = {};
     if (model.protocol === 'kimi') {
       kwargs.prompt_cache_key = this.sessionContext.sessionId;
@@ -294,17 +300,29 @@ export class AgentProfileService implements IAgentProfileService {
     if (overrides !== undefined) {
       if (overrides.temperature !== undefined) kwargs.temperature = overrides.temperature;
       if (overrides.topP !== undefined) kwargs.top_p = overrides.topP;
-      if (
-        model.protocol === 'kimi' &&
-        thinkingLevel !== 'off' &&
-        overrides.thinkingKeep !== undefined &&
-        overrides.thinkingKeep.length > 0
-      ) {
-        kwargs.extra_body = { thinking: { keep: overrides.thinkingKeep } };
+    }
+    const keep = resolveThinkingKeep(
+      overrides?.thinkingKeep,
+      thinkingConfig?.keep,
+      thinkingLevel,
+    );
+    if (keep !== undefined) {
+      if (model.protocol === 'kimi' && forcedKimiThinkingEffort === undefined) {
+        kwargs.extra_body = { thinking: { keep } };
+      } else if (model.protocol === 'anthropic') {
+        model = model.withThinkingKeep(keep);
       }
     }
     if (Object.keys(kwargs).length > 0) model = model.withGenerationKwargs(kwargs);
-    model = model.withThinking(thinkingLevel);
+    model = model.withThinking(forcedKimiThinkingEffort ?? thinkingLevel);
+    if (forcedKimiThinkingEffort !== undefined) {
+      const thinking: { type: 'enabled'; effort: string; keep?: string } = {
+        type: 'enabled',
+        effort: forcedKimiThinkingEffort,
+      };
+      if (keep !== undefined) thinking.keep = keep;
+      model = model.withGenerationKwargs({ extra_body: { thinking } });
+    }
     return model;
   }
 
@@ -497,6 +515,37 @@ export class AgentProfileService implements IAgentProfileService {
     const cwd = this.optionsValue.cwd;
     return typeof cwd === 'function' ? cwd() : cwd;
   }
+}
+
+const KEEP_OFF_VALUES = new Set(['0', 'false', 'no', 'off', 'none', 'null']);
+
+type KeepResolution =
+  | { readonly specified: false }
+  | { readonly specified: true; readonly value: string | undefined };
+
+function parseKeepValue(raw: string | undefined): KeepResolution {
+  const trimmed = raw?.trim();
+  if (trimmed === undefined || trimmed.length === 0) return { specified: false };
+  if (KEEP_OFF_VALUES.has(trimmed.toLowerCase())) return { specified: true, value: undefined };
+  return { specified: true, value: trimmed };
+}
+
+function normalizeKimiThinkingEffort(raw: string | undefined): ThinkingEffort | undefined {
+  const trimmed = raw?.trim();
+  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
+}
+
+function resolveThinkingKeep(
+  envKeep: string | undefined,
+  configKeep: string | undefined,
+  thinkingEffort: ThinkingEffort,
+): string | undefined {
+  if (thinkingEffort === 'off') return undefined;
+  const fromEnv = parseKeepValue(envKeep);
+  if (fromEnv.specified) return fromEnv.value;
+  const fromConfig = parseKeepValue(configKeep);
+  if (fromConfig.specified) return fromConfig.value;
+  return 'all';
 }
 
 registerScopedService(

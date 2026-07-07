@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { IAgentContextInjectorService } from '#/agent/contextInjector';
-import type { ContextMessage } from '#/agent/contextMemory';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { LogContext, LogPayload } from '#/_base/log/log';
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';

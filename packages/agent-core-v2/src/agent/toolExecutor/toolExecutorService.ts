@@ -18,18 +18,10 @@ import { PathSecurityError } from '#/_base/tools/policies/path-access';
 import { isUserCancellation } from "#/_base/utils/abort";
 import { isAbortError } from '#/agent/loop/errors';
 import { IEventBus } from '#/app/event/eventBus';
-import {
-  ToolAccesses,
-  type ExecutableTool,
-  type ExecutableToolResult,
-  type RunnableToolExecution,
-  type ToolDidExecuteContext,
-  type ToolExecution,
-  type ToolResult,
-  type ToolUpdate,
-  type ToolWillExecuteContext,
-} from '#/agent/tool';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import { ToolAccesses } from '#/agent/tool/tool-access';
+import type { ExecutableTool, ExecutableToolResult, RunnableToolExecution, ToolExecution, ToolResult, ToolUpdate } from '#/agent/tool/toolContract';
+import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/agent/tool/toolHooks';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import type { ToolCall } from '#/app/llmProtocol/message';
 import { ILogService } from '#/_base/log/log';
 import { ITelemetryService } from '#/app/telemetry/telemetry';

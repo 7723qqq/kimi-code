@@ -32,7 +32,11 @@ import { TerminalErrors } from '#/os/interface/terminalErrors';
 import { TurnErrors } from '#/agent/turn/errors';
 import { WireRecordErrors } from '#/agent/wireRecord/errors';
 
-export * from '#/_base/errors';
+export * from '#/_base/errors/codes';
+export * from '#/_base/errors/errorMessage';
+export * from '#/_base/errors/errors';
+export * from '#/_base/errors/serialize';
+export * from '#/_base/errors/unexpectedError';
 export { AgentLifecycleErrors } from '#/session/agentLifecycle/errors';
 export { AuthErrors } from '#/app/auth/errors';
 export { TaskErrors } from '#/agent/task/errors';

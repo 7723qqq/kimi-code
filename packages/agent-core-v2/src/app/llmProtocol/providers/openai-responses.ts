@@ -5,7 +5,7 @@ import {
   isContextOverflowErrorCode,
 } from '../errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '../message';
-import { extractText } from '../message';
+import { extractText, isToolDeclarationOnlyMessage } from '../message';
 import type {
   ChatProvider,
   FinishReason,
@@ -614,6 +614,7 @@ function convertHistoryMessages(
   };
 
   for (const msg of history) {
+    if (isToolDeclarationOnlyMessage(msg)) continue;
     if (msg.role !== 'tool') {
       flushPendingMedia();
     }

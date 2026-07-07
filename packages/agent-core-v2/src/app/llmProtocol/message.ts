@@ -1,3 +1,5 @@
+import type { Tool } from './tool';
+
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 
 export interface TextPart {
@@ -100,6 +102,7 @@ export interface Message {
   readonly toolCallId?: string;
   /** When `true`, indicates the message was not fully received (e.g. stream interrupted). */
   readonly partial?: boolean;
+  readonly tools?: readonly Tool[];
 }
 
 /** Check if a streamed part is a ContentPart (text, think, image_url, audio_url, video_url). */
@@ -107,6 +110,15 @@ export function isContentPart(part: StreamedMessagePart): part is ContentPart {
   const t = part.type;
   return (
     t === 'text' || t === 'think' || t === 'image_url' || t === 'audio_url' || t === 'video_url'
+  );
+}
+
+export function isToolDeclarationOnlyMessage(message: Message): boolean {
+  return (
+    message.tools !== undefined &&
+    message.tools.length > 0 &&
+    message.content.length === 0 &&
+    message.toolCalls.length === 0
   );
 }
 

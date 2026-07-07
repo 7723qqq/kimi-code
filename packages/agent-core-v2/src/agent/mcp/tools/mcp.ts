@@ -8,7 +8,7 @@
 
 import type { Tool as KosongTool } from '#/app/llmProtocol/tool';
 
-import type { ExecutableTool, ExecutableToolResult } from '#/agent/tool';
+import type { ExecutableTool, ExecutableToolResult } from '#/agent/tool/toolContract';
 import { mcpResultToExecutableOutput } from '#/agent/mcp/output';
 import type { MCPClient } from '#/agent/mcp/types';
 

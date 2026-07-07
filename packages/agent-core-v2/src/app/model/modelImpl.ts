@@ -169,6 +169,15 @@ export class ModelImpl implements Model {
     });
   }
 
+  withThinkingKeep(keep: string): Model {
+    return this.clone((p) => {
+      const applied = (p as ChatProvider & {
+        withThinkingKeep?: (k: string) => ChatProvider;
+      }).withThinkingKeep;
+      return applied !== undefined ? applied.call(p, keep) : p;
+    });
+  }
+
   /** Materialize the transformed kosong ChatProvider. Cached per Model instance. */
   private resolveChatProvider(): ChatProvider {
     if (this.cachedChatProvider !== undefined) return this.cachedChatProvider;

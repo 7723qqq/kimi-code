@@ -24,7 +24,7 @@ import { executeGrepSearch } from '#/os/backends/node-local/tools/grepSearch';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool/toolContract';
 
 // The search execution (ripgrep + node fallback) is mocked out so these tests
 // assert on argument mapping and result rendering without probing a real `rg`

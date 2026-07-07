@@ -1,4 +1,4 @@
-import type { ResolvedToolExecutionHookContext } from '#/agent/tool';
+import type { ResolvedToolExecutionHookContext } from '#/agent/tool/toolHooks';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,

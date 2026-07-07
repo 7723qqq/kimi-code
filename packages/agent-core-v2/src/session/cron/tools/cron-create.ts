@@ -25,7 +25,7 @@
 
 import { z } from 'zod';
 
-import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/agent/tool';
+import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/agent/tool/toolContract';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern } from '#/_base/tools/support/rule-match';
 import { ISessionCronService } from '#/session/cron/sessionCronService';

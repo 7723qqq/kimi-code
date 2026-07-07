@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
-import { IAgentGoalService, type AgentGoalService } from '#/agent/goal';
-import { IAgentLoopService, type AfterStepContext } from '#/agent/loop';
-import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn';
-import type { PersistedWireRecord, WireRecord } from '#/agent/wireRecord';
+import { IAgentGoalService } from '#/agent/goal/goal';
+import { type AgentGoalService } from '#/agent/goal/goalService';
+import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop/loop';
+import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn/turn';
+import type { PersistedWireRecord, WireRecord } from '#/agent/wireRecord/wireRecord';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
 import { ErrorCodes } from '#/errors';
 
@@ -62,12 +63,12 @@ async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<
     step: 1,
     signal: turn.abortController.signal,
   };
-  const afterStep: AfterStepContext = {
+  const afterStep: TurnAfterStepContext = {
     turnId: turn.id,
     step: 1,
     signal: turn.abortController.signal,
     usage: zeroUsage,
-    finishReason: 'completed' as const,
+    stopReason: 'completed' as const,
     continue: false,
   };
   await loopService.hooks.beforeStep.run(step);
@@ -81,12 +82,12 @@ async function runStepUsageHooks(
   turn: Turn,
   usage: TokenUsage,
 ): Promise<boolean> {
-  const afterStep: AfterStepContext = {
+  const afterStep: TurnAfterStepContext = {
     turnId: turn.id,
     step: 1,
     signal: turn.abortController.signal,
     usage,
-    finishReason: 'completed' as const,
+    stopReason: 'completed' as const,
     continue: false,
   };
   await loopService.hooks.afterStep.run(afterStep);
@@ -665,12 +666,12 @@ describe('AgentGoalService core workflow hooks', () => {
       step: 1,
       signal: turn.abortController.signal,
     };
-    const afterStep: AfterStepContext = {
+    const afterStep: TurnAfterStepContext = {
       turnId: turn.id,
       step: 1,
       signal: turn.abortController.signal,
       usage: zeroUsage,
-      finishReason: 'completed' as const,
+      stopReason: 'completed' as const,
       continue: false,
     };
     await loopService.hooks.beforeStep.run(step);

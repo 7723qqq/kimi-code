@@ -27,14 +27,15 @@ import {
 import type { TelemetryProperties } from '#/app/telemetry/telemetry';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentContextSizeService } from '#/agent/contextSize';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
 import { IFlagService } from '#/app/flag/flag';
-import { IAgentLoopService } from '#/agent/loop';
-import { IAgentProfileService } from '#/agent/profile';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ContextMessage } from '#/agent/contextMemory';
-import { IAgentWireService, type IWireService } from '#/wire';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 import { IAgentMicroCompactionService } from './microCompaction';
 import { MicroCompactionModel, microCompactionApply } from './microCompactionOps';
 import {

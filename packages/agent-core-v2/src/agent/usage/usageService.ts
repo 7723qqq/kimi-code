@@ -13,7 +13,8 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import type { LLMRequestSource } from '#/agent/llmRequester/llmRequester';
-import { IAgentWireService, type IWireService } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 import type { UsageStatus } from './usage';
 import { IAgentUsageService } from './usage';
 import { recordUsage, UsageModel, usageStatusFromState, type UsageRecordScope } from './usageOps';

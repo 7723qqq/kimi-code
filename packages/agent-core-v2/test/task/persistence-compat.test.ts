@@ -4,7 +4,7 @@ import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IAgentTaskService } from '#/agent/task';
+import { IAgentTaskService } from '#/agent/task/task';
 import {
   taskServices,
   createTestAgent,

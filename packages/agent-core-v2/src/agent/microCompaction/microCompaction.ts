@@ -6,7 +6,7 @@
  */
 
 import { createDecorator } from "#/_base/di/instantiation";
-import type { ContextMessage } from '#/agent/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 
 export interface IAgentMicroCompactionService {
   readonly _serviceBrand: undefined;

@@ -6,7 +6,7 @@
  * logs through `log`. Bound at App scope.
  *
  * WS event fan-out (sequencing, journaling, replay, per-connection dispatch)
- * is a transport concern and lives in the edge package (`packages/server-v2`)
+ * is a transport concern and lives in the edge package (`packages/kap-server`)
  * on top of `IEventService` + `IAgentRecordService` — not here.
  */
 
@@ -15,8 +15,8 @@ import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ILogService } from '#/_base/log/log';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
-import { IAgentPromptService } from '#/agent/prompt';
-import { IAgentTurnService } from '#/agent/turn';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { IAgentTurnService } from '#/agent/turn/turn';
 
 import { IRestGateway, IWSGateway } from './gateway';
 

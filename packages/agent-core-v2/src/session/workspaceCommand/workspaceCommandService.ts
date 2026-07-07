@@ -10,10 +10,12 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
-import { IWorkspaceLocalConfigService } from '#/app/workspaceLocalConfig';
-import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IWorkspaceLocalConfigService } from '#/app/workspaceLocalConfig/workspaceLocalConfig';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { MAIN_AGENT_ID } from '#/session/agentLifecycle/mainAgent';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 
 import {
   type AddAdditionalDirInput,

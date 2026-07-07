@@ -2,12 +2,12 @@ import type {
   ApprovalRequest,
   ApprovalResponse,
   PermissionData,
-} from '#/agent/permissionPolicy';
+} from '#/agent/permissionPolicy/types';
 import { createDecorator } from "#/_base/di/instantiation";
 import type {
   AuthorizeToolExecutionResult,
   ResolvedToolExecutionHookContext,
-} from '#/agent/tool';
+} from '#/agent/tool/toolHooks';
 import type { Hooks } from '#/hooks';
 
 export type PermissionApprovalRequestContext = ApprovalRequest & {

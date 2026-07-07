@@ -13,7 +13,7 @@ import {
   DefaultCompactionStrategy,
 } from '#/agent/fullCompaction/strategy';
 import { makeHookRunner } from '../externalHooks/runner-stub';
-import type { IExternalHooksRunnerService } from '#/app/externalHooksRunner';
+import type { IExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunner';
 import { MASTER_ENV } from '#/app/flag/flagService';
 import { microCompactionFlag } from '#/agent/microCompaction/flag';
 import { estimateTokensForMessages } from '#/_base/utils/tokens';

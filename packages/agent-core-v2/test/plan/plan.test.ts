@@ -5,11 +5,11 @@ import type { ToolCall } from '#/app/llmProtocol/message';
 import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IAgentContextInjectorService } from '#/agent/contextInjector';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentPlanService, type PlanData } from '#/agent/plan';
-import { IAgentPermissionRulesService } from '#/agent/permissionRules';
-import { IAgentProfileService } from '#/agent/profile';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentPlanService, type PlanData } from '#/agent/plan/plan';
+import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { ISessionProcessRunner } from '#/session/process/processRunner';
 import { createFakeHostFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';

@@ -4,7 +4,7 @@ import {
   AgentTaskPersistence,
   type AgentTaskInfo,
   type IAgentTaskService,
-} from '#/agent/task';
+} from '#/agent/task/task';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 

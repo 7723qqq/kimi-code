@@ -16,8 +16,8 @@ import { join, relative } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContentPart } from '#/app/llmProtocol/message';
-import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
-import { IAgentPromptService } from '#/agent/prompt';
+import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
 import type { CronTask } from '#/app/cron/cronTask';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';

@@ -5,12 +5,15 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
-import { TaskModel, taskStarted, taskTerminated, type AgentTaskInfo } from '#/agent/task';
+import type { AgentTaskInfo } from '#/agent/task/task';
+import { TaskModel, taskStarted, taskTerminated } from '#/agent/task/taskOps';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IAgentWireService, WireService, type IWireService, type PersistedRecord } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService, PersistedRecord } from '#/wire/wireService';
+import { WireService } from '#/wire/wireServiceImpl';
 
 const SCOPE = 'wire';
 const KEY = 'task-test';

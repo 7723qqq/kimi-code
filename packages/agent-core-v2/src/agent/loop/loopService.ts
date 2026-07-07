@@ -11,9 +11,9 @@ import type {
   TurnStepRetryingEvent,
   TurnStepStartedEvent,
 } from '@moonshot-ai/protocol';
-import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester';
-import type { ToolResult } from '#/agent/tool';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor';
+import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester/llmRequester';
+import type { ToolResult } from '#/agent/tool/toolContract';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
 import { type FinishReason } from '#/app/llmProtocol/finishReason';
@@ -22,7 +22,9 @@ import { type TokenUsage } from '#/app/llmProtocol/usage';
 import { ErrorCodes, KimiError } from '#/errors';
 import { OrderedHookSlot } from '#/hooks';
 
-import { IAgentContextMemoryService, newMessageId, type ContextMessage } from '../contextMemory';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { newMessageId } from '#/agent/contextMemory/messageId';
+import { type ContextMessage } from '#/agent/contextMemory/types';
 import { LOOP_CONTROL_SECTION, type LoopControl } from './configSection';
 import {
   createMaxStepsExceededError,

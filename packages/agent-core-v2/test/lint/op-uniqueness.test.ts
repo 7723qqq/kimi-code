@@ -3,7 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { DuplicateOpError, defineModel, defineOp } from '#/wire';
+import { defineModel } from '#/wire/model';
+import { DuplicateOpError, defineOp } from '#/wire/op';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = join(__dirname, '..', '..');

@@ -14,16 +14,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type AgentTaskInfo,
   IAgentTaskService,
-} from '#/agent/task';
+} from '#/agent/task/task';
 import {
   SubagentTask,
   type SubagentHandle,
 } from '#/session/agentLifecycle/tools/subagent-task';
 import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
-import type { IExternalHooksRunnerService } from '#/app/externalHooksRunner';
-import { IAgentPromptService } from '#/agent/prompt';
+import type { IExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunner';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import {
   configServices,

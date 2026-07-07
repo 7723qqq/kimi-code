@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import type { ContextMessage } from '#/agent/contextMemory';
-import { IAgentPromptService } from '#/agent/prompt';
-import { IAgentSkillService } from '#/agent/skill';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { IAgentSkillService } from '#/agent/skill/skill';
 import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -16,9 +16,10 @@ import {
   SkillTool,
 } from '#/agent/skill/tools/skill';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import type { Turn } from '#/agent/turn';
-import { IAgentWireService, WireService } from '#/wire';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import type { Turn } from '#/agent/turn/turn';
+import { IAgentWireService } from '#/wire/tokens';
+import { WireService } from '#/wire/wireServiceImpl';
 import { executeTool } from '../tools/fixtures/execute-tool';
 import { stubSkill } from './stubs';
 

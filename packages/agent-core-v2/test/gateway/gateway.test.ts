@@ -9,13 +9,13 @@ import {
   type AgentTaskHooks,
   IAgentLifecycleService,
 } from '#/session/agentLifecycle/agentLifecycle';
-import type { ContextMessage } from '#/agent/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IRestGateway } from '#/app/gateway/gateway';
 import { RestGateway } from '#/app/gateway/gatewayService';
 import { ILogService } from '#/_base/log/log';
-import { IAgentPromptService } from '#/agent/prompt';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
-import { IAgentTurnService } from '#/agent/turn';
+import { IAgentTurnService } from '#/agent/turn/turn';
 import { createHooks } from '#/hooks';
 import { stubLog } from '../log/stubs';
 import { stubTurn } from '../turn/stubs';

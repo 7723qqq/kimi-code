@@ -17,16 +17,17 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import type { ContentPart } from '#/app/llmProtocol/message';
 
-import type { ContextMessage, SkillActivationOrigin } from '#/agent/contextMemory';
+import type { ContextMessage, SkillActivationOrigin } from '#/agent/contextMemory/types';
 import { renderUserSlashSkillPrompt } from './prompt';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { Disposable } from '#/_base/di/lifecycle';
 import { ErrorCodes, KimiError } from '#/errors';
 import { isUserActivatableSkillType, type SkillDefinition } from '#/app/skillCatalog/types';
-import { IAgentPromptService } from '#/agent/prompt';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { Turn } from '#/agent/turn';
-import { IAgentWireService, type IWireService } from '#/wire';
+import type { Turn } from '#/agent/turn/turn';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 import { IAgentSkillService, type SkillActivationInput } from './skill';
 import { skillActivate } from './skillOps';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';

@@ -27,13 +27,14 @@
  */
 
 import type { ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
-import { defineModel, defineOp } from '#/wire';
+import { defineModel } from '#/wire/model';
+import { defineOp } from '#/wire/op';
 
 export interface ProfileModelState {
   readonly cwd?: string;
   readonly modelAlias?: string;
   readonly profileName?: string;
-  readonly thinkingLevel: ThinkingEffort;
+  readonly thinkingLevel: string;
   readonly systemPrompt: string;
 }
 

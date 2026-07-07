@@ -9,24 +9,23 @@ import { toDisposable } from '#/_base/di/lifecycle';
 import { Event } from '#/_base/event';
 import type { PromisifyMethods } from '#/_base/utils/types';
 import { escapeXmlAttr } from '#/_base/utils/xml-escape';
-import type { AgentTaskInfo } from '#/agent/task';
-import {
-  IAgentBlobService,
-} from '#/agent/blob';
+import type { AgentTaskInfo } from '#/agent/task/task';
+import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { AgentBlobServiceImpl } from '#/agent/blob/agentBlobServiceImpl';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IAgentContextInjectorService } from '#/agent/contextInjector';
-import type { ContextMessage } from '#/agent/contextMemory';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
 import { SessionCronServiceImpl } from '#/session/cron/sessionCronServiceImpl';
 import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
 import { CronTaskPersistenceService } from '#/app/cron/cronTaskPersistenceService';
-import { AgentGoalService, IAgentGoalService } from '#/agent/goal';
-import type { McpServiceOptions } from '#/agent/mcp';
-import { MICRO_COMPACTION_SECTION, type MicroCompactionConfig } from '#/agent/microCompaction';
-import type { PermissionMode } from '#/agent/permissionPolicy';
-import type { PermissionRule } from '#/agent/permissionRules';
-import { IAgentPlanService } from '#/agent/plan';
+import { IAgentGoalService } from '#/agent/goal/goal';
+import { AgentGoalService } from '#/agent/goal/goalService';
+import type { McpServiceOptions } from '#/agent/mcp/mcp';
+import { MICRO_COMPACTION_SECTION, type MicroCompactionConfig } from '#/agent/microCompaction/configSection';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
+import type { PermissionRule } from '#/agent/permissionRules/permissionRules';
+import { IAgentPlanService } from '#/agent/plan/plan';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import type { AgentAPI } from '#/agent/rpc/core-api';
@@ -35,12 +34,12 @@ import { AgentSkillService } from '#/agent/skill/skillService';
 import type {
   ExecutableToolOutput as ToolOutput,
   ExecutableToolResult,
-} from '#/agent/tool';
+} from '#/agent/tool/toolContract';
 import type {
   PersistedWireRecord,
   WireRecordRestoreOptions,
   WireRecordRestoreResult,
-} from '#/agent/wireRecord';
+} from '#/agent/wireRecord/wireRecord';
 import { IOAuthService } from '#/app/auth/auth';
 import { IProtocolAdapterRegistry, type ProtocolAdapterConfig } from '#/app/protocol/protocol';
 import type { SkillCatalog } from '#/app/skillCatalog/types';
@@ -50,7 +49,7 @@ import { type ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
 import { type Tool as KosongTool } from '#/app/llmProtocol/tool';
 import type { generate as kosongGenerate } from '#/app/llmProtocol/generate';
 import type { ChatProvider, GenerateOptions, StreamedMessage } from '#/app/llmProtocol/provider';
-import type { ProviderConfig } from '#/app/llmProtocol/providers';
+import type { ProviderConfig } from '#/app/llmProtocol/providers/providers';
 import { KimiChatProvider } from '#/app/llmProtocol/providers/kimi';
 import type { ILogger, LogContext, LogLevel } from '#/_base/log/log';
 import { ILogOptions } from '#/_base/log/logConfig';
@@ -121,7 +120,9 @@ import {
   type ServiceIdentifier,
 } from '#/index';
 import { IEventBus } from '#/app/event/eventBus';
-import { IAgentWireService, WireService, type PersistedRecord } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import type { PersistedRecord } from '#/wire/wireService';
+import { WireService } from '#/wire/wireServiceImpl';
 import { IModelService } from '#/app/model/model';
 import { type Model } from '#/app/model/modelInstance';
 import { IModelResolver } from '#/app/model/modelResolver';

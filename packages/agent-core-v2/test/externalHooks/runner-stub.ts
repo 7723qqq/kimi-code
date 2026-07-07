@@ -10,7 +10,7 @@
  */
 
 import { Event } from '#/_base/event';
-import { ExternalHooksRunnerService } from '#/app/externalHooksRunner';
+import { ExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunnerService';
 import { HOOKS_SECTION } from '#/agent/externalHooks/configSection';
 import type { HookDef } from '#/agent/externalHooks/types';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';

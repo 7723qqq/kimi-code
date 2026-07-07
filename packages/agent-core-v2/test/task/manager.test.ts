@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   IAgentTaskService,
   type AgentTaskInfo,
-} from '#/agent/task';
+} from '#/agent/task/task';
 import {
   SubagentTask,
   type SubagentHandle,

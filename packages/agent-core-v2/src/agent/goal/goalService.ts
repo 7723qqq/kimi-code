@@ -24,13 +24,10 @@ import { randomUUID } from 'node:crypto';
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentContextInjectorService } from '#/agent/contextInjector';
-import {
-  ensureMessageId,
-  IAgentContextMemoryService,
-  type ContextMessage,
-  type PromptOrigin,
-} from '#/agent/contextMemory';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { ensureMessageId } from '#/agent/contextMemory/messageId';
+import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { GoalInjection } from '#/agent/goal/injection/goalInjection';
 import {
   buildGoalBlockedReasonPrompt,
@@ -38,16 +35,17 @@ import {
 } from '#/agent/goal/tools/outcome-prompts';
 import {
   IAgentLoopService,
-  type AfterStepContext,
-  type BeforeStepContext,
-} from '#/agent/loop';
-import { IAgentSystemReminderService } from '#/agent/systemReminder';
-import { IAgentTurnService, type TurnResult } from '#/agent/turn';
+  type TurnAfterStepContext,
+  type TurnBeforeStepContext,
+} from '#/agent/loop/loop';
+import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
+import { IAgentTurnService, type TurnResult } from '#/agent/turn/turn';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
 import type { TelemetryProperties } from '#/app/telemetry/telemetry';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, KimiError, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
-import { IAgentWireService, type IWireService } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 import { IEventBus } from '#/app/event/eventBus';
 
 import { IAgentGoalService, type GoalReasonInput } from './goal';
@@ -64,7 +62,7 @@ import type {
   GoalToolResult,
 } from './types';
 
-declare module '#/agent/wireRecord' {
+declare module '#/agent/wireRecord/wireRecord' {
   interface WireRecordMap {
     forked: {};
     'goal.create': {
@@ -370,14 +368,14 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this.goalOutcomeContinuationTurns.delete(turnId);
   }
 
-  private async handleBeforeStep(ctx: BeforeStepContext): Promise<void> {
+  private async handleBeforeStep(ctx: TurnBeforeStepContext): Promise<void> {
     if (!this.goalDrivenTurns.has(ctx.turnId)) return;
     if (this.countedGoalTurns.has(ctx.turnId)) return;
     this.countedGoalTurns.add(ctx.turnId);
     await this.incrementTurn();
   }
 
-  private handleAfterStep(ctx: AfterStepContext): void {
+  private handleAfterStep(ctx: TurnAfterStepContext): void {
     if (this.goalDrivenTurns.has(ctx.turnId)) {
       const snapshot = this.accountTokenUsage(tokenUsageTotal(ctx.usage));
       if (snapshot?.budget.overBudget === true) {

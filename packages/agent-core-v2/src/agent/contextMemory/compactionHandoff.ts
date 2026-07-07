@@ -4,7 +4,7 @@
  */
 
 import { estimateTokens, estimateTokensForMessage, estimateTokensForMessages } from '#/_base/utils/tokens';
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 import summaryPrefixTemplate from './compaction-summary-prefix.md?raw';
 import type { ContextMessage, PromptOrigin } from './types';
 

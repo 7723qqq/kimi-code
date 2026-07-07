@@ -3,7 +3,6 @@
  * wire messages / content parts / tool calls.
  *
  * Constructors: `createAssistantMessage | createToolMessage | createUserMessage`.
- * Predicates: `isContentPart | isToolCall | isToolCallPart`.
  * Utilities: `extractText | mergeInPlace` (in-place merge of streamed
  * tool-call argument deltas).
  *
@@ -20,5 +19,6 @@ export {
   isContentPart,
   isToolCall,
   isToolCallPart,
+  isToolDeclarationOnlyMessage,
   mergeInPlace,
 } from './message';

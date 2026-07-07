@@ -98,6 +98,19 @@ export function isRetryableGenerateError(error: unknown): boolean {
   return error instanceof APIStatusError && [429, 500, 502, 503, 504].includes(error.statusCode);
 }
 
+const NETWORK_RE = /network|connection|connect|disconnect|terminated/i;
+const TIMEOUT_RE = /timed?\s*out|timeout|deadline/i;
+
+export function classifyBaseApiError(message: string): ChatProviderError {
+  if (TIMEOUT_RE.test(message)) {
+    return new APITimeoutError(message);
+  }
+  if (NETWORK_RE.test(message)) {
+    return new APIConnectionError(message);
+  }
+  return new ChatProviderError(`Error: ${message}`);
+}
+
 const CONTEXT_OVERFLOW_MESSAGE_PATTERNS = [
   /context[ _-]?length/,
   /(?:context[ _-]?window.*exceed|exceed.*context[ _-]?window)/,
@@ -141,6 +154,43 @@ export function isContextOverflowStatusError(statusCode: number, message: string
   if (statusCode !== 400 && statusCode !== 413 && statusCode !== 422) return false;
   const lowerMessage = message.toLowerCase();
   return CONTEXT_OVERFLOW_MESSAGE_PATTERNS.some((pattern) => pattern.test(lowerMessage));
+}
+
+const TOOL_EXCHANGE_ADJACENCY_MESSAGE_PATTERNS = [
+  /tool_use[\s\S]*tool_result/,
+  /tool_result[\s\S]*tool_use/,
+  /unexpected\s+`?tool_result/,
+  /tool_call_id[\s\S]*not found/,
+  /role\s+['"`]?tool['"`]?\s+must be a response to a preceding message/,
+  /assistant message with\s+['"`]?tool_calls['"`]?\s+must be followed by tool messages/,
+  /tool_call_ids? did not have response messages/,
+  /insufficient tool messages following/,
+] as const;
+
+export function isToolExchangeAdjacencyError(error: unknown): boolean {
+  if (!(error instanceof APIStatusError)) return false;
+  if (error instanceof APIContextOverflowError) return false;
+  if (error.statusCode !== 400 && error.statusCode !== 422) return false;
+  const lowerMessage = error.message.toLowerCase();
+  return TOOL_EXCHANGE_ADJACENCY_MESSAGE_PATTERNS.some((pattern) => pattern.test(lowerMessage));
+}
+
+const STRUCTURAL_REQUEST_MESSAGE_PATTERNS = [
+  /text content blocks must be non-empty/,
+  /text content blocks must contain non-whitespace/,
+  /first message must use the .*user.* role/,
+  /roles must alternate/,
+  /multiple .*(?:user|assistant).* roles in a row/,
+  /tool_use[\s\S]*ids must be unique/,
+] as const;
+
+export function isRecoverableRequestStructureError(error: unknown): boolean {
+  if (isToolExchangeAdjacencyError(error)) return true;
+  if (!(error instanceof APIStatusError)) return false;
+  if (error instanceof APIContextOverflowError) return false;
+  if (error.statusCode !== 400 && error.statusCode !== 422) return false;
+  const lowerMessage = error.message.toLowerCase();
+  return STRUCTURAL_REQUEST_MESSAGE_PATTERNS.some((pattern) => pattern.test(lowerMessage));
 }
 
 export function isProviderRateLimitError(error: unknown): boolean {

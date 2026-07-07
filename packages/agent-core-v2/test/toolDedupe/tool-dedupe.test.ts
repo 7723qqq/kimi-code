@@ -6,31 +6,19 @@ import { IEventBus } from '#/app/event/eventBus';
 import { type ToolCall } from '#/app/llmProtocol/message';
 import { emptyUsage } from '#/app/llmProtocol/usage';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentLoopService } from '#/agent/loop';
-import type {
-  ExecutableTool,
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolDidExecuteContext,
-  ToolExecution,
-  ToolResult,
-  ToolWillExecuteContext,
-} from '#/agent/tool';
-import {
-  AgentToolDedupeService,
-  IAgentToolDedupeService,
-  __testing as toolDedupeTesting,
-  type ToolDedupeResult,
-} from '#/agent/toolDedupe';
-import {
-  AgentToolExecutorService,
-  IAgentToolExecutorService,
-  type ToolExecutionResult,
-} from '#/agent/toolExecutor';
-import { AgentToolRegistryService, IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { IAgentTurnService } from '#/agent/turn';
-import { IAgentWireRecordService } from '#/agent/wireRecord';
-import { IAgentWireService, WireService } from '#/wire';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import type { ExecutableTool, ExecutableToolContext, ExecutableToolResult, ToolExecution, ToolResult } from '#/agent/tool/toolContract';
+import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/agent/tool/toolHooks';
+import { IAgentToolDedupeService, type ToolDedupeResult } from '#/agent/toolDedupe/toolDedupe';
+import { AgentToolDedupeService, __testing as toolDedupeTesting } from '#/agent/toolDedupe/toolDedupeService';
+import { IAgentToolExecutorService, type ToolExecutionResult } from '#/agent/toolExecutor/toolExecutor';
+import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import { IAgentTurnService } from '#/agent/turn/turn';
+import { IAgentWireRecordService } from '#/agent/wireRecord/wireRecord';
+import { IAgentWireService } from '#/wire/tokens';
+import { WireService } from '#/wire/wireServiceImpl';
 import { stubWireRecord } from '../contextMemory/stubs';
 import { registerLogServices } from '../log/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';

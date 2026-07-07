@@ -36,13 +36,13 @@ import { renderCronFireXml } from '#/app/cron/format';
 import { jitteredNextCronRunMs, oneShotJitteredNextCronRunMs } from '#/app/cron/jitter';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import type { ContextMessage } from '#/agent/contextMemory';
-import { IAgentPromptService } from '#/agent/prompt';
-import { IAgentWireService, type Op } from '#/wire';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import type { Op } from '#/wire/op';
+import { IAgentWireService } from '#/wire/tokens';
 import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import type { Turn } from '#/agent/turn';
-import { IAgentTurnService } from '#/agent/turn';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentTurnService, type Turn } from '#/agent/turn/turn';
 
 import { CronCreateTool } from './tools/cron-create';
 import { CronListTool } from './tools/cron-list';
@@ -56,7 +56,7 @@ export const CRON_FIRED = 'cron_fired' as const;
 export const CRON_MISSED = 'cron_missed' as const;
 export const CRON_DELETED = 'cron_deleted' as const;
 
-declare module '#/agent/wireRecord' {
+declare module '#/agent/wireRecord/wireRecord' {
   interface WireRecordMap {
     'cron.add': {
       task: CronTask;

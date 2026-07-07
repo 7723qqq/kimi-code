@@ -10,7 +10,7 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { newMessageId } from '#/agent/contextMemory';
+import { newMessageId } from '#/agent/contextMemory/messageId';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';

@@ -14,7 +14,8 @@
 
 import { addUsage, type TokenUsage } from '#/app/llmProtocol/usage';
 import type { LLMRequestSource } from '#/agent/llmRequester/llmRequester';
-import { defineModel, defineOp } from '#/wire';
+import { defineModel } from '#/wire/model';
+import { defineOp } from '#/wire/op';
 
 import type { UsageStatus } from './usage';
 

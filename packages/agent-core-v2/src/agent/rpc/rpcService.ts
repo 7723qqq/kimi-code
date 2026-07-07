@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentTaskService } from '#/agent/task';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentContextSizeService } from '#/agent/contextSize';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction';
-import { IAgentGoalService } from '#/agent/goal';
+import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import { IAgentGoalService } from '#/agent/goal/goal';
 import type {
   PluginCommandActivatedEvent,
   ShellOutputEvent,
@@ -16,24 +16,24 @@ import { IEventBus } from '#/app/event/eventBus';
 import { IEventService } from '#/app/event/event';
 import { ErrorCodes, KimiError } from '#/errors';
 import { userCancellationReason } from '#/_base/utils/abort';
-import { IAgentPermissionGate } from '#/agent/permissionGate';
+import { IAgentPermissionGate } from '#/agent/permissionGate/permissionGate';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentPlanService } from '#/agent/plan';
+import { IAgentPlanService } from '#/agent/plan/plan';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { expandCommandArguments } from '#/app/plugin/commands';
 import { IPluginService } from '#/app/plugin/plugin';
-import { IAgentProfileService } from '#/agent/profile';
-import { IAgentPromptService } from '#/agent/prompt';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { IAgentSkillService } from '#/agent/skill';
-import { IAgentSwarmService } from '#/agent/swarm';
+import { IAgentSkillService } from '#/agent/skill/skill';
+import { IAgentSwarmService } from '#/agent/swarm/swarm';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import type { ToolUpdate } from '#/agent/tool';
-import { IAgentTurnService } from '#/agent/turn';
-import { IAgentUsageService } from '#/agent/usage';
-import { IAgentUserToolService } from '#/agent/userTool';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import type { ToolUpdate } from '#/agent/tool/toolContract';
+import { IAgentTurnService } from '#/agent/turn/turn';
+import { IAgentUsageService } from '#/agent/usage/usage';
+import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import type {
   ActivatePluginCommandPayload,
   ActivateSkillPayload,

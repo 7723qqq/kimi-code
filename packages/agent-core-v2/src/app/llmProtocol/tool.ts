@@ -12,4 +12,5 @@ export interface Tool {
   description: string;
   /** JSON Schema describing the tool's parameters. */
   parameters: Record<string, unknown>;
+  deferred?: true;
 }

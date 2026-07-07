@@ -17,18 +17,18 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
 
-import { IAgentContextInjectorService } from '#/agent/contextInjector';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentProfileService } from '#/agent/profile';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { IAgentWireService } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
 
 import { ISessionTodoService } from './sessionTodo';
 import { TodoModel, todoSet } from './todoOps';
 import { TODO_LIST_TOOL_NAME, type TodoItem } from './todoItem';
 import { TODO_LIST_REMINDER_VARIANT, todoListStaleReminder } from './todoListReminder';
 
-declare module '#/agent/wireRecord' {
+declare module '#/agent/wireRecord/wireRecord' {
   interface WireRecordMap {
     'todo.set': {
       todos: readonly TodoItem[];

@@ -19,6 +19,7 @@ export const DEFAULT_THINKING_SECTION = 'defaultThinking';
 export const ThinkingConfigSchema = z.object({
   mode: z.enum(['auto', 'on', 'off']).optional(),
   effort: z.string().optional(),
+  keep: z.string().optional(),
 });
 
 export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;

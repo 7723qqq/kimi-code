@@ -13,21 +13,22 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { abortError, abortable } from '#/_base/utils/abort';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { ContextMessage } from '#/agent/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IOAuthService } from '#/app/auth/auth';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import { ErrorCodes, KimiError } from '#/errors';
 import { makeHookRunner } from '../externalHooks/runner-stub';
 import type { ILogger as Logger, LogPayload } from '#/_base/log/log';
-import { IAgentMcpService } from '#/agent/mcp';
+import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { McpConnectionManager } from '#/agent/mcp/connection-manager';
-import { registerMediaTools, type VideoUploader } from '#/agent/media';
-import { IAgentPermissionGate } from '#/agent/permissionGate';
-import { IAgentProfileService } from '#/agent/profile';
-import { IAgentSwarmService } from '#/agent/swarm';
-import { IAgentTurnService } from '#/agent/turn';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import { registerMediaTools } from '#/agent/media/registerMediaTools';
+import { type VideoUploader } from '#/agent/media/tools/read-media';
+import { IAgentPermissionGate } from '#/agent/permissionGate/permissionGate';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentSwarmService } from '#/agent/swarm/swarm';
+import { IAgentTurnService } from '#/agent/turn/turn';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 import type {
   SessionSwarmRunResult as QueuedSubagentRunResult,

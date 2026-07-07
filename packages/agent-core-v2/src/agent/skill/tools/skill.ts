@@ -25,12 +25,11 @@ import { randomUUID } from 'node:crypto';
 
 import { z } from 'zod';
 
-import type { SkillActivationOrigin } from '#/agent/contextMemory';
+import type { SkillActivationOrigin } from '#/agent/contextMemory/types';
 import { IAgentSkillService } from '#/agent/skill/skill';
 import { renderModelToolSkillPrompt } from '#/agent/skill/prompt';
-import type { BuiltinTool } from '#/agent/tool';
-import type { ExecutableToolResult, ToolDeliveryMessage, ToolExecution } from '#/agent/tool';
-import { registerTool } from '#/agent/toolRegistry';
+import type { BuiltinTool, ExecutableToolResult, ToolDeliveryMessage, ToolExecution } from '#/agent/tool/toolContract';
+import { registerTool } from '#/agent/toolRegistry/toolContribution';
 import { isInlineSkillType } from '#/app/skillCatalog/types';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';

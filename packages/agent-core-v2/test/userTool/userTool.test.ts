@@ -3,20 +3,20 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentProfileService } from '#/agent/profile';
-import { AgentToolRegistryService, IAgentToolRegistryService } from '#/agent/toolRegistry';
-import {
-  AgentUserToolService,
-  IAgentUserToolService,
-  type UserToolRegistration,
-} from '#/agent/userTool';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import { IAgentUserToolService, type UserToolRegistration } from '#/agent/userTool/userTool';
+import { AgentUserToolService } from '#/agent/userTool/userToolService';
 import { UserToolModel } from '#/agent/userTool/userToolOps';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionInteractionService } from '#/session/interaction/interaction';
-import { IAgentWireService, WireService, type IWireService, type PersistedRecord } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService, PersistedRecord } from '#/wire/wireService';
+import { WireService } from '#/wire/wireServiceImpl';
 
 const SCOPE = 'wire';
 const KEY = 'user-tool-test';

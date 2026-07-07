@@ -41,11 +41,11 @@ import {
   type PlanModeIdPayload,
 } from '#/agent/plan/planOps';
 import { configUpdate, type ConfigUpdatePayload } from '#/agent/profile/profileOps';
-import type { PermissionMode } from '#/agent/permissionPolicy';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { setMode } from '#/agent/permissionMode/permissionModeOps';
-import type { PermissionApprovalResultRecord } from '#/agent/permissionRules';
+import type { PermissionApprovalResultRecord } from '#/agent/permissionRules/permissionRules';
 import { recordApprovalResult } from '#/agent/permissionRules/permissionRulesOps';
-import { type DerivedModelDef, defineDerivedModel } from '#/wire';
+import { type DerivedModelDef, defineDerivedModel } from '#/wire/model';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function defineDerivedTimeline<M extends Record<string, (payload: any) => any>>(

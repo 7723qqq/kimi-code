@@ -1,8 +1,8 @@
 import { Disposable } from "#/_base/di/lifecycle";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 
 import { IAgentSystemReminderService } from './systemReminder';
 

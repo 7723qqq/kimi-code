@@ -2,13 +2,15 @@ import { describe, expect, it, onTestFinished } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
-import { IAgentLoopService } from '#/agent/loop';
-import { AgentPromptService, IAgentPromptService } from '#/agent/prompt';
-import type { PromptSubmitContext } from '#/agent/prompt';
-import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
-import type { ToolDidExecuteContext } from '#/agent/tool';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import { IAgentTurnService, type Turn } from '#/agent/turn';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { AgentPromptService } from '#/agent/prompt/promptService';
+import type { PromptSubmitContext } from '#/agent/prompt/prompt';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import type { ToolDidExecuteContext } from '#/agent/tool/toolHooks';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentTurnService, type Turn } from '#/agent/turn/turn';
 
 import { stubContextMemory } from '../contextMemory/stubs';
 import { stubLoopWithHooks, stubToolExecutor, stubTurn } from '../turn/stubs';

@@ -2,11 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { Emitter } from '#/_base/event';
-import {
-  IAgentPluginService,
-  AgentPluginService,
-} from '#/agent/plugin';
-import { IAgentContextInjectorService } from '#/agent/contextInjector';
+import { IAgentPluginService } from '#/agent/plugin/agentPlugin';
+import { AgentPluginService } from '#/agent/plugin/agentPluginService';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IEventBus } from '#/app/event/eventBus';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { EnabledPluginSessionStart, ReloadSummary } from '#/app/plugin/types';

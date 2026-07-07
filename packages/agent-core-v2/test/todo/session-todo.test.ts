@@ -5,10 +5,10 @@ import { IInstantiationService } from '#/_base/di/instantiation';
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { type IAgentScopeHandle, LifecycleScope } from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
-import { IAgentContextInjectorService } from '#/agent/contextInjector';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentProfileService } from '#/agent/profile';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { createHooks } from '#/hooks';
 import {
   type AgentTaskHooks,
@@ -18,7 +18,8 @@ import { ISessionTodoService } from '#/session/todo/sessionTodo';
 import { SessionTodoService } from '#/session/todo/sessionTodoService';
 import { type TodoItem } from '#/session/todo/todoItem';
 import { TODO_LIST_REMINDER_VARIANT } from '#/session/todo/todoListReminder';
-import { IAgentWireService, type IWireService } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 
 interface RecordedTodoSet {
   readonly todos: readonly TodoItem[];

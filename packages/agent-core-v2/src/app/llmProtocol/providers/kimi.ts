@@ -67,13 +67,13 @@ export interface GenerationKwargs {
   presence_penalty?: number | undefined;
   frequency_penalty?: number | undefined;
   stop?: string | string[] | undefined;
-  reasoning_effort?: string | undefined;
   prompt_cache_key?: string | undefined;
   extra_body?: ExtraBody;
 }
 
 export interface ThinkingConfig {
   type?: 'enabled' | 'disabled';
+  effort?: string;
   keep?: unknown;
   [key: string]: unknown;
 }
@@ -93,6 +93,7 @@ interface OpenAIMessage {
   tool_call_id?: string | undefined;
   name?: string | undefined;
   reasoning_content?: string | undefined;
+  tools?: OpenAIToolParam[];
 }
 
 interface OpenAIToolCallOut {
@@ -164,6 +165,10 @@ function convertMessage(message: Message): OpenAIMessage {
 
   if (reasoningContent) {
     result.reasoning_content = reasoningContent;
+  }
+
+  if (message.tools !== undefined && message.tools.length > 0) {
+    result.tools = message.tools.map((tool) => convertTool(tool));
   }
 
   return result;
@@ -419,8 +424,7 @@ export class KimiChatProvider implements ChatProvider {
     const thinking = this._generationKwargs.extra_body?.thinking;
     if (thinking === undefined) return null;
     if (thinking.type === 'disabled') return 'off';
-    const effort = thinking['effort'];
-    return typeof effort === 'string' ? (effort as ThinkingEffort) : 'on';
+    return thinking.effort ?? 'on';
   }
 
   get modelParameters(): Record<string, unknown> {
@@ -492,8 +496,6 @@ export class KimiChatProvider implements ChatProvider {
 
     try {
       const client = this._createClient(options?.auth);
-      // Use type assertion via unknown because we pass Moonshot-proprietary fields
-      // (reasoning_effort, thinking) that don't exist in the OpenAI type definitions.
       options?.onRequestSent?.();
       const response = (await client.chat.completions.create(
         createParams as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,

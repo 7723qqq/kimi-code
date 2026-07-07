@@ -1,6 +1,6 @@
-import { IAgentSwarmService } from '#/agent/swarm';
-import type { IAgentSwarmService as AgentSwarmService } from '#/agent/swarm';
-import type { ResolvedToolExecutionHookContext } from '#/agent/tool';
+import { IAgentSwarmService } from '#/agent/swarm/swarm';
+import type { IAgentSwarmService as AgentSwarmService } from '#/agent/swarm/swarm';
+import type { ResolvedToolExecutionHookContext } from '#/agent/tool/toolHooks';
 import type {
   PermissionPolicy,
   PermissionPolicyResult,

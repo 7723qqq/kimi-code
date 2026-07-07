@@ -1,25 +1,25 @@
-import {
-  IAgentPermissionPolicyService,
-  type ApprovalResponse,
-  type PermissionData,
-  type PermissionPolicyResolution,
-  type PermissionPolicyResult,
-} from '#/agent/permissionPolicy';
+import { IAgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicy';
+import type {
+  ApprovalResponse,
+  PermissionData,
+  PermissionPolicyResolution,
+  PermissionPolicyResult,
+} from '#/agent/permissionPolicy/types';
 import { IInstantiationService } from "#/_base/di/instantiation";
 import { Disposable } from "#/_base/di/lifecycle";
 import { abortable, isUserCancellation } from '#/_base/utils/abort';
 import type {
   AuthorizeToolExecutionResult,
   ResolvedToolExecutionHookContext,
-} from '#/agent/tool';
+} from '#/agent/tool/toolHooks';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import { ISessionApprovalService } from "#/session/approval/approval";
-import { IAgentPermissionModeService } from '#/agent/permissionMode';
-import { IAgentPermissionRulesService } from '#/agent/permissionRules';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import { IAgentScopeContext } from '#/agent/scopeContext';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import {
   IAgentPermissionGate,
   type PermissionApprovalRequestContext,

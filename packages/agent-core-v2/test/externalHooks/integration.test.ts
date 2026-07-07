@@ -13,32 +13,33 @@ import {
 } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { emptyUsage } from '#/app/llmProtocol/usage';
+import { buildContextCompactionShape } from '#/agent/contextMemory/compactionHandoff';
 import {
-  buildContextCompactionShape,
-  computeUndoCut,
-  ensureMessageId,
   IAgentContextMemoryService,
   type ContextCompactionInput,
   type ContextCompactionResult,
-  type ContextMessage,
-} from '#/agent/contextMemory';
-import { IAgentTaskService } from '#/agent/task';
+} from '#/agent/contextMemory/contextMemory';
+import { computeUndoCut } from '#/agent/contextMemory/contextOps';
+import { ensureMessageId } from '#/agent/contextMemory/messageId';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import {
-  AgentExternalHooksService,
-  IAgentExternalHooksService,
-} from '#/agent/externalHooks';
-import {
-  ExternalHooksRunnerService,
-  IExternalHooksRunnerService,
-} from '#/app/externalHooksRunner';
-import { HookDefSchema, HOOKS_SECTION, hooksFromToml, hooksToToml } from '#/agent/externalHooks/configSection';
+  HookDefSchema,
+  HOOKS_SECTION,
+  hooksFromToml,
+  hooksToToml,
+} from '#/agent/externalHooks/configSection';
+import { IAgentExternalHooksService } from '#/agent/externalHooks/externalHooks';
+import { AgentExternalHooksService } from '#/agent/externalHooks/externalHooksService';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop/loop';
+import { IAgentPermissionGate } from '#/agent/permissionGate/permissionGate';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentTurnService } from '#/agent/turn/turn';
+import { IExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunner';
+import { ExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunnerService';
 import { makeHookRunner } from './runner-stub';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction';
-import { IAgentLoopService, type AfterStepContext } from '#/agent/loop';
-import { IAgentPermissionGate } from '#/agent/permissionGate';
-import { IAgentPromptService } from '#/agent/prompt';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import { IAgentTurnService } from '#/agent/turn';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
@@ -54,11 +55,10 @@ import {
   type AgentTaskHooks,
   IAgentLifecycleService,
 } from '#/session/agentLifecycle/agentLifecycle';
-import {
-  ISessionExternalHooksService,
-  SessionExternalHooksService,
-} from '#/session/externalHooks';
-import { IAgentWireService, WireService } from '#/wire';
+import { ISessionExternalHooksService } from '#/session/externalHooks/externalHooks';
+import { SessionExternalHooksService } from '#/session/externalHooks/externalHooksService';
+import { IAgentWireService } from '#/wire/tokens';
+import { WireService } from '#/wire/wireServiceImpl';
 
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLoopWithHooks, stubToolExecutor, stubTurnWithHooks } from '../turn/stubs';

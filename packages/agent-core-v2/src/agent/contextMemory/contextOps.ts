@@ -32,8 +32,9 @@
  */
 
 import type { ContentPart } from '#/app/llmProtocol/message';
-import { defineModel, defineOp, type PartsTransformer } from '#/wire';
-import type { PersistedRecord } from '#/wire';
+import { defineModel, type PartsTransformer } from '#/wire/model';
+import { defineOp } from '#/wire/op';
+import type { PersistedRecord } from '#/wire/wireService';
 
 import {
   buildContextCompactionShape,

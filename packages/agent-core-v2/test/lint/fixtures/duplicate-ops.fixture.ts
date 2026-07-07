@@ -5,7 +5,8 @@
  * here — it exists purely to prove the scanner flags a planted duplicate.
  */
 
-import { defineModel, defineOp } from '#/wire';
+import { defineModel } from '#/wire/model';
+import { defineOp } from '#/wire/op';
 
 const FixtureModel = defineModel('fixture', () => ({}));
 

@@ -1,8 +1,8 @@
 import { emptyUsage } from '#/app/llmProtocol/usage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IAgentLLMRequesterService } from '#/agent/llmRequester';
-import { IAgentProfileService } from '#/agent/profile';
+import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import {
   configServices,
   createTestAgent,

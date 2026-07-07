@@ -3,11 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import {
-  DenyAllPermissionPolicyService,
-  IAgentPermissionPolicyService,
-} from '#/agent/permissionPolicy';
-import { IAgentSystemReminderService } from '#/agent/systemReminder';
+import { IAgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicy';
+import { DenyAllPermissionPolicyService } from '#/agent/permissionPolicy/policies/deny-all';
+import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionBtwService, SIDE_QUESTION_SYSTEM_REMINDER } from '#/session/btw/btw';
 import { SessionBtwService } from '#/session/btw/btwService';

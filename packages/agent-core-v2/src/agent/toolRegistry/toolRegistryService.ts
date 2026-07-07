@@ -1,7 +1,7 @@
 import { Disposable, toDisposable, type IDisposable } from "#/_base/di/lifecycle";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import type { ExecutableTool, ToolInfo, ToolSource } from '#/agent/tool';
+import type { ExecutableTool, ToolInfo, ToolSource } from '#/agent/tool/toolContract';
 import { OrderedHookSlot } from '#/hooks';
 import { IAgentToolRegistryService, type ToolRegistrationOptions } from './toolRegistry';
 

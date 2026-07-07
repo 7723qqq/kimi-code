@@ -12,25 +12,27 @@ import {
   type ApprovalResponse,
 } from '#/session/approval/approval';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { ResolvedToolExecutionHookContext } from '#/agent/tool';
-import { IAgentPermissionGate, AgentPermissionGate } from '#/agent/permissionGate';
-import { IAgentScopeContext } from '#/agent/scopeContext';
-import { IAgentPermissionModeService } from '#/agent/permissionMode';
-import type { PermissionMode, PermissionPolicyEvaluation } from '#/agent/permissionPolicy';
-import { IAgentPermissionPolicyService } from '#/agent/permissionPolicy';
+import type { ResolvedToolExecutionHookContext } from '#/agent/tool/toolHooks';
+import { IAgentPermissionGate } from '#/agent/permissionGate/permissionGate';
+import { AgentPermissionGate } from '#/agent/permissionGate/permissionGateService';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import type { PermissionPolicyEvaluation } from '#/agent/permissionPolicy/permissionPolicy';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
+import { IAgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicy';
 import { AgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicyService';
 import {
   IAgentPermissionRulesService,
   type PermissionApprovalResultRecord,
   type PermissionRule,
-} from '#/agent/permissionRules';
-import { IAgentPlanService } from '#/agent/plan';
-import { IAgentProfileService, type ProfileData } from '#/agent/profile';
+} from '#/agent/permissionRules/permissionRules';
+import { IAgentPlanService } from '#/agent/plan/plan';
+import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
-import { IAgentSwarmService } from '#/agent/swarm';
+import { IAgentSwarmService } from '#/agent/swarm/swarm';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import { IAgentTurnService } from '#/agent/turn';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentTurnService } from '#/agent/turn/turn';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { ToolCall } from '#/app/llmProtocol/message';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';

@@ -9,14 +9,15 @@
  * `contextInjector`. Bound at Agent scope.
  */
 
-import type { PermissionMode } from '#/agent/permissionPolicy';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentContextInjectorService } from '#/agent/contextInjector';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { OrderedHookSlot } from '#/hooks';
 import { registerPermissionModeInjection } from '#/agent/permissionMode/injection/permissionModeInjection';
-import { IAgentWireService, type IWireService } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 import { IAgentPermissionModeService } from './permissionMode';
 import { PermissionModeModel, setMode } from './permissionModeOps';
 

@@ -6,9 +6,10 @@ import { LifecycleScope } from '#/_base/di/scope';
 import type { ServiceIdentifier } from '#/_base/di/instantiation';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
-import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
-import { IBootstrapService } from '#/app/bootstrap';
-import { IWorkspaceLocalConfigService } from '#/app/workspaceLocalConfig';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IWorkspaceLocalConfigService } from '#/app/workspaceLocalConfig/workspaceLocalConfig';
 import { ErrorCodes, KimiError } from '#/errors';
 import {
   type HostDirEntry,
@@ -20,15 +21,13 @@ import { createHooks } from '#/hooks';
 import {
   type AgentTaskHooks,
   IAgentLifecycleService,
-  MAIN_AGENT_ID,
-} from '#/session/agentLifecycle';
-import { ISessionContext, makeSessionContext } from '#/session/sessionContext';
-import {
-  ISessionWorkspaceCommandService,
-  SessionWorkspaceCommandService,
-} from '#/session/workspaceCommand';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
-import { SessionWorkspaceContextService } from '#/session/workspaceContext';
+} from '#/session/agentLifecycle/agentLifecycle';
+import { MAIN_AGENT_ID } from '#/session/agentLifecycle/mainAgent';
+import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionWorkspaceCommandService } from '#/session/workspaceCommand/workspaceCommand';
+import { SessionWorkspaceCommandService } from '#/session/workspaceCommand/workspaceCommandService';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { SessionWorkspaceContextService } from '#/session/workspaceContext/workspaceContextService';
 
 import { stubContextMemory, type StubContextMemory } from '../contextMemory/stubs';
 

@@ -10,7 +10,7 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import { BUILTIN_SKILLS } from './builtin';
+import { BUILTIN_SKILLS } from './builtin/builtin';
 import type { ISkillSource, SkillContribution } from './skillSource';
 
 export interface IBuiltinSkillSource extends ISkillSource {

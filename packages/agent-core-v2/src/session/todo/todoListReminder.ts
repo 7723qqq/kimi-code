@@ -7,7 +7,7 @@
  * the inputs and registers the provider into each agent's context injector.
  */
 
-import type { ContextMessage } from '#/agent/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 
 import { TODO_LIST_TOOL_NAME, type TodoItem } from './todoItem';
 

@@ -1,4 +1,4 @@
-import type { PermissionMode } from '#/agent/permissionPolicy';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import type { IDisposable } from "#/_base/di/lifecycle";
 import type { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';

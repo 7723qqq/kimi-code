@@ -5,7 +5,7 @@ import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DEFAULT_AGENT_PROFILE_NAME, IAgentProfileCatalogService } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { IAgentProfileService } from '#/agent/profile';
+import { IAgentProfileService } from '#/agent/profile/profile';
 
 import { createTestAgent, execEnvServices, type TestAgentContext } from '../harness';
 

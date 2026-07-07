@@ -19,36 +19,32 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
-import { IAgentTaskService, type AgentTaskNotificationContext } from '#/agent/task';
-import { IAgentContextMemoryService, USER_PROMPT_ORIGIN } from '#/agent/contextMemory';
+import { IAgentTaskService, type AgentTaskNotificationContext } from '#/agent/task/task';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
 import {
   IAgentFullCompactionService,
   type FullCompactionTask,
-} from '#/agent/fullCompaction';
+} from '#/agent/fullCompaction/fullCompaction';
 import type { CompactionResult, CompactionSource } from '#/agent/fullCompaction/types';
-import { IAgentLoopService, type AfterStepContext } from '#/agent/loop';
+import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop/loop';
 import {
   IAgentPermissionGate,
-} from '#/agent/permissionGate';
+} from '#/agent/permissionGate/permissionGate';
 import {
   IAgentPromptService,
   type PromptSubmitContext,
-} from '#/agent/prompt';
+} from '#/agent/prompt/prompt';
 import type { HookResultEvent, TurnEndReason } from '@moonshot-ai/protocol';
 import { IEventBus } from '#/app/event/eventBus';
-import type {
-  ExecutableToolResult,
-  ToolDidExecuteContext,
-  ToolWillExecuteContext,
-} from '#/agent/tool';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import {
-  IAgentTurnService,
-} from '#/agent/turn';
+import type { ExecutableToolResult } from '#/agent/tool/toolContract';
+import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/agent/tool/toolHooks';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentTurnService } from '#/agent/turn/turn';
 import { toKimiErrorPayload } from '#/errors';
 
 import { IAgentExternalHooksService } from './externalHooks';
-import { IExternalHooksRunnerService } from '#/app/externalHooksRunner';
+import { IExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunner';
 import {
   renderUserPromptHookBlockResult,
   renderUserPromptHookResult,
@@ -329,7 +325,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     );
   }
 
-  private async runStop(ctx: AfterStepContext): Promise<string | undefined> {
+  private async runStop(ctx: TurnAfterStepContext): Promise<string | undefined> {
     ctx.signal.throwIfAborted();
     if (this.stopHookContinuationUsed) return undefined;
 

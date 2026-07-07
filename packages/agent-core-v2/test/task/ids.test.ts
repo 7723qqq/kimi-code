@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   IAgentTaskService,
-} from '#/agent/task';
+} from '#/agent/task/task';
 import {
   SubagentTask,
   type SubagentHandle,

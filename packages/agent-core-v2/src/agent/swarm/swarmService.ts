@@ -15,10 +15,11 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentSystemReminderService } from '#/agent/systemReminder';
-import { IAgentTurnService } from '#/agent/turn';
+import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
+import { IAgentTurnService } from '#/agent/turn/turn';
 import { IEventBus } from '#/app/event/eventBus';
-import { IAgentWireService, type IWireService } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 import SWARM_MODE_ENTER_REMINDER from './enter-reminder.md?raw';
 import SWARM_MODE_EXIT_REMINDER from './exit-reminder.md?raw';
 import { IAgentSwarmService, type SwarmModeTrigger } from './swarm';

@@ -13,7 +13,7 @@ import {
 import { LifecycleScope, type IAgentScopeHandle, type ISessionScopeHandle } from '#/_base/di/scope';
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { ILogService, type ILogService as LogService } from '#/_base/log/log';
-import { IAgentWireRecordService } from '#/agent/wireRecord';
+import { IAgentWireRecordService } from '#/agent/wireRecord/wireRecord';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { ISessionExportService } from '#/app/sessionExport/sessionExport';
 import {

@@ -1,4 +1,4 @@
-import type { PermissionMode } from '#/agent/permissionPolicy';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { createDecorator } from "#/_base/di/instantiation";
 
 import type { Hooks } from '#/hooks';

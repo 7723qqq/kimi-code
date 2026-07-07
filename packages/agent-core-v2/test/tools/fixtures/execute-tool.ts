@@ -3,7 +3,7 @@ import type {
   ExecutableToolContext,
   ExecutableToolResult,
   ToolExecution,
-} from '#/agent/tool';
+} from '#/agent/tool/toolContract';
 import { PathSecurityError } from '#/_base/tools/policies/path-access';
 
 export type TestExecutableToolContext<Input> = ExecutableToolContext & {

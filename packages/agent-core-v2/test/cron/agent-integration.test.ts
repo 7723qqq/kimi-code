@@ -10,8 +10,8 @@ import {
   type CronCreateInput,
 } from '#/session/cron/tools/cron-create';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
-import { IAgentProfileService } from '#/agent/profile';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { createTestAgent, type TestAgentContext } from '../harness';
 
 describe('Agent + Cron integration (P1.7)', () => {

@@ -3,11 +3,11 @@ import { emptyUsage } from '#/app/llmProtocol/usage';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentProfileService } from '#/index';
-import { IAgentLLMRequesterService, type LLMStreamTiming } from '#/agent/llmRequester';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentLoopService } from '#/agent/loop';
-import type { ExecutableTool } from '#/agent/tool';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import { IAgentLLMRequesterService, type LLMStreamTiming } from '#/agent/llmRequester/llmRequester';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import type { ExecutableTool } from '#/agent/tool/toolContract';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 
 import { agentService, createTestAgent, type TestAgentContext } from '../harness';
 

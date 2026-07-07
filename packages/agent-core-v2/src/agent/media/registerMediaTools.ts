@@ -20,7 +20,7 @@ import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { ReadMediaFileTool, type VideoUploader } from '#/agent/media/tools/read-media';
 
 export interface RegisterMediaToolsDeps {

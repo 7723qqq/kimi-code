@@ -34,8 +34,8 @@ import { z } from 'zod';
 
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { ToolAccesses } from '#/agent/tool';
-import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
+import { ToolAccesses } from '#/agent/tool/tool-access';
+import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool/toolContract';
 import { resolvePathAccessPath } from '#/_base/tools/policies/path-access';
 import {
   MEDIA_SNIFF_BYTES,

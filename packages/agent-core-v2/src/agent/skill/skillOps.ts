@@ -12,9 +12,10 @@
  * Agent-scope `skillService`.
  */
 
-import { defineModel, defineOp } from '#/wire';
+import { defineModel } from '#/wire/model';
+import { defineOp } from '#/wire/op';
 
-import type { SkillActivationOrigin, SkillSource } from '#/agent/contextMemory';
+import type { SkillActivationOrigin, SkillSource } from '#/agent/contextMemory/types';
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {

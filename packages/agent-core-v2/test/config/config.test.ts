@@ -1,10 +1,10 @@
 import type { ModelCapability } from '#/app/llmProtocol/capability';
 import type { ToolCall } from '#/app/llmProtocol/message';
-import type { ProviderConfig } from '#/app/llmProtocol/providers';
+import type { ProviderConfig } from '#/app/llmProtocol/providers/providers';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile';
-import { AGENT_WIRE_PROTOCOL_VERSION } from '#/agent/wireRecord';
+import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
+import { AGENT_WIRE_PROTOCOL_VERSION } from '#/agent/wireRecord/wireRecord';
 import { createTestAgent, type TestAgentContext } from '../harness';
 import { DEFAULT_TEST_SYSTEM_PROMPT } from '../harness/snapshots';
 

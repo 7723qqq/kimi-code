@@ -16,14 +16,23 @@
 import { createHash } from 'node:crypto';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentContextProjectorService } from '#/agent/contextProjector';
-import { IAgentContextSizeService } from '#/agent/contextSize';
-import { IAgentProfileService } from '#/agent/profile';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { IAgentUsageService } from '#/agent/usage';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
+import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentUsageService } from '#/agent/usage/usage';
 import { IConfigService } from '#/app/config/config';
-import { APIConnectionError, APIContextOverflowError, APIEmptyResponseError, APIStatusError, APITimeoutError, isContextOverflowStatusError, isRetryableGenerateError } from '#/app/llmProtocol/errors';
+import {
+  APIConnectionError,
+  APIContextOverflowError,
+  APIEmptyResponseError,
+  APIStatusError,
+  APITimeoutError,
+  isContextOverflowStatusError,
+  isRecoverableRequestStructureError,
+  isRetryableGenerateError,
+} from '#/app/llmProtocol/errors';
 import { type Message } from '#/app/llmProtocol/message';
 import { type ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
 import { type Tool } from '#/app/llmProtocol/tool';
@@ -42,7 +51,7 @@ import type {
   LLMRequestPartHandler,
   LLMRequestSource,
   LLMStreamTiming,
-} from './index';
+} from './llmRequester';
 import { IAgentLLMRequesterService } from './llmRequester';
 import {
   DEFAULT_MAX_RETRY_ATTEMPTS,
@@ -214,55 +223,71 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       fields: request.logFields,
     });
 
-    const input = {
+    const requestInput = (strict: boolean) => ({
       systemPrompt: request.systemPrompt,
       tools: request.tools,
-      messages: this.projector.project(request.messages),
-    };
+      messages: strict
+        ? this.projector.projectStrict(request.messages)
+        : this.projector.project(request.messages),
+    });
 
-    let message: Message | undefined;
-    let usage = emptyUsage();
-    let timing: LLMStreamTiming | undefined;
-    let finish: Extract<ModelRequestEvent, { type: 'finish' }> | undefined;
+    const run = async (strict: boolean): Promise<LLMRequestFinish> => {
+      let message: Message | undefined;
+      let usage = emptyUsage();
+      let timing: LLMStreamTiming | undefined;
+      let finish: Extract<ModelRequestEvent, { type: 'finish' }> | undefined;
 
-    for await (const event of request.model.request(input, signal)) {
-      switch (event.type) {
-        case 'part':
-          await onPart(event.part);
-          break;
-        case 'usage':
-          usage = event.usage;
-          break;
-        case 'finish':
-          finish = event;
-          message = event.message;
-          break;
-        case 'timing': {
-          const { type: _type, ...streamTiming } = event;
-          timing = streamTiming;
-          break;
+      for await (const event of request.model.request(requestInput(strict), signal)) {
+        switch (event.type) {
+          case 'part':
+            await onPart(event.part);
+            break;
+          case 'usage':
+            usage = event.usage;
+            break;
+          case 'finish':
+            finish = event;
+            message = event.message;
+            break;
+          case 'timing': {
+            const { type: _type, ...streamTiming } = event;
+            timing = streamTiming;
+            break;
+          }
         }
       }
-    }
 
-    if (message === undefined || finish === undefined) {
-      throw new Error('LLM request stream ended without a finish event.');
-    }
+      if (message === undefined || finish === undefined) {
+        throw new Error('LLM request stream ended without a finish event.');
+      }
 
-    const usageModel = request.modelAlias;
-    this.usage.record(usageModel, usage, request.source);
-    this.contextSize.measured(request.messages, [message], usage);
-    this.logResponse(request.logFields, usage, timing);
+      const usageModel = request.modelAlias;
+      this.usage.record(usageModel, usage, request.source);
+      this.contextSize.measured(request.messages, [message], usage);
+      this.logResponse(request.logFields, usage, timing);
 
-    return {
-      message,
-      usage,
-      model: usageModel,
-      providerFinishReason: finish.providerFinishReason,
-      rawFinishReason: finish.rawFinishReason,
-      providerMessageId: finish.id,
-      timing,
+      return {
+        message,
+        usage,
+        model: usageModel,
+        providerFinishReason: finish.providerFinishReason,
+        rawFinishReason: finish.rawFinishReason,
+        providerMessageId: finish.id,
+        timing,
+      };
     };
+
+    try {
+      return await run(false);
+    } catch (error) {
+      if (signal?.aborted === true || !isRecoverableRequestStructureError(error)) throw error;
+      signal?.throwIfAborted();
+      this.log.warn('provider rejected request structure; resending with strict projection', {
+        model: request.model.name,
+        ...request.logFields,
+      });
+      return await run(true);
+    }
   }
 
   private resolveRequest(

@@ -16,12 +16,10 @@ import { bench, describe } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import type { ContextMessage } from '#/agent/contextMemory';
-import {
-  AgentContextProjectorService,
-  IAgentContextProjectorService,
-} from '#/agent/contextProjector';
-import { IAgentMicroCompactionService } from '#/agent/microCompaction';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
+import { AgentContextProjectorService } from '#/agent/contextProjector/contextProjectorService';
+import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import { ErrorCodes, KimiError } from '#/errors';
 import type { ContentPart, Message, TextPart, ToolCall } from '#/app/llmProtocol/message';
 

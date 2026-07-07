@@ -2,9 +2,11 @@ import {
   APIConnectionError,
   APITimeoutError,
   ChatProviderError,
+  classifyBaseApiError,
   normalizeAPIStatusError,
 } from '../errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '../message';
+import { isToolDeclarationOnlyMessage } from '../message';
 import type {
   ChatProvider,
   FinishReason,
@@ -37,6 +39,7 @@ import type {
   ToolUseBlockParam,
 } from '@anthropic-ai/sdk/resources/messages/messages.js';
 
+import { mergeConsecutiveUserMessages } from './merge-user-messages';
 import { mergeRequestHeaders, resolveAuthBackedClient } from './request-auth';
 import {
   normalizeToolCallIdsForProvider,
@@ -111,9 +114,18 @@ interface AnthropicGenerationKwargs {
   thinking?: MessageCreateParams['thinking'] | undefined;
   output_config?: MessageCreateParams['output_config'] | undefined;
   betaFeatures?: string[] | undefined;
+  contextManagement?: AnthropicContextManagement;
 }
 
+interface AnthropicContextManagement {
+  edits: Array<{ type: string; keep?: unknown }>;
+}
+
+type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
 const INTERLEAVED_THINKING_BETA = 'interleaved-thinking-2025-05-14';
+const CONTEXT_MANAGEMENT_BETA = 'context-management-2025-06-27';
+const CLEAR_THINKING_EDIT = 'clear_thinking_20251015';
 const OPUS_VERSION_RE = /opus[.-](\d+)[.-](\d{1,2})(?!\d)/;
 const ADAPTIVE_MIN_VERSION = { major: 4, minor: 6 } as const;
 const ANTHROPIC_TOOL_CALL_ID_POLICY: ToolCallIdPolicy = {
@@ -330,17 +342,7 @@ function supportsEffortParam(model: string, adaptive: boolean): boolean {
   return normalized.includes('opus-4-5') || normalized.includes('opus-4.5');
 }
 
-type AnthropicThinkingEffort = Exclude<ThinkingEffort, 'on'>;
-
-function normalizeAnthropicEffort(effort: ThinkingEffort): AnthropicThinkingEffort {
-  return effort === 'on' ? 'high' : effort;
-}
-
-function clampEffort(
-  effort: AnthropicThinkingEffort,
-  model: string,
-  adaptive: boolean,
-): AnthropicThinkingEffort {
+function clampEffort(effort: ThinkingEffort, model: string, adaptive: boolean): ThinkingEffort {
   if (effort === 'off') {
     return effort;
   }
@@ -350,10 +352,19 @@ function clampEffort(
   if (effort === 'max' && !adaptive) {
     return 'high';
   }
+  if (
+    effort !== 'low' &&
+    effort !== 'medium' &&
+    effort !== 'high' &&
+    effort !== 'xhigh' &&
+    effort !== 'max'
+  ) {
+    return 'high';
+  }
   return effort;
 }
 
-function budgetTokensForEffort(effort: AnthropicThinkingEffort): number {
+function budgetTokensForEffort(effort: ThinkingEffort): number {
   switch (effort) {
     case 'low':
       return 1024;
@@ -402,17 +413,6 @@ function injectCacheControlOnLastBlock(messages: MessageParam[]): void {
   }
 }
 
-/**
- * Check whether a MessageParam is a user message whose content consists
- * entirely of `tool_result` blocks.
- *
- * Used to detect adjacent tool-result-only messages that must be merged
- * before hitting the Anthropic wire. Per the Messages API parallel-tool-use
- * spec, all `tool_result` blocks answering parallel `tool_use` calls must
- * live in a single user message — splitting them across consecutive user
- * messages fails on strict Anthropic-compatible backends (HTTP 400) and
- * silently degrades parallel tool use on api.anthropic.com.
- */
 function isToolResultOnly(message: MessageParam): boolean {
   if (message.role !== 'user') return false;
   const content = message.content;
@@ -650,7 +650,7 @@ export function convertAnthropicError(error: unknown): ChatProviderError {
     return new ChatProviderError(`Anthropic error: ${error.message}`);
   }
   if (error instanceof Error) {
-    return new ChatProviderError(`Error: ${error.message}`);
+    return classifyBaseApiError(error.message);
   }
   return new ChatProviderError(`Error: ${String(error)}`);
 }
@@ -1010,25 +1010,25 @@ export class AnthropicChatProvider implements ChatProvider {
         ]
       : undefined;
 
-    // Convert messages, merging consecutive tool-result-only user messages
-    // into a single user message (Anthropic parallel-tool-use spec).
-    const messages: MessageParam[] = [];
-    const normalizedHistory = normalizeToolCallIdsForProvider(
-      history,
-      ANTHROPIC_TOOL_CALL_ID_POLICY,
+    const messages = mergeConsecutiveUserMessages(
+      normalizeToolCallIdsForProvider(
+        history.filter((msg) => !isToolDeclarationOnlyMessage(msg)),
+        ANTHROPIC_TOOL_CALL_ID_POLICY,
+      ).map((msg) =>
+        convertMessage(msg, this._model),
+      ),
+      {
+        isUser: (message) => message.role === 'user',
+        isToolResultOnly,
+        merge: (last, next) => ({
+          ...last,
+          content: [
+            ...(last.content as ContentBlockParam[]),
+            ...(next.content as ContentBlockParam[]),
+          ],
+        }),
+      },
     );
-    for (const msg of normalizedHistory) {
-      const converted = convertMessage(msg, this._model);
-      const last = messages.at(-1);
-      if (last !== undefined && isToolResultOnly(last) && isToolResultOnly(converted)) {
-        last.content = [
-          ...(last.content as ContentBlockParam[]),
-          ...(converted.content as ContentBlockParam[]),
-        ];
-      } else {
-        messages.push(converted);
-      }
-    }
 
     // Inject cache_control on last content block of last message (after merge,
     // so it lands on the final tool_result block in the merged user message).
@@ -1058,6 +1058,9 @@ export class AnthropicChatProvider implements ChatProvider {
     }
     if (this._generationKwargs.output_config !== undefined) {
       kwargs['output_config'] = this._generationKwargs.output_config;
+    }
+    if (this._generationKwargs.contextManagement !== undefined) {
+      kwargs['context_management'] = this._generationKwargs.contextManagement;
     }
 
     // Build the beta feature list. On the standard Messages API these travel
@@ -1232,10 +1235,11 @@ export class AnthropicChatProvider implements ChatProvider {
       return clone;
     }
 
-    const effectiveEffort = clampEffort(normalizeAnthropicEffort(effort), this._model, adaptive);
-    if (effectiveEffort === 'off') {
+    const clamped = clampEffort(effort, this._model, adaptive);
+    if (clamped === 'off') {
       throw new Error('Non-off thinking effort unexpectedly clamped to off.');
     }
+    const effectiveEffort = clamped as AnthropicEffort;
 
     let newBetas = [...(this._generationKwargs.betaFeatures ?? [])];
 
@@ -1261,6 +1265,24 @@ export class AnthropicChatProvider implements ChatProvider {
     if (!supportsEffortParam(this._model, adaptive)) {
       delete clone._generationKwargs.output_config;
     }
+    return clone;
+  }
+
+  withThinkingKeep(keep: string): AnthropicChatProvider {
+    const current = this._generationKwargs.betaFeatures ?? [];
+    const betaFeatures = current.includes(CONTEXT_MANAGEMENT_BETA)
+      ? current
+      : [...current, CONTEXT_MANAGEMENT_BETA];
+    const existingEdits = this._generationKwargs.contextManagement?.edits ?? [];
+    const edits = [
+      { type: CLEAR_THINKING_EDIT, keep },
+      ...existingEdits.filter((edit) => edit.type !== CLEAR_THINKING_EDIT),
+    ];
+    const clone = this._withGenerationKwargs({
+      contextManagement: { edits },
+      betaFeatures,
+    });
+    clone._betaApi = true;
     return clone;
   }
 
