@@ -12,8 +12,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DefaultCompactionStrategy,
 } from '#/agent/fullCompaction/strategy';
-import { HookEngine } from '#/agent/externalHooks/engine';
-import type { HookEngineTriggerArgs } from '#/agent/externalHooks/types';
+import { makeHookRunner } from '../externalHooks/runner-stub';
+import type { IExternalHooksRunnerService } from '#/app/externalHooksRunner';
 import { MASTER_ENV } from '#/app/flag/flagService';
 import { microCompactionFlag } from '#/agent/microCompaction/flag';
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
@@ -444,12 +444,12 @@ describe('FullCompaction', () => {
     const hookLog = join(dir, 'hooks.jsonl');
     const hookCommand = hookPayloadLoggerCommand(hookLog);
     const ctx = testAgent({
-      hookEngine: new HookEngine(
+      hookEngine: makeHookRunner(
         [
           { event: 'PreCompact', matcher: 'auto', command: hookCommand, timeout: 5 },
           { event: 'PostCompact', matcher: 'auto', command: hookCommand, timeout: 5 },
         ],
-        { cwd: dir, sessionId: 'session-hooks' },
+        { cwd: dir },
       ),
     });
     ctx.configure({
@@ -491,20 +491,22 @@ describe('FullCompaction', () => {
 
   it('cancels while waiting for a PreCompact hook', async () => {
     let preCompactSignal: AbortSignal | undefined;
-    const trigger = vi.fn(async (_event: string, args?: HookEngineTriggerArgs) => {
-      preCompactSignal = args?.signal;
-      await new Promise<void>((resolve) => {
-        args?.signal?.addEventListener(
-          'abort',
-          () => {
-            resolve();
-          },
-          { once: true },
-        );
-      });
-      return [];
-    });
-    const ctx = testAgent({ hookEngine: { trigger } as unknown as HookEngine });
+    const trigger = vi.fn(
+      async (_event: string, args?: { signal?: AbortSignal }) => {
+        preCompactSignal = args?.signal;
+        await new Promise<void>((resolve) => {
+          args?.signal?.addEventListener(
+            'abort',
+            () => {
+              resolve();
+            },
+            { once: true },
+          );
+        });
+        return [];
+      },
+    );
+    const ctx = testAgent({ hookEngine: { trigger } as unknown as IExternalHooksRunnerService });
 
     ctx.configure({
       provider: CATALOGUED_PROVIDER,

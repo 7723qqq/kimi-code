@@ -28,16 +28,15 @@ import {
   IAgentExternalHooksService,
 } from '#/agent/externalHooks';
 import {
+  ExternalHooksRunnerService,
+  IExternalHooksRunnerService,
+} from '#/app/externalHooksRunner';
+import {
   AgentRunHooksService,
   IAgentRunHooksService,
 } from '#/session/agentLifecycle/runHooks';
-import { HookEngine } from '#/agent/externalHooks/engine';
-import {
-  HookDefSchema,
-  HOOKS_SECTION,
-  hooksFromToml,
-  hooksToToml,
-} from '#/agent/externalHooks/configSection';
+import { HookDefSchema, HOOKS_SECTION, hooksFromToml, hooksToToml } from '#/agent/externalHooks/configSection';
+import { makeHookRunner } from './runner-stub';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction';
 import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop';
 import { IAgentPermissionGate } from '#/agent/permissionGate';
@@ -129,6 +128,17 @@ async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
 }
 
+function stubHookRunner(partial: unknown): IExternalHooksRunnerService {
+  const p = partial as Pick<
+    IExternalHooksRunnerService,
+    'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'
+  >;
+  return {
+    _serviceBrand: undefined,
+    ...p,
+  };
+}
+
 function hookLogPath(): string {
   return join(mkdtempSync(join(tmpdir(), 'session-external-hooks-')), 'events.jsonl');
 }
@@ -183,9 +193,9 @@ function stubSessionLifecycle(): ISessionLifecycleService {
   };
 }
 
-describe('HookEngine integration', () => {
+describe('IExternalHooksRunnerService integration', () => {
   it('blocks a dangerous Bash command and allows a safe one via a PreToolUse script hook', async () => {
-    const engine = new HookEngine([
+    const engine = makeHookRunner([
       {
         event: 'PreToolUse',
         matcher: 'Bash',
@@ -215,7 +225,7 @@ describe('HookEngine integration', () => {
   });
 
   it('honors a Stop hook returning permissionDecision=deny by producing a block result with reason', async () => {
-    const engine = new HookEngine([
+    const engine = makeHookRunner([
       {
         event: 'Stop',
         command: nodeCommand(
@@ -274,10 +284,8 @@ describe('HookEngine integration', () => {
         },
       });
       ix.set(IAgentRunHooksService, new SyncDescriptor(AgentRunHooksService));
-      ix.set(
-        IAgentExternalHooksService,
-        new SyncDescriptor(AgentExternalHooksService, [{ hookEngine }]),
-      );
+      ix.set(IExternalHooksRunnerService, stubHookRunner(hookEngine));
+      ix.set(IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService));
       ix.get(IAgentExternalHooksService);
       const eventBus = ix.get(IEventBus);
 
@@ -377,10 +385,8 @@ describe('HookEngine integration', () => {
         },
       });
       ix.set(IAgentRunHooksService, new SyncDescriptor(AgentRunHooksService));
-      ix.set(
-        IAgentExternalHooksService,
-        new SyncDescriptor(AgentExternalHooksService, [{ hookEngine }]),
-      );
+      ix.set(IExternalHooksRunnerService, stubHookRunner(hookEngine));
+      ix.set(IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService));
       ix.get(IAgentExternalHooksService);
       const eventBus = ix.get(IEventBus);
 
@@ -494,10 +500,8 @@ describe('HookEngine integration', () => {
         },
       });
       ix.set(IAgentRunHooksService, new SyncDescriptor(AgentRunHooksService));
-      ix.set(
-        IAgentExternalHooksService,
-        new SyncDescriptor(AgentExternalHooksService, [{ hookEngine }]),
-      );
+      ix.set(IExternalHooksRunnerService, stubHookRunner(hookEngine));
+      ix.set(IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService));
 
       // Construct the observer first so it registers on the run-hook slots,
       // then drive the slots the way `mirrorAgentRun` does.
@@ -591,10 +595,8 @@ describe('HookEngine integration', () => {
         },
       });
       ix.set(IAgentRunHooksService, new SyncDescriptor(AgentRunHooksService));
-      ix.set(
-        IAgentExternalHooksService,
-        new SyncDescriptor(AgentExternalHooksService, [{}]),
-      );
+      ix.set(IExternalHooksRunnerService, new SyncDescriptor(ExternalHooksRunnerService));
+      ix.set(IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService));
       ix.get(IAgentExternalHooksService);
 
       const afterStep = makeAfterStep(new AbortController().signal);
@@ -623,7 +625,7 @@ describe('HookEngine integration', () => {
   });
 
   it('fires a Notification hook only when its matcher equals the notification matcher value', async () => {
-    const engine = new HookEngine([
+    const engine = makeHookRunner([
       {
         event: 'Notification',
         matcher: 'task_completed',
@@ -648,7 +650,7 @@ describe('HookEngine integration', () => {
   });
 
   it('runs multiple hooks for the same event in parallel and collects every result', async () => {
-    const engine = new HookEngine([
+    const engine = makeHookRunner([
       {
         event: 'PostToolUse',
         matcher: 'Write',
@@ -693,18 +695,19 @@ describe('HookEngine integration', () => {
     expect(hooksToToml(parsed, undefined)).toEqual(raw);
   });
 
-  it('exposes a summary map of event name to registered hook count', () => {
-    const engine = new HookEngine([
+  it('exposes a summary map of event name to registered hook count', async () => {
+    const engine = makeHookRunner([
       { event: 'PreToolUse', matcher: 'Bash', command: 'echo 1' },
       { event: 'PreToolUse', matcher: 'Write', command: 'echo 2' },
       { event: 'Stop', command: 'echo 3' },
     ]);
 
+    await engine.ready;
     expect(engine.summary).toEqual({ PreToolUse: 2, Stop: 1 });
   });
 
   it('feeds the SessionStart source field through stdin and filters by the startup matcher', async () => {
-    const engine = new HookEngine([
+    const engine = makeHookRunner([
       {
         event: 'SessionStart',
         matcher: 'startup',
@@ -728,7 +731,7 @@ describe('HookEngine integration', () => {
   });
 
   it('fires a PostToolUseFailure hook with the tool error in the payload', async () => {
-    const engine = new HookEngine([
+    const engine = makeHookRunner([
       {
         event: 'PostToolUseFailure',
         matcher: 'Bash',
@@ -748,7 +751,7 @@ describe('HookEngine integration', () => {
   });
 
   it('blocks a UserPromptSubmit prompt when the hook exits 2 and returns the reason to the user', async () => {
-    const engine = new HookEngine([
+    const engine = makeHookRunner([
       {
         event: 'UserPromptSubmit',
         command: nodeCommand('process.stderr.write("no profanity"); process.exit(2);'),
@@ -766,7 +769,7 @@ describe('HookEngine integration', () => {
   });
 
   it('fires a StopFailure hook on chat provider errors with the error_type field present', async () => {
-    const engine = new HookEngine([
+    const engine = makeHookRunner([
       {
         event: 'StopFailure',
         command: nodeCommand('process.stdout.write("error_logged");'),
@@ -783,7 +786,7 @@ describe('HookEngine integration', () => {
   });
 
   it('fires a SessionEnd hook only for the matching reason matcher', async () => {
-    const engine = new HookEngine([
+    const engine = makeHookRunner([
       {
         event: 'SessionEnd',
         matcher: 'exit',
@@ -845,8 +848,10 @@ describe('HookEngine integration', () => {
             enabledHooks: async () => [],
             onDidReload: Event.None as IPluginService['onDidReload'],
           });
+          reg.defineInstance(IBootstrapService, stubBootstrap());
         },
       });
+      ix.set(IExternalHooksRunnerService, new SyncDescriptor(ExternalHooksRunnerService));
       ix.set(ISessionExternalHooksService, new SyncDescriptor(SessionExternalHooksService));
       ix.get(ISessionExternalHooksService);
 
@@ -903,7 +908,7 @@ describe('HookEngine integration', () => {
   });
 
   it('fires a SubagentStart hook with the agent_name payload field', async () => {
-    const engine = new HookEngine([
+    const engine = makeHookRunner([
       {
         event: 'SubagentStart',
         matcher: 'coder',
@@ -922,7 +927,7 @@ describe('HookEngine integration', () => {
   });
 
   it('fires a SubagentStop hook on subagent completion', async () => {
-    const engine = new HookEngine([
+    const engine = makeHookRunner([
       {
         event: 'SubagentStop',
         matcher: 'coder',
@@ -941,7 +946,7 @@ describe('HookEngine integration', () => {
   });
 
   it('fires PreCompact and PostCompact hooks around compaction with trigger and token payloads', async () => {
-    const engine = new HookEngine([
+    const engine = makeHookRunner([
       {
         event: 'PreCompact',
         matcher: 'auto',
@@ -971,32 +976,8 @@ describe('HookEngine integration', () => {
     expect(post[0]?.stdout).toContain('post_compact');
   });
 
-  it('invokes onTriggered with (event,target,count) and onResolved with (event,target,action)', async () => {
-    const triggered: Array<[string, string, number]> = [];
-    const resolved: Array<[string, string, string]> = [];
-    const engine = new HookEngine(
-      [
-        {
-          event: 'PreToolUse',
-          matcher: 'Bash',
-          command: nodeCommand('process.exit(0);'),
-          timeout: 5,
-        },
-      ],
-      {
-        onTriggered: (event, target, count) => triggered.push([event, target, count]),
-        onResolved: (event, target, action) => resolved.push([event, target, action]),
-      },
-    );
-
-    await engine.trigger('PreToolUse', { matcherValue: 'Bash', inputData: {} });
-
-    expect(triggered).toEqual([['PreToolUse', 'Bash', 1]]);
-    expect(resolved).toEqual([['PreToolUse', 'Bash', 'allow']]);
-  });
-
   it('dispatches SubagentStart and SubagentStop hooks with the agent matcher and payload', async () => {
-    const engine = new HookEngine([
+    const engine = makeHookRunner([
       {
         event: 'SubagentStart',
         matcher: 'explore',

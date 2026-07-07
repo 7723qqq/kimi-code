@@ -47,26 +47,3 @@ export interface HookBlockDecision {
 }
 
 export type HookMatcherValue = string | readonly ContentPart[];
-
-export interface HookEngineTriggerArgs {
-  readonly matcherValue?: HookMatcherValue;
-  readonly inputData?: Record<string, unknown>;
-  readonly signal?: AbortSignal;
-}
-
-export type HookTriggeredCallback = (event: string, target: string, count: number) => void;
-
-export type HookResolvedCallback = (
-  event: string,
-  target: string,
-  action: string,
-  reason: string | undefined,
-  durationMs: number,
-) => void;
-
-export interface HookEngineOptions {
-  readonly cwd?: string;
-  readonly sessionId?: string;
-  readonly onTriggered?: HookTriggeredCallback;
-  readonly onResolved?: HookResolvedCallback;
-}

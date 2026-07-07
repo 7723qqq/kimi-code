@@ -86,6 +86,7 @@ export * from '#/app/auth';
 export * from '#/app/authLegacy';
 export * from '#/app/file';
 export * from '#/app/edit';
+export * from '#/app/externalHooksRunner';
 export * from '#/app/web';
 
 // Ported agent services. These keep the current service boundaries during the migration.

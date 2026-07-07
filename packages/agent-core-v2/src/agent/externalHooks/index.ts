@@ -1,5 +1,7 @@
 /**
- * `externalHooks` domain (L5) barrel - re-exports the externalHooks service contract and implementation.
+ * `externalHooks` domain (L6) barrel — re-exports the per-scope external-hooks
+ * observer contract and implementation. The App-scope executor now lives in
+ * the sibling `externalHooksRunner` domain (`#/app/externalHooksRunner`).
  */
 
 import './configSection';

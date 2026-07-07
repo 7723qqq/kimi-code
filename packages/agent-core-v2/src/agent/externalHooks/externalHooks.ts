@@ -8,18 +8,11 @@
  */
 
 import { createDecorator } from '#/_base/di/instantiation';
-import type { HookEngine } from './engine';
 
 export interface RenderedExternalHookResult {
   readonly event: string;
   readonly message: string;
   readonly text: string;
-}
-
-export interface ExternalHooksServiceOptions {
-  readonly hookEngine?:
-    | Pick<HookEngine, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>
-    | undefined;
 }
 
 export interface IAgentExternalHooksService {

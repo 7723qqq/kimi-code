@@ -175,6 +175,7 @@ const DOMAIN_LAYER = new Map([
   ['agentLifecycle', 6],
   ['sessionLifecycle', 6],
   ['externalHooks', 6],
+  ['externalHooksRunner', 6],
   ['sessionExport', 6],
   ['interaction', 6],
   ['sessionMetadata', 6],
