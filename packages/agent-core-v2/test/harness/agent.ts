@@ -60,6 +60,7 @@ import {
   AGENT_WIRE_PROTOCOL_VERSION,
   AgentTaskService,
   AgentExternalHooksService,
+  AgentRunHooksService,
   FileStorageService,
   InMemoryStorageService,
   AgentFullCompactionService,
@@ -77,6 +78,7 @@ import {
   IAgentContextProjectorService,
   IAgentContextSizeService,
   IAgentExternalHooksService,
+  IAgentRunHooksService,
   IAgentFullCompactionService,
   IAgentLLMRequesterService,
   ILogService,
@@ -532,10 +534,13 @@ export function questionServices(service: ISessionQuestionService): TestAgentSer
 export function externalHookServices(
   hookEngine: Pick<HookEngine, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'> | undefined,
 ): TestAgentServiceOverride {
-  return agentService(
-    IAgentExternalHooksService,
-    new SyncDescriptor(AgentExternalHooksService, [hookEngine === undefined ? {} : { hookEngine }]),
-  );
+  return [
+    agentService(IAgentRunHooksService, new SyncDescriptor(AgentRunHooksService)),
+    agentService(
+      IAgentExternalHooksService,
+      new SyncDescriptor(AgentExternalHooksService, [hookEngine === undefined ? {} : { hookEngine }]),
+    ),
+  ];
 }
 
 export function microCompactionServices(options: {

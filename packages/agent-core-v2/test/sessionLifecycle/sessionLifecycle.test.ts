@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { InstantiationType } from '#/_base/di/extensions';
+import { Disposable } from '#/_base/di/lifecycle';
 import {
   type IAgentScopeHandle,
   LifecycleScope,
@@ -14,6 +15,7 @@ import { IEventService } from '#/app/event/event';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
 import { SessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycleService';
+import { ISessionExternalHooksService } from '#/session/externalHooks/externalHooks';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
@@ -161,10 +163,40 @@ function tick(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+class NoopSessionExternalHooksService implements ISessionExternalHooksService {
+  declare readonly _serviceBrand: undefined;
+}
+
+let recordedSessionHookEvents: string[] = [];
+
+class RecordingSessionExternalHooksService
+  extends Disposable
+  implements ISessionExternalHooksService
+{
+  declare readonly _serviceBrand: undefined;
+
+  constructor(@ISessionLifecycleService lifecycle: ISessionLifecycleService) {
+    super();
+    this._register(
+      lifecycle.hooks.onDidCreateSession.register('test', async (event, next) => {
+        recordedSessionHookEvents.push(`create:${event.source}:${event.sessionId}`);
+        await next();
+      }),
+    );
+    this._register(
+      lifecycle.hooks.onWillCloseSession.register('test', async (event, next) => {
+        recordedSessionHookEvents.push(`close:${event.reason}:${event.sessionId}`);
+        await next();
+      }),
+    );
+  }
+}
+
 describe('SessionLifecycleService', () => {
   let host: ScopedTestHost | undefined;
 
   beforeEach(() => {
+    recordedSessionHookEvents = [];
     _clearScopedRegistryForTests();
     registerScopedService(
       LifecycleScope.App,
@@ -172,6 +204,13 @@ describe('SessionLifecycleService', () => {
       SessionLifecycleService,
       InstantiationType.Delayed,
       'sessionLifecycle',
+    );
+    registerScopedService(
+      LifecycleScope.Session,
+      ISessionExternalHooksService,
+      NoopSessionExternalHooksService,
+      InstantiationType.Eager,
+      'externalHooks',
     );
   });
 
@@ -267,7 +306,23 @@ describe('SessionLifecycleService', () => {
       captured = e;
     });
     const h = await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });
-    expect(captured).toMatchObject({ sessionId: 's1', handle: h });
+    expect(captured).toMatchObject({ sessionId: 's1', handle: h, source: 'startup' });
+  });
+
+  it('runs constructor-registered session lifecycle hooks before returning create and close', async () => {
+    registerScopedService(
+      LifecycleScope.Session,
+      ISessionExternalHooksService,
+      RecordingSessionExternalHooksService,
+      InstantiationType.Eager,
+      'externalHooks',
+    );
+    const svc = build();
+
+    await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });
+    await svc.close('s1');
+
+    expect(recordedSessionHookEvents).toEqual(['create:startup:s1', 'close:exit:s1']);
   });
 
   it('waits for MCP initialization before create returns', async () => {
