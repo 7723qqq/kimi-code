@@ -139,6 +139,7 @@ function createRecordingModel(
   thinkingEfforts: ThinkingEffort[],
   providerOptions: unknown[] = [],
   protocol: Model['protocol'] = 'kimi',
+  thinkingKeeps: string[] = [],
 ): Model {
   const build = (thinkingEffort: ThinkingEffort | null): Model => ({
     id: 'kimi-code',
@@ -171,6 +172,10 @@ function createRecordingModel(
     },
     withProviderOptions: (options) => {
       providerOptions.push(options);
+      return build(thinkingEffort);
+    },
+    withThinkingKeep: (keep) => {
+      thinkingKeeps.push(keep);
       return build(thinkingEffort);
     },
     request: async function* () {
@@ -294,6 +299,126 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     ]);
   });
 
+  it('forces configured Kimi thinking effort outside declared support_efforts', () => {
+    const generationKwargs: GenerationKwargs[] = [];
+    const thinkingEfforts: ThinkingEffort[] = [];
+    modelResolver = {
+      _serviceBrand: undefined,
+      resolve: () => createRecordingModel(generationKwargs, thinkingEfforts),
+      findByName: () => [],
+    };
+    const host = buildHost('profile-thinking-effort-force');
+    host.svc.configure({ emitStatusUpdated: () => undefined });
+    configValues['thinking'] = { effort: ' max ' };
+
+    host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'on' });
+    const model = host.svc.resolveModel();
+
+    expect(model?.thinkingEffort).toBe('max');
+    expect(thinkingEfforts).toEqual(['max']);
+    expect(generationKwargs).toEqual([
+      { prompt_cache_key: 'session-test' },
+      { extra_body: { thinking: { type: 'enabled', effort: 'max', keep: 'all' } } },
+    ]);
+  });
+
+  it('applies thinking.keep model override on the Anthropic path', () => {
+    const generationKwargs: GenerationKwargs[] = [];
+    const thinkingEfforts: ThinkingEffort[] = [];
+    const providerOptions: unknown[] = [];
+    const thinkingKeeps: string[] = [];
+    modelResolver = {
+      _serviceBrand: undefined,
+      resolve: () =>
+        createRecordingModel(
+          generationKwargs,
+          thinkingEfforts,
+          providerOptions,
+          'anthropic',
+          thinkingKeeps,
+        ),
+      findByName: () => [],
+    };
+    const host = buildHost('profile-thinking-keep-anthropic');
+    host.svc.configure({ emitStatusUpdated: () => undefined });
+    configValues['modelOverrides'] = { temperature: 0.3, thinkingKeep: 'all' };
+
+    host.svc.update({ modelAlias: 'claude-code', thinkingLevel: 'high' });
+    const model = host.svc.resolveModel();
+
+    expect(model?.thinkingEffort).toBe('high');
+    expect(thinkingEfforts).toEqual(['high']);
+    expect(thinkingKeeps).toEqual(['all']);
+    expect(providerOptions).toEqual([{ metadata: { user_id: 'session-test' } }]);
+    expect(generationKwargs).toEqual([{ temperature: 0.3 }]);
+  });
+
+  it('defaults thinking.keep to "all" when thinking is enabled on Kimi', () => {
+    const generationKwargs: GenerationKwargs[] = [];
+    const thinkingEfforts: ThinkingEffort[] = [];
+    modelResolver = {
+      _serviceBrand: undefined,
+      resolve: () => createRecordingModel(generationKwargs, thinkingEfforts),
+      findByName: () => [],
+    };
+    const host = buildHost('profile-thinking-keep-default');
+    host.svc.configure({ emitStatusUpdated: () => undefined });
+
+    host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
+    host.svc.resolveModel();
+
+    expect(generationKwargs).toEqual([
+      { prompt_cache_key: 'session-test', extra_body: { thinking: { keep: 'all' } } },
+    ]);
+  });
+
+  it('treats an off env thinking.keep override as disabled on Kimi', () => {
+    const generationKwargs: GenerationKwargs[] = [];
+    const thinkingEfforts: ThinkingEffort[] = [];
+    modelResolver = {
+      _serviceBrand: undefined,
+      resolve: () => createRecordingModel(generationKwargs, thinkingEfforts),
+      findByName: () => [],
+    };
+    const host = buildHost('profile-thinking-keep-env-off');
+    host.svc.configure({ emitStatusUpdated: () => undefined });
+    configValues['modelOverrides'] = { thinkingKeep: 'off' };
+
+    host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
+    host.svc.resolveModel();
+
+    expect(generationKwargs).toEqual([{ prompt_cache_key: 'session-test' }]);
+  });
+
+  it('applies config thinking.keep on the Anthropic path', () => {
+    const generationKwargs: GenerationKwargs[] = [];
+    const thinkingEfforts: ThinkingEffort[] = [];
+    const providerOptions: unknown[] = [];
+    const thinkingKeeps: string[] = [];
+    modelResolver = {
+      _serviceBrand: undefined,
+      resolve: () =>
+        createRecordingModel(
+          generationKwargs,
+          thinkingEfforts,
+          providerOptions,
+          'anthropic',
+          thinkingKeeps,
+        ),
+      findByName: () => [],
+    };
+    const host = buildHost('profile-thinking-keep-anthropic-config');
+    host.svc.configure({ emitStatusUpdated: () => undefined });
+    configValues['thinking'] = { keep: 'config-keep' };
+
+    host.svc.update({ modelAlias: 'claude-code', thinkingLevel: 'high' });
+    const model = host.svc.resolveModel();
+
+    expect(model?.thinkingEffort).toBe('high');
+    expect(thinkingKeeps).toEqual(['config-keep']);
+    expect(generationKwargs).toEqual([]);
+  });
+
   it('does not apply thinking.keep model override when thinking is off', () => {
     const generationKwargs: GenerationKwargs[] = [];
     const thinkingEfforts: ThinkingEffort[] = [];
@@ -328,7 +453,9 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     host.svc.resolveModel();
 
     expect(thinkingEfforts).toEqual(['high']);
-    expect(generationKwargs).toEqual([{ prompt_cache_key: 'session-test' }]);
+    expect(generationKwargs).toEqual([
+      { prompt_cache_key: 'session-test', extra_body: { thinking: { keep: 'all' } } },
+    ]);
   });
 
   it('does not apply the Kimi prompt cache hint to other protocols', () => {

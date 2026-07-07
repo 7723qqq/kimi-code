@@ -12,7 +12,6 @@ import type { ChatProvider, FinishReason, GenerateOptions, StreamedMessage } fro
 import type { Tool } from './tool';
 import type { TokenUsage } from './usage';
 
-/** Snapshot of a ToolCall excluding the internal `_streamIndex` routing field. */
 type StoredToolCall = Omit<ToolCall, '_streamIndex'>;
 
 /**
@@ -103,8 +102,12 @@ export async function generate(
     throwAbortError();
   }
 
+  const wireTools = tools.some((tool) => tool.deferred === true)
+    ? tools.filter((tool) => tool.deferred !== true)
+    : tools;
+
   options?.onRequestStart?.();
-  const stream = await provider.generate(systemPrompt, tools, history, options);
+  const stream = await provider.generate(systemPrompt, wireTools, history, options);
 
   // Post-await abort check: `provider.generate()` may have resolved before
   // noticing a mid-flight abort. Reject immediately rather than draining

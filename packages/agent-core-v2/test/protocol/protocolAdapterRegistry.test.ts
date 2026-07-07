@@ -94,4 +94,15 @@ describe('ProtocolAdapterRegistry', () => {
     expect(Reflect.get(provider, '_project')).toBe('my-project');
     expect(Reflect.get(provider, '_location')).toBe('us-central1');
   });
+
+  it('maps baseUrl into Google GenAI provider config', () => {
+    const provider = new ProtocolAdapterRegistry().createChatProvider({
+      protocol: 'google-genai',
+      baseUrl: 'https://generativelanguage.example.com',
+      modelName: 'gemini-1.5-pro',
+      apiKey: 'test-key',
+    });
+
+    expect(Reflect.get(provider, '_baseUrl')).toBe('https://generativelanguage.example.com');
+  });
 });

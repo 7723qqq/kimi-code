@@ -34,7 +34,7 @@ export interface ProfileModelState {
   readonly cwd?: string;
   readonly modelAlias?: string;
   readonly profileName?: string;
-  readonly thinkingLevel: ThinkingEffort;
+  readonly thinkingLevel: string;
   readonly systemPrompt: string;
 }
 

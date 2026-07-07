@@ -1,4 +1,5 @@
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '../message';
+import { isToolDeclarationOnlyMessage } from '../message';
 import type {
   ChatProvider,
   FinishReason,
@@ -286,6 +287,7 @@ function convertHistoryMessages(
   const pendingToolResultMedia: OpenAIContentPart[] = [];
 
   for (const msg of history) {
+    if (isToolDeclarationOnlyMessage(msg)) continue;
     if (msg.role !== 'tool') {
       appendToolResultMediaMessage(messages, pendingToolResultMedia);
     }

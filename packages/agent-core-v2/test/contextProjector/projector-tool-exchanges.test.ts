@@ -66,6 +66,10 @@ describe('projector tool-exchange normalization', () => {
     );
   }
 
+  function projectStrict(history: readonly ContextMessage[]): readonly Message[] {
+    return projector.projectStrict(history);
+  }
+
   it('leaves a fully resolved exchange untouched', () => {
     const history = [user('go'), assistant('', ['c1']), toolResult('c1', 'one'), user('next')];
     expect(shape(history)).toEqual(['user', 'assistant', 'tool:c1', 'user']);
@@ -208,6 +212,62 @@ describe('projector tool-exchange normalization', () => {
       toolCalls: [],
     };
     expect(project([message])).toHaveLength(1);
+  });
+
+  it('strict mode dedupes duplicate assistant tool call ids', () => {
+    const history = [
+      user('go'),
+      assistant('first', ['dup']),
+      toolResult('dup', 'one'),
+      assistant('second', ['dup']),
+      toolResult('dup', 'two'),
+    ];
+
+    const projected = projectStrict(history);
+
+    expect(projected.map((message) => (message.role === 'tool' ? `tool:${message.toolCallId}` : message.role))).toEqual([
+      'user',
+      'assistant',
+      'tool:dup',
+      'assistant',
+    ]);
+    expect(projected[1]?.toolCalls.map((call) => call.id)).toEqual(['dup']);
+    expect(projected.filter((message) => message.role === 'tool')).toHaveLength(1);
+  });
+
+  it("strict mode reattaches a later duplicate's result when the first call has none", () => {
+    const projected = projectStrict([
+      user('go'),
+      assistant('first attempt', ['dup']),
+      assistant('second attempt', ['dup']),
+      toolResult('dup', 'late result'),
+      user('next'),
+    ]);
+
+    expect(
+      projected.map((message) =>
+        message.role === 'tool' ? `tool:${message.toolCallId}` : message.role,
+      ),
+    ).toEqual(['user', 'assistant', 'tool:dup', 'assistant', 'user']);
+    expect(projected[1]?.toolCalls.map((call) => call.id)).toEqual(['dup']);
+    expect((projected[2]?.content[0] as { text: string }).text).toBe('late result');
+  });
+
+  it('strict mode drops leading non-user messages', () => {
+    const projected = projectStrict([assistant('stale'), toolResult('ghost', 'orphaned'), user('hi')]);
+
+    expect(projected.map((message) => message.role)).toEqual(['user']);
+    expect(projected[0]?.content).toEqual([{ type: 'text', text: 'hi' }]);
+  });
+
+  it('strict mode merges consecutive assistant messages', () => {
+    const projected = projectStrict([user('go'), assistant('one'), assistant('two')]);
+
+    expect(projected.map((message) => message.role)).toEqual(['user', 'assistant']);
+    expect(projected[1]?.content).toEqual([
+      { type: 'text', text: 'one' },
+      { type: 'text', text: 'two' },
+    ]);
   });
 
 });
