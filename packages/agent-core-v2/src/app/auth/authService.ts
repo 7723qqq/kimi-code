@@ -32,6 +32,7 @@ import {
 import type {
   OAuthFlowSnapshot,
   OAuthFlowStart,
+  OAuthFlowStartPending,
   OAuthFlowStatus,
   OAuthLoginCancelResponse,
   OAuthLogoutResponse,
@@ -134,20 +135,28 @@ export class OAuthService extends Disposable implements IOAuthService {
         resolveDevice(auth);
       },
     });
+    const fastPath: Promise<OAuthFlowStart | undefined> = loginPromise.then(async () => {
+      if (state.device !== undefined) return undefined;
+      this.log.info('oauth startLogin: toolkit resolved without device code (already authenticated)', {
+        provider,
+      });
+      await this.completeAlreadyAuthenticatedLogin(state);
+      return {
+        flow_id: state.flowId,
+        provider: state.provider,
+        status: 'authenticated',
+      };
+    });
+
     loginPromise.then(
       () => {
         this.log.info('oauth startLogin: toolkit.login resolved', {
           provider,
           deviceArrived: state.device !== undefined,
         });
-        if (state.device === undefined) {
-          this.flows.delete(provider);
-          rejectDevice(
-            new Error('OAuth login completed without issuing a device code (already authenticated).'),
-          );
-          return;
+        if (state.device !== undefined) {
+          this.handleSuccess(state);
         }
-        this.handleSuccess(state);
       },
       (error) => {
         this.log.warn('oauth startLogin: toolkit.login rejected', {
@@ -159,8 +168,16 @@ export class OAuthService extends Disposable implements IOAuthService {
       },
     );
 
-    this.log.info('oauth startLogin: awaiting deviceReady', { provider });
-    const device = await deviceReady;
+    this.log.info('oauth startLogin: awaiting device flow start', { provider });
+    const winner = await Promise.race([
+      deviceReady.then((device) => ({ kind: 'device' as const, device })),
+      fastPath.then((result) => ({ kind: 'fast' as const, result })),
+    ]);
+    if (winner.kind === 'fast' && winner.result !== undefined) {
+      this.log.info('oauth startLogin: fast path returned authenticated', { provider });
+      return winner.result;
+    }
+    const device = winner.kind === 'device' ? winner.device : await deviceReady;
     this.log.info('oauth startLogin: deviceReady resolved', { provider });
     return this.toFlowStart(state, device);
   }
@@ -347,23 +364,42 @@ export class OAuthService extends Disposable implements IOAuthService {
   private handleSuccess(state: FlowState): void {
     if (state.status !== 'pending') return;
     this.setTerminal(state, 'authenticated');
-    void this.provisionProvider(state.provider, state.oauthRef);
+    void this.provisionProvider(state.provider, state.oauthRef).catch((error: unknown) => {
+      this.log.warn('oauth provider provisioning failed', {
+        provider: state.provider,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  private async completeAlreadyAuthenticatedLogin(state: FlowState): Promise<void> {
+    if (state.status !== 'pending') return;
+    await this.provisionProvider(state.provider, state.oauthRef);
+    if (state.status !== 'pending') return;
+    if (state.provider === KIMI_CODE_PROVIDER_NAME) {
+      await this.refreshOAuthProviderModelsBestEffort(state.provider);
+      if (state.status !== 'pending') return;
+    }
+    this.setTerminal(state, 'authenticated');
   }
 
   private async provisionProvider(provider: string, oauthRef: OAuthRef | undefined): Promise<void> {
     if (oauthRef === undefined) return;
     const baseUrl = this.providerService.get(provider)?.baseUrl ?? kimiCodeBaseUrl();
-    try {
-      await this.providerService.set(provider, {
-        type: 'kimi',
-        baseUrl,
-        apiKey: '',
-        oauth: oauthRef,
-      });
-    } catch (error) {
-      this.log.warn('oauth provider provisioning failed', {
+    await this.providerService.set(provider, {
+      type: 'kimi',
+      baseUrl,
+      apiKey: '',
+      oauth: oauthRef,
+    });
+  }
+
+  private async refreshOAuthProviderModelsBestEffort(provider: string): Promise<void> {
+    const result = await this.refreshOAuthProviderModels();
+    if (result.failed.length > 0) {
+      this.log.warn('oauth startLogin: model refresh failed on already-authenticated fast path', {
         provider,
-        error: error instanceof Error ? error.message : String(error),
+        failures: result.failed,
       });
     }
   }
@@ -416,7 +452,7 @@ export class OAuthService extends Disposable implements IOAuthService {
     state.gcTimer = timer;
   }
 
-  private toFlowStart(state: FlowState, device: DeviceAuthorization): OAuthFlowStart {
+  private toFlowStart(state: FlowState, device: DeviceAuthorization): OAuthFlowStartPending {
     const expiresIn = device.expiresIn ?? DEFAULT_DEVICE_EXPIRES_IN_SEC;
     return {
       flow_id: state.flowId,
