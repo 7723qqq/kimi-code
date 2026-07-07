@@ -398,17 +398,18 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
   }
 
   private async runPreCompact(ctx: FullCompactionWillCompactContext): Promise<void> {
-    ctx.signal.throwIfAborted();
+    const signal = ctx.abortController.signal;
+    signal.throwIfAborted();
     const engine = await this.readyEngine();
     await engine?.trigger('PreCompact', {
       matcherValue: ctx.trigger,
-      signal: ctx.signal,
+      signal,
       inputData: {
         trigger: ctx.trigger,
         tokenCount: ctx.tokenCount,
       },
     });
-    ctx.signal.throwIfAborted();
+    signal.throwIfAborted();
   }
 
   private notifyPostCompact(event: { trigger: CompactionSource; result: CompactionResult }): void {

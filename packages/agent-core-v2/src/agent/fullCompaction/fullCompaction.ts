@@ -13,9 +13,10 @@ export interface CompactInput {
 }
 
 export interface FullCompactionWillCompactContext {
+  readonly abortController: AbortController;
+  readonly promise: Promise<CompactionResult>;
   readonly trigger: CompactionSource;
   readonly tokenCount: number;
-  readonly signal: AbortSignal;
 }
 
 export interface FullCompactionDidCompactContext {
@@ -26,9 +27,8 @@ export interface FullCompactionDidCompactContext {
 export interface IAgentFullCompactionService {
   readonly _serviceBrand: undefined;
 
-  readonly isCompacting: boolean;
+  readonly compacting: FullCompactionWillCompactContext | null;
   begin(input: CompactInput): boolean;
-  cancel(): void;
 
   readonly hooks: Hooks<{
     onWillCompact: FullCompactionWillCompactContext;

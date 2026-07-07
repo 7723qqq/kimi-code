@@ -268,10 +268,11 @@ export class AgentRPCService implements IAgentRPCService {
   }
 
   cancelCompaction(_payload: EmptyPayload): void {
-    if (this.fullCompaction.isCompacting) {
+    const active = this.fullCompaction.compacting;
+    if (active !== null) {
       this.telemetry.track('cancel', { from: 'compacting' });
     }
-    this.fullCompaction.cancel();
+    active?.abortController.abort();
   }
 
   registerTool(payload: RegisterToolPayload): void {
