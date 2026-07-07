@@ -71,7 +71,7 @@ export async function runAgentTurn(
           toolCalls: [],
           origin: AGENT_RUN_PROMPT_ORIGIN,
         })
-      : promptService.retry(request.trigger ?? 'agent-host');
+      : promptService.retry();
   if (turn === undefined) throw new Error('Agent turn could not be started');
 
   if (options.onReady !== undefined) {

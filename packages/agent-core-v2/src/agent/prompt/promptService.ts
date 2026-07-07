@@ -106,7 +106,7 @@ export class AgentPromptService implements IAgentPromptService {
     }
   }
 
-  retry(trigger?: string): Turn | undefined {
+  retry(): Turn | undefined {
     return this.launch();
   }
 

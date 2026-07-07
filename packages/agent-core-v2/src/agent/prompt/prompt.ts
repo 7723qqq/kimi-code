@@ -19,7 +19,7 @@ export interface IAgentPromptService {
 
   prompt(message: ContextMessage): Promise<Turn | undefined>;
   steer(message: ContextMessage): PromptSteerHandle;
-  retry(trigger?: string): Turn | undefined;
+  retry(): Turn | undefined;
   undo(count: number): number;
   clear(): void;
 
