@@ -1,28 +1,37 @@
 import { createDecorator } from "#/_base/di/instantiation";
 import type { IDisposable } from "#/_base/di/lifecycle";
+import type { ContentPart } from "#/app/llmProtocol/message";
 
 export interface ContextInjectionContext {
   /** Live positions of this variant's injections in the current history, ascending. */
   readonly injectedPositions: readonly number[];
   /** Position of the newest live injection; `null` when none survive. */
   readonly lastInjectedAt: number | null;
+  /**
+   * `true` on the first inject run after a `turn.started` event (or after the
+   * service starts), then `false` until the next turn. Injectors that should
+   * fire once per turn can gate on this flag.
+   */
+  readonly isNewTurn: boolean;
 }
 
-export interface ContextInjectionOptions {
-  readonly cadence?: 'step' | 'turn';
-}
+/**
+ * Content a context injection provider can return. A plain `string` is wrapped
+ * in `<system-reminder>` tags; a {@link ContentPart} array is appended verbatim,
+ * allowing providers to inject rich content (e.g. multi-part or media content).
+ */
+export type ContextInjectionContent = string | readonly ContentPart[];
 
 export type ContextInjectionProvider = (
   context: ContextInjectionContext,
-) => string | undefined | Promise<string | undefined>;
+) => ContextInjectionContent | undefined | Promise<ContextInjectionContent | undefined>;
 
 export interface IAgentContextInjectorService {
   readonly _serviceBrand: undefined;
 
   register(
-    variant: string,
+    name: string,
     provider: ContextInjectionProvider,
-    options?: ContextInjectionOptions,
   ): IDisposable;
 }
 

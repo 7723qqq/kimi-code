@@ -20,7 +20,6 @@ import type { TurnEndedEvent, TurnStartedEvent } from '@moonshot-ai/protocol';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError, toKimiErrorPayload } from '#/errors';
-import { OrderedHookSlot } from '#/hooks';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IEventBus } from '#/app/event/eventBus';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
@@ -33,8 +32,8 @@ import { promptTurn, TurnModel } from './turnOps';
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
-    'turn.started': Omit<TurnStartedEvent, 'type'>;
-    'turn.ended': Omit<TurnEndedEvent, 'type'>;
+    'turn.started': TurnStartedEvent;
+    'turn.ended': TurnEndedEvent;
     // `error` is declared by the `mcp` domain (interface-merge); reused here, not
     // re-declared.
   }

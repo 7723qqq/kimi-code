@@ -74,6 +74,7 @@ function stubWorkspace(workDir = '/ws'): ISessionWorkspaceContext {
     workDir,
     additionalDirs: [],
     setWorkDir: () => {},
+    setAdditionalDirs: () => {},
     resolve: (rel) => resolve(workDir, rel),
     isWithin: () => true,
     assertAllowed: (absPath) => resolve(workDir, absPath),

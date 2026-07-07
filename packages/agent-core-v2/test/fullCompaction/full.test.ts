@@ -12,8 +12,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DefaultCompactionStrategy,
 } from '#/agent/fullCompaction/strategy';
-import { HookEngine } from '#/agent/externalHooks/engine';
-import type { HookEngineTriggerArgs } from '#/agent/externalHooks/types';
+import { makeHookRunner } from '../externalHooks/runner-stub';
+import type { IExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunner';
 import { MASTER_ENV } from '#/app/flag/flagService';
 import { microCompactionFlag } from '#/agent/microCompaction/flag';
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
@@ -33,6 +33,7 @@ type GenerateFn = NonNullable<TestAgentOptions['generate']>;
 const CATALOGUED_PROVIDER = {
   type: 'kimi',
   apiKey: 'test-key',
+  baseUrl: 'https://api.example/v1',
   model: 'kimi-code',
 } as const;
 const CATALOGUED_MODEL_CAPABILITIES = {
@@ -239,7 +240,7 @@ describe('FullCompaction', () => {
     expect(completeEvent?.args).not.toHaveProperty('summary');
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: Agent, AgentSwarm, CronCreate, CronDelete, CronList, EnterPlanMode, ExitPlanMode
+      tools: Agent, AgentSwarm, EnterPlanMode, ExitPlanMode
       messages:
         user: text "old user one"
         assistant: text "old assistant one"
@@ -249,21 +250,25 @@ describe('FullCompaction', () => {
         assistant: text "recent assistant three"
         user: text <compaction-instruction>
     `);
-    expect(ctx.compactHistory()).toMatchInlineSnapshot(`
-      [
-        {
-          "role": "assistant",
-          "text": "Compacted summary.",
-        },
-      ]
-    `);
+    expect(ctx.compactHistory()).toEqual([
+      { role: 'user', text: 'old user one' },
+      { role: 'user', text: 'old user two' },
+      { role: 'user', text: 'recent user three' },
+      {
+        role: 'user',
+        text: expect.stringContaining('Compacted summary.'),
+      },
+    ]);
+    expect(ctx.context.get().at(-1)?.content[0]).toMatchObject({
+      type: 'text',
+      text: expect.stringContaining('The conversation so far has been compacted'),
+    });
     expect(records).toContainEqual({
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'manual',
-        instruction: 'Keep the important test facts.',
         tokens_before: 39,
-        tokens_after: 5,
+        tokens_after: expect.any(Number),
         duration_ms: expect.any(Number),
         compacted_count: 6,
         retry_count: 0,
@@ -439,12 +444,12 @@ describe('FullCompaction', () => {
     const hookLog = join(dir, 'hooks.jsonl');
     const hookCommand = hookPayloadLoggerCommand(hookLog);
     const ctx = testAgent({
-      hookEngine: new HookEngine(
+      hookEngine: makeHookRunner(
         [
           { event: 'PreCompact', matcher: 'auto', command: hookCommand, timeout: 5 },
           { event: 'PostCompact', matcher: 'auto', command: hookCommand, timeout: 5 },
         ],
-        { cwd: dir, sessionId: 'session-hooks' },
+        { cwd: dir },
       ),
     });
     ctx.configure({
@@ -486,20 +491,22 @@ describe('FullCompaction', () => {
 
   it('cancels while waiting for a PreCompact hook', async () => {
     let preCompactSignal: AbortSignal | undefined;
-    const trigger = vi.fn(async (_event: string, args?: HookEngineTriggerArgs) => {
-      preCompactSignal = args?.signal;
-      await new Promise<void>((resolve) => {
-        args?.signal?.addEventListener(
-          'abort',
-          () => {
-            resolve();
-          },
-          { once: true },
-        );
-      });
-      return [];
-    });
-    const ctx = testAgent({ hookEngine: { trigger } as unknown as HookEngine });
+    const trigger = vi.fn(
+      async (_event: string, args?: { signal?: AbortSignal }) => {
+        preCompactSignal = args?.signal;
+        await new Promise<void>((resolve) => {
+          args?.signal?.addEventListener(
+            'abort',
+            () => {
+              resolve();
+            },
+            { once: true },
+          );
+        });
+        return [];
+      },
+    );
+    const ctx = testAgent({ hookEngine: { trigger } as unknown as IExternalHooksRunnerService });
 
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -1071,7 +1078,7 @@ describe('FullCompaction', () => {
     await ctx.expectResumeMatches();
   });
 
-  it('continues a manual compaction run when the first pass still exceeds the trigger', async () => {
+  it('cancels a manual compaction when an assistant exchange is appended while compacting', async () => {
     const ctx = testAgent();
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -1088,26 +1095,34 @@ describe('FullCompaction', () => {
     );
     const firstSummary = `large manual summary ${'x'.repeat(14_000)}`;
     ctx.mockNextResponse({ type: 'text', text: firstSummary });
-    ctx.mockNextResponse({ type: 'text', text: 'Second manual summary.' });
-    const completed = ctx.once('compaction.completed');
+    const cancelled = ctx.once('compaction.cancelled');
     await ctx.rpc.beginCompaction({});
     ctx.appendExchange(2, 'new user while compacting', 'new assistant while compacting', 6_000);
-    await completed;
+    await cancelled;
 
     const events = ctx.newEvents();
-    expect(countEvents(events, 'full_compaction.complete')).toBe(1);
+    expect(countEvents(events, 'full_compaction.cancel')).toBe(1);
     expect(countEvents(events, 'compaction.started')).toBe(1);
-    expect(countEvents(events, 'compaction.completed')).toBe(1);
-    expect(ctx.llmCalls).toHaveLength(2);
-    const [firstCompactionCall, secondCompactionCall] = ctx.llmCalls;
+    expect(countEvents(events, 'compaction.completed')).toBe(0);
+    expect(ctx.llmCalls).toHaveLength(1);
+    const [firstCompactionCall] = ctx.llmCalls;
     expect(firstCompactionCall?.history.map(messageText)).not.toContain('new user while compacting');
-    expect(secondCompactionCall?.history.map(messageText)).toContain(firstSummary);
-    expect(secondCompactionCall?.history.map(messageText)).toContain('new user while compacting');
-    expect(secondCompactionCall?.history.map(messageText)).toContain('new assistant while compacting');
     expect(ctx.compactHistory()).toEqual([
       {
+        role: 'user',
+        text: `old user one ${'u'.repeat(14_000)}`,
+      },
+      {
         role: 'assistant',
-        text: 'Second manual summary.',
+        text: `old assistant one ${'a'.repeat(14_000)}`,
+      },
+      {
+        role: 'user',
+        text: 'new user while compacting',
+      },
+      {
+        role: 'assistant',
+        text: 'new assistant while compacting',
       },
     ]);
     await ctx.expectResumeMatches();
@@ -1195,6 +1210,34 @@ describe('FullCompaction', () => {
         user: text <compaction-instruction>
     `);
     expect(ctx.compactHistory()).toMatchInlineSnapshot(`[]`);
+    await ctx.expectResumeMatches();
+  });
+
+  it('cancels when a droppable user-role tail is appended during the summary request', async () => {
+    let ctx!: TestAgentContext;
+    const generate: GenerateFn = async () => {
+      ctx.appendSystemReminder('RACE-NOTIFY-OUTPUT', {
+        kind: 'injection',
+        variant: 'race-notification',
+      });
+      return textResult('Stale compacted summary.');
+    };
+    ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+      tools: SNAPSHOT_VISIBLE_TOOLS,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    const cancelled = ctx.once('compaction.cancelled');
+
+    await ctx.rpc.beginCompaction({});
+    await cancelled;
+
+    expect(ctx.compactHistory().map((entry) => entry.text).join('\n')).toContain(
+      'RACE-NOTIFY-OUTPUT',
+    );
+    expect(countEvents(ctx.newEvents(), 'full_compaction.complete')).toBe(0);
     await ctx.expectResumeMatches();
   });
 
@@ -2102,10 +2145,24 @@ describe('FullCompaction', () => {
     await completed;
 
     const history = ctx.compactHistory();
-    expect(history).toHaveLength(1);
+    expect(history).toHaveLength(3);
     expect(history[0]).toMatchObject({
-      role: 'assistant',
-      text: 'Compacted summary.\n\n## TODO List\n  [in_progress] Fix the auth bug\n  [pending] Add tests',
+      role: 'user',
+      text: 'old user one',
+    });
+    expect(history[1]).toMatchObject({
+      role: 'user',
+      text: 'recent user two',
+    });
+    expect(history[2]).toMatchObject({
+      role: 'user',
+      text: expect.stringContaining(
+        'Compacted summary.\n\n## TODO List\n  [in_progress] Fix the auth bug\n  [pending] Add tests',
+      ),
+    });
+    expect(ctx.context.get().at(-1)?.content[0]).toMatchObject({
+      type: 'text',
+      text: expect.stringContaining('The conversation so far has been compacted'),
     });
     await ctx.expectResumeMatches();
   });

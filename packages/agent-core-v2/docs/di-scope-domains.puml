@@ -1,4 +1,4 @@
-@startuml agent-core-v2-domains
+@startuml di-scope-domains
 top to bottom direction
 skinparam shadowing false
 skinparam nodesep 28
@@ -31,6 +31,7 @@ package "App scope (process-wide)" #EAF3FB {
   rectangle "<b>sessionIndex</b>\n<size:9><i>App</i></size>\n  ISessionIndex" as sessionIndex #D6EAF8
   rectangle "<b>hostFs</b>\n<size:9><i>App</i></size>\n  IHostFileSystem" as hostFs #D6EAF8
   rectangle "<b>workspaceRegistry</b>\n<size:9><i>App</i></size>\n  IWorkspaceRegistry" as workspaceRegistry #D6EAF8
+  rectangle "<b>workspaceLocalConfig</b>\n<size:9><i>App</i></size>\n  IWorkspaceLocalConfigService" as workspaceLocalConfig #D6EAF8
   rectangle "<b>hostFolderBrowser</b>\n<size:9><i>App</i></size>\n  IHostFolderBrowser" as hostFolderBrowser #D6EAF8
   rectangle "<b>hostEnvironment</b>\n<size:9><i>App</i></size>\n  IHostEnvironment" as hostEnvironment #D6EAF8
   rectangle "<b>hostProcess</b>\n<size:9><i>App</i></size>\n  IHostProcessService" as hostProcess #D6EAF8
@@ -54,8 +55,10 @@ package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>agentLifecycle</b>\n<size:9><i>Session</i></size>\n  IAgentLifecycleService" as agent_lifecycle #D5F5E3
   rectangle "<b>interaction</b>\n<size:9><i>Session</i></size>\n  IInteractionService" as interaction #D5F5E3
   rectangle "<b>workspaceContext</b>\n<size:9><i>Session</i></size>\n  IWorkspaceContext" as workspaceContext #D5F5E3
+  rectangle "<b>workspaceCommand</b>\n<size:9><i>Session</i></size>\n  ISessionWorkspaceCommandService" as workspaceCommand #D5F5E3
   rectangle "<b>sessionLog</b>\n<size:9><i>Session binding</i></size>\n  ILogService" as sessionLog #D5F5E3
   rectangle "<b>sessionSkillCatalog</b>\n<size:9><i>Session</i></size>\n  ISessionSkillCatalog\n  ISkillCatalogSink\n  Workspace/PluginSkillSource" as sessionSkillCatalog #D5F5E3
+  rectangle "<b>externalHooks</b>\n<size:9><i>Session</i></size>\n  ISessionExternalHooksService" as sessionExternalHooks #D5F5E3
   rectangle "<b>sessionFs</b>\n<size:9><i>Session</i></size>\n  ISessionFsService" as sessionFs #D5F5E3
   rectangle "<b>approval</b>\n<size:9><i>Session</i></size>\n  IApprovalService" as approval #D5F5E3
   rectangle "<b>question</b>\n<size:9><i>Session</i></size>\n  IQuestionService" as question #D5F5E3
@@ -83,7 +86,7 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>toolRegistry</b>\n<size:9><i>Agent</i></size>\n  IAgentToolRegistryService" as toolRegistry #FDEBD0
   rectangle "<b>toolExecutor</b>\n<size:9><i>Agent</i></size>\n  IAgentToolExecutorService" as toolExecutor #FDEBD0
   rectangle "<b>toolState</b>\n<size:9><i>Agent</i></size>\n  IAgentToolState" as toolState #FDEBD0
-  rectangle "<b>toolDedup</b>\n<size:9><i>Agent</i></size>\n  IAgentToolDedupeService" as toolDedup #FDEBD0
+  rectangle "<b>toolDedupe</b>\n<size:9><i>Agent</i></size>\n  IAgentToolDedupeService" as toolDedupe #FDEBD0
   rectangle "<b>permissionGate</b>\n<size:9><i>Agent</i></size>\n  IAgentPermissionGate" as permissionGate #FDEBD0
   rectangle "<b>permissionMode</b>\n<size:9><i>Agent</i></size>\n  IAgentPermissionModeService" as permissionMode #FDEBD0
   rectangle "<b>permissionPolicy</b>\n<size:9><i>Agent</i></size>\n  IAgentPermissionPolicyService" as permissionPolicy #FDEBD0
@@ -121,6 +124,8 @@ sessionExport --> sessionIndex #34495E
 sessionExport --> session_lifecycle #34495E
 sessionExport --> workspaceRegistry #34495E
 sessionExport --> log #34495E
+workspaceLocalConfig --> bootstrap #34495E
+workspaceLocalConfig --> hostFs #34495E
 hostFolderBrowser --> hostFs #34495E
 auth --> provider #34495E
 auth --> config #34495E
@@ -141,6 +146,9 @@ modelCatalog --> model #34495E
 modelCatalog --> config #34495E
 modelCatalog --> auth #34495E
 workspaceContext --> session_context #34495E
+workspaceCommand --> workspaceLocalConfig #34495E
+workspaceCommand --> workspaceContext #34495E
+workspaceCommand --> agent_lifecycle #34495E
 sessionLog --> session_context #34495E
 sessionSkillCatalog --> skillCatalog #34495E
 sessionSkillCatalog --> plugin #34495E
@@ -210,9 +218,9 @@ toolExecutor --> toolRegistry #34495E
 toolExecutor --> wire #34495E
 toolExecutor --> telemetry #34495E
 toolState --> wire #34495E
-toolDedup --> telemetry #34495E
-toolDedup --> loop #34495E
-toolDedup --> toolExecutor #34495E
+toolDedupe --> telemetry #34495E
+toolDedupe --> loop #34495E
+toolDedupe --> toolExecutor #34495E
 permissionGate --> permissionMode #34495E
 permissionGate --> permissionRules #34495E
 permissionGate --> permissionPolicy #34495E
@@ -293,6 +301,10 @@ externalHooks --> config #34495E
 externalHooks --> bootstrap #34495E
 externalHooks --> plugin #34495E
 externalHooks --> contextMemory #34495E
+sessionExternalHooks --> session_lifecycle #34495E
+sessionExternalHooks --> config #34495E
+sessionExternalHooks --> plugin #34495E
+sessionExternalHooks --> session_context #34495E
 todo --> agent_lifecycle #34495E
 usage --> wire #34495E
 rpc --> prompt #34495E
@@ -363,7 +375,8 @@ externalHooks ..> turn #16A085 : prompt/end hooks
 externalHooks ..> loop #16A085 : stop hook
 externalHooks ..> fullCompaction #16A085 : compaction hooks
 externalHooks ..> task #16A085 : notification hook
-agent_lifecycle ..> externalHooks #16A085 : SubagentStart/Stop (mirrorAgentRun)
+sessionExternalHooks ..> session_lifecycle #16A085 : SessionStart/End hooks
+externalHooks ..> agent_lifecycle #16A085 : SubagentStart/Stop (observes run hooks)
 toolState ..> wire #16A085 : tools.update_store
 usage ..> wire #16A085 : usage.record
 turn ..> wire #16A085 : turn.launch

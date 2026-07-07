@@ -87,7 +87,7 @@ declare module '#/agent/wireRecord/wireRecord' {
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
     // `warning` is owned by `profile` (the agents-md-oversized notice).
-    warning: Omit<WarningEvent, 'type'>;
+    warning: WarningEvent;
   }
 }
 

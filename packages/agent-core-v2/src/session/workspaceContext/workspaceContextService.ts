@@ -35,6 +35,10 @@ export class SessionWorkspaceContextService implements ISessionWorkspaceContext 
     this._workDir = resolve(workDir);
   }
 
+  setAdditionalDirs(dirs: readonly string[]): void {
+    this._additionalDirs = [...new Set(dirs.map((d) => resolve(d)))];
+  }
+
   resolve(rel: string): string {
     return isAbsolute(rel) ? resolve(rel) : resolve(this._workDir, rel);
   }

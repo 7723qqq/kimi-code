@@ -6,18 +6,22 @@
  * `wire.dispatch(contextSizeMeasured(...))` (called by `llmRequester` after each
  * measured exchange), and emits the `contextTokens` slice of
  * `agent.status.updated` live through `wire.signal` when the measured value
- * changes. `getStatus().contextTokens` is the deterministic measured value
- * (replay-safe); `contextTokensWithPending` adds the live token estimate of the
- * not-yet-measured tail, computed at read time from the surviving
- * `contextMemory` messages beyond the measured prefix — the sparse
- * `measuredPrefixTokens` / per-message `estimates` are deliberately not
- * persisted (see `contextSizeOps`). Bound at Agent scope.
+ * changes. `get(start?, end?)` returns `{ size, measured, estimated }` for the
+ * context-message range `[start, end)`, resolved like `Array.prototype.slice`
+ * (defaulting to the whole context; negative indices count back from the end;
+ * an inverted range is empty): `measured`
+ * is the deterministic measured value of the measured-prefix portion
+ * (replay-safe; the exact aggregate is only known for the full prefix, so
+ * sub-ranges fall back to a per-message estimate), `estimated` is the live token
+ * estimate of the not-yet-measured portion, and `size = measured + estimated`.
+ * The sparse `measuredPrefixTokens` / per-message `estimates` are deliberately
+ * not persisted (see `contextSizeOps`). Bound at Agent scope.
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { estimateTokensForMessage } from '#/_base/utils/tokens';
+import { estimateTokensForMessages } from '#/_base/utils/tokens';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { Message } from '#/app/llmProtocol/message';
@@ -25,7 +29,7 @@ import type { TokenUsage } from '#/app/llmProtocol/usage';
 import { IAgentWireService } from '#/wire/tokens';
 import type { IWireService } from '#/wire/wireService';
 
-import { IAgentContextSizeService, type ContextSizeStatus } from './contextSize';
+import { IAgentContextSizeService, type ContextSize } from './contextSize';
 import { ContextSizeModel, contextSizeMeasured } from './contextSizeOps';
 
 export class AgentContextSizeService extends Disposable implements IAgentContextSizeService {
@@ -40,13 +44,23 @@ export class AgentContextSizeService extends Disposable implements IAgentContext
     super();
   }
 
-  getStatus(): ContextSizeStatus {
-    const measured = this.wire.getModel(ContextSizeModel);
-    const pendingTokens = estimateTail(this.context.get(), measured.length);
-    return {
-      contextTokens: measured.tokens,
-      contextTokensWithPending: measured.tokens + pendingTokens,
-    };
+  get(start?: number, end?: number): ContextSize {
+    const context = this.context.get();
+    const model = this.wire.getModel(ContextSizeModel);
+    // Mirrors `Array.prototype.slice`: defaults to the whole context, negative
+    // indices count back from the end, and an inverted range is empty.
+    const from = normalizeSliceIndex(start ?? 0, context.length);
+    const to = normalizeSliceIndex(end ?? context.length, context.length);
+    const measuredEnd = Math.min(to, model.length);
+    const estimatedStart = Math.max(from, model.length);
+    // The measured-prefix total is the only deterministic measured value; use it
+    // when the range covers the whole prefix, otherwise estimate the sub-range.
+    const measured =
+      from === 0 && measuredEnd === model.length
+        ? model.tokens
+        : estimateTokensForMessages(context.slice(from, measuredEnd));
+    const estimated = estimateTokensForMessages(context.slice(estimatedStart, to));
+    return { size: measured + estimated, measured, estimated };
   }
 
   measured(input: readonly Message[], output: readonly Message[], usage: TokenUsage): void {
@@ -79,16 +93,9 @@ function tokenUsageTotal(usage: TokenUsage): number {
   return usage.inputCacheRead + usage.inputCacheCreation + usage.inputOther + usage.output;
 }
 
-function estimateTail(
-  context: readonly ContextMessage[],
-  measuredLength: number,
-): number {
-  let total = 0;
-  for (let index = measuredLength; index < context.length; index += 1) {
-    const message = context[index];
-    if (message !== undefined) total += estimateTokensForMessage(message);
-  }
-  return total;
+function normalizeSliceIndex(index: number, length: number): number {
+  if (index < 0) return Math.max(length + index, 0);
+  return Math.min(index, length);
 }
 
 registerScopedService(

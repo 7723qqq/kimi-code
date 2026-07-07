@@ -4,36 +4,21 @@ import { tmpdir } from 'node:os';
 import type { ContentPart } from '#/app/llmProtocol/message';
 import { describe, expect, it, vi } from 'vitest';
 
-import { HookEngine } from '#/agent/externalHooks/engine';
+import { makeHookRunner } from './runner-stub';
 
 function nodeCommand(source: string): string {
-  return `node -e ${JSON.stringify(source.replace(/\s*\n\s*/g, ' '))}`;
+  return `node -e ${JSON.stringify(source.replaceAll(/\s*\n\s*/g, ' '))}`;
 }
 
-describe('HookEngine', () => {
-  it('fires a PreToolUse hook whose matcher regex matches the matcher value', async () => {
-    const engine = new HookEngine([
-      {
-        event: 'PreToolUse',
-        matcher: 'Bash|Write',
-        command: nodeCommand('process.exit(0);'),
-        timeout: 5,
-      },
-      {
-        event: 'PreToolUse',
-        matcher: 'Read',
-        command: nodeCommand('process.exit(2);'),
-        timeout: 5,
-      },
-      {
-        event: 'Stop',
-        matcher: '',
-        command: nodeCommand('process.stdout.write("done");'),
-        timeout: 5,
-      },
+describe('ExternalHooksRunnerService', () => {
+  it('fires a hook whose matcher regex matches the matcher value', async () => {
+    const runner = makeHookRunner([
+      { event: 'PreToolUse', matcher: 'Bash|Write', command: nodeCommand('process.exit(0);'), timeout: 5 },
+      { event: 'PreToolUse', matcher: 'Read', command: nodeCommand('process.exit(2);'), timeout: 5 },
+      { event: 'Stop', matcher: '', command: nodeCommand('process.stdout.write("done");'), timeout: 5 },
     ]);
 
-    const results = await engine.trigger('PreToolUse', {
+    const results = await runner.trigger('PreToolUse', {
       matcherValue: 'Bash',
       inputData: { toolName: 'Bash' },
     });
@@ -43,50 +28,27 @@ describe('HookEngine', () => {
   });
 
   it('returns no results when no hook matcher matches the matcher value', async () => {
-    const engine = new HookEngine([
-      {
-        event: 'PreToolUse',
-        matcher: 'Bash|Write',
-        command: nodeCommand('process.exit(0);'),
-        timeout: 5,
-      },
-      {
-        event: 'PreToolUse',
-        matcher: 'Read',
-        command: nodeCommand('process.exit(2);'),
-        timeout: 5,
-      },
+    const runner = makeHookRunner([
+      { event: 'PreToolUse', matcher: 'Bash|Write', command: nodeCommand('process.exit(0);'), timeout: 5 },
+      { event: 'PreToolUse', matcher: 'Read', command: nodeCommand('process.exit(2);'), timeout: 5 },
     ]);
 
-    const results = await engine.trigger('PreToolUse', {
-      matcherValue: 'Grep',
-      inputData: {},
-    });
-
+    const results = await runner.trigger('PreToolUse', { matcherValue: 'Grep', inputData: {} });
     expect(results).toHaveLength(0);
   });
 
   it('maps exit code 2 to a block action', async () => {
-    const engine = new HookEngine([
-      {
-        event: 'PreToolUse',
-        matcher: 'Read',
-        command: nodeCommand('process.exit(2);'),
-        timeout: 5,
-      },
+    const runner = makeHookRunner([
+      { event: 'PreToolUse', matcher: 'Read', command: nodeCommand('process.exit(2);'), timeout: 5 },
     ]);
 
-    const results = await engine.trigger('PreToolUse', {
-      matcherValue: 'Read',
-      inputData: {},
-    });
-
+    const results = await runner.trigger('PreToolUse', { matcherValue: 'Read', inputData: {} });
     expect(results).toHaveLength(1);
     expect(results[0]?.action).toBe('block');
   });
 
   it('exposes a triggerBlock helper for block decisions', async () => {
-    const engine = new HookEngine([
+    const runner = makeHookRunner([
       {
         event: 'PreToolUse',
         matcher: 'Read',
@@ -96,47 +58,31 @@ describe('HookEngine', () => {
     ]);
 
     await expect(
-      engine.triggerBlock('PreToolUse', {
-        matcherValue: 'Read',
-        inputData: {},
-      }),
+      runner.triggerBlock('PreToolUse', { matcherValue: 'Read', inputData: {} }),
     ).resolves.toEqual({ block: true, reason: 'blocked' });
   });
 
   it('fills a default triggerBlock reason when the hook result has none', async () => {
-    const engine = new HookEngine([
-      {
-        event: 'PreToolUse',
-        matcher: 'Read',
-        command: nodeCommand('process.exit(2);'),
-        timeout: 5,
-      },
+    const runner = makeHookRunner([
+      { event: 'PreToolUse', matcher: 'Read', command: nodeCommand('process.exit(2);'), timeout: 5 },
     ]);
 
     await expect(
-      engine.triggerBlock('PreToolUse', {
-        matcherValue: 'Read',
-        inputData: {},
-      }),
+      runner.triggerBlock('PreToolUse', { matcherValue: 'Read', inputData: {} }),
     ).resolves.toEqual({ block: true, reason: 'Blocked by PreToolUse hook' });
   });
 
   it('aborts a running hook when the trigger signal aborts', async () => {
     const abortController = new AbortController();
-    const engine = new HookEngine([
-      {
-        event: 'PreToolUse',
-        matcher: 'Bash',
-        command: nodeCommand('setTimeout(() => {}, 10000);'),
-        timeout: 5,
-      },
+    const runner = makeHookRunner([
+      { event: 'PreToolUse', matcher: 'Bash', command: nodeCommand('setTimeout(() => {}, 10000);'), timeout: 5 },
     ]);
     const startedAt = Date.now();
     setTimeout(() => {
       abortController.abort();
     }, 50);
 
-    const results = await engine.trigger('PreToolUse', {
+    const results = await runner.trigger('PreToolUse', {
       matcherValue: 'Bash',
       inputData: {},
       signal: abortController.signal,
@@ -149,7 +95,7 @@ describe('HookEngine', () => {
   });
 
   it('serializes camelCase inputData as snake_case for hook stdin', async () => {
-    const engine = new HookEngine([
+    const runner = makeHookRunner([
       {
         event: 'PreToolUse',
         matcher: 'Bash',
@@ -165,7 +111,7 @@ describe('HookEngine', () => {
       },
     ]);
 
-    const results = await engine.trigger('PreToolUse', {
+    const results = await runner.trigger('PreToolUse', {
       matcherValue: 'Bash',
       inputData: { toolName: 'Bash', toolCallId: 'call_1' },
     });
@@ -173,8 +119,8 @@ describe('HookEngine', () => {
     expect(results[0]?.stdout?.trim()).toBe('Bash call_1');
   });
 
-  it('adds sessionId, cwd, and hookEventName from engine context', async () => {
-    const engine = new HookEngine(
+  it('adds sessionId, cwd, and hookEventName from runner context', async () => {
+    const runner = makeHookRunner(
       [
         {
           event: 'SessionStart',
@@ -189,19 +135,15 @@ describe('HookEngine', () => {
           timeout: 5,
         },
       ],
-      {
-        sessionId: 'ses_123',
-        cwd: '/tmp',
-      },
+      { cwd: '/tmp' },
     );
 
-    const results = await engine.trigger('SessionStart');
-
+    const results = await runner.trigger('SessionStart', { sessionId: 'ses_123' });
     expect(results[0]?.stdout?.trim()).toBe('SessionStart ses_123 /tmp');
   });
 
   it('runs hooks with per-hook cwd and env overrides', async () => {
-    const engine = new HookEngine(
+    const runner = makeHookRunner(
       [
         {
           event: 'PreToolUse',
@@ -214,26 +156,16 @@ describe('HookEngine', () => {
       { cwd: '/var/tmp' },
     );
 
-    const results = await engine.trigger('PreToolUse', { matcherValue: '', inputData: {} });
-
+    const results = await runner.trigger('PreToolUse', { matcherValue: '', inputData: {} });
     expect(results[0]?.stdout?.trim()).toBe(`${realpathSync(tmpdir())} plugin-env`);
   });
 
   it('treats an empty matcher string as a catch-all for any matcher value', async () => {
-    const engine = new HookEngine([
-      {
-        event: 'Stop',
-        matcher: '',
-        command: nodeCommand('process.stdout.write("done");'),
-        timeout: 5,
-      },
+    const runner = makeHookRunner([
+      { event: 'Stop', matcher: '', command: nodeCommand('process.stdout.write("done");'), timeout: 5 },
     ]);
 
-    const results = await engine.trigger('Stop', {
-      matcherValue: 'anything',
-      inputData: {},
-    });
-
+    const results = await runner.trigger('Stop', { matcherValue: 'anything', inputData: {} });
     expect(results).toHaveLength(1);
   });
 
@@ -243,67 +175,54 @@ describe('HookEngine', () => {
       { type: 'image_url', imageUrl: { url: 'file:///tmp/a.png' } },
       { type: 'text', text: 'world' },
     ] satisfies readonly ContentPart[];
-    const engine = new HookEngine([
-      {
-        event: 'UserPromptSubmit',
-        matcher: 'hello world',
-        command: nodeCommand('process.exit(0);'),
-        timeout: 5,
-      },
+    const runner = makeHookRunner([
+      { event: 'UserPromptSubmit', matcher: 'hello world', command: nodeCommand('process.exit(0);'), timeout: 5 },
     ]);
 
-    const results = await engine.trigger('UserPromptSubmit', {
-      matcherValue: input,
-      inputData: {},
-    });
-
+    const results = await runner.trigger('UserPromptSubmit', { matcherValue: input, inputData: {} });
     expect(results).toHaveLength(1);
   });
 
   it('returns no results for events that have no registered hooks', async () => {
-    const engine = new HookEngine([
-      {
-        event: 'PreToolUse',
-        matcher: 'Bash',
-        command: nodeCommand('process.exit(0);'),
-      },
+    const runner = makeHookRunner([
+      { event: 'PreToolUse', matcher: 'Bash', command: 'echo 1' },
     ]);
 
-    const results = await engine.trigger('UserPromptSubmit', {
-      matcherValue: '',
-      inputData: {},
-    });
-
+    const results = await runner.trigger('UserPromptSubmit', { matcherValue: '', inputData: {} });
     expect(results).toHaveLength(0);
   });
 
   it('dedupes hooks with identical command strings so they only fire once', async () => {
     const command = nodeCommand('process.stdout.write("once");');
-    const engine = new HookEngine([
+    const runner = makeHookRunner([
       { event: 'Stop', command, timeout: 5 },
       { event: 'Stop', command, timeout: 5 },
     ]);
 
-    const results = await engine.trigger('Stop', { inputData: {} });
-
+    const results = await runner.trigger('Stop', { inputData: {} });
     expect(results).toHaveLength(1);
   });
 
-  it('silently skips hooks whose matcher is not a valid regex', async () => {
-    const engine = new HookEngine([
-      {
-        event: 'PreToolUse',
-        matcher: '[invalid',
-        command: nodeCommand('process.exit(0);'),
-        timeout: 5,
-      },
+  it('does not dedupe hooks that share a command but have different cwd', async () => {
+    const command = nodeCommand('process.stdout.write(process.cwd() + "\\n");');
+    const runner = makeHookRunner([
+      { event: 'Stop', command, timeout: 5, cwd: process.cwd() },
+      { event: 'Stop', command, timeout: 5, cwd: tmpdir() },
     ]);
 
-    const results = await engine.trigger('PreToolUse', {
-      matcherValue: 'Bash',
-      inputData: {},
-    });
+    const results = await runner.trigger('Stop', { inputData: {} });
+    expect(results).toHaveLength(2);
+    expect(new Set(results.map((result) => result.stdout?.trim()))).toEqual(
+      new Set([realpathSync(process.cwd()), realpathSync(tmpdir())]),
+    );
+  });
 
+  it('silently skips hooks whose matcher is not a valid regex', async () => {
+    const runner = makeHookRunner([
+      { event: 'PreToolUse', matcher: '[invalid', command: nodeCommand('process.exit(0);'), timeout: 5 },
+    ]);
+
+    const results = await runner.trigger('PreToolUse', { matcherValue: 'Bash', inputData: {} });
     expect(results).toHaveLength(0);
   });
 
@@ -315,47 +234,47 @@ describe('HookEngine', () => {
         throw new Error('broken input');
       },
     });
-    const engine = new HookEngine([
-      {
-        event: 'PreToolUse',
-        matcher: 'Bash',
-        command: nodeCommand('process.stdout.write("should-not-run");'),
-      },
+    const runner = makeHookRunner([
+      { event: 'PreToolUse', matcher: 'Bash', command: nodeCommand('process.stdout.write("should-not-run");') },
     ]);
 
     await expect(
-      engine.trigger('PreToolUse', {
-        matcherValue: 'Bash',
-        inputData,
-      }),
+      runner.trigger('PreToolUse', { matcherValue: 'Bash', inputData }),
     ).resolves.toEqual([]);
     await expect(
-      engine.triggerBlock('PreToolUse', {
-        matcherValue: 'Bash',
-        inputData,
-      }),
+      runner.triggerBlock('PreToolUse', { matcherValue: 'Bash', inputData }),
     ).resolves.toBeUndefined();
   });
 
   it('fails open when fireAndForgetTrigger sees a synchronous trigger error', async () => {
-    const engine = new HookEngine([]);
-    vi.spyOn(engine, 'trigger').mockImplementation(() => {
+    const runner = makeHookRunner([]);
+    vi.spyOn(runner, 'trigger').mockImplementation(() => {
       throw new Error('trigger failed');
     });
 
-    await expect(engine.fireAndForgetTrigger('Notification')).resolves.toEqual([]);
+    await expect(runner.fireAndForgetTrigger('Notification')).resolves.toEqual([]);
+  });
+
+  it('invokes onTriggered with (event,target,count) and onResolved with (event,target,action)', async () => {
+    const triggered: Array<[string, string, number]> = [];
+    const resolved: Array<[string, string, string]> = [];
+    const runner = makeHookRunner(
+      [{ event: 'PreToolUse', matcher: 'Bash', command: nodeCommand('process.exit(0);'), timeout: 5 }],
+      {
+        onTriggered: (event, target, count) => triggered.push([event, target, count]),
+        onResolved: (event, target, action) => resolved.push([event, target, action]),
+      },
+    );
+
+    await runner.trigger('PreToolUse', { matcherValue: 'Bash', inputData: {} });
+
+    expect(triggered).toEqual([['PreToolUse', 'Bash', 1]]);
+    expect(resolved).toEqual([['PreToolUse', 'Bash', 'allow']]);
   });
 
   it('preserves a block result even when lifecycle callbacks throw', async () => {
-    const engine = new HookEngine(
-      [
-        {
-          event: 'PreToolUse',
-          matcher: 'Read',
-          command: nodeCommand('process.exit(2);'),
-          timeout: 5,
-        },
-      ],
+    const runner = makeHookRunner(
+      [{ event: 'PreToolUse', matcher: 'Read', command: nodeCommand('process.exit(2);'), timeout: 5 }],
       {
         onTriggered: () => {
           throw new Error('trigger telemetry failed');
@@ -366,11 +285,7 @@ describe('HookEngine', () => {
       },
     );
 
-    const results = await engine.trigger('PreToolUse', {
-      matcherValue: 'Read',
-      inputData: {},
-    });
-
+    const results = await runner.trigger('PreToolUse', { matcherValue: 'Read', inputData: {} });
     expect(results).toHaveLength(1);
     expect(results[0]?.action).toBe('block');
   });

@@ -19,6 +19,8 @@ import { defineOp } from '#/wire/op';
 
 import type { UsageStatus } from './usage';
 
+export type UsageRecordScope = 'session' | 'turn';
+
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
     // Canonical declaration for the agent status-bar event (`IEventBus`); each
@@ -45,7 +47,12 @@ export const UsageModel = defineModel<UsageModelState>('usage', () => ({ byModel
 export const recordUsage = defineOp(UsageModel, 'usage.record', {
   apply: (
     s,
-    p: { model: string; usage: TokenUsage; context?: LLMRequestSource },
+    p: {
+      model: string;
+      usage: TokenUsage;
+      usageScope?: UsageRecordScope;
+      context?: LLMRequestSource;
+    },
   ): UsageModelState => {
     const current = s.byModel[p.model];
     const byModel = {

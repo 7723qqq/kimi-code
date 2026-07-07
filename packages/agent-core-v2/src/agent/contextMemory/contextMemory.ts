@@ -4,9 +4,25 @@ import type { UndoCut } from './contextOps';
 import type { ContextMessage } from './types';
 
 export interface ContextCompactionInput {
-  readonly count: number;
-  readonly summary: ContextMessage;
-  readonly tokens?: number;
+  readonly summary: string;
+  readonly contextSummary?: string;
+  readonly compactedCount: number;
+  readonly tokensBefore: number;
+  readonly tokensAfter?: number;
+  readonly keptUserMessageCount?: number;
+  readonly keptHeadUserMessageCount?: number;
+  readonly droppedCount?: number;
+}
+
+export interface ContextCompactionResult {
+  summary: string;
+  contextSummary: string;
+  compactedCount: number;
+  tokensBefore: number;
+  tokensAfter: number;
+  keptUserMessageCount: number;
+  keptHeadUserMessageCount?: number;
+  droppedCount?: number;
 }
 
 export interface IAgentContextMemoryService {
@@ -28,8 +44,8 @@ export interface IAgentContextMemoryService {
    */
   undo(count: number): UndoCut;
 
-  /** Replace the leading `count` messages with a compaction summary (`context.apply_compaction`). */
-  applyCompaction(input: ContextCompactionInput): void;
+  /** Rewrite the live history into the v1-compatible compaction handoff shape. */
+  applyCompaction(input: ContextCompactionInput): ContextCompactionResult;
 
   /**
    * Arbitrary splice (`context.splice`). Retained for replay of protocol 1.5

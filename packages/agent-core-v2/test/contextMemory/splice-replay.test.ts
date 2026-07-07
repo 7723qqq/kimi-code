@@ -24,6 +24,8 @@ import {
   contextUndo,
 } from '#/agent/contextMemory/contextOps';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IEventBus } from '#/app/event/eventBus';
+import { EventBusService } from '#/app/event/eventBusService';
 import type { ContentPart } from '#/app/llmProtocol/message';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
@@ -116,15 +118,6 @@ function userMessage(text: string): ContextMessage {
   return { role: 'user', content: [{ type: 'text', text }], toolCalls: [] };
 }
 
-function summaryMessage(text: string): ContextMessage {
-  return {
-    role: 'assistant',
-    content: [{ type: 'text', text }],
-    toolCalls: [],
-    origin: { kind: 'compaction_summary' },
-  };
-}
-
 function imageMessage(payload: string): ContextMessage {
   const part = {
     type: 'image',
@@ -138,6 +131,12 @@ function mediaUrl(message: ContextMessage): string {
   return part.source.url;
 }
 
+function textOf(message: ContextMessage): string {
+  const part = message.content[0] as unknown as { text?: unknown };
+  if (typeof part.text !== 'string') throw new Error('expected text content');
+  return part.text;
+}
+
 let disposables: DisposableStore;
 let blob: StubBlobService;
 
@@ -145,6 +144,7 @@ interface Host {
   wire: IWireService;
   svc: IAgentContextMemoryService;
   log: IAppendLogStore;
+  eventBus: IEventBus;
 }
 
 function buildHost(key: string): Host {
@@ -158,11 +158,13 @@ function buildHost(key: string): Host {
     ]),
   );
   ix.stub(IAgentBlobService, blob);
+  ix.set(IEventBus, new SyncDescriptor(EventBusService));
   ix.set(IAgentContextMemoryService, new SyncDescriptor(AgentContextMemoryService));
   return {
     wire: ix.get(IAgentWireService),
     svc: ix.get(IAgentContextMemoryService),
     log: ix.get(IAppendLogStore),
+    eventBus: ix.get(IEventBus),
   };
 }
 
@@ -200,9 +202,16 @@ describe('AgentContextMemoryService (wire-backed)', () => {
     expect(model()).toHaveLength(2);
 
     prev = model();
-    host.wire.dispatch(contextApplyCompaction({ count: 1, summary: summaryMessage('sum') }));
+    host.wire.dispatch(
+      contextApplyCompaction({ summary: 'sum', compactedCount: 1, tokensBefore: 0, tokensAfter: 0 }),
+    );
     expect(model()).not.toBe(prev);
-    expect(model()![0]).toMatchObject({ content: [{ type: 'text', text: 'sum' }] });
+    expect(model()).toHaveLength(2);
+    expect(model()![0]).toMatchObject({
+      role: 'user',
+      content: [{ type: 'text', text: 'sum' }],
+      origin: { kind: 'compaction_summary' },
+    });
 
     prev = model();
     host.wire.dispatch(contextClear({}));
@@ -275,6 +284,116 @@ describe('AgentContextMemoryService (wire-backed)', () => {
     expect(model[2]!.toolCallId).toBe('call_1');
   });
 
+  it('replays v1 context.apply_compaction records with contextSummary as the model summary', async () => {
+    const records: PersistedRecord[] = [
+      { type: 'context.append_message', message: userMessage('old') },
+      { type: 'context.append_message', message: userMessage('tail') },
+      {
+        type: 'context.apply_compaction',
+        summary: 'human-facing summary',
+        contextSummary: 'model-facing summary',
+        compactedCount: 1,
+        tokensBefore: 100,
+        tokensAfter: 20,
+      },
+    ];
+
+    const replay = buildHost(REPLAY_KEY);
+    await replay.wire.replay(...records);
+
+    const model = replay.wire.getModel(ContextModel) as readonly ContextMessage[];
+    expect(model.map(textOf)).toEqual(['model-facing summary', 'tail']);
+    expect(model[0]).toMatchObject({
+      role: 'user',
+      origin: { kind: 'compaction_summary' },
+    });
+  });
+
+  it('replays new context.apply_compaction records with kept user messages before contextSummary', async () => {
+    const records: PersistedRecord[] = [
+      { type: 'context.append_message', message: userMessage('old user') },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'old assistant' }],
+          toolCalls: [],
+        },
+      },
+      { type: 'context.append_message', message: userMessage('recent user') },
+      {
+        type: 'context.apply_compaction',
+        summary: 'raw summary',
+        contextSummary: 'model-facing summary',
+        compactedCount: 3,
+        tokensBefore: 100,
+        tokensAfter: 20,
+        keptUserMessageCount: 2,
+      },
+    ];
+
+    const replay = buildHost(REPLAY_KEY);
+    await replay.wire.replay(...records);
+
+    const model = replay.wire.getModel(ContextModel) as readonly ContextMessage[];
+    expect(model.map((message) => message.role)).toEqual(['user', 'user', 'user']);
+    expect(model.map(textOf)).toEqual(['old user', 'recent user', 'model-facing summary']);
+    expect(model[2]).toMatchObject({
+      origin: { kind: 'compaction_summary' },
+    });
+  });
+
+  it('replays pre-contextSummary kept-user records without adding a new prefix', async () => {
+    const records: PersistedRecord[] = [
+      { type: 'context.append_message', message: userMessage('old user') },
+      { type: 'context.append_message', message: userMessage('recent user') },
+      {
+        type: 'context.apply_compaction',
+        summary: 'OLD SUMMARY',
+        compactedCount: 2,
+        tokensBefore: 100,
+        tokensAfter: 20,
+        keptUserMessageCount: 2,
+      },
+    ];
+
+    const replay = buildHost(REPLAY_KEY);
+    await replay.wire.replay(...records);
+
+    const model = replay.wire.getModel(ContextModel) as readonly ContextMessage[];
+    expect(model.map(textOf)).toEqual(['old user', 'recent user', 'OLD SUMMARY']);
+    expect(model[2]).toMatchObject({
+      role: 'user',
+      origin: { kind: 'compaction_summary' },
+    });
+  });
+
+  it('replays legacy v2 context.apply_compaction records with count and summary message', async () => {
+    const legacySummary: ContextMessage = {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'legacy summary message' }],
+      toolCalls: [],
+      origin: { kind: 'compaction_summary' },
+    };
+    const records: PersistedRecord[] = [
+      { type: 'context.append_message', message: userMessage('old') },
+      { type: 'context.append_message', message: userMessage('tail') },
+      {
+        type: 'context.apply_compaction',
+        count: 1,
+        summary: legacySummary,
+      },
+    ];
+
+    const replay = buildHost(REPLAY_KEY);
+    await replay.wire.replay(...records);
+
+    const model = replay.wire.getModel(ContextModel) as readonly ContextMessage[];
+    expect(model).toHaveLength(2);
+    expect(model[0]).toEqual(legacySummary);
+    expect(textOf(model[1]!)).toBe('tail');
+  });
+
   it('offloads an oversized content part on dispatch and rehydrates it byte-for-byte on replay', async () => {
     const host = buildHost(KEY);
     const big = 'A'.repeat(200);
@@ -304,13 +423,12 @@ describe('AgentContextMemoryService (wire-backed)', () => {
     expect(mediaUrl(rebuilt[0]!)).toBe(dataUri);
   });
 
-  it('onSpliced fires on live dispatch and is silent on replay', async () => {
+  it('publishes context.spliced on live dispatch and is silent on replay', async () => {
     const host = buildHost(KEY);
     const live: { start: number; deleteCount: number }[] = [];
-    host.svc.hooks.onSpliced.register('test', async (ctx, next) => {
-      live.push({ start: ctx.start, deleteCount: ctx.deleteCount });
-      await next();
-    });
+    disposables.add(host.eventBus.subscribe('context.spliced', (event) => {
+      live.push({ start: event.start, deleteCount: event.deleteCount });
+    }));
 
     host.svc.splice(0, 0, [userMessage('x')]);
     host.svc.splice(0, 0, [userMessage('y')]);
@@ -320,10 +438,9 @@ describe('AgentContextMemoryService (wire-backed)', () => {
 
     const replay = buildHost(REPLAY_KEY);
     const replayed: { start: number; deleteCount: number }[] = [];
-    replay.svc.hooks.onSpliced.register('test', async (ctx, next) => {
-      replayed.push({ start: ctx.start, deleteCount: ctx.deleteCount });
-      await next();
-    });
+    disposables.add(replay.eventBus.subscribe('context.spliced', (event) => {
+      replayed.push({ start: event.start, deleteCount: event.deleteCount });
+    }));
     await replay.wire.replay(...records);
     expect(replayed).toHaveLength(0);
     expect(replay.wire.getModel(ContextModel) as readonly ContextMessage[]).toHaveLength(2);

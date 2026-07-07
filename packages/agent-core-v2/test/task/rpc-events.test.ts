@@ -22,7 +22,7 @@ import {
 import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
-import type { HookEngine } from '#/agent/externalHooks/engine';
+import type { IExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunner';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import {
@@ -40,7 +40,7 @@ import {
   type TaskServiceTestManager,
 } from './stubs';
 
-type FireAndForgetTrigger = HookEngine['fireAndForgetTrigger'];
+type FireAndForgetTrigger = IExternalHooksRunnerService['fireAndForgetTrigger'];
 
 function immediateProcess(exitCode: number, stdoutText = ''): IProcess {
   return {
@@ -176,7 +176,7 @@ function createAgentTaskService(options: {
   const track = vi.fn();
   const telemetry = recordingTelemetry([]);
   vi.spyOn(telemetry, 'track').mockImplementation(track);
-  const hookEngine: Pick<HookEngine, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'> | undefined = options.hooks === undefined
+  const hookEngine: Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'> | undefined = options.hooks === undefined
     ? undefined
     : {
         trigger: vi.fn().mockResolvedValue([]),

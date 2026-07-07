@@ -38,17 +38,16 @@
  * resumer against that stream. Consumed by the Agent-scope `fullCompactionService`.
  */
 
+import { defineModel } from '#/wire/model';
+import { defineOp } from '#/wire/op';
 import type {
   CompactionBlockedEvent,
   CompactionCancelledEvent,
   CompactionCompletedEvent,
   CompactionStartedEvent,
 } from '@moonshot-ai/protocol';
-import { defineModel } from '#/wire/model';
-import { defineOp } from '#/wire/op';
 
-import type { FullCompactionCompleteData } from './fullCompaction';
-import type { CompactionBeginData, CompactionSource } from './types';
+import type { CompactionBeginData, CompactionSource, FullCompactionCompleteData } from './types';
 
 export type CompactionPhase = 'idle' | 'running' | 'cancelled' | 'completed';
 
@@ -62,10 +61,10 @@ export const CompactionModel = defineModel<CompactionState>('fullCompaction', ()
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
-    'compaction.started': Omit<CompactionStartedEvent, 'type'>;
-    'compaction.blocked': Omit<CompactionBlockedEvent, 'type'>;
-    'compaction.cancelled': Omit<CompactionCancelledEvent, 'type'>;
-    'compaction.completed': Omit<CompactionCompletedEvent, 'type'> & { readonly trigger: CompactionSource };
+    'compaction.started': CompactionStartedEvent;
+    'compaction.blocked': CompactionBlockedEvent;
+    'compaction.cancelled': CompactionCancelledEvent;
+    'compaction.completed': CompactionCompletedEvent & { readonly trigger: CompactionSource };
   }
 }
 

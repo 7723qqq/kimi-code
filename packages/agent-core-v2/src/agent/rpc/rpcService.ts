@@ -71,9 +71,9 @@ import {
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
-    'shell.output': Omit<ShellOutputEvent, 'type'>;
-    'shell.started': Omit<ShellStartedEvent, 'type'>;
-    'plugin_command.activated': Omit<PluginCommandActivatedEvent, 'type'>;
+    'shell.output': ShellOutputEvent;
+    'shell.started': ShellStartedEvent;
+    'plugin_command.activated': PluginCommandActivatedEvent;
   }
 }
 
@@ -268,10 +268,11 @@ export class AgentRPCService implements IAgentRPCService {
   }
 
   cancelCompaction(_payload: EmptyPayload): void {
-    if (this.fullCompaction.isCompacting) {
+    const active = this.fullCompaction.compacting;
+    if (active !== null) {
       this.telemetry.track('cancel', { from: 'compacting' });
     }
-    this.fullCompaction.cancel();
+    active?.abortController.abort();
   }
 
   registerTool(payload: RegisterToolPayload): void {
@@ -341,11 +342,6 @@ export class AgentRPCService implements IAgentRPCService {
     await this.updatePromptMetadata(promptMetadataTextFromPluginCommand(payload));
   }
 
-  /**
-   * Delegate to the shared `applyPromptMetadataUpdate` helper (same one the
-   * `/api/v1` legacy entry uses), so the easy-title / `lastPrompt` derivation
-   * and the `session.meta.updated` broadcast stay identical on both surfaces.
-   */
   private async updatePromptMetadata(text: string | undefined): Promise<void> {
     await applyPromptMetadataUpdate(
       {
@@ -384,7 +380,7 @@ export class AgentRPCService implements IAgentRPCService {
   getContext(_payload: EmptyPayload) {
     return {
       history: this.context.get(),
-      tokenCount: this.contextSize.getStatus().contextTokens,
+      tokenCount: this.contextSize.get().measured,
     };
   }
 

@@ -53,6 +53,7 @@ import {
   IAgentToolState,
   IAgentUsageService,
   ISessionWorkspaceContext,
+  ISessionWorkspaceCommandService,
   IWorkspaceRegistry,
 } from '@moonshot-ai/agent-core-v2';
 
@@ -152,7 +153,10 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
     'workspace:resolve': { service: ISessionWorkspaceContext, method: 'resolve', readonly: true },
     'workspace:isWithin': { service: ISessionWorkspaceContext, method: 'isWithin', readonly: true },
     'workspace:setWorkDir': { service: ISessionWorkspaceContext, method: 'setWorkDir' },
-    'workspace:addAdditionalDir': { service: ISessionWorkspaceContext, method: 'addAdditionalDir' },
+    'workspace:addAdditionalDir': {
+      service: ISessionWorkspaceCommandService,
+      method: 'addAdditionalDir',
+    },
     'workspace:removeAdditionalDir': { service: ISessionWorkspaceContext, method: 'removeAdditionalDir' },
 
     'fs:search': { service: ISessionFsService, method: 'search', readonly: true },
@@ -185,7 +189,7 @@ export const actionMap: Record<ScopeKind, Record<string, ActionTarget>> = {
 
     'usage:status': { service: IAgentUsageService, method: 'status', readonly: true },
 
-    'context:status': { service: IAgentContextSizeService, method: 'getStatus', readonly: true },
+    'context:status': { service: IAgentContextSizeService, method: 'get', readonly: true },
 
     'swarm:isActive': { service: IAgentSwarmService, method: 'isActive', readonly: true },
     'swarm:enter': { service: IAgentSwarmService, method: 'enter' },

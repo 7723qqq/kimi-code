@@ -5,33 +5,26 @@ import type {
 import { createDecorator } from "#/_base/di/instantiation";
 import type { Hooks } from '#/hooks';
 
-export type FullCompactionCompleteData = Omit<CompactionResult, 'summary'>;
-
-export interface CompactInput {
+export interface FullCompactionInput {
   readonly source: CompactionSource;
   readonly instruction?: string;
 }
 
-export interface FullCompactionWillCompactContext {
+export interface FullCompactionTask {
+  readonly abortController: AbortController;
+  readonly promise: Promise<CompactionResult>;
   readonly trigger: CompactionSource;
   readonly tokenCount: number;
-  readonly signal: AbortSignal;
-}
-
-export interface FullCompactionDidCompactContext {
-  readonly trigger: CompactionSource;
-  readonly estimatedTokenCount: number;
 }
 
 export interface IAgentFullCompactionService {
   readonly _serviceBrand: undefined;
 
-  readonly isCompacting: boolean;
-  begin(input: CompactInput): boolean;
-  cancel(): void;
+  readonly compacting: FullCompactionTask | null;
+  begin(input: FullCompactionInput): boolean;
 
   readonly hooks: Hooks<{
-    onWillCompact: FullCompactionWillCompactContext;
+    onWillCompact: FullCompactionTask;
   }>;
 }
 

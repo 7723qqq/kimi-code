@@ -36,14 +36,11 @@ import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentWireService } from '#/wire/tokens';
 import type { IWireService } from '#/wire/wireService';
-import {
-  IAgentMicroCompactionService,
-  type MicroCompactionConfig,
-  type MicroCompactionEffect,
-} from './microCompaction';
+import { IAgentMicroCompactionService } from './microCompaction';
 import { MicroCompactionModel, microCompactionApply } from './microCompactionOps';
 import {
   MICRO_COMPACTION_SECTION,
+  type MicroCompactionConfig,
   type MicroCompactionConfigPatch,
 } from './configSection';
 
@@ -220,13 +217,13 @@ export class AgentMicroCompactionService
   private contextSizeRatio(): number {
     const maxContextTokens = this.profile.getModelCapabilities().max_context_tokens;
     if (maxContextTokens === undefined || maxContextTokens <= 0) return 1;
-    return this.contextSize.getStatus().contextTokensWithPending / maxContextTokens;
+    return this.contextSize.get().size / maxContextTokens;
   }
 
   private measureEffect(
     messages: readonly ContextMessage[],
     cutoff: number,
-  ): MicroCompactionEffect {
+  ) {
     let markerTokenCount: number | undefined;
     let truncatedToolResultCount = 0;
     let truncatedToolResultTokensBefore = 0;

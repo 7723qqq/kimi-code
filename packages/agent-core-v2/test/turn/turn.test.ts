@@ -18,7 +18,7 @@ import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IOAuthService } from '#/app/auth/auth';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import { ErrorCodes, KimiError } from '#/errors';
-import { HookEngine } from '#/agent/externalHooks/engine';
+import { makeHookRunner } from '../externalHooks/runner-stub';
 import type { ILogger as Logger, LogPayload } from '#/_base/log/log';
 import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { McpConnectionManager } from '#/agent/mcp/connection-manager';
@@ -200,7 +200,7 @@ describe('Agent turn flow', () => {
     await ctx.untilTurnEnd();
 
     expect(records).toContainEqual({
-      event: 'tool_call_dedup_detected',
+      event: 'tool_call_dedupe_detected',
       properties: {
         turn_id: 0,
         step_no: 1,
@@ -238,7 +238,7 @@ describe('Agent turn flow', () => {
     await ctx.untilTurnEnd();
 
     expect(records).toContainEqual({
-      event: 'tool_call_dedup_detected',
+      event: 'tool_call_dedupe_detected',
       properties: {
         turn_id: 0,
         step_no: 2,
@@ -260,7 +260,7 @@ describe('Agent turn flow', () => {
     });
   });
 
-  it('fires PostToolUse for same-step dups with the original real output, not the dedup placeholder', async () => {
+  it('fires PostToolUse for same-step dups with the original real output, not the dedupe placeholder', async () => {
     // Hook command asserts the dup's PostToolUse payload carries the real
     // stdout ('dup'), not the placeholder ('').
     const assertScript = [
@@ -274,7 +274,7 @@ describe('Agent turn flow', () => {
       '});',
     ].join('');
     const resolved: Array<[string, string, string]> = [];
-    const hookEngine = new HookEngine(
+    const hookEngine = makeHookRunner(
       [
         {
           event: 'PostToolUse',
@@ -632,7 +632,7 @@ describe('Agent turn flow', () => {
   });
 
   it('continues the turn after projecting UserPromptSubmit hook output', async () => {
-    const hookEngine = new HookEngine([
+    const hookEngine = makeHookRunner([
       {
         event: 'UserPromptSubmit',
         matcher: 'hooked input',
@@ -698,7 +698,7 @@ describe('Agent turn flow', () => {
   });
 
   it('projects structured UserPromptSubmit stdout', async () => {
-    const hookEngine = new HookEngine([
+    const hookEngine = makeHookRunner([
       {
         event: 'UserPromptSubmit',
         matcher: 'hooked input',
@@ -766,7 +766,7 @@ describe('Agent turn flow', () => {
   });
 
   it('stops the turn when a UserPromptSubmit hook blocks', async () => {
-    const hookEngine = new HookEngine([
+    const hookEngine = makeHookRunner([
       {
         event: 'UserPromptSubmit',
         matcher: 'bad words',
@@ -827,7 +827,7 @@ describe('Agent turn flow', () => {
   });
 
   it('ignores timed out UserPromptSubmit hook output before launching the turn', async () => {
-    const hookEngine = new HookEngine([
+    const hookEngine = makeHookRunner([
       {
         event: 'UserPromptSubmit',
         command: 'node -e "setTimeout(() => process.stdout.write(\\"late hook\\"), 250)"',
@@ -867,7 +867,7 @@ describe('Agent turn flow', () => {
   });
 
   it('uses a Stop hook block reason as a one-shot turn continuation', async () => {
-    const hookEngine = new HookEngine([
+    const hookEngine = makeHookRunner([
       {
         event: 'Stop',
         command: "echo 'continue from hook' >&2; exit 2",
@@ -910,7 +910,7 @@ describe('Agent turn flow', () => {
   });
 
   it('fails with max steps when a Stop hook continuation exceeds step budget', async () => {
-    const hookEngine = new HookEngine([
+    const hookEngine = makeHookRunner([
       {
         event: 'Stop',
         command: "echo 'continue from hook' >&2; exit 2",
@@ -955,7 +955,7 @@ describe('Agent turn flow', () => {
       `fs.writeFileSync(${JSON.stringify(marker)}, 'started');`,
       "setTimeout(() => process.stderr.write('late stop hook'), 250);",
     ].join('');
-    const hookEngine = new HookEngine([
+    const hookEngine = makeHookRunner([
       {
         event: 'Stop',
         command: `node -e ${JSON.stringify(script)}`,
@@ -990,7 +990,7 @@ describe('Agent turn flow', () => {
       "setTimeout(() => process.stdout.write('late pre tool hook'), 250);",
     ].join('');
     const execWithEnv = vi.fn().mockRejectedValue(new Error('Bash should not execute'));
-    const hookEngine = new HookEngine([
+    const hookEngine = makeHookRunner([
       {
         event: 'PreToolUse',
         matcher: 'Bash',
@@ -1025,7 +1025,7 @@ describe('Agent turn flow', () => {
 
   it('fires StopFailure when a turn fails', async () => {
     const triggered: Array<[string, string, number]> = [];
-    const hookEngine = new HookEngine(
+    const hookEngine = makeHookRunner(
       [
         {
           event: 'StopFailure',
@@ -1050,7 +1050,7 @@ describe('Agent turn flow', () => {
 
   it('fires Interrupt when the user cancels an active turn', async () => {
     const triggered: Array<[string, string, number]> = [];
-    const hookEngine = new HookEngine(
+    const hookEngine = makeHookRunner(
       [
         {
           event: 'Interrupt',
@@ -1081,7 +1081,7 @@ describe('Agent turn flow', () => {
 
   it('does not fire Interrupt for a non-user (programmatic) abort', async () => {
     const triggered: Array<[string, string, number]> = [];
-    const hookEngine = new HookEngine(
+    const hookEngine = makeHookRunner(
       [
         {
           event: 'Interrupt',

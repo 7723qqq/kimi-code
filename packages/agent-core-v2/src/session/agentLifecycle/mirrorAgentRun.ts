@@ -8,9 +8,10 @@
  * requester ↔ target association is business data of this wrapper layer — the
  * lifecycle registry itself stays flat and knows nothing about it.
  *
- * External hooks (`SubagentStart` / `SubagentStop`) are invoked directly on
- * the requester's `IAgentExternalHooksService` — there is no intermediary
- * hook service; the tool wrapper is just a thin layer over the lifecycle.
+ * External hooks (`SubagentStart` / `SubagentStop`) fire by observation, like
+ * every other external hook: this wrapper announces "a run is about to start"
+ * / "...has stopped" through the `IAgentRunHooksService` slots, and the
+ * Agent-scope `externalHooks` adapter registers there to translate them.
  *
  * Wire shape note: the signals are still named `subagent.spawned / started /
  * completed / failed` and telemetry still tracks `subagent_created` so existing
@@ -23,7 +24,7 @@ import { userCancellationReason } from '#/_base/utils/abort';
 import { isProviderRateLimitError } from '#/app/llmProtocol/errors';
 import { type TokenUsage } from '#/app/llmProtocol/usage';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentExternalHooksService } from '#/agent/externalHooks/externalHooks';
+import { IAgentRunHooksService } from './runHooks';
 import type {
   SubagentCompletedEvent,
   SubagentFailedEvent,
@@ -37,14 +38,12 @@ import type { AgentRunHandle } from './agentLifecycle';
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
-    'subagent.spawned': Omit<SubagentSpawnedEvent, 'type'>;
-    'subagent.started': Omit<SubagentStartedEvent, 'type'>;
-    'subagent.completed': Omit<SubagentCompletedEvent, 'type'>;
-    'subagent.failed': Omit<SubagentFailedEvent, 'type'>;
+    'subagent.spawned': SubagentSpawnedEvent;
+    'subagent.started': SubagentStartedEvent;
+    'subagent.completed': SubagentCompletedEvent;
+    'subagent.failed': SubagentFailedEvent;
   }
 }
-
-const HOOK_TEXT_PREVIEW_LENGTH = 500;
 
 export interface AgentRunSpawnedMeta {
   readonly profileName: string;
@@ -59,16 +58,17 @@ export interface MirrorAgentRunOptions {
   /** Profile the target runs under; only used for hooks / record labels. */
   readonly profileName: string;
   /**
-   * Prompt text submitted to the target. When present the `SubagentStart`
-   * external hook fires (and may block the run); omit for retry turns, which
-   * skip the hook.
+   * Prompt text submitted to the target. When present the requester-side
+   * `onWillStartAgentTask` hook slot runs (which the external-hooks adapter
+   * translates into the `SubagentStart` external hook); omit for retry turns,
+   * which skip the slot.
    */
   readonly prompt?: string;
   /** Skip the requester-side `subagent.failed` record for provider-rate-limit / aborted failures. */
   readonly suppressRateLimitFailureEvent?: boolean;
-  /** The requester's cancellation signal (passed through to the start hook). */
+  /** The requester's cancellation signal (passed through to the start hook slot). */
   readonly signal: AbortSignal;
-  /** Called to abort the underlying run when the start hook blocks it. */
+  /** Called to abort the underlying run when the start hook slot aborts/rejects it. */
   readonly cancel?: (reason?: unknown) => void;
 }
 
@@ -111,13 +111,13 @@ export async function mirrorAgentRun(
   options: MirrorAgentRunOptions,
 ): Promise<{ summary: string; usage?: TokenUsage }> {
   const eventBus = requester.accessor.get(IEventBus);
-  const externalHooks = requester.accessor.get(IAgentExternalHooksService);
+  const runHooks = requester.accessor.get(IAgentRunHooksService);
   eventBus?.publish({ type: 'subagent.started', subagentId: run.agentId });
   if (options.prompt !== undefined) {
     try {
-      await externalHooks?.runAgentTaskStart({
+      await runHooks?.hooks.onWillStartAgentTask.run({
         agentName: options.profileName,
-        prompt: options.prompt.slice(0, HOOK_TEXT_PREVIEW_LENGTH),
+        prompt: options.prompt,
         signal: options.signal,
       });
     } catch (error) {
@@ -140,10 +140,12 @@ export async function mirrorAgentRun(
       resultSummary: result.summary,
       usage: result.usage,
     });
-    externalHooks?.notifyAgentTaskStop({
-      agentName: options.profileName,
-      response: result.summary.slice(0, HOOK_TEXT_PREVIEW_LENGTH),
-    });
+    void runHooks?.hooks
+      .onDidStopAgentTask.run({
+        agentName: options.profileName,
+        response: result.summary,
+      })
+      .catch(() => {});
     return result;
   } catch (error) {
     if (!isAbortError(error) && !shouldSuppressFailure(options, error)) {

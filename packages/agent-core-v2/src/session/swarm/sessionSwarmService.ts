@@ -47,7 +47,7 @@ import {
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
-    'subagent.suspended': Omit<SubagentSuspendedEvent, 'type'>;
+    'subagent.suspended': SubagentSuspendedEvent;
   }
 }
 

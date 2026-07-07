@@ -37,6 +37,11 @@ import { defineOp } from '#/wire/op';
 import type { PersistedRecord } from '#/wire/wireService';
 
 import {
+  buildContextCompactionShape,
+  createCompactionSummaryMessage,
+  type ContextCompactionShapeInput,
+} from './compactionHandoff';
+import {
   foldAppendMessage,
   foldLoopEvent,
   resetFold,
@@ -137,15 +142,135 @@ export const contextClear = defineOp(ContextModel, 'context.clear', {
   apply: (state): ContextMessage[] => (state.length === 0 ? state : resetFold([]) as ContextMessage[]),
 });
 
-export interface ContextCompactionPayload {
-  readonly count: number;
-  readonly summary: ContextMessage;
+interface ContextCompactionBasePayload {
+  readonly tokensBefore?: number;
+  readonly tokensAfter?: number;
+  readonly keptUserMessageCount?: number;
+  readonly keptHeadUserMessageCount?: number;
+  readonly droppedCount?: number;
 }
 
+export interface TextSummaryCompactionPayload extends ContextCompactionBasePayload {
+  readonly summary: string;
+  readonly compactedCount: number;
+  readonly contextSummary?: string;
+}
+
+interface ContextSummaryCompactionPayload extends ContextCompactionBasePayload {
+  readonly contextSummary: string;
+  readonly compactedCount: number;
+  readonly summary?: string;
+}
+
+interface LegacyMessageSummaryCompactionPayload extends ContextCompactionBasePayload {
+  readonly summary: ContextMessage;
+  readonly count: number;
+  readonly compactedCount?: number;
+}
+
+export type ContextCompactionPayload =
+  | TextSummaryCompactionPayload
+  | ContextSummaryCompactionPayload
+  | LegacyMessageSummaryCompactionPayload;
+
 export const contextApplyCompaction = defineOp(ContextModel, 'context.apply_compaction', {
-  apply: (state, p: ContextCompactionPayload): ContextMessage[] =>
-    resetFold([p.summary, ...state.slice(p.count)]) as ContextMessage[],
+  apply: (state, p: ContextCompactionPayload): ContextMessage[] => {
+    const result = buildContextCompactionShape(state, readContextCompactionShapeInput(p));
+    return resetFold([...result.messages]) as ContextMessage[];
+  },
 });
+
+interface UnknownRecord {
+  readonly [key: string]: unknown;
+}
+
+type ContextCompactionRecord = ContextCompactionPayload | UnknownRecord;
+
+export function applyContextCompactionRecord(
+  state: readonly ContextMessage[],
+  record: ContextCompactionRecord,
+): ContextMessage[] {
+  const result = buildContextCompactionShape(state, readContextCompactionShapeInput(record));
+  return resetFold([...result.messages]) as ContextMessage[];
+}
+
+export function readContextCompactionShapeInput(
+  record: ContextCompactionRecord,
+): ContextCompactionShapeInput {
+  const fields = record as UnknownRecord;
+  const keptUserMessageCount = readOptionalNumber(fields, 'keptUserMessageCount');
+  return {
+    summary: readContextCompactionRawSummary(fields),
+    legacySummaryMessage: readLegacySummaryMessage(fields),
+    contextSummary: readOptionalString(fields, 'contextSummary'),
+    compactedCount: readContextCompactedCount(fields),
+    tokensBefore: readOptionalNumber(fields, 'tokensBefore') ?? 0,
+    tokensAfter: readOptionalNumber(fields, 'tokensAfter'),
+    keptUserMessageCount,
+    keptHeadUserMessageCount: readOptionalNumber(fields, 'keptHeadUserMessageCount'),
+    droppedCount: readOptionalNumber(fields, 'droppedCount'),
+    legacyTail: keptUserMessageCount === undefined,
+  };
+}
+
+export function readContextCompactedCount(record: ContextCompactionRecord): number {
+  const fields = record as UnknownRecord;
+  const compactedCount = fields['compactedCount'];
+  if (typeof compactedCount === 'number') return compactedCount;
+  const legacyCount = fields['count'];
+  if (typeof legacyCount === 'number') return legacyCount;
+  throw new Error('Invalid context.apply_compaction record: missing compactedCount');
+}
+
+export function readContextCompactionSummary(record: ContextCompactionRecord): ContextMessage {
+  const fields = record as UnknownRecord;
+  const contextSummary = fields['contextSummary'];
+  if (typeof contextSummary === 'string') return createCompactionSummaryMessage(contextSummary);
+  const summary = fields['summary'];
+  if (typeof summary === 'string') return createCompactionSummaryMessage(summary);
+  if (isContextMessage(summary)) return summary;
+  throw new Error('Invalid context.apply_compaction record: missing summary');
+}
+
+function readContextCompactionRawSummary(record: UnknownRecord): string {
+  const summary = record['summary'];
+  if (typeof summary === 'string') return summary;
+  const contextSummary = record['contextSummary'];
+  if (typeof contextSummary === 'string') return contextSummary;
+  if (isContextMessage(summary)) {
+    return textOf(summary);
+  }
+  throw new Error('Invalid context.apply_compaction record: missing summary');
+}
+
+function readLegacySummaryMessage(record: UnknownRecord): ContextMessage | undefined {
+  const summary = record['summary'];
+  return isContextMessage(summary) ? summary : undefined;
+}
+
+function readOptionalNumber(record: UnknownRecord, key: string): number | undefined {
+  const value = record[key];
+  return typeof value === 'number' ? value : undefined;
+}
+
+function readOptionalString(record: UnknownRecord, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function textOf(message: ContextMessage): string {
+  let text = '';
+  for (const part of message.content) {
+    if (part.type === 'text') text += part.text;
+  }
+  return text;
+}
+
+function isContextMessage(value: unknown): value is ContextMessage {
+  if (value === null || typeof value !== 'object') return false;
+  const message = value as { role?: unknown; content?: unknown };
+  return typeof message.role === 'string' && Array.isArray(message.content);
+}
 
 export interface ContextUndoPayload {
   readonly count: number;

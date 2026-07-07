@@ -406,7 +406,7 @@ export class SessionLegacyService implements ISessionLegacyService {
     const model = profile.getModel();
     const caps = profile.getModelCapabilities() as { max_context_tokens?: number };
     const maxTokens = caps.max_context_tokens ?? 0;
-    const tokens = contextSize.getStatus().contextTokens;
+    const tokens = contextSize.get().measured;
     const planData = await plan.status();
 
     return {
