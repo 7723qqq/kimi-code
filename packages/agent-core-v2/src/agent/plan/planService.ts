@@ -5,7 +5,7 @@ import {
 } from 'node:crypto';
 import {
   dirname,
-  join
+  resolve
 } from 'pathe';
 
 import { Disposable } from "#/_base/di/lifecycle";
@@ -15,6 +15,7 @@ import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInj
 import { PlanModeInjection } from '#/agent/plan/injection/planModeInjection';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import { IAgentWireService } from '#/wire/tokens';
 import type { IWireService } from '#/wire/wireService';
@@ -37,6 +38,7 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IHostFileSystem private readonly hostFs: IHostFileSystem,
     @IAgentProfileService private readonly profile: IAgentProfileService,
+    @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
     @IAgentTelemetryContextService private readonly telemetryContext: IAgentTelemetryContextService,
     @IAgentWireService private readonly wire: IWireService,
@@ -126,7 +128,19 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
   }
 
   private planFilePathFor(id: string): string {
-    return join(this.currentCwd(), 'plan', `${id}.md`);
+    // Anchor the plan file to the same root the file tools resolve relative
+    // paths against. When the profile carries a cwd (normal CLI / TUI case) it
+    // is used; otherwise fall back to the session workDir so the plan path is
+    // always absolute and matches the tool-resolved path. A relative plan path
+    // would both land in `process.cwd()` (via `IHostFileSystem`) and fail the
+    // plan-mode guard's absolute-path comparison (server-v2 binds the agent
+    // without a cwd, leaving the profile cwd empty).
+    return resolve(this.planRoot(), 'plan', `${id}.md`);
+  }
+
+  private planRoot(): string {
+    const cwd = this.profile.data().cwd;
+    return cwd.length > 0 ? cwd : this.workspace.workDir;
   }
 
   private async writeEmptyPlanFile(path: string): Promise<void> {
@@ -136,10 +150,6 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
 
   private async ensurePlanDirectory(path: string): Promise<void> {
     await this.hostFs.mkdir(dirname(path), { recursive: true });
-  }
-
-  private currentCwd(): string {
-    return this.profile.data().cwd;
   }
 }
 

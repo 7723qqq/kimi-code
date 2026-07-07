@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import type { ToolCall } from '#/app/llmProtocol/message';
-import { join } from 'pathe';
+import { isAbsolute, join, resolve } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
@@ -11,6 +11,7 @@ import { IAgentPlanService, type PlanData } from '#/agent/plan/plan';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { ISessionProcessRunner } from '#/session/process/processRunner';
 import { createFakeHostFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 import {
@@ -216,6 +217,25 @@ describe('Plan service', () => {
       });
 
       expect(await expectActivePlanPath()).toBe(livePath);
+    });
+
+    it('falls back to an absolute workDir-anchored plan path when the profile cwd is empty', async () => {
+      // Regression for server-v2: the agent is bound without a cwd, so the
+      // profile cwd is empty. The plan path must still be absolute and anchored
+      // to the session workDir, matching the path the Write tool resolves to —
+      // otherwise the plan-mode guard denies writes to the plan file, and the
+      // plan file lands in `process.cwd()` instead of the session workDir.
+      useFakes(createPlanFakes({
+        writeText: vi.fn(async (_path: string, _content: string): Promise<void> => {}),
+      }));
+      profile.update({ cwd: '' });
+      const workDir = ctx.get(ISessionWorkspaceContext).workDir;
+
+      await plan.enter('workdir-plan');
+
+      const planPath = await expectActivePlanPath();
+      expect(isAbsolute(planPath)).toBe(true);
+      expect(planPath).toBe(resolve(workDir, 'plan', 'workdir-plan.md'));
     });
 
     it('enters plan mode through the EnterPlanMode tool and reminds the next step', async () => {
