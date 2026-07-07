@@ -12,16 +12,16 @@ import { resolve } from 'pathe';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { ILogService } from '#/_base/log';
+import { ILogService } from '#/_base/log/log';
 import { resolveGlobalLogPath } from '#/_base/log/logConfig';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
-import { IBootstrapService } from '#/app/bootstrap';
-import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex';
-import { ISessionLifecycleService } from '#/app/sessionLifecycle';
-import { IWorkspaceRegistry } from '#/app/workspaceRegistry';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
+import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
+import { IWorkspaceRegistry } from '#/app/workspaceRegistry/workspaceRegistry';
 import { ErrorCodes, KimiError } from '#/errors';
-import { IAgentLifecycleService } from '#/session/agentLifecycle';
-import { ISessionMetadata } from '#/session/sessionMetadata';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 
 import { buildExportManifest, type ExportSessionManifestSummary } from './manifest';
 import {

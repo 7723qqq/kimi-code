@@ -12,7 +12,8 @@
  * in `tool-access`, execution hook contexts in `toolHooks`. No scoped service.
  */
 
-import type { ContentPart, Tool, ToolCall } from '#/app/llmProtocol';
+import type { ContentPart, ToolCall } from '#/app/llmProtocol/message';
+import type { Tool } from '#/app/llmProtocol/tool';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import type { ToolAccesses } from './tool-access';
 

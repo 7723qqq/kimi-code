@@ -1,18 +1,15 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import type { Tool as KosongTool } from '#/app/llmProtocol';
+import type { Tool as KosongTool } from '#/app/llmProtocol/tool';
 
-import {
-  Disposable,
-  type IDisposable,
-} from "#/_base/di";
+import { Disposable, type IDisposable } from "#/_base/di/lifecycle";
 import { ErrorCodes, makeErrorPayload } from "#/errors";
 import type {
   ErrorEvent,
   McpServerStatusEvent,
   ToolListUpdatedEvent,
 } from '@moonshot-ai/protocol';
-import { IEventBus } from '#/app/event';
+import { IEventBus } from '#/app/event/eventBus';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { createMcpAuthTool } from '#/agent/mcp/tools/auth';

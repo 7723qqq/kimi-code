@@ -24,7 +24,7 @@ import type {
   OsKind,
   PathClass,
   ShellName,
-} from '#/_base/execEnv';
+} from '#/_base/execEnv/environmentProbe';
 
 export type { HostEnvironmentInfo, OsKind, PathClass, ShellName };
 

@@ -14,24 +14,19 @@ import type { PermissionData, PermissionMode } from '#/agent/permissionPolicy';
 import type { PlanData } from '#/agent/plan';
 import type { SwarmModeTrigger } from '#/agent/swarm';
 import type { ToolInfo } from '#/agent/tool';
-import type { ResolvedConfig } from '#/app/config';
+import type { ResolvedConfig } from '#/app/config/config';
 import type { McpServerConfig } from '#/agent/mcp';
-import type { ExperimentalFeatureState } from '#/app/flag';
+import type { ExperimentalFeatureState } from '#/app/flag/flag';
 import type { ResumeSessionResult } from '#/agent/replayBuilder/types';
-import type { SessionMeta } from '#/session/sessionMetadata';
-import type { ContentPart } from '#/app/llmProtocol';
+import type { SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
+import type { ContentPart } from '#/app/llmProtocol/message';
 import type { SessionWarning, UsageStatus } from '@moonshot-ai/protocol';
 
-import type { ExportSessionPayload, ExportSessionResult } from '#/app/sessionExport';
-import type { PluginCommandDef, PluginInfo, PluginSummary, ReloadSummary } from '#/app/plugin';
+import type { ExportSessionPayload, ExportSessionResult } from '#/app/sessionExport/sessionExport';
+import type { PluginCommandDef, PluginInfo, PluginSummary, ReloadSummary } from '#/app/plugin/types';
 import type { WithAgentId, WithSessionId } from './types';
 
-export type {
-  ExportSessionManifest,
-  ExportSessionPayload,
-  ExportSessionResult,
-  ShellEnvironment,
-} from '#/app/sessionExport';
+export type { ExportSessionManifest, ExportSessionPayload, ExportSessionResult, ShellEnvironment } from '#/app/sessionExport/sessionExport';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };

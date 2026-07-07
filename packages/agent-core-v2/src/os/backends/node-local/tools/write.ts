@@ -22,7 +22,7 @@ import { z } from 'zod';
 
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { type HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { ToolAccesses } from '#/agent/tool';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 import { registerTool } from '#/agent/toolRegistry';

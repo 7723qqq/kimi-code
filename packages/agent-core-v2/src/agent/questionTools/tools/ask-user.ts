@@ -12,8 +12,8 @@ import { z } from 'zod';
 
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { IAgentTaskService } from '#/agent/task';
-import { ITelemetryService } from '#/app/telemetry';
-import type { TelemetryProperties } from '#/app/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { TelemetryProperties } from '#/app/telemetry/telemetry';
 import type {
   BuiltinTool,
   ExecutableToolContext,

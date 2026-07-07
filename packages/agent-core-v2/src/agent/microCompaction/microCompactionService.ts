@@ -15,26 +15,24 @@
  * Agent scope.
  */
 
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import {
-  Disposable,
-} from "#/_base/di";
+import { Disposable } from "#/_base/di/lifecycle";
 import {
   estimateTokensForContentParts,
   estimateTokensForMessages,
 } from "#/_base/utils/tokens";
-import type { TelemetryProperties } from '#/app/telemetry';
-import { IConfigService } from '#/app/config';
-import { IEventBus } from '#/app/event';
+import type { TelemetryProperties } from '#/app/telemetry/telemetry';
+import { IConfigService } from '#/app/config/config';
+import { IEventBus } from '#/app/event/eventBus';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentContextSizeService } from '#/agent/contextSize';
-import { IFlagService } from '#/app/flag';
+import { IFlagService } from '#/app/flag/flag';
 import { IAgentLoopService } from '#/agent/loop';
 import { IAgentProfileService } from '#/agent/profile';
-import { ITelemetryService } from '#/app/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentWireService, type IWireService } from '#/wire';
 import {

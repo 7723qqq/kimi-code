@@ -2,7 +2,7 @@
  * `profile` domain error codes — model/provider configuration failures.
  */
 
-import { registerErrorDomain, type ErrorDomain } from '#/_base/errors';
+import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 
 export const ProfileErrors = {
   codes: {

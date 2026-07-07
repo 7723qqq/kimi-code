@@ -1,5 +1,6 @@
-import { createDecorator } from '#/_base/di';
-import type { Message, TokenUsage } from '#/app/llmProtocol';
+import { createDecorator } from '#/_base/di/instantiation';
+import type { Message } from '#/app/llmProtocol/message';
+import type { TokenUsage } from '#/app/llmProtocol/usage';
 
 export interface ContextSizeStatus {
   readonly contextTokens: number;

@@ -39,7 +39,7 @@ import { z } from 'zod';
 
 import type { ExecutableTool as BuiltinTool, ToolExecution } from '#/agent/tool';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import { ISessionCronService } from '#/session/cron';
+import { ISessionCronService } from '#/session/cron/sessionCronService';
 import CRON_DELETE_DESCRIPTION from './cron-delete.md?raw';
 
 // ── Constants ────────────────────────────────────────────────────────

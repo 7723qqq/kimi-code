@@ -5,7 +5,7 @@
  * `IAgentMicroCompactionService` used by context projection. Bound at Agent scope.
  */
 
-import { createDecorator } from "#/_base/di";
+import { createDecorator } from "#/_base/di/instantiation";
 import type { ContextMessage } from '#/agent/contextMemory';
 
 export interface MicroCompactionConfig {

@@ -4,15 +4,10 @@ import { Readable } from 'node:stream';
 import { join } from 'pathe';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import {
-  APIConnectionError,
-  APIEmptyResponseError,
-  APIStatusError,
-  APITimeoutError,
-  type ModelCapability,
-  type ProviderRequestAuth,
-  type ToolCall,
-} from '#/app/llmProtocol';
+import { type ModelCapability } from '#/app/llmProtocol/capability';
+import { APIConnectionError, APIEmptyResponseError, APIStatusError, APITimeoutError } from '#/app/llmProtocol/errors';
+import { type ToolCall } from '#/app/llmProtocol/message';
+import { type ProviderRequestAuth } from '#/app/llmProtocol/request';
 import type { ChatProvider } from '#/app/llmProtocol/provider';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -20,11 +15,11 @@ import { abortError, abortable } from '#/_base/utils/abort';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IOAuthService } from '#/app/auth';
-import { IAgentTelemetryContextService } from '#/app/telemetry';
+import { IOAuthService } from '#/app/auth/auth';
+import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import { ErrorCodes, KimiError } from '#/errors';
 import { HookEngine } from '#/agent/externalHooks/engine';
-import type { ILogger as Logger, LogPayload } from '#/_base/log';
+import type { ILogger as Logger, LogPayload } from '#/_base/log/log';
 import { IAgentMcpService } from '#/agent/mcp';
 import { McpConnectionManager } from '#/agent/mcp/connection-manager';
 import { registerMediaTools, type VideoUploader } from '#/agent/media';
@@ -33,11 +28,11 @@ import { IAgentProfileService } from '#/agent/profile';
 import { IAgentSwarmService } from '#/agent/swarm';
 import { IAgentTurnService } from '#/agent/turn';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import type { IProcess, ISessionProcessRunner } from '#/session/process';
+import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 import type {
   SessionSwarmRunResult as QueuedSubagentRunResult,
   SessionSwarmTask as QueuedSubagentTask,
-} from '#/session/swarm';
+} from '#/session/swarm/sessionSwarm';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import { createFakeHostFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 import {

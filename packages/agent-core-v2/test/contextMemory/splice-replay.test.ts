@@ -24,7 +24,7 @@ import {
   IAgentContextMemoryService,
   type ContextMessage,
 } from '#/agent/contextMemory';
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';

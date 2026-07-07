@@ -1,6 +1,4 @@
-import {
-  type Message
-} from '#/app/llmProtocol';
+import { type Message } from '#/app/llmProtocol/message';
 import { describe, expect, it } from 'vitest';
 
 import { estimateTokensForMessages } from '#/_base/utils/tokens';

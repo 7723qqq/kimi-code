@@ -16,7 +16,7 @@ import type { FsBrowseEntry, FsBrowseResponse, FsHomeResponse } from '@moonshot-
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IWorkspaceRegistry } from '#/app/workspaceRegistry';
+import { IWorkspaceRegistry } from '#/app/workspaceRegistry/workspaceRegistry';
 
 import {
   HostFolderNotAbsoluteError,

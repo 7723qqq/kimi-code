@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { SyncDescriptor } from '#/_base/di';
+import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import type { TestInstantiationService } from '#/_base/di/test';
@@ -26,13 +26,13 @@ import {
 } from '#/agent/permissionRules';
 import { IAgentPlanService } from '#/agent/plan';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile';
-import { ISessionContext, makeSessionContext } from '#/session/sessionContext';
+import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { IAgentSwarmService } from '#/agent/swarm';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IAgentTurnService } from '#/agent/turn';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
-import type { ToolCall } from '#/app/llmProtocol';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import type { ToolCall } from '#/app/llmProtocol/message';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 
 import { stubApprovalService } from '../approval/stubs';

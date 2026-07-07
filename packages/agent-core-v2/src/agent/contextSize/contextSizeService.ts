@@ -14,13 +14,14 @@
  * persisted (see `contextSizeOps`). Bound at Agent scope.
  */
 
-import { Disposable } from '#/_base/di';
+import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { estimateTokensForMessage } from '#/_base/utils/tokens';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import type { Message, TokenUsage } from '#/app/llmProtocol';
+import type { Message } from '#/app/llmProtocol/message';
+import type { TokenUsage } from '#/app/llmProtocol/usage';
 import { IAgentWireService, type IWireService } from '#/wire';
 
 import { IAgentContextSizeService, type ContextSizeStatus } from './contextSize';

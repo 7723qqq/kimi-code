@@ -13,7 +13,7 @@
  * itself stays flat. Bound at Session scope.
  */
 
-import type { TokenUsage } from '#/app/llmProtocol';
+import type { TokenUsage } from '#/app/llmProtocol/usage';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -21,19 +21,14 @@ import { linkAbortSignal } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { IAgentProfileService } from '#/agent/profile';
 import type { SubagentSuspendedEvent } from '@moonshot-ai/protocol';
-import { IEventBus } from '#/app/event';
-import {
-  applyProfilePromptPrefix,
-  IAgentProfileCatalogService,
-} from '#/app/agentProfileCatalog';
-import {
-  emitAgentRunSpawned,
-  IAgentLifecycleService,
-  mirrorAgentRun,
-} from '#/session/agentLifecycle';
-import { ISessionContext } from '#/session/sessionContext';
-import { ISessionProcessRunner } from '#/session/process';
-import { ILogService } from '#/_base/log';
+import { IEventBus } from '#/app/event/eventBus';
+import { IAgentProfileCatalogService } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/agentLifecycle/mirrorAgentRun';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionProcessRunner } from '#/session/process/processRunner';
+import { ILogService } from '#/_base/log/log';
 
 import {
   ISessionSwarmService,

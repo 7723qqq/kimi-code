@@ -1,4 +1,4 @@
-import { createDecorator } from "#/_base/di";
+import { createDecorator } from "#/_base/di/instantiation";
 import type { SkillActivationOrigin } from '#/agent/contextMemory';
 import type { Turn } from '#/agent/turn';
 

@@ -11,8 +11,8 @@
 
 import { ErrorCodes, KimiError } from '#/errors';
 import type { McpServerConfig } from './config-schema';
-import type { ILogger as Logger } from '#/_base/log';
-import type { Tool } from '#/app/llmProtocol';
+import type { ILogger as Logger } from '#/_base/log/log';
+import type { Tool } from '#/app/llmProtocol/tool';
 
 import { abortable } from '#/_base/utils/abort';
 import { HttpMcpClient } from './client-http';

@@ -5,7 +5,8 @@
  * be exercised without the missing composition root.
  */
 
-import type { ContentPart, ModelCapability } from '#/app/llmProtocol';
+import type { ModelCapability } from '#/app/llmProtocol/capability';
+import type { ContentPart } from '#/app/llmProtocol/message';
 import { Jimp } from 'jimp';
 import { describe, expect, it, vi } from 'vitest';
 

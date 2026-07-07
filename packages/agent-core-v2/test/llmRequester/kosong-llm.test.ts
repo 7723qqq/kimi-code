@@ -1,4 +1,6 @@
-import { APIConnectionError, emptyUsage, type StreamedMessagePart } from '#/app/llmProtocol';
+import { APIConnectionError } from '#/app/llmProtocol/errors';
+import { type StreamedMessagePart } from '#/app/llmProtocol/message';
+import { emptyUsage } from '#/app/llmProtocol/usage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -7,7 +9,7 @@ import {
   type LLMRequestRetryContext,
 } from '#/agent/llmRequester';
 import { IAgentProfileService } from '#/agent/profile';
-import type { ILogger as Logger, LogPayload } from '#/_base/log';
+import type { ILogger as Logger, LogPayload } from '#/_base/log/log';
 import {
   configServices,
   createTestAgent,

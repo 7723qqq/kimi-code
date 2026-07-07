@@ -25,7 +25,7 @@
  * helpers stay private so callers cannot bypass the limits.
  */
 
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 
 import { compressImageContentParts } from '#/_base/tools/support/image-compress';
 import { persistOriginalImage } from '#/_base/tools/support/image-originals';

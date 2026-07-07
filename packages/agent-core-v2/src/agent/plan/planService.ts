@@ -8,15 +8,14 @@ import {
   join
 } from 'pathe';
 
-import {
-  Disposable,
-} from "#/_base/di";
+import { Disposable } from "#/_base/di/lifecycle";
 import { generateHeroSlug } from "#/_base/utils/hero-slug";
 import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IAgentProfileService } from '#/agent/profile';
-import { IAgentTelemetryContextService, ITelemetryService } from '#/app/telemetry';
+import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentWireService, type IWireService } from '#/wire';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import type { ExecutableToolResult } from '#/agent/tool';

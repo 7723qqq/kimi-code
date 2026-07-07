@@ -10,7 +10,7 @@
 
 import { type Readable } from 'node:stream';
 
-import { type IProcess, type ISessionProcessRunner } from '#/session/process';
+import { type IProcess, type ISessionProcessRunner } from '#/session/process/processRunner';
 
 export interface RunResult {
   readonly exitCode: number;

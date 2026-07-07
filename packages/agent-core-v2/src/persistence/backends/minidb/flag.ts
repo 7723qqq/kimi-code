@@ -8,7 +8,7 @@
  * the backend barrel.
  */
 
-import { type FlagDefinitionInput, registerFlagDefinition } from '#/app/flag';
+import { type FlagDefinitionInput, registerFlagDefinition } from '#/app/flag/flagRegistry';
 
 export const persistenceMiniDbReadModelFlag: FlagDefinitionInput = {
   id: 'persistence_minidb_readmodel',

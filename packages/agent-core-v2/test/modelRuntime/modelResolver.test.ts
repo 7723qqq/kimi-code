@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { IOAuthService } from '#/app/auth';
-import { IConfigService } from '#/app/config';
-import { IModelResolver } from '#/app/model';
+import { IOAuthService } from '#/app/auth/auth';
+import { IConfigService } from '#/app/config/config';
+import { IModelResolver } from '#/app/model/modelResolver';
 import { createAppScope } from '#/_base/di/scope';
 import { ErrorCodes, KimiError } from '#/errors';
 // Load every domain barrel so all App-scope services (provider / platform /

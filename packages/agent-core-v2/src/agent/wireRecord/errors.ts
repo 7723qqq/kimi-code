@@ -2,7 +2,7 @@
  * `wireRecord` domain error codes — record persistence failures.
  */
 
-import { registerErrorDomain, type ErrorDomain } from '#/_base/errors';
+import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 
 export const WireRecordErrors = {
   codes: {

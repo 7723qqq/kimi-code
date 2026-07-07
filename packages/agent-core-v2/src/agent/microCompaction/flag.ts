@@ -5,7 +5,7 @@
  * flag is available process-wide before any consumer resolves `IFlagService`.
  */
 
-import { type FlagDefinitionInput, registerFlagDefinition } from '#/app/flag';
+import { type FlagDefinitionInput, registerFlagDefinition } from '#/app/flag/flagRegistry';
 
 export const microCompactionFlag: FlagDefinitionInput = {
   id: 'micro_compaction',

@@ -11,7 +11,8 @@
 
 import type { Readable, Writable } from 'node:stream';
 
-import { KimiError, type ErrorCode } from '#/_base/errors';
+import type { ErrorCode } from '#/_base/errors/codes';
+import { KimiError } from '#/_base/errors/errors';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
 export interface HostProcessOptions {

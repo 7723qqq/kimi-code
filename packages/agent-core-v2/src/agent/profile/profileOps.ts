@@ -26,7 +26,7 @@
  * Consumed by the Agent-scope `profileService`.
  */
 
-import type { ThinkingEffort } from '#/app/llmProtocol';
+import type { ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
 import { defineModel, defineOp } from '#/wire';
 
 export interface ProfileModelState {

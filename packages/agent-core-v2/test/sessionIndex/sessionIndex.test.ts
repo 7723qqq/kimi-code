@@ -5,12 +5,12 @@ import os from 'node:os';
 import { join } from 'node:path';
 
 import { InstantiationType } from '#/_base/di/extensions';
-import { ILogService } from '#/_base/log';
+import { ILogService } from '#/_base/log/log';
 import { LifecycleScope, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
-import { IBootstrapService } from '#/app/bootstrap';
-import { IFlagService } from '#/app/flag';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IFlagService } from '#/app/flag/flag';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
 import { FileSessionIndex } from '#/app/sessionIndex/sessionIndexService';
 import { MiniDbQueryStore } from '#/persistence/backends/minidb/miniDbQueryStore';

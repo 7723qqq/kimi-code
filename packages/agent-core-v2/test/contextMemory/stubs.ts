@@ -7,7 +7,7 @@
  * `../contextMemory/stubs`).
  */
 
-import { toDisposable } from '#/_base/di';
+import { toDisposable } from '#/_base/di/lifecycle';
 import type { ServiceRegistration } from '#/_base/di/test';
 import { createHooks } from '#/hooks';
 import type { Hooks } from '#/hooks';

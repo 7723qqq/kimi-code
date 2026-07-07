@@ -10,7 +10,7 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionInteractionService } from '#/session/interaction';
+import { ISessionInteractionService } from '#/session/interaction/interaction';
 import { IAgentTurnService } from '#/agent/turn';
 
 import { ISessionActivity, type SessionStatus } from './sessionActivity';

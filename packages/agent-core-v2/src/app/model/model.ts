@@ -28,8 +28,8 @@ import { z } from 'zod';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { Event } from '#/_base/event';
-import { OAuthRefSchema } from '#/app/provider';
-import { ProtocolSchema } from '#/app/protocol';
+import { OAuthRefSchema } from '#/app/provider/provider';
+import { ProtocolSchema } from '#/app/protocol/protocol';
 
 export const MODELS_SECTION = 'models';
 

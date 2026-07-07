@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { LifecycleScope } from '#/_base/di/scope';
-import { IBootstrapService } from '#/app/bootstrap';
-import { IPluginService } from '#/app/plugin';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IPluginService } from '#/app/plugin/plugin';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import '#/app/skillCatalog';
 import '#/session/sessionSkillCatalog';
 import '#/agent/skill';;

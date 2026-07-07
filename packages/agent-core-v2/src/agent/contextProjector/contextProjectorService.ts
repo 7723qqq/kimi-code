@@ -1,12 +1,10 @@
-import {
-  IInstantiationService,
-} from "#/_base/di";
+import { IInstantiationService } from "#/_base/di/instantiation";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IAgentMicroCompactionService } from '#/agent/microCompaction';
-import type { ContentPart, Message } from '#/app/llmProtocol';
+import type { ContentPart, Message } from '#/app/llmProtocol/message';
 import { IAgentContextProjectorService } from './contextProjector';
 
 export class AgentContextProjectorService implements IAgentContextProjectorService {

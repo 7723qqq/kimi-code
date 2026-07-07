@@ -8,7 +8,7 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex';
+import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
 
 import { IWorkspaceQueryService, RECENT_SESSIONS_LIMIT } from './workspaceQuery';
 

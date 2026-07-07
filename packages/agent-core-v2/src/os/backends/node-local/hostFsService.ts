@@ -9,7 +9,7 @@ import { open, readFile, readdir, stat, mkdir, rm, writeFile } from 'node:fs/pro
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { decodeTextWithErrors, type TextDecodeErrors } from '#/_base/execEnv';
+import { decodeTextWithErrors, type TextDecodeErrors } from '#/_base/execEnv/decodeText';
 
 import { type HostDirEntry, type HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 

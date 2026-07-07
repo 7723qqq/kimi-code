@@ -5,9 +5,9 @@
  * loads them back on read. Bound at Agent scope.
  */
 
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 
-import { createDecorator } from "#/_base/di";
+import { createDecorator } from "#/_base/di/instantiation";
 
 export const BLOBREF_PROTOCOL = 'blobref:';
 export const MISSING_MEDIA_PLACEHOLDER = '[media missing]';

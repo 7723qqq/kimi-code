@@ -14,15 +14,11 @@ import type {
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester';
 import type { ToolResult } from '#/agent/tool';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import { IConfigService } from '#/app/config';
-import { IEventBus } from '#/app/event';
-import {
-  createToolMessage,
-  type ContentPart,
-  type FinishReason,
-  type StreamedMessagePart,
-  type TokenUsage,
-} from '#/app/llmProtocol';
+import { IConfigService } from '#/app/config/config';
+import { IEventBus } from '#/app/event/eventBus';
+import { type FinishReason } from '#/app/llmProtocol/finishReason';
+import { createToolMessage, type ContentPart, type StreamedMessagePart } from '#/app/llmProtocol/message';
+import { type TokenUsage } from '#/app/llmProtocol/usage';
 import { ErrorCodes, KimiError } from '#/errors';
 import { OrderedHookSlot } from '#/hooks';
 

@@ -1,4 +1,4 @@
-import type { ToolCall } from '#/app/llmProtocol';
+import type { ToolCall } from '#/app/llmProtocol/message';
 import type { AgentEvent, ToolInputDisplay } from '@moonshot-ai/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -11,7 +11,7 @@ import { IAgentToolRegistryService, AgentToolRegistryService } from '#/agent/too
 import { IAgentWireRecordService } from '#/agent/wireRecord';
 import { IAgentWireService, WireService } from '#/wire';
 import { IEventBus } from '#/app/event/eventBus';
-import { ITelemetryService } from '#/app/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { stubWireRecord } from '../contextMemory/stubs';
 import { registerLogServices } from '../log/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';

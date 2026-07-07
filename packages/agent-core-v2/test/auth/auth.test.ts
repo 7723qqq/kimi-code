@@ -14,7 +14,8 @@ import { IAuthSummaryService, IOAuthService, IOAuthToolkit } from '#/app/auth/au
 import { AuthSummaryService, OAuthService } from '#/app/auth/authService';
 import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
 import { WebSearchProviderService } from '#/app/auth/webSearch/webSearchService';
-import { AuthLegacyService, IAuthLegacyService } from '#/app/authLegacy';
+import { IAuthLegacyService } from '#/app/authLegacy/authLegacy';
+import { AuthLegacyService } from '#/app/authLegacy/authLegacyService';
 import { IConfigService } from '#/app/config/config';
 import { type DomainEvent, IEventService } from '#/app/event/event';
 import { ILogService } from '#/_base/log/log';

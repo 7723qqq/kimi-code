@@ -18,7 +18,8 @@
  * server consumer, not here. Agent-scope; scope-agnostic contract.
  */
 
-import { createDecorator, type IDisposable, type ServiceIdentifier } from '#/_base/di';
+import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import { type IDisposable } from '#/_base/di/lifecycle';
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface DomainEventMap {}

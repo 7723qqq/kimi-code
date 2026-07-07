@@ -13,7 +13,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
 import { projectRoots } from '#/app/skillCatalog/skillRoots';
 import type { ISkillSource, SkillContribution } from '#/app/skillCatalog/skillSource';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 
 export interface IWorkspaceFileSkillSource extends ISkillSource {
   readonly _serviceBrand: undefined;

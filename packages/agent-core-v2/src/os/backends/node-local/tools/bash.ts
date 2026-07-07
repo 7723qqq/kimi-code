@@ -34,9 +34,8 @@ import { z } from 'zod';
 
 import { IAgentTaskService } from '#/agent/task';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { ISessionContext } from '#/session/sessionContext';
-import { ISessionProcessRunner } from '#/session/process';
-import type { IProcess } from '#/session/process';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionProcessRunner, type IProcess } from '#/session/process/processRunner';
 import { IAgentProfileService } from '#/agent/profile';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution, ToolUpdate } from '#/agent/tool';
 import { ToolResultBuilder } from '#/agent/tool/result-builder';

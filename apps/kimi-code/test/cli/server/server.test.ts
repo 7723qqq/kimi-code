@@ -693,11 +693,11 @@ describe('server-v2 routing (KIMI_CODE_EXPERIMENTAL_FLAG)', () => {
     }
   });
 
-  it('is the canonical experimental-v2 gate shared with the `kimi v2` prefix', async () => {
+  it('is the canonical experimental-v2 gate shared with the `kimi beta` prefix', async () => {
     const { isServerV2Enabled } = await import('#/cli/sub/server/run');
     const { isKimiV2Enabled, KIMI_V2_ENV } = await import('#/cli/experimental-v2');
     expect(KIMI_V2_ENV).toBe('KIMI_CODE_EXPERIMENTAL_FLAG');
-    // Server routing and the `kimi v2` prefix must agree on the exact same gate.
+    // Server routing and the `kimi beta` prefix must agree on the exact same gate.
     expect(isServerV2Enabled).toBe(isKimiV2Enabled);
   });
 });

@@ -23,7 +23,7 @@ import {
 } from '#/agent/contextProjector';
 import { IAgentMicroCompactionService } from '#/agent/microCompaction';
 import { ErrorCodes, KimiError } from '#/errors';
-import type { ContentPart, Message, TextPart, ToolCall } from '#/app/llmProtocol';
+import type { ContentPart, Message, TextPart, ToolCall } from '#/app/llmProtocol/message';
 
 // ---------------------------------------------------------------------------
 // Legacy implementation (verbatim copy of the pre-rewrite `project`)

@@ -31,7 +31,7 @@
  *   data that was compacted away during the session.
  */
 
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 import { defineModel, defineOp, type PartsTransformer } from '#/wire';
 import type { PersistedRecord } from '#/wire';
 

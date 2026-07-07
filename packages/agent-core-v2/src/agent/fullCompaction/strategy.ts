@@ -1,7 +1,7 @@
-import type { Message } from '#/app/llmProtocol';
+import type { Message } from '#/app/llmProtocol/message';
 import type { ProfileModelContext } from '#/agent/profile';
 import type { CompactionSource } from './types';
-import { estimateTokensForMessage } from '#/_base/utils';
+import { estimateTokensForMessage } from '#/_base/utils/tokens';
 
 export interface CompactionConfig {
   triggerRatio: number;

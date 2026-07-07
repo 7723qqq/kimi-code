@@ -20,11 +20,11 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
-import { ILogService } from '#/_base/log';
-import { IFlagService } from '#/app/flag';
+import { ILogService } from '#/_base/log/log';
+import { IFlagService } from '#/app/flag/flag';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IQueryStore } from '#/persistence/interface/queryStore';
-import { ISessionContext } from '#/session/sessionContext';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 
 import {
   ISessionMetadata,

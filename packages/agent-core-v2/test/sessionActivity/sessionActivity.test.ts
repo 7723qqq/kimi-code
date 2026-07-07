@@ -6,7 +6,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { type IAgentScopeHandle, LifecycleScope } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionInteractionService, type Interaction, type InteractionKind } from '#/session/interaction';
+import { ISessionInteractionService, type Interaction, type InteractionKind } from '#/session/interaction/interaction';
 import { ISessionActivity } from '#/session/sessionActivity/sessionActivity';
 import { SessionActivity } from '#/session/sessionActivity/sessionActivityService';
 import { IAgentTurnService, type Turn } from '#/agent/turn';

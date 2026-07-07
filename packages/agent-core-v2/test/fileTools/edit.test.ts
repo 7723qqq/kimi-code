@@ -15,11 +15,12 @@ import { PathSecurityError } from '../../src/_base/tools/policies/path-access';
 import { stubWorkspaceContext } from './stub-workspace-context';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
-import { type EditInput, EditInputSchema, EditTool } from '#/app/edit';
-import { FileEditService, IFileEditService } from '#/app/edit';
+import { type EditInput, EditInputSchema, EditTool } from '#/app/edit/tools/edit';
+import { IFileEditService } from '#/app/edit/fileEdit';
+import { FileEditService } from '#/app/edit/fileEditService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 const signal = new AbortController().signal;

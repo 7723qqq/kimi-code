@@ -15,11 +15,8 @@
  * flow.
  */
 
-import {
-  APIProviderRateLimitError,
-  isProviderRateLimitError,
-  type TokenUsage,
-} from '#/app/llmProtocol';
+import { APIProviderRateLimitError, isProviderRateLimitError } from '#/app/llmProtocol/errors';
+import { type TokenUsage } from '#/app/llmProtocol/usage';
 
 import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
@@ -32,7 +29,7 @@ import { ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from '#/errors'
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentUsageService } from '#/agent/usage';
 import type { Turn } from '#/agent/turn';
-import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog';
+import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
 
 import type { AgentRunHandle, AgentRunRequest } from './agentLifecycle';
 

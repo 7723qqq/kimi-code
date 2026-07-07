@@ -7,7 +7,7 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { ISessionInteractionService } from '#/session/interaction';
+import { ISessionInteractionService } from '#/session/interaction/interaction';
 
 import {
   type QuestionRequest,

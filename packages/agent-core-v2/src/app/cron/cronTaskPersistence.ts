@@ -8,7 +8,7 @@
  * `ISessionCronService` at Session scope. Bound at App scope.
  */
 
-import { createDecorator } from '#/_base/di';
+import { createDecorator } from '#/_base/di/instantiation';
 
 import type { CronTask } from './cronTask';
 

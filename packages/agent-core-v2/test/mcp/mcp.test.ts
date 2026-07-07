@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@moonshot-ai/protocol';
-import type { ContentPart, Tool as KosongTool } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
+import type { Tool as KosongTool } from '#/app/llmProtocol/tool';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';

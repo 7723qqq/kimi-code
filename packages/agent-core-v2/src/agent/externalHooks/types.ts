@@ -1,4 +1,4 @@
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 
 export const HOOK_EVENT_TYPES = [
   'PreToolUse',

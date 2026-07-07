@@ -8,18 +8,18 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
-import { IBootstrapService } from '#/app/bootstrap';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IEventService } from '#/app/event';
-import { IAgentLifecycleService } from '#/session/agentLifecycle';
+import { IEventService } from '#/app/event/event';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
 import { SessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycleService';
-import { ISessionMetadata } from '#/session/sessionMetadata';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
-import { ISessionIndex } from '#/app/sessionIndex';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { IWorkspaceRegistry, type Workspace } from '#/app/workspaceRegistry';
+import { IWorkspaceRegistry, type Workspace } from '#/app/workspaceRegistry/workspaceRegistry';
 
 function bootstrapStub(): IBootstrapService {
   return {

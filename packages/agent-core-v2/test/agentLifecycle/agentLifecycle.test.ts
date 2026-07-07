@@ -8,12 +8,12 @@ import { IAgentMcpService, type McpServerConfig } from '#/agent/mcp';
 import { McpConnectionManager } from '#/agent/mcp/connection-manager';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { AgentLifecycleService } from '#/session/agentLifecycle/agentLifecycleService';
-import { IBootstrapService } from '#/app/bootstrap';
-import { IConfigService } from '#/app/config';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
 import { IAgentBlobService } from '#/agent/blob';
 import { IPluginSessionStartInjectorService } from '#/agent/contextInjector';
-import { ILogService } from '#/_base/log';
-import { IPluginService } from '#/app/plugin';
+import { ILogService } from '#/_base/log/log';
+import { IPluginService } from '#/app/plugin/plugin';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -21,7 +21,7 @@ import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { AGENT_WIRE_PROTOCOL_VERSION, type PersistedWireRecord } from '#/agent/wireRecord';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IAgentToolRegistryService, _clearToolContributionsForTests } from '#/agent/toolRegistry';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 
 const noopLog = {

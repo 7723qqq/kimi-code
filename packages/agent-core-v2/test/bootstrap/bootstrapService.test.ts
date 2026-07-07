@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { createScopedTestHost } from '#/_base/di/test';
-import { IBootstrapService, bootstrapSeed, resolveBootstrapOptions } from '#/app/bootstrap';
+import { IBootstrapService, bootstrapSeed, resolveBootstrapOptions } from '#/app/bootstrap/bootstrap';
 import { bootstrap } from '#/app/bootstrap/bootstrap';
 import { BootstrapService } from '#/app/bootstrap/bootstrapService';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';

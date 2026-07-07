@@ -7,7 +7,7 @@
  * event is derived from the `usage.record` Op's `toEvent`. Bound at Agent scope.
  */
 
-import { type TokenUsage } from '#/app/llmProtocol';
+import { type TokenUsage } from '#/app/llmProtocol/usage';
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';

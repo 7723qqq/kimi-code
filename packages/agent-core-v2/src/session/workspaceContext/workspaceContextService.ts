@@ -10,7 +10,7 @@ import { isAbsolute, relative, resolve } from 'node:path';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { ISessionContext } from '#/session/sessionContext';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 
 import { ISessionWorkspaceContext, type PathAccessOperation } from './workspaceContext';
 

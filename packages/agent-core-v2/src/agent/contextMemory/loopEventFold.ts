@@ -32,7 +32,7 @@
  * concurrent replays of different agent scopes never share fold state.
  */
 
-import { createToolMessage, type ContentPart, type ToolCall } from '#/app/llmProtocol';
+import { createToolMessage, type ContentPart, type ToolCall } from '#/app/llmProtocol/message';
 
 import type { ContextMessage } from './types';
 

@@ -7,7 +7,7 @@
  * persisted to `config.toml`.
  */
 
-import { type ConfigStripEnv, type EnvBindings, envBindings } from '#/app/config';
+import { type ConfigStripEnv, type EnvBindings, envBindings } from '#/app/config/config';
 import { registerConfigSection } from '#/app/config/configSectionContributions';
 
 export const CRON_SECTION = 'cron';

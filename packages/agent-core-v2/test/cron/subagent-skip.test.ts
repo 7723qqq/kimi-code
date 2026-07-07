@@ -16,7 +16,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ISessionCronService } from '#/session/cron';
+import { ISessionCronService } from '#/session/cron/sessionCronService';
 import { IAgentProfileService } from '#/agent/profile';
 import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 

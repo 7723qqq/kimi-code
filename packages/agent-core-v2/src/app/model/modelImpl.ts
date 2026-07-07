@@ -18,20 +18,15 @@
  */
 
 import { AsyncEventQueue } from '#/_base/asyncEventQueue';
-import {
-  APIStatusError,
-  type GenerateCallbacks,
-  type GenerationKwargs,
-  type MaxCompletionTokensOptions,
-  type ModelCapability,
-  type ProviderRequestAuth,
-  type StreamDecodeStats,
-  type ThinkingEffort,
-  type VideoUploadInput,
-  type VideoURLPart,
-} from '#/app/llmProtocol';
-import type { ChatProvider, Protocol, ProtocolProviderOptions } from '#/app/protocol';
-import { generate } from '#/app/protocol';
+import { type ModelCapability } from '#/app/llmProtocol/capability';
+import { APIStatusError } from '#/app/llmProtocol/errors';
+import { type GenerationKwargs } from '#/app/llmProtocol/kimiOptions';
+import { type VideoURLPart } from '#/app/llmProtocol/message';
+import { type GenerateCallbacks, type MaxCompletionTokensOptions, type ProviderRequestAuth, type StreamDecodeStats, type VideoUploadInput } from '#/app/llmProtocol/request';
+import { type ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
+import type { ChatProvider } from '#/app/llmProtocol/provider';
+import type { Protocol, ProtocolProviderOptions } from '#/app/protocol/protocol';
+import { generate } from '#/app/llmProtocol/generate';
 import { type ProtocolAdapterRegistry } from '#/app/protocol/protocolAdapterRegistry';
 import { ErrorCodes, KimiError } from '#/errors';
 

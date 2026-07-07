@@ -11,7 +11,7 @@
  * before `AgentProfileCatalogService` constructs.
  */
 
-import { registerAgentProfile } from '#/app/agentProfileCatalog';
+import { registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
 import {
   renderSystemPrompt,
   TASK_AGENT_ROLE_PREFIX,

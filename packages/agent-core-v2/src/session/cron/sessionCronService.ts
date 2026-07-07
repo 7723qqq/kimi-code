@@ -8,11 +8,11 @@
  * turn. Bound at Session scope.
  */
 
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 
-import { createDecorator } from '#/_base/di';
+import { createDecorator } from '#/_base/di/instantiation';
 import type { Turn } from '#/agent/turn';
-import type { CronTask, CronTaskInit } from '#/app/cron';
+import type { CronTask, CronTaskInit } from '#/app/cron/cronTask';
 
 export interface CronLoadOptions {
   readonly replace?: boolean;

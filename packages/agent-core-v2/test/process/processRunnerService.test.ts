@@ -14,8 +14,9 @@ import {
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
-import { ISessionProcessRunner, SessionProcessRunner } from '#/session/process';
-import { ISessionContext, makeSessionContext } from '#/session/sessionContext';
+import { ISessionProcessRunner } from '#/session/process/processRunner';
+import { SessionProcessRunner } from '#/session/process/processRunnerService';
+import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 
 async function collect(stream: Readable): Promise<string> {
   const chunks: Buffer[] = [];

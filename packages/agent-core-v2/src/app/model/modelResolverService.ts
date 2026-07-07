@@ -18,23 +18,17 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IOAuthService } from '#/app/auth';
-import { IConfigService } from '#/app/config';
+import { IOAuthService } from '#/app/auth/auth';
+import { IConfigService } from '#/app/config/config';
 import { ErrorCodes, KimiError } from '#/errors';
-import {
-  type ModelCapability,
-  type ProviderRequestAuth,
-  type ThinkingEffort,
-} from '#/app/llmProtocol';
+import { type ModelCapability } from '#/app/llmProtocol/capability';
+import { type ProviderRequestAuth } from '#/app/llmProtocol/request';
+import { type ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
 import { getModelCapability } from '#/app/llmProtocol/providers';
-import { IPlatformService, UNKNOWN_PLATFORM_KEY } from '#/app/platform';
-import type { OAuthRef, ProviderConfig } from '#/app/provider';
-import { IProviderService } from '#/app/provider';
-import {
-  IProtocolAdapterRegistry,
-  type Protocol,
-  type ProtocolProviderOptions,
-} from '#/app/protocol';
+import { IPlatformService, UNKNOWN_PLATFORM_KEY } from '#/app/platform/platform';
+import type { OAuthRef, ProviderConfig } from '#/app/provider/provider';
+import { IProviderService } from '#/app/provider/provider';
+import { IProtocolAdapterRegistry, type Protocol, type ProtocolProviderOptions } from '#/app/protocol/protocol';
 import { type ProtocolAdapterRegistry } from '#/app/protocol/protocolAdapterRegistry';
 
 import type { ModelConfig } from './model';

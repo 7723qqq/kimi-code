@@ -4,7 +4,7 @@
  * Provides typed extension points with repeatable chaining and isolated context
  * forks. Bound as utility infrastructure, not a scoped Service.
  */
-import { toDisposable, type IDisposable } from "#/_base/di";
+import { toDisposable, type IDisposable } from "#/_base/di/lifecycle";
 
 export type Hooks<TEvents extends Record<string, unknown>> = {
   readonly [K in keyof TEvents]: HookSlot<TEvents[K]>;

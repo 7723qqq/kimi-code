@@ -5,10 +5,8 @@ import {
   type PermissionPolicyResolution,
   type PermissionPolicyResult,
 } from '#/agent/permissionPolicy';
-import {
-  Disposable,
-  IInstantiationService,
-} from "#/_base/di";
+import { IInstantiationService } from "#/_base/di/instantiation";
+import { Disposable } from "#/_base/di/lifecycle";
 import { abortable, isUserCancellation } from '#/_base/utils/abort';
 import type {
   AuthorizeToolExecutionResult,
@@ -18,8 +16,8 @@ import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import { ISessionApprovalService } from "#/session/approval/approval";
 import { IAgentPermissionModeService } from '#/agent/permissionMode';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules';
-import { ISessionContext } from '#/session/sessionContext';
-import { ITelemetryService } from '#/app/telemetry';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IAgentScopeContext } from '#/agent/scopeContext';
 import {
@@ -29,7 +27,7 @@ import {
 } from './permissionGate';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IEventBus } from '#/app/event';
+import { IEventBus } from '#/app/event/eventBus';
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {

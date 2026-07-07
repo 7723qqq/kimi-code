@@ -2,12 +2,9 @@ import { relative } from 'pathe';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import {
-  Disposable,
-  toDisposable,
-} from "#/_base/di";
+import { Disposable, toDisposable } from "#/_base/di/lifecycle";
 import { IAgentBlobService } from '#/agent/blob';
-import { IBootstrapService } from '#/app/bootstrap';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { OrderedHookSlot } from '#/hooks';
 import type { WireRecord, WireRecordMap } from './index';

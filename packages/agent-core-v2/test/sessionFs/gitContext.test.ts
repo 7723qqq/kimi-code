@@ -7,8 +7,8 @@ import {
   parseProjectName,
   sanitizeRemoteUrl,
 } from '#/session/sessionFs/gitContext';
-import type { ILogger } from '#/_base/log';
-import type { IProcess, ISessionProcessRunner } from '#/session/process';
+import type { ILogger } from '#/_base/log/log';
+import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 
 function processWith(stdout: string, exitCode: number, stderr = ''): IProcess {
   const stdoutStream = Readable.from([Buffer.from(stdout)]);

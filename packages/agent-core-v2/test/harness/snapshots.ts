@@ -1,4 +1,5 @@
-import type { Message, Tool as LLMTool } from '#/app/llmProtocol';
+import type { Message } from '#/app/llmProtocol/message';
+import type { Tool as LLMTool } from '#/app/llmProtocol/tool';
 import { expect } from 'vitest';
 
 import { AGENT_WIRE_PROTOCOL_VERSION } from '#/agent/wireRecord/migration';

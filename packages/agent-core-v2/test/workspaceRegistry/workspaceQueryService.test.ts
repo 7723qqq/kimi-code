@@ -7,11 +7,7 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
-import {
-  ISessionIndex,
-  type SessionListQuery,
-  type SessionSummary,
-} from '#/app/sessionIndex';
+import { ISessionIndex, type SessionListQuery, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
 import {
   IWorkspaceQueryService,
   RECENT_SESSIONS_LIMIT,

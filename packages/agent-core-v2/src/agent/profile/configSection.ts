@@ -9,8 +9,8 @@
 
 import { z } from 'zod';
 
-import { parseBooleanEnv } from '#/_base/utils';
-import { type EnvBindings, envBindings } from '#/app/config';
+import { parseBooleanEnv } from '#/_base/utils/env';
+import { type EnvBindings, envBindings } from '#/app/config/config';
 import { registerConfigSection } from '#/app/config/configSectionContributions';
 
 export const THINKING_SECTION = 'thinking';

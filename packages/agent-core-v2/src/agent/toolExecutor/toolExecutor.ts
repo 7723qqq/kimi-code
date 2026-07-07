@@ -1,10 +1,10 @@
-import { createDecorator } from '#/_base/di';
+import { createDecorator } from '#/_base/di/instantiation';
 import type {
   ToolResult,
   ToolDidExecuteContext,
   ToolWillExecuteContext,
 } from '#/agent/tool';
-import type { ToolCall } from '#/app/llmProtocol';
+import type { ToolCall } from '#/app/llmProtocol/message';
 import type { OrderedHookSlot } from '#/hooks';
 
 export interface ToolExecutorExecuteOptions {

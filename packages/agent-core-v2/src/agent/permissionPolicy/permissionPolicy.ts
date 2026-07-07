@@ -1,4 +1,5 @@
-import { createDecorator, type IDisposable } from "#/_base/di";
+import { createDecorator } from "#/_base/di/instantiation";
+import { type IDisposable } from "#/_base/di/lifecycle";
 import type {
   ResolvedToolExecutionHookContext
 } from '#/agent/tool';

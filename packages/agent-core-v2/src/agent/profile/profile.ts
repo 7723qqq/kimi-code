@@ -1,8 +1,9 @@
-import type { AgentProfile, AgentProfileContext } from '#/app/agentProfileCatalog';
-import type { ModelCapability, ThinkingEffort } from '#/app/llmProtocol';
-import type { Model } from '#/app/model';
+import type { AgentProfile, AgentProfileContext } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import type { ModelCapability } from '#/app/llmProtocol/capability';
+import type { ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
+import type { Model } from '#/app/model/modelInstance';
 
-import { createDecorator } from "#/_base/di";
+import { createDecorator } from "#/_base/di/instantiation";
 import type { ToolSource } from '#/agent/tool';
 
 /**

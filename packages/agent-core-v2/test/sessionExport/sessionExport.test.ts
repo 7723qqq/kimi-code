@@ -12,20 +12,20 @@ import {
 } from '#/_base/di/test';
 import { LifecycleScope, type IAgentScopeHandle, type ISessionScopeHandle } from '#/_base/di/scope';
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
-import { ILogService, type ILogService as LogService } from '#/_base/log';
+import { ILogService, type ILogService as LogService } from '#/_base/log/log';
 import { IAgentWireRecordService } from '#/agent/wireRecord';
-import { IBootstrapService } from '#/app/bootstrap';
-import { ISessionExportService } from '#/app/sessionExport';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { ISessionExportService } from '#/app/sessionExport/sessionExport';
 import {
   exportSessionDirectory,
   SessionExportService,
 } from '#/app/sessionExport/sessionExportService';
-import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex';
-import { ISessionLifecycleService } from '#/app/sessionLifecycle';
-import { IWorkspaceRegistry } from '#/app/workspaceRegistry';
+import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
+import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
+import { IWorkspaceRegistry } from '#/app/workspaceRegistry/workspaceRegistry';
 import { KimiError } from '#/errors';
-import { IAgentLifecycleService } from '#/session/agentLifecycle';
-import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
 
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLog } from '../log/stubs';

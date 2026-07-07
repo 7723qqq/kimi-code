@@ -16,14 +16,14 @@ import type { Message, PageResponse } from '@moonshot-ai/protocol';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { ensureMainAgent } from '#/session/agentLifecycle';
+import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
 import {
   IAgentContextMemoryService,
   toProtocolMessage,
 } from '#/agent/contextMemory';
 import { ErrorCodes, KimiError } from '#/errors';
-import { ISessionIndex } from '#/app/sessionIndex';
-import { ISessionLifecycleService } from '#/app/sessionLifecycle';
+import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
+import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
 
 import { IMessageLegacyService, type MessageListQuery } from './messageLegacy';
 

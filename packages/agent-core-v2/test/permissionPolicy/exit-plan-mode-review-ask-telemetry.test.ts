@@ -1,4 +1,4 @@
-import type { ToolCall } from '#/app/llmProtocol';
+import type { ToolCall } from '#/app/llmProtocol/message';
 import type { ApprovalResponse, ToolInputDisplay } from '@moonshot-ai/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -9,7 +9,7 @@ import { IAgentPermissionModeService } from '#/agent/permissionMode';
 import type { PermissionMode } from '#/agent/permissionPolicy';
 import { ExitPlanModeReviewAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/exit-plan-mode-review-ask';
 import { IAgentPlanService, type IAgentPlanService as AgentPlanService } from '#/agent/plan';
-import { ITelemetryService } from '#/app/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ToolAccesses } from '#/agent/tool';
 
 import { stubPermissionModeService } from '../permissionMode/stubs';

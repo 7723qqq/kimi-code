@@ -20,7 +20,10 @@ export * from '#/os/interface';
 export * from '#/os/backends/node-local';
 export * from '#/session/terminal';
 export * from '#/app/task';
-export { IEventService, IEventBus, type DomainEvent, type GlobalEvent } from '#/app/event';
+import '#/app/event/eventBusService';
+import '#/app/event/eventService';
+export { IEventBus, type DomainEvent } from '#/app/event/eventBus';
+export { IEventService, type DomainEvent as GlobalEvent } from '#/app/event/event';
 export * from '#/app/llmProtocol';
 
 export * from '#/app/sessionIndex';

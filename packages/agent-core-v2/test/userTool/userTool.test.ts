@@ -15,7 +15,7 @@ import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { ISessionInteractionService } from '#/session/interaction';
+import { ISessionInteractionService } from '#/session/interaction/interaction';
 import { IAgentWireService, WireService, type IWireService, type PersistedRecord } from '#/wire';
 
 const SCOPE = 'wire';

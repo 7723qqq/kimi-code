@@ -13,7 +13,7 @@ import type { BuiltinTool } from '#/agent/tool';
 import type { ExecutableToolResult, ToolExecution } from '#/agent/tool';
 import { registerTool } from '#/agent/toolRegistry';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import { ITelemetryService } from '#/app/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentPlanService } from '#/agent/plan/plan';
 import type { PlanData } from '#/agent/plan/plan';
 import DESCRIPTION from './exit-plan-mode.md?raw';

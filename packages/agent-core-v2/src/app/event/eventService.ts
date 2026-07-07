@@ -5,7 +5,7 @@
  * primitive. Bound at App scope.
  */
 
-import { Disposable, type IDisposable } from '#/_base/di';
+import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';

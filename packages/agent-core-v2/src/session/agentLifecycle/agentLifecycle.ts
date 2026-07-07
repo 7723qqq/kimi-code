@@ -25,8 +25,8 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import type { Event } from '#/_base/event';
-import type { TokenUsage } from '#/app/llmProtocol';
-import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog';
+import type { TokenUsage } from '#/app/llmProtocol/usage';
+import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import type { BindAgentInput } from '#/agent/profile';
 import type { Turn } from '#/agent/turn';
 

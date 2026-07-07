@@ -8,7 +8,8 @@
  * `SessionSwarmService` imports it.
  */
 
-import { isProviderRateLimitError, type TokenUsage } from '#/app/llmProtocol';
+import { isProviderRateLimitError } from '#/app/llmProtocol/errors';
+import { type TokenUsage } from '#/app/llmProtocol/usage';
 import * as retry from 'retry';
 
 import { isUserCancellation } from '#/_base/utils/abort';

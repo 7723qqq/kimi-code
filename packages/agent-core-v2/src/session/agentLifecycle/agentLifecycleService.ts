@@ -25,21 +25,21 @@ import {
   LifecycleScope,
   registerScopedService,
 } from '#/_base/di/scope';
-import { IBootstrapService } from '#/app/bootstrap';
-import { ITelemetryService } from '#/app/telemetry';
-import { ILogService } from '#/_base/log';
-import { IAgentProfileCatalogService } from '#/app/agentProfileCatalog';
-import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { ILogService } from '#/_base/log/log';
+import { IAgentProfileCatalogService } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { AgentMcpService, IAgentMcpService } from '#/agent/mcp';
 import { McpConnectionManager } from '#/agent/mcp/connection-manager';
 import { createMcpOAuthStore, McpOAuthService } from '#/agent/mcp/oauth';
 import { resolveSessionMcpConfig } from '#/agent/mcp/session-config';
-import { IPluginService } from '#/app/plugin';
+import { IPluginService } from '#/app/plugin/plugin';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { ISessionContext } from '#/session/sessionContext';
-import { ISessionMetadata } from '#/session/sessionMetadata';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';

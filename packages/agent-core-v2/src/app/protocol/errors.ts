@@ -6,7 +6,7 @@
  * as a re-exported alias so existing call sites don't have to migrate.
  */
 
-import { registerErrorDomain, type ErrorDomain } from '#/_base/errors';
+import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 
 export const ProtocolErrors = {
   codes: {

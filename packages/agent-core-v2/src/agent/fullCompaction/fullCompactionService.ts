@@ -1,6 +1,4 @@
-import {
-  Disposable,
-} from "#/_base/di";
+import { Disposable } from "#/_base/di/lifecycle";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { renderPrompt } from "#/_base/utils/render-prompt";
@@ -18,16 +16,13 @@ import { IAgentLoopService, type TurnErrorContext } from '#/agent/loop';
 import { isAbortError, isContextOverflowError } from '#/agent/loop/errors';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentTurnService } from '#/agent/turn';
-import { ISessionTodoService, renderTodoList, type TodoItem } from '#/session/todo';
-import {
-  APIContextOverflowError,
-  APIEmptyResponseError,
-  createUserMessage,
-  type Message,
-  type TokenUsage
-} from '#/app/llmProtocol';
-import { IEventBus } from '#/app/event';
-import { ITelemetryService } from '#/app/telemetry';
+import { ISessionTodoService } from '#/session/todo/sessionTodo';
+import { renderTodoList, type TodoItem } from '#/session/todo/todoItem';
+import { APIContextOverflowError, APIEmptyResponseError } from '#/app/llmProtocol/errors';
+import { createUserMessage, type Message } from '#/app/llmProtocol/message';
+import { type TokenUsage } from '#/app/llmProtocol/usage';
+import { IEventBus } from '#/app/event/eventBus';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, KimiError, isKimiError, toKimiErrorPayload } from "#/errors";
 import { IAgentWireService, type IWireService } from '#/wire';
 import compactionInstructionTemplate from './compaction-instruction.md?raw';

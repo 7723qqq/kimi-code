@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { ToolCall } from '#/app/llmProtocol';
+import type { ToolCall } from '#/app/llmProtocol/message';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -33,9 +33,9 @@ import {
 } from '#/agent/permissionRules';
 import { IAgentPlanService, type PlanData } from '#/agent/plan';
 import { IAgentSwarmService } from '#/agent/swarm';
-import { ITelemetryService } from '#/app/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ToolAccesses, type ToolAccesses as ToolAccessList } from '#/agent/tool';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 
 import { stubPermissionModeService } from '../permissionMode/stubs';
 import { recordingTelemetry } from '../telemetry/stubs';

@@ -4,8 +4,8 @@
  * facade; no wire coupling.
  */
 
-import type { ModelCapability } from '#/app/llmProtocol';
-import type { Model } from '#/app/model';
+import type { ModelCapability } from '#/app/llmProtocol/capability';
+import type { Model } from '#/app/model/modelInstance';
 
 export interface CompletionBudgetConfig {
   readonly hardCap?: number;

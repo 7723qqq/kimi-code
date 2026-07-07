@@ -5,17 +5,17 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 
-import type { CronTask } from '#/app/cron';
+import type { CronTask } from '#/app/cron/cronTask';
 import {
   CRON_FIRED,
   CRON_MISSED,
 } from '#/session/cron/sessionCronServiceImpl';
-import { ISessionCronService } from '#/session/cron';
+import { ISessionCronService } from '#/session/cron/sessionCronService';
 import { IAgentPromptService } from '#/agent/prompt';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
-import { ITelemetryService } from '#/app/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentTurnService, type Turn } from '#/agent/turn';
 import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 import type { TelemetryRecord } from '../telemetry/stubs';

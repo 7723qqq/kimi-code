@@ -6,7 +6,8 @@
  * unknown set of consumers. Bound at App scope; a single global instance.
  */
 
-import { createDecorator, type IDisposable, type ServiceIdentifier } from '#/_base/di';
+import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import { type IDisposable } from '#/_base/di/lifecycle';
 import type { Event } from '#/_base/event';
 
 export interface DomainEvent {

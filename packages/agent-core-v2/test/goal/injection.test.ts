@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { ToolCall } from '#/app/llmProtocol';
+import type { ToolCall } from '#/app/llmProtocol/message';
 
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';

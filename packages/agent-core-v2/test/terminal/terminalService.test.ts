@@ -6,7 +6,7 @@ import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
 import { ErrorCodes } from '#/errors';
-import { ISessionContext, makeSessionContext } from '#/session/sessionContext';
+import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import {
   type TerminalAttachSink,
   type TerminalFrame,
@@ -19,7 +19,7 @@ import {
   ISessionTerminalService,
   SessionTerminalService,
 } from '#/session/terminal/terminalService';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 
 vi.mock('node-pty', () => ({
   spawn: vi.fn(),

@@ -9,7 +9,7 @@ import {
   IAgentContextProjectorService,
 } from '#/agent/contextProjector';
 import { IAgentMicroCompactionService } from '#/agent/microCompaction';
-import type { Message } from '#/app/llmProtocol';
+import type { Message } from '#/app/llmProtocol/message';
 
 // Tests for how the projector normalizes tool exchanges: results are pulled up
 // right after their call, messages that landed between a call and its results

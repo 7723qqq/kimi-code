@@ -654,4 +654,31 @@ describe('server-v2 /api/v1/sessions', () => {
     });
     expect(body.code).toBe(40401);
   });
+
+  it('derives the session title from the first prompt submitted via /api/v1', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const id = created.body.data.id;
+    expect(created.body.data.title).toBe('');
+
+    const events: { type: string; payload: unknown }[] = [];
+    const sub = (server as RunningServer).core.accessor
+      .get(IEventService)
+      .subscribe((event) => events.push(event));
+
+    const submitted = await postJson<{ prompt_id: string; status: string }>(
+      `/api/v1/sessions/${id}/prompts`,
+      { content: [{ type: 'text', text: 'hello web title' }] },
+    );
+    expect(submitted.body.code).toBe(0);
+    sub.dispose();
+
+    const got = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
+    expect(got.body.code).toBe(0);
+    expect(got.body.data.title).toBe('hello web title');
+
+    const meta = events.find((e) => e.type === 'session.meta.updated');
+    expect(meta).toBeDefined();
+    expect((meta?.payload as { title?: string } | undefined)?.title).toBe('hello web title');
+  });
 });

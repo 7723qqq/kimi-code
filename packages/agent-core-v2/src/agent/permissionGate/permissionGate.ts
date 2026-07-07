@@ -3,7 +3,7 @@ import type {
   ApprovalResponse,
   PermissionData,
 } from '#/agent/permissionPolicy';
-import { createDecorator } from "#/_base/di";
+import { createDecorator } from "#/_base/di/instantiation";
 import type {
   AuthorizeToolExecutionResult,
   ResolvedToolExecutionHookContext,

@@ -17,7 +17,7 @@ import {
   IAgentPermissionPolicyService,
 } from '#/agent/permissionPolicy';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
-import { IAgentLifecycleService } from '#/session/agentLifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 
 import { ISessionBtwService, SIDE_QUESTION_SYSTEM_REMINDER, TOOL_CALL_DISABLED_MESSAGE } from './btw';
 

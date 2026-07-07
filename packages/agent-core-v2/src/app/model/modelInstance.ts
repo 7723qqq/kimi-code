@@ -17,21 +17,15 @@
  * sources; the running system only ever sees Models.
  */
 
-import type {
-  FinishReason,
-  GenerationKwargs,
-  MaxCompletionTokensOptions,
-  Message,
-  ModelCapability,
-  ProviderRequestAuth,
-  StreamedMessagePart,
-  ThinkingEffort,
-  TokenUsage,
-  Tool,
-  VideoUploadInput,
-  VideoURLPart,
-} from '#/app/llmProtocol';
-import type { Protocol, ProtocolProviderOptions } from '#/app/protocol';
+import type { ModelCapability } from '#/app/llmProtocol/capability';
+import type { FinishReason } from '#/app/llmProtocol/finishReason';
+import type { GenerationKwargs } from '#/app/llmProtocol/kimiOptions';
+import type { Message, StreamedMessagePart, VideoURLPart } from '#/app/llmProtocol/message';
+import type { MaxCompletionTokensOptions, ProviderRequestAuth, VideoUploadInput } from '#/app/llmProtocol/request';
+import type { ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
+import type { Tool } from '#/app/llmProtocol/tool';
+import type { TokenUsage } from '#/app/llmProtocol/usage';
+import type { Protocol, ProtocolProviderOptions } from '#/app/protocol/protocol';
 
 /**
  * Closure that produces a fresh `ProviderRequestAuth` on demand. Wraps an

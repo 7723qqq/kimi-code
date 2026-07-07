@@ -2,7 +2,7 @@ import { Readable, Writable } from 'node:stream';
 
 import { describe, expect, it } from 'vitest';
 
-import { type IProcess, type ISessionProcessRunner } from '#/session/process';
+import { type IProcess, type ISessionProcessRunner } from '#/session/process/processRunner';
 
 import { runCommand, type RunCommandOptions } from '#/session/sessionFs/fsProcess';
 

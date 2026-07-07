@@ -2,7 +2,7 @@
  * `prompt` domain error codes — request/input validation failures.
  */
 
-import { registerErrorDomain, type ErrorDomain } from '#/_base/errors';
+import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 
 export const PromptErrors = {
   codes: {

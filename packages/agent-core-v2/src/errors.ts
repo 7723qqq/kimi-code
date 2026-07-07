@@ -7,7 +7,7 @@
  * from here: `import { ErrorCodes, KimiError } from '#/errors'`.
  */
 
-import { CoreErrors } from '#/_base/errors';
+import { CoreErrors } from '#/_base/errors/codes';
 import { AgentLifecycleErrors } from '#/session/agentLifecycle/errors';
 import { AuthErrors } from '#/app/auth/errors';
 import { TaskErrors } from '#/agent/task/errors';

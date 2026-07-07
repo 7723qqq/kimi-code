@@ -11,7 +11,7 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { ISessionContext } from '#/session/sessionContext';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 
 import { ILogService, type LogLevel } from '#/_base/log/log';
 import { createFileLogWriter, type FileLogWriter } from '#/_base/log/fileLog';

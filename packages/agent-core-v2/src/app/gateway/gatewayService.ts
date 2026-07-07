@@ -13,8 +13,8 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ILogService } from '#/_base/log';
-import { ISessionLifecycleService } from '#/app/sessionLifecycle';
+import { ILogService } from '#/_base/log/log';
+import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentTurnService } from '#/agent/turn';
 

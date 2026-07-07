@@ -8,7 +8,7 @@ import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 
-import type { IProcess } from '#/session/process';
+import type { IProcess } from '#/session/process/processRunner';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -24,7 +24,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import type { HookEngine } from '#/agent/externalHooks/engine';
 import { IAgentPromptService } from '#/agent/prompt';
-import { ISessionMetadata } from '#/session/sessionMetadata';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import {
   configServices,
   createTestAgent,

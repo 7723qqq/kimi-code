@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -15,7 +15,7 @@ import {
   IAgentBlobService,
   MISSING_MEDIA_PLACEHOLDER,
 } from '#/agent/blob';
-import { IBootstrapService } from '#/app/bootstrap';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';

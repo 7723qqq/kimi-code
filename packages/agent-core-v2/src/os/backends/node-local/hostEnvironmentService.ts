@@ -9,7 +9,7 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { probeHostEnvironmentFromNode } from '#/_base/execEnv';
+import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
 
 import {
   type HostEnvironmentInfo,

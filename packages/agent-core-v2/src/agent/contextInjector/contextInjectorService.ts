@@ -1,7 +1,4 @@
-import {
-  Disposable,
-  toDisposable,
-} from "#/_base/di";
+import { Disposable, toDisposable } from "#/_base/di/lifecycle";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
@@ -9,7 +6,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentLoopService } from '#/agent/loop';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
 import { IAgentTurnService } from '#/agent/turn';
-import { IEventBus } from '#/app/event';
+import { IEventBus } from '#/app/event/eventBus';
 import type { ContextMessage } from '#/agent/contextMemory';
 import {
   IAgentContextInjectorService,

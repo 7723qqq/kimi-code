@@ -11,7 +11,7 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { ensureMainAgent } from '#/session/agentLifecycle';
+import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
 import { IAgentContextMemoryService, toProtocolMessage, type ContextMessage } from '#/agent/contextMemory';
 import { IAgentContextSizeService } from '#/agent/contextSize';
 import { ErrorCodes, isKimiError, KimiError } from '#/errors';
@@ -23,13 +23,13 @@ import { IAgentPlanService } from '#/agent/plan';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentRPCService } from '#/agent/rpc';
-import { ISessionActivity } from '#/session/sessionActivity';
-import { ISessionContext } from '#/session/sessionContext';
-import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex';
-import { ISessionLifecycleService } from '#/app/sessionLifecycle';
-import { ISessionMetadata } from '#/session/sessionMetadata';
+import { ISessionActivity } from '#/session/sessionActivity/sessionActivity';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
+import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { IAgentSwarmService } from '#/agent/swarm';
-import { IWorkspaceRegistry } from '#/app/workspaceRegistry';
+import { IWorkspaceRegistry } from '#/app/workspaceRegistry/workspaceRegistry';
 import type {
   ArchiveSessionResponse,
   CompactSessionRequest,

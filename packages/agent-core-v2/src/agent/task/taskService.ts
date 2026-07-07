@@ -15,13 +15,13 @@ import { randomBytes } from 'node:crypto';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 
-import { Disposable } from '#/_base/di';
+import { Disposable } from '#/_base/di/lifecycle';
 import { escapeXml, escapeXmlAttr } from '#/_base/utils/xml-escape';
-import { IEventBus } from '#/app/event';
+import { IEventBus } from '#/app/event/eventBus';
 import type { TaskOrigin } from '#/agent/contextMemory';
-import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task';
+import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task/task';
 import {
   TERMINAL_STATUSES,
   type AgentTaskInfoBase,
@@ -30,12 +30,12 @@ import {
 import { renderNotificationXml } from './notificationXml';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IConfigService } from '#/app/config';
+import { IConfigService } from '#/app/config/config';
 import { IAgentPromptService } from '#/agent/prompt';
-import { ISessionContext } from '#/session/sessionContext';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { ITelemetryService } from '#/app/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentWireService, type IWireService } from '#/wire';
 import {
   IAgentTaskService,

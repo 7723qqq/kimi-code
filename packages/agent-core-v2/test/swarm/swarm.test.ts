@@ -6,12 +6,8 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
-import { IAgentLifecycleService } from '#/session/agentLifecycle';
-import { ISessionSwarmService } from '#/session/swarm';
-import type {
-  SessionSwarmRunResult,
-  SessionSwarmTask,
-} from '#/session/swarm';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionSwarmService, type SessionSwarmRunResult, type SessionSwarmTask } from '#/session/swarm/sessionSwarm';
 import { IAgentScopeContext } from '#/agent/scopeContext';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
@@ -28,7 +24,8 @@ import { InMemoryStorageService } from '#/persistence/backends/memory/inMemorySt
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IAgentWireService, WireService, type PersistedRecord } from '#/wire';
-import { EventBusService, IEventBus, type DomainEvent } from '#/app/event';
+import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
+import { EventBusService } from '#/app/event/eventBusService';
 
 import { stubContextMemory, stubWireRecord } from '../contextMemory/stubs';
 import { executeTool } from '../tools/fixtures/execute-tool';

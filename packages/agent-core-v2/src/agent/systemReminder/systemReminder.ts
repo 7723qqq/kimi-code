@@ -1,4 +1,4 @@
-import { createDecorator } from "#/_base/di";
+import { createDecorator } from "#/_base/di/instantiation";
 
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 

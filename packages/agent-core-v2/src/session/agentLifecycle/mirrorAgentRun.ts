@@ -20,8 +20,9 @@
 
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { userCancellationReason } from '#/_base/utils/abort';
-import { isProviderRateLimitError, type TokenUsage } from '#/app/llmProtocol';
-import { ITelemetryService } from '#/app/telemetry';
+import { isProviderRateLimitError } from '#/app/llmProtocol/errors';
+import { type TokenUsage } from '#/app/llmProtocol/usage';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentExternalHooksService } from '#/agent/externalHooks';
 import type {
   SubagentCompletedEvent,
@@ -29,7 +30,7 @@ import type {
   SubagentSpawnedEvent,
   SubagentStartedEvent,
 } from '@moonshot-ai/protocol';
-import { IEventBus } from '#/app/event';
+import { IEventBus } from '#/app/event/eventBus';
 import { isAbortError } from '#/agent/loop/errors';
 
 import type { AgentRunHandle } from './agentLifecycle';

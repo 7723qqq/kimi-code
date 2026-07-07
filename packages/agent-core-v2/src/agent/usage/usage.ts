@@ -1,7 +1,7 @@
 import type { LLMRequestSource } from '#/agent/llmRequester/llmRequester';
-import type { TokenUsage } from '#/app/llmProtocol';
+import type { TokenUsage } from '#/app/llmProtocol/usage';
 
-import { createDecorator } from '#/_base/di';
+import { createDecorator } from '#/_base/di/instantiation';
 
 export interface UsageStatus {
   readonly byModel?: Record<string, TokenUsage>;

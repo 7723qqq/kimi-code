@@ -9,13 +9,11 @@ import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { IAgentLifecycleService } from '#/session/agentLifecycle';
-import {
-  ISessionTodoService,
-  SessionTodoService,
-  TODO_LIST_REMINDER_VARIANT,
-  type TodoItem,
-} from '#/session/todo';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionTodoService } from '#/session/todo/sessionTodo';
+import { SessionTodoService } from '#/session/todo/sessionTodoService';
+import { type TodoItem } from '#/session/todo/todoItem';
+import { TODO_LIST_REMINDER_VARIANT } from '#/session/todo/todoListReminder';
 import { IAgentWireService, type IWireService } from '#/wire';
 
 interface RecordedTodoSet {

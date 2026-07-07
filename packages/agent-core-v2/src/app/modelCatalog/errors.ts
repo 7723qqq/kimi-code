@@ -2,7 +2,7 @@
  * `modelCatalog` domain error codes — provider/model catalog lookup failures.
  */
 
-import { registerErrorDomain, type ErrorDomain } from '#/_base/errors';
+import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 
 export const ModelCatalogErrors = {
   codes: {

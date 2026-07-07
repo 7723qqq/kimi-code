@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream';
 
-import type { IProcess } from '#/session/process';
+import type { IProcess } from '#/session/process/processRunner';
 
 import type {
   AgentTask,

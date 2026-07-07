@@ -6,7 +6,7 @@ import { IAgentGoalService, type AgentGoalService } from '#/agent/goal';
 import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop';
 import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn';
 import type { PersistedWireRecord, WireRecord } from '#/agent/wireRecord';
-import type { TokenUsage } from '#/app/llmProtocol';
+import type { TokenUsage } from '#/app/llmProtocol/usage';
 import { ErrorCodes } from '#/errors';
 
 import {

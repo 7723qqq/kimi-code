@@ -23,37 +23,33 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import {
-  UNKNOWN_CAPABILITY,
-  type GenerationKwargs,
-  type ModelCapability,
-  type ThinkingEffort,
-} from '#/app/llmProtocol';
-import {
-  DEFAULT_AGENT_PROFILE_NAME,
-  IAgentProfileCatalogService,
-} from '#/app/agentProfileCatalog';
-import { IModelResolver, type KimiModelOverrides, type Model } from '#/app/model';
+import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/app/llmProtocol/capability';
+import { type GenerationKwargs } from '#/app/llmProtocol/kimiOptions';
+import { type ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
+import { DEFAULT_AGENT_PROFILE_NAME, IAgentProfileCatalogService } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { type Model } from '#/app/model/modelInstance';
+import { type KimiModelOverrides } from '#/app/model/modelOverrides';
+import { IModelResolver } from '#/app/model/modelResolver';
 import picomatch from 'picomatch';
 
 import { ErrorCodes, KimiError } from "#/errors";
-import { IBootstrapService } from '#/app/bootstrap';
-import { IConfigService } from '#/app/config';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
 import { resolveThinkingEffort } from './thinking';
 import type { LoopControl } from '#/agent/loop/configSection';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { ISessionContext } from '#/session/sessionContext';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { isMcpToolName } from '#/agent/tool';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/agent/profile';
 
 import type { WarningEvent } from '@moonshot-ai/protocol';
-import { ITelemetryService } from '#/app/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ToolSource } from '#/agent/tool';
 import { IAgentWireService, type IWireService } from '#/wire';
-import { IEventBus } from '#/app/event';
+import { IEventBus } from '#/app/event/eventBus';
 import { prepareSystemPromptContext } from './context';
 import type {
   ApplyProfileOptions,

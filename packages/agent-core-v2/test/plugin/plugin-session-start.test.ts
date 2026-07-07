@@ -6,11 +6,11 @@ import {
   IPluginSessionStartInjectorService,
   PluginSessionStartInjectorService,
 } from '#/agent/contextInjector/pluginSessionStart';
-import { IPluginService } from '#/app/plugin';
+import { IPluginService } from '#/app/plugin/plugin';
 import type { EnabledPluginSessionStart, ReloadSummary } from '#/app/plugin/types';
 import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
 import type { SkillDefinition } from '#/app/skillCatalog/types';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 
 import { agentService, appService, createTestAgent, skillServices, type TestAgentContext } from '../harness';
 

@@ -24,8 +24,8 @@
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
-import type { ILogger } from '#/_base/log';
-import type { ISessionProcessRunner } from '#/session/process';
+import type { ILogger } from '#/_base/log/log';
+import type { ISessionProcessRunner } from '#/session/process/processRunner';
 
 /** Name of the builtin default profile (the top-level interactive agent). */
 export const DEFAULT_AGENT_PROFILE_NAME = 'agent';

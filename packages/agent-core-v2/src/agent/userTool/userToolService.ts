@@ -13,7 +13,7 @@
  * Bound at Agent scope.
  */
 
-import { Disposable, type IDisposable } from '#/_base/di';
+import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { abortable } from '#/_base/utils/abort';
@@ -24,7 +24,7 @@ import type {
   ExecutableToolResult,
 } from '#/agent/tool';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { ISessionInteractionService } from '#/session/interaction';
+import { ISessionInteractionService } from '#/session/interaction/interaction';
 import { IAgentWireService, type IWireService } from '#/wire';
 
 import { IAgentUserToolService, type UserToolRegistration } from './userTool';

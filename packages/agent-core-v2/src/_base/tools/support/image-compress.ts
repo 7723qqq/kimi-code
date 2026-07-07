@@ -23,7 +23,7 @@
  *    caller read a region of the original back at full fidelity.
  */
 
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 
 import { sniffImageDimensions } from './file-type';
 

@@ -1,5 +1,5 @@
 import type { GoalSnapshot } from '#/agent/goal';
-import { Disposable } from "#/_base/di";
+import { Disposable } from "#/_base/di/lifecycle";
 import { renderPrompt } from "#/_base/utils/render-prompt";
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import GOAL_ACTIVE_REMINDER from './goal-active-reminder.md?raw';

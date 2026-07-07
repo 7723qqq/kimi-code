@@ -11,7 +11,7 @@ import type { BuiltinTool } from '#/agent/tool';
 import type { ToolExecution } from '#/agent/tool';
 import { registerTool } from '#/agent/toolRegistry';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import { ITelemetryService } from '#/app/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentPlanService } from '#/agent/plan/plan';
 import DESCRIPTION from './enter-plan-mode.md?raw';
 

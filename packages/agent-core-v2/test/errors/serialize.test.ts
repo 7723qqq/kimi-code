@@ -1,4 +1,4 @@
-import { APIStatusError } from '#/app/llmProtocol';
+import { APIStatusError } from '#/app/llmProtocol/errors';
 import { describe, expect, it } from 'vitest';
 
 import { toErrorPayload } from '../../src/_base/errors/serialize';

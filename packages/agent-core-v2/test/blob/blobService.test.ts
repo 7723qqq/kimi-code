@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { type ServiceIdentifier } from '#/_base/di/instantiation';
 import { LifecycleScope } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { AgentBlobServiceImpl, IAgentBlobService } from '#/agent/blob';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext';
-import { IBootstrapService } from '#/app/bootstrap';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IBlobStore } from '#/persistence/interface/blobStore';

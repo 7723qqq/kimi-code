@@ -10,7 +10,7 @@
  * instance per agent.
  */
 
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 

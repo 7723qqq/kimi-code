@@ -1,4 +1,4 @@
-import type { ContentPart, Message } from '#/app/llmProtocol';
+import type { ContentPart, Message } from '#/app/llmProtocol/message';
 
 import type { AgentTaskStatus } from '#/agent/task';
 import type { CronJobOrigin, CronMissedOrigin } from '@moonshot-ai/protocol';

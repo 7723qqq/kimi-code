@@ -11,7 +11,8 @@ import { InMemoryStorageService } from '#/persistence/backends/memory/inMemorySt
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IAgentWireService, WireService, type PersistedRecord } from '#/wire';
-import { EventBusService, IEventBus, type DomainEvent } from '#/app/event';
+import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
+import { EventBusService } from '#/app/event/eventBusService';
 
 const SCOPE = 'wire';
 const KEY = 'usage-test';

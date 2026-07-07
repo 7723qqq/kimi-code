@@ -2,7 +2,7 @@ import type {
   CompactionResult,
   CompactionSource,
 } from './types';
-import { createDecorator } from "#/_base/di";
+import { createDecorator } from "#/_base/di/instantiation";
 import type { Hooks } from '#/hooks';
 
 export type FullCompactionCompleteData = Omit<CompactionResult, 'summary'>;

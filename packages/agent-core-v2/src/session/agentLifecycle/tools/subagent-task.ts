@@ -1,4 +1,4 @@
-import type { TokenUsage } from '#/app/llmProtocol';
+import type { TokenUsage } from '#/app/llmProtocol/usage';
 
 import {
   type AgentTask,

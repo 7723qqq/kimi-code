@@ -1,5 +1,5 @@
 import { ContentBlockSchema } from '@modelcontextprotocol/sdk/types.js';
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 import { Jimp } from 'jimp';
 import { mkdtemp, readFile, rm, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

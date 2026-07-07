@@ -1,5 +1,5 @@
 import type { PermissionMode } from '#/agent/permissionPolicy';
-import type { IDisposable } from "#/_base/di";
+import type { IDisposable } from "#/_base/di/lifecycle";
 import type { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import AUTO_MODE_ENTER_REMINDER from './permission-mode-auto-enter-reminder.md?raw';

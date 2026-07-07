@@ -34,8 +34,8 @@ import type { AgentTaskSettlement } from '#/agent/task/types';
 import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IAgentProfileService } from '#/agent/profile';
-import { type ISessionContext, makeSessionContext } from '#/session/sessionContext';
-import type { IProcess, ISessionProcessRunner } from '#/session/process';
+import { type ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
+import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 import { type BashInput, BashInputSchema, BashTool } from '#/os/backends/node-local/tools/bash';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 

@@ -15,14 +15,14 @@ import { join, relative } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
 import { IAgentPromptService } from '#/agent/prompt';
-import type { CronTask } from '#/app/cron';
-import { ISessionCronService } from '#/session/cron';
-import { IBootstrapService } from '#/app/bootstrap';
+import type { CronTask } from '#/app/cron/cronTask';
+import { ISessionCronService } from '#/session/cron/sessionCronService';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { ISessionContext } from '#/session/sessionContext';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import {
   createTestAgent,
   cronServices,

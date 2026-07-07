@@ -1,4 +1,6 @@
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
+import type { IEventService } from '#/app/event/event';
+import type { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 
 import type {
   ActivatePluginCommandPayload,
@@ -14,12 +16,27 @@ export function titleFromPromptMetadataText(text: string): string {
 }
 
 export function promptMetadataTextFromPayload(payload: PromptPayload): string | undefined {
-  const parts: string[] = [];
-  for (const part of payload.input) {
+  return promptMetadataTextFromContentParts(payload.input);
+}
+
+/**
+ * Extract the title/lastPrompt source text from already-projected core
+ * `ContentPart`s (the `{ text | image_url | video_url | ... }` shape). Shared by
+ * the `/api/v2` RPC entry (`PromptPayload.input`) and the `/api/v1` legacy
+ * entry (`PromptSubmission.content` projected via `contentToCoreParts`), so the
+ * easy-title derivation is identical on both surfaces — mirroring v1, where
+ * the web REST submit funnels through the same `core.rpc.prompt` that derives
+ * the title.
+ */
+export function promptMetadataTextFromContentParts(
+  parts: readonly ContentPart[],
+): string | undefined {
+  const texts: string[] = [];
+  for (const part of parts) {
     const text = promptPartText(part);
-    if (text !== undefined) parts.push(text);
+    if (text !== undefined) texts.push(text);
   }
-  return sanitizeAndTruncatePromptText(parts.join('\n'), MAX_LAST_PROMPT_LENGTH);
+  return sanitizeAndTruncatePromptText(texts.join('\n'), MAX_LAST_PROMPT_LENGTH);
 }
 
 export function promptMetadataTextFromSkill(payload: ActivateSkillPayload): string | undefined {
@@ -39,6 +56,58 @@ export function promptMetadataTextFromPluginCommand(
     args === undefined || args.length === 0 ? command : `${command} ${args}`,
     MAX_LAST_PROMPT_LENGTH,
   );
+}
+
+/** Mirrors v1's `isUntitled`: empty / missing / the default "New Session". */
+export function isUntitled(title: string | undefined): boolean {
+  return title === undefined || title.trim().length === 0 || title === 'New Session';
+}
+
+export interface PromptMetadataUpdateTarget {
+  readonly metadata: ISessionMetadata;
+  readonly eventService: IEventService;
+  readonly sessionId: string;
+}
+
+/**
+ * Mirror v1's `Session.updatePromptMetadata`: persist the prompt text as
+ * `lastPrompt` and, when the session is still untitled and has no custom title,
+ * derive an easy `title` from it. Then broadcast `session.meta.updated` on the
+ * global `IEventService` so the web session list / title updates live (the edge
+ * fans it out to every connection, not just this session's subscribers).
+ *
+ * Single source of truth shared by the `/api/v2` RPC entry (`AgentRPCService`)
+ * and the `/api/v1` legacy entry (`AgentPromptLegacyService`); v1 keeps this
+ * logic in the one `core.rpc.prompt` that both the TUI and the web funnel
+ * through.
+ */
+export async function applyPromptMetadataUpdate(
+  target: PromptMetadataUpdateTarget,
+  text: string | undefined,
+): Promise<void> {
+  if (text === undefined) return;
+  const current = await target.metadata.read();
+  const patch: { lastPrompt: string; title?: string; isCustomTitle?: boolean } = {
+    lastPrompt: text,
+  };
+  if (!current.isCustomTitle && isUntitled(current.title)) {
+    patch.title = titleFromPromptMetadataText(text);
+    patch.isCustomTitle = false;
+  }
+  await target.metadata.update(patch);
+  target.eventService.publish({
+    type: 'session.meta.updated',
+    payload: {
+      agentId: 'main',
+      sessionId: target.sessionId,
+      title: patch.title,
+      patch: {
+        title: patch.title,
+        isCustomTitle: patch.isCustomTitle,
+        lastPrompt: text,
+      },
+    },
+  });
 }
 
 function promptPartText(part: ContentPart): string | undefined {

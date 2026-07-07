@@ -1,4 +1,4 @@
-import type { ToolCall } from '#/app/llmProtocol';
+import type { ToolCall } from '#/app/llmProtocol/message';
 import { describe, expect, it } from 'vitest';
 
 import type { ResolvedToolExecutionHookContext } from '#/agent/tool';

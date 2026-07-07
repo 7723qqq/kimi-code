@@ -24,7 +24,7 @@ import type { CronJobOrigin } from '@moonshot-ai/protocol';
 
 import { defineModel, defineOp } from '#/wire';
 
-import type { CronTask } from '#/app/cron';
+import type { CronTask } from '#/app/cron/cronTask';
 
 export type CronModelState = Map<string, CronTask>;
 

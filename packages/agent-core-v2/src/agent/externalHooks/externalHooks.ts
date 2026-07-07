@@ -7,7 +7,7 @@
  * to invoke configured external commands.
  */
 
-import { createDecorator } from '#/_base/di';
+import { createDecorator } from '#/_base/di/instantiation';
 import type { HookEngine } from './engine';
 
 export interface RenderedExternalHookResult {

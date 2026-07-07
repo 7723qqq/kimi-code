@@ -47,11 +47,11 @@ import ignore, { type Ignore } from 'ignore';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError } from '#/errors';
-import { IGitService } from '#/app/git';
-import { ITelemetryService } from '#/app/telemetry';
+import { IGitService } from '#/app/git/git';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
-import { ISessionProcessRunner } from '#/session/process';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { ISessionProcessRunner } from '#/session/process/processRunner';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 
 import { type FsDownloadResolved, type FsPathResolved, ISessionFsService } from './fs';
 import { runCommand } from './fsProcess';

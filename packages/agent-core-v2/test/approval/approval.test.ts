@@ -4,10 +4,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import type { ApprovalRequest } from '#/session/approval';
-import { ISessionApprovalService } from '#/session/approval';
+import { type ApprovalRequest, ISessionApprovalService } from '#/session/approval/approval';
 import { SessionApprovalService } from '#/session/approval/approvalService';
-import { ISessionInteractionService } from '#/session/interaction';
+import { ISessionInteractionService } from '#/session/interaction/interaction';
 import { SessionInteractionService } from '#/session/interaction/interactionService';
 
 const display: ToolInputDisplay = { kind: 'command', command: 'bash' };

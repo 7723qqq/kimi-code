@@ -27,12 +27,9 @@
  * only registered when the active model supports image or video input.
  */
 
-import type {
-  ContentPart,
-  ModelCapability,
-  VideoUploadInput as ProviderVideoUploadInput,
-  VideoURLPart,
-} from '#/app/llmProtocol';
+import type { ModelCapability } from '#/app/llmProtocol/capability';
+import type { ContentPart, VideoURLPart } from '#/app/llmProtocol/message';
+import type { VideoUploadInput as ProviderVideoUploadInput } from '#/app/llmProtocol/request';
 import { z } from 'zod';
 
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';

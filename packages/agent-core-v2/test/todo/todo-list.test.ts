@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  TODO_LIST_TOOL_NAME,
-  TodoListInputSchema,
-  TodoListTool,
-  type ISessionTodoService,
-  type TodoItem,
-} from '#/session/todo';
+import { type ISessionTodoService } from '#/session/todo/sessionTodo';
+import { TODO_LIST_TOOL_NAME, type TodoItem } from '#/session/todo/todoItem';
+import { TodoListInputSchema, TodoListTool } from '#/session/todo/tools/todo-list';
 import { executeTool } from '../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;

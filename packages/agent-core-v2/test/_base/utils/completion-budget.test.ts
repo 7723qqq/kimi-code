@@ -1,5 +1,5 @@
-import type { ModelCapability } from '#/app/llmProtocol';
-import type { Model } from '#/app/model';
+import type { ModelCapability } from '#/app/llmProtocol/capability';
+import type { Model } from '#/app/model/modelInstance';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {

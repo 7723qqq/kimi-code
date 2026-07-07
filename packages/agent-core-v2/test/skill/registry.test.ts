@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { InMemorySkillCatalog } from '#/app/skillCatalog';
+import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
 import type { SkillDefinition, SkillSource } from '#/app/skillCatalog/types';
 import { stubSkill } from './stubs';
 

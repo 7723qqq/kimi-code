@@ -16,7 +16,14 @@ import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMo
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn/turn';
-import type { ContentPart } from '#/app/llmProtocol';
+import {
+  applyPromptMetadataUpdate,
+  promptMetadataTextFromContentParts,
+} from '#/agent/rpc/prompt-metadata';
+import type { ContentPart } from '#/app/llmProtocol/message';
+import { IEventService } from '#/app/event/event';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import type {
   PromptAbortResponse,
   PromptItem,
@@ -53,6 +60,9 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
     @IAgentTurnService private readonly turnService: IAgentTurnService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
+    @ISessionMetadata private readonly metadata: ISessionMetadata,
+    @IEventService private readonly eventService: IEventService,
+    @ISessionContext private readonly sessionContext: ISessionContext,
   ) {}
 
   list(): PromptListResponse {
@@ -144,6 +154,18 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
     if (parts.length === 0) {
       throw new KimiError(ErrorCodes.REQUEST_INVALID, 'prompt content has no supported parts');
     }
+    // Mirror v1 (web REST submit -> core.rpc.prompt -> updatePromptMetadata):
+    // persist `lastPrompt` and derive an easy title from the first prompt so the
+    // web session title is populated as soon as the conversation starts. This is
+    // the entry the web actually uses (`POST /api/v1/sessions/{id}/prompts`).
+    await applyPromptMetadataUpdate(
+      {
+        metadata: this.metadata,
+        eventService: this.eventService,
+        sessionId: this.sessionContext.sessionId,
+      },
+      promptMetadataTextFromContentParts(parts),
+    );
     const turn = await this.prompt.prompt({
       id: record.promptId,
       role: 'user',

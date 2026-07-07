@@ -2,15 +2,9 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import {
-  APIConnectionError,
-  APIContextOverflowError,
-  APIStatusError,
-  UNKNOWN_CAPABILITY,
-  type Message,
-  type StreamedMessagePart,
-  type ToolCall,
-} from '#/app/llmProtocol';
+import { UNKNOWN_CAPABILITY } from '#/app/llmProtocol/capability';
+import { APIConnectionError, APIContextOverflowError, APIStatusError } from '#/app/llmProtocol/errors';
+import { type Message, type StreamedMessagePart, type ToolCall } from '#/app/llmProtocol/message';
 import { generate as runKosongGenerate } from '#/app/llmProtocol/generate';
 import type { ChatProvider, StreamedMessage } from '#/app/llmProtocol/provider';
 import { afterEach, describe, expect, it, vi } from 'vitest';

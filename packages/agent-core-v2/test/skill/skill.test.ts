@@ -6,16 +6,16 @@ import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentSkillService } from '#/agent/skill';
-import { InMemorySkillCatalog } from '#/app/skillCatalog';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
-import { ISessionContext } from '#/session/sessionContext';
+import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { AgentSkillService } from '#/agent/skill/skillService';
 import {
   MAX_SKILL_QUERY_DEPTH,
   NestedSkillTooDeepError,
   SkillTool,
 } from '#/agent/skill/tools/skill';
-import { ITelemetryService } from '#/app/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type { Turn } from '#/agent/turn';
 import { IAgentWireService, WireService } from '#/wire';

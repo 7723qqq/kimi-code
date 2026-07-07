@@ -25,8 +25,8 @@ import type {
 } from '#/os/interface/terminal';
 import { IHostTerminalService } from '#/os/interface/terminal';
 import { ErrorCodes, KimiError } from '#/errors';
-import { ISessionContext } from '#/session/sessionContext';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;

@@ -16,7 +16,7 @@
 
 import type { Readable } from 'node:stream';
 
-import type { IProcess, ISessionProcessRunner } from '#/session/process';
+import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 
 export const DEFAULT_TIMEOUT_MS = 20_000;
 export const SIGTERM_GRACE_MS = 5_000;

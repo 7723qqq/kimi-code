@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { type DomainEvent, EventBusService } from '#/app/event';
+import { type DomainEvent } from '#/app/event/eventBus';
+import { EventBusService } from '#/app/event/eventBusService';
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {

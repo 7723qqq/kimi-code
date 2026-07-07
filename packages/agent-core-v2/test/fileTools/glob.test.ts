@@ -18,8 +18,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ensureRgPath } from '#/os/backends/node-local/tools/rgLocator';
 import { PathSecurityError, type PathClass } from '../../src/_base/tools/policies/path-access';
-import { noopTelemetryService } from '#/app/telemetry';
-import type { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { noopTelemetryService } from '#/app/telemetry/telemetry';
+import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { stubWorkspaceContext } from './stub-workspace-context';
 import {
   type GlobInput,
@@ -33,8 +33,8 @@ import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
-import { probeHostEnvironmentFromNode } from '#/_base/execEnv';
-import type { ITelemetryService } from '#/app/telemetry';
+import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
+import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
 
 // The ripgrep binary locator is mocked out for the unit tests so they assert

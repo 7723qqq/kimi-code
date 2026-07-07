@@ -13,7 +13,8 @@
  * this service directly.
  */
 
-import { Disposable, IInstantiationService } from '#/_base/di';
+import { IInstantiationService } from '#/_base/di/instantiation';
+import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { isUserCancellation } from '#/_base/utils/abort';
@@ -34,7 +35,7 @@ import {
   type PromptSubmitContext,
 } from '#/agent/prompt';
 import type { HookResultEvent, TurnEndReason } from '@moonshot-ai/protocol';
-import { IEventBus } from '#/app/event';
+import { IEventBus } from '#/app/event/eventBus';
 import type {
   ExecutableToolResult,
   ToolDidExecuteContext,
@@ -44,9 +45,9 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import {
   IAgentTurnService,
 } from '#/agent/turn';
-import { IBootstrapService } from '#/app/bootstrap';
-import { IConfigService } from '#/app/config';
-import { IPluginService } from '#/app/plugin';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
+import { IPluginService } from '#/app/plugin/plugin';
 import { toKimiErrorPayload } from '#/errors';
 
 import { HOOKS_SECTION, type HookDefConfig } from './configSection';

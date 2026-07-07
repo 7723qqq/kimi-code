@@ -11,7 +11,7 @@
  * `ISessionSkillCatalog` read view.
  */
 
-import { Disposable } from '#/_base/di';
+import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { Emitter, type Event } from '#/_base/event';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';

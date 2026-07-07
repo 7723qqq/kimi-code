@@ -12,7 +12,7 @@
  * is disposed. Bound at Session scope.
  */
 
-import { Disposable, toDisposable, type IDisposable } from '#/_base/di';
+import { Disposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
@@ -20,7 +20,7 @@ import { Emitter } from '#/_base/event';
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentProfileService } from '#/agent/profile';
-import { IAgentLifecycleService } from '#/session/agentLifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IAgentWireService } from '#/wire';
 
 import { ISessionTodoService } from './sessionTodo';

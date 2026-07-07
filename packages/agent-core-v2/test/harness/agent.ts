@@ -5,7 +5,7 @@ import { Readable, type Writable } from 'node:stream';
 import { createControlledPromise } from '@antfu/utils';
 import { expect, vi } from 'vitest';
 
-import { toDisposable } from '#/_base/di';
+import { toDisposable } from '#/_base/di/lifecycle';
 import { Event } from '#/_base/event';
 import type { PromisifyMethods } from '#/_base/utils/types';
 import { escapeXmlAttr } from '#/_base/utils/xml-escape';
@@ -43,23 +43,18 @@ import type {
   WireRecordRestoreResult,
 } from '#/agent/wireRecord';
 import { IOAuthService } from '#/app/auth/auth';
-import { IProtocolAdapterRegistry, type ProtocolAdapterConfig } from '#/app/protocol';
+import { IProtocolAdapterRegistry, type ProtocolAdapterConfig } from '#/app/protocol/protocol';
 import type { SkillCatalog } from '#/app/skillCatalog/types';
-import {
-  isToolCall,
-  isToolCallPart,
-  type ContentPart,
-  type Message as KosongMessage,
-  type ModelCapability,
-  type StreamedMessagePart,
-  type ThinkingEffort,
-  type Tool as KosongTool,
-} from '#/app/llmProtocol';
+import { type ModelCapability } from '#/app/llmProtocol/capability';
+import { isToolCall, isToolCallPart, type ContentPart, type Message as KosongMessage, type StreamedMessagePart } from '#/app/llmProtocol/message';
+import { type ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
+import { type Tool as KosongTool } from '#/app/llmProtocol/tool';
 import type { generate as kosongGenerate } from '#/app/llmProtocol/generate';
 import type { ChatProvider, GenerateOptions, StreamedMessage } from '#/app/llmProtocol/provider';
 import type { ProviderConfig } from '#/app/llmProtocol/providers';
 import { KimiChatProvider } from '#/app/llmProtocol/providers/kimi';
-import { ILogOptions, type ILogger, type LogContext, type LogLevel } from '#/_base/log';
+import type { ILogger, LogContext, LogLevel } from '#/_base/log/log';
+import { ILogOptions } from '#/_base/log/logConfig';
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
@@ -125,24 +120,27 @@ import {
   type ScopeSeed,
   type ServiceIdentifier,
 } from '#/index';
-import { IEventBus } from '#/app/event';
+import { IEventBus } from '#/app/event/eventBus';
 import { IAgentWireService, WireService, type PersistedRecord } from '#/wire';
-import { IModelResolver, IModelService, ModelResolverService, type Model } from '#/app/model';
-import { IPlatformService } from '#/app/platform';
-import { IProviderService } from '#/app/provider';
-import type { ApprovalResponse } from '#/session/approval';
+import { IModelService } from '#/app/model/model';
+import { type Model } from '#/app/model/modelInstance';
+import { IModelResolver } from '#/app/model/modelResolver';
+import { ModelResolverService } from '#/app/model/modelResolverService';
+import { IPlatformService } from '#/app/platform/platform';
+import { IProviderService } from '#/app/provider/provider';
+import type { ApprovalResponse } from '#/session/approval/approval';
 import {
   ISessionInteractionService,
   type Interaction,
   type InteractionRequest,
   type InteractionPendingChangedEvent,
   type InteractionResolution,
-} from '#/session/interaction';
-import type { IProcess } from '#/session/process';
+} from '#/session/interaction/interaction';
+import type { IProcess } from '#/session/process/processRunner';
 import { ISessionQuestionService, type QuestionResult } from '#/session/question/question';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import { ISessionSwarmService } from '#/session/swarm';
-import type { PathAccessOperation } from '#/session/workspaceContext';
+import { ISessionSwarmService } from '#/session/swarm/sessionSwarm';
+import type { PathAccessOperation } from '#/session/workspaceContext/workspaceContext';
 
 import { recordAgentEvents, type RecordedEventEntry } from '../snapshot/events';
 import { createFakeHostFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';

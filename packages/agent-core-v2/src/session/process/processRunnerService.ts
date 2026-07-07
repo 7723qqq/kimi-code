@@ -13,7 +13,7 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IHostProcessService } from '#/os/interface/hostProcess';
-import { ISessionContext } from '#/session/sessionContext';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 
 import { type IProcess, ISessionProcessRunner, type ProcessExecOptions } from './processRunner';
 

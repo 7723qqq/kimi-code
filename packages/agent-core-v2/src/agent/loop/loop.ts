@@ -1,5 +1,6 @@
-import { createDecorator } from '#/_base/di';
-import type { FinishReason, TokenUsage } from '#/app/llmProtocol';
+import { createDecorator } from '#/_base/di/instantiation';
+import type { FinishReason } from '#/app/llmProtocol/finishReason';
+import type { TokenUsage } from '#/app/llmProtocol/usage';
 import type { Hooks } from '#/hooks';
 import type { TurnEndReason } from '@moonshot-ai/protocol';
 

@@ -6,7 +6,8 @@
  * Agent-scope `profile` domain so both paths keep v1-compatible defaults.
  */
 
-import type { ModelCapability, ThinkingEffort } from '#/app/llmProtocol';
+import type { ModelCapability } from '#/app/llmProtocol/capability';
+import type { ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
 
 export interface ThinkingDefaults {
   readonly defaultThinking?: boolean;

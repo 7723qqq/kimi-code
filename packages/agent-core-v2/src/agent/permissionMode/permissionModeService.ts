@@ -10,7 +10,7 @@
  */
 
 import type { PermissionMode } from '#/agent/permissionPolicy';
-import { Disposable } from '#/_base/di';
+import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextInjectorService } from '#/agent/contextInjector';

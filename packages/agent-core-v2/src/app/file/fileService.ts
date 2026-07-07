@@ -11,7 +11,8 @@ import type { Readable } from 'node:stream';
 import type { FileMeta } from '@moonshot-ai/protocol';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import { KimiError, registerErrorDomain, type ErrorDomain } from '#/_base/errors';
+import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
+import { KimiError } from '#/_base/errors/errors';
 
 /** Hard upload cap mirrored from the v1 server (50 MiB). */
 export const DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;

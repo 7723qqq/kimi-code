@@ -10,12 +10,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import {
-  DEFAULT_MAX_UPLOAD_BYTES,
-  FileErrors,
-  FileServiceImpl,
-  IFileService,
-} from '#/app/file';
+import { DEFAULT_MAX_UPLOAD_BYTES, FileErrors, IFileService } from '#/app/file/fileService';
+import { FileServiceImpl } from '#/app/file/fileServiceImpl';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IBlobStore } from '#/persistence/interface/blobStore';

@@ -1,6 +1,6 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 import type {
   ToolCallStartedEvent,
   ToolInputDisplay,
@@ -17,7 +17,7 @@ import {
 import { PathSecurityError } from '#/_base/tools/policies/path-access';
 import { isUserCancellation } from "#/_base/utils/abort";
 import { isAbortError } from '#/agent/loop/errors';
-import { IEventBus } from '#/app/event';
+import { IEventBus } from '#/app/event/eventBus';
 import {
   ToolAccesses,
   type ExecutableTool,
@@ -30,9 +30,9 @@ import {
   type ToolWillExecuteContext,
 } from '#/agent/tool';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import type { ToolCall } from '#/app/llmProtocol';
-import { ILogService } from '#/_base/log';
-import { ITelemetryService } from '#/app/telemetry';
+import type { ToolCall } from '#/app/llmProtocol/message';
+import { ILogService } from '#/_base/log/log';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { OrderedHookSlot } from '#/hooks';
 import {
   IAgentToolExecutorService,

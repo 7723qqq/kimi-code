@@ -1,10 +1,5 @@
-import {
-  isContentPart,
-  isToolCall,
-  type FinishReason,
-  type Message,
-  type StreamedMessagePart,
-} from '#/app/llmProtocol';
+import { type FinishReason } from '#/app/llmProtocol/finishReason';
+import { isContentPart, isToolCall, type Message, type StreamedMessagePart } from '#/app/llmProtocol/message';
 import type { generate as kosongGenerate } from '#/app/llmProtocol/generate';
 
 import { estimateTokensForMessages } from '#/_base/utils/tokens';

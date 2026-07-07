@@ -1,5 +1,5 @@
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { ISessionProcessRunner } from '#/session/process';
+import type { ISessionProcessRunner } from '#/session/process/processRunner';
 
 function notImplemented(name: string): never {
   throw new Error(`${name} not implemented - override it in the test`);

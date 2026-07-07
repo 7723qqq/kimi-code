@@ -16,40 +16,30 @@
 
 import { randomBytes } from 'node:crypto';
 
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 import type { CronJobOrigin, CronMissedOrigin } from '@moonshot-ai/protocol';
 
-import { Disposable, toDisposable } from '#/_base/di';
+import { Disposable, toDisposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IntervalTimer } from '#/_base/utils';
+import { IntervalTimer } from '#/_base/utils/timer';
 
-import { IConfigService } from '#/app/config';
-import { ITelemetryService } from '#/app/telemetry';
-import {
-  computeNextCronRun,
-  type ClockSources,
-  type CronConfig,
-  type CronTask,
-  type CronTaskInit,
-  CRON_SECTION,
-  DEFAULT_CRON_CONFIG,
-  ICronTaskPersistence,
-  jitteredNextCronRunMs,
-  oneShotJitteredNextCronRunMs,
-  parseCronExpression,
-  type ParsedCronExpression,
-  renderCronFireXml,
-  resolveClockSources,
-  SYSTEM_CLOCKS,
-} from '#/app/cron';
-import { ISessionContext } from '#/session/sessionContext';
-import { IAgentLifecycleService } from '#/session/agentLifecycle';
+import { IConfigService } from '#/app/config/config';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { type ClockSources, resolveClockSources, SYSTEM_CLOCKS } from '#/app/cron/clock';
+import { type CronConfig, CRON_SECTION, DEFAULT_CRON_CONFIG } from '#/app/cron/configSection';
+import { computeNextCronRun, parseCronExpression, type ParsedCronExpression } from '#/app/cron/cron-expr';
+import { type CronTask, type CronTaskInit } from '#/app/cron/cronTask';
+import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
+import { renderCronFireXml } from '#/app/cron/format';
+import { jitteredNextCronRunMs, oneShotJitteredNextCronRunMs } from '#/app/cron/jitter';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { ContextMessage } from '#/agent/contextMemory';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentWireService, type Op } from '#/wire';
-import { type DomainEvent, IEventBus } from '#/app/event';
+import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type { Turn } from '#/agent/turn';
 import { IAgentTurnService } from '#/agent/turn';

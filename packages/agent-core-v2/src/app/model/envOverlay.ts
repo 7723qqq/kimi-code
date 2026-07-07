@@ -12,7 +12,7 @@
  * semantics.
  */
 
-import { parseBooleanEnv } from '#/_base/utils';
+import { parseBooleanEnv } from '#/_base/utils/env';
 import type { ConfigEffectiveOverlay } from '#/app/config/config';
 import { ErrorCodes, KimiError } from '#/errors';
 import { ENV_MODEL_PROVIDER_KEY } from '#/app/provider/provider';

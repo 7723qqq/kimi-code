@@ -1,5 +1,5 @@
-import { createDecorator } from "#/_base/di";
-import type { IDisposable } from "#/_base/di";
+import { createDecorator } from "#/_base/di/instantiation";
+import type { IDisposable } from "#/_base/di/lifecycle";
 
 export interface ContextInjectionContext {
   /** Live positions of this variant's injections in the current history, ascending. */

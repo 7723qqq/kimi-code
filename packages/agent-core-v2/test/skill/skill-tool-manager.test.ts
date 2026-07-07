@@ -2,13 +2,14 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import type { ToolCall } from '#/app/llmProtocol';
+import type { ToolCall } from '#/app/llmProtocol/message';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentProfileService } from '#/agent/profile';
-import { InMemorySkillCatalog, type SkillCatalog, type SkillDefinition } from '#/app/skillCatalog';
+import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
+import { type SkillCatalog, type SkillDefinition } from '#/app/skillCatalog/types';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import {
   InMemoryWireRecordPersistence,

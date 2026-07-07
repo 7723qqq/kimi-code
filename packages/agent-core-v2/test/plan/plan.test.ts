@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-import type { ToolCall } from '#/app/llmProtocol';
+import type { ToolCall } from '#/app/llmProtocol/message';
 import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,7 +11,7 @@ import { IAgentPlanService, type PlanData } from '#/agent/plan';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules';
 import { IAgentProfileService } from '#/agent/profile';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { ISessionProcessRunner } from '#/session/process';
+import type { ISessionProcessRunner } from '#/session/process/processRunner';
 import { createFakeHostFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 import {
   createCommandRunner,

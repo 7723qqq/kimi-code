@@ -14,10 +14,10 @@
  * Agent scope.
  */
 
-import { Disposable } from '#/_base/di';
+import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IEventBus } from '#/app/event';
+import { IEventBus } from '#/app/event/eventBus';
 import { IAgentWireService, type IWireService } from '#/wire';
 
 import { IAgentContextMemoryService, type ContextCompactionInput } from './contextMemory';

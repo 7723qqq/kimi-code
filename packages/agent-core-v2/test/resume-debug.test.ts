@@ -19,7 +19,7 @@ import { describe, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IBootstrapService } from '#/app/bootstrap';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import {
   AgentWireRecordService,
   AGENT_WIRE_PROTOCOL_VERSION,

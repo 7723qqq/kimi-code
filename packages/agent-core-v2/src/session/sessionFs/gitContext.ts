@@ -15,8 +15,8 @@
 
 import type { Readable } from 'node:stream';
 
-import type { ILogger } from '#/_base/log';
-import type { IProcess, ISessionProcessRunner } from '#/session/process';
+import type { ILogger } from '#/_base/log/log';
+import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 
 const GIT_TIMEOUT_MS = 5_000;
 const MAX_DIRTY_FILES = 20;

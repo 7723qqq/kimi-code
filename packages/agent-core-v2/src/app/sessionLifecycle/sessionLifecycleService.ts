@@ -23,20 +23,21 @@ import {
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
-import { IAgentLifecycleService, ensureMainAgent, MAIN_AGENT_ID } from '#/session/agentLifecycle';
-import { IBootstrapService } from '#/app/bootstrap';
-import { IEventService } from '#/app/event';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ensureMainAgent, MAIN_AGENT_ID } from '#/session/agentLifecycle/mainAgent';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IEventService } from '#/app/event/event';
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { ISessionActivity } from '#/session/sessionActivity';
-import { ISessionIndex } from '#/app/sessionIndex';
+import { ISessionActivity } from '#/session/sessionActivity/sessionActivity';
+import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { IWorkspaceRegistry } from '#/app/workspaceRegistry';
-import { ISessionContext, sessionContextSeed } from '#/session/sessionContext';
-import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog';
+import { IWorkspaceRegistry } from '#/app/workspaceRegistry/workspaceRegistry';
+import { ISessionContext, sessionContextSeed } from '#/session/sessionContext/sessionContext';
+import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
   IAgentWireRecordService,

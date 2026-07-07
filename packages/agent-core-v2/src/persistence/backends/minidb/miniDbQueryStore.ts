@@ -32,8 +32,8 @@ import { MiniDb, type QueryOptions } from '@moonshot-ai/minidb';
 import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { ILogService } from '#/_base/log';
-import { IBootstrapService } from '#/app/bootstrap';
+import { ILogService } from '#/_base/log/log';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import {
   IQueryStore,
   type Checkpoint,

@@ -11,15 +11,15 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost } from '#/_base/di/test';
+import { ILogService } from '#/_base/log/log';
 import {
-  ILogService,
   logSeed,
   resolveLoggingConfig,
   resolveSessionLogPath,
-} from '#/_base/log';
+} from '#/_base/log/logConfig';
 import { AppLogService } from '#/_base/log/logService';
 import { SessionLogService } from '#/session/sessionLog/sessionLogService';
-import { makeSessionContext, sessionContextSeed } from '#/session/sessionContext';
+import { makeSessionContext, sessionContextSeed } from '#/session/sessionContext/sessionContext';
 
 let homeDir: string;
 let sessionDir: string;

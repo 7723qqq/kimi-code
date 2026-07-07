@@ -1,4 +1,4 @@
-import type { ToolCall } from '#/app/llmProtocol';
+import type { ToolCall } from '#/app/llmProtocol/message';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 import { describe, expect, it } from 'vitest';
 

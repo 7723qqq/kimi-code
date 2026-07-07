@@ -12,7 +12,7 @@ import { CronDeleteTool } from '#/session/cron/tools/cron-delete';
 import { CronListTool } from '#/session/cron/tools/cron-list';
 import type { ExecutableToolOutput } from '#/agent/tool';
 import type { ContextMessage } from '#/agent/contextMemory';
-import { ISessionCronService } from '#/session/cron';
+import { ISessionCronService } from '#/session/cron/sessionCronService';
 import { IAgentPromptService } from '#/agent/prompt';
 import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 

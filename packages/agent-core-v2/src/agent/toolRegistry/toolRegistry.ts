@@ -8,7 +8,8 @@
  * scope.
  */
 
-import { createDecorator, type IDisposable } from '#/_base/di';
+import { createDecorator } from '#/_base/di/instantiation';
+import { type IDisposable } from '#/_base/di/lifecycle';
 import type { ExecutableTool, ToolInfo, ToolSource } from '#/agent/tool';
 import type { Hooks } from '#/hooks';
 

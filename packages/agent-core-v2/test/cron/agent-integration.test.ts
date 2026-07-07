@@ -9,7 +9,7 @@ import {
   CronCreateTool,
   type CronCreateInput,
 } from '#/session/cron/tools/cron-create';
-import { ISessionCronService } from '#/session/cron';
+import { ISessionCronService } from '#/session/cron/sessionCronService';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { createTestAgent, type TestAgentContext } from '../harness';

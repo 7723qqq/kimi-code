@@ -1,13 +1,13 @@
 import { Readable, type Writable } from 'node:stream';
 
-import type { ToolCall } from '#/app/llmProtocol';
+import type { ToolCall } from '#/app/llmProtocol/message';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory';
 import { HookEngine } from '#/agent/externalHooks/engine';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import type { IProcess, ISessionProcessRunner } from '#/session/process';
+import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 import { createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 import {
   createCommandRunner,

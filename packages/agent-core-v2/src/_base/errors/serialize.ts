@@ -3,13 +3,7 @@
  * portable `ErrorPayload` that crosses process / language boundaries.
  */
 
-import {
-  APIConnectionError,
-  APIEmptyResponseError,
-  APIStatusError,
-  APITimeoutError,
-  ChatProviderError,
-} from '#/app/llmProtocol';
+import { APIConnectionError, APIEmptyResponseError, APIStatusError, APITimeoutError, ChatProviderError } from '#/app/llmProtocol/errors';
 
 import { CoreErrors, errorInfo, isErrorCode } from './codes';
 import type { ErrorCode } from './codes';

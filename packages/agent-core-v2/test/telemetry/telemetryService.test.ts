@@ -7,12 +7,8 @@ import {
   resetUnexpectedErrorHandler,
   setUnexpectedErrorHandler,
 } from '#/_base/errors/unexpectedError';
-import {
-  type ITelemetryAppender,
-  type TelemetryProperties,
-  ITelemetryService,
-  TelemetryService,
-} from '#/app/telemetry';
+import { type ITelemetryAppender, type TelemetryProperties, ITelemetryService } from '#/app/telemetry/telemetry';
+import { TelemetryService } from '#/app/telemetry/telemetryService';
 
 class CapturingAppender implements ITelemetryAppender {
   readonly events: { event: string; properties?: TelemetryProperties }[] = [];

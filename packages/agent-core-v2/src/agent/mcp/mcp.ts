@@ -1,6 +1,7 @@
-import type { Tool as KosongTool } from '#/app/llmProtocol';
+import type { Tool as KosongTool } from '#/app/llmProtocol/tool';
 
-import { createDecorator, type IDisposable } from "#/_base/di";
+import { createDecorator } from "#/_base/di/instantiation";
+import { type IDisposable } from "#/_base/di/lifecycle";
 import type {
   McpConnectionManager,
   McpServerEntry,

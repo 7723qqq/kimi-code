@@ -17,18 +17,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IOAuthService } from '#/app/auth';
+import { IOAuthService } from '#/app/auth/auth';
 import { IConfigService } from '#/app/config/config';
-import { APIStatusError } from '#/app/llmProtocol';
-import { type ModelConfig, IModelResolver, IModelService } from '#/app/model';
+import { APIStatusError } from '#/app/llmProtocol/errors';
+import { type ModelConfig, IModelService } from '#/app/model/model';
+import { IModelResolver } from '#/app/model/modelResolver';
 import { ModelResolverService } from '#/app/model/modelResolverService';
-import { type PlatformConfig, IPlatformService } from '#/app/platform';
-import { type ProviderConfig, IProviderService } from '#/app/provider';
-import {
-  type ChatProvider,
-  IProtocolAdapterRegistry,
-  type ProtocolAdapterConfig,
-} from '#/app/protocol';
+import { type PlatformConfig, IPlatformService } from '#/app/platform/platform';
+import { type ProviderConfig, IProviderService } from '#/app/provider/provider';
+import { type ChatProvider } from '#/app/llmProtocol/provider';
+import { IProtocolAdapterRegistry, type ProtocolAdapterConfig } from '#/app/protocol/protocol';
 
 let generateImpl: ChatProvider['generate'];
 let uploadVideoImpl: NonNullable<ChatProvider['uploadVideo']> | undefined;

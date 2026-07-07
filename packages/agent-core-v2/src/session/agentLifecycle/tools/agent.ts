@@ -33,14 +33,11 @@ import type {
 } from '#/agent/tool';
 import { ToolAccesses } from '#/agent/tool';
 import { registerTool } from '#/agent/toolRegistry';
-import {
-  applyProfilePromptPrefix,
-  IAgentProfileCatalogService,
-  type AgentProfile,
-} from '#/app/agentProfileCatalog';
-import { ILogService } from '#/_base/log';
-import { ISessionProcessRunner } from '#/session/process';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { IAgentProfileCatalogService, type AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
+import { ILogService } from '#/_base/log/log';
+import { ISessionProcessRunner } from '#/session/process/processRunner';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 
 import { IAgentLifecycleService } from '../agentLifecycle';
 import { emitAgentRunSpawned, mirrorAgentRun } from '../mirrorAgentRun';

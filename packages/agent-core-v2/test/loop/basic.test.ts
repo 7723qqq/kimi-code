@@ -1,4 +1,5 @@
-import { emptyUsage, type ToolCall } from '#/app/llmProtocol';
+import { type ToolCall } from '#/app/llmProtocol/message';
+import { emptyUsage } from '#/app/llmProtocol/usage';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentProfileService } from '#/index';

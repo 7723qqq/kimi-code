@@ -1,12 +1,9 @@
-import { createDecorator } from '#/_base/di';
-import type {
-  FinishReason,
-  Message,
-  StreamedMessagePart,
-  TokenUsage,
-  Tool,
-} from '#/app/llmProtocol';
-import type { LogContext } from '#/_base/log';
+import { createDecorator } from '#/_base/di/instantiation';
+import type { FinishReason } from '#/app/llmProtocol/finishReason';
+import type { Message, StreamedMessagePart } from '#/app/llmProtocol/message';
+import type { Tool } from '#/app/llmProtocol/tool';
+import type { TokenUsage } from '#/app/llmProtocol/usage';
+import type { LogContext } from '#/_base/log/log';
 
 export type LLMRequestLogFields = Readonly<LogContext>;
 

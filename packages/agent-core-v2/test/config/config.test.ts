@@ -1,4 +1,5 @@
-import type { ModelCapability, ToolCall } from '#/app/llmProtocol';
+import type { ModelCapability } from '#/app/llmProtocol/capability';
+import type { ToolCall } from '#/app/llmProtocol/message';
 import type { ProviderConfig } from '#/app/llmProtocol/providers';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 

@@ -13,10 +13,10 @@
  * closure; media tooling doesn't need to know about tokens.
  */
 
-import type { ModelCapability } from '#/app/llmProtocol';
-import type { Model } from '#/app/model';
+import type { ModelCapability } from '#/app/llmProtocol/capability';
+import type { Model } from '#/app/model/modelInstance';
 
-import { toDisposable, type IDisposable } from '#/_base/di';
+import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';

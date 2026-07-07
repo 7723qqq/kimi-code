@@ -8,7 +8,7 @@ import {
   IAgentPermissionPolicyService,
 } from '#/agent/permissionPolicy';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
-import { IAgentLifecycleService } from '#/session/agentLifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionBtwService, SIDE_QUESTION_SYSTEM_REMINDER } from '#/session/btw/btw';
 import { SessionBtwService } from '#/session/btw/btwService';
 

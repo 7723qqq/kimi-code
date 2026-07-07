@@ -12,21 +12,23 @@ import type {
   ShellOutputEvent,
   ShellStartedEvent,
 } from '@moonshot-ai/protocol';
-import { IEventBus, IEventService } from '#/app/event';
+import { IEventBus } from '#/app/event/eventBus';
+import { IEventService } from '#/app/event/event';
 import { ErrorCodes, KimiError } from '#/errors';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { IAgentPermissionGate } from '#/agent/permissionGate';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPlanService } from '#/agent/plan';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { expandCommandArguments, IPluginService } from '#/app/plugin';
+import { expandCommandArguments } from '#/app/plugin/commands';
+import { IPluginService } from '#/app/plugin/plugin';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentPromptService } from '#/agent/prompt';
-import { ISessionMetadata, type SessionMetaPatch } from '#/session/sessionMetadata';
-import { ISessionContext } from '#/session/sessionContext';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IAgentSkillService } from '#/agent/skill';
 import { IAgentSwarmService } from '#/agent/swarm';
-import { ITelemetryService } from '#/app/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import type { ToolUpdate } from '#/agent/tool';
 import { IAgentTurnService } from '#/agent/turn';
@@ -61,10 +63,10 @@ import type {
 } from './core-api';
 import { IAgentRPCService } from './rpc';
 import {
+  applyPromptMetadataUpdate,
   promptMetadataTextFromPayload,
   promptMetadataTextFromPluginCommand,
   promptMetadataTextFromSkill,
-  titleFromPromptMetadataText,
 } from './prompt-metadata';
 
 declare module '#/app/event/eventBus' {
@@ -340,37 +342,19 @@ export class AgentRPCService implements IAgentRPCService {
   }
 
   /**
-   * Mirror v1's `Session.updatePromptMetadata`: persist the prompt text as
-   * `lastPrompt` and, when the session is still untitled and has no custom
-   * title, derive an easy `title` from it. Then broadcast `session.meta.updated`
-   * on the global `IEventService` so the web session list / title updates live
-   * (the edge fans it out to every connection, not just this session's
-   * subscribers) — exactly like v1's `session.rpc.emitEvent`.
+   * Delegate to the shared `applyPromptMetadataUpdate` helper (same one the
+   * `/api/v1` legacy entry uses), so the easy-title / `lastPrompt` derivation
+   * and the `session.meta.updated` broadcast stay identical on both surfaces.
    */
   private async updatePromptMetadata(text: string | undefined): Promise<void> {
-    if (text === undefined) return;
-    const current = await this.metadata.read();
-    const patch: { lastPrompt: string; title?: string; isCustomTitle?: boolean } = {
-      lastPrompt: text,
-    };
-    if (!current.isCustomTitle && isUntitled(current.title)) {
-      patch.title = titleFromPromptMetadataText(text);
-      patch.isCustomTitle = false;
-    }
-    await this.metadata.update(patch satisfies SessionMetaPatch);
-    this.eventService.publish({
-      type: 'session.meta.updated',
-      payload: {
-        agentId: 'main',
+    await applyPromptMetadataUpdate(
+      {
+        metadata: this.metadata,
+        eventService: this.eventService,
         sessionId: this.sessionContext.sessionId,
-        title: patch.title,
-        patch: {
-          title: patch.title,
-          isCustomTitle: patch.isCustomTitle,
-          lastPrompt: text,
-        },
       },
-    });
+      text,
+    );
   }
 
   createGoal(payload: CreateGoalPayload) {
@@ -432,10 +416,6 @@ export class AgentRPCService implements IAgentRPCService {
   getTasks(payload: GetTasksPayload) {
     return this.tasks.list(payload.activeOnly ?? false, payload.limit);
   }
-}
-
-function isUntitled(title: string | undefined): boolean {
-  return typeof title !== 'string' || title.trim().length === 0 || title === 'New Session';
 }
 
 registerScopedService(

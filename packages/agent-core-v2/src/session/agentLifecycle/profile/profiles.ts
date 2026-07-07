@@ -12,8 +12,8 @@
  * list before `AgentProfileCatalogService` constructs.
  */
 
-import { collectGitContext } from '#/session/sessionFs';
-import { registerAgentProfile } from '#/app/agentProfileCatalog';
+import { collectGitContext } from '#/session/sessionFs/gitContext';
+import { registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
 import {
   renderSystemPrompt,
   TASK_AGENT_ROLE_PREFIX,

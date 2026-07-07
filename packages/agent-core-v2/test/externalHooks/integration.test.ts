@@ -7,7 +7,7 @@ import {
   type TestInstantiationService,
 } from '#/_base/di/test';
 import { Event } from '#/_base/event';
-import { emptyUsage } from '#/app/llmProtocol';
+import { emptyUsage } from '#/app/llmProtocol/usage';
 import { computeUndoCut, ensureMessageId, IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
 import { IAgentTaskService } from '#/agent/task';
 import {
@@ -26,9 +26,9 @@ import { IAgentPermissionGate } from '#/agent/permissionGate';
 import { IAgentPromptService } from '#/agent/prompt';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
 import { IAgentTurnService, type Turn } from '#/agent/turn';
-import { IBootstrapService } from '#/app/bootstrap';
-import { IConfigService } from '#/app/config';
-import { IPluginService } from '#/app/plugin';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
+import { IPluginService } from '#/app/plugin/plugin';
 import { createHooks } from '#/hooks';
 import { IAgentWireService, WireService } from '#/wire';
 

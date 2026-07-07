@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { emptyUsage, type ToolCall } from '#/app/llmProtocol';
-import { ITelemetryService } from '#/app/telemetry';
+import { type ToolCall } from '#/app/llmProtocol/message';
+import { emptyUsage } from '#/app/llmProtocol/usage';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentLoopService } from '#/agent/loop';
 import type {
   ExecutableTool,

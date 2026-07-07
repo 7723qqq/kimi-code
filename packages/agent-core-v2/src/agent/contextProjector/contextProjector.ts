@@ -1,5 +1,5 @@
-import { createDecorator } from "#/_base/di";
-import type { Message } from '#/app/llmProtocol';
+import { createDecorator } from "#/_base/di/instantiation";
+import type { Message } from '#/app/llmProtocol/message';
 
 import type { ContextMessage } from '#/agent/contextMemory';
 

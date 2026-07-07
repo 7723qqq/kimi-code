@@ -2,8 +2,9 @@
  * `loop` domain error codes and loop-local error helpers.
  */
 
-import { KimiError, isKimiError, registerErrorDomain, type ErrorDomain } from '#/_base/errors';
-import { APIContextOverflowError } from '#/app/llmProtocol';
+import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
+import { KimiError, isKimiError } from '#/_base/errors/errors';
+import { APIContextOverflowError } from '#/app/llmProtocol/errors';
 
 export const LoopErrors = {
   codes: {

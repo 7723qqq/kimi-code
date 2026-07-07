@@ -422,36 +422,36 @@ describe('main entry command handling', () => {
   });
 });
 
-describe('kimi v2 prefix', () => {
+describe('kimi beta prefix', () => {
   const ON = { KIMI_CODE_EXPERIMENTAL_FLAG: '1' };
   const OFF: Readonly<Record<string, string | undefined>> = {};
 
   describe('applyV2Prefix', () => {
-    it('passes argv through unchanged when there is no v2 token', () => {
+    it('passes argv through unchanged when there is no beta token', () => {
       const argv = ['node', 'kimi', 'server', 'run'];
       expect(applyV2Prefix(argv, ON)).toEqual({ argv });
       expect(applyV2Prefix(argv, OFF)).toEqual({ argv });
     });
 
-    it('strips the v2 token when the experimental flag is on', () => {
-      expect(applyV2Prefix(['node', 'kimi', 'v2', 'server', 'run'], ON)).toEqual({
+    it('strips the beta token when the experimental flag is on', () => {
+      expect(applyV2Prefix(['node', 'kimi', 'beta', 'server', 'run'], ON)).toEqual({
         argv: ['node', 'kimi', 'server', 'run'],
       });
     });
 
-    it('strips a lone v2 token (default chat) when the flag is on', () => {
-      expect(applyV2Prefix(['node', 'kimi', 'v2'], ON)).toEqual({
+    it('strips a lone beta token (default chat) when the flag is on', () => {
+      expect(applyV2Prefix(['node', 'kimi', 'beta'], ON)).toEqual({
         argv: ['node', 'kimi'],
       });
     });
 
-    it('rejects the v2 prefix with a hint when the flag is off', () => {
-      const outcome = applyV2Prefix(['node', 'kimi', 'v2', 'server', 'run'], OFF);
+    it('rejects the beta prefix with a hint when the flag is off', () => {
+      const outcome = applyV2Prefix(['node', 'kimi', 'beta', 'server', 'run'], OFF);
       expect('error' in outcome && outcome.error).toMatch(/KIMI_CODE_EXPERIMENTAL_FLAG/);
     });
 
-    it('does not treat a later v2 token as the prefix', () => {
-      const argv = ['node', 'kimi', 'server', 'v2'];
+    it('does not treat a later beta token as the prefix', () => {
+      const argv = ['node', 'kimi', 'server', 'beta'];
       expect(applyV2Prefix(argv, ON)).toEqual({ argv });
     });
   });
@@ -472,7 +472,7 @@ describe('kimi v2 prefix', () => {
 
     it('parses the stripped argv when the flag is on', () => {
       vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '1');
-      process.argv = ['node', 'kimi', 'v2', 'server', 'run'];
+      process.argv = ['node', 'kimi', 'beta', 'server', 'run'];
 
       main();
 
@@ -481,7 +481,7 @@ describe('kimi v2 prefix', () => {
 
     it('exits with a hint and never parses when the flag is off', () => {
       vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '');
-      process.argv = ['node', 'kimi', 'v2', 'server', 'run'];
+      process.argv = ['node', 'kimi', 'beta', 'server', 'run'];
       const writes: string[] = [];
       vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
         writes.push(String(chunk));

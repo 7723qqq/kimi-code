@@ -22,26 +22,18 @@ import { IAgentContextSizeService } from '#/agent/contextSize';
 import { IAgentProfileService } from '#/agent/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry';
 import { IAgentUsageService } from '#/agent/usage';
-import { IConfigService } from '#/app/config';
-import {
-  APIConnectionError,
-  APIContextOverflowError,
-  APIEmptyResponseError,
-  APIStatusError,
-  APITimeoutError,
-  emptyUsage,
-  isContextOverflowStatusError,
-  isRetryableGenerateError,
-  type Message,
-  type ThinkingEffort,
-  type TokenUsage,
-  type Tool,
-} from '#/app/llmProtocol';
-import { ILogService, type LogContext } from '#/_base/log';
-import type { KimiModelOverrides, Model, ModelRequestEvent } from '#/app/model';
+import { IConfigService } from '#/app/config/config';
+import { APIConnectionError, APIContextOverflowError, APIEmptyResponseError, APIStatusError, APITimeoutError, isContextOverflowStatusError, isRetryableGenerateError } from '#/app/llmProtocol/errors';
+import { type Message } from '#/app/llmProtocol/message';
+import { type ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
+import { type Tool } from '#/app/llmProtocol/tool';
+import { emptyUsage, type TokenUsage } from '#/app/llmProtocol/usage';
+import { ILogService, type LogContext } from '#/_base/log/log';
+import type { Model, LLMEvent as ModelRequestEvent } from '#/app/model/modelInstance';
+import type { KimiModelOverrides } from '#/app/model/modelOverrides';
 import { applyCompletionBudget, resolveCompletionBudget } from '#/app/model/completionBudget';
-import type { Protocol } from '#/app/protocol';
-import { ITelemetryService } from '#/app/telemetry';
+import type { Protocol } from '#/app/protocol/protocol';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 
 import type {
   LLMRequestFinish,

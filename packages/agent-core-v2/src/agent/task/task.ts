@@ -8,8 +8,8 @@
  * Bound at Agent scope.
  */
 
-import { createDecorator } from '#/_base/di';
-import type { ITaskHandle } from '#/app/task';
+import { createDecorator } from '#/_base/di/instantiation';
+import type { ITaskHandle } from '#/app/task/task';
 import type { Hooks } from '#/hooks';
 import type {
   AgentTask,

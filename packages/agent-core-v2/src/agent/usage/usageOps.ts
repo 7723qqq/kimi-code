@@ -12,7 +12,7 @@
  * `usageService`.
  */
 
-import { addUsage, type TokenUsage } from '#/app/llmProtocol';
+import { addUsage, type TokenUsage } from '#/app/llmProtocol/usage';
 import type { LLMRequestSource } from '#/agent/llmRequester/llmRequester';
 import { defineModel, defineOp } from '#/wire';
 

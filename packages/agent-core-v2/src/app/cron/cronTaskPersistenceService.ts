@@ -6,11 +6,11 @@
  * Pure CRUD — no scheduling logic. Bound at App scope.
  */
 
-import { Disposable } from '#/_base/di';
+import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAtomicDocumentStore } from '#/persistence/interface';
-import { IBootstrapService } from '#/app/bootstrap';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 
 import { ICronTaskPersistence, type CronTaskQuery } from './cronTaskPersistence';
 import type { CronTask } from './cronTask';

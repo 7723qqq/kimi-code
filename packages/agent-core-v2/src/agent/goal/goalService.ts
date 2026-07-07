@@ -21,7 +21,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { Disposable } from '#/_base/di';
+import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextInjectorService } from '#/agent/contextInjector';
@@ -43,12 +43,12 @@ import {
 } from '#/agent/loop';
 import { IAgentSystemReminderService } from '#/agent/systemReminder';
 import { IAgentTurnService, type TurnResult } from '#/agent/turn';
-import type { TokenUsage } from '#/app/llmProtocol';
-import type { TelemetryProperties } from '#/app/telemetry';
-import { ITelemetryService } from '#/app/telemetry';
+import type { TokenUsage } from '#/app/llmProtocol/usage';
+import type { TelemetryProperties } from '#/app/telemetry/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, KimiError, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
 import { IAgentWireService, type IWireService } from '#/wire';
-import { IEventBus } from '#/app/event';
+import { IEventBus } from '#/app/event/eventBus';
 
 import { IAgentGoalService, type GoalReasonInput } from './goal';
 import { clearGoal, createGoal, GoalModel, updateGoal, type GoalState } from './goalOps';

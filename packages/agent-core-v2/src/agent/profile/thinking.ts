@@ -6,7 +6,7 @@
  * the `defaultThinking` toggle. Pure functions; own no scoped state.
  */
 
-import type { ThinkingEffort } from '#/app/llmProtocol';
+import type { ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
 import {
   type ModelThinkingMetadata,
   resolveThinkingEffortForModel,

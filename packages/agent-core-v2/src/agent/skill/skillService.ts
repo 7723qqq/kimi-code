@@ -15,16 +15,16 @@ import { randomUUID } from 'node:crypto';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 
 import type { ContextMessage, SkillActivationOrigin } from '#/agent/contextMemory';
 import { renderUserSlashSkillPrompt } from './prompt';
-import { ISessionContext } from '#/session/sessionContext';
-import { Disposable } from '#/_base/di';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { Disposable } from '#/_base/di/lifecycle';
 import { ErrorCodes, KimiError } from '#/errors';
 import { isUserActivatableSkillType, type SkillDefinition } from '#/app/skillCatalog/types';
 import { IAgentPromptService } from '#/agent/prompt';
-import { ITelemetryService } from '#/app/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { Turn } from '#/agent/turn';
 import { IAgentWireService, type IWireService } from '#/wire';
 import { IAgentSkillService, type SkillActivationInput } from './skill';

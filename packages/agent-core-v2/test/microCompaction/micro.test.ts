@@ -1,9 +1,9 @@
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
 import { microCompactionFlag } from '#/agent/microCompaction/flag';
-import { IFlagService } from '#/app/flag';
+import { IFlagService } from '#/app/flag/flag';
 import { MASTER_ENV } from '#/app/flag/flagService';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,

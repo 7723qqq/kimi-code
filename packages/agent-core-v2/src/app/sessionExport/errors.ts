@@ -2,7 +2,7 @@
  * `sessionExport` domain error codes — export precondition failures.
  */
 
-import { registerErrorDomain, type ErrorDomain } from '#/_base/errors';
+import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 
 export const SessionExportErrors = {
   codes: {

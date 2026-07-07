@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IntervalTimer } from '#/_base/utils';
+import { IntervalTimer } from '#/_base/utils/timer';
 
 describe('IntervalTimer', () => {
   beforeEach(() => {

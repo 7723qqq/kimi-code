@@ -10,14 +10,14 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
-import { IGitService } from '#/app/git';
+import { IGitService } from '#/app/git/git';
 import { ErrorCodes, KimiError } from '#/errors';
 import { type HostDirEntry, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionFsService } from '#/session/sessionFs/fs';
 import { SessionFsService } from '#/session/sessionFs/fsService';
-import { ISessionProcessRunner, type IProcess } from '#/session/process';
-import { ITelemetryService } from '#/app/telemetry';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import { ISessionProcessRunner, type IProcess } from '#/session/process/processRunner';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 
 const WORK_DIR = '/repo';
 

@@ -1,4 +1,4 @@
-import type { ISessionWorkspaceContext } from '#/session/workspaceContext';
+import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 
 /**
  * Builds a minimal `ISessionWorkspaceContext` stub for file-tool unit tests.

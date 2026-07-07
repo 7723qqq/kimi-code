@@ -49,8 +49,8 @@ import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { Emitter } from '#/_base/event';
 import { IAgentBlobService } from '#/agent/blob';
-import { type DomainEvent, IEventBus } from '#/app/event';
-import type { ContentPart } from '#/app/llmProtocol';
+import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
+import type { ContentPart } from '#/app/llmProtocol/message';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 
 import type { DeepReadonly, DerivedModelDef, ModelDef, PartsTransformer } from './model';

@@ -17,7 +17,7 @@ import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentLoopService } from '#/agent/loop';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import type { ContentPart } from '#/app/llmProtocol';
+import type { ContentPart } from '#/app/llmProtocol/message';
 import { IAgentToolDedupeService, type ToolDedupResult } from './toolDedupe';
 
 const REMINDER_TEXT_1 =
