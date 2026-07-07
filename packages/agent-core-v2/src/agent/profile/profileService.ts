@@ -40,15 +40,16 @@ import type { LoopControl } from '#/agent/loop/configSection';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { isMcpToolName } from '#/agent/tool';
+import { isMcpToolName } from '#/agent/tool/toolName';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import type { ResolvedAgentProfile, SystemPromptContext } from '#/agent/profile';
+import type { ResolvedAgentProfile, SystemPromptContext } from '#/agent/profile/profile';
 
 import type { WarningEvent } from '@moonshot-ai/protocol';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ToolSource } from '#/agent/tool';
-import { IAgentWireService, type IWireService } from '#/wire';
+import type { ToolSource } from '#/agent/tool/toolContract';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 import { IEventBus } from '#/app/event/eventBus';
 import { prepareSystemPromptContext } from './context';
 import type {
@@ -75,7 +76,7 @@ import {
   type ProfileModelState,
 } from './profileOps';
 
-declare module '#/agent/wireRecord' {
+declare module '#/agent/wireRecord/wireRecord' {
   interface WireRecordMap {
     'tools.set_active_tools': {
       names: readonly string[];

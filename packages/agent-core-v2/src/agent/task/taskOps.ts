@@ -17,7 +17,8 @@
  * Agent-scope `taskService`.
  */
 
-import { defineModel, defineOp } from '#/wire';
+import { defineModel } from '#/wire/model';
+import { defineOp } from '#/wire/op';
 
 import type { AgentTaskInfo } from './types';
 

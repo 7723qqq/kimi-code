@@ -5,7 +5,7 @@ import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 import type { IProcess } from '#/session/process/processRunner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IAgentTaskService } from '#/agent/task';
+import { IAgentTaskService } from '#/agent/task/task';
 import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
 import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
 import { taskServices, createTestAgent, homeDirServices, type TestAgentContext } from '../harness';

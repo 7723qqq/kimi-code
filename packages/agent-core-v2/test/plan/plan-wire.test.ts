@@ -10,12 +10,14 @@ import {
   planModeCancel,
   planModeEnter,
   planModeExit,
-} from '#/agent/plan';
+} from '#/agent/plan/planOps';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IAgentWireService, WireService, type IWireService, type PersistedRecord } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService, PersistedRecord } from '#/wire/wireService';
+import { WireService } from '#/wire/wireServiceImpl';
 
 const SCOPE = 'wire';
 const KEY = 'plan-test';

@@ -10,13 +10,13 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import {
-  AgentBlobServiceImpl,
   BLOBREF_PROTOCOL,
   IAgentBlobService,
   MISSING_MEDIA_PLACEHOLDER,
-} from '#/agent/blob';
+} from '#/agent/blob/agentBlobService';
+import { AgentBlobServiceImpl } from '#/agent/blob/agentBlobServiceImpl';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IBlobStore } from '#/persistence/interface/blobStore';

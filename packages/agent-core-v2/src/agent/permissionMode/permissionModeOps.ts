@@ -9,8 +9,9 @@
  * type). Consumed by the Agent-scope `permissionModeService`.
  */
 
-import type { PermissionMode } from '#/agent/permissionPolicy';
-import { defineModel, defineOp } from '#/wire';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
+import { defineModel } from '#/wire/model';
+import { defineOp } from '#/wire/op';
 
 export const PermissionModeModel = defineModel<PermissionMode>('permissionMode', () => 'manual');
 

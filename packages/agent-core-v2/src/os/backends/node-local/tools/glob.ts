@@ -59,9 +59,9 @@ import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ToolAccesses } from '#/agent/tool';
-import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool';
-import { registerTool } from '#/agent/toolRegistry';
+import { ToolAccesses } from '#/agent/tool/tool-access';
+import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool/toolContract';
+import { registerTool } from '#/agent/toolRegistry/toolContribution';
 import {
   isWithinDirectory,
   resolvePathAccessPath,

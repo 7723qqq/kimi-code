@@ -6,7 +6,7 @@ import type {
   McpConnectionManager,
   McpServerEntry,
 } from './connection-manager';
-import type { McpOAuthService } from '#/agent/mcp/oauth';
+import type { McpOAuthService } from '#/agent/mcp/oauth/service';
 import type { MCPClient } from './types';
 
 export interface McpResolvedServer {

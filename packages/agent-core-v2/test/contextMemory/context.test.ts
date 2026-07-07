@@ -2,7 +2,7 @@ import type { Message } from '#/app/llmProtocol/message';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
-import type { ContextMessage } from '#/agent/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import {
   IAgentContextMemoryService,
   IAgentContextSizeService,

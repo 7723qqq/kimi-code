@@ -19,32 +19,28 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { isUserCancellation } from '#/_base/utils/abort';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
-import { IAgentTaskService, type AgentTaskNotificationContext } from '#/agent/task';
-import { IAgentContextMemoryService, USER_PROMPT_ORIGIN } from '#/agent/contextMemory';
+import { IAgentTaskService, type AgentTaskNotificationContext } from '#/agent/task/task';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
 import {
   IAgentFullCompactionService,
   type FullCompactionWillCompactContext,
-} from '#/agent/fullCompaction';
+} from '#/agent/fullCompaction/fullCompaction';
 import type { CompactionResult, CompactionSource } from '#/agent/fullCompaction/types';
-import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop';
+import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop/loop';
 import {
   IAgentPermissionGate,
-} from '#/agent/permissionGate';
+} from '#/agent/permissionGate/permissionGate';
 import {
   IAgentPromptService,
   type PromptSubmitContext,
-} from '#/agent/prompt';
+} from '#/agent/prompt/prompt';
 import type { HookResultEvent, TurnEndReason } from '@moonshot-ai/protocol';
 import { IEventBus } from '#/app/event/eventBus';
-import type {
-  ExecutableToolResult,
-  ToolDidExecuteContext,
-  ToolWillExecuteContext,
-} from '#/agent/tool';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import {
-  IAgentTurnService,
-} from '#/agent/turn';
+import type { ExecutableToolResult } from '#/agent/tool/toolContract';
+import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/agent/tool/toolHooks';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentTurnService } from '#/agent/turn/turn';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IPluginService } from '#/app/plugin/plugin';

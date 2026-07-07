@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ToolAccesses } from '#/agent/tool';
+import { ToolAccesses } from '#/agent/tool/tool-access';
 import { ToolScheduler, type ToolCallTask } from '#/agent/toolExecutor/toolScheduler';
 
 describe('ToolScheduler', () => {

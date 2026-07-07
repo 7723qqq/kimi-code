@@ -16,7 +16,8 @@
  * context-clear paths. Consumed by the Agent-scope `microCompactionService`.
  */
 
-import { defineModel, defineOp } from '#/wire';
+import { defineModel } from '#/wire/model';
+import { defineOp } from '#/wire/op';
 
 export interface MicroCompactionState {
   readonly cutoff: number;

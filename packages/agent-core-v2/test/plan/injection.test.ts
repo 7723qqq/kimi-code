@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createFakeHostFs } from '../tools/fixtures/fake-exec';
-import { IAgentContextInjectorService } from '#/agent/contextInjector';
-import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
-import { IAgentPlanService } from '#/agent/plan';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentPlanService } from '#/agent/plan/plan';
 import {
   createTestAgent,
   execEnvServices,

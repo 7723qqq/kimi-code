@@ -15,7 +15,8 @@
  * before the main agent replays.
  */
 
-import { defineModel, defineOp } from '#/wire';
+import { defineModel } from '#/wire/model';
+import { defineOp } from '#/wire/op';
 
 import type { TodoItem } from './todoItem';
 

@@ -6,7 +6,7 @@
  * version facts, and wire-log activity timestamps discovered during export.
  */
 
-import { AGENT_WIRE_PROTOCOL_VERSION } from '#/agent/wireRecord';
+import { AGENT_WIRE_PROTOCOL_VERSION } from '#/agent/wireRecord/wireRecord';
 
 import type {
   ExportSessionManifest,

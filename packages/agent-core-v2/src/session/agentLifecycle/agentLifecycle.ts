@@ -27,8 +27,8 @@ import type { IAgentScopeHandle } from '#/_base/di/scope';
 import type { Event } from '#/_base/event';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
 import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import type { BindAgentInput } from '#/agent/profile';
-import type { Turn } from '#/agent/turn';
+import type { BindAgentInput } from '#/agent/profile/profile';
+import type { Turn } from '#/agent/turn/turn';
 
 export interface CreateAgentOptions {
   readonly agentId?: string;

@@ -16,14 +16,14 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { escapeXmlAttr } from '#/_base/utils/xml-escape';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { ILogService } from '#/_base/log/log';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { SkillCatalog, SkillDefinition } from '#/app/skillCatalog/types';
-import { IAgentSystemReminderService } from '#/agent/systemReminder';
+import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 
 import { IAgentContextInjectorService } from './contextInjector';
 

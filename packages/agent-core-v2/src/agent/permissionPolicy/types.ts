@@ -1,6 +1,6 @@
-import type { PrepareToolExecutionResult, ResolvedToolExecutionHookContext } from '#/agent/tool';
+import type { PrepareToolExecutionResult, ResolvedToolExecutionHookContext } from '#/agent/tool/toolHooks';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
-import type { PermissionRule } from '#/agent/permissionRules';
+import type { PermissionRule } from '#/agent/permissionRules/permissionRules';
 
 /**
  * Top-level user-facing permission posture. Controls how non-deny rules

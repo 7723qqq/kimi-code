@@ -23,7 +23,7 @@ import { userCancellationReason } from '#/_base/utils/abort';
 import { isProviderRateLimitError } from '#/app/llmProtocol/errors';
 import { type TokenUsage } from '#/app/llmProtocol/usage';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentExternalHooksService } from '#/agent/externalHooks';
+import { IAgentExternalHooksService } from '#/agent/externalHooks/externalHooks';
 import type {
   SubagentCompletedEvent,
   SubagentFailedEvent,

@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   IAgentTaskService,
   type AgentTaskInfo,
-} from '#/agent/task';
+} from '#/agent/task/task';
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import {
   taskServices,

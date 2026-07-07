@@ -5,14 +5,15 @@ import {
   createServices,
   type TestInstantiationService,
 } from '#/_base/di/test';
-import { IAgentContextInjectorService } from '#/agent/contextInjector';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { AgentContextInjectorService } from '#/agent/contextInjector/contextInjectorService';
-import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
-import { IAgentLoopService } from '#/agent/loop';
-import { IAgentProfileService } from '#/agent/profile';
-import { IAgentSystemReminderService } from '#/agent/systemReminder';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
-import { IAgentTurnService } from '#/agent/turn';
+import { IAgentTurnService } from '#/agent/turn/turn';
 import { registerContextMemoryServices } from '../contextMemory/stubs';
 import { stubLoopWithHooks, stubTurnWithHooks } from '../turn/stubs';
 

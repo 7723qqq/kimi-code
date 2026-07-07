@@ -1,4 +1,4 @@
-import type { WireMigration, WireMigrationRecord } from './index';
+import type { WireMigration, WireMigrationRecord } from './migration';
 
 type V1_3GoalStatus = 'active' | 'paused' | 'blocked' | 'complete';
 type V1_3GoalActor = 'user' | 'model' | 'runtime' | 'system';

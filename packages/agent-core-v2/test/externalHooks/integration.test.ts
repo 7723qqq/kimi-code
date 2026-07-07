@@ -8,29 +8,31 @@ import {
 } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { emptyUsage } from '#/app/llmProtocol/usage';
-import { computeUndoCut, ensureMessageId, IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
-import { IAgentTaskService } from '#/agent/task';
-import {
-  AgentExternalHooksService,
-  IAgentExternalHooksService,
-} from '#/agent/externalHooks';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { computeUndoCut } from '#/agent/contextMemory/contextOps';
+import { ensureMessageId } from '#/agent/contextMemory/messageId';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentExternalHooksService } from '#/agent/externalHooks/externalHooks';
+import { AgentExternalHooksService } from '#/agent/externalHooks/externalHooksService';
 import { HookEngine } from '#/agent/externalHooks/engine';
 import {
   HookDefSchema,
   hooksFromToml,
   hooksToToml,
 } from '#/agent/externalHooks/configSection';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction';
-import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop';
-import { IAgentPermissionGate } from '#/agent/permissionGate';
-import { IAgentPromptService } from '#/agent/prompt';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import { IAgentTurnService, type Turn } from '#/agent/turn';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop/loop';
+import { IAgentPermissionGate } from '#/agent/permissionGate/permissionGate';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentTurnService, type Turn } from '#/agent/turn/turn';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IPluginService } from '#/app/plugin/plugin';
 import { createHooks } from '#/hooks';
-import { IAgentWireService, WireService } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import { WireService } from '#/wire/wireServiceImpl';
 
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLoopWithHooks, stubToolExecutor, stubTurnWithHooks } from '../turn/stubs';

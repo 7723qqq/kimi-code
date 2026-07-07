@@ -1,5 +1,5 @@
 import type { ChatProvider } from '#/app/llmProtocol/provider';
-import { createProvider, type ProviderConfig as KosongProviderConfig } from '#/app/llmProtocol/providers';
+import { createProvider, type ProviderConfig as KosongProviderConfig } from '#/app/llmProtocol/providers/providers';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable } from '#/_base/di/lifecycle';

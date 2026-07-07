@@ -29,11 +29,11 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import {
-  AgentWireRecordService,
   AGENT_WIRE_PROTOCOL_VERSION,
   IAgentWireRecordService,
   type PersistedWireRecord,
-} from '#/agent/wireRecord';
+} from '#/agent/wireRecord/wireRecord';
+import { AgentWireRecordService } from '#/agent/wireRecord/wireRecordService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';

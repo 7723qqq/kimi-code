@@ -1,5 +1,5 @@
 import type { ModelCapability } from './capability';
-import type { ProviderType } from './providers';
+import type { ProviderType } from './providers/providers';
 
 /**
  * models.dev-style catalog: a public map of provider/model metadata. Callers

@@ -1,4 +1,4 @@
-import type { WireMigration, WireMigrationRecord } from './index';
+import type { WireMigration, WireMigrationRecord } from './migration';
 
 /**
  * Wire records before v1.1 used a nested `function` wrapper for each tool call:

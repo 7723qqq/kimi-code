@@ -14,7 +14,7 @@ import type {
   PermissionApprovalRecordedContext,
   PermissionRule,
   PermissionRulesChangedContext,
-} from '#/agent/permissionRules';
+} from '#/agent/permissionRules/permissionRules';
 
 export function stubPermissionRulesService(
   rules: () => readonly PermissionRule[],

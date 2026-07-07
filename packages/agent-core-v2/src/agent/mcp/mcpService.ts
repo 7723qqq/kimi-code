@@ -10,8 +10,8 @@ import type {
   ToolListUpdatedEvent,
 } from '@moonshot-ai/protocol';
 import { IEventBus } from '#/app/event/eventBus';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { createMcpAuthTool } from '#/agent/mcp/tools/auth';
 import { createMcpTool } from '#/agent/mcp/tools/mcp';
 import type { McpServerEntry } from './connection-manager';

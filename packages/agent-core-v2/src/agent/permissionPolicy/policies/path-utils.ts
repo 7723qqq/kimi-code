@@ -3,8 +3,8 @@ import * as nodePath from 'node:path';
 import * as posixPath from 'node:path/posix';
 import * as win32Path from 'node:path/win32';
 
-import type { ToolFileAccess } from '#/agent/tool';
-import type { ResolvedToolExecutionHookContext } from '#/agent/tool';
+import type { ToolFileAccess } from '#/agent/tool/tool-access';
+import type { ResolvedToolExecutionHookContext } from '#/agent/tool/toolHooks';
 import {
   isWithinDirectory,
   type PathClass,

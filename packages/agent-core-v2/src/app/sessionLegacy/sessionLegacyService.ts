@@ -12,23 +12,25 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
-import { IAgentContextMemoryService, toProtocolMessage, type ContextMessage } from '#/agent/contextMemory';
-import { IAgentContextSizeService } from '#/agent/contextSize';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { toProtocolMessage } from '#/agent/contextMemory/messageProjection';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
 import { ErrorCodes, isKimiError, KimiError } from '#/errors';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction';
-import { IAgentGoalService } from '#/agent/goal';
-import { IAgentPermissionModeService } from '#/agent/permissionMode';
-import type { PermissionMode } from '#/agent/permissionPolicy';
-import { IAgentPlanService } from '#/agent/plan';
-import { IAgentProfileService } from '#/agent/profile';
-import { IAgentPromptService } from '#/agent/prompt';
-import { IAgentRPCService } from '#/agent/rpc';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import { IAgentGoalService } from '#/agent/goal/goal';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
+import { IAgentPlanService } from '#/agent/plan/plan';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { IAgentRPCService } from '#/agent/rpc/rpc';
 import { ISessionActivity } from '#/session/sessionActivity/sessionActivity';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import { IAgentSwarmService } from '#/agent/swarm';
+import { IAgentSwarmService } from '#/agent/swarm/swarm';
 import { IWorkspaceRegistry } from '#/app/workspaceRegistry/workspaceRegistry';
 import type {
   ArchiveSessionResponse,

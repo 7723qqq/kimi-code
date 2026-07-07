@@ -12,11 +12,9 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import {
-  DenyAllPermissionPolicyService,
-  IAgentPermissionPolicyService,
-} from '#/agent/permissionPolicy';
-import { IAgentSystemReminderService } from '#/agent/systemReminder';
+import { IAgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicy';
+import { DenyAllPermissionPolicyService } from '#/agent/permissionPolicy/policies/deny-all';
+import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 
 import { ISessionBtwService, SIDE_QUESTION_SYSTEM_REMINDER, TOOL_CALL_DISABLED_MESSAGE } from './btw';

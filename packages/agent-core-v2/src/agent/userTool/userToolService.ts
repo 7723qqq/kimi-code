@@ -17,15 +17,16 @@ import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { abortable } from '#/_base/utils/abort';
-import { IAgentProfileService } from '#/agent/profile';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import type {
   ExecutableTool,
   ExecutableToolContext,
   ExecutableToolResult,
-} from '#/agent/tool';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
+} from '#/agent/tool/toolContract';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { ISessionInteractionService } from '#/session/interaction/interaction';
-import { IAgentWireService, type IWireService } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 
 import { IAgentUserToolService, type UserToolRegistration } from './userTool';
 import { registerUserTool, unregisterUserTool, UserToolModel } from './userToolOps';

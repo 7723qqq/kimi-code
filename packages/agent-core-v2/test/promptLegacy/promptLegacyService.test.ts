@@ -9,7 +9,8 @@ import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn/turn
 import { createHooks } from '#/hooks';
 import type { PromptSubmission } from '@moonshot-ai/protocol';
 
-import { IAgentPromptLegacyService, AgentPromptLegacyService } from '#/agent/promptLegacy';
+import { IAgentPromptLegacyService } from '#/agent/promptLegacy/promptLegacy';
+import { AgentPromptLegacyService } from '#/agent/promptLegacy/promptLegacyService';
 
 interface ControlledTurn {
   readonly turn: Turn;

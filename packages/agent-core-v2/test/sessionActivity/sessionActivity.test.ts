@@ -9,7 +9,7 @@ import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle'
 import { ISessionInteractionService, type Interaction, type InteractionKind } from '#/session/interaction/interaction';
 import { ISessionActivity } from '#/session/sessionActivity/sessionActivity';
 import { SessionActivity } from '#/session/sessionActivity/sessionActivityService';
-import { IAgentTurnService, type Turn } from '#/agent/turn';
+import { IAgentTurnService, type Turn } from '#/agent/turn/turn';
 import { stubTurn } from '../turn/stubs';
 
 function makeTurn(id: number): Turn {

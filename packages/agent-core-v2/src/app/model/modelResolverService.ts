@@ -24,7 +24,7 @@ import { ErrorCodes, KimiError } from '#/errors';
 import { type ModelCapability } from '#/app/llmProtocol/capability';
 import { type ProviderRequestAuth } from '#/app/llmProtocol/request';
 import { type ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
-import { getModelCapability } from '#/app/llmProtocol/providers';
+import { getModelCapability } from '#/app/llmProtocol/providers/providers';
 import { IPlatformService, UNKNOWN_PLATFORM_KEY } from '#/app/platform/platform';
 import type { OAuthRef, ProviderConfig } from '#/app/provider/provider';
 import { IProviderService } from '#/app/provider/provider';

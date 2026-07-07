@@ -2,15 +2,14 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, KimiError } from '#/errors';
 
-import {
-  ensureMessageId,
-  IAgentContextMemoryService,
-  type ContextMessage,
-} from '#/agent/contextMemory';
-import { IAgentLoopService } from '#/agent/loop';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import { IAgentTurnService, type Turn } from '#/agent/turn';
-import type { ExecutableToolResult, ToolDidExecuteContext } from '#/agent/tool';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { ensureMessageId } from '#/agent/contextMemory/messageId';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentTurnService, type Turn } from '#/agent/turn/turn';
+import type { ExecutableToolResult } from '#/agent/tool/toolContract';
+import type { ToolDidExecuteContext } from '#/agent/tool/toolHooks';
 import { OrderedHookSlot } from '#/hooks';
 import {
   IAgentPromptService,

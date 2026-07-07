@@ -12,13 +12,11 @@ import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import {
-  IAgentWireService,
-  WireService,
-  defineModel,
-  defineOp,
-  type PersistedRecord,
-} from '#/wire';
+import { defineModel } from '#/wire/model';
+import { defineOp } from '#/wire/op';
+import { IAgentWireService } from '#/wire/tokens';
+import type { PersistedRecord } from '#/wire/wireService';
+import { WireService } from '#/wire/wireServiceImpl';
 
 const SCOPE = 'wire';
 const KEY = 'round-trip';

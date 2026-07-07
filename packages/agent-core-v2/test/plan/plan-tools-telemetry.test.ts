@@ -1,15 +1,15 @@
 import type { ToolCall } from '#/app/llmProtocol/message';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { IAgentPlanService, PlanData } from '#/agent/plan';
+import type { IAgentPlanService, PlanData } from '#/agent/plan/plan';
 import { EnterPlanModeTool } from '#/agent/plan/tools/enter-plan-mode';
 import {
   ExitPlanModeTool,
   type ExitPlanModeInput,
 } from '#/agent/plan/tools/exit-plan-mode';
-import type { ToolResult } from '#/agent/tool';
+import type { ToolResult } from '#/agent/tool/toolContract';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 
 import { executeTool } from '../tools/fixtures/execute-tool';
 import { createFakeHostFs } from '../tools/fixtures/fake-exec';

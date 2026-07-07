@@ -13,10 +13,10 @@ import {
   CRON_MISSED,
 } from '#/session/cron/sessionCronServiceImpl';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
-import { IAgentPromptService } from '#/agent/prompt';
-import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentTurnService, type Turn } from '#/agent/turn';
+import { IAgentTurnService, type Turn } from '#/agent/turn/turn';
 import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 import type { TelemetryRecord } from '../telemetry/stubs';
 

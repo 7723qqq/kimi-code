@@ -1,9 +1,6 @@
 import { createDecorator } from '#/_base/di/instantiation';
-import type {
-  ToolResult,
-  ToolDidExecuteContext,
-  ToolWillExecuteContext,
-} from '#/agent/tool';
+import type { ToolResult } from '#/agent/tool/toolContract';
+import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/agent/tool/toolHooks';
 import type { ToolCall } from '#/app/llmProtocol/message';
 import type { OrderedHookSlot } from '#/hooks';
 

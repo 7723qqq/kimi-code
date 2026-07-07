@@ -10,15 +10,17 @@ import {
 
 import { Disposable } from "#/_base/di/lifecycle";
 import { generateHeroSlug } from "#/_base/utils/hero-slug";
-import { IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
-import { IAgentContextInjectorService } from '#/agent/contextInjector';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IAgentProfileService } from '#/agent/profile';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentWireService, type IWireService } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
-import type { ExecutableToolResult } from '#/agent/tool';
+import type { ExecutableToolResult } from '#/agent/tool/toolContract';
 import { type ExitPlanModeInput } from '#/agent/plan/tools/exit-plan-mode';
 import {
   IAgentPlanService,

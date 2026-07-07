@@ -1,6 +1,6 @@
 import { createDecorator } from "#/_base/di/instantiation";
-import type { ContextMessage } from "#/agent/contextMemory";
-import type { Turn } from "#/agent/turn";
+import type { ContextMessage } from "#/agent/contextMemory/types";
+import type { Turn } from "#/agent/turn/turn";
 import type { Hooks } from '#/hooks';
 
 export interface PromptSubmitContext {

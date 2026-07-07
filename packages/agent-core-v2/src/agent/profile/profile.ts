@@ -4,7 +4,7 @@ import type { ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
 import type { Model } from '#/app/model/modelInstance';
 
 import { createDecorator } from "#/_base/di/instantiation";
-import type { ToolSource } from '#/agent/tool';
+import type { ToolSource } from '#/agent/tool/toolContract';
 
 /**
  * Data required to configure an agent: active model id, its capability

@@ -10,7 +10,8 @@
  * records. Consumed by the Agent-scope `toolStateService`.
  */
 
-import { defineModel, defineOp } from '#/wire';
+import { defineModel } from '#/wire/model';
+import { defineOp } from '#/wire/op';
 
 export const ToolStoreModel = defineModel<Record<string, unknown>>('toolState', () => ({}));
 

@@ -1,4 +1,4 @@
-import type { ExecutableToolOutput, ExecutableToolResult } from '#/agent/tool';
+import type { ExecutableToolOutput, ExecutableToolResult } from '#/agent/tool/toolContract';
 import type {
   AgentTask,
   AgentTaskInfoBase,

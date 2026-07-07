@@ -22,11 +22,11 @@ import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IAgentTaskService } from '#/agent/task';
+import { IAgentTaskService } from '#/agent/task/task';
 import { SubagentTask } from '#/session/agentLifecycle/tools/subagent-task';
-import { IAgentPromptService } from '#/agent/prompt';
-import { IAgentProfileService } from '#/agent/profile';
-import { IAgentTurnService } from '#/agent/turn';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentTurnService } from '#/agent/turn/turn';
 import {
   taskServices,
   createTestAgent,

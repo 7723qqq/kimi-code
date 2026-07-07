@@ -11,7 +11,7 @@ Domain-slice scenarios that used to live in `examples/<name>.example.ts` are now
 ## Comment conventions
 
 - **Header only, external role only.** Comments live solely in the top-of-file `/** */` block — never beside functions, methods, or statements. Say what the module exposes and the responsibility it owns; the code is the source of truth for how it works, so do not narrate implementation steps, enumerate every export, or note porting / skeleton status.
-- **Identity line first.** Start with `` `<domain>` domain (Ln) — <one-line role>. `` Keep an existing `(cross-cutting)` label as-is; barrels omit the layer (`` `<domain>` domain barrel — … ``). Write the role as a responsibility ("drives the turn lifecycle"), not a symbol list ("turn driver + context + loop runner").
+- **Identity line first.** Start with `` `<domain>` domain (Ln) — <one-line role>. `` Keep an existing `(cross-cutting)` label as-is. Write the role as a responsibility ("drives the turn lifecycle"), not a symbol list ("turn driver + context + loop runner").
 - **Impl files add collaborators + scope; contract files add the public contract + scope.** For impls, list every imported cross-domain collaborator as a role ("persists records through `records`") — declared dependencies count even if not yet wired in this WIP port; infrastructure imports (`_base/**`) are not collaborators. Read scope from `registerScopedService(LifecycleScope.X, …)`.
 
 ### Examples
@@ -27,17 +27,6 @@ Impl (`src/session/sessionMetadata/sessionMetadataService.ts`):
  * namespace from `sessionContext`. Loads the existing document on
  * construction (creating it on first run), and logs through `log`. Bound at
  * Session scope.
- */
-```
-
-Barrel (`src/session/sessionMetadata/index.ts`):
-
-```ts
-/**
- * `sessionMetadata` domain barrel — re-exports the session metadata contract
- * (`sessionMetadata`) and its scoped service (`sessionMetadataService`).
- * Importing this barrel registers the `ISessionMetadata` binding into the scope
- * registry.
  */
 ```
 

@@ -1,5 +1,5 @@
 import type { Message } from '#/app/llmProtocol/message';
-import type { ProfileModelContext } from '#/agent/profile';
+import type { ProfileModelContext } from '#/agent/profile/profile';
 import type { CompactionSource } from './types';
 import { estimateTokensForMessage } from '#/_base/utils/tokens';
 

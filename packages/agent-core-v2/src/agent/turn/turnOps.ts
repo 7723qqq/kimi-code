@@ -18,7 +18,8 @@
  * emits it.
  */
 
-import { defineModel, defineOp } from '#/wire';
+import { defineModel } from '#/wire/model';
+import { defineOp } from '#/wire/op';
 
 export interface TurnModelState {
   readonly nextTurnId: number;

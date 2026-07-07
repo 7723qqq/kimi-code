@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { loadAgentsMd, prepareSystemPromptContext } from '#/agent/profile';
+import { loadAgentsMd, prepareSystemPromptContext } from '#/agent/profile/context';
 
 /**
  * Build an os-backed `IHostFileSystem`. The v2 profile context loaders take

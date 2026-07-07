@@ -9,7 +9,7 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAtomicDocumentStore } from '#/persistence/interface';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 
 import { ICronTaskPersistence, type CronTaskQuery } from './cronTaskPersistence';

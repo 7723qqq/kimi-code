@@ -1,4 +1,4 @@
-import type { WireMigration, WireMigrationRecord } from './index';
+import type { WireMigration, WireMigrationRecord } from './migration';
 
 interface V1_1ApprovalResult {
   readonly decision: 'approved' | 'rejected' | 'cancelled';

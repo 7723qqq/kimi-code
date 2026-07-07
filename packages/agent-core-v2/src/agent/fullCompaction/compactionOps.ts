@@ -44,7 +44,8 @@ import type {
   CompactionCompletedEvent,
   CompactionStartedEvent,
 } from '@moonshot-ai/protocol';
-import { defineModel, defineOp } from '#/wire';
+import { defineModel } from '#/wire/model';
+import { defineOp } from '#/wire/op';
 
 import type { FullCompactionCompleteData } from './fullCompaction';
 import type { CompactionBeginData, CompactionSource } from './types';

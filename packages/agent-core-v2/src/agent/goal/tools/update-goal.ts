@@ -12,8 +12,8 @@
 import { z } from 'zod';
 
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import type { BuiltinTool, ToolExecution } from '#/agent/tool';
-import { registerTool } from '#/agent/toolRegistry';
+import type { BuiltinTool, ToolExecution } from '#/agent/tool/toolContract';
+import { registerTool } from '#/agent/toolRegistry/toolContribution';
 
 import { IAgentGoalService } from '#/agent/goal/goal';
 import DESCRIPTION from './update-goal.md?raw';

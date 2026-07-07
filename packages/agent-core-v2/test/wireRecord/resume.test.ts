@@ -9,10 +9,10 @@ import {
   type PersistedWireRecord,
   type PromptOrigin,
 } from '#/index';
-import { IAgentTaskService } from '#/agent/task';
-import { IAgentPlanService } from '#/agent/plan';
-import { IAgentPromptService } from '#/agent/prompt';
-import { IAgentTurnService } from '#/agent/turn';
+import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentPlanService } from '#/agent/plan/plan';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { IAgentTurnService } from '#/agent/turn/turn';
 import {
   createAgentTaskPersistence,
   type TaskServiceTestManager,

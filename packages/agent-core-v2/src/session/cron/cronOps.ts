@@ -22,7 +22,8 @@
 
 import type { CronJobOrigin } from '@moonshot-ai/protocol';
 
-import { defineModel, defineOp } from '#/wire';
+import { defineModel } from '#/wire/model';
+import { defineOp } from '#/wire/op';
 
 import type { CronTask } from '#/app/cron/cronTask';
 

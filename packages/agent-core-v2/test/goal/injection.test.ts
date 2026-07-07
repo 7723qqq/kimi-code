@@ -1,13 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ToolCall } from '#/app/llmProtocol/message';
 
-import { IAgentContextInjectorService } from '#/agent/contextInjector';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import {
-  IAgentGoalService,
-  type AgentGoalService,
-} from '#/agent/goal';
-import { IAgentProfileService } from '#/agent/profile';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentGoalService } from '#/agent/goal/goal';
+import { type AgentGoalService } from '#/agent/goal/goalService';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import {
   InMemoryWireRecordPersistence,
   createTestAgent,

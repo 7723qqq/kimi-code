@@ -20,7 +20,7 @@ import { isRemoteMcpConfig } from './client-remote';
 import { SseMcpClient } from './client-sse';
 import type { UnexpectedCloseReason } from './client-shared';
 import { StdioMcpClient } from './client-stdio';
-import type { McpOAuthService } from '#/agent/mcp/oauth';
+import type { McpOAuthService } from '#/agent/mcp/oauth/service';
 import { assertMcpInputSchema, type MCPClient } from './types';
 
 export type McpServerStatus = 'pending' | 'connected' | 'failed' | 'disabled' | 'needs-auth';

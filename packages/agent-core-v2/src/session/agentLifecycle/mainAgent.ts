@@ -14,8 +14,8 @@
  */
 
 import type { ISessionScopeHandle, IAgentScopeHandle } from '#/_base/di/scope';
-import { IPluginSessionStartInjectorService } from '#/agent/contextInjector';
-import type { BindAgentInput } from '#/agent/profile';
+import { IPluginSessionStartInjectorService } from '#/agent/contextInjector/pluginSessionStart';
+import type { BindAgentInput } from '#/agent/profile/profile';
 
 import { IAgentLifecycleService } from './agentLifecycle';
 

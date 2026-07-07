@@ -5,7 +5,7 @@ import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile';
+import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
 
 import { createTestAgent, execEnvServices, type TestAgentContext } from '../harness';
 

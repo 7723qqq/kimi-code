@@ -17,10 +17,8 @@ import type { Message, PageResponse } from '@moonshot-ai/protocol';
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
-import {
-  IAgentContextMemoryService,
-  toProtocolMessage,
-} from '#/agent/contextMemory';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { toProtocolMessage } from '#/agent/contextMemory/messageProjection';
 import { ErrorCodes, KimiError } from '#/errors';
 import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';

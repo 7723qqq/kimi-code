@@ -9,9 +9,9 @@ import { z } from 'zod';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import { IAgentPermissionModeService } from '#/agent/permissionMode';
-import type { BuiltinTool, ToolExecution } from '#/agent/tool';
-import { registerTool } from '#/agent/toolRegistry';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import type { BuiltinTool, ToolExecution } from '#/agent/tool/toolContract';
+import { registerTool } from '#/agent/toolRegistry/toolContribution';
 
 import { IAgentGoalService } from '#/agent/goal/goal';
 import DESCRIPTION from './create-goal.md?raw';

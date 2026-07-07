@@ -4,10 +4,15 @@ import { createDecorator } from "#/_base/di/instantiation";
 import type { IDisposable } from "#/_base/di/lifecycle";
 
 import type { Hooks } from '#/hooks';
-import type { WireRecord, WireRecordMap } from '#/agent/wireRecord';
-import type { WireMigrationRecord } from '#/agent/wireRecord/migration';
+import type { WireMigrationRecord } from '#/agent/wireRecord/migration/migration';
 
-export { AGENT_WIRE_PROTOCOL_VERSION } from '#/agent/wireRecord/migration';
+export * from '#/agent/wireRecord/migration/migration';
+
+export interface WireRecordMap {}
+
+export type WireRecord<K extends keyof WireRecordMap = keyof WireRecordMap> = {
+  [T in K]: { readonly type: T; readonly time?: number } & Readonly<WireRecordMap[T]>;
+}[K];
 
 export interface WireRecordMetadata {
   readonly type: 'metadata';

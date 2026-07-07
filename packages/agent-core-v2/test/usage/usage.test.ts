@@ -3,14 +3,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentUsageService, type UsageStatus } from '#/agent/usage';
+import { IAgentUsageService, type UsageStatus } from '#/agent/usage/usage';
 import { AgentUsageService } from '#/agent/usage/usageService';
 import { UsageModel } from '#/agent/usage/usageOps';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IAgentWireService, WireService, type PersistedRecord } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import type { PersistedRecord } from '#/wire/wireService';
+import { WireService } from '#/wire/wireServiceImpl';
 import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 

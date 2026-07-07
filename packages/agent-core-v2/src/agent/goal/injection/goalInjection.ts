@@ -1,4 +1,4 @@
-import type { GoalSnapshot } from '#/agent/goal';
+import type { GoalSnapshot } from '#/agent/goal/types';
 import { Disposable } from "#/_base/di/lifecycle";
 import { renderPrompt } from "#/_base/utils/render-prompt";
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';

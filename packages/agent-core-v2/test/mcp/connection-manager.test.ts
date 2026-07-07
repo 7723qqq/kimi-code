@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest';
 
 import { KimiError } from '#/errors';
 import { McpConnectionManager, type McpServerEntry } from '#/agent/mcp/connection-manager';
-import { McpOAuthService } from '#/agent/mcp/oauth';
+import { McpOAuthService } from '#/agent/mcp/oauth/service';
 
 import {
   closeServer,

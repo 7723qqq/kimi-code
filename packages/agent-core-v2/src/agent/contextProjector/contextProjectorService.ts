@@ -3,7 +3,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { ErrorCodes, KimiError } from '#/errors';
-import { IAgentMicroCompactionService } from '#/agent/microCompaction';
+import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import type { ContentPart, Message } from '#/app/llmProtocol/message';
 import { IAgentContextProjectorService } from './contextProjector';
 

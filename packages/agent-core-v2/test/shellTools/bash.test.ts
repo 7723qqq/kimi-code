@@ -29,15 +29,15 @@ import {
   type AgentTaskStatus,
   type ForegroundTaskReleaseReason,
   type RegisterAgentTaskOptions,
-} from '#/agent/task';
+} from '#/agent/task/task';
 import type { AgentTaskSettlement } from '#/agent/task/types';
 import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { IAgentProfileService } from '#/agent/profile';
+import type { IAgentProfileService } from '#/agent/profile/profile';
 import { type ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 import { type BashInput, BashInputSchema, BashTool } from '#/os/backends/node-local/tools/bash';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool/toolContract';
 
 const posixEnv: IHostEnvironment = {
   _serviceBrand: undefined,

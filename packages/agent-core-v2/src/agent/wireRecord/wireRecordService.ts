@@ -3,11 +3,11 @@ import { relative } from 'pathe';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Disposable, toDisposable } from "#/_base/di/lifecycle";
-import { IAgentBlobService } from '#/agent/blob';
+import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { OrderedHookSlot } from '#/hooks';
-import type { WireRecord, WireRecordMap } from './index';
+import type { WireRecord, WireRecordMap } from './wireRecord';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
   applyWireMigrations,
@@ -15,7 +15,7 @@ import {
   resolveWireMigrations,
   type WireMigration,
   type WireMigrationRecord,
-} from '#/agent/wireRecord/migration';
+} from '#/agent/wireRecord/migration/migration';
 import {
   IAgentWireRecordService,
   type PersistedWireRecord,

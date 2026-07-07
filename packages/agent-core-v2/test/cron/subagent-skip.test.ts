@@ -17,7 +17,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ISessionCronService } from '#/session/cron/sessionCronService';
-import { IAgentProfileService } from '#/agent/profile';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { createTestAgent, cronServices, type TestAgentContext } from '../harness';
 
 const CRON_TOOL_NAMES = ['CronCreate', 'CronList', 'CronDelete'] as const;

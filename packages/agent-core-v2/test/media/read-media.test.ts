@@ -19,11 +19,11 @@ import {
   type VideoUploader,
 } from '#/agent/media/tools/read-media';
 import { registerMediaTools } from '#/agent/media/registerMediaTools';
-import { AgentToolRegistryService } from '#/agent/toolRegistry';
-import { ToolAccesses } from '#/agent/tool';
+import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import { ToolAccesses } from '#/agent/tool/tool-access';
 import type { WorkspaceConfig } from '../../src/_base/tools/support/workspace';
 import { sniffImageDimensions } from '#/_base/tools/support/file-type';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool/toolContract';
 
 const WORKSPACE: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs: [] };
 

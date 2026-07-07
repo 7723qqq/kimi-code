@@ -3,19 +3,15 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { renderPrompt } from "#/_base/utils/render-prompt";
 import { estimateTokens, estimateTokensForMessages } from "#/_base/utils/tokens";
-import type { ContextMessage } from '#/agent/contextMemory';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentContextSizeService } from '#/agent/contextSize';
-import {
-  IAgentLLMRequesterService,
-  retryBackoffDelays,
-  sleepForRetry,
-  type LLMRequestFinish,
-} from '#/agent/llmRequester';
-import { IAgentLoopService, type TurnErrorContext } from '#/agent/loop';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
+import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester/llmRequester';
+import { retryBackoffDelays, sleepForRetry } from '#/agent/llmRequester/retry';
+import { IAgentLoopService, type TurnErrorContext } from '#/agent/loop/loop';
 import { isAbortError, isContextOverflowError } from '#/agent/loop/errors';
-import { IAgentProfileService } from '#/agent/profile';
-import { IAgentTurnService } from '#/agent/turn';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentTurnService } from '#/agent/turn/turn';
 import { ISessionTodoService } from '#/session/todo/sessionTodo';
 import { renderTodoList, type TodoItem } from '#/session/todo/todoItem';
 import { APIContextOverflowError, APIEmptyResponseError } from '#/app/llmProtocol/errors';
@@ -24,7 +20,8 @@ import { type TokenUsage } from '#/app/llmProtocol/usage';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, KimiError, isKimiError, toKimiErrorPayload } from "#/errors";
-import { IAgentWireService, type IWireService } from '#/wire';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 import compactionInstructionTemplate from './compaction-instruction.md?raw';
 import {
   IAgentFullCompactionService,
@@ -55,7 +52,7 @@ import { OrderedHookSlot } from '#/hooks';
 // `full_compaction.complete` resumer against that stream. fullCompaction itself
 // no longer registers resumers here — its state rebuilds from the same log via
 // `wire.replay` into `CompactionModel`.
-declare module '#/agent/wireRecord' {
+declare module '#/agent/wireRecord/wireRecord' {
   interface WireRecordMap {
     'full_compaction.begin': CompactionBeginData;
     'full_compaction.cancel': {};

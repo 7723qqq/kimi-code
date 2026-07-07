@@ -1,7 +1,7 @@
 import { createDecorator } from "#/_base/di/instantiation";
 import type { Message } from '#/app/llmProtocol/message';
 
-import type { ContextMessage } from '#/agent/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 
 export interface IAgentContextProjectorService {
   readonly _serviceBrand: undefined;

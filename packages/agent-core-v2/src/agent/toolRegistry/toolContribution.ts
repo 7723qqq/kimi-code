@@ -21,7 +21,7 @@
  */
 
 import type { ServicesAccessor } from '#/_base/di/instantiation';
-import type { ExecutableTool, ToolSource } from '#/agent/tool';
+import type { ExecutableTool, ToolSource } from '#/agent/tool/toolContract';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyExecutableTool = ExecutableTool<any>;

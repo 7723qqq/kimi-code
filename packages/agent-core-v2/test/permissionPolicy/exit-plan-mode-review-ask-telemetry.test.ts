@@ -4,13 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import type { ResolvedToolExecutionHookContext } from '#/agent/tool';
-import { IAgentPermissionModeService } from '#/agent/permissionMode';
-import type { PermissionMode } from '#/agent/permissionPolicy';
+import type { ResolvedToolExecutionHookContext } from '#/agent/tool/toolHooks';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { ExitPlanModeReviewAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/exit-plan-mode-review-ask';
-import { IAgentPlanService, type IAgentPlanService as AgentPlanService } from '#/agent/plan';
+import { IAgentPlanService, type IAgentPlanService as AgentPlanService } from '#/agent/plan/plan';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ToolAccesses } from '#/agent/tool';
+import { ToolAccesses } from '#/agent/tool/tool-access';
 
 import { stubPermissionModeService } from '../permissionMode/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';

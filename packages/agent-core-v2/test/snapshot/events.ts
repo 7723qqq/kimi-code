@@ -4,7 +4,7 @@ import {
   type EventSnapshotEntry,
   type WireSnapshotEntry,
 } from '../harness/snapshots';
-import type { PersistedWireRecord } from '#/agent/wireRecord';
+import type { PersistedWireRecord } from '#/agent/wireRecord/wireRecord';
 
 export interface RpcPromiseLike {
   resolve(value: unknown): void;

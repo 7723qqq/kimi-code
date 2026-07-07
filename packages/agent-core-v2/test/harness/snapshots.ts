@@ -2,7 +2,7 @@ import type { Message } from '#/app/llmProtocol/message';
 import type { Tool as LLMTool } from '#/app/llmProtocol/tool';
 import { expect } from 'vitest';
 
-import { AGENT_WIRE_PROTOCOL_VERSION } from '#/agent/wireRecord/migration';
+import { AGENT_WIRE_PROTOCOL_VERSION } from '#/agent/wireRecord/migration/migration';
 
 const IS_EVENT_ARRAY = Symbol('isEventArray');
 const IS_GENERATE_INPUT_SNAPSHOT = Symbol('isGenerateInputSnapshot');

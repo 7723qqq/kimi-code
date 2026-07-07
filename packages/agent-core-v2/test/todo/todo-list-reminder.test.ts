@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ContextMessage } from '#/agent/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import { type TodoItem } from '#/session/todo/todoItem';
 import { todoListStaleReminder } from '#/session/todo/todoListReminder';
 

@@ -16,12 +16,12 @@
 import { createHash } from 'node:crypto';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
-import { IAgentContextProjectorService } from '#/agent/contextProjector';
-import { IAgentContextSizeService } from '#/agent/contextSize';
-import { IAgentProfileService } from '#/agent/profile';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry';
-import { IAgentUsageService } from '#/agent/usage';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
+import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentUsageService } from '#/agent/usage/usage';
 import { IConfigService } from '#/app/config/config';
 import { APIConnectionError, APIContextOverflowError, APIEmptyResponseError, APIStatusError, APITimeoutError, isContextOverflowStatusError, isRetryableGenerateError } from '#/app/llmProtocol/errors';
 import { type Message } from '#/app/llmProtocol/message';
@@ -42,7 +42,7 @@ import type {
   LLMRequestPartHandler,
   LLMRequestSource,
   LLMStreamTiming,
-} from './index';
+} from './llmRequester';
 import { IAgentLLMRequesterService } from './llmRequester';
 import {
   DEFAULT_MAX_RETRY_ATTEMPTS,

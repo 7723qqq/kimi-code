@@ -5,9 +5,9 @@
  * production tree. Import from a relative path (`./stubs` or `../turn/stubs`).
  */
 
-import type { IAgentLoopService } from '#/agent/loop';
-import type { IAgentToolExecutorService } from '#/agent/toolExecutor';
-import type { IAgentTurnService, Turn } from '#/agent/turn';
+import type { IAgentLoopService } from '#/agent/loop/loop';
+import type { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import type { IAgentTurnService, Turn } from '#/agent/turn/turn';
 import { createHooks } from '#/hooks';
 
 export interface StubTurnOptions {

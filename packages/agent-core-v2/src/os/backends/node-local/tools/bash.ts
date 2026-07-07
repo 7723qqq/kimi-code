@@ -32,14 +32,14 @@
 
 import { z } from 'zod';
 
-import { IAgentTaskService } from '#/agent/task';
+import { IAgentTaskService } from '#/agent/task/task';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionProcessRunner, type IProcess } from '#/session/process/processRunner';
-import { IAgentProfileService } from '#/agent/profile';
-import type { BuiltinTool, ExecutableToolResult, ToolExecution, ToolUpdate } from '#/agent/tool';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import type { BuiltinTool, ExecutableToolResult, ToolExecution, ToolUpdate } from '#/agent/tool/toolContract';
 import { ToolResultBuilder } from '#/agent/tool/result-builder';
-import { registerTool } from '#/agent/toolRegistry';
+import { registerTool } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import { renderPrompt } from '#/_base/utils/render-prompt';

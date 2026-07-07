@@ -21,18 +21,18 @@ import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
 import {
   IAgentTaskService,
   type RegisterAgentTaskOptions,
-} from '#/agent/task';
-import { IAgentProfileService } from '#/agent/profile';
-import { IAgentScopeContext } from '#/agent/scopeContext';
+} from '#/agent/task/task';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { isAbortError } from '#/agent/loop/errors';
+import { ToolAccesses } from '#/agent/tool/tool-access';
 import type {
   BuiltinTool,
   ExecutableToolContext,
   ExecutableToolResult,
   ToolExecution,
-} from '#/agent/tool';
-import { ToolAccesses } from '#/agent/tool';
-import { registerTool } from '#/agent/toolRegistry';
+} from '#/agent/tool/toolContract';
+import { registerTool } from '#/agent/toolRegistry/toolContribution';
 import { IAgentProfileCatalogService, type AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
 import { ILogService } from '#/_base/log/log';

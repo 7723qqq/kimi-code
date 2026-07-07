@@ -1,6 +1,6 @@
 import { createDecorator } from "#/_base/di/instantiation";
-import type { SkillActivationOrigin } from '#/agent/contextMemory';
-import type { Turn } from '#/agent/turn';
+import type { SkillActivationOrigin } from '#/agent/contextMemory/types';
+import type { Turn } from '#/agent/turn/turn';
 
 export interface SkillActivationInput {
   readonly name: string;

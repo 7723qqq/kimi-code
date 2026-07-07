@@ -1,6 +1,6 @@
-import type { AgentConfigData } from '#/agent/profile';
-import type { AgentContextData } from '#/agent/contextMemory';
-import type { AgentTaskInfo } from '#/agent/task';
+import type { AgentConfigData } from '#/agent/profile/profile';
+import type { AgentContextData } from '#/agent/contextMemory/types';
+import type { AgentTaskInfo } from '#/agent/task/task';
 import type {
   GoalBudgetLimits,
   GoalBudgetReport,
@@ -9,13 +9,13 @@ import type {
   GoalSnapshot,
   GoalStatus,
   GoalToolResult,
-} from '#/agent/goal';
-import type { PermissionData, PermissionMode } from '#/agent/permissionPolicy';
-import type { PlanData } from '#/agent/plan';
-import type { SwarmModeTrigger } from '#/agent/swarm';
-import type { ToolInfo } from '#/agent/tool';
+} from '#/agent/goal/types';
+import type { PermissionData, PermissionMode } from '#/agent/permissionPolicy/types';
+import type { PlanData } from '#/agent/plan/plan';
+import type { SwarmModeTrigger } from '#/agent/swarm/swarm';
+import type { ToolInfo } from '#/agent/tool/toolContract';
 import type { ResolvedConfig } from '#/app/config/config';
-import type { McpServerConfig } from '#/agent/mcp';
+import type { McpServerConfig } from '#/agent/mcp/config-schema';
 import type { ExperimentalFeatureState } from '#/app/flag/flag';
 import type { ResumeSessionResult } from '#/agent/replayBuilder/types';
 import type { SessionMeta } from '#/session/sessionMetadata/sessionMetadata';

@@ -14,7 +14,7 @@ import { TestInstantiationService } from '#/_base/di/test';
 import {
   AgentTaskPersistence,
   type AgentTaskInfo,
-} from '#/agent/task';
+} from '#/agent/task/task';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';

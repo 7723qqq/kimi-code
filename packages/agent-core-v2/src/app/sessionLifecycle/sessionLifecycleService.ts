@@ -27,7 +27,7 @@ import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle'
 import { ensureMainAgent, MAIN_AGENT_ID } from '#/session/agentLifecycle/mainAgent';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventService } from '#/app/event/event';
-import { IAgentContextMemoryService } from '#/agent/contextMemory';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { ErrorCodes, KimiError } from '#/errors';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { ISessionActivity } from '#/session/sessionActivity/sessionActivity';
@@ -41,11 +41,11 @@ import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
   IAgentWireRecordService,
-  WIRE_RECORD_FILENAME,
-  wireRecordScope,
   type PersistedWireRecord,
-} from '#/agent/wireRecord';
-import { IAgentWireService, type PersistedRecord } from '#/wire';
+} from '#/agent/wireRecord/wireRecord';
+import { WIRE_RECORD_FILENAME, wireRecordScope } from '#/agent/wireRecord/wireRecordService';
+import { IAgentWireService } from '#/wire/tokens';
+import type { PersistedRecord } from '#/wire/wireService';
 
 import {
   type CreateSessionOptions,

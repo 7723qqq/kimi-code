@@ -11,8 +11,11 @@ import { toDisposable } from '#/_base/di/lifecycle';
 import type { ServiceRegistration } from '#/_base/di/test';
 import { createHooks } from '#/hooks';
 import type { Hooks } from '#/hooks';
-import { computeUndoCut, ensureMessageId, IAgentContextMemoryService, type ContextMessage } from '#/agent/contextMemory';
-import { IAgentWireRecordService } from '#/agent/wireRecord';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { computeUndoCut } from '#/agent/contextMemory/contextOps';
+import { ensureMessageId } from '#/agent/contextMemory/messageId';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentWireRecordService } from '#/agent/wireRecord/wireRecord';
 
 /**
  * A no-op `IAgentWireRecordService`. `register` returns a disposable so services that

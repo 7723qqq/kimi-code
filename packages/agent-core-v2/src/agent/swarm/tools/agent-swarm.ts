@@ -10,13 +10,12 @@
 
 import { z } from 'zod';
 
-import type { BuiltinTool } from '#/agent/tool';
-import { registerTool } from '#/agent/toolRegistry';
-import { ToolAccesses } from '#/agent/tool';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool';
+import { ToolAccesses } from '#/agent/tool/tool-access';
+import type { BuiltinTool, ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool/toolContract';
+import { registerTool } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { ISessionSwarmService, type SessionSwarmTask } from '#/session/swarm/sessionSwarm';
-import { IAgentScopeContext } from '#/agent/scopeContext';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentSwarmService } from '#/agent/swarm/swarm';
 import AGENT_SWARM_DESCRIPTION from './agent-swarm.md?raw';
 
