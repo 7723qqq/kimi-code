@@ -39,6 +39,7 @@ package "App scope (process-wide)" #EAF3FB {
   rectangle "<b>web</b>\n<size:9><i>App</i></size>\n  IWebFetchService" as web #D6EAF8
   rectangle "<b>edit</b>\n<size:9><i>App</i></size>\n  IFileEditService" as edit_app #D6EAF8
   rectangle "<b>provider</b>\n<size:9><i>App</i></size>\n  IProviderService" as provider #D6EAF8
+  rectangle "<b>platform</b>\n<size:9><i>App</i></size>\n  IPlatformService" as platform #D6EAF8
   rectangle "<b>flag</b>\n<size:9><i>App</i></size>\n  IFlagService\n  IFlagRegistry" as flag #D6EAF8
   rectangle "<b>config</b>\n<size:9><i>App</i></size>\n  IConfigRegistry\n  IConfigService" as config #D6EAF8
   rectangle "<b>plugin</b>\n<size:9><i>App</i></size>\n  IPluginService" as plugin #D6EAF8
@@ -128,6 +129,7 @@ workspaceLocalConfig --> bootstrap #34495E
 workspaceLocalConfig --> hostFs #34495E
 hostFolderBrowser --> hostFs #34495E
 auth --> provider #34495E
+auth --> platform #34495E
 auth --> config #34495E
 auth --> bootstrap #34495E
 auth --> telemetry #34495E

@@ -20,7 +20,8 @@ import { AuthLegacyService } from '#/app/authLegacy/authLegacyService';
 import { IConfigService } from '#/app/config/config';
 import { type DomainEvent, IEventService } from '#/app/event/event';
 import { ILogService } from '#/_base/log/log';
-import type { ModelAlias } from '#/app/model/model';
+import { MODELS_SECTION, type ModelAlias } from '#/app/model/model';
+import { IPlatformService, type PlatformConfig } from '#/app/platform/platform';
 import { IProviderService, type ProviderConfig, type ProvidersChangedEvent } from '#/app/provider/provider';
 
 import { registerBootstrapServices } from '../bootstrap/stubs';
@@ -695,7 +696,12 @@ describe('AuthSummaryService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let providers: Record<string, ProviderConfig>;
+  let platforms: Record<string, PlatformConfig>;
+  let models: Record<string, ModelAlias>;
+  let defaultModel: string | undefined;
   let oauthStatus: ReturnType<typeof vi.fn>;
+  let getCachedAccessToken: ReturnType<typeof vi.fn>;
+  let reload: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -706,14 +712,48 @@ describe('AuthSummaryService', () => {
       },
       [NON_OAUTH_PROVIDER]: { type: 'openai', apiKey: 'sk-test' },
     };
+    platforms = {};
+    models = {
+      kimi: {
+        provider: OAUTH_PROVIDER,
+        model: 'kimi-k2',
+        protocol: 'kimi',
+        maxContextSize: 128000,
+      },
+      openai: {
+        provider: NON_OAUTH_PROVIDER,
+        model: 'gpt-4.1',
+        protocol: 'openai',
+        maxContextSize: 128000,
+      },
+    };
+    defaultModel = 'kimi';
     oauthStatus = vi.fn();
+    getCachedAccessToken = vi.fn().mockResolvedValue(undefined);
+    reload = vi.fn().mockResolvedValue(undefined);
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IProviderService, {
+          get: ((name: string) => providers[name]) as IProviderService['get'],
           list: (() => providers) as IProviderService['list'],
+        });
+        reg.definePartialInstance(IPlatformService, {
+          get: ((name: string) => platforms[name]) as IPlatformService['get'],
+          list: (() => platforms) as IPlatformService['list'],
+        });
+        reg.definePartialInstance(IConfigService, {
+          get: ((domain: string) => {
+            if (domain === MODELS_SECTION) return models;
+            if (domain === 'defaultModel') return defaultModel;
+            return undefined;
+          }) as IConfigService['get'],
+          reload: reload as unknown as IConfigService['reload'],
+          onDidChangeConfiguration: (() => ({ dispose: () => { } })) as IConfigService['onDidChangeConfiguration'],
+          onDidSectionChange: (() => ({ dispose: () => { } })) as IConfigService['onDidSectionChange'],
         });
         reg.definePartialInstance(IOAuthService, {
           status: oauthStatus as unknown as IOAuthService['status'],
+          getCachedAccessToken: getCachedAccessToken as unknown as IOAuthService['getCachedAccessToken'],
         });
         reg.definePartialInstance(ILogService, {
           info: vi.fn(),
@@ -755,10 +795,99 @@ describe('AuthSummaryService', () => {
     expect(oauthStatus).toHaveBeenCalledWith(OTHER_OAUTH);
   });
 
-  it('ensureReady leaves model and credential readiness to the runtime resolver', async () => {
+  it('ensureReady throws provisioning_required when provider-backed config has no providers', async () => {
     providers = {};
-    await expect(createSummary().ensureReady()).resolves.toBeUndefined();
+    await expect(createSummary().ensureReady()).rejects.toMatchObject({
+      code: 'auth.provisioning_required',
+      details: undefined,
+    });
     expect(oauthStatus).not.toHaveBeenCalled();
+    expect(getCachedAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('ensureReady throws model_not_resolved when the default model alias is missing', async () => {
+    defaultModel = 'missing';
+
+    await expect(createSummary().ensureReady()).rejects.toMatchObject({
+      code: 'auth.model_not_resolved',
+      details: { model_id: 'missing' },
+    });
+    expect(getCachedAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('ensureReady throws model_not_resolved when the model provider is missing', async () => {
+    delete providers[OAUTH_PROVIDER];
+
+    await expect(createSummary().ensureReady()).rejects.toMatchObject({
+      code: 'auth.model_not_resolved',
+      details: { model_id: 'kimi', provider_id: OAUTH_PROVIDER },
+    });
+    expect(getCachedAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('ensureReady throws token_missing when an oauth provider has no cached token', async () => {
+    await expect(createSummary().ensureReady()).rejects.toMatchObject({
+      code: 'auth.token_missing',
+      details: { provider_id: OAUTH_PROVIDER },
+    });
+    expect(getCachedAccessToken).toHaveBeenCalledWith(OAUTH_PROVIDER, {
+      storage: 'file',
+      key: 'oauth/kimi-code',
+    });
+  });
+
+  it('ensureReady propagates cached token read failures', async () => {
+    getCachedAccessToken.mockRejectedValue(new Error('token store unreadable'));
+
+    await expect(createSummary().ensureReady()).rejects.toThrow('token store unreadable');
+    expect(getCachedAccessToken).toHaveBeenCalledWith(OAUTH_PROVIDER, {
+      storage: 'file',
+      key: 'oauth/kimi-code',
+    });
+  });
+
+  it('ensureReady accepts provider api keys', async () => {
+    await expect(createSummary().ensureReady('openai')).resolves.toBeUndefined();
+    expect(getCachedAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('ensureReady accepts cached oauth tokens', async () => {
+    getCachedAccessToken.mockResolvedValue('access-token');
+    await expect(createSummary().ensureReady('kimi')).resolves.toBeUndefined();
+    expect(getCachedAccessToken).toHaveBeenCalledWith(OAUTH_PROVIDER, {
+      storage: 'file',
+      key: 'oauth/kimi-code',
+    });
+  });
+
+  it('ensureReady accepts structured platform credentials', async () => {
+    providers = {
+      moonshot: {
+        type: 'kimi',
+        platformId: 'shared-kimi',
+        baseUrl: 'https://api.example.test/v1',
+      },
+    };
+    platforms = {
+      'shared-kimi': {
+        auth: { oauth: { storage: 'file', key: 'oauth/shared-kimi' } },
+      },
+    };
+    models = {
+      kimi: {
+        providerId: 'moonshot',
+        name: 'kimi-k2',
+        protocol: 'kimi',
+        maxContextSize: 128000,
+      },
+    };
+    getCachedAccessToken.mockResolvedValue('access-token');
+
+    await expect(createSummary().ensureReady()).resolves.toBeUndefined();
+    expect(getCachedAccessToken).toHaveBeenCalledWith('shared-kimi', {
+      storage: 'file',
+      key: 'oauth/shared-kimi',
+    });
   });
 });
 

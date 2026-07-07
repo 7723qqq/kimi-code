@@ -6,7 +6,7 @@
  * writes provider configuration through `provider`, refreshes the managed
  * OAuth provider's server-side model configuration through `config`, publishes
  * model-catalog changes through `event`, reports through `telemetry`,
- * logs through `log`, and delegates
+ * logs through `log`, resolves shared auth through `platform`, and delegates
  * the device-code protocol, token storage, and token refresh to `IOAuthToolkit`
  * (provided by `OAuthToolkitService` over `@moonshot-ai/kimi-code-oauth`,
  * which locates token storage through `bootstrap`). Bound at App scope.
@@ -47,11 +47,32 @@ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IEventService } from '#/app/event/event';
 import { ILogService } from '#/_base/log/log';
+import {
+  deriveProviderId,
+  effectiveModelConfig,
+  nonEmpty,
+  resolveModelAuthMaterial,
+} from '#/app/model/modelAuth';
 import { type ModelAlias, MODELS_SECTION } from '#/app/model/model';
-import { IProviderService, type OAuthRef, type ProviderConfig, type ProvidersChangedEvent, PROVIDERS_SECTION } from '#/app/provider/provider';
+import { IPlatformService } from '#/app/platform/platform';
+import {
+  IProviderService,
+  type OAuthRef,
+  type ProviderConfig,
+  type ProvidersChangedEvent,
+  PROVIDERS_SECTION,
+} from '#/app/provider/provider';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 
-import { type AuthStatus, IAuthSummaryService, IOAuthService, IOAuthToolkit } from './auth';
+import {
+  AuthModelNotResolvedError,
+  AuthProvisioningRequiredError,
+  AuthTokenMissingError,
+  type AuthStatus,
+  IAuthSummaryService,
+  IOAuthService,
+  IOAuthToolkit,
+} from './auth';
 
 const TERMINAL_RETENTION_MS = 5 * 60 * 1000;
 const DEFAULT_DEVICE_EXPIRES_IN_SEC = 15 * 60;
@@ -89,7 +110,9 @@ export class OAuthService extends Disposable implements IOAuthService {
     @IEventService private readonly events: IEventService,
   ) {
     super();
-    this._register(providerService.onDidChangeProviders((event) => this.invalidateFlows(event)));
+    this._register(providerService.onDidChangeProviders((event) => {
+      this.invalidateFlows(event);
+    }));
   }
 
   async startLogin(provider = KIMI_CODE_PROVIDER_NAME): Promise<OAuthFlowStart> {
@@ -299,10 +322,10 @@ export class OAuthService extends Disposable implements IOAuthService {
           removed,
         });
       }
-    } catch (err) {
+    } catch (error) {
       failed.push({
         provider: KIMI_CODE_PROVIDER_NAME,
-        reason: err instanceof Error ? err.message : String(err),
+        reason: error instanceof Error ? error.message : String(error),
       });
     }
 
@@ -505,6 +528,8 @@ export class AuthSummaryService implements IAuthSummaryService {
 
   constructor(
     @IProviderService private readonly providerService: IProviderService,
+    @IConfigService private readonly config: IConfigService,
+    @IPlatformService private readonly platforms: IPlatformService,
     @IOAuthService private readonly oauth: IOAuthService,
     @ILogService private readonly log: ILogService,
   ) {}
@@ -532,8 +557,49 @@ export class AuthSummaryService implements IAuthSummaryService {
     return statuses;
   }
 
-  ensureReady(): Promise<void> {
-    return Promise.resolve();
+  async ensureReady(modelOverride?: string): Promise<void> {
+    await this.config.reload();
+    const providers = this.providerService.list();
+    const models = this.config.get<Record<string, ModelAlias> | undefined>(MODELS_SECTION) ?? {};
+    const modelId = modelOverride ?? this.config.get<string | undefined>(DEFAULT_MODEL_SECTION);
+    const configured = modelId === undefined || modelId === '' ? undefined : models[modelId];
+    if (Object.keys(providers).length === 0 && !isProviderlessModel(configured)) {
+      throw new AuthProvisioningRequiredError();
+    }
+    if (modelId === undefined || modelId === '') {
+      throw new AuthModelNotResolvedError(undefined);
+    }
+    if (configured === undefined) {
+      throw new AuthModelNotResolvedError(modelId);
+    }
+
+    const model = effectiveModelConfig(configured);
+    const providerId = model.providerId ?? model.provider;
+    const provider = providerId === undefined ? undefined : this.providerService.get(providerId);
+    if (providerId !== undefined && provider === undefined) {
+      throw new AuthModelNotResolvedError(modelId, providerId);
+    }
+
+    const providerName = providerId ?? providerNameFromFlatModel(model);
+    if (providerName === undefined) {
+      throw new AuthModelNotResolvedError(modelId);
+    }
+
+    const auth = resolveModelAuthMaterial({
+      modelId,
+      model,
+      provider,
+      providerName,
+      getPlatform: (platformId) => this.platforms.get(platformId),
+    });
+    if (auth.apiKey !== undefined) return;
+    if (auth.oauth !== undefined) {
+      const providerKey = auth.oauthProviderKey ?? providerName;
+      const token = await this.oauth.getCachedAccessToken(providerKey, auth.oauth);
+      if (nonEmpty(token) !== undefined) return;
+      throw new AuthTokenMissingError(providerKey);
+    }
+    throw new AuthTokenMissingError(providerName);
   }
 }
 
@@ -543,6 +609,21 @@ function classifyFailure(err: unknown): OAuthFlowStatus {
     return err.message.toLowerCase().includes('aborted') ? 'cancelled' : 'denied';
   }
   return 'denied';
+}
+
+function isProviderlessModel(model: ModelAlias | undefined): boolean {
+  if (model === undefined) return false;
+  const effective = effectiveModelConfig(model);
+  return (
+    effective.providerId === undefined &&
+    effective.provider === undefined &&
+    providerNameFromFlatModel(effective) !== undefined
+  );
+}
+
+function providerNameFromFlatModel(model: ModelAlias): string | undefined {
+  const baseUrl = nonEmpty(model.baseUrl);
+  return baseUrl === undefined ? undefined : deriveProviderId(baseUrl);
 }
 
 /** Structural view of a managed-config model alias (the fields the refresh reads/writes). */
@@ -639,7 +720,7 @@ function providerModelSnapshot(
       model: {
         ...model,
         capabilities:
-          model.capabilities === undefined ? undefined : [...model.capabilities].sort(),
+          model.capabilities === undefined ? undefined : model.capabilities.toSorted(),
       },
     });
   }
