@@ -88,6 +88,26 @@ describe('plan ops (wire-backed)', () => {
     );
   });
 
+  it('cancel and exit both deactivate plan mode but emit distinct record types', async () => {
+    wire.dispatch(planModeEnter({ id: 'p1', planFilePath: '/w/plan/p1.md' }));
+    wire.dispatch(planModeCancel({ id: 'p1' }));
+    expect(wire.getModel(PlanModel)).toEqual({ active: false });
+
+    wire.dispatch(planModeEnter({ id: 'p2', planFilePath: '/w/plan/p2.md' }));
+    wire.dispatch(planModeExit({ id: 'p2' }));
+    expect(wire.getModel(PlanModel)).toEqual({ active: false });
+
+    const records = await readRecords();
+    expect(records.map((record) => record.type)).toEqual([
+      'plan_mode.enter',
+      'plan_mode.cancel',
+      'plan_mode.enter',
+      'plan_mode.exit',
+    ]);
+    expect(records[1]).toEqual(expect.objectContaining({ type: 'plan_mode.cancel', id: 'p1' }));
+    expect(records[3]).toEqual(expect.objectContaining({ type: 'plan_mode.exit', id: 'p2' }));
+  });
+
   it('apply returns the same reference on a no-op (gate stays quiet)', () => {
     const initial = wire.getModel(PlanModel);
     wire.dispatch(planModeCancel({}));
