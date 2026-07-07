@@ -20,7 +20,12 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IEventBus } from '#/app/event/eventBus';
 import { IAgentWireService, type IWireService } from '#/wire';
 
-import { IAgentContextMemoryService, type ContextCompactionInput } from './contextMemory';
+import {
+  IAgentContextMemoryService,
+  type ContextCompactionInput,
+  type ContextCompactionResult,
+} from './contextMemory';
+import { buildContextCompactionShape } from './compactionHandoff';
 import {
   computeUndoCut,
   ContextModel,
@@ -103,15 +108,30 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
     return cut;
   }
 
-  applyCompaction(input: ContextCompactionInput): void {
-    const summary = ensureMessageId(input.summary);
-    this.wire.dispatch(contextApplyCompaction({ count: input.count, summary }));
+  applyCompaction(input: ContextCompactionInput): ContextCompactionResult {
+    const history = this.get();
+    const result = buildContextCompactionShape(history, input);
+    this.wire.dispatch(
+      contextApplyCompaction({
+        summary: result.summary,
+        contextSummary: result.contextSummary,
+        compactedCount: result.compactedCount,
+        tokensBefore: result.tokensBefore,
+        tokensAfter: result.tokensAfter,
+        keptUserMessageCount: result.keptUserMessageCount,
+        keptHeadUserMessageCount: result.keptHeadUserMessageCount,
+        droppedCount: result.droppedCount,
+      }),
+    );
     this.eventBus.publish({ type: 'context.spliced',
       start: 0,
-      deleteCount: input.count,
-      messages: [summary],
-      tokens: input.tokens,
+      deleteCount: history.length,
+      messages: [...result.messages],
+      tokens: result.tokensAfter,
     });
+    const { messages: _messages, ...publicResult } = result;
+    void _messages;
+    return publicResult;
   }
 
   splice(
