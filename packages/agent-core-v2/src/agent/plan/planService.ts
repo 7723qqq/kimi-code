@@ -16,12 +16,8 @@ import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInj
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentWireService } from '#/wire/tokens';
 import type { IWireService } from '#/wire/wireService';
-import type { ToolInputDisplay } from '@moonshot-ai/protocol';
-import type { ExecutableToolResult } from '#/agent/tool/toolContract';
-import { type ExitPlanModeInput } from '#/agent/plan/tools/exit-plan-mode';
 import {
   IAgentPlanService,
   type PlanData,
@@ -47,7 +43,6 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
     @IHostFileSystem private readonly hostFs: IHostFileSystem,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
-    @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentTelemetryContextService private readonly telemetryContext: IAgentTelemetryContextService,
     @IAgentWireService private readonly wire: IWireService,
   ) {
@@ -105,7 +100,6 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
   async enter(
     id = this.createPlanId(),
     createFile = false,
-    emitStatus = true,
   ): Promise<void> {
     if (this.isActive) {
       throw new Error('Already in plan mode');
@@ -163,114 +157,6 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
     return join(this.currentCwd(), 'plan', `${id}.md`);
   }
 
-  private async enterPlanModeToolResult(): Promise<ExecutableToolResult> {
-    if (this.isActive) {
-      return {
-        isError: true,
-        output: 'Plan mode is already active. Use ExitPlanMode when the plan is ready.',
-      };
-    }
-
-    try {
-      await this.enter();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to enter plan mode.';
-      return { isError: true, output: `Failed to enter plan mode: ${message}` };
-    }
-
-    this.trackTelemetry('plan_enter_resolved', { outcome: 'auto_approved' });
-
-    return { output: enteredPlanModeMessage(this.currentPlanFilePath()) };
-  }
-
-  private async resolvePlanReviewDisplay(
-    args: ExitPlanModeInput,
-  ): Promise<ToolInputDisplay | undefined> {
-    if (!this.isActive) return undefined;
-    let data: PlanData;
-    try {
-      data = await this.status();
-    } catch {
-      return undefined;
-    }
-    if (data === null || data.content.trim().length === 0) return undefined;
-    const display: ToolInputDisplay = {
-      kind: 'plan_review',
-      plan: data.content,
-      path: data.path,
-    };
-    if (args.options !== undefined && args.options.length >= 2) {
-      display.options = args.options;
-    }
-    return display;
-  }
-
-  private async exitPlanModeToolResult(input: ExitPlanModeInput): Promise<ExecutableToolResult> {
-    if (!this.isActive) {
-      return {
-        isError: true,
-        output:
-          'ExitPlanMode can only be called while plan mode is active. Use EnterPlanMode (or /plan) first.',
-      };
-    }
-
-    const resolvedPlan = await this.resolvePlan();
-    if (!resolvedPlan.ok) return resolvedPlan.error;
-
-    this.trackTelemetry('plan_submitted', {
-      has_options: input.options !== undefined && input.options.length >= 2,
-    });
-
-    try {
-      this.exit();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to exit plan mode.';
-      return { isError: true, output: `Failed to exit plan mode: ${message}` };
-    }
-
-    this.trackTelemetry('plan_resolved', { outcome: 'auto_approved' });
-
-    return {
-      isError: false,
-      output: `Exited plan mode. ${formatPlanForOutput(resolvedPlan.plan, resolvedPlan.path)}`,
-    };
-  }
-
-  private async resolvePlan(): Promise<ResolvePlanResult> {
-    let data: PlanData;
-    try {
-      data = await this.status();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to read plan file.';
-      return {
-        ok: false,
-        error: { isError: true, output: `Failed to read plan file: ${message}` },
-      };
-    }
-
-    if (data !== null && data.content.trim().length > 0) {
-      return { ok: true, plan: data.content, path: data.path };
-    }
-
-    return {
-      ok: false,
-      error: {
-        isError: true,
-        output:
-          this.currentPlanFilePath() === null
-            ? 'No plan file found. Write the plan to the current plan file first, then call ExitPlanMode.'
-            : `No plan file found. Write your plan to ${this.currentPlanFilePath()} first, then call ExitPlanMode.`,
-      },
-    };
-  }
-
-  private trackTelemetry(
-    event: 'plan_enter_resolved' | 'plan_submitted' | 'plan_resolved',
-    properties: Record<string, string | number | boolean | undefined>,
-  ): void {
-    this.telemetry.track(event, properties);
-  }
-
   private async hasCurrentPlanContent(): Promise<boolean> {
     try {
       const data = await this.status();
@@ -307,10 +193,6 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
 }
 
 type PlanModeReminderVariant = 'full' | 'sparse';
-
-type ResolvePlanResult =
-  | { readonly ok: true; readonly plan: string; readonly path?: string | undefined }
-  | { readonly ok: false; readonly error: ExecutableToolResult };
 
 function planModeReminderVariant(
   injectedAt: number | null,
@@ -431,40 +313,6 @@ Before proceeding:
   3. Wait for the host to provide a plan file path, write the revised plan there, then call ExitPlanMode.
 
 Your turn must end with either AskUserQuestion (to clarify requirements) or ExitPlanMode (to request plan approval).`;
-}
-
-function enteredPlanModeMessage(planPath: string | null): string {
-  if (planPath === null) {
-    return [
-      'Plan mode is now active. Your workflow:',
-      '',
-      '1. Use read-only tools (Read, Grep, Glob) to investigate the codebase. Use Bash only when needed.',
-      '2. Design a concrete, step-by-step plan.',
-      '3. Wait for the host to provide a plan file path before calling ExitPlanMode.',
-      '',
-      'Do NOT use Write or Edit while plan mode is active in this host; no plan file path is available.',
-      'Use Bash only when needed; Bash follows the normal permission mode and rules.',
-    ].join('\n');
-  }
-
-  return [
-    'Plan mode is now active. Your workflow:',
-    '',
-    `Plan file: ${planPath}`,
-    '',
-    '1. Use read-only tools (Read, Grep, Glob) to investigate the codebase. Use Bash only when needed.',
-    '2. Design a concrete, step-by-step plan.',
-    '3. Write the plan to the plan file with Write or Edit.',
-    '4. When the plan is ready, call ExitPlanMode for user approval.',
-    '',
-    'Do NOT edit files other than the plan file while plan mode is active.',
-    'Use Bash only when needed; Bash follows the normal permission mode and rules.',
-  ].join('\n');
-}
-
-function formatPlanForOutput(plan: string, path: string | undefined): string {
-  const savedTo = path !== undefined ? `Plan saved to: ${path}\n\n` : '';
-  return `Plan mode deactivated. All tools are now available.\n${savedTo}## Approved Plan:\n${plan}`;
 }
 
 function isMissingFileError(error: unknown): boolean {
