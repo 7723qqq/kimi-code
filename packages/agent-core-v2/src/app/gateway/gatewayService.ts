@@ -6,7 +6,7 @@
  * logs through `log`. Bound at App scope.
  *
  * WS event fan-out (sequencing, journaling, replay, per-connection dispatch)
- * is a transport concern and lives in the edge package (`packages/server-v2`)
+ * is a transport concern and lives in the edge package (`packages/kap-server`)
  * on top of `IEventService` + `IAgentRecordService` — not here.
  */
 

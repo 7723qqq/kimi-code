@@ -23,7 +23,6 @@ import {
 } from '@moonshot-ai/kimi-telemetry';
 
 import { createProgram } from './cli/commands';
-import { isKimiV2Enabled, KIMI_V2_ENV } from './cli/experimental-v2';
 import { finalizeHeadlessRun } from './cli/headless-exit';
 import type { CLIOptions } from './cli/options';
 import { OptionConflictError, validateOptions } from './cli/options';
@@ -133,43 +132,6 @@ const MIGRATE_CLI_OPTIONS: CLIOptions = {
   skillsDirs: [],
 };
 
-const V2_PREFIX_TOKEN = 'v2';
-
-export type ApplyV2PrefixOutcome =
-  | { readonly argv: readonly string[] }
-  | { readonly error: string };
-
-/**
- * Rewrite argv for the experimental `kimi v2` prefix.
- *
- * `v2` is not a Commander subcommand — it is a prefix handled here so that
- * `kimi v2 <subcommand> <args>` runs through the *identical* code paths as
- * `kimi <subcommand> <args>`. Engine selection stays keyed on
- * `KIMI_CODE_EXPERIMENTAL_FLAG` (e.g. `kimi v2 server run` boots server-v2 /
- * agent-core-v2, which `sub/server/run.ts` already honors).
- *
- * Only effective when the flag is set: with the flag off, the prefix is
- * rejected with a hint rather than silently falling back to the v1 engine.
- */
-export function applyV2Prefix(
-  argv: readonly string[],
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): ApplyV2PrefixOutcome {
-  // The prefix must be the first positional token (right after node + script).
-  if (argv[2] !== V2_PREFIX_TOKEN) {
-    return { argv };
-  }
-  if (!isKimiV2Enabled(env)) {
-    return {
-      error:
-        "'kimi v2' is experimental and requires the agent-core-v2 engine. " +
-        `Set ${KIMI_V2_ENV}=1 to enable it.`,
-    };
-  }
-  // Strip the `v2` token; the remaining argv is parsed as a normal `kimi` invocation.
-  return { argv: [...argv.slice(0, 2), ...argv.slice(3)] };
-}
-
 export function main(): void {
   process.title = PROCESS_NAME;
   installCrashHandlers();
@@ -190,12 +152,6 @@ export function main(): void {
   });
 
   const version = getVersion();
-
-  const v2 = applyV2Prefix(process.argv);
-  if ('error' in v2) {
-    process.stderr.write(`${v2.error}\n`);
-    process.exit(1);
-  }
 
   const program = createProgram(
     version,
@@ -252,7 +208,7 @@ export function main(): void {
     },
   );
 
-  program.parse(v2.argv);
+  program.parse(process.argv);
 }
 
 main();

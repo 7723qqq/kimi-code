@@ -8,7 +8,7 @@ import { runPrompt } from '#/cli/run-prompt';
 import { runShell } from '#/cli/run-shell';
 import { formatStartupError } from '#/cli/startup-error';
 import { runUpdatePreflight } from '#/cli/update/preflight';
-import { applyV2Prefix, handleMainCommand, handleUpgradeCommand, main } from '#/main';
+import { handleMainCommand, handleUpgradeCommand, main } from '#/main';
 
 const mocks = vi.hoisted(() => {
   const parse = vi.fn();
@@ -419,89 +419,5 @@ describe('main entry command handling', () => {
         operation: 'run prompt',
       }),
     ).toBe('error: failed to run prompt: Provider not set\n');
-  });
-});
-
-describe('kimi beta prefix', () => {
-  const ON = { KIMI_CODE_EXPERIMENTAL_FLAG: '1' };
-  const OFF: Readonly<Record<string, string | undefined>> = {};
-
-  describe('applyV2Prefix', () => {
-    it('passes argv through unchanged when there is no beta token', () => {
-      const argv = ['node', 'kimi', 'server', 'run'];
-      expect(applyV2Prefix(argv, ON)).toEqual({ argv });
-      expect(applyV2Prefix(argv, OFF)).toEqual({ argv });
-    });
-
-    it('strips the beta token when the experimental flag is on', () => {
-      expect(applyV2Prefix(['node', 'kimi', 'beta', 'server', 'run'], ON)).toEqual({
-        argv: ['node', 'kimi', 'server', 'run'],
-      });
-    });
-
-    it('strips a lone beta token (default chat) when the flag is on', () => {
-      expect(applyV2Prefix(['node', 'kimi', 'beta'], ON)).toEqual({
-        argv: ['node', 'kimi'],
-      });
-    });
-
-    it('rejects the beta prefix with a hint when the flag is off', () => {
-      const outcome = applyV2Prefix(['node', 'kimi', 'beta', 'server', 'run'], OFF);
-      expect('error' in outcome && outcome.error).toMatch(/KIMI_CODE_EXPERIMENTAL_FLAG/);
-    });
-
-    it('does not treat a later beta token as the prefix', () => {
-      const argv = ['node', 'kimi', 'server', 'beta'];
-      expect(applyV2Prefix(argv, ON)).toEqual({ argv });
-    });
-  });
-
-  describe('main() wiring', () => {
-    let originalArgv: string[];
-
-    beforeEach(() => {
-      vi.clearAllMocks();
-      originalArgv = process.argv;
-    });
-
-    afterEach(() => {
-      process.argv = originalArgv;
-      vi.unstubAllEnvs();
-      vi.restoreAllMocks();
-    });
-
-    it('parses the stripped argv when the flag is on', () => {
-      vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '1');
-      process.argv = ['node', 'kimi', 'beta', 'server', 'run'];
-
-      main();
-
-      expect(mocks.parse).toHaveBeenCalledWith(['node', 'kimi', 'server', 'run']);
-    });
-
-    it('exits with a hint and never parses when the flag is off', () => {
-      vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '');
-      process.argv = ['node', 'kimi', 'beta', 'server', 'run'];
-      const writes: string[] = [];
-      vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
-        writes.push(String(chunk));
-        return true;
-      });
-      vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
-        throw new ExitCalled(Number(code ?? 0));
-      });
-
-      let exitCode: number | undefined;
-      try {
-        main();
-      } catch (error) {
-        if (error instanceof ExitCalled) exitCode = error.code;
-        else throw error;
-      }
-
-      expect(exitCode).toBe(1);
-      expect(mocks.parse).not.toHaveBeenCalled();
-      expect(writes.join('')).toContain('KIMI_CODE_EXPERIMENTAL_FLAG');
-    });
   });
 });

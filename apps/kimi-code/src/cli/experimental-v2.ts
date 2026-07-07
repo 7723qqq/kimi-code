@@ -1,9 +1,8 @@
 /**
  * Experimental agent-core-v2 engine gate.
  *
- * Both the `kimi v2 <subcommand>` prefix (see `main.ts`) and the
- * `kimi server run` → server-v2 routing (see `sub/server/run.ts`) key off this
- * single master switch. Read directly from the env (matching
+ * The `kimi server run` → server-v2 routing (see `sub/server/run.ts`) keys off
+ * this single master switch. Read directly from the env (matching
  * `cli/update/rollout.ts`) because the CLI must not depend on the core flag
  * registry. Unset / any non-truthy value keeps the v1 engine.
  */

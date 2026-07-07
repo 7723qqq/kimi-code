@@ -4,7 +4,7 @@
  * test fails until `src/v2/resources/manifest.ts` (and the derived types) is
  * updated.
  */
-import { actionMap } from '@moonshot-ai/server-v2/contract';
+import { actionMap } from '@moonshot-ai/kap-server/contract';
 import { describe, expect, it } from 'vitest';
 
 import { AGENT, CORE, SESSION, flattenManifest } from '../../src/v2/index.js';

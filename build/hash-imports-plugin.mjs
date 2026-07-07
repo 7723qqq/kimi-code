@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
  * package.json `imports` field does — scoped to the IMPORTER's owning package,
  * honoring array fallbacks such as `"#/*": ["./src/*.ts", "./src/<x>/index.ts"]`.
  *
- * Why this is needed: when the CLI bundles `@moonshot-ai/server-v2`, rolldown
+ * Why this is needed: when the CLI bundles `@moonshot-ai/kap-server`, rolldown
  * inlines `@moonshot-ai/agent-core-v2` source, whose internal `#/foo` imports
  * must resolve against each package's own `src/`. Rolldown (like tsx) only
  * honors the first array element of an `imports` target and therefore breaks

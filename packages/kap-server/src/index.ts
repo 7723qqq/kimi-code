@@ -1,5 +1,5 @@
 /**
- * `@moonshot-ai/server-v2` public surface — the Kimi Code server backed by the
+ * `@moonshot-ai/kap-server` public surface — the Kimi Code server backed by the
  * DI × Scope agent engine (`@moonshot-ai/agent-core-v2`).
  */
 

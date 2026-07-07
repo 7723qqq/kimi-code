@@ -51,9 +51,9 @@ const WEB_ASSETS_DIR = 'dist-web';
 
 /**
  * `kimi server run` → server-v2 routing is gated by the master experimental
- * switch shared with the `kimi v2` prefix (`#/cli/experimental-v2`). When it is
- * truthy, the in-process runner boots the DI × Scope engine server
- * (`@moonshot-ai/server-v2`) instead of the default `@moonshot-ai/server`.
+ * switch (`#/cli/experimental-v2`). When it is truthy, the in-process runner
+ * boots the DI × Scope engine server (`@moonshot-ai/kap-server`) instead of
+ * the default `@moonshot-ai/server`.
  *
  * Re-exported under the historical name so existing callers/tests keep working.
  */
@@ -405,7 +405,7 @@ async function runServerInProcess(
     // the default (flag-off) path keeps the exact v1-only module graph — v2 and
     // its agent-core-v2 engine are only resolved when the flag is on.
     const { createServerLogger: createServerV2Logger, startServer: startServerV2 } =
-      await import('@moonshot-ai/server-v2');
+      await import('@moonshot-ai/kap-server');
     const logger = createServerV2Logger({ level: options.logLevel });
     const v2 = await startServerV2({
       host: options.host,

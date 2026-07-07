@@ -1,5 +1,5 @@
 /**
- * `@moonshot-ai/server-v2/contract` — the public `/api/v2` wire contract.
+ * `@moonshot-ai/kap-server/contract` — the public `/api/v2` wire contract.
  *
  * Re-exports the server-side allowlists that bind public `resource:action`
  * segments and event names to internal Services. Client SDKs import this

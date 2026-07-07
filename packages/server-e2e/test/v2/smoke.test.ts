@@ -15,7 +15,7 @@ import {
   IAgentLifecycleService,
   ISessionLifecycleService,
 } from '@moonshot-ai/agent-core-v2';
-import { type RunningServer, startServer } from '@moonshot-ai/server-v2';
+import { type RunningServer, startServer } from '@moonshot-ai/kap-server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { ServerClient } from '../../src/v2/index.js';
