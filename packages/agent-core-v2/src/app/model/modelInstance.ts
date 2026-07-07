@@ -127,6 +127,9 @@ export interface Model {
   /** Return a new Model wrapper with additional protocol-constructor options applied. */
   withProviderOptions(options: ProtocolProviderOptions): Model;
 
+  /** Return a new Model wrapper with preserved-thinking keep applied when the protocol supports it. */
+  withThinkingKeep(keep: string): Model;
+
   /**
    * Drive one LLM request end-to-end. Streams `LLMEvent`s until the stream
    * terminates (either normally with `usage`+`finish`, or with an error).

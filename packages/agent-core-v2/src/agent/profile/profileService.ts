@@ -294,13 +294,17 @@ export class AgentProfileService implements IAgentProfileService {
     if (overrides !== undefined) {
       if (overrides.temperature !== undefined) kwargs.temperature = overrides.temperature;
       if (overrides.topP !== undefined) kwargs.top_p = overrides.topP;
-      if (
-        model.protocol === 'kimi' &&
-        thinkingLevel !== 'off' &&
-        overrides.thinkingKeep !== undefined &&
-        overrides.thinkingKeep.length > 0
-      ) {
-        kwargs.extra_body = { thinking: { keep: overrides.thinkingKeep } };
+    }
+    const keep = resolveThinkingKeep(
+      overrides?.thinkingKeep,
+      this.config.get<ThinkingConfig>(THINKING_SECTION)?.keep,
+      thinkingLevel,
+    );
+    if (keep !== undefined) {
+      if (model.protocol === 'kimi') {
+        kwargs.extra_body = { thinking: { keep } };
+      } else if (model.protocol === 'anthropic') {
+        model = model.withThinkingKeep(keep);
       }
     }
     if (Object.keys(kwargs).length > 0) model = model.withGenerationKwargs(kwargs);
@@ -497,6 +501,32 @@ export class AgentProfileService implements IAgentProfileService {
     const cwd = this.optionsValue.cwd;
     return typeof cwd === 'function' ? cwd() : cwd;
   }
+}
+
+const KEEP_OFF_VALUES = new Set(['0', 'false', 'no', 'off', 'none', 'null']);
+
+type KeepResolution =
+  | { readonly specified: false }
+  | { readonly specified: true; readonly value: string | undefined };
+
+function parseKeepValue(raw: string | undefined): KeepResolution {
+  const trimmed = raw?.trim();
+  if (trimmed === undefined || trimmed.length === 0) return { specified: false };
+  if (KEEP_OFF_VALUES.has(trimmed.toLowerCase())) return { specified: true, value: undefined };
+  return { specified: true, value: trimmed };
+}
+
+function resolveThinkingKeep(
+  envKeep: string | undefined,
+  configKeep: string | undefined,
+  thinkingEffort: ThinkingEffort,
+): string | undefined {
+  if (thinkingEffort === 'off') return undefined;
+  const fromEnv = parseKeepValue(envKeep);
+  if (fromEnv.specified) return fromEnv.value;
+  const fromConfig = parseKeepValue(configKeep);
+  if (fromConfig.specified) return fromConfig.value;
+  return 'all';
 }
 
 registerScopedService(
