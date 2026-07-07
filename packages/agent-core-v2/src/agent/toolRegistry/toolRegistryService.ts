@@ -1,8 +1,7 @@
-import { Disposable, toDisposable, type IDisposable } from "#/_base/di/lifecycle";
+import { toDisposable, type IDisposable } from "#/_base/di/lifecycle";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { ExecutableTool, ToolInfo, ToolSource } from '#/agent/tool/toolContract';
-import { OrderedHookSlot } from '#/hooks';
 import { IAgentToolRegistryService, type ToolRegistrationOptions } from './toolRegistry';
 
 interface ToolEntry {
@@ -10,13 +9,9 @@ interface ToolEntry {
   readonly source: ToolSource;
 }
 
-export class AgentToolRegistryService extends Disposable implements IAgentToolRegistryService {
+export class AgentToolRegistryService implements IAgentToolRegistryService {
   declare readonly _serviceBrand: undefined;
   private readonly tools = new Map<string, ToolEntry>();
-
-  constructor() {
-    super();
-  }
 
   register(tool: ExecutableTool, options: ToolRegistrationOptions = {}): IDisposable {
     const source = options.source ?? 'builtin';

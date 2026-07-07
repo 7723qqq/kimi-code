@@ -4,7 +4,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { IAgentEventSinkService } from '#/agent/eventSink';
 import { IAgentGoalService } from '#/agent/goal/goal';
 import { type AgentGoalService } from '#/agent/goal/goalService';
-import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop/loop';
+import { IAgentLoopService, type AfterStepContext } from '#/agent/loop/loop';
 import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn/turn';
 import type { PersistedWireRecord, WireRecord } from '#/agent/wireRecord/wireRecord';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
@@ -63,12 +63,12 @@ async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<
     step: 1,
     signal: turn.abortController.signal,
   };
-  const afterStep: TurnAfterStepContext = {
+  const afterStep: AfterStepContext = {
     turnId: turn.id,
     step: 1,
     signal: turn.abortController.signal,
     usage: zeroUsage,
-    stopReason: 'completed' as const,
+    finishReason: 'completed' as const,
     continue: false,
   };
   await loopService.hooks.beforeStep.run(step);
@@ -82,12 +82,12 @@ async function runStepUsageHooks(
   turn: Turn,
   usage: TokenUsage,
 ): Promise<boolean> {
-  const afterStep: TurnAfterStepContext = {
+  const afterStep: AfterStepContext = {
     turnId: turn.id,
     step: 1,
     signal: turn.abortController.signal,
     usage,
-    stopReason: 'completed' as const,
+    finishReason: 'completed' as const,
     continue: false,
   };
   await loopService.hooks.afterStep.run(afterStep);
@@ -666,12 +666,12 @@ describe('AgentGoalService core workflow hooks', () => {
       step: 1,
       signal: turn.abortController.signal,
     };
-    const afterStep: TurnAfterStepContext = {
+    const afterStep: AfterStepContext = {
       turnId: turn.id,
       step: 1,
       signal: turn.abortController.signal,
       usage: zeroUsage,
-      stopReason: 'completed' as const,
+      finishReason: 'completed' as const,
       continue: false,
     };
     await loopService.hooks.beforeStep.run(step);

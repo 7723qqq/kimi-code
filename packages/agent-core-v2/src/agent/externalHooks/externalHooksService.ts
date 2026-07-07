@@ -27,7 +27,7 @@ import {
   type FullCompactionTask,
 } from '#/agent/fullCompaction/fullCompaction';
 import type { CompactionResult, CompactionSource } from '#/agent/fullCompaction/types';
-import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop/loop';
+import { IAgentLoopService, type AfterStepContext } from '#/agent/loop/loop';
 import {
   IAgentPermissionGate,
 } from '#/agent/permissionGate/permissionGate';
@@ -325,7 +325,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     );
   }
 
-  private async runStop(ctx: TurnAfterStepContext): Promise<string | undefined> {
+  private async runStop(ctx: AfterStepContext): Promise<string | undefined> {
     ctx.signal.throwIfAborted();
     if (this.stopHookContinuationUsed) return undefined;
 

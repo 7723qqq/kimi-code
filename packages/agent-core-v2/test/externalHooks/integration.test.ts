@@ -31,7 +31,7 @@ import {
 import { IAgentExternalHooksService } from '#/agent/externalHooks/externalHooks';
 import { AgentExternalHooksService } from '#/agent/externalHooks/externalHooksService';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
-import { IAgentLoopService, type TurnAfterStepContext } from '#/agent/loop/loop';
+import { IAgentLoopService, type AfterStepContext } from '#/agent/loop/loop';
 import { IAgentPermissionGate } from '#/agent/permissionGate/permissionGate';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentTaskService } from '#/agent/task/task';

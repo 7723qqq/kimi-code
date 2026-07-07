@@ -9,7 +9,7 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import { retryBackoffDelays, sleepForRetry } from '#/agent/llmRequester/retry';
-import { IAgentLoopService, type TurnErrorContext } from '#/agent/loop/loop';
+import { IAgentLoopService, type LoopErrorContext } from '#/agent/loop/loop';
 import { isAbortError, isContextOverflowError } from '#/agent/loop/errors';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentTurnService } from '#/agent/turn/turn';
@@ -219,7 +219,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   }
 
   private async onLoopError(
-    context: TurnErrorContext,
+    context: LoopErrorContext,
     next: () => Promise<void>,
   ): Promise<void> {
     if (!isContextOverflowError(context.error)) {
