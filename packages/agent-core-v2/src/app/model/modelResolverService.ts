@@ -49,7 +49,6 @@ import { resolveThinkingEffortForModel } from './thinking';
  *  fields the resolver needs to mirror the production default are read here. */
 interface ThinkingSection {
   readonly enabled?: boolean;
-  readonly mode?: string;
   readonly effort?: string;
 }
 
@@ -150,7 +149,7 @@ export class ModelResolverService extends Disposable implements IModelResolver {
 
     // Apply the production default thinking effort so a plain `model.request()`
     // behaves like the agent path (which routes through `profile` and reads the
-    // same `thinking` / `defaultThinking` config). Required for models whose
+    // same `thinking` config). Required for models whose
     // endpoint rejects a request that omits thinking (e.g. kimi-k2.7 over the
     // Anthropic protocol returns 400 unless `thinking.type === 'enabled'`).
     const effort = this.resolveDefaultThinking(model, alwaysThinking);
@@ -158,10 +157,9 @@ export class ModelResolverService extends Disposable implements IModelResolver {
   }
 
   /**
-   * Mirror `profile`'s `resolveThinkingLevel` / `resolveThinkingEffort` so the
-   * god-object's default matches the production agent path:
-   *   - an explicit `defaultThinking === false` or `thinking.mode === 'off'`
-   *     turns thinking off;
+   * Mirror `profile`'s `resolveThinkingEffort` so the god-object's default
+   * matches the production agent path:
+   *   - `thinking.enabled === false` turns thinking off;
    *   - otherwise the configured `thinking.effort` is used, falling back to the
    *     model's declared default effort / middle supported effort / boolean `on`;
    *   - an `always_thinking` model clamps an explicit "off" back to on.
@@ -170,14 +168,11 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     model: ModelConfig,
     alwaysThinking: boolean,
   ): ThinkingEffort {
-    const defaultThinking = this.config.get<boolean | undefined>('defaultThinking');
     const thinking = this.config.get<ThinkingSection | undefined>('thinking');
     return resolveThinkingEffortForModel(
       undefined,
       {
-        defaultThinking,
         enabled: thinking?.enabled,
-        mode: thinking?.mode,
         effort: thinking?.effort,
       },
       { ...model, alwaysThinking },
