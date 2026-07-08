@@ -299,9 +299,9 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     return true;
   }
 
-  private markCompleted(active: ActiveCompaction, data: FullCompactionCompleteData): boolean {
+  private markCompleted(active: ActiveCompaction): boolean {
     if (this._compacting !== active) return false;
-    this.wire.dispatch(fullCompactionComplete(data));
+    this.wire.dispatch(fullCompactionComplete({}));
     this._compacting = null;
     return true;
   }
@@ -424,12 +424,12 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       const result = await this.compactionRound(active, data);
       if (this._compacting !== active) throw compactionCancelledReason(active);
       this.lastCompactedTokenCount = result.tokensAfter;
-      if (!this.markCompleted(active, completeData(result))) {
+      if (!this.markCompleted(active)) {
         throw compactionCancelledReason(active);
       }
       const { contextSummary: _contextSummary, ...eventResult } = result;
       void _contextSummary;
-      this.eventBus.publish({ type: 'compaction.completed', result: eventResult, trigger: data.source });
+      this.eventBus.publish({ type: 'compaction.completed', result: eventResult });
       return result;
     } catch (error) {
       if (active.abortController.signal.aborted || isAbortError(error)) {
@@ -480,7 +480,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
 
       const delays = retryBackoffDelays(MAX_COMPACTION_RETRY_ATTEMPTS);
       let attempt: CompactionAttemptResult | undefined;
-      let historyForModel: readonly ContextMessage[] = originalHistory;
+      let historyForModel: readonly ContextMessage[] = stripDynamicToolContext(originalHistory);
       let droppedCount = 0;
       let overflowShrinkCount = 0;
       let emptyOrTruncatedShrinkCount = 0;
@@ -655,17 +655,6 @@ function collectSummary(finish: LLMRequestFinish): CompactionAttemptResult {
   return { summary, usage: finish.usage };
 }
 
-function completeData(result: CompactionResult): FullCompactionCompleteData {
-  return {
-    compactedCount: result.compactedCount,
-    tokensBefore: result.tokensBefore,
-    tokensAfter: result.tokensAfter,
-    keptUserMessageCount: result.keptUserMessageCount,
-    keptHeadUserMessageCount: result.keptHeadUserMessageCount,
-    droppedCount: result.droppedCount,
-  };
-}
-
 function historySafeToCompact(
   current: readonly ContextMessage[],
   original: readonly ContextMessage[],
@@ -673,6 +662,39 @@ function historySafeToCompact(
   if (current.length < original.length) return false;
   if (!original.every((message, index) => message === current[index])) return false;
   return current.slice(original.length).every(isRealUserInput);
+}
+
+const LOADABLE_TOOLS_TRIGGER = 'loadable-tools';
+
+function stripDynamicToolContext(
+  history: readonly ContextMessage[],
+): readonly ContextMessage[] {
+  if (!history.some((message) => hasDynamicToolSchema(message) || isLoadableToolsAnnouncement(message))) {
+    return history;
+  }
+  const out: ContextMessage[] = [];
+  for (const message of history) {
+    if (isLoadableToolsAnnouncement(message)) continue;
+    if (hasDynamicToolSchema(message)) {
+      const { tools: _tools, ...rest } = message;
+      void _tools;
+      if (rest.content.length === 0 && rest.toolCalls.length === 0) continue;
+      out.push(rest);
+      continue;
+    }
+    out.push(message);
+  }
+  return out;
+}
+
+function hasDynamicToolSchema(message: ContextMessage): boolean {
+  return message.tools !== undefined && message.tools.length > 0;
+}
+
+function isLoadableToolsAnnouncement(message: ContextMessage): boolean {
+  return (
+    message.origin?.kind === 'system_trigger' && message.origin.name === LOADABLE_TOOLS_TRIGGER
+  );
 }
 
 function shrinkCompactionHistoryAfterOverflow<T extends Message>(

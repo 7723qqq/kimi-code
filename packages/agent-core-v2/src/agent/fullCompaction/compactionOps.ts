@@ -9,17 +9,16 @@
  * `toEvent`; the rest publish directly from the service).
  *
  * The Model is intentionally phase-only — `{ phase }` (initial `idle`). The
- * richer per-compaction data (`instruction`, `compactedCount`, `tokensBefore`,
- * `tokensAfter`) is NOT resume state: `instruction` is only needed by the live
- * worker (which does not survive a restart) and by telemetry, so it rides the
- * `begin` payload (and is persisted on the record for audit) but is not stored
- * in the Model; the result numbers are consumed live by the
- * `compaction.completed` signal and their durable effect (the summary message)
- * already lives in `contextMemory`. The live `complete` payload is empty; legacy
- * logs may still carry result numbers, and `apply` accepts and ignores them while
- * collapsing to `idle`. Each `apply` returns
- * the same reference on a no-op so the wire's reference-equality gate stays
- * quiet; it carries no non-determinism.
+ * richer per-compaction data is NOT resume state: `instruction` is only needed
+ * by the live worker (which does not survive a restart) and by telemetry, so it
+ * rides the `begin` payload (and is persisted on the record for audit) but is
+ * not stored in the Model; result numbers are consumed live by the
+ * `compaction.completed` signal and their durable effect (the summary message
+ * plus compaction metrics) already lives in `contextMemory`. The live
+ * `complete` payload is empty to match the v1 wire shape; legacy logs may still
+ * carry result numbers, and `apply` accepts and ignores them while collapsing
+ * to `idle`. Each `apply` returns the same reference on a no-op so the wire's
+ * reference-equality gate stays quiet; it carries no non-determinism.
  *
  * The runtime orchestration — `ActiveCompaction`, its `AbortController`, and
  * the in-flight worker promise — stays OUT of the Model (live-only service
@@ -47,7 +46,7 @@ import type {
   CompactionStartedEvent,
 } from '@moonshot-ai/protocol';
 
-import type { CompactionBeginData, CompactionSource, FullCompactionCompleteData } from './types';
+import type { CompactionBeginData, FullCompactionCompleteData } from './types';
 
 export type CompactionPhase = 'idle' | 'running' | 'cancelled' | 'completed';
 
@@ -64,7 +63,7 @@ declare module '#/app/event/eventBus' {
     'compaction.started': CompactionStartedEvent;
     'compaction.blocked': CompactionBlockedEvent;
     'compaction.cancelled': CompactionCancelledEvent;
-    'compaction.completed': CompactionCompletedEvent & { readonly trigger: CompactionSource };
+    'compaction.completed': CompactionCompletedEvent;
   }
 }
 
@@ -84,7 +83,7 @@ export const fullCompactionCancel = defineOp(CompactionModel, 'full_compaction.c
   apply: (s): CompactionState => (s.phase === 'idle' ? s : { phase: 'idle' }),
 });
 
-export type FullCompactionCompletePayload = Partial<FullCompactionCompleteData>;
+export type FullCompactionCompletePayload = FullCompactionCompleteData;
 
 export const fullCompactionComplete = defineOp(CompactionModel, 'full_compaction.complete', {
   apply: (s, _p: FullCompactionCompletePayload): CompactionState =>

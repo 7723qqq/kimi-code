@@ -234,12 +234,7 @@ describe('FullCompaction', () => {
       const candidate = event as { type?: unknown; event?: unknown };
       return candidate.type === '[wire]' && candidate.event === 'full_compaction.complete';
     });
-    expect(completeEvent?.args).toEqual(expect.objectContaining({
-      compactedCount: expect.any(Number),
-      tokensBefore: expect.any(Number),
-      tokensAfter: expect.any(Number),
-    }));
-    expect(completeEvent?.args).not.toHaveProperty('summary');
+    expect(completeEvent?.args).toEqual({});
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
       tools: Agent, AgentSwarm, EnterPlanMode, ExitPlanMode
@@ -355,6 +350,60 @@ describe('FullCompaction', () => {
           message.toolCalls.length === 0,
       ),
     ).toBe(false);
+  });
+
+  it('strips dynamic tool protocol context from the summary request', async () => {
+    const ctx = testAgent();
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+      tools: SNAPSHOT_VISIBLE_TOOLS,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    await ctx.dispatch({
+      type: 'context.splice',
+      start: ctx.context.get().length,
+      deleteCount: 0,
+      messages: [
+        {
+          role: 'system',
+          content: [],
+          toolCalls: [],
+          tools: [
+            {
+              name: 'LoadedDynamicTool',
+              description: 'schema text should not be summarized',
+              parameters: { type: 'object', properties: { query: { type: 'string' } } },
+            },
+          ],
+          origin: { kind: 'injection', variant: 'dynamic_tool_schema' },
+        },
+        {
+          role: 'user',
+          content: [{ type: 'text', text: '<tools_added>\nLoadedDynamicTool\n</tools_added>' }],
+          toolCalls: [],
+          origin: { kind: 'system_trigger', name: 'loadable-tools' },
+        },
+      ],
+    });
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    const compacted = ctx.once('full_compaction.complete');
+    const completed = ctx.once('compaction.completed');
+
+    ctx.mockNextResponse({ type: 'text', text: 'Summary without protocol context.' });
+    await ctx.rpc.beginCompaction({});
+    await compacted;
+    await completed;
+
+    const [compactionCall] = ctx.llmCalls;
+    const inputText = compactionCall?.history.map(messageText).join('\n') ?? '';
+    expect(compactionCall?.history.some((message) => message.tools !== undefined)).toBe(false);
+    expect(inputText).not.toContain('LoadedDynamicTool');
+    expect(inputText).not.toContain('<tools_added>');
+    expect(inputText).not.toContain('schema text should not be summarized');
+    expect(inputText).toContain('old user one');
+    expect(inputText).toContain('recent user two');
+    await ctx.expectResumeMatches();
   });
 
   it('micro-compacts old tool results before sending the summary request', async () => {

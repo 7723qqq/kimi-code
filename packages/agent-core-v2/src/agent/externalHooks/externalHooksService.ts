@@ -62,6 +62,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
   declare readonly _serviceBrand: undefined;
 
   private stopHookContinuationUsed = false;
+  private activeCompactTrigger: CompactionSource | undefined;
 
   constructor(
     @IExternalHooksRunnerService private readonly runner: IExternalHooksRunnerService,
@@ -213,6 +214,11 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     this._register(
       this.eventBus.subscribe('compaction.completed', (e) => this.notifyPostCompact(e)),
     );
+    this._register(
+      this.eventBus.subscribe('compaction.cancelled', () => {
+        this.activeCompactTrigger = undefined;
+      }),
+    );
   }
 
   private registerTaskHooks(_tasks: IAgentTaskService): void {
@@ -351,6 +357,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
   private async runPreCompact(ctx: FullCompactionTask): Promise<void> {
     const signal = ctx.abortController.signal;
     signal.throwIfAborted();
+    this.activeCompactTrigger = ctx.trigger;
     await this.runner.trigger('PreCompact', {
       matcherValue: ctx.trigger,
       signal,
@@ -363,14 +370,17 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     signal.throwIfAborted();
   }
 
-  private notifyPostCompact(event: { trigger: CompactionSource; result: CompactionResult }): void {
+  private notifyPostCompact(event: { result: CompactionResult }): void {
+    const trigger = this.activeCompactTrigger;
+    this.activeCompactTrigger = undefined;
+    if (trigger === undefined) return;
     this.fireAndForget(
       'PostCompact',
       {
-        trigger: event.trigger,
+        trigger,
         estimatedTokenCount: event.result.tokensAfter,
       },
-      event.trigger,
+      trigger,
     );
   }
 

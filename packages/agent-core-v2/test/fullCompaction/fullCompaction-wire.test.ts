@@ -100,7 +100,7 @@ describe('fullCompaction ops (wire-backed)', () => {
 
   it('replay rebuilds the phase silently (no emissions, no subscriber notifications)', async () => {
     wire.dispatch(fullCompactionBegin({ source: 'manual' }));
-    wire.dispatch(fullCompactionComplete({ compactedCount: 1, tokensBefore: 50, tokensAfter: 10 }));
+    wire.dispatch(fullCompactionComplete({}));
     const records = await readRecords();
 
     const host = buildHost('full-compaction-replay');
