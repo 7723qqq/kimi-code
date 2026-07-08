@@ -384,6 +384,69 @@ export interface McpOAuthAuthorizationUrlUpdateData {
 
 export type TurnEndReason = 'completed' | 'cancelled' | 'failed' | 'blocked';
 
+export type AgentPhase =
+  | { readonly kind: 'idle' }
+  | {
+      readonly kind: 'running';
+      readonly turnId: number;
+      readonly step: number;
+      readonly stepId: string;
+      readonly since: number;
+    }
+  | {
+      readonly kind: 'streaming';
+      readonly turnId: number;
+      readonly step: number;
+      readonly stepId: string;
+      readonly stream: 'assistant' | 'thinking' | 'tool_call';
+      readonly toolCallId?: string;
+      readonly toolName?: string;
+      readonly since: number;
+    }
+  | {
+      readonly kind: 'tool_call';
+      readonly turnId: number;
+      readonly step: number;
+      readonly toolCallId: string;
+      readonly name: string;
+      readonly since: number;
+    }
+  | {
+      readonly kind: 'retrying';
+      readonly turnId: number;
+      readonly step: number;
+      readonly stepId: string;
+      readonly failedAttempt: number;
+      readonly nextAttempt: number;
+      readonly maxAttempts: number;
+      readonly delayMs: number;
+      readonly errorName?: string;
+      readonly statusCode?: number;
+      readonly since: number;
+    }
+  | {
+      readonly kind: 'awaiting_approval';
+      readonly turnId: number;
+      readonly step?: number;
+      readonly approval?: unknown;
+      readonly since: number;
+    }
+  | {
+      readonly kind: 'interrupted';
+      readonly turnId: number;
+      readonly step?: number;
+      readonly reason: 'aborted' | 'max_steps' | 'error';
+      readonly message?: string;
+      readonly at: number;
+    }
+  | {
+      readonly kind: 'ended';
+      readonly turnId: number;
+      readonly reason: TurnEndReason;
+      readonly durationMs?: number;
+      readonly at: number;
+    };
+
 export interface AgentStatusUpdatedEvent {
   readonly type: 'agent.status.updated';
   readonly model?: string;
@@ -394,6 +457,7 @@ export interface AgentStatusUpdatedEvent {
   readonly swarmMode?: boolean;
   readonly permission?: PermissionMode;
   readonly usage?: UsageStatus;
+  readonly phase?: AgentPhase;
 }
 
 export interface SessionMetaUpdatedEvent {
@@ -1147,6 +1211,70 @@ export const mcpOAuthAuthorizationUrlUpdateDataSchema = z.object({
 
 export const turnEndReasonSchema = z.enum(['completed', 'cancelled', 'failed', 'blocked']) satisfies z.ZodType<TurnEndReason>;
 
+export const agentPhaseSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('idle') }),
+  z.object({
+    kind: z.literal('running'),
+    turnId: z.number(),
+    step: z.number(),
+    stepId: z.string(),
+    since: z.number(),
+  }),
+  z.object({
+    kind: z.literal('streaming'),
+    turnId: z.number(),
+    step: z.number(),
+    stepId: z.string(),
+    stream: z.enum(['assistant', 'thinking', 'tool_call']),
+    toolCallId: z.string().optional(),
+    toolName: z.string().optional(),
+    since: z.number(),
+  }),
+  z.object({
+    kind: z.literal('tool_call'),
+    turnId: z.number(),
+    step: z.number(),
+    toolCallId: z.string(),
+    name: z.string(),
+    since: z.number(),
+  }),
+  z.object({
+    kind: z.literal('retrying'),
+    turnId: z.number(),
+    step: z.number(),
+    stepId: z.string(),
+    failedAttempt: z.number(),
+    nextAttempt: z.number(),
+    maxAttempts: z.number(),
+    delayMs: z.number(),
+    errorName: z.string().optional(),
+    statusCode: z.number().optional(),
+    since: z.number(),
+  }),
+  z.object({
+    kind: z.literal('awaiting_approval'),
+    turnId: z.number(),
+    step: z.number().optional(),
+    approval: z.unknown().optional(),
+    since: z.number(),
+  }),
+  z.object({
+    kind: z.literal('interrupted'),
+    turnId: z.number(),
+    step: z.number().optional(),
+    reason: z.enum(['aborted', 'max_steps', 'error']),
+    message: z.string().optional(),
+    at: z.number(),
+  }),
+  z.object({
+    kind: z.literal('ended'),
+    turnId: z.number(),
+    reason: turnEndReasonSchema,
+    durationMs: z.number().optional(),
+    at: z.number(),
+  }),
+]) satisfies z.ZodType<AgentPhase>;
+
 export const agentStatusUpdatedEventSchema = z.object({
   type: z.literal('agent.status.updated'),
   model: z.string().optional(),
@@ -1157,6 +1285,7 @@ export const agentStatusUpdatedEventSchema = z.object({
   swarmMode: z.boolean().optional(),
   permission: permissionModeSchema.optional(),
   usage: usageStatusSchema.optional(),
+  phase: agentPhaseSchema.optional(),
 }) satisfies z.ZodType<AgentStatusUpdatedEvent>;
 
 export const sessionMetaUpdatedEventSchema = z.object({
