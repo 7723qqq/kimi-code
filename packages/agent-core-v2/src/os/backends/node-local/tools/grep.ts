@@ -442,7 +442,8 @@ export class GrepTool implements BuiltinTool<GrepInput> {
         let mtime = 0;
         if (path !== undefined) {
           try {
-            mtime = (await this.fs.stat(path)).mtimeMs ?? 0;
+            const mtimeMs = (await this.fs.stat(path)).mtimeMs ?? 0;
+            mtime = Math.trunc(mtimeMs / 1000);
           } catch {
             // Keep stat failures visible; use mtime=0 so they sort after known files.
           }

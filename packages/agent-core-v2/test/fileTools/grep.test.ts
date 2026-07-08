@@ -2,20 +2,34 @@ import { Readable, type Writable } from 'node:stream';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { createServices } from '#/_base/di/test';
 import type {
   ExecutableTool,
   ExecutableToolContext,
   ExecutableToolResult,
   ToolExecution,
 } from '#/agent/tool/toolContract';
-import { noopTelemetryService, type ITelemetryService } from '#/app/telemetry/telemetry';
+import {
+  AgentBuiltinToolsRegistrar,
+  IAgentBuiltinToolsRegistrar,
+} from '#/agent/toolRegistry/builtinToolsRegistrar';
+import {
+  _clearToolContributionsForTests,
+  getToolContributions,
+  registerTool,
+} from '#/agent/toolRegistry/toolContribution';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import type { PathClass } from '#/_base/execEnv/environmentProbe';
 import { PathSecurityError } from '#/_base/tools/policies/path-access';
 import { SENSITIVE_DOT_VARIANT_SUFFIXES } from '#/_base/tools/policies/sensitive';
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
-import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
+import { IHostProcessService, type IHostProcess } from '#/os/interface/hostProcess';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import {
   type GrepInput,
   GrepInputSchema,
@@ -177,7 +191,7 @@ function statResult(mtime: number): HostFileStat {
     isFile: true,
     isDirectory: false,
     size: 0,
-    mtimeMs: mtime,
+    mtimeMs: mtime * 1000,
   };
 }
 
@@ -264,6 +278,41 @@ afterEach(() => {
 });
 
 describe('GrepTool', () => {
+  it('registers through the production tool contribution and DI path', () => {
+    const savedContributions = [...getToolContributions()];
+    const disposables = new DisposableStore();
+    try {
+      _clearToolContributionsForTests();
+      registerTool(ProductionGrepTool);
+
+      const ix = createServices(disposables, {
+        strict: true,
+        additionalServices: (reg) => {
+          const kaos = createFakeKaos();
+          reg.defineInstance(IHostProcessService, createTestProcessService(kaos));
+          reg.defineInstance(IHostFileSystem, createTestFs(kaos));
+          reg.defineInstance(IHostEnvironment, createTestEnv(kaos));
+          reg.defineInstance(ISessionWorkspaceContext, stubWorkspaceContext('/workspace'));
+          reg.defineInstance(ITelemetryService, noopTelemetryService);
+          reg.define(IAgentToolRegistryService, AgentToolRegistryService);
+          reg.define(IAgentBuiltinToolsRegistrar, AgentBuiltinToolsRegistrar);
+        },
+      });
+
+      ix.get(IAgentBuiltinToolsRegistrar);
+      const tool = ix.get(IAgentToolRegistryService).resolve('Grep');
+
+      expect(tool).toBeInstanceOf(ProductionGrepTool);
+      expect(tool?.name).toBe('Grep');
+    } finally {
+      disposables.dispose();
+      _clearToolContributionsForTests();
+      for (const contribution of savedContributions) {
+        registerTool(contribution.ctor, contribution.options);
+      }
+    }
+  });
+
   it('exposes current metadata and schema', () => {
     const tool = new GrepTool(createFakeKaos(), workspace);
 
@@ -509,6 +558,32 @@ describe('GrepTool', () => {
     expect(stat).toHaveBeenCalledTimes(2);
     expect(stat).toHaveBeenCalledWith('/workspace/src/old.ts');
     expect(stat).toHaveBeenCalledWith('/workspace/src/new.ts');
+  });
+
+  it('keeps v1 tie order for files modified within the same second', async () => {
+    const stdout = ['/workspace/src/a.ts', '/workspace/src/b.ts', '/workspace/src/c.ts', ''].join(
+      '\n',
+    );
+    const stat = vi.fn(async (path: string) => {
+      if (path === '/workspace/src/a.ts') {
+        return { ...statResult(1), mtimeMs: 1000 };
+      }
+      if (path === '/workspace/src/b.ts') {
+        return { ...statResult(1), mtimeMs: 1500 };
+      }
+      if (path === '/workspace/src/c.ts') {
+        return { ...statResult(2), mtimeMs: 2000 };
+      }
+      throw new Error(`unexpected stat: ${path}`);
+    });
+    const tool = new GrepTool(
+      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)), stat }),
+      { workspaceDir: '/workspace', additionalDirs: [] },
+    );
+
+    const result = await executeTool(tool, context({ pattern: 'hit', head_limit: 0 }));
+
+    expect(toolContentString(result)).toBe(['src/c.ts', 'src/a.ts', 'src/b.ts'].join('\n'));
   });
 
   it('limits concurrent mtime stats while sorting files_with_matches', async () => {
