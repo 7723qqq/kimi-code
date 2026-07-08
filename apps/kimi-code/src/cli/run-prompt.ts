@@ -101,6 +101,14 @@ export async function runPrompt(
   const stdout = io.stdout ?? process.stdout;
   const stderr = io.stderr ?? process.stderr;
   const promptProcess = io.process ?? process;
+  const outputFormat = opts.outputFormat ?? 'text';
+  // The experimental agent-core-v2 engine (selected by KIMI_CODE_EXPERIMENTAL_FLAG)
+  // announces the running version as the very first output so headless consumers
+  // can identify which build produced the stream, in both `text` and `stream-json`
+  // formats. The default v1 path keeps its established output unchanged.
+  if (isKimiV2Enabled()) {
+    writeExperimentalVersion(version, outputFormat, stdout, stderr);
+  }
   const workDir = process.cwd();
   const telemetryBootstrap = createCliTelemetryBootstrap();
   const telemetryClient: TelemetryClient = {
@@ -183,7 +191,6 @@ export async function runPrompt(
     });
     setCrashPhase('runtime');
 
-    const outputFormat = opts.outputFormat ?? 'text';
     // Headless goal mode: `kimi -p "/goal <objective>"`. The goal driver keeps
     // the turn-run alive across continuation turns, so the normal prompt-turn
     // waiter blocks until the goal is terminal; we then emit a summary and set a
@@ -661,6 +668,30 @@ interface PromptJsonResumeMetaMessage {
   session_id: string;
   command: string;
   content: string;
+}
+
+interface PromptJsonVersionMetaMessage {
+  role: 'meta';
+  type: 'system.version';
+  version: string;
+}
+
+function writeExperimentalVersion(
+  version: string,
+  outputFormat: PromptOutputFormat,
+  stdout: PromptOutput,
+  stderr: PromptOutput,
+): void {
+  if (outputFormat === 'stream-json') {
+    const message: PromptJsonVersionMetaMessage = {
+      role: 'meta',
+      type: 'system.version',
+      version,
+    };
+    stdout.write(`${JSON.stringify(message)}\n`);
+    return;
+  }
+  stderr.write(`kimi version ${version}\n`);
 }
 
 function writeResumeHint(
