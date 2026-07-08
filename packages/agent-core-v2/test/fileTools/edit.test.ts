@@ -9,6 +9,10 @@
  * exercised end-to-end through the tool and the real `FileEditService`.
  */
 
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PathSecurityError } from '../../src/_base/tools/policies/path-access';
@@ -19,6 +23,7 @@ import { type EditInput, EditInputSchema, EditTool } from '#/app/edit/tools/edit
 import { IFileEditService } from '#/app/edit/fileEdit';
 import { FileEditService } from '#/app/edit/fileEditService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/agent/tool/toolContract';
@@ -132,7 +137,7 @@ describe('EditTool', () => {
     });
   });
 
-  it('declares writeFile access for the edited path', () => {
+  it('declares readWriteFile access for the edited path', () => {
     const tool = buildTool(createSpiedEditFs().fs, createTestEnv(), PERMISSIVE_WORKSPACE);
     const execution = tool.resolveExecution({
       path: '/tmp/foo.ts',
@@ -142,7 +147,9 @@ describe('EditTool', () => {
     if (execution.isError === true) {
       throw new TypeError('expected runnable execution');
     }
-    expect(execution.accesses).toEqual([{ kind: 'file', operation: 'write', path: '/tmp/foo.ts' }]);
+    expect(execution.accesses).toEqual([
+      { kind: 'file', operation: 'readwrite', path: '/tmp/foo.ts' },
+    ]);
   });
 
   it('exposes current metadata and schema', () => {
@@ -227,7 +234,7 @@ describe('EditTool', () => {
     });
 
     expect(result.output).toContain('Replaced 1 occurrence');
-    expect(readText).toHaveBeenCalledWith('/home/test/notes/today.txt');
+    expect(readText).toHaveBeenCalledWith('/home/test/notes/today.txt', { errors: 'strict' });
     expect(writeText).toHaveBeenCalledWith('/home/test/notes/today.txt', 'alpha gamma');
   });
 
@@ -549,5 +556,35 @@ describe('EditTool', () => {
 
     expect(result.isError).toBeFalsy();
     expect(writeText).toHaveBeenCalledWith('/workspace-sneaky/test.txt', 'new');
+  });
+
+  it('rejects editing a non-UTF-8 file and leaves its bytes untouched', async () => {
+    // Drives the real HostFileSystem + FileEditService (no fake fs) so the
+    // strict-decode path is exercised end-to-end against invalid bytes.
+    const dir = await mkdtemp(join(tmpdir(), 'edit-strict-'));
+    const file = join(dir, 'sample.txt');
+    // "hi " + 0xFF (invalid UTF-8) + "\n" + "foo"
+    const original = Buffer.from([0x68, 0x69, 0x20, 0xff, 0x0a, 0x66, 0x6f, 0x6f]);
+    await writeFile(file, original);
+    try {
+      const service = new FileEditService(new HostFileSystem());
+      const result = await service.edit({
+        path: file,
+        displayPath: file,
+        old_string: 'foo',
+        new_string: 'bar',
+        replace_all: false,
+      });
+
+      // Strict decoding must surface the invalid bytes as a failed edit...
+      expect(result.ok).toBe(false);
+      // ...and must not have rewritten the file. The v2 lenient-decode bug
+      // silently rewrote 0xFF as EF BF BD even though the edit only touched
+      // 'foo'; locking the byte-for-byte invariant prevents a regression.
+      const after = await readFile(file);
+      expect(Buffer.compare(after, original)).toBe(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

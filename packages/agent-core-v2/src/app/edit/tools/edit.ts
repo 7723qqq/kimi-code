@@ -24,7 +24,6 @@ import { resolvePathAccessPath } from '#/_base/tools/policies/path-access';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '#/_base/tools/support/rule-match';
 import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
-import { renderPrompt } from '#/_base/utils/render-prompt';
 import { IFileEditService } from '../fileEdit';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
@@ -62,11 +61,9 @@ export const EditInputSchema = z.object({
 
 export type EditInput = z.infer<typeof EditInputSchema>;
 
-const EDIT_DESCRIPTION = renderPrompt(editDescriptionTemplate, {});
-
 export class EditTool implements BuiltinTool<EditInput> {
   readonly name = 'Edit' as const;
-  readonly description = EDIT_DESCRIPTION;
+  readonly description = editDescriptionTemplate;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(EditInputSchema);
 
   constructor(
@@ -89,7 +86,7 @@ export class EditTool implements BuiltinTool<EditInput> {
       operation: 'write',
     });
     return {
-      accesses: ToolAccesses.writeFile(path),
+      accesses: ToolAccesses.readWriteFile(path),
       description: `Editing ${args.path}`,
       display: {
         kind: 'file_io',
