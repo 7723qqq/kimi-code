@@ -24,6 +24,7 @@ import { z } from 'zod';
 import { ToolResultBuilder } from '#/agent/tool/result-builder';
 import { ToolAccesses } from '#/agent/tool/tool-access';
 import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool/toolContract';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { registerTool } from '#/agent/toolRegistry/toolContribution';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -195,6 +196,7 @@ export class GrepTool implements BuiltinTool<GrepInput> {
     @IHostFileSystem private readonly fs: IHostFileSystem,
     @IHostEnvironment private readonly env: IHostEnvironment,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {}
 
   private get workspace(): WorkspaceConfig {
@@ -243,10 +245,17 @@ export class GrepTool implements BuiltinTool<GrepInput> {
         allowCachedFallback: true,
       });
       rgPath = resolution.path;
+      if (resolution.source !== 'system-path') {
+        this.telemetry.track('grep_tool_rg_fallback', {
+          source: resolution.source,
+          outcome: 'resolved',
+        });
+      }
     } catch (error) {
       if (signal.aborted) {
         return { isError: true, output: 'Grep aborted' };
       }
+      this.telemetry.track('grep_tool_rg_fallback', { outcome: 'failed' });
       return { isError: true, output: rgUnavailableMessage(error) };
     }
 

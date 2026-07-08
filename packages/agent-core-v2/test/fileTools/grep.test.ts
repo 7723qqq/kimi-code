@@ -1,17 +1,31 @@
 import { Readable, type Writable } from 'node:stream';
 
-import type { KaosProcess, StatResult } from '@moonshot-ai/kaos';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { type GrepInput, GrepInputSchema, GrepTool } from '../../src/tools/builtin/file/grep';
-import { SENSITIVE_DOT_VARIANT_SUFFIXES } from '../../src/tools/policies/sensitive';
-import { ensureRgPath } from '../../src/tools/support/rg-locator';
-import type { WorkspaceConfig } from '../../src/tools/support/workspace';
-import { createFakeKaos, toolContentString } from './fixtures/fake-kaos';
-import { executeTool } from './fixtures/execute-tool';
-import { recordingTelemetry, type TelemetryRecord } from '../fixtures/telemetry';
+import type {
+  ExecutableTool,
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/agent/tool/toolContract';
+import { noopTelemetryService, type ITelemetryService } from '#/app/telemetry/telemetry';
+import type { PathClass } from '#/_base/execEnv/environmentProbe';
+import { PathSecurityError } from '#/_base/tools/policies/path-access';
+import { SENSITIVE_DOT_VARIANT_SUFFIXES } from '#/_base/tools/policies/sensitive';
+import type { WorkspaceConfig } from '#/_base/tools/support/workspace';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import {
+  type GrepInput,
+  GrepInputSchema,
+  GrepTool as ProductionGrepTool,
+} from '#/os/backends/node-local/tools/grep';
+import { ensureRgPath } from '#/os/backends/node-local/tools/rgLocator';
+import { stubWorkspaceContext } from './stub-workspace-context';
+import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 
-vi.mock('../../src/tools/support/rg-locator', () => ({
+vi.mock('#/os/backends/node-local/tools/rgLocator', () => ({
   ensureRgPath: vi.fn(async () => ({ path: '/mock/rg', source: 'system-path' })),
   rgUnavailableMessage: (cause: unknown) =>
     `rg unavailable: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -65,10 +79,85 @@ const SENSITIVE_RG_ARGS = [
   '!**/.gcp/credentials/**',
 ] as const;
 
-function processWithOutput(stdout: string, stderr = '', exitCode = 0): KaosProcess {
+interface FakeKaos {
+  pathClass(): PathClass;
+  gethome(): string;
+  stat(path: string): Promise<HostFileStat>;
+  exec(...args: string[]): Promise<IHostProcess>;
+}
+
+function notImplemented(method: string): never {
+  throw new Error(`FakeKaos.${method} not implemented - override in the test`);
+}
+
+function createFakeKaos(overrides: Partial<FakeKaos> = {}): FakeKaos {
+  return {
+    pathClass: () => 'posix',
+    gethome: () => '/home/test',
+    stat: () => notImplemented('stat'),
+    exec: () => notImplemented('exec'),
+    ...overrides,
+  };
+}
+
+function createTestEnv(kaos: FakeKaos): IHostEnvironment {
+  return {
+    _serviceBrand: undefined,
+    osKind: 'Linux',
+    osArch: 'x86_64',
+    osVersion: 'test',
+    shellName: 'bash',
+    shellPath: '/bin/bash',
+    pathClass: kaos.pathClass(),
+    homeDir: kaos.gethome(),
+    ready: Promise.resolve(),
+  };
+}
+
+function createTestFs(kaos: FakeKaos): IHostFileSystem {
+  return {
+    _serviceBrand: undefined,
+    readText: () => notImplemented('readText'),
+    writeText: () => notImplemented('writeText'),
+    readBytes: () => notImplemented('readBytes'),
+    writeBytes: () => notImplemented('writeBytes'),
+    readLines: () => notImplemented('readLines'),
+    createExclusive: () => notImplemented('createExclusive'),
+    stat: (path) => kaos.stat(path),
+    readdir: () => notImplemented('readdir'),
+    mkdir: () => notImplemented('mkdir'),
+    remove: () => notImplemented('remove'),
+  };
+}
+
+function createTestProcessService(kaos: FakeKaos): IHostProcessService {
+  return {
+    _serviceBrand: undefined,
+    spawn: (command, args = []) => kaos.exec(command, ...args),
+  };
+}
+
+class GrepTool extends ProductionGrepTool {
+  constructor(
+    kaos: FakeKaos,
+    workspaceConfig: WorkspaceConfig,
+    telemetry: ITelemetryService = noopTelemetryService,
+  ) {
+    super(
+      createTestProcessService(kaos),
+      createTestFs(kaos),
+      createTestEnv(kaos),
+      stubWorkspaceContext(workspaceConfig.workspaceDir, workspaceConfig.additionalDirs),
+      telemetry,
+    );
+  }
+}
+
+function processWithOutput(stdout: string, stderr = '', exitCode = 0): IHostProcess {
   const stdoutStream = Readable.from([stdout]);
   const stderrStream = Readable.from([stderr]);
   return {
+    _serviceBrand: undefined,
     stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
     stdout: stdoutStream,
     stderr: stderrStream,
@@ -76,29 +165,23 @@ function processWithOutput(stdout: string, stderr = '', exitCode = 0): KaosProce
     exitCode,
     wait: vi.fn().mockResolvedValue(exitCode),
     kill: vi.fn(async () => {}),
-    dispose: vi.fn(async () => {
+    dispose: vi.fn(() => {
       stdoutStream.destroy();
       stderrStream.destroy();
     }),
   };
 }
 
-function statResult(mtime: number): StatResult {
+function statResult(mtime: number): HostFileStat {
   return {
-    stMode: 0o100000,
-    stIno: 1,
-    stDev: 1,
-    stNlink: 1,
-    stUid: 0,
-    stGid: 0,
-    stSize: 0,
-    stAtime: mtime,
-    stMtime: mtime,
-    stCtime: mtime,
+    isFile: true,
+    isDirectory: false,
+    size: 0,
+    mtimeMs: mtime,
   };
 }
 
-function processThatExitsOnKill(stdout: string, stderr = '', exitCode = 143): KaosProcess {
+function processThatExitsOnKill(stdout: string, stderr = '', exitCode = 143): IHostProcess {
   let currentExitCode: number | null = null;
   let resolveWait: (code: number) => void;
   const waitPromise = new Promise<number>((resolve) => {
@@ -108,6 +191,7 @@ function processThatExitsOnKill(stdout: string, stderr = '', exitCode = 143): Ka
   const stderrStream = Readable.from(stderr === '' ? [] : [stderr]);
 
   return {
+    _serviceBrand: undefined,
     stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
     stdout: stdoutStream,
     stderr: stderrStream,
@@ -120,7 +204,7 @@ function processThatExitsOnKill(stdout: string, stderr = '', exitCode = 143): Ka
       currentExitCode = exitCode;
       resolveWait(exitCode);
     }),
-    dispose: vi.fn(async () => {
+    dispose: vi.fn(() => {
       stdoutStream.destroy();
       stderrStream.destroy();
     }),
@@ -128,11 +212,51 @@ function processThatExitsOnKill(stdout: string, stderr = '', exitCode = 143): Ka
 }
 
 function context(args: GrepInput, abortSignal = signal) {
-  return { turnId: '0', toolCallId: 'call_grep', args, signal: abortSignal };
+  return { turnId: 0, toolCallId: 'call_grep', args, signal: abortSignal };
 }
 
 function nullRecord(filePath: string, payload = ''): string {
   return `${filePath}\0${payload}`;
+}
+
+type TestExecutableToolContext<Input> = ExecutableToolContext & {
+  readonly args: Input;
+};
+
+async function executeTool<Input>(
+  tool: ExecutableTool<Input>,
+  testContext: TestExecutableToolContext<Input>,
+): Promise<ExecutableToolResult> {
+  const { args, ...executionContext } = testContext;
+  let execution: ToolExecution;
+  try {
+    const resolved = tool.resolveExecution(args);
+    execution = isPromiseLike(resolved) ? await resolved : resolved;
+  } catch (error) {
+    const output =
+      error instanceof PathSecurityError
+        ? error.message
+        : `Tool "${tool.name}" failed to resolve execution: ${
+            error instanceof Error ? error.message : String(error)
+          }`;
+    return { isError: true, output };
+  }
+  if (execution.isError === true) return execution;
+  return execution.execute(executionContext);
+}
+
+function isPromiseLike(
+  value: ToolExecution | Promise<ToolExecution>,
+): value is Promise<ToolExecution> {
+  return typeof (value as Promise<ToolExecution>).then === 'function';
+}
+
+function toolContentString(result: ExecutableToolResult): string {
+  const c = result.output;
+  if (typeof c !== 'string') {
+    throw new TypeError(`expected string content, got ${typeof c}`);
+  }
+  return c;
 }
 
 afterEach(() => {
@@ -1437,7 +1561,7 @@ describe('GrepTool', () => {
   it('aborts while resolving the ripgrep path without spawning', async () => {
     const controller = new AbortController();
     const exec = vi.fn();
-    vi.mocked(ensureRgPath).mockImplementationOnce(({ signal: locatorSignal } = {}) => {
+    vi.mocked(ensureRgPath).mockImplementationOnce((_probe, { signal: locatorSignal } = {}) => {
       expect(locatorSignal).toBe(controller.signal);
       return new Promise((_resolve, reject) => {
         const rejectAbort = (): void => {
