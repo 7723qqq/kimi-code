@@ -32,6 +32,8 @@ import { ensureRgPath, type RgProbe, type RgResolution } from './rgLocator';
 const GREP_TIMEOUT_MS = 30_000;
 const WALK_MAX_DEPTH = 64;
 
+type InternalGrepRequest = FsGrepRequest & { readonly multiline?: boolean };
+
 export interface GrepSearchDeps {
   readonly processService: IHostProcessService;
   readonly fs: IHostFileSystem;
@@ -76,6 +78,9 @@ async function grepWithRg(
   const args = ['--json'];
   if (req.context_lines > 0) {
     args.push('--context', String(req.context_lines));
+  }
+  if (multilineEnabled(req)) {
+    args.push('--multiline', '--multiline-dotall');
   }
   if (!req.case_sensitive) args.push('--ignore-case');
   if (!req.regex) args.push('--fixed-strings');
@@ -148,29 +153,13 @@ async function grepWithNode(
     } catch {
       continue;
     }
-    const lines = content.split(/\r?\n/);
-    const matches: FsGrepMatch[] = [];
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]!;
-      re.lastIndex = 0;
-      const m = re.exec(line);
-      if (m === null) continue;
-      if (matches.length >= req.max_matches_per_file) break;
-      const before: string[] = [];
-      for (let k = Math.max(0, i - req.context_lines); k < i; k++) {
-        before.push(lines[k] ?? '');
-      }
-      const after: string[] = [];
-      for (let k = i + 1; k < Math.min(lines.length, i + 1 + req.context_lines); k++) {
-        after.push(lines[k] ?? '');
-      }
-      matches.push({ line: i + 1, col: m.index + 1, text: line, before, after });
-      totalMatches += 1;
-      if (totalMatches >= req.max_total_matches) {
-        truncated = true;
-        break;
-      }
-    }
+    const remainingMatches = req.max_total_matches - totalMatches;
+    const collected = multilineEnabled(req)
+      ? collectMultilineMatches(content, re, req, remainingMatches)
+      : collectLineMatches(content, re, req, remainingMatches);
+    const matches = collected.matches;
+    totalMatches += matches.length;
+    if (collected.truncated) truncated = true;
     if (matches.length > 0) {
       files.push({ path: rel, matches });
     }
@@ -178,6 +167,121 @@ async function grepWithNode(
   }
 
   return { files, files_scanned: filesScanned, truncated, elapsed_ms: Date.now() - startedAt };
+}
+
+interface MatchCollection {
+  readonly matches: FsGrepMatch[];
+  readonly truncated: boolean;
+}
+
+function collectLineMatches(
+  content: string,
+  re: RegExp,
+  req: FsGrepRequest,
+  remainingMatches: number,
+): MatchCollection {
+  const lines = content.split(/\r?\n/);
+  const matches: FsGrepMatch[] = [];
+  let truncated = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    re.lastIndex = 0;
+    const m = re.exec(line);
+    if (m === null) continue;
+    if (matches.length >= remainingMatches) {
+      truncated = true;
+      break;
+    }
+    if (matches.length >= req.max_matches_per_file) break;
+    const before: string[] = [];
+    for (let k = Math.max(0, i - req.context_lines); k < i; k++) {
+      before.push(lines[k] ?? '');
+    }
+    const after: string[] = [];
+    for (let k = i + 1; k < Math.min(lines.length, i + 1 + req.context_lines); k++) {
+      after.push(lines[k] ?? '');
+    }
+    matches.push({ line: i + 1, col: m.index + 1, text: line, before, after });
+    if (matches.length >= remainingMatches) {
+      truncated = true;
+      break;
+    }
+    if (matches.length >= req.max_matches_per_file) break;
+  }
+  return { matches, truncated };
+}
+
+function collectMultilineMatches(
+  content: string,
+  re: RegExp,
+  req: FsGrepRequest,
+  remainingMatches: number,
+): MatchCollection {
+  const lines = content.split(/\r?\n/);
+  const lineStarts = lineStartOffsets(content);
+  const matches: FsGrepMatch[] = [];
+  let truncated = false;
+  re.lastIndex = 0;
+  while (true) {
+    const m = re.exec(content);
+    if (m === null) break;
+    if (matches.length >= remainingMatches) {
+      truncated = true;
+      break;
+    }
+    if (matches.length >= req.max_matches_per_file) break;
+    const rawText = m[0] ?? '';
+    const start = lineAndColumnAtOffset(lineStarts, m.index);
+    const endOffset = Math.max(m.index, m.index + rawText.length - 1);
+    const end = lineAndColumnAtOffset(lineStarts, endOffset);
+    const text = lines.slice(start.lineIndex, end.lineIndex + 1).join('\n');
+    matches.push({
+      line: start.lineIndex + 1,
+      col: start.column,
+      text,
+      before: lines.slice(Math.max(0, start.lineIndex - req.context_lines), start.lineIndex),
+      after: lines.slice(end.lineIndex + 1, end.lineIndex + 1 + req.context_lines),
+    });
+    if (matches.length >= remainingMatches) {
+      truncated = true;
+      break;
+    }
+    if (matches.length >= req.max_matches_per_file) break;
+    if (rawText.length === 0) re.lastIndex += 1;
+  }
+  return { matches, truncated };
+}
+
+function lineStartOffsets(content: string): number[] {
+  const starts = [0];
+  const newline = /\r?\n/g;
+  let match: RegExpExecArray | null;
+  while ((match = newline.exec(content)) !== null) {
+    starts.push(match.index + match[0].length);
+  }
+  return starts;
+}
+
+function lineAndColumnAtOffset(
+  lineStarts: readonly number[],
+  offset: number,
+): { readonly lineIndex: number; readonly column: number } {
+  let low = 0;
+  let high = lineStarts.length - 1;
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const start = lineStarts[mid] ?? 0;
+    const next = lineStarts[mid + 1] ?? Number.POSITIVE_INFINITY;
+    if (offset < start) {
+      high = mid - 1;
+    } else if (offset >= next) {
+      low = mid + 1;
+    } else {
+      return { lineIndex: mid, column: offset - start + 1 };
+    }
+  }
+  const last = lineStarts.length - 1;
+  return { lineIndex: last, column: offset - (lineStarts[last] ?? 0) + 1 };
 }
 
 async function walk(
@@ -317,9 +421,13 @@ function readStream(stream: NodeJS.ReadableStream): Promise<string> {
 // ── pure helpers (ported from session/sessionFs/fsSearch) ──────────────
 
 function compileGrepPattern(req: FsGrepRequest): RegExp {
-  const flags = req.case_sensitive ? 'g' : 'gi';
+  const flags = `g${req.case_sensitive ? '' : 'i'}${multilineEnabled(req) ? 's' : ''}`;
   const body = req.regex ? req.pattern : escapeRegExp(req.pattern);
   return new RegExp(body, flags);
+}
+
+function multilineEnabled(req: FsGrepRequest): boolean {
+  return (req as InternalGrepRequest).multiline === true;
 }
 
 function escapeRegExp(s: string): string {
