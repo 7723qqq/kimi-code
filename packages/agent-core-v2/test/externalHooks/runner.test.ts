@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildHookSpawnOptions, runHook } from '#/agent/externalHooks/runner';
+import { runHook } from '#/agent/externalHooks/runner';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+
+const hostProcess = new HostProcessService();
 
 function nodeCommand(source: string): string {
   return `node -e ${JSON.stringify(source.replace(/\s*\n\s*/g, ' '))}`;
@@ -9,6 +12,7 @@ function nodeCommand(source: string): string {
 describe('runHook process runner', () => {
   it('returns allow when the hook exits 0 and captures stdout', async () => {
     const result = await runHook(
+      hostProcess,
       nodeCommand('process.stdout.write("ok\\n");'),
       { tool_name: 'Bash' },
       { timeout: 5 },
@@ -20,6 +24,7 @@ describe('runHook process runner', () => {
 
   it('parses stdout JSON message into a hook result message', async () => {
     const result = await runHook(
+      hostProcess,
       nodeCommand('process.stdout.write(JSON.stringify({ message: "hook says hi" }));'),
       {},
       { timeout: 5 },
@@ -32,6 +37,7 @@ describe('runHook process runner', () => {
 
   it('marks structured stdout JSON without message as empty hook output', async () => {
     const emptyObject = await runHook(
+      hostProcess,
       nodeCommand('process.stdout.write("{}");'),
       {},
       { timeout: 5 },
@@ -41,6 +47,7 @@ describe('runHook process runner', () => {
     expect(emptyObject.structuredOutput).toBe(true);
 
     const emptyHookSpecificOutput = await runHook(
+      hostProcess,
       nodeCommand('process.stdout.write(JSON.stringify({ hookSpecificOutput: {} }));'),
       {},
       { timeout: 5 },
@@ -52,6 +59,7 @@ describe('runHook process runner', () => {
 
   it('returns block when the hook exits 2 and captures stderr as the reason', async () => {
     const result = await runHook(
+      hostProcess,
       nodeCommand('process.stderr.write("blocked\\n"); process.exit(2);'),
       { tool_name: 'Bash' },
       { timeout: 5 },
@@ -63,6 +71,7 @@ describe('runHook process runner', () => {
 
   it('returns allow on non-zero, non-2 exit codes', async () => {
     const result = await runHook(
+      hostProcess,
       nodeCommand('process.exit(1);'),
       { tool_name: 'Bash' },
       { timeout: 5 },
@@ -73,6 +82,7 @@ describe('runHook process runner', () => {
 
   it('returns allow with timedOut=true when the command exceeds the timeout', async () => {
     const result = await runHook(
+      hostProcess,
       nodeCommand('setTimeout(() => {}, 10000);'),
       { tool_name: 'Bash' },
       { timeout: 1 },
@@ -84,6 +94,7 @@ describe('runHook process runner', () => {
 
   it('parses stdout JSON permissionDecision=deny into a block result with the supplied reason', async () => {
     const result = await runHook(
+      hostProcess,
       nodeCommand(
         'process.stdout.write(JSON.stringify({ hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason: "use rg" } }));',
       ),
@@ -97,6 +108,7 @@ describe('runHook process runner', () => {
 
   it('writes the input payload to the hook process stdin as JSON', async () => {
     const result = await runHook(
+      hostProcess,
       nodeCommand([
         'let input = "";',
         'process.stdin.on("data", (chunk) => { input += chunk; });',

@@ -4,8 +4,9 @@
  * Owns everything the `IExternalHooksRunnerService` needs to decide *which*
  * hooks run for an event and to execute them: building the event→hooks index,
  * regex matching by matcher value, de-duplication per `(cwd, command)`, and
- * spawning each matched command via the shared `runHook` spawner. Holds no
- * config/plugin state and no per-scope facts — those come in per call. Pure
+ * spawning each matched command via the shared `runHook` spawner (which runs
+ * through the App-scope `IHostProcessService` passed in by the service). Holds
+ * no config/plugin state and no per-scope facts — those come in per call. Pure
  * helper module, not a scoped Service.
  */
 
@@ -16,6 +17,7 @@ import type {
   HookMatcherValue,
   HookResult,
 } from '#/agent/externalHooks/types';
+import type { IHostProcessService } from '#/os/interface/hostProcess';
 
 import type { ExternalHooksRunnerTriggerArgs } from './externalHooksRunner';
 
@@ -45,6 +47,7 @@ export function indexHooks(hooks: readonly HookDef[]): Map<string, HookDef[]> {
 
 /** Run every hook in `byEvent` whose matcher matches `args.matcherValue`. */
 export async function runMatchedHooks(
+  hostProcess: IHostProcessService,
   byEvent: ReadonlyMap<string, readonly HookDef[]>,
   event: string,
   args: ExternalHooksRunnerTriggerArgs,
@@ -77,7 +80,7 @@ export async function runMatchedHooks(
   const startedAt = Date.now();
   const results = await Promise.all(
     matched.map((hook) =>
-      runHook(hook.command, inputData, {
+      runHook(hostProcess, hook.command, inputData, {
         timeout: hook.timeout ?? DEFAULT_HOOK_TIMEOUT_SECONDS,
         cwd: hook.cwd ?? (cwd === '' ? undefined : cwd),
         env: hook.env,

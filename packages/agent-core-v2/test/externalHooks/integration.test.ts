@@ -45,6 +45,8 @@ import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 import { IPluginService } from '#/app/plugin/plugin';
+import { IHostProcessService } from '#/os/interface/hostProcess';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import {
   ISessionLifecycleService,
   type SessionLifecycleHooks,
@@ -592,6 +594,7 @@ describe('IExternalHooksRunnerService integration', () => {
             IAgentWireService,
             disposables.add(new WireService({ logScope: 'wire', logKey: 'external-hooks' })),
           );
+          reg.define(IHostProcessService, HostProcessService);
         },
       });
       ix.set(IExternalHooksRunnerService, new SyncDescriptor(ExternalHooksRunnerService));
@@ -854,6 +857,7 @@ describe('IExternalHooksRunnerService integration', () => {
             onDidReload: Event.None as IPluginService['onDidReload'],
           });
           reg.defineInstance(IBootstrapService, stubBootstrap());
+          reg.define(IHostProcessService, HostProcessService);
         },
       });
       ix.set(IExternalHooksRunnerService, new SyncDescriptor(ExternalHooksRunnerService));

@@ -3,10 +3,11 @@
  * from a list of hook definitions.
  *
  * The runner is App-scoped in production; in tests we construct it directly
- * (its only constructor params are the three App services it reads) with stub
- * `IConfigService` / `IPluginService` / `IBootstrapService`. This keeps the
- * matching / dedupe / stdin-payload behavior under test identical to
- * production while letting a test feed an arbitrary hook list.
+ * (its constructor params are the App services it reads plus the host process
+ * service) with stub `IConfigService` / `IPluginService` / `IBootstrapService`
+ * and a real `HostProcessService`. This keeps the matching / dedupe /
+ * stdin-payload behavior under test identical to production while letting a
+ * test feed an arbitrary hook list.
  */
 
 import { Event } from '#/_base/event';
@@ -16,6 +17,7 @@ import type { HookDef } from '#/agent/externalHooks/types';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IPluginService } from '#/app/plugin/plugin';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 
 export function makeHookRunner(
   hooks: readonly HookDef[],
@@ -43,6 +45,7 @@ export function makeHookRunner(
       onDidReload: Event.None as IPluginService['onDidReload'],
     } as unknown as IPluginService,
     { _serviceBrand: undefined, cwd: options.cwd ?? '' } as unknown as IBootstrapService,
+    new HostProcessService(),
     { onTriggered: options.onTriggered, onResolved: options.onResolved },
   );
 }
