@@ -61,7 +61,7 @@ function info(taskId: string, status: AgentTaskInfo['status']): AgentTaskInfo {
 }
 
 describe('task ops (wire-backed)', () => {
-  it('started/terminated fold into the task map by id and persist flat records', async () => {
+  it('started/terminated fold into the task map by id without persisting (live-only)', async () => {
     expect(wire.getModel(TaskModel).size).toBe(0);
 
     wire.dispatch(taskStarted({ info: info('t1', 'running') }));
@@ -74,17 +74,10 @@ describe('task ops (wire-backed)', () => {
     wire.dispatch(taskStarted({ info: info('t2', 'running') }));
     expect(wire.getModel(TaskModel).size).toBe(2);
 
-    const records = await readRecords();
-    expect(records.map((record) => record.type)).toEqual([
-      'task.started',
-      'task.terminated',
-      'task.started',
-    ]);
-    // Flat record shape: payload fields sit next to `type`, never under `payload`.
-    expect(records.every((record) => 'payload' in record === false)).toBe(true);
-    expect(records[0]).toEqual(
-      expect.objectContaining({ type: 'task.started', info: expect.objectContaining({ taskId: 't1' }) }),
-    );
+    // `task.started` / `task.terminated` are persist: false — the model folds
+    // live, but nothing lands on the wire log (tasks restore from their own
+    // persistence, not the session log).
+    expect(await readRecords()).toEqual([]);
   });
 
   it('apply returns a new Map on change (the model is the restore seed)', () => {
@@ -95,11 +88,15 @@ describe('task ops (wire-backed)', () => {
     expect(after.get('t1')?.status).toBe('running');
   });
 
-  it('replay rebuilds the task map silently (no emissions, no subscriber notifications)', async () => {
-    wire.dispatch(taskStarted({ info: info('t1', 'running') }));
-    wire.dispatch(taskTerminated({ info: info('t1', 'completed') }));
-    wire.dispatch(taskStarted({ info: info('t2', 'running') }));
-    const records = await readRecords();
+  it('replay rebuilds the task map from legacy task.* records silently (no emissions, no subscriber notifications)', async () => {
+    // Live dispatch no longer persists task.* records; the ops stay registered
+    // so legacy logs that contain them still replay. Feed hand-written records
+    // directly.
+    const records: PersistedRecord[] = [
+      { type: 'task.started', info: info('t1', 'running') },
+      { type: 'task.terminated', info: info('t1', 'completed') },
+      { type: 'task.started', info: info('t2', 'running') },
+    ] as unknown as PersistedRecord[];
 
     const host = buildHost('task-replay');
     const emissions: string[] = [];

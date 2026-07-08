@@ -184,7 +184,7 @@ describe('AgentTurnService ready', () => {
     expect(turnService.cancel(turn.id)).toBe(true);
     await expect(turn.result).resolves.toMatchObject({ reason: 'cancelled', steps: 0 });
     expect(records.map((record) => record.type)).toEqual(['turn.prompt', 'turn.cancel']);
-    expect(records[1]).toEqual({ type: 'turn.cancel', turnId: turn.id });
+    expect(records[1]).toEqual({ type: 'turn.cancel', turnId: turn.id, time: expect.any(Number) });
   });
 
   it('records turn.cancel for an idle no-op cancellation', () => {
@@ -198,7 +198,7 @@ describe('AgentTurnService ready', () => {
     const turnService = ix.get(IAgentTurnService);
 
     expect(turnService.cancel(99)).toBe(false);
-    expect(records).toEqual([{ type: 'turn.cancel', turnId: 99 }]);
+    expect(records).toEqual([{ type: 'turn.cancel', turnId: 99, time: expect.any(Number) }]);
   });
 });
 
@@ -396,7 +396,11 @@ describe('AgentTurnService wire state', () => {
     turnService.launch();
 
     const records = await readRecords();
-    expect(records).toEqual([{ type: 'turn.prompt', turnId: 0, origin: { kind: 'user' } }]);
+    // `turn.prompt` persists `{ input, origin }` only; no turnId (apply = +1
+    // per record) and the engine stamps `time`.
+    expect(records).toEqual([
+      { type: 'turn.prompt', input: [], origin: { kind: 'user' }, time: expect.any(Number) },
+    ]);
     expect('payload' in records[0]!).toBe(false);
   });
 

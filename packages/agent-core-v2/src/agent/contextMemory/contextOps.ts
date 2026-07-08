@@ -9,19 +9,22 @@
  * Declares the history as `ContextMessage[]` (initial `[]`); every Op's `apply`
  * is a pure array transform that returns a NEW reference on change and the SAME
  * reference on a no-op (so the wire's reference-equality gate stays quiet), and
- * carries no non-determinism — message ids are stamped at the dispatch call site
- * (`AgentContextMemoryService.append`), never inside `apply`.
+ * carries no non-determinism.
  *
- * The live write path emits the 1.4 Ops: non-loop appends (user prompts,
- * injections, hook/task notices) go on the wire as `append_message`, while the
+ * The live write path emits the v1 Ops: non-loop appends (user prompts,
+ * injections, hook/task notices) go on the wire as `append_message` (persisted
+ * without local ids — the on-disk record matches v1's field set), while the
  * agent loop streams each turn as `context.append_loop_event` records — the
  * same on-disk shape the v1 loop writes — and `contextAppendLoopEvent` folds
  * them into assistant / tool messages (see `loopEventFold.ts`) both at live
  * dispatch time and on replay, so v1- and v2-written sessions reduce
- * identically. `context.splice` (the
- * pre-1.4 primitive) stays registered so sessions written at wire protocol 1.5
- * still replay (newer-version passthrough, no migration) and for the few internal
- * single-delete mutations that have no 1.4 spelling.
+ * identically. `context.splice` (the pre-1.4 primitive) stays registered
+ * replay-only so sessions written at wire protocol 1.5 still replay
+ * (newer-version passthrough, no migration); the live path no longer
+ * dispatches it. The swarm-mode exit reminder removal is a cross-model fold:
+ * `ContextModel` registers a reducer on `swarm_mode.exit` (see
+ * `popSwarmModeReminder`) so the pop replays from the `swarm_mode.exit` record
+ * itself, exactly like v1's restore-time `popMatchedMessage`.
  *
  * Blob handling is declared as a `ModelBlobCodec` on `ContextModel.blobs`:
  * - `dehydrate(record, transform)`: at dispatch time, traverses message content
@@ -113,7 +116,22 @@ export const ContextModel = defineModel<ContextMessage[]>('contextMemory', () =>
       return changed ? result : state;
     },
   },
+  reducers: {
+    // v1 parity: replaying (or dispatching) `swarm_mode.exit` pops the
+    // swarm-mode enter reminder when it is the last message — the removal is
+    // derived from the exit record itself instead of persisting a splice,
+    // mirroring v1's `popMatchedMessage` during `swarm_mode.exit` restore.
+    'swarm_mode.exit': popSwarmModeReminder,
+  },
 });
+
+function popSwarmModeReminder(state: ContextMessage[], _payload: unknown): ContextMessage[] {
+  const last = state[state.length - 1];
+  if (last === undefined) return state;
+  const origin = last.origin;
+  if (origin?.kind !== 'injection' || origin.variant !== 'swarm_mode') return state;
+  return resetFold(state.slice(0, -1)) as ContextMessage[];
+}
 
 export interface ContextSplicePayload {
   readonly start: number;
@@ -122,7 +140,7 @@ export interface ContextSplicePayload {
   readonly tokens?: number;
 }
 
-/** @deprecated Legacy 1.5 record type; kept for replay of old sessions and rare internal single-deletes. */
+/** @deprecated Legacy 1.5 record type; registered replay-only — the live path never dispatches it. */
 export const contextSplice = defineOp(ContextModel, 'context.splice', {
   apply: (state, p: ContextSplicePayload): ContextMessage[] => {
     if (p.deleteCount === 0 && p.messages.length === 0) return state;

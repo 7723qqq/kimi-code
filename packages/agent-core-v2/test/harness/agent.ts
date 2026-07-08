@@ -259,7 +259,6 @@ interface UserToolInteractionPayload {
 }
 
 interface ResumeStateSnapshot {
-  readonly tasks: ReturnType<IAgentTaskService['list']>;
   readonly config: {
     readonly cwd: string;
     readonly activeToolNames: readonly string[] | undefined;
@@ -270,10 +269,9 @@ interface ResumeStateSnapshot {
   };
   readonly context: {
     readonly history: readonly ContextMessage[];
-    readonly tokenCount: number;
   };
-  readonly permission: ReturnType<IAgentPermissionGate['data']>;
-  readonly usage: ReturnType<IAgentUsageService['status']>;
+  readonly permission: Omit<ReturnType<IAgentPermissionGate['data']>, 'rules'>;
+  readonly usage: Omit<ReturnType<IAgentUsageService['status']>, 'currentTurn'>;
 }
 
 interface ConfigureOptions {
@@ -1804,7 +1802,7 @@ export class AgentTestContext {
   private appendMessage(...messages: ContextMessage[]): void {
     if (messages.length === 0) return;
     const context = this.get(IAgentContextMemoryService);
-    context.splice(context.get().length, 0, messages);
+    context.append(...messages);
   }
 
   private coverUsage(tokenTotal: number | undefined): void {
@@ -1936,26 +1934,22 @@ const failOnResumeGenerate: GenerateFn = async () => {
 };
 
 function resumeStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot {
-  const tasks = ctx.get(IAgentTaskService);
   const usage = ctx.get(IAgentUsageService);
   const permission = ctx.get(IAgentPermissionGate);
+  // Live-only state is excluded from the resume comparison: the measured
+  // context token count, the per-turn usage accumulator, runtime-added
+  // permission rules (`permission.rules.add` is persist: false), and the task
+  // list (`task.started` / `task.terminated` are persist: false — tasks
+  // restore from their own persistence, not the wire log) are intentionally
+  // not persisted (v1 parity) and reset on resume.
+  const { currentTurn: _currentTurn, ...usageStatus } = usage.status();
+  const { rules: _rules, ...permissionData } = permission.data();
   return {
-    tasks: normalizeTaskSnapshot(tasks.list(false)),
     config: configStateSnapshot(ctx),
     context: resumeContextSnapshot(ctx),
-    permission: permission.data(),
-    usage: usage.status(),
+    permission: permissionData,
+    usage: usageStatus,
   };
-}
-
-function normalizeTaskSnapshot(
-  tasks: readonly AgentTaskInfo[],
-): readonly AgentTaskInfo[] {
-  return tasks
-    .map((task) => stripUndefinedFields(task) as AgentTaskInfo)
-    .toSorted(
-      (left, right) => left.startedAt - right.startedAt || left.taskId.localeCompare(right.taskId),
-    );
 }
 
 function stripUndefinedFields<T extends object>(value: T): T {
@@ -1967,7 +1961,8 @@ function stripUndefinedFields<T extends object>(value: T): T {
 function resumeContextSnapshot(ctx: AgentTestContext) {
   const context = ctx.contextData();
   return {
-    ...context,
+    // `tokenCount` (the measured prefix) is live-only and resets on resume;
+    // compare the history only.
     history: context.history
       .filter((message) => !isSystemReminderMessage(message))
       .map(stripMessageId),

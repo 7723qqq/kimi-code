@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { runHook } from '#/agent/externalHooks/runner';
+import { buildHookSpawnOptions, runHook } from '#/agent/externalHooks/runner';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 
 const hostProcess = new HostProcessService();

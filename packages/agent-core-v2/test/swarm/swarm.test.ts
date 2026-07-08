@@ -106,6 +106,9 @@ describe('AgentSwarmService', () => {
     expect(events).toEqual([
       { type: 'agent.status.updated', swarmMode: true },
       { type: 'agent.status.updated', swarmMode: false },
+      // Exit pops the swarm-mode enter reminder via the ContextModel
+      // cross-reducer; the service mirrors the pop as a live context.spliced.
+      { type: 'context.spliced', start: 0, deleteCount: 1, messages: [] },
     ]);
   });
 
@@ -119,7 +122,7 @@ describe('AgentSwarmService', () => {
       records.push(record);
     }
     expect(records).toEqual([
-      { type: 'swarm_mode.enter', trigger: 'manual' },
+      { type: 'swarm_mode.enter', trigger: 'manual', time: expect.any(Number) },
     ]);
 
     const ix2 = disposables.add(new TestInstantiationService());

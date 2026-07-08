@@ -679,14 +679,14 @@ describe('AgentTaskService — notification delivery', () => {
       fixture = createAgentTaskService({ sessionDir });
       const { agent, ctx, manager } = fixture;
       const context = ctx.get(IAgentContextMemoryService);
-      context.splice(context.get().length, 0, [
+      context.append(
         {
           role: 'user',
           content: [{ type: 'text', text: 'already delivered' }],
           toolCalls: [],
           origin,
         },
-      ]);
+      );
       await new Promise((resolve) => setTimeout(resolve, 0));
       agent.context.appendUserMessage.mockClear();
 

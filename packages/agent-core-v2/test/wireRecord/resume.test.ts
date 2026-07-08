@@ -12,7 +12,8 @@ import {
 import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentPlanService } from '#/agent/plan/plan';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
-import { IAgentTurnService } from '#/agent/turn/turn';
+import { TurnModel } from '#/agent/turn/turnOps';
+import { IAgentWireService } from '#/wire/tokens';
 import {
   createAgentTaskPersistence,
   type TaskServiceTestManager,
@@ -33,8 +34,7 @@ const MOCK_PROVIDER = {
 } as const;
 
 function turnCurrentId(ctx: ReturnType<typeof testAgent>): number {
-  const runner = ctx.get(IAgentTurnService) as unknown as { nextTurnId: number };
-  return runner.nextTurnId - 1;
+  return ctx.get(IAgentWireService).getModel(TurnModel).nextTurnId - 1;
 }
 
 describe('Agent resume', () => {
@@ -98,7 +98,7 @@ describe('Agent resume', () => {
         system: <system-prompt>
         tools: Bash
         messages:
-          assistant: text "Historical compacted summary."
+          user: text "Historical compacted summary."
           user: text "Fresh prompt after resume"
           user: text <plan-mode-reminder>
     `);
@@ -296,7 +296,7 @@ describe('Agent resume', () => {
     expect(ctx.llmInputs()).toMatchInlineSnapshot(`
       call 1:
         system: <system-prompt>
-        tools: Agent, AgentSwarm, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, UpdateGoal, Write
+        tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, Edit, EnterPlanMode, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, Write
         messages:
           user: text "Historical prompt before skill"
           assistant: []  calls call_resume_write:Write { "path": "result.txt" }, call_resume_skill:Skill { "skill": "review" }

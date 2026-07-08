@@ -5,16 +5,20 @@
  * the `swarm_mode.enter` / `swarm_mode.exit` Ops, read through `wire.getModel`),
  * mirrors it into `systemReminder` as live-only side effects, derives
  * `agent.status.updated` from the Ops' `toEvent`, and auto-exits on turn end via
- * `turn`. The reminder injection is a live-only side effect: `wire.replay`
- * rebuilds the model silently, so reminders are not re-emitted on resume
- * (matching the former `injectReminder` gate). Bound at Agent scope. The
- * `AgentSwarm` tool self-registers via `registerTool(...)` in
- * `tools/agent-swarm.ts`.
+ * `turn`. The enter-reminder removal on exit is a cross-model fold on
+ * `ContextModel` (see `contextOps.ts`): dispatching `swarm_mode.exit` pops the
+ * reminder when it is the last message, both live and on replay — exactly like
+ * v1's restore-time `popMatchedMessage`. The service only publishes the
+ * live-only `context.spliced` event for that pop (so injector/micro-compaction
+ * bookkeeping stays in step) and appends the exit reminder when nothing was
+ * popped. Bound at Agent scope. The `AgentSwarm` tool self-registers via
+ * `registerTool(...)` in `tools/agent-swarm.ts`.
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IAgentTurnService } from '#/agent/turn/turn';
 import { IEventBus } from '#/app/event/eventBus';
@@ -31,6 +35,7 @@ export class AgentSwarmService extends Disposable implements IAgentSwarmService 
   constructor(
     @IAgentWireService private readonly wire: IWireService,
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
+    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentTurnService turnService: IAgentTurnService,
     @IEventBus private readonly eventBus: IEventBus,
   ) {
@@ -58,18 +63,29 @@ export class AgentSwarmService extends Disposable implements IAgentSwarmService 
   exit(): void {
     const trigger = this.wire.getModel(SwarmModel);
     if (trigger === null) return;
+    const history = this.context.get();
+    const last = history[history.length - 1];
+    const willPop =
+      last?.origin?.kind === 'injection' && last.origin.variant === 'swarm_mode';
+    // The ContextModel cross-reducer on `swarm_mode.exit` performs the actual
+    // pop (replayable); this service only mirrors it into the live-only
+    // `context.spliced` event and appends the exit reminder when nothing was
+    // popped.
     this.wire.dispatch(swarmExit({}));
-    const removedEnterReminder =
-      trigger !== 'tool' &&
-      this.reminders.removeLastReminder(
-        (m) => m.origin?.kind === 'injection' && m.origin.variant === 'swarm_mode',
-      );
-    if (trigger !== 'tool' && !removedEnterReminder) {
-      this.reminders.appendSystemReminder(SWARM_MODE_EXIT_REMINDER, {
-        kind: 'injection',
-        variant: 'swarm_mode_exit',
+    if (trigger === 'tool') return;
+    if (willPop) {
+      this.eventBus.publish({
+        type: 'context.spliced',
+        start: history.length - 1,
+        deleteCount: 1,
+        messages: [],
       });
+      return;
     }
+    this.reminders.appendSystemReminder(SWARM_MODE_EXIT_REMINDER, {
+      kind: 'injection',
+      variant: 'swarm_mode_exit',
+    });
   }
 
   get isActive(): boolean {

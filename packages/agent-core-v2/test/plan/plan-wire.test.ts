@@ -56,17 +56,16 @@ describe('plan ops (wire-backed)', () => {
   it('enter/cancel/exit drive active state and persist flat records', async () => {
     expect(wire.getModel(PlanModel).active).toBe(false);
 
-    wire.dispatch(planModeEnter({ id: 'p1', planFilePath: '/w/plan/p1.md' }));
+    wire.dispatch(planModeEnter({ id: 'p1' }));
     expect(wire.getModel(PlanModel)).toEqual({
       active: true,
       id: 'p1',
-      planFilePath: '/w/plan/p1.md',
     });
 
     wire.dispatch(planModeCancel({ id: 'p1' }));
     expect(wire.getModel(PlanModel)).toEqual({ active: false });
 
-    wire.dispatch(planModeEnter({ id: 'p2', planFilePath: '/w/plan/p2.md' }));
+    wire.dispatch(planModeEnter({ id: 'p2' }));
     wire.dispatch(planModeExit({}));
     expect(wire.getModel(PlanModel).active).toBe(false);
 
@@ -83,17 +82,16 @@ describe('plan ops (wire-backed)', () => {
       expect.objectContaining({
         type: 'plan_mode.enter',
         id: 'p1',
-        planFilePath: '/w/plan/p1.md',
       }),
     );
   });
 
   it('cancel and exit both deactivate plan mode but emit distinct record types', async () => {
-    wire.dispatch(planModeEnter({ id: 'p1', planFilePath: '/w/plan/p1.md' }));
+    wire.dispatch(planModeEnter({ id: 'p1' }));
     wire.dispatch(planModeCancel({ id: 'p1' }));
     expect(wire.getModel(PlanModel)).toEqual({ active: false });
 
-    wire.dispatch(planModeEnter({ id: 'p2', planFilePath: '/w/plan/p2.md' }));
+    wire.dispatch(planModeEnter({ id: 'p2' }));
     wire.dispatch(planModeExit({ id: 'p2' }));
     expect(wire.getModel(PlanModel)).toEqual({ active: false });
 
@@ -113,14 +111,14 @@ describe('plan ops (wire-backed)', () => {
     wire.dispatch(planModeCancel({}));
     expect(wire.getModel(PlanModel)).toBe(initial);
 
-    wire.dispatch(planModeEnter({ id: 'p1', planFilePath: '/w/plan/p1.md' }));
+    wire.dispatch(planModeEnter({ id: 'p1' }));
     const active = wire.getModel(PlanModel);
-    wire.dispatch(planModeEnter({ id: 'p1', planFilePath: '/w/plan/p1.md' }));
+    wire.dispatch(planModeEnter({ id: 'p1' }));
     expect(wire.getModel(PlanModel)).toBe(active);
   });
 
   it('replay rebuilds active state silently (no emissions, no subscriber notifications)', async () => {
-    wire.dispatch(planModeEnter({ id: 'p1', planFilePath: '/w/plan/p1.md' }));
+    wire.dispatch(planModeEnter({ id: 'p1' }));
     const records = await readRecords();
 
     const host = buildHost('plan-replay');
@@ -137,7 +135,6 @@ describe('plan ops (wire-backed)', () => {
     expect(host.wire.getModel(PlanModel)).toEqual({
       active: true,
       id: 'p1',
-      planFilePath: '/w/plan/p1.md',
     });
     expect(emissions).toEqual([]);
     expect(modelChanges).toBe(0);

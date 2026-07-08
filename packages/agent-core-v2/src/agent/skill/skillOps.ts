@@ -33,6 +33,9 @@ declare module '#/app/event/eventBus' {
 export const SkillModel = defineModel<null>('skill', () => null);
 
 export const skillActivate = defineOp(SkillModel, 'skill.activate', {
+  // Live-only: `skill.activate` is not a v1 record type; it exists for the
+  // `skill.activated` event derivation and carries no replayable state.
+  persist: false,
   apply: (s, _p: { origin: SkillActivationOrigin }) => s,
   toEvent: (p) => ({
     type: 'skill.activated' as const,

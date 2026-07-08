@@ -30,17 +30,6 @@ export class AgentSystemReminderService extends Disposable implements IAgentSyst
     this.context.append(message);
     return message;
   }
-
-  removeLastReminder(filter: (message: ContextMessage) => boolean): boolean {
-    const history = this.context.get();
-    const lastIndex = history.length - 1;
-    const last = history[lastIndex];
-    if (last === undefined || !filter(last)) {
-      return false;
-    }
-    this.context.splice(lastIndex, 1, []);
-    return true;
-  }
 }
 
 registerScopedService(

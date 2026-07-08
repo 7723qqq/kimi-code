@@ -43,6 +43,10 @@ export interface ContextSizeMeasuredPayload {
 }
 
 export const contextSizeMeasured = defineOp(ContextSizeModel, 'context_size.measured', {
+  // Live-only: `context_size.measured` is not a v1 record type, so it never
+  // reaches the wire log. After resume the model starts at `{ 0, 0 }` and
+  // `contextSizeService.get()` estimates until the next measured exchange.
+  persist: false,
   apply: (s, p: ContextSizeMeasuredPayload): ContextSizeState => {
     const length = normalizeMeasuredLength(p.length);
     const tokens = Math.max(0, p.tokens);

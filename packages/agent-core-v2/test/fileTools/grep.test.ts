@@ -133,6 +133,7 @@ function createTestFs(kaos: FakeKaos): IHostFileSystem {
     _serviceBrand: undefined,
     readText: () => notImplemented('readText'),
     writeText: () => notImplemented('writeText'),
+    appendText: () => notImplemented('appendText'),
     readBytes: () => notImplemented('readBytes'),
     writeBytes: () => notImplemented('writeBytes'),
     readLines: () => notImplemented('readLines'),

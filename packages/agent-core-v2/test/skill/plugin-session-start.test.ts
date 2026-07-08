@@ -74,7 +74,7 @@ function sessionStartRuntime(input: {
   });
   ctx.configure();
   if (input.history !== undefined) {
-    ctx.context.splice(0, 0, input.history);
+    ctx.context.append(...input.history);
   }
   return { ctx, warnings };
 }

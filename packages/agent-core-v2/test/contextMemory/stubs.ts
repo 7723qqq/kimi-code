@@ -18,7 +18,6 @@ import {
 } from '#/agent/contextMemory/contextMemory';
 import { computeUndoCut, type UndoCut } from '#/agent/contextMemory/contextOps';
 import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
-import { ensureMessageId } from '#/agent/contextMemory/messageId';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
@@ -50,9 +49,9 @@ export interface StubContextMemory extends IAgentContextMemoryService {
 }
 
 /**
- * An in-memory `IAgentContextMemoryService`. `spliceHistory` mutates the backing history
- * and fires `onSpliced`, mirroring `AgentContextMemoryService.applySplice` enough
- * for collaborators (e.g. `DynamicInjectorService`) to react to splices.
+ * An in-memory `IAgentContextMemoryService`. Each mutation updates the backing
+ * history and publishes `context.spliced`, mirroring `AgentContextMemoryService`
+ * enough for collaborators (e.g. `AgentContextInjectorService`) to react.
  */
 function publishSplice(
   eventBus: IEventBus | undefined,
@@ -75,10 +74,9 @@ export function stubContextMemory(eventBus?: IEventBus): StubContextMemory {
     },
     get: () => [...messages],
     append: (...inserted) => {
-      const stamped = inserted.map(ensureMessageId);
       const start = messages.length;
-      messages.push(...stamped);
-      publishSplice(eventBus, { start, deleteCount: 0, messages: [...stamped] });
+      messages.push(...inserted);
+      publishSplice(eventBus, { start, deleteCount: 0, messages: [...inserted] });
     },
     appendLoopEvent: () => {},
     clear: () => {
@@ -109,16 +107,6 @@ export function stubContextMemory(eventBus?: IEventBus): StubContextMemory {
       const { messages: _messages, ...result } = shape;
       void _messages;
       return result;
-    },
-    splice: (start, deleteCount, inserted, tokens) => {
-      const stamped = inserted.map(ensureMessageId);
-      messages.splice(start, deleteCount, ...stamped);
-      publishSplice(eventBus, {
-        start,
-        deleteCount,
-        messages: [...stamped],
-        tokens,
-      });
     },
   };
 }
@@ -155,14 +143,6 @@ class StubContextMemoryService implements IAgentContextMemoryService {
   }
   applyCompaction(input: ContextCompactionInput): ContextCompactionResult {
     return this.impl.applyCompaction(input);
-  }
-  splice(
-    start: number,
-    deleteCount: number,
-    messages: readonly ContextMessage[],
-    tokens?: number,
-  ): void {
-    this.impl.splice(start, deleteCount, messages, tokens);
   }
 }
 

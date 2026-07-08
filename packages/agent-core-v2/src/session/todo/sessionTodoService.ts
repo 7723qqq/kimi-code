@@ -3,7 +3,8 @@
  *
  * Holds the session's shared todo list as a stateless facade over the main
  * agent's `TodoModel`: `getTodos` reads `wire.getModel(TodoModel)` live, and
- * every mutation only dispatches a `todo.set` Op to the main agent's wire (the
+ * every mutation only dispatches a `tools.update_store` Op to the main agent's
+ * wire (the
  * single source of truth and replayable timeline); `onDidChange` is bridged
  * from `wire.subscribe(TodoModel)`. The service keeps no list copy of its own,
  * so the live view and the post-replay view can never drift. Binds the
@@ -38,8 +39,9 @@ import { TODO_LIST_REMINDER_VARIANT, todoListStaleReminder } from './todoListRem
 
 declare module '#/agent/wireRecord/wireRecord' {
   interface WireRecordMap {
-    'todo.set': {
-      todos: readonly TodoItem[];
+    'tools.update_store': {
+      key: string;
+      value: unknown;
     };
   }
 }
@@ -105,7 +107,7 @@ export class SessionTodoService extends Disposable implements ISessionTodoServic
     const main = this.agentLifecycle.getHandle(MAIN_AGENT_ID);
     if (main === undefined) return;
     const wire = main.accessor.get(IAgentWireService);
-    wire.dispatch(todoSet({ todos }));
+    wire.dispatch(todoSet({ key: 'todo', value: todos }));
   }
 
   private bindMainWire(handle: IAgentScopeHandle): void {

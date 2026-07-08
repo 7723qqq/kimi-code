@@ -26,7 +26,6 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { ensureMessageId } from '#/agent/contextMemory/messageId';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { GoalInjection } from '#/agent/goal/injection/goalInjection';
 import {
@@ -422,12 +421,12 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   }
 
   private launchContinuationTurn(): void {
-    const message = ensureMessageId({
+    const message: ContextMessage = {
       role: 'user',
       content: [{ type: 'text', text: GOAL_CONTINUATION_PROMPT }],
       toolCalls: [],
       origin: GOAL_CONTINUATION_ORIGIN,
-    });
+    };
     this.context.append(message);
     this.turnService.launch({ input: message.content, origin: GOAL_CONTINUATION_ORIGIN });
   }

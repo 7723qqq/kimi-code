@@ -14,7 +14,8 @@ import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
 import { IAgentTurnService } from '#/agent/turn/turn';
-import { registerContextMemoryServices } from '../contextMemory/stubs';
+import { IEventBus } from '#/app/event/eventBus';
+import { registerContextMemoryServices, type StubContextMemory } from '../contextMemory/stubs';
 import { stubLoopWithHooks, stubTurnWithHooks } from '../turn/stubs';
 
 type InjectableContextInjector = IAgentContextInjectorService & {
@@ -70,6 +71,26 @@ describe('AgentContextInjectorService', () => {
   });
 
   afterEach(() => disposables.dispose());
+
+  /**
+   * Splice the stub's backing history directly and publish `context.spliced`,
+   * standing in for the removed `IAgentContextMemoryService.splice` so the
+   * injector still observes non-append splices (compaction, deletions).
+   */
+  function spliceContext(
+    start: number,
+    deleteCount: number,
+    inserted: readonly ContextMessage[],
+  ): void {
+    const backing = (context as StubContextMemory).messages as ContextMessage[];
+    backing.splice(start, deleteCount, ...inserted);
+    ix.get(IEventBus).publish({
+      type: 'context.spliced',
+      start,
+      deleteCount,
+      messages: [...inserted],
+    });
+  }
 
   it('registers providers and appends injection messages with the provider variant', async () => {
     const seen: Array<number | null> = [];
@@ -139,7 +160,7 @@ describe('AgentContextInjectorService', () => {
     });
 
     await injector(ix).inject();
-    context.splice(1, 0, [userMessage('between reminders')]);
+    spliceContext(1, 0, [userMessage('between reminders')]);
     await injector(ix).inject();
     await injector(ix).inject();
 
@@ -155,9 +176,9 @@ describe('AgentContextInjectorService', () => {
     });
 
     await injector(ix).inject();
-    context.splice(1, 0, [userMessage('between reminders')]);
+    spliceContext(1, 0, [userMessage('between reminders')]);
     await injector(ix).inject();
-    context.splice(2, 1, []);
+    spliceContext(2, 1, []);
     await injector(ix).inject();
 
     expect(seen).toEqual([null, 0, 0]);
@@ -176,7 +197,7 @@ describe('AgentContextInjectorService', () => {
     });
 
     await injector(ix).inject();
-    context.splice(0, context.get().length, []);
+    spliceContext(0, context.get().length, []);
     await injector(ix).inject();
 
     expect(seen).toEqual([null, null]);
@@ -201,7 +222,7 @@ describe('AgentContextInjectorService', () => {
     });
 
     await injector(ix).inject();
-    context.splice(0, context.get().length, []);
+    spliceContext(0, context.get().length, []);
     await injector(ix).inject();
 
     expect(seenA).toEqual([null, null]);
@@ -215,14 +236,14 @@ describe('AgentContextInjectorService', () => {
   it('re-injects at the next step after compaction swallows the reminder', async () => {
     const seen: Array<number | null> = [];
 
-    context.splice(0, 0, [userMessage('before reminder')]);
+    context.append(userMessage('before reminder'));
     injector(ix).register('recording_test', ({ lastInjectedAt }) => {
       seen.push(lastInjectedAt);
       return lastInjectedAt === null ? 'recorded reminder' : undefined;
     });
 
     await injector(ix).inject();
-    context.splice(
+    spliceContext(
       0,
       2,
       [compactionSummary('Compacted summary.')],
@@ -240,10 +261,10 @@ describe('AgentContextInjectorService', () => {
     const seenA: Array<number | null> = [];
     const seenB: Array<number | null> = [];
 
-    context.splice(0, 0, [
+    context.append(
       userMessage('old request'),
       userMessage('old follow-up'),
-    ]);
+    );
     injector(ix).register('recording_a', ({ lastInjectedAt }) => {
       seenA.push(lastInjectedAt);
       return lastInjectedAt === null ? 'recorded reminder A' : undefined;
@@ -254,7 +275,7 @@ describe('AgentContextInjectorService', () => {
     });
 
     await injector(ix).inject();
-    context.splice(0, 2, [compactionSummary('Compacted summary.')]);
+    spliceContext(0, 2, [compactionSummary('Compacted summary.')]);
     await injector(ix).inject();
 
     expect(seenA).toEqual([null, 1]);

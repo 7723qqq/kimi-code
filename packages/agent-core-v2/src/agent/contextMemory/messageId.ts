@@ -1,24 +1,19 @@
 /**
  * `contextMemory` message id helpers.
  *
- * Every `ContextMessage` gets a stable local id (`msg_<ulid>`) when it enters
- * `IAgentContextMemoryService` — see `AgentContextMemoryService.splice`. The id is persisted in
- * the `context.splice` wire record, so it is stable across restarts. It is the
- * identity used for message lookup and snapshot correlation. Provider-assigned
- * ids live on the separate
- * `providerMessageId` field and never collide with this namespace.
+ * Local message ids (`msg_<ulid>`) are process-lifetime identifiers only —
+ * they are NOT persisted: the on-disk `context.append_message` record carries
+ * exactly v1's field set, and public message ids are derived from the
+ * transcript index (see `messageProjection.toProtocolMessage`), which stays
+ * stable across live reads and resume. `newMessageId` remains for callers that
+ * need an opaque per-process id (e.g. `promptLegacyService` prompt tracking).
+ * Provider-assigned ids live on the separate `providerMessageId` field and
+ * never collide with this namespace.
  */
 
 import { ulid } from 'ulid';
 
-import type { ContextMessage } from './types';
-
-/** Allocate a fresh local message id (`msg_<ulid>`). */
+/** Allocate a fresh local (non-persisted) message id (`msg_<ulid>`). */
 export function newMessageId(): string {
   return `msg_${ulid()}`;
-}
-
-/** Return `message` with an `id`, stamping a fresh one only when absent. Idempotent. */
-export function ensureMessageId(message: ContextMessage): ContextMessage {
-  return message.id !== undefined ? message : { ...message, id: newMessageId() };
 }

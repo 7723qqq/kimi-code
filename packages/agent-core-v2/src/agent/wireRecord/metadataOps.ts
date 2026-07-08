@@ -19,5 +19,7 @@ export interface WireMetadataPayload {
 }
 
 export const wireMetadata = defineOp(MetadataModel, 'metadata', {
+  // v1 parity: the metadata envelope is the only record without a `time` stamp.
+  stamp: false,
   apply: (s, _p: WireMetadataPayload): null => s,
 });

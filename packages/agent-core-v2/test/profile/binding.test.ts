@@ -6,9 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DEFAULT_AGENT_PROFILE_NAME, IAgentProfileCatalogService } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { serializeV1WireRecord } from '#/agent/wireRecord/v1WireSerializer';
 import { IAgentWireService } from '#/wire/tokens';
-import type { PersistedRecord } from '#/wire/wireService';
 
 import {
   InMemoryWireRecordPersistence,
@@ -85,9 +83,6 @@ describe('AgentProfileService.bind', () => {
 
     const records = persistence.records
       .slice(start)
-      .flatMap((record) => [
-        ...serializeV1WireRecord(record as unknown as PersistedRecord),
-      ])
       .filter(
         (record) =>
           record.type === 'config.update' || record.type === 'tools.set_active_tools',

@@ -24,7 +24,13 @@
  *
  * Persists each dispatched op through `persistence` (`IAppendLogStore`) as a
  * flat `{ type, ...payload }` record — scalar / array payloads nested so a
- * JSONL line stays an object, with `type` / `time` stripped back out on replay.
+ * JSONL line stays an object, stamped with `time` unless the op opts out
+ * (`stamp: false`, only the `metadata` envelope), with `type` / `time`
+ * stripped back out on replay. Ops declared `persist: false` apply and notify
+ * like any other but never reach the emission stream or the log — the on-disk
+ * record vocabulary stays exactly v1's. After each op, cross-model reducers
+ * registered via `defineModel(..., { reducers })` (`MODEL_CROSS_REDUCERS`)
+ * fold the op into foreign primary models on both dispatch and replay.
  *
  * Blob handling is driven by each `ModelDef`'s optional `blobs` codec
  * (`ModelBlobCodec`), which declares two symmetric directions:
@@ -54,6 +60,7 @@ import type { ContentPart } from '#/app/llmProtocol/message';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 
 import type { DeepReadonly, DerivedModelDef, ModelDef, PartsTransformer } from './model';
+import { MODEL_CROSS_REDUCERS } from './model';
 import type { Op } from './op';
 import { OP_REGISTRY } from './op';
 import type {
@@ -78,7 +85,6 @@ export class CycleError extends Error {
 export interface WireServiceOptions {
   readonly logScope: string;
   readonly logKey: string;
-  readonly serializeRecord?: (record: PersistedRecord) => readonly PersistedRecord[];
 }
 
 interface ModelInstance {
@@ -231,11 +237,10 @@ export class WireService extends Disposable implements IWireService {
       const prev = inst.state;
       inst.state = Object.freeze(op.descriptor.apply(prev, op.payload));
       if (!group.silent) {
-        const record = this.toRecord(op);
-        this.emissionEmitter.fire({ type: 'record', record });
-        const serialized = this.options.serializeRecord?.(record) ?? [record];
-        for (const out of serialized) {
-          this.appendToWireLog(out, op.descriptor.model);
+        if (op.descriptor.persist !== false) {
+          const record = this.toRecord(op);
+          this.emissionEmitter.fire({ type: 'record', record });
+          this.appendToWireLog(record, op.descriptor.model);
         }
         const event = op.descriptor.toEvent?.(op.payload, inst.state);
         if (event !== undefined && this.eventBus !== undefined) {
@@ -253,6 +258,22 @@ export class WireService extends Disposable implements IWireService {
           entry.inst.state = Object.freeze(entry.reducer(dPrev, op.payload));
           if (entry.inst.state !== dPrev) {
             changes.push({ inst: entry.inst, change: { state: entry.inst.state, prev: dPrev } });
+          }
+        }
+      }
+
+      const crossReducers = MODEL_CROSS_REDUCERS.get(op.type);
+      if (crossReducers !== undefined) {
+        for (const entry of crossReducers) {
+          if (entry.model === op.descriptor.model) continue;
+          const crossInst = this.ensureModel(entry.model);
+          const crossPrev = crossInst.state;
+          crossInst.state = Object.freeze(entry.reducer(crossPrev, op.payload));
+          if (crossInst.state !== crossPrev) {
+            changes.push({
+              inst: crossInst,
+              change: { state: crossInst.state, prev: crossPrev },
+            });
           }
         }
       }
@@ -280,10 +301,14 @@ export class WireService extends Disposable implements IWireService {
 
   private toRecord(op: Op): PersistedRecord {
     const payload = op.payload;
-    if (payload !== null && typeof payload === 'object' && !Array.isArray(payload)) {
-      return { type: op.type, ...(payload as Record<string, unknown>) };
+    const record: Record<string, unknown> =
+      payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+        ? { type: op.type, ...(payload as Record<string, unknown>) }
+        : { type: op.type, payload };
+    if (op.descriptor.stamp !== false && record['time'] === undefined) {
+      record['time'] = Date.now();
     }
-    return { type: op.type, payload };
+    return record as PersistedRecord;
   }
 
   private async fireRestored(): Promise<void> {

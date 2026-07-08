@@ -107,7 +107,9 @@ describe('AgentPermissionModeService (wire-backed)', () => {
     svc.setMode('auto');
 
     const records = await readRecords();
-    expect(records).toEqual([{ type: 'permission.set_mode', mode: 'auto' }]);
+    expect(records).toEqual([
+      { type: 'permission.set_mode', mode: 'auto', time: expect.any(Number) },
+    ]);
     expect('payload' in records[0]!).toBe(false);
   });
 
