@@ -93,7 +93,11 @@ export type LoopRecordedEvent =
   | {
       readonly type: 'tool.result';
       readonly toolCallId: string;
-      readonly result: { readonly output: string | readonly ContentPart[]; readonly isError?: boolean };
+      readonly result: {
+        readonly output: string | readonly ContentPart[];
+        readonly isError?: boolean;
+        readonly note?: string;
+      };
       readonly parentUuid?: string;
     };
 
@@ -250,24 +254,33 @@ function interruptedToolMessage(toolCallId: string): ContextMessage {
 function toolResultOutputForModel(result: {
   readonly output: string | readonly ContentPart[];
   readonly isError?: boolean;
+  readonly note?: string;
 }): string | ContentPart[] {
-  const { output, isError } = result;
+  const { output, isError, note } = result;
+  let base: string | ContentPart[];
   if (typeof output === 'string') {
     if (isError === true) {
-      if (output.length === 0) return TOOL_EMPTY_ERROR_STATUS;
-      if (output.trimStart().startsWith('<system>ERROR:')) return output;
-      return `${TOOL_ERROR_STATUS}\n${output}`;
+      if (output.length === 0) base = TOOL_EMPTY_ERROR_STATUS;
+      else if (output.trimStart().startsWith('<system>ERROR:')) base = output;
+      else base = `${TOOL_ERROR_STATUS}\n${output}`;
+    } else if (output.length === 0 || output.trim() === TOOL_OUTPUT_EMPTY_TEXT) {
+      base = TOOL_EMPTY_STATUS;
+    } else {
+      base = output;
     }
-    if (output.length === 0 || output.trim() === TOOL_OUTPUT_EMPTY_TEXT) {
-      return TOOL_EMPTY_STATUS;
-    }
-    return output;
+  } else if (output.length === 0) {
+    base = [{ type: 'text', text: isError === true ? TOOL_EMPTY_ERROR_STATUS : TOOL_EMPTY_STATUS }];
+  } else if (isError === true) {
+    base = [{ type: 'text', text: TOOL_ERROR_STATUS }, ...output];
+  } else {
+    base = [...output];
   }
-  if (output.length === 0) {
-    return [{ type: 'text', text: isError === true ? TOOL_EMPTY_ERROR_STATUS : TOOL_EMPTY_STATUS }];
+  if (note === undefined || note.length === 0) return base;
+  const notePart: ContentPart = { type: 'text', text: note };
+  if (typeof base === 'string') return `${base}\n${note}`;
+  const only = base[0];
+  if (base.length === 1 && only?.type === 'text') {
+    return [{ type: 'text', text: `${only.text}\n${note}` }];
   }
-  if (isError === true) {
-    return [{ type: 'text', text: TOOL_ERROR_STATUS }, ...output];
-  }
-  return [...output];
+  return [...base, notePart];
 }

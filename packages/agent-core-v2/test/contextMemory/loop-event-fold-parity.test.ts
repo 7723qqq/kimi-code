@@ -106,4 +106,45 @@ describe('loop-event fold parity', () => {
 
     expect(folded).toEqual(baseline);
   });
+
+  it('folds a tool-result note as trailing model text without splitting text-only output', () => {
+    context.append(
+      {
+        role: 'assistant',
+        content: [],
+        toolCalls: [{ type: 'function', id: 'c3', name: 'Screenshot', arguments: '{}' }],
+      },
+      {
+        role: 'tool',
+        content: [{ type: 'text', text: 'result text\n<system>Image compressed.</system>' }],
+        toolCalls: [],
+        toolCallId: 'c3',
+        isError: false,
+      },
+    );
+    const baseline = comparable(context.get());
+    context.clear();
+
+    context.appendLoopEvent({ type: 'step.begin', uuid: 's3' });
+    context.appendLoopEvent({
+      type: 'tool.call',
+      stepUuid: 's3',
+      toolCallId: 'c3',
+      name: 'Screenshot',
+      args: {},
+    });
+    context.appendLoopEvent({
+      type: 'tool.result',
+      toolCallId: 'c3',
+      result: {
+        output: 'result text',
+        isError: false,
+        note: '<system>Image compressed.</system>',
+      },
+    });
+    context.appendLoopEvent({ type: 'step.end', uuid: 's3' });
+    const folded = comparable(context.get());
+
+    expect(folded).toEqual(baseline);
+  });
 });

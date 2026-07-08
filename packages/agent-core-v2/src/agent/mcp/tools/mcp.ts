@@ -43,14 +43,15 @@ export function createMcpTool(
 function normalizeMcpToolResult(result: {
   readonly output: ExecutableToolResult['output'];
   readonly isError: boolean;
+  readonly note?: string;
   readonly truncated?: true;
 }): ExecutableToolResult {
   if (result.isError) {
     return result.truncated === true
-      ? { output: result.output, isError: true, truncated: true }
-      : { output: result.output, isError: true };
+      ? { output: result.output, isError: true, note: result.note, truncated: true }
+      : { output: result.output, isError: true, note: result.note };
   }
   return result.truncated === true
-    ? { output: result.output, truncated: true }
-    : { output: result.output };
+    ? { output: result.output, note: result.note, truncated: true }
+    : { output: result.output, note: result.note };
 }
