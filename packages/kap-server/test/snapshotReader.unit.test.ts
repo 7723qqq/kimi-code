@@ -24,7 +24,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   loadSnapshotConfig,
-  reduceContextRecords,
   readWireRecords,
   SnapshotNotFoundError,
   SnapshotReader,
@@ -242,7 +241,7 @@ describe('SnapshotReader.read', () => {
     expect((tool.content[0] as { tool_call_id: string }).tool_call_id).toBe('call_1');
   });
 
-  it('reduces context.apply_compaction to [summary, ...tail]', async () => {
+  it('keeps the full history across context.apply_compaction and appends a summary marker', async () => {
     const f = await makeFixtureAsync();
     await seedSession(f, 'sess_compact');
     await writeWire(f.sessionDir('sess_compact'), [
@@ -257,10 +256,11 @@ describe('SnapshotReader.read', () => {
     ]);
     const snap = await f.reader.read('sess_compact');
     const texts = snap.messages.items.map((m) => (m.content[0] as { text: string }).text);
-    expect(texts).toEqual(['summary', 'after']);
+    expect(texts).toEqual(['old-1', 'old-2', 'summary', 'after']);
+    expect(snap.messages.items[2]?.metadata).toEqual({ origin: { kind: 'compaction_summary' } });
   });
 
-  it('reduces v1-shaped string summary compaction records', async () => {
+  it('keeps the full history across v1-shaped string summary compaction records', async () => {
     const f = await makeFixtureAsync();
     await seedSession(f, 'sess_compact_v1');
     await writeWire(f.sessionDir('sess_compact_v1'), [
@@ -278,11 +278,11 @@ describe('SnapshotReader.read', () => {
     const snap = await f.reader.read('sess_compact_v1');
     const messages = snap.messages.items;
     const texts = messages.map((m) => (m.content[0] as { text: string }).text);
-    expect(texts).toEqual(['summary', 'after']);
-    expect(messages[0]?.metadata).toEqual({ origin: { kind: 'compaction_summary' } });
+    expect(texts).toEqual(['old-1', 'old-2', 'summary', 'after']);
+    expect(messages[2]?.metadata).toEqual({ origin: { kind: 'compaction_summary' } });
   });
 
-  it('reduces new compaction records to kept user messages followed by contextSummary', async () => {
+  it('keeps compacted-away assistant messages and uses the raw summary as the marker', async () => {
     const f = await makeFixtureAsync();
     await seedSession(f, 'sess_compact_kept_users');
     await writeWire(f.sessionDir('sess_compact_kept_users'), [
@@ -309,12 +309,49 @@ describe('SnapshotReader.read', () => {
     const snap = await f.reader.read('sess_compact_kept_users');
     const messages = snap.messages.items;
     const texts = messages.map((m) => (m.content[0] as { text: string }).text);
-    expect(messages.map((m) => m.role)).toEqual(['user', 'user', 'user']);
-    expect(texts).toEqual(['old user', 'recent user', 'model-facing summary']);
-    expect(messages[2]?.metadata).toEqual({ origin: { kind: 'compaction_summary' } });
+    expect(messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'user']);
+    expect(texts).toEqual(['old user', 'old assistant', 'recent user', 'raw summary']);
+    expect(messages[3]?.metadata).toEqual({ origin: { kind: 'compaction_summary' } });
   });
 
-  it('honors context.clear and context.undo', async () => {
+  it('preserves the pre-compaction assistant reply after a later undo', async () => {
+    // Regression: send A, /compact, send B, undo. The snapshot must still show
+    // A's assistant reply (compaction folds only the live context; the
+    // transcript keeps the full history).
+    const f = await makeFixtureAsync();
+    await seedSession(f, 'sess_compact_undo');
+    const assistant = (text: string): ContextMessage => ({
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+      toolCalls: [],
+    });
+    await writeWire(f.sessionDir('sess_compact_undo'), [
+      { type: 'context.append_message', message: userMessage('message A') },
+      { type: 'context.append_message', message: assistant('reply A') },
+      {
+        type: 'context.apply_compaction',
+        summary: 'summary text',
+        contextSummary: 'model-facing summary',
+        compactedCount: 2,
+        tokensBefore: 100,
+        tokensAfter: 20,
+        keptUserMessageCount: 1,
+      },
+      { type: 'context.append_message', message: userMessage('message B') },
+      { type: 'context.append_message', message: assistant('reply B') },
+      { type: 'context.undo', count: 1 },
+    ]);
+    const snap = await f.reader.read('sess_compact_undo');
+    const messages = snap.messages.items;
+    expect(messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    expect(messages.map((m) => (m.content[0] as { text: string }).text)).toEqual([
+      'message A',
+      'reply A',
+      'summary text',
+    ]);
+  });
+
+  it('keeps pre-clear messages in the transcript and lets undo remove the tail', async () => {
     const f = await makeFixtureAsync();
     await seedSession(f, 'sess_ops');
     await writeWire(f.sessionDir('sess_ops'), [
@@ -322,8 +359,10 @@ describe('SnapshotReader.read', () => {
       { type: 'context.append_message', message: userMessage('b') },
       { type: 'context.clear' },
       { type: 'context.append_message', message: userMessage('c') },
+      { type: 'context.undo', count: 1 },
     ]);
-    expect((await f.reader.read('sess_ops')).messages.items.map((m) => (m.content[0] as { text: string }).text)).toEqual(['c']);
+    // /clear keeps prior messages for display; undo removes the post-clear tail (c).
+    expect((await f.reader.read('sess_ops')).messages.items.map((m) => (m.content[0] as { text: string }).text)).toEqual(['a', 'b']);
   });
 
   it('caps the page at 100 and flags has_more', async () => {
@@ -392,95 +431,6 @@ describe('SnapshotReader.read', () => {
     const snap = await f.reader.read('sess_shrink');
     expect(snap.messages.items).toHaveLength(1);
     expect((snap.messages.items[0]!.content[0] as { text: string }).text).toBe('only-one');
-  });
-});
-
-// ─── pure helpers ─────────────────────────────────────────────────────────
-
-describe('reduceContextRecords', () => {
-  it('ignores unknown records and the metadata envelope', () => {
-    const out = reduceContextRecords([
-      { type: 'metadata', protocol_version: '1.4' },
-      { type: 'turn.started', turnId: 1 },
-      { type: 'context.append_message', message: userMessage('x') },
-    ]);
-    expect(out).toHaveLength(1);
-  });
-
-  it('applies context.splice', () => {
-    const out = reduceContextRecords([
-      { type: 'context.append_message', message: userMessage('a') },
-      { type: 'context.splice', start: 1, deleteCount: 0, messages: [userMessage('b')] },
-    ]);
-    expect(out).toHaveLength(2);
-    expect((out[1]!.content[0] as { text: string }).text).toBe('b');
-  });
-
-  it('folds context.append_loop_event (step/content/tool) into messages', () => {
-    const out = reduceContextRecords([
-      { type: 'context.append_message', message: userMessage('q') },
-      { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 's1' } },
-      {
-        type: 'context.append_loop_event',
-        event: { type: 'content.part', stepUuid: 's1', part: { type: 'text', text: 'hello' } },
-      },
-      {
-        type: 'context.append_loop_event',
-        event: {
-          type: 'tool.call',
-          stepUuid: 's1',
-          toolCallId: 'call_1',
-          name: 'Bash',
-          args: { command: 'echo hi' },
-        },
-      },
-      {
-        type: 'context.append_loop_event',
-        event: { type: 'tool.result', toolCallId: 'call_1', result: { output: 'hi' } },
-      },
-      { type: 'context.append_loop_event', event: { type: 'step.end', uuid: 's1' } },
-    ]);
-    expect(out.map((m) => m.role)).toEqual(['user', 'assistant', 'tool']);
-    expect((out[1]!.content[0] as { text: string }).text).toBe('hello');
-    expect(out[1]!.toolCalls).toHaveLength(1);
-    expect(out[1]!.toolCalls[0]!.id).toBe('call_1');
-    expect(out[1]!.partial).toBeUndefined();
-    expect(out[2]!.toolCallId).toBe('call_1');
-  });
-
-  it('defers context.append_message until the open tool exchange closes', () => {
-    const out = reduceContextRecords([
-      { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 's1' } },
-      {
-        type: 'context.append_loop_event',
-        event: { type: 'tool.call', stepUuid: 's1', toolCallId: 'call_1', name: 'Bash', args: {} },
-      },
-      // Arrives while the tool exchange is still open — must not land between
-      // the assistant and its tool result.
-      { type: 'context.append_message', message: userMessage('injected') },
-      {
-        type: 'context.append_loop_event',
-        event: { type: 'tool.result', toolCallId: 'call_1', result: { output: 'ok' } },
-      },
-      { type: 'context.append_loop_event', event: { type: 'step.end', uuid: 's1' } },
-    ]);
-    expect(out.map((m) => m.role)).toEqual(['assistant', 'tool', 'user']);
-    expect((out[2]!.content[0] as { text: string }).text).toBe('injected');
-  });
-
-  it('synthesizes an interrupted result for a tool call left open at a step boundary', () => {
-    const out = reduceContextRecords([
-      { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 's1' } },
-      {
-        type: 'context.append_loop_event',
-        event: { type: 'tool.call', stepUuid: 's1', toolCallId: 'call_1', name: 'Bash', args: {} },
-      },
-      // No tool.result before the next step begins — the dangling call is closed.
-      { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 's2' } },
-      { type: 'context.append_loop_event', event: { type: 'step.end', uuid: 's2' } },
-    ]);
-    expect(out.map((m) => m.role)).toEqual(['assistant', 'tool', 'assistant']);
-    expect(out[1]!.isError).toBe(true);
   });
 });
 

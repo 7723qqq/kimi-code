@@ -141,7 +141,11 @@ async function resolveActivatedSession(
   sessionId: string,
   requestId: string,
 ): Promise<ResolvedSession> {
-  const handle = core.accessor.get(ISessionLifecycleService).get(sessionId);
+  // `resume` (not `get`) so listing/activating skills on a freshly-opened cold
+  // session cold-loads it instead of reporting "not activated"; matches v1's
+  // `resumeSession` in SkillService. `resume` returns undefined only when the
+  // session is unknown or its workspace is gone.
+  const handle = await core.accessor.get(ISessionLifecycleService).resume(sessionId);
   if (handle !== undefined) return { handle };
 
   const summary = await core.accessor.get(ISessionIndex).get(sessionId);

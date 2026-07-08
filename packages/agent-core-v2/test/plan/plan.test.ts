@@ -607,7 +607,6 @@ describe('Plan service', () => {
         [wire] context.splice          { "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "plan-safe" } ], "toolCalls": [], "toolCallId": "call_bash", "id": "<msg-4>" } ], "time": "<time>" }
         [emit] tool.result             { "turnId": 0, "toolCallId": "call_bash", "output": "plan-safe" }
         [wire] context.splice          { "start": 2, "deleteCount": 1, "messages": [ { "id": "<msg-3>", "role": "assistant", "content": [ { "type": "text", "text": "I will inspect safely." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf plan-safe\\",\\"timeout\\":60}" } ], "providerMessageId": "mock-1" } ], "time": "<time>" }
-        [emit] agent.status.updated    { "contextTokens": 0 }
         [emit] turn.step.completed     { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 530, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_calls" }
         [emit] turn.step.started       { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
         [emit] assistant.delta         { "turnId": 0, "delta": "The safe command printed plan-safe." }
@@ -617,7 +616,6 @@ describe('Plan service', () => {
         [wire] context_size.measured   { "length": 5, "tokens": 569, "time": "<time>" }
         [emit] agent.status.updated    { "contextTokens": 569 }
         [wire] context.splice          { "start": 4, "deleteCount": 1, "messages": [ { "id": "<msg-5>", "role": "assistant", "content": [ { "type": "text", "text": "The safe command printed plan-safe." } ], "toolCalls": [], "providerMessageId": "mock-2" } ], "time": "<time>" }
-        [emit] agent.status.updated    { "contextTokens": 0 }
         [emit] turn.step.completed     { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 557, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "completed" }
         [emit] turn.ended              { "turnId": 0, "reason": "completed" }
       `);
@@ -671,7 +669,6 @@ describe('Plan service', () => {
         [wire] context.splice          { "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "removed" } ], "toolCalls": [], "toolCallId": "call_bash", "id": "<msg-4>" } ], "time": "<time>" }
         [emit] tool.result             { "turnId": 0, "toolCallId": "call_bash", "output": "removed" }
         [wire] context.splice          { "start": 2, "deleteCount": 1, "messages": [ { "id": "<msg-3>", "role": "assistant", "content": [ { "type": "text", "text": "I will mutate a file." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"rm forbidden.txt\\",\\"timeout\\":60}" } ], "providerMessageId": "mock-1" } ], "time": "<time>" }
-        [emit] agent.status.updated    { "contextTokens": 0 }
         [emit] turn.step.completed     { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 527, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_calls" }
         [emit] turn.step.started       { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
         [emit] assistant.delta         { "turnId": 0, "delta": "The command completed." }
@@ -681,7 +678,6 @@ describe('Plan service', () => {
         [wire] context_size.measured   { "length": 5, "tokens": 562, "time": "<time>" }
         [emit] agent.status.updated    { "contextTokens": 562 }
         [wire] context.splice          { "start": 4, "deleteCount": 1, "messages": [ { "id": "<msg-5>", "role": "assistant", "content": [ { "type": "text", "text": "The command completed." } ], "toolCalls": [], "providerMessageId": "mock-2" } ], "time": "<time>" }
-        [emit] agent.status.updated    { "contextTokens": 0 }
         [emit] turn.step.completed     { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 553, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "completed" }
         [emit] turn.ended              { "turnId": 0, "reason": "completed" }
       `);

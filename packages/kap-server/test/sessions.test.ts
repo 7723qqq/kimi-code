@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IEventService } from '@moonshot-ai/agent-core-v2';
+import { IEventService, ISessionLifecycleService } from '@moonshot-ai/agent-core-v2';
 import { sessionWarningsResponseSchema } from '@moonshot-ai/protocol';
 
 import { type RunningServer, startServer } from '../src/start';
@@ -321,6 +321,24 @@ describe('server-v2 /api/v1/sessions', () => {
     const got = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
     expect(got.body.code).toBe(0);
     expect(got.body.data.archived).toBe(true);
+  });
+
+  it('cold-loads a persisted session on :undo instead of 40401', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const id = created.body.data.id;
+
+    // Drop the live handle so the session is persisted-but-cold (index + disk
+    // only) — the state right after opening a session in the web UI before any
+    // prompt has been sent. Before the fix, `:undo` resolved the main agent via
+    // `lifecycle.get` (memory only) and reported 40401 "session does not exist".
+    await (server as RunningServer).core.accessor.get(ISessionLifecycleService).close(id);
+
+    const res = await postJson<{ messages: unknown }>(`/api/v1/sessions/${id}:undo`, { count: 1 });
+    // Cold-loaded successfully: the empty history yields "nothing to undo"
+    // (40911), not the pre-fix "session does not exist" (40401).
+    expect(res.body.code).toBe(40911);
+    expect(res.body.msg).toMatch(/nothing to undo/i);
   });
 
   it('rejects an unsupported action suffix (40001)', async () => {

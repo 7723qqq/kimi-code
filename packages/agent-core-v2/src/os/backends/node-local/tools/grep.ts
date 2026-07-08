@@ -18,23 +18,25 @@
  * `ISessionFsService.grep` behavior — the `path` argument scopes only the
  * access declaration, not the search root.
  *
- * Ported from v1 (`packages/agent-core/src/tools/builtin/file/grep.ts`). A few
- * v1 behaviors that ripgrep does not expose here (mtime ordering of
- * `files_with_matches`, multiline matching, and searching a path outside the
- * workspace) are intentionally not replicated.
+ * Ported from v1 (`packages/agent-core/src/tools/builtin/file/grep.ts`). The
+ * v1 behavior of searching a path outside the workspace is intentionally not
+ * replicated because this tool keeps the scan confined to the workspace root.
  */
+
+import { isAbsolute, join } from 'node:path';
 
 import type { FsGrepMatch, FsGrepRequest, FsGrepResponse } from '@moonshot-ai/protocol';
 import { z } from 'zod';
 
+import { ToolResultBuilder } from '#/agent/tool/result-builder';
+import { ToolAccesses } from '#/agent/tool/tool-access';
+import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool/toolContract';
+import { registerTool } from '#/agent/toolRegistry/toolContribution';
 import { ErrorCodes, isKimiError } from '#/errors';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { ToolAccesses } from '#/agent/tool/tool-access';
-import type { BuiltinTool, ExecutableToolResult, ToolExecution } from '#/agent/tool/toolContract';
-import { registerTool } from '#/agent/toolRegistry/toolContribution';
 import { resolvePathAccessPath } from '#/_base/tools/policies/path-access';
 import { isSensitiveFile } from '#/_base/tools/policies/sensitive';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
@@ -65,7 +67,7 @@ export const GrepInputSchema = z.object({
     .enum(['content', 'files_with_matches', 'count_matches'])
     .optional()
     .describe(
-      'Shape of the result. `content` shows matching lines (honors `-A`, `-B`, `-C`, `-n`, and `head_limit`); `files_with_matches` shows only the paths of files that contain a match (honors `head_limit`); `count_matches` shows the total number of matches. Defaults to `files_with_matches`.',
+      'Shape of the result. `content` shows matching lines (honors `-A`, `-B`, `-C`, `-n`, and `head_limit`); `files_with_matches` shows only the paths of files that contain a match, most-recently-modified first (honors `head_limit`); `count_matches` shows per-file match counts as `path:count` lines, preceded by an aggregate total line. Defaults to `files_with_matches`.',
     ),
   '-i': z.boolean().optional().describe('Perform a case-insensitive search. Defaults to false.'),
   '-n': z
@@ -141,6 +143,7 @@ const FS_MAX_FILES = 10_000;
 const FS_MAX_MATCHES_PER_FILE = 10_000;
 const FS_MAX_TOTAL_MATCHES = 100_000;
 const FS_MAX_CONTEXT_LINES = 10;
+const MTIME_STAT_CONCURRENCY = 32;
 
 const GREP_DESCRIPTION = renderPrompt(grepDescriptionTemplate, {});
 
@@ -206,7 +209,11 @@ export class GrepTool implements BuiltinTool<GrepInput> {
       return { isError: true, output: 'Grep aborted' };
     }
 
-    return renderGrepResponse(args, response);
+    return renderGrepResponse(args, response, {
+      fs: this.fs,
+      workspaceDir: this.workspaceConfig.workspaceDir,
+      signal,
+    });
   }
 }
 
@@ -218,7 +225,7 @@ function buildGrepRequest(args: GrepInput): FsGrepRequest {
   const includeGlobs: string[] = [];
   if (args.glob !== undefined) includeGlobs.push(args.glob);
   if (args.type !== undefined) includeGlobs.push(`**/*.${args.type}`);
-  return {
+  const req: FsGrepRequest = {
     pattern: args.pattern,
     // The tool's `pattern` is documented as a regular expression, so always
     // ask the fs layer for regex matching.
@@ -232,6 +239,9 @@ function buildGrepRequest(args: GrepInput): FsGrepRequest {
     include_globs: includeGlobs.length > 0 ? includeGlobs : undefined,
     exclude_globs: undefined,
   };
+  return args.multiline === true
+    ? ({ ...req, multiline: true } as FsGrepRequest)
+    : req;
 }
 
 function contextLines(args: GrepInput): number {
@@ -269,6 +279,19 @@ interface Page<T> {
   readonly nextOffset: number;
 }
 
+interface RenderDeps {
+  readonly fs: IHostFileSystem;
+  readonly workspaceDir: string;
+  readonly signal: AbortSignal;
+}
+
+class GrepAbortedError extends Error {
+  constructor() {
+    super('Grep aborted');
+    this.name = 'GrepAbortedError';
+  }
+}
+
 function paginate<T>(items: readonly T[], args: GrepInput): Page<T> {
   const offset = args.offset ?? 0;
   const headLimit = args.head_limit ?? DEFAULT_HEAD_LIMIT;
@@ -279,7 +302,11 @@ function paginate<T>(items: readonly T[], args: GrepInput): Page<T> {
   return { visible, truncated, total: items.length, nextOffset: offset + headLimit };
 }
 
-function renderGrepResponse(args: GrepInput, response: FsGrepResponse): ExecutableToolResult {
+async function renderGrepResponse(
+  args: GrepInput,
+  response: FsGrepResponse,
+  deps: RenderDeps,
+): Promise<ExecutableToolResult> {
   const mode: GrepMode = args.output_mode ?? 'files_with_matches';
 
   // Post-filter sensitive files, mirroring v1's post-rg sensitive filter.
@@ -312,7 +339,66 @@ function renderGrepResponse(args: GrepInput, response: FsGrepResponse): Executab
   if (mode === 'content') {
     return renderContent(args, keptFiles, inlineMessages, filteredSensitive.length > 0);
   }
-  return renderFilesWithMatches(args, keptFiles, inlineMessages, filteredSensitive.length > 0);
+  try {
+    const sortedFiles = await sortFilesWithMatchesByMtime(keptFiles, deps);
+    return renderFilesWithMatches(args, sortedFiles, inlineMessages, filteredSensitive.length > 0);
+  } catch (error) {
+    if (error instanceof GrepAbortedError) {
+      return { isError: true, output: 'Grep aborted' };
+    }
+    throw error;
+  }
+}
+
+async function sortFilesWithMatchesByMtime<T extends { readonly path: string }>(
+  files: readonly T[],
+  deps: RenderDeps,
+): Promise<T[]> {
+  const entries = await mapWithConcurrency(
+    files,
+    MTIME_STAT_CONCURRENCY,
+    deps.signal,
+    async (file, index) => {
+      let mtime = 0;
+      try {
+        const path = isAbsolute(file.path) ? file.path : join(deps.workspaceDir, file.path);
+        mtime = (await deps.fs.stat(path)).mtimeMs ?? 0;
+      } catch {
+        // Keep stat failures visible; use mtime=0 so they sort after known files.
+      }
+      return { file, mtime, index };
+    },
+  );
+  entries.sort((a, b) => b.mtime - a.mtime || a.index - b.index);
+  return entries.map((entry) => entry.file);
+}
+
+async function mapWithConcurrency<T, U>(
+  items: readonly T[],
+  concurrency: number,
+  signal: AbortSignal,
+  mapper: (item: T, index: number) => Promise<U>,
+): Promise<U[]> {
+  if (signal.aborted) throw new GrepAbortedError();
+  if (items.length === 0) return [];
+
+  const results: U[] = [];
+  results.length = items.length;
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        if (signal.aborted) return;
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= items.length) return;
+        results[index] = await mapper(items[index] as T, index);
+      }
+    }),
+  );
+  if (signal.aborted) throw new GrepAbortedError();
+  return results;
 }
 
 function renderFilesWithMatches(
@@ -321,12 +407,12 @@ function renderFilesWithMatches(
   inlineMessages: string[],
   redactedSensitive: boolean,
 ): ExecutableToolResult {
-  const page = paginate(files, args);
-  const body = page.visible.map((file) => file.path).join('\n');
-  appendPaginationNotice(inlineMessages, page);
-  return {
-    output: combineBody(body, inlineMessages, emptyMessage(redactedSensitive)),
-  };
+  return renderPagedLines(
+    args,
+    files.map((file) => file.path),
+    inlineMessages,
+    redactedSensitive,
+  );
 }
 
 function renderContent(
@@ -336,17 +422,29 @@ function renderContent(
   redactedSensitive: boolean,
 ): ExecutableToolResult {
   const includeLineNumbers = args['-n'] !== false;
+  const context = displayContext(args);
   const lines: string[] = [];
   for (const file of files) {
     for (const match of file.matches) {
-      lines.push(...renderMatchLines(file.path, match, includeLineNumbers));
+      lines.push(...renderMatchLines(file.path, match, includeLineNumbers, context));
     }
   }
-  const page = paginate(lines, args);
-  const body = page.visible.join('\n');
-  appendPaginationNotice(inlineMessages, page);
+  return renderPagedLines(args, lines, inlineMessages, redactedSensitive);
+}
+
+interface DisplayContext {
+  readonly before: number;
+  readonly after: number;
+}
+
+function displayContext(args: GrepInput): DisplayContext {
+  if (args['-C'] !== undefined) {
+    const lines = clamp(args['-C'], 0, FS_MAX_CONTEXT_LINES);
+    return { before: lines, after: lines };
+  }
   return {
-    output: combineBody(body, inlineMessages, emptyMessage(redactedSensitive)),
+    before: clamp(args['-B'] ?? 0, 0, FS_MAX_CONTEXT_LINES),
+    after: clamp(args['-A'] ?? 0, 0, FS_MAX_CONTEXT_LINES),
   };
 }
 
@@ -354,23 +452,33 @@ function renderMatchLines(
   path: string,
   match: FsGrepMatch,
   includeLineNumbers: boolean,
+  context: DisplayContext,
 ): string[] {
   const lines: string[] = [];
+  const before = context.before > 0 ? match.before.slice(-context.before) : [];
+  const after = context.after > 0 ? match.after.slice(0, context.after) : [];
+  const matchLines = splitMatchText(match.text);
   if (includeLineNumbers) {
-    const beforeStart = match.line - match.before.length;
-    for (let i = 0; i < match.before.length; i += 1) {
-      lines.push(`${path}-${String(beforeStart + i)}-${match.before[i]}`);
+    const beforeStart = match.line - before.length;
+    for (let i = 0; i < before.length; i += 1) {
+      lines.push(`${path}-${String(beforeStart + i)}-${before[i]}`);
     }
-    lines.push(`${path}:${String(match.line)}:${match.text}`);
-    for (let i = 0; i < match.after.length; i += 1) {
-      lines.push(`${path}-${String(match.line + 1 + i)}-${match.after[i]}`);
+    for (let i = 0; i < matchLines.length; i += 1) {
+      lines.push(`${path}:${String(match.line + i)}:${matchLines[i]}`);
+    }
+    for (let i = 0; i < after.length; i += 1) {
+      lines.push(`${path}-${String(match.line + matchLines.length + i)}-${after[i]}`);
     }
   } else {
-    for (const text of match.before) lines.push(`${path}:${text}`);
-    lines.push(`${path}:${match.text}`);
-    for (const text of match.after) lines.push(`${path}:${text}`);
+    for (const text of before) lines.push(`${path}:${text}`);
+    for (const text of matchLines) lines.push(`${path}:${text}`);
+    for (const text of after) lines.push(`${path}:${text}`);
   }
   return lines;
+}
+
+function splitMatchText(text: string): readonly string[] {
+  return text.split(/\r?\n/);
 }
 
 function renderCountMatches(
@@ -381,42 +489,65 @@ function renderCountMatches(
 ): ExecutableToolResult {
   const counts = files.map((file) => ({ path: file.path, count: file.matches.length }));
   const totalMatches = counts.reduce((sum, entry) => sum + entry.count, 0);
-  const page = paginate(counts, args);
-  const body = page.visible.map((entry) => `${entry.path}:${String(entry.count)}`).join('\n');
+  const rows = counts.map((entry) => `${entry.path}:${String(entry.count)}`);
+  const page = paginate(rows, args);
 
-  // The count data stream stays pure `path:count` lines; the summary and the
-  // pagination notice move to the side channel so they don't contaminate it.
-  const sideMessages: string[] = [];
+  const headerLines: string[] = [];
   if (counts.length > 0) {
-    sideMessages.push(formatCountSummary(totalMatches, counts.length, redactedSensitive));
+    headerLines.push(formatCountSummary(totalMatches, counts.length, redactedSensitive));
   }
   if (page.truncated) {
-    sideMessages.push(
-      `Results truncated to ${String(args.head_limit ?? DEFAULT_HEAD_LIMIT)} lines (total: ${String(page.total)}). Use offset=${String(page.nextOffset)} to see more.`,
-    );
+    headerLines.push(formatPaginationNotice(page));
   }
 
-  return {
-    output: combineBody(body, inlineMessages, emptyMessage(redactedSensitive)),
-    message: sideMessages.length > 0 ? sideMessages.join('\n') : undefined,
-  };
+  return renderBoundedOutput(headerLines, page.visible.join('\n'), inlineMessages, {
+    empty: emptyMessage(redactedSensitive),
+    forceEmptyBody: redactedSensitive && counts.length === 0,
+  });
 }
 
 function appendPaginationNotice(messages: string[], page: Page<unknown>): void {
   if (!page.truncated) return;
-  messages.push(
-    `Results truncated to ${String(page.visible.length)} lines (total: ${String(page.total)}). Use offset=${String(page.nextOffset)} to see more.`,
-  );
+  messages.push(formatPaginationNotice(page));
 }
 
 function emptyMessage(redactedSensitive: boolean): string {
   return redactedSensitive ? 'No non-sensitive matches found' : 'No matches found';
 }
 
-function combineBody(body: string, messages: readonly string[], empty: string): string {
-  const base = body === '' ? empty : body;
-  if (messages.length === 0) return base;
-  return `${base}\n${messages.join('\n')}`;
+function renderPagedLines(
+  args: GrepInput,
+  lines: readonly string[],
+  inlineMessages: string[],
+  redactedSensitive: boolean,
+): ExecutableToolResult {
+  const page = paginate(lines, args);
+  appendPaginationNotice(inlineMessages, page);
+  return renderBoundedOutput([], page.visible.join('\n'), inlineMessages, {
+    empty: emptyMessage(redactedSensitive),
+    forceEmptyBody: redactedSensitive && lines.length === 0,
+  });
+}
+
+function renderBoundedOutput(
+  headerLines: readonly string[],
+  body: string,
+  messages: readonly string[],
+  options: { readonly empty: string; readonly forceEmptyBody?: boolean },
+): ExecutableToolResult {
+  const base =
+    body === '' &&
+    (options.forceEmptyBody === true || (headerLines.length === 0 && messages.length === 0))
+      ? options.empty
+      : body;
+  const output = [...headerLines, base, ...messages].filter((part) => part !== '').join('\n');
+  const builder = new ToolResultBuilder();
+  builder.write(output);
+  return builder.ok();
+}
+
+function formatPaginationNotice(page: Page<unknown>): string {
+  return `Results truncated to ${String(page.visible.length)} lines (total: ${String(page.total)}). Use offset=${String(page.nextOffset)} to see more.`;
 }
 
 function formatCountSummary(

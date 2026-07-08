@@ -145,6 +145,18 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
       }
       const fsAction = action as FsAction;
 
+      // Cold-load a persisted-but-not-live session so fs actions (which only
+      // need the work dir) do not 404 on a freshly-opened session. Matches v1,
+      // which reads the persisted cwd. `resume` returns undefined only when the
+      // session is unknown or its workspace is gone.
+      const session = await core.accessor.get(ISessionLifecycleService).resume(session_id);
+      if (session === undefined) {
+        reply.send(
+          errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${session_id} does not exist`, req.id),
+        );
+        return;
+      }
+
       try {
         switch (fsAction) {
           case 'list':
@@ -229,6 +241,16 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
       const relPath = wildcard.slice(0, -DOWNLOAD_SUFFIX.length);
       if (relPath.length === 0) {
         reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, 'path is empty', req.id));
+        return;
+      }
+
+      // Cold-load so a freshly-opened (persisted but not live) session can still
+      // serve downloads; `resume` only returns undefined for unknown / workspace-gone.
+      const session = await core.accessor.get(ISessionLifecycleService).resume(session_id);
+      if (session === undefined) {
+        reply.send(
+          errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${session_id} does not exist`, req.id),
+        );
         return;
       }
 

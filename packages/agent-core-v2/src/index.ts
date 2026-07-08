@@ -302,6 +302,7 @@ export * from '#/agent/contextMemory/compactionHandoff';
 export * from '#/agent/contextMemory/loopEventFold';
 export * from '#/agent/contextMemory/messageId';
 export * from '#/agent/contextMemory/messageProjection';
+export * from '#/agent/contextMemory/contextTranscript';
 export * from '#/agent/contextMemory/types';
 export * from '#/agent/systemReminder/systemReminder';
 export * from '#/agent/systemReminder/systemReminderService';

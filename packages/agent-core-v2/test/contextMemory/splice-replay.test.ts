@@ -23,6 +23,7 @@ import {
   contextClear,
   contextUndo,
 } from '#/agent/contextMemory/contextOps';
+import { ContextSizeModel, contextSizeMeasured } from '#/agent/contextSize/contextSizeOps';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
@@ -444,6 +445,40 @@ describe('AgentContextMemoryService (wire-backed)', () => {
     await replay.wire.replay(...records);
     expect(replayed).toHaveLength(0);
     expect(replay.wire.getModel(ContextModel) as readonly ContextMessage[]).toHaveLength(2);
+  });
+
+  it('preserves the measured token count for a metadata-only splice inside the measured prefix', async () => {
+    const host = buildHost(KEY);
+
+    // Seed history and mark the first two messages as measured by the LLM.
+    host.svc.splice(0, 0, [
+      { role: 'user', content: [{ type: 'text', text: 'hello' }], toolCalls: [] },
+      { role: 'assistant', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
+    ]);
+    host.wire.dispatch(contextSizeMeasured({ length: 2, tokens: 42 }));
+    await host.wire.flush();
+
+    const statusEvents: { contextTokens?: number }[] = [];
+    disposables.add(host.eventBus.subscribe('agent.status.updated', (event) => {
+      if ('contextTokens' in event) statusEvents.push({ contextTokens: event.contextTokens });
+    }));
+
+    // Patch providerMessageId on a message inside the measured prefix.
+    const history = host.svc.get();
+    host.svc.splice(1, 1, [
+      { ...history[1]!, providerMessageId: 'mock-1' },
+    ]);
+
+    // The measured aggregate must stay intact; the metadata edit does not
+    // change the token-countable shape of the message.
+    const model = host.wire.getModel(ContextSizeModel);
+    expect(model).toEqual({ length: 2, tokens: 42 });
+    expect(statusEvents).toEqual([]);
+
+    await host.wire.flush();
+    const records = await readRecords(host.log);
+    const measuredAfterSplice = records.filter((record) => record.type === 'context_size.measured');
+    expect(measuredAfterSplice).toHaveLength(1);
   });
 
 });

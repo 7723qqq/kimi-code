@@ -5,11 +5,13 @@
  * Reads `<homeDir>/sessions/<workspaceId>/<sid>/state.json` and
  * `…/agents/main/wire.jsonl` directly, bypassing
  * `ISessionLifecycleService.resume` (DI-scope materialization, MCP connect,
- * full wire replay). The transcript is reduced from the folded `context.*`
- * records with the exact `contextOps` apply semantics, so the result is
- * byte-identical to the live `IAgentContextMemoryService.get()` view used by
- * the `legacy` (resume) path. `(size, mtimeMs)` transcript cache and the
- * watermark both come from in-memory state, keeping warm reads sub-ms.
+ * full wire replay). The transcript is reduced from the `context.*` records
+ * with `reduceContextTranscript`, which mirrors the live reducers EXCEPT that
+ * `context.apply_compaction` keeps the full history and appends a summary
+ * marker instead of dropping the compacted prefix — the same full-transcript
+ * view v1 serves (so compacted-away assistant replies stay visible after a
+ * later undo). `(size, mtimeMs)` transcript cache and the watermark both come
+ * from in-memory state, keeping warm reads sub-ms.
  *
  * Pending approvals/questions, the live status, and `current_prompt_id` are
  * only available while the session is live; for a cold session they correctly
@@ -20,9 +22,6 @@ import { readFile, stat as fsStat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
-  computeUndoCut,
-  foldAppendMessage,
-  foldLoopEvent,
   IAgentLifecycleService,
   IAgentPromptLegacyService,
   ISessionActivity,
@@ -31,11 +30,9 @@ import {
   ISessionLifecycleService,
   IWorkspaceRegistry,
   normalizeSessionMeta,
-  applyContextCompactionRecord,
-  resetFold,
+  reduceContextTranscript,
   toProtocolMessage,
   type ContextMessage,
-  type LoopRecordedEvent,
   type Scope,
   type SessionMeta,
 } from '@moonshot-ai/agent-core-v2';
@@ -211,7 +208,7 @@ export class SnapshotReader implements ISnapshotReader {
     if (cached !== undefined) this.transcriptCache.delete(sid);
 
     const records = await readWireRecords(wirePath);
-    const messages = reduceContextRecords(records);
+    const messages = [...reduceContextTranscript(records).entries];
     this.transcriptCache.set(sid, { size: info.size, mtimeMs: info.mtimeMs, messages });
     while (this.transcriptCache.size > this.deps.config.cacheLimit) {
       const oldest = this.transcriptCache.keys().next().value;
@@ -281,61 +278,6 @@ export class SnapshotReader implements ISnapshotReader {
 interface ContextRecord {
   readonly type: string;
   readonly [key: string]: unknown;
-}
-
-/**
- * Reduce folded `context.*` wire records into the live `ContextMessage[]` view,
- * routing through the exact `contextOps.ts` reducers (`foldAppendMessage` /
- * `foldLoopEvent` / `resetFold`) so the result is byte-identical to the live
- * `IAgentContextMemoryService.get()` view:
- *   append_message → push (deferred while a tool exchange is open) ·
- *   append_loop_event → v1 fold (step/content/tool) · splice → array splice ·
- *   clear → drop all · apply_compaction → `[summary, ...state.slice(compactedCount)]` ·
- *   undo → trailing cut.
- */
-export function reduceContextRecords(records: Iterable<ContextRecord>): ContextMessage[] {
-  let state: readonly ContextMessage[] = [];
-  for (const record of records) {
-    switch (record.type) {
-      case 'context.append_message': {
-        state = foldAppendMessage(state, record['message'] as ContextMessage);
-        break;
-      }
-      case 'context.append_loop_event': {
-        state = foldLoopEvent(state, record['event'] as LoopRecordedEvent);
-        break;
-      }
-      case 'context.splice': {
-        const start = record['start'] as number;
-        const deleteCount = record['deleteCount'] as number;
-        const messages = record['messages'] as readonly ContextMessage[];
-        if (deleteCount === 0 && messages.length === 0) break;
-        const next = state.slice();
-        next.splice(start, deleteCount, ...messages);
-        state = resetFold(next);
-        break;
-      }
-      case 'context.clear': {
-        if (state.length !== 0) state = resetFold([]);
-        break;
-      }
-      case 'context.apply_compaction': {
-        state = applyContextCompactionRecord(state, record);
-        break;
-      }
-      case 'context.undo': {
-        const count = record['count'] as number;
-        if (count <= 0 || state.length === 0) break;
-        const { cutIndex, removedCount } = computeUndoCut(state, count);
-        if (cutIndex < 0 || removedCount < count) break;
-        state = resetFold(state.slice(0, cutIndex));
-        break;
-      }
-      default:
-        break;
-    }
-  }
-  return state as ContextMessage[];
 }
 
 /**
