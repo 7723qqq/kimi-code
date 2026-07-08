@@ -36,6 +36,7 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IAgentWireRecordService, type WireRecord } from '#/agent/wireRecord/wireRecord';
 import { IAgentWireService } from '#/wire/tokens';
 import type { IWireService } from '#/wire/wireService';
 import {
@@ -150,6 +151,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     @IFileSystemStorageService byteStore: IFileSystemStorageService,
     @ISessionContext session: ISessionContext,
     @ITaskService private readonly taskService: ITaskService,
+    @IAgentWireRecordService wireRecord: IAgentWireRecordService,
     @IAgentWireService private readonly wire: IWireService,
     @IEventBus private readonly eventBus: IEventBus,
   ) {
@@ -170,26 +172,40 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
         }
       }),
     );
+    this._register(
+      wireRecord.hooks.onRestoredRecord.register(
+        'task-delivered-notifications',
+        async (ctx, next) => {
+          this.markDeliveredNotificationsFromRecord(ctx.record);
+          await next();
+        },
+      ),
+    );
   }
 
-  private restoreAfterReplay(): void {
+  private async restoreAfterReplay(): Promise<void> {
     // `wire.replay` has rebuilt `TaskModel` from the persisted task.started /
     // task.terminated records. Seed the restored "ghosts" from it first (the
     // wire-replay contribution), THEN load from disk and reconcile — all inside
     // this single onRestored handler so the ordering (wire ghosts -> disk
     // ghosts -> reconcile) holds. loadFromDisk / reconcile are async (disk
-    // I/O); they chain here and are never split across two hooks (splitting
-    // would lose or duplicate tasks). They run fire-and-forget relative to the
-    // synchronous `wire.replay`: there is no auto-started turn on resume, so
-    // the local-disk reconciliation completes before the first RPC turn.
+    // I/O); awaiting them keeps restore observable only after task state has
+    // reached the same shape as v1's resumed background-task manager.
     this.restoreGhostsFromWire();
-    void this.loadFromDisk({ replace: false }).then(() => this.reconcile());
+    await this.loadFromDisk({ replace: false });
+    await this.reconcile();
   }
 
   private restoreGhostsFromWire(): void {
     for (const [taskId, info] of this.wire.getModel(TaskModel)) {
       if (this.tasks.has(taskId)) continue;
       this.ghosts.set(taskId, info);
+    }
+  }
+
+  private markDeliveredNotificationsFromRecord(record: WireRecord): void {
+    for (const origin of taskOriginsFromRecord(record)) {
+      this.markDeliveredNotification(origin);
     }
   }
 
@@ -1028,12 +1044,38 @@ function newerRestoredTask(
 
 function isTaskOrigin(origin: unknown): origin is TaskOrigin {
   if (typeof origin !== 'object' || origin === null) return false;
-  const kind = (origin as { kind?: unknown }).kind;
-  return kind === 'task';
+  const value = origin as Record<string, unknown>;
+  return (
+    value['kind'] === 'task' &&
+    typeof value['taskId'] === 'string' &&
+    typeof value['status'] === 'string' &&
+    typeof value['notificationId'] === 'string'
+  );
 }
 
 function notificationKey(origin: TaskOrigin): string {
   return `${origin.taskId}\0${origin.status}\0${origin.notificationId}`;
+}
+
+function taskOriginsFromRecord(record: WireRecord): readonly TaskOrigin[] {
+  const raw = record as {
+    readonly type: string;
+    readonly message?: unknown;
+    readonly messages?: unknown;
+  };
+  if (raw.type === 'context.append_message') {
+    return taskOriginFromMessage(raw.message);
+  }
+  if (raw.type === 'context.splice' && Array.isArray(raw.messages)) {
+    return raw.messages.flatMap(taskOriginFromMessage);
+  }
+  return [];
+}
+
+function taskOriginFromMessage(message: unknown): readonly TaskOrigin[] {
+  if (typeof message !== 'object' || message === null) return [];
+  const origin = (message as { readonly origin?: unknown }).origin;
+  return isTaskOrigin(origin) ? [origin] : [];
 }
 
 function buildAgentTaskNotificationBody(info: AgentTaskInfo): string {
