@@ -38,6 +38,15 @@ const DEFAULT_PING_INTERVAL_MS = 30_000;
 const DEFAULT_PONG_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BUFFER_SIZE = 1000;
 
+// Outbound send buffer — coalesces a burst of frames (notably high-frequency
+// volatile text deltas) into fewer `socket.send` calls and applies backpressure
+// when the peer is not draining fast enough. See `flush()` / `coalesceFrames`.
+const DEFAULT_FLUSH_INTERVAL_MS = 16;
+const DEFAULT_MAX_BATCH_SIZE = 64;
+const DEFAULT_HIGH_WATER_MARK_BYTES = 1 << 20; // 1 MiB
+const DEFAULT_BACKPRESSURE_RETRY_MS = 5;
+const DEFAULT_BACKPRESSURE_MAX_DELAY_MS = 100;
+
 interface InboundFrame {
   type: string;
   id?: string;
@@ -62,6 +71,12 @@ export interface WsConnectionV1Options {
   readonly pingIntervalMs?: number;
   readonly pongTimeoutMs?: number;
   readonly maxBufferSize?: number;
+  /** Delay before a buffered batch is flushed; coalesces frames within the window. */
+  readonly flushIntervalMs?: number;
+  /** Flush immediately once this many frames are queued, even before the interval. */
+  readonly maxBatchSize?: number;
+  /** `socket.bufferedAmount` above which flushing is deferred (backpressure). */
+  readonly highWaterMarkBytes?: number;
 }
 
 export class WsConnectionV1 implements BroadcastTarget {
@@ -76,6 +91,9 @@ export class WsConnectionV1 implements BroadcastTarget {
   private readonly pingIntervalMs: number;
   private readonly pongTimeoutMs: number;
   private readonly maxBufferSize: number;
+  private readonly flushIntervalMs: number;
+  private readonly maxBatchSize: number;
+  private readonly highWaterMarkBytes: number;
   private readonly logger?: JournalLogger;
 
   private closed = false;
@@ -85,6 +103,13 @@ export class WsConnectionV1 implements BroadcastTarget {
 
   private pingTimer?: ReturnType<typeof setInterval>;
   private pongTimer?: ReturnType<typeof setTimeout>;
+
+  /** Outbound frames awaiting the next flush. */
+  private outbound: unknown[] = [];
+  private flushTimer?: ReturnType<typeof setTimeout>;
+  private backpressureRetryTimer?: ReturnType<typeof setTimeout>;
+  /** Epoch ms when the current backpressure deferral started; caps the wait. */
+  private backpressureSince?: number;
 
   constructor(opts: WsConnectionV1Options) {
     this.id = `conn_${ulid()}`;
@@ -98,6 +123,9 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.pingIntervalMs = opts.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS;
     this.pongTimeoutMs = opts.pongTimeoutMs ?? DEFAULT_PONG_TIMEOUT_MS;
     this.maxBufferSize = opts.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
+    this.flushIntervalMs = opts.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
+    this.maxBatchSize = opts.maxBatchSize ?? DEFAULT_MAX_BATCH_SIZE;
+    this.highWaterMarkBytes = opts.highWaterMarkBytes ?? DEFAULT_HIGH_WATER_MARK_BYTES;
 
     this.socket.on('message', (data: RawData) => this.onMessage(data));
     this.socket.on('close', () => this.onClose());
@@ -325,16 +353,85 @@ export class WsConnectionV1 implements BroadcastTarget {
   }
 
   private sendFrame(msg: unknown): void {
-    if (this.closed || this.socket.readyState !== this.socket.OPEN) return;
-    try {
-      this.socket.send(JSON.stringify(msg));
-    } catch {
-      // best-effort
+    if (this.closed) return;
+    this.outbound.push(msg);
+    if (this.outbound.length >= this.maxBatchSize) {
+      // Batch is full — flush now rather than wait for the interval.
+      this.flush();
+      return;
     }
+    this.scheduleFlush();
+  }
+
+  private scheduleFlush(): void {
+    if (this.flushTimer !== undefined) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = undefined;
+      this.flush();
+    }, this.flushIntervalMs);
+    this.flushTimer.unref?.();
+  }
+
+  /**
+   * Drain the outbound buffer: coalesce adjacent compatible volatile deltas,
+   * then write the surviving frames to the socket. When the peer is not
+   * draining (`bufferedAmount` above the high-water mark) and `force` is not
+   * set, defer and keep accumulating — later deltas merge into the queued
+   * ones, so the frame count does not grow while we wait.
+   */
+  private flush(force = false): void {
+    if (this.flushTimer !== undefined) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = undefined;
+    }
+    if (this.outbound.length === 0) return;
+    if (this.closed || this.socket.readyState !== this.socket.OPEN) {
+      // Socket is gone — drop queued frames rather than send into a dead pipe.
+      this.outbound = [];
+      return;
+    }
+
+    if (!force && this.socket.bufferedAmount > this.highWaterMarkBytes) {
+      this.deferForBackpressure();
+      return;
+    }
+    this.backpressureSince = undefined;
+
+    const frames = coalesceFrames(this.outbound);
+    this.outbound = [];
+    for (const frame of frames) {
+      if (this.closed || this.socket.readyState !== this.socket.OPEN) return;
+      try {
+        this.socket.send(JSON.stringify(frame));
+      } catch {
+        // best-effort
+      }
+    }
+  }
+
+  private deferForBackpressure(): void {
+    const now = Date.now();
+    if (this.backpressureSince === undefined) this.backpressureSince = now;
+    if (now - this.backpressureSince >= DEFAULT_BACKPRESSURE_MAX_DELAY_MS) {
+      // Peer stayed above the watermark too long — force-flush to avoid
+      // starving the stream; the socket layer will buffer or drop.
+      this.flush(true);
+      return;
+    }
+    if (this.backpressureRetryTimer !== undefined) return;
+    this.backpressureRetryTimer = setTimeout(() => {
+      this.backpressureRetryTimer = undefined;
+      this.flush();
+    }, DEFAULT_BACKPRESSURE_RETRY_MS);
+    this.backpressureRetryTimer.unref?.();
   }
 
   close(code = 1000, reason?: string): void {
     if (this.closed) return;
+    // Best-effort: push out any queued frames (e.g. the tail of a delta
+    // stream) before tearing the socket down, so the client sees a complete
+    // stream rather than a truncated one.
+    this.flush(true);
     try {
       this.socket.close(code, reason);
     } catch {
@@ -347,6 +444,9 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.closed = true;
     if (this.pingTimer !== undefined) clearInterval(this.pingTimer);
     if (this.pongTimer !== undefined) clearTimeout(this.pongTimer);
+    if (this.flushTimer !== undefined) clearTimeout(this.flushTimer);
+    if (this.backpressureRetryTimer !== undefined) clearTimeout(this.backpressureRetryTimer);
+    this.outbound = [];
     for (const sid of this.subscriptions) this.broadcaster.unsubscribe(sid, this);
     // registry removal is handled by registerWsV1 on the socket 'close' event.
   }
@@ -362,4 +462,75 @@ function rawDataToString(data: RawData): string {
   if (Buffer.isBuffer(data)) return data.toString('utf8');
   if (Array.isArray(data)) return Buffer.concat(data).toString('utf8');
   return Buffer.from(data as ArrayBuffer).toString('utf8');
+}
+
+// ---------------------------------------------------------------------------
+// Outbound coalescing
+// ---------------------------------------------------------------------------
+
+/** A volatile text-delta envelope that can be merged with an adjacent one. */
+interface CoalescableDelta {
+  type: 'assistant.delta' | 'thinking.delta';
+  seq: number;
+  volatile: true;
+  offset?: number;
+  session_id?: string;
+  timestamp: string;
+  payload: {
+    agentId?: string;
+    turnId?: number;
+    delta: string;
+    [key: string]: unknown;
+  };
+}
+
+function isCoalescableDelta(frame: unknown): frame is CoalescableDelta {
+  if (typeof frame !== 'object' || frame === null) return false;
+  const f = frame as Record<string, unknown>;
+  if (f['volatile'] !== true) return false;
+  const type = f['type'];
+  if (type !== 'assistant.delta' && type !== 'thinking.delta') return false;
+  const payload = f['payload'];
+  if (typeof payload !== 'object' || payload === null) return false;
+  return typeof (payload as Record<string, unknown>)['delta'] === 'string';
+}
+
+/**
+ * Merge adjacent compatible volatile text deltas into a single envelope.
+ *
+ * Two adjacent frames merge when both are `volatile` `assistant.delta` /
+ * `thinking.delta` of the same type, addressed to the same session, agent,
+ * and turn. The merged frame keeps the first frame's `seq` / `offset` /
+ * `timestamp` and concatenates `payload.delta` in order — the client's
+ * offset-based alignment against the in-flight snapshot stays correct
+ * (the broadcaster's per-session dispatch queue guarantees consecutive deltas
+ * for a turn carry consecutive offsets).
+ *
+ * Durable events, control frames, and non-text deltas are never merged, and
+ * merging never crosses a non-mergeable frame, so overall ordering is
+ * preserved. The input frames are not mutated; merged results are fresh
+ * objects. Exported for unit testing.
+ */
+export function coalesceFrames(frames: readonly unknown[]): unknown[] {
+  const out: unknown[] = [];
+  for (const frame of frames) {
+    const last = out.at(-1);
+    if (
+      last !== undefined &&
+      isCoalescableDelta(last) &&
+      isCoalescableDelta(frame) &&
+      last.type === frame.type &&
+      last.session_id === frame.session_id &&
+      last.payload.agentId === frame.payload.agentId &&
+      last.payload.turnId === frame.payload.turnId
+    ) {
+      out[out.length - 1] = {
+        ...last,
+        payload: { ...last.payload, delta: last.payload.delta + frame.payload.delta },
+      };
+    } else {
+      out.push(frame);
+    }
+  }
+  return out;
 }
