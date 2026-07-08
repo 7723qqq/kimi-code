@@ -986,7 +986,11 @@ describe('FullCompaction', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     await failed;
 
-    expect(attempts).toBe(5);
+    // The four-message compacted prefix shrinks on each truncated response.
+    // Once only one message remains, it cannot shrink further, so the
+    // CompactionTruncatedError fails immediately instead of falling through to
+    // generic retry attempts.
+    expect(attempts).toBe(4);
     expect(ctx.newEvents()).toContainEqual(
       expect.objectContaining({
         event: 'error',
@@ -998,6 +1002,7 @@ describe('FullCompaction', () => {
         }),
       }),
     );
+    vi.useRealTimers();
     await ctx.expectResumeMatches();
   });
 
