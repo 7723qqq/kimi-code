@@ -127,7 +127,7 @@ describe('Agent task notification XML', () => {
       id: 'n_"1&2',
       category: 'task',
       type: 'task.done',
-      source_kind: 'task',
+      source_kind: 'background_task',
       source_id: 'bg&1',
       title: 'Task finished',
       severity: 'info',
@@ -158,12 +158,12 @@ describe('Agent task notification XML', () => {
       id: 'n_lost1',
       category: 'task',
       type: 'task.lost',
-      source_kind: 'task',
+      source_kind: 'background_task',
       source_id: 'agent-w7gq3wwj',
       agent_id: 'agent-0',
-      title: 'Task agent lost',
+      title: 'Background agent lost',
       severity: 'warning',
-      body: 'Task agent 1 lost.',
+      body: 'Background agent 1 lost.',
     });
 
     expect(text).toContain('source_id="agent-w7gq3wwj"');
@@ -175,9 +175,9 @@ describe('Agent task notification XML', () => {
       id: 'n_bash',
       category: 'task',
       type: 'task.completed',
-      source_kind: 'task',
+      source_kind: 'background_task',
       source_id: 'bash-abcdef00',
-      title: 'Task completed',
+      title: 'Background task completed',
       severity: 'info',
       body: 'echo done completed.',
     });

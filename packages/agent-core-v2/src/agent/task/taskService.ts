@@ -68,7 +68,7 @@ type AgentTaskNotification = Record<string, unknown> & {
   readonly id: string;
   readonly category: 'task';
   readonly type: string;
-  readonly source_kind: 'task';
+  readonly source_kind: 'background_task';
   readonly source_id: string;
   readonly agent_id?: string | undefined;
   readonly title: string;
@@ -658,7 +658,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     if (maxRunningTasks === undefined) return;
     if (!detached) return;
     if (this.activeTaskCount() < maxRunningTasks) return;
-    throw new Error('Too many detached tasks are already running.');
+    throw new Error('Too many background tasks are already running.');
   }
 
   private taskConfig(): AgentTaskConfig | undefined {
@@ -815,16 +815,16 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
 
   private recordTaskStarted(info: AgentTaskInfo): void {
     this.wire.dispatch(taskStarted({ info }));
-    this.telemetry.track('task_created', {
+    this.telemetry.track('background_task_created', {
       kind: info.kind === 'process' ? 'bash' : info.kind,
     });
   }
 
   private recordTaskTerminated(info: AgentTaskInfo): void {
     this.wire.dispatch(taskTerminated({ info }));
-    this.telemetry.track('task_completed', {
+    this.telemetry.track('background_task_completed', {
       kind: info.kind,
-      duration: info.endedAt !== null ? info.endedAt - info.startedAt : null,
+      duration_ms: info.endedAt !== null ? info.endedAt - info.startedAt : null,
       status: info.status,
     });
   }
@@ -886,10 +886,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       id: origin.notificationId,
       category: 'task',
       type: `task.${info.status}`,
-      source_kind: 'task',
+      source_kind: 'background_task',
       source_id: info.taskId,
       agent_id: info.kind === 'agent' ? info.agentId : undefined,
-      title: `Task ${info.kind} ${info.status}`,
+      title: `Background ${info.kind} ${info.status}`,
       severity: info.status === 'completed' ? 'info' : 'warning',
       body: buildAgentTaskNotificationBody(info),
       children: agentTaskNotificationChildren(output),
@@ -922,7 +922,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     );
   }
 
-  private markDeliveredNotification(origin: TaskOrigin): void {
+  private markDeliveredNotification(origin: TaskNotificationOrigin): void {
     this.deliveredNotificationKeys.add(notificationKey(origin));
   }
 
@@ -1042,22 +1042,24 @@ function newerRestoredTask(
   return loaded;
 }
 
-function isTaskOrigin(origin: unknown): origin is TaskOrigin {
+type TaskNotificationOrigin = Pick<TaskOrigin, 'taskId' | 'status' | 'notificationId'>;
+
+function isTaskOrigin(origin: unknown): origin is TaskNotificationOrigin {
   if (typeof origin !== 'object' || origin === null) return false;
   const value = origin as Record<string, unknown>;
   return (
-    value['kind'] === 'task' &&
+    (value['kind'] === 'background_task' || value['kind'] === 'task') &&
     typeof value['taskId'] === 'string' &&
     typeof value['status'] === 'string' &&
     typeof value['notificationId'] === 'string'
   );
 }
 
-function notificationKey(origin: TaskOrigin): string {
+function notificationKey(origin: TaskNotificationOrigin): string {
   return `${origin.taskId}\0${origin.status}\0${origin.notificationId}`;
 }
 
-function taskOriginsFromRecord(record: WireRecord): readonly TaskOrigin[] {
+function taskOriginsFromRecord(record: WireRecord): readonly TaskNotificationOrigin[] {
   const raw = record as {
     readonly type: string;
     readonly message?: unknown;
@@ -1072,7 +1074,7 @@ function taskOriginsFromRecord(record: WireRecord): readonly TaskOrigin[] {
   return [];
 }
 
-function taskOriginFromMessage(message: unknown): readonly TaskOrigin[] {
+function taskOriginFromMessage(message: unknown): readonly TaskNotificationOrigin[] {
   if (typeof message !== 'object' || message === null) return [];
   const origin = (message as { readonly origin?: unknown }).origin;
   return isTaskOrigin(origin) ? [origin] : [];
@@ -1094,7 +1096,7 @@ function buildAgentTaskNotificationBody(info: AgentTaskInfo): string {
   const recovery = [
     '',
     `To recover or continue this subagent, call Agent(resume="${agentId}", prompt="Pick up where you left off; redo the last tool call if its result was never observed.").`,
-    `Use agent_id ("${agentId}"), NOT source_id / task_id ("${info.taskId}") because the two look alike but only agent_id is accepted by the resume parameter.`,
+    `Use agent_id ("${agentId}"), NOT source_id / task_id ("${info.taskId}") — the two look alike but only agent_id is accepted by the resume parameter.`,
     'Add run_in_background=true to keep it backgrounded, or omit it to take the result inline in the current turn.',
     'The subagent retains its full prior context across the restart, but any in-flight tool call lost its result and may need to be redone.',
   ].join('\n');

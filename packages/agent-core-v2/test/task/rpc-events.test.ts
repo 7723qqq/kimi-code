@@ -286,7 +286,7 @@ describe('AgentTaskService — event emission', () => {
         status: 'running',
       }),
     });
-    expect(agent.telemetry.track).toHaveBeenCalledWith('task_created', {
+    expect(agent.telemetry.track).toHaveBeenCalledWith('background_task_created', {
       kind: 'bash',
     });
   });
@@ -305,7 +305,7 @@ describe('AgentTaskService — event emission', () => {
         status: 'running',
       }),
     });
-    expect(agent.telemetry.track).toHaveBeenCalledWith('task_created', {
+    expect(agent.telemetry.track).toHaveBeenCalledWith('background_task_created', {
       kind: 'agent',
     });
   });
@@ -325,10 +325,10 @@ describe('AgentTaskService — event emission', () => {
       }),
     });
     expect(agent.telemetry.track).toHaveBeenCalledWith(
-      'task_completed',
+      'background_task_completed',
       expect.objectContaining({
         kind: 'process',
-        duration: expect.any(Number),
+        duration_ms: expect.any(Number),
         status: 'completed',
       }),
     );
@@ -349,11 +349,11 @@ describe('AgentTaskService — event emission', () => {
     await timedOut;
 
     expect(agent.telemetry.track).toHaveBeenCalledWith(
-      'task_completed',
+      'background_task_completed',
       expect.objectContaining({ kind: 'process', status: 'failed' }),
     );
     expect(agent.telemetry.track).toHaveBeenCalledWith(
-      'task_completed',
+      'background_task_completed',
       expect.objectContaining({ kind: 'agent', status: 'timed_out' }),
     );
   });
@@ -436,7 +436,7 @@ describe('AgentTaskService — notification delivery', () => {
     });
     const content = (message as { content: Array<{ text: string }> }).content;
     const text = content[0]!.text;
-    expect(text).toContain('Task agent completed');
+    expect(text).toContain('Background agent completed');
     expect(text).toContain('agent task completed.');
     expect(text).toContain('<output-file');
     expect(text).not.toContain('final subagent summary');
@@ -461,7 +461,7 @@ describe('AgentTaskService — notification delivery', () => {
     });
     const content = (message as { content: Array<{ text: string }> }).content;
     const text = content[0]!.text;
-    expect(text).toContain('Task process completed');
+    expect(text).toContain('Background process completed');
     expect(text).toContain('shell task completed.');
   });
 
@@ -484,7 +484,7 @@ describe('AgentTaskService — notification delivery', () => {
     });
     const content = (message as { content: Array<{ text: string }> }).content;
     expect(content[0]!.text).toContain(
-      'Task process killed',
+      'Background process killed',
     );
   });
 
@@ -513,7 +513,7 @@ describe('AgentTaskService — notification delivery', () => {
         notificationId: 'task:agent-done0000:completed',
       });
       const text = message.content[0]!.text;
-      expect(text).toContain('Task agent completed');
+      expect(text).toContain('Background agent completed');
       expect(text).not.toContain('restored subagent summary');
       expect(text).toContain('<output-file');
       expect(text).toContain(persistence.taskOutputFile('agent-done0000'));
@@ -547,7 +547,7 @@ describe('AgentTaskService — notification delivery', () => {
         notificationId: 'task:bash-done0000:completed',
       });
       const text = message.content[0]!.text;
-      expect(text).toContain('Task process completed');
+      expect(text).toContain('Background process completed');
       expect(text).not.toContain('restored shell output');
       expect(text).toContain('<output-file');
       expect(text).toContain(persistence.taskOutputFile('bash-done0000'));
@@ -654,7 +654,7 @@ describe('AgentTaskService — notification delivery', () => {
         notificationId: 'task:agent-run00000:lost',
       });
       expect(message.content[0]!.text).toContain(
-        'Task agent lost',
+        'Background agent lost',
       );
     } finally {
       await cleanupSessionDir(sessionDir, fixture);
@@ -684,10 +684,10 @@ describe('AgentTaskService — notification delivery', () => {
       inputData: {
         sink: 'context',
         notificationType: 'task.completed',
-        title: 'Task agent completed',
+        title: 'Background agent completed',
         body: 'inspect repository completed.',
         severity: 'info',
-        sourceKind: 'task',
+        sourceKind: 'background_task',
         sourceId: taskId,
       },
     }));
@@ -733,10 +733,10 @@ describe('AgentTaskService — notification delivery', () => {
       inputData: {
         sink: 'context',
         notificationType: 'task.completed',
-        title: 'Task process completed',
+        title: 'Background process completed',
         body: 'done completed.',
         severity: 'info',
-        sourceKind: 'task',
+        sourceKind: 'background_task',
         sourceId: taskId,
       },
     }));

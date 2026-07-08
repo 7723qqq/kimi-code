@@ -6,6 +6,7 @@ import { join } from 'pathe';
 import type { IProcess } from '#/session/process/processRunner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IAgentTaskService } from '#/agent/task/task';
+import { TERMINAL_STATUSES } from '#/agent/task/types';
 import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
 import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
 import { taskServices, createTestAgent, homeDirServices, type TestAgentContext } from '../harness';
@@ -49,6 +50,31 @@ async function waitForOutput(
   throw new Error(`Timed out waiting for output: ${expected}`);
 }
 
+async function waitForTaskNotifications(
+  ctx: TestAgentContext,
+  manager: TaskServiceTestManager,
+): Promise<void> {
+  const tasks = manager.list(false).filter(
+    (task) =>
+      TERMINAL_STATUSES.has(task.status) &&
+      task.detached !== false &&
+      task.terminalNotificationSuppressed !== true,
+  );
+  if (tasks.length === 0) return;
+
+  await vi.waitFor(() => {
+    const origins = ctx.context.get().map((message) => message.origin);
+    for (const task of tasks) {
+      expect(origins).toContainEqual({
+        kind: 'task',
+        taskId: task.taskId,
+        status: task.status,
+        notificationId: `task:${task.taskId}:${task.status}`,
+      });
+    }
+  });
+}
+
 function immediateProcess(exitCode: number, stdoutText = ''): IProcess {
   return {
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
@@ -78,6 +104,7 @@ describe('AgentTaskService — readOutput / getOutputSnapshot', () => {
 
   afterEach(async () => {
     try {
+      await waitForTaskNotifications(ctx, manager);
       await ctx.expectResumeMatches();
     } finally {
       await ctx.dispose();

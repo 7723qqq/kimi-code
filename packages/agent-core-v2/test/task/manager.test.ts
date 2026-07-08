@@ -523,7 +523,7 @@ describe('AgentTaskService', () => {
 
     expect(() => {
       manager.registerTask(agentTask(new Promise(() => {}), 'second background'));
-    }).toThrow('Too many detached tasks are already running.');
+    }).toThrow('Too many background tasks are already running.');
   });
 
   it('does not count foreground tasks detached later against the detached task limit', () => {
@@ -539,7 +539,7 @@ describe('AgentTaskService', () => {
 
     expect(() => {
       manager.registerTask(agentTask(new Promise(() => {}), 'second background'));
-    }).toThrow('Too many detached tasks are already running.');
+    }).toThrow('Too many background tasks are already running.');
   });
 
   it('lists active tasks by default', () => {
@@ -603,10 +603,10 @@ describe('AgentTaskService', () => {
 
     expect(() => {
       registerProcess(manager, pendingProcess().proc, 'sleep 60', 'second task');
-    }).toThrow('Too many detached tasks are already running.');
+    }).toThrow('Too many background tasks are already running.');
     expect(() => {
       manager.registerTask(agentTask(new Promise(() => {}), 'agent task'));
-    }).toThrow('Too many detached tasks are already running.');
+    }).toThrow('Too many background tasks are already running.');
   });
 
   it('captures process output', async () => {
