@@ -48,6 +48,7 @@ import { resolveThinkingEffortForModel } from './thinking';
 /** Shape of the `thinking` config section (owned by `profile`); only the
  *  fields the resolver needs to mirror the production default are read here. */
 interface ThinkingSection {
+  readonly enabled?: boolean;
   readonly mode?: string;
   readonly effort?: string;
 }
@@ -175,6 +176,7 @@ export class ModelResolverService extends Disposable implements IModelResolver {
       undefined,
       {
         defaultThinking,
+        enabled: thinking?.enabled,
         mode: thinking?.mode,
         effort: thinking?.effort,
       },

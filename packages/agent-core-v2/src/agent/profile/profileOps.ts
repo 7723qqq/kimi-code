@@ -3,11 +3,13 @@
  * Op (`configUpdate`) for the agent's persistent configuration slice.
  *
  * Declares the persistent profile config — `cwd`, `modelAlias`, `profileName`,
- * the resolved `thinkingLevel`, and `systemPrompt` — as a wire Model (initial
+ * the resolved thinking effort, and `systemPrompt` — as a wire Model (initial
  * `defaultProfileModel()`), plus the single Op whose `apply` is a pure merge of
- * an already-resolved payload. `thinkingLevel` is resolved to a `ThinkingEffort`
- * at the call site (via `resolveThinkingEffort` + the `thinking` config section)
- * and carried in the payload, so `apply` stays pure and a resumed agent restores
+ * an already-resolved payload. Live records carry `thinkingEffort` (matching
+ * the v1 wire field); legacy replay still accepts `thinkingLevel`. The value is
+ * resolved to a `ThinkingEffort` at the call site (via `resolveThinkingEffort` +
+ * the `thinking` config section) and carried in the payload, so `apply` stays
+ * pure and a resumed agent restores
  * the persisted resolved value rather than re-resolving against a possibly-
  * drifted config. `modelCapabilities` is intentionally NOT in the Model — it is
  * derived live from `IModelResolver` so resume never pins stale capabilities.
@@ -27,6 +29,7 @@
  */
 
 import type { ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
+import { ErrorCodes, KimiError } from '#/errors';
 import { defineModel } from '#/wire/model';
 import { defineOp } from '#/wire/op';
 
@@ -47,6 +50,7 @@ export interface ConfigUpdatePayload {
   readonly cwd?: string;
   readonly modelAlias?: string;
   readonly profileName?: string;
+  readonly thinkingEffort?: ThinkingEffort;
   readonly thinkingLevel?: ThinkingEffort;
   readonly systemPrompt?: string;
 }
@@ -63,8 +67,9 @@ export const configUpdate = defineOp(ProfileModel, 'config.update', {
     if (p.profileName !== undefined && p.profileName !== s.profileName) {
       next = { ...(next ?? s), profileName: p.profileName };
     }
-    if (p.thinkingLevel !== undefined && p.thinkingLevel !== s.thinkingLevel) {
-      next = { ...(next ?? s), thinkingLevel: p.thinkingLevel };
+    const thinkingLevel = configUpdateThinkingLevel(p);
+    if (thinkingLevel !== undefined && thinkingLevel !== s.thinkingLevel) {
+      next = { ...(next ?? s), thinkingLevel };
     }
     if (p.systemPrompt !== undefined && p.systemPrompt !== s.systemPrompt) {
       next = { ...(next ?? s), systemPrompt: p.systemPrompt };
@@ -72,6 +77,27 @@ export const configUpdate = defineOp(ProfileModel, 'config.update', {
     return next ?? s;
   },
 });
+
+function configUpdateThinkingLevel(p: ConfigUpdatePayload): ThinkingEffort | undefined {
+  if (p.thinkingEffort !== undefined && p.thinkingLevel !== undefined) {
+    if (p.thinkingEffort !== p.thinkingLevel) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        `config.update has conflicting thinkingEffort (${p.thinkingEffort}) and legacy thinkingLevel (${p.thinkingLevel})`,
+        {
+          details: {
+            type: 'config.update',
+            thinkingEffort: p.thinkingEffort,
+            thinkingLevel: p.thinkingLevel,
+          },
+        },
+      );
+    }
+    return p.thinkingEffort;
+  }
+  if (p.thinkingEffort !== undefined) return p.thinkingEffort;
+  return p.thinkingLevel;
+}
 
 /**
  * The agent's active-tool set. `undefined` means "every tool is active" (the

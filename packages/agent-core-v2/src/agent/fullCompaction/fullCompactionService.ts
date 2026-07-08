@@ -42,11 +42,11 @@ import {
   fullCompactionBegin,
   fullCompactionCancel,
   fullCompactionComplete,
+  type FullCompactionCompletePayload,
 } from './compactionOps';
 import {
   type CompactionBeginData,
   type CompactionResult,
-  type FullCompactionCompleteData,
 } from './types';
 import { OrderedHookSlot } from '#/hooks';
 
@@ -60,7 +60,7 @@ declare module '#/agent/wireRecord/wireRecord' {
   interface WireRecordMap {
     'full_compaction.begin': CompactionBeginData;
     'full_compaction.cancel': {};
-    'full_compaction.complete': FullCompactionCompleteData;
+    'full_compaction.complete': FullCompactionCompletePayload;
   }
 }
 
@@ -207,9 +207,9 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     return true;
   }
 
-  private markCompleted(active: ActiveCompaction, result: FullCompactionCompleteData): boolean {
+  private markCompleted(active: ActiveCompaction): boolean {
     if (this._compacting !== active) return false;
-    this.wire.dispatch(fullCompactionComplete(result));
+    this.wire.dispatch(fullCompactionComplete({}));
     this._compacting = null;
     return true;
   }
@@ -357,7 +357,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
 
       if (this._compacting !== active) throw compactionCancelledReason(active);
       this.lastCompactedTokenCount = finalResult.tokensAfter;
-      if (!this.markCompleted(active, completeData(finalResult))) {
+      if (!this.markCompleted(active)) {
         throw compactionCancelledReason(active);
       }
       const { contextSummary: _contextSummary, ...eventResult } = finalResult;
@@ -574,17 +574,6 @@ function collectSummary(finish: LLMRequestFinish): CompactionAttemptResult {
   }
 
   return { summary, usage: finish.usage };
-}
-
-function completeData(result: CompactionResult): FullCompactionCompleteData {
-  return {
-    compactedCount: result.compactedCount,
-    tokensBefore: result.tokensBefore,
-    tokensAfter: result.tokensAfter,
-    keptUserMessageCount: result.keptUserMessageCount,
-    keptHeadUserMessageCount: result.keptHeadUserMessageCount,
-    droppedCount: result.droppedCount,
-  };
 }
 
 function historySafeToCompact(

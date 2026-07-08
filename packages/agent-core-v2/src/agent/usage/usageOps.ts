@@ -15,6 +15,7 @@
 import { addUsage, type TokenUsage } from '#/app/llmProtocol/usage';
 import type { LLMRequestSource } from '#/agent/llmRequester/llmRequester';
 import type { AgentPhase } from '#/agent/runtime/runtime';
+import { ErrorCodes, KimiError } from '#/errors';
 import { defineModel } from '#/wire/model';
 import { defineOp } from '#/wire/op';
 
@@ -46,29 +47,29 @@ export interface UsageModelState {
 
 export const UsageModel = defineModel<UsageModelState>('usage', () => ({ byModel: {} }));
 
+export interface UsageRecordPayload {
+  readonly model: string;
+  readonly usage: TokenUsage;
+  readonly usageScope?: UsageRecordScope;
+  readonly turnId?: number;
+  readonly context?: LLMRequestSource;
+}
+
 export const recordUsage = defineOp(UsageModel, 'usage.record', {
-  apply: (
-    s,
-    p: {
-      model: string;
-      usage: TokenUsage;
-      usageScope?: UsageRecordScope;
-      context?: LLMRequestSource;
-    },
-  ): UsageModelState => {
+  apply: (s, p: UsageRecordPayload): UsageModelState => {
     const current = s.byModel[p.model];
     const byModel = {
       ...s.byModel,
       [p.model]: current === undefined ? copyUsage(p.usage) : addUsage(current, p.usage),
     };
 
-    const source = p.context;
-    if (source?.type !== 'turn') {
+    const turnId = turnIdFromUsagePayload(p);
+    if (turnId === undefined) {
       return { byModel, currentTurnId: s.currentTurnId, currentTurn: s.currentTurn };
     }
 
-    if (s.currentTurnId !== source.turnId) {
-      return { byModel, currentTurnId: source.turnId, currentTurn: copyUsage(p.usage) };
+    if (s.currentTurnId !== turnId) {
+      return { byModel, currentTurnId: turnId, currentTurn: copyUsage(p.usage) };
     }
     return {
       byModel,
@@ -82,6 +83,26 @@ export const recordUsage = defineOp(UsageModel, 'usage.record', {
     usage: usageStatusFromState(state),
   }),
 });
+
+function turnIdFromUsagePayload(p: UsageRecordPayload): number | undefined {
+  const legacyContext = p.context;
+  const legacyTurnId = legacyContext?.type === 'turn' ? legacyContext.turnId : undefined;
+  if (p.turnId !== undefined && legacyTurnId !== undefined && p.turnId !== legacyTurnId) {
+    throw new KimiError(
+      ErrorCodes.REQUEST_INVALID,
+      `usage.record has conflicting turnId (${p.turnId}) and legacy context turnId (${legacyTurnId})`,
+      {
+        details: {
+          type: 'usage.record',
+          turnId: p.turnId,
+          legacyTurnId,
+        },
+      },
+    );
+  }
+  if (p.turnId !== undefined) return p.turnId;
+  return legacyTurnId;
+}
 
 function copyUsage(usage: TokenUsage): TokenUsage {
   return { ...usage };
