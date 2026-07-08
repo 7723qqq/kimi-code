@@ -192,22 +192,22 @@ describe('AgentRuntimeService', () => {
     expect(svc.phase()).toMatchObject({ kind: 'streaming', stream: 'assistant' });
   });
 
-  it('only persists genuine phase transitions (sparse wire log)', async () => {
+  it('never persists runtime.set_phase (live-only)', async () => {
     startTurn();
     eventBus.publish({ type: 'assistant.delta', turnId: 1, delta: 'a' });
     eventBus.publish({ type: 'assistant.delta', turnId: 1, delta: 'b' });
     eventBus.publish({ type: 'assistant.delta', turnId: 1, delta: 'c' });
     eventBus.publish({ type: 'turn.ended', turnId: 1, reason: 'completed', durationMs: 1 });
 
-    const types = (await readRecords()).map((r) => r.type);
-    expect(types.filter((t) => t === 'runtime.set_phase')).toHaveLength(4);
+    expect(await readRecords()).toEqual([]);
   });
 
-  it('replay rebuilds the last phase silently (no agent.status.updated emitted)', async () => {
+  it('fresh replay leaves the phase at idle silently (no persisted phase records)', async () => {
     startTurn();
     eventBus.publish({ type: 'assistant.delta', turnId: 1, delta: 'hi' });
     eventBus.publish({ type: 'turn.ended', turnId: 1, reason: 'completed', durationMs: 5 });
     const records = await readRecords();
+    expect(records).toEqual([]);
 
     const ix2 = disposables.add(new TestInstantiationService());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
@@ -222,7 +222,7 @@ describe('AgentRuntimeService', () => {
 
     await fresh.replay(...records);
 
-    expect(fresh.getModel(RuntimeModel).phase).toMatchObject({ kind: 'ended', reason: 'completed' });
+    expect(fresh.getModel(RuntimeModel).phase).toEqual({ kind: 'idle' });
     expect(emitted.filter((e) => e.type === 'agent.status.updated')).toHaveLength(0);
   });
 });

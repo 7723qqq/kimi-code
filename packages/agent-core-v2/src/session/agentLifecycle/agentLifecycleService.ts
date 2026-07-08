@@ -59,7 +59,6 @@ import {
   AgentWireRecordService,
   WIRE_RECORD_FILENAME,
 } from '#/agent/wireRecord/wireRecordService';
-import { serializeV1WireRecord } from '#/agent/wireRecord/v1WireSerializer';
 import { type WireMetadataPayload, wireMetadata } from '#/agent/wireRecord/metadataOps';
 import { IAgentWireService } from '#/wire/tokens';
 import { WireService } from '#/wire/wireServiceImpl';
@@ -160,7 +159,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
               {
                 logScope: agentScope,
                 logKey: WIRE_RECORD_FILENAME,
-                serializeRecord: serializeV1WireRecord,
               },
             ]),
           ],

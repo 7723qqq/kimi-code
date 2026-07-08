@@ -32,6 +32,10 @@ export const PermissionRulesModel = defineModel<PermissionRulesModelState>('perm
 }));
 
 export const addPermissionRules = defineOp(PermissionRulesModel, 'permission.rules.add', {
+  // Live-only: `permission.rules.add` is not a v1 record type. Rules are not
+  // persisted — like v1, the host re-supplies them on resume; only approval
+  // results (`permission.record_approval_result`) ride the wire log.
+  persist: false,
   apply: (s, p: { rules: readonly PermissionRule[] }): PermissionRulesModelState => {
     if (p.rules.length === 0) return s;
     return { ...s, rules: [...s.rules, ...p.rules] };

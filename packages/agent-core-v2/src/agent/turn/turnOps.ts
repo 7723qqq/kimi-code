@@ -2,15 +2,18 @@
  * `turn` domain (L4) — wire Model (`TurnModel`) and the `turn.prompt` Op
  * (`promptTurn`) that advances the agent's monotonically-increasing turn id.
  *
- * Declares the next turn id as a wire Model (initial `0`) plus the Op whose
- * `apply` is the pure extraction of the former live `restorePrompt` facet:
- * `nextTurnId` becomes `max(current, turnId + 1)` for an integer payload,
- * returning the same reference when the payload does not advance the counter
- * (so the wire's reference-equality gate stays quiet). Every turn is launched
- * through `turnService.launch`, so the counter is fully restored from `turn.prompt`
- * records alone (no separate observe mechanism is needed). The `turn.started` /
- * `turn.ended` / `error` signals are not part of this Op and remain on their
- * existing path. Consumed by the Agent-scope `turnService`.
+ * Declares the next turn id as a wire Model (initial `0`). The persisted
+ * `turn.prompt` record carries exactly v1's field set (`{ input, origin }` —
+ * no `turnId`), and `apply` mirrors v1's `restorePrompt()`: every record
+ * advances the counter by one, so the counter is restored by counting launches.
+ * Every turn is launched through `turnService.launch`, which dispatches one
+ * `turn.prompt` per launch. As a belt-and-suspenders for v1-written logs whose
+ * internally-driven turns (goal continuations) have no `turn.prompt` record,
+ * `TurnModel` also registers a cross-model reducer on
+ * `context.append_loop_event` that raises the counter past any `turnId`
+ * observed in a replayed loop event — the v1 `observeRestoredTurnId` semantics.
+ * The `turn.started` / `turn.ended` / `error` signals are not part of this Op
+ * and remain on their existing path. Consumed by the Agent-scope `turnService`.
  *
  * `turn.launch` (`launchTurn`) is the pre-1.4 record type: it stays registered so
  * sessions written at wire protocol 1.5 still replay (restored via the
@@ -27,7 +30,19 @@ export interface TurnModelState {
   readonly nextTurnId: number;
 }
 
-export const TurnModel = defineModel<TurnModelState>('turn', () => ({ nextTurnId: 0 }));
+export const TurnModel = defineModel<TurnModelState>('turn', () => ({ nextTurnId: 0 }), {
+  reducers: {
+    'context.append_loop_event': (s, p: { event?: { turnId?: unknown } }): TurnModelState => {
+      const raw = p?.event?.turnId;
+      if (raw === undefined) return s;
+      const turnId = Number.parseInt(String(raw), 10);
+      if (Number.isInteger(turnId) && turnId >= s.nextTurnId) {
+        return { nextTurnId: turnId + 1 };
+      }
+      return s;
+    },
+  },
+});
 
 function advanceTurnId(s: TurnModelState, turnId: number): TurnModelState {
   if (Number.isInteger(turnId) && turnId >= s.nextTurnId) {
@@ -37,22 +52,12 @@ function advanceTurnId(s: TurnModelState, turnId: number): TurnModelState {
 }
 
 export interface PromptTurnPayload {
-  readonly turnId: number;
-  readonly input?: unknown;
-  readonly origin?: unknown;
-  readonly steer?: unknown;
+  readonly input: readonly ContentPart[];
+  readonly origin: PromptOrigin;
 }
 
 export const promptTurn = defineOp(TurnModel, 'turn.prompt', {
-  apply: (s, p: PromptTurnPayload): TurnModelState => {
-    if (Number.isInteger(p.turnId) && p.turnId >= s.nextTurnId) {
-      return { nextTurnId: p.turnId + 1 };
-    }
-    if (!Number.isInteger(p.turnId)) {
-      return { nextTurnId: s.nextTurnId + 1 };
-    }
-    return s;
-  },
+  apply: (s, _p: PromptTurnPayload): TurnModelState => ({ nextTurnId: s.nextTurnId + 1 }),
 });
 
 /** @deprecated Legacy 1.5 record type; kept registered for replay of old sessions. */

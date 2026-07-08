@@ -89,9 +89,9 @@ function makeFakeAgent(agentId: string): FakeAgent {
             ? (payload as Record<string, unknown>)
             : { payload };
         appended.push({ type: op.type, ...record } as unknown as RecordedTodoSet);
-        if (op.type === 'todo.set') {
+        if (op.type === 'tools.update_store' && record['key'] === 'todo') {
           const prev = todoState;
-          todoState = readTodoItems(record['todos']);
+          todoState = readTodoItems(record['value']);
           if (prev !== todoState) {
             for (const h of [...subscribers]) h(todoState, prev);
           }
@@ -100,6 +100,10 @@ function makeFakeAgent(agentId: string): FakeAgent {
     },
     replay: async (...records: PersistedRecord[]) => {
       for (const record of records) {
+        if (record.type === 'tools.update_store' && record['key'] === 'todo') {
+          todoState = readTodoItems(record['value']);
+        }
+        // Legacy replay path: early v2 dev logs persisted `todo.set`.
         if (record.type === 'todo.set') {
           todoState = readTodoItems(record['todos']);
         }
@@ -246,7 +250,7 @@ describe('SessionTodoService', () => {
     ]);
   });
 
-  it('appends a todo.set record to the main agent wire on setTodos', () => {
+  it('appends a tools.update_store record to the main agent wire on setTodos', () => {
     const main = makeFakeAgent('main');
     const lifecycle = makeLifecycleStub([main.handle]);
     const service = new SessionTodoService(lifecycle.service);
@@ -254,7 +258,11 @@ describe('SessionTodoService', () => {
     service.setTodos([{ title: 'persist me', status: 'in_progress' }]);
 
     expect(main.appended).toEqual([
-      { type: 'todo.set', todos: [{ title: 'persist me', status: 'in_progress' }] },
+      {
+        type: 'tools.update_store',
+        key: 'todo',
+        value: [{ title: 'persist me', status: 'in_progress' }],
+      },
     ]);
   });
 

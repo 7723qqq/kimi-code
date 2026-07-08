@@ -90,7 +90,7 @@ describe('WireService', () => {
     expect(wire.getModel(CounterModel)).toEqual({ value: 3 });
     expect(changes).toEqual([{ state: 3, prev: 0 }]);
     expect(await readRecords()).toEqual([
-      { type: 'store.counter.add', by: 3 },
+      { type: 'store.counter.add', by: 3, time: expect.any(Number) },
     ]);
   });
 

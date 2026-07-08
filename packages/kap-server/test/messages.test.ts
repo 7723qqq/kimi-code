@@ -8,6 +8,7 @@ import {
   IAgentWireRecordService,
   ISessionLifecycleService,
   IModelResolver,
+  type ContextMessage,
   type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -37,7 +38,7 @@ interface PageWire {
   has_more: boolean;
 }
 
-const MSG_ID = /^msg_[0-9A-Z]{26}$/;
+const MSG_ID = /^msg_[0-9A-Z]{26}_\d{6}$/;
 
 describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
   let server: RunningServer | undefined;
@@ -101,11 +102,11 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
   }
 
   // The main agent scope is not created automatically on session creation
-  // (server-v2 gap G10); create it here, then splice messages directly into
+  // (server-v2 gap G10); create it here, then append messages directly into
   // its IContextMemory to bypass the LLM loop.
   async function seedMainAgentMessages(
     sessionId: string,
-    messages: Parameters<IAgentContextMemoryService['splice']>[2],
+    messages: readonly ContextMessage[],
   ): Promise<void> {
     const session = server!.core.accessor.get(ISessionLifecycleService).get(sessionId);
     if (session === undefined) throw new Error(`session ${sessionId} not found`);
@@ -114,7 +115,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
       agent = await session.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
     }
     if (messages.length > 0) {
-      agent.accessor.get(IAgentContextMemoryService).splice(0, 0, messages);
+      agent.accessor.get(IAgentContextMemoryService).append(...messages);
       // Flush the wire log so the temp home is quiescent before afterEach rm's
       // it (macOS can ENOTEMPTY an rmdir while an append is still in flight).
       await agent.accessor.get(IAgentWireRecordService).flush();
@@ -278,7 +279,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
   // Regression for the cold-session gap: a persisted (non-live) session must
   // return its full wire transcript — including the pre-compaction prefix —
   // instead of an empty page / 40403. We seed the wire log through the live
-  // agent (splice + a compaction fold + flush), then restart the whole server
+  // agent (append + a compaction fold + flush), then restart the whole server
   // on the same home so the session is genuinely cold on the read path.
   it('reads the persisted full transcript for a cold session', async () => {
     const id = await createSession();
@@ -287,19 +288,17 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     const agent = await session.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
     const ctx = agent.accessor.get(IAgentContextMemoryService);
     // Three messages, then a compaction that folds the prefix into a summary.
-    ctx.splice(0, 0, [
+    ctx.append(
       { role: 'user', content: [{ type: 'text', text: 'm0' }], toolCalls: [] },
       { role: 'assistant', content: [{ type: 'text', text: 'm1' }], toolCalls: [] },
       { role: 'user', content: [{ type: 'text', text: 'm2' }], toolCalls: [] },
-    ]);
-    ctx.splice(0, 3, [
-      {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'summary' }],
-        toolCalls: [],
-        origin: { kind: 'compaction_summary' },
-      },
-    ]);
+    );
+    ctx.applyCompaction({
+      summary: 'summary',
+      contextSummary: 'summary',
+      compactedCount: 3,
+      tokensBefore: 100,
+    });
     await agent.accessor.get(IAgentWireRecordService).flush();
 
     // The live read already serves the full transcript (pre-compaction prefix
@@ -325,10 +324,10 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     const [summary, _m2, maybeM1] = body.data.items;
     if (maybeM1 === undefined) throw new Error('expected m1 message');
     const m1 = maybeM1;
-    // The summary id is persisted in the wire record and survives restore.
+    // The summary id derivation is stable across live reads and restore.
     expect(summary!.id).toBe(liveSummaryId);
     expect(summary).toMatchObject({
-      role: 'assistant',
+      role: 'user',
       metadata: { origin: { kind: 'compaction_summary' } },
     });
 

@@ -45,6 +45,21 @@ export interface OpDescriptor<K extends string, S, P> {
    * derive no event.
    */
   readonly toEvent?: (payload: P, state: S) => unknown;
+  /**
+   * `false` → the op applies, notifies subscribers, and derives `toEvent`
+   * facts on dispatch, but is never emitted nor appended to the wire log.
+   * Use for live-only state that must not appear in the v1-compatible
+   * `wire.jsonl` (the record vocabulary on disk stays exactly v1's
+   * `AgentRecordEvents`); such state is re-derived on resume instead of
+   * replayed. Defaults to `true`.
+   */
+  readonly persist?: boolean;
+  /**
+   * `false` → the persisted record is not stamped with `time`. Only the
+   * `metadata` envelope opts out (matching v1, which appends metadata without
+   * a timestamp). Defaults to `true`.
+   */
+  readonly stamp?: boolean;
 }
 
 export interface Op<K extends string = string, P = unknown> {
@@ -63,6 +78,8 @@ export function defineOp<K extends string, S, P>(
   opts: {
     apply: (state: S, payload: P) => S;
     toEvent?: (payload: P, state: S) => unknown;
+    persist?: boolean;
+    stamp?: boolean;
   },
 ): OpDescriptor<K, S, P> & ((payload: P) => Op<K, P>) {
   if (OP_REGISTRY.has(type)) {
@@ -73,6 +90,8 @@ export function defineOp<K extends string, S, P>(
     model,
     apply: opts.apply,
     toEvent: opts.toEvent,
+    persist: opts.persist,
+    stamp: opts.stamp,
   };
   OP_REGISTRY.set(type, descriptor);
   const factory = (payload: P): Op<K, P> => ({ type, payload, descriptor });

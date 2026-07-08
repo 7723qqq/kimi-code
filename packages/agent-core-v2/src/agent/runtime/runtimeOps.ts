@@ -27,6 +27,9 @@ export const RuntimeModel = defineModel<RuntimeModelState>('runtime', () => ({
 }));
 
 export const setRuntimePhase = defineOp(RuntimeModel, 'runtime.set_phase', {
+  // Live-only: `runtime.set_phase` is not a v1 record type. Nothing is
+  // persisted or replayed, so a resumed agent starts back at `idle`.
+  persist: false,
   apply: (s, p: { phase: AgentPhase }): RuntimeModelState =>
     phaseEqual(s.phase, p.phase) ? s : { phase: p.phase },
   toEvent: (p) => ({ type: 'agent.status.updated' as const, phase: p.phase }),

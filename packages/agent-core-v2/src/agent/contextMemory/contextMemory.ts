@@ -13,7 +13,6 @@ export interface ContextCompactionInput {
   readonly keptUserMessageCount?: number;
   readonly keptHeadUserMessageCount?: number;
   readonly droppedCount?: number;
-  readonly legacyTail?: boolean;
 }
 
 export interface ContextCompactionResult {
@@ -50,18 +49,6 @@ export interface IAgentContextMemoryService {
 
   /** Rewrite the live history into the v1-compatible compaction handoff shape. */
   applyCompaction(input: ContextCompactionInput): ContextCompactionResult;
-
-  /**
-   * Arbitrary splice (`context.splice`). Retained for replay of protocol 1.5
-   * sessions and the few internal single-delete mutations with no 1.4 spelling;
-   * new code should prefer the named primitives above.
-   */
-  splice(
-    start: number,
-    deleteCount: number,
-    messages: readonly ContextMessage[],
-    tokens?: number,
-  ): void;
 }
 
 export const IAgentContextMemoryService = createDecorator<IAgentContextMemoryService>('agentContextMemoryService');

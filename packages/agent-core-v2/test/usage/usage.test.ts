@@ -113,7 +113,7 @@ describe('AgentUsageService (wire-backed)', () => {
     });
   });
 
-  it('emits agent.status.updated with the usage snapshot via wire.signal', () => {
+  it('emits agent.status.updated with the usage snapshot after each live record', () => {
     const events: DomainEvent[] = [];
     disposables.add(ix.get(IEventBus).subscribe((e) => events.push(e)));
 
@@ -136,12 +136,18 @@ describe('AgentUsageService (wire-backed)', () => {
 
     const records = await readRecords();
     expect(records).toEqual([
-      { type: 'usage.record', model: 'model-a', usage: a1, usageScope: 'session' },
+      {
+        type: 'usage.record',
+        model: 'model-a',
+        usage: a1,
+        usageScope: 'session',
+        time: expect.any(Number),
+      },
     ]);
     expect('payload' in records[0]!).toBe(false);
   });
 
-  it('marks turn-scoped sources with usageScope and turnId without persisting request context', async () => {
+  it('marks turn-scoped sources with usageScope only (no turnId or context persisted)', async () => {
     svc.record('model-a', a1, { type: 'turn', turnId: 7, step: 2 });
 
     const records = await readRecords();
@@ -151,7 +157,7 @@ describe('AgentUsageService (wire-backed)', () => {
         model: 'model-a',
         usage: a1,
         usageScope: 'turn',
-        turnId: 7,
+        time: expect.any(Number),
       },
     ]);
   });
@@ -176,7 +182,7 @@ describe('AgentUsageService (wire-backed)', () => {
     expect(written).toEqual([]);
   });
 
-  it('replays legacy turn context records into current turn usage', async () => {
+  it('replays legacy turn context records into byModel totals only (currentTurn is not rebuilt)', async () => {
     const { fresh } = createFreshWire('usage-legacy-context-replay');
 
     await fresh.replay({
@@ -184,30 +190,14 @@ describe('AgentUsageService (wire-backed)', () => {
       model: 'model-a',
       usage: a1,
       usageScope: 'turn',
+      turnId: 1,
       context: { type: 'turn', turnId: 9, step: 3 },
     });
 
-    expect(fresh.getModel(UsageModel)).toMatchObject({
-      currentTurnId: 9,
-      currentTurn: a1,
-    });
-  });
-
-  it('rejects conflicting usage turn ids during replay', async () => {
-    const fresh = ix.get(IAgentWireService);
-
-    await expect(
-      fresh.replay({
-        type: 'usage.record',
-        model: 'model-a',
-        usage: a1,
-        usageScope: 'turn',
-        turnId: 1,
-        context: { type: 'turn', turnId: 2 },
-      }),
-    ).rejects.toMatchObject({
-      code: 'usage.turn_id_conflict',
-      name: 'UsageError',
+    // The model carries only the per-model totals; the per-turn accumulator is
+    // live-only service state and never comes back from replay.
+    expect(fresh.getModel(UsageModel)).toEqual({
+      byModel: { 'model-a': a1 },
     });
   });
 });

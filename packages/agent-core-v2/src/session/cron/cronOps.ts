@@ -42,6 +42,9 @@ export interface CronAddPayload {
 }
 
 export const cronAdd = defineOp(CronModel, 'cron.add', {
+  // Live-only: cron records are not v1 wire types; the authoritative store is
+  // the App-scoped `ICronTaskPersistence`, reloaded on resume.
+  persist: false,
   apply: (s, p: CronAddPayload): CronModelState => {
     const next = new Map(s);
     next.set(p.task.id, p.task);
@@ -54,6 +57,7 @@ export interface CronDeletePayload {
 }
 
 export const cronDelete = defineOp(CronModel, 'cron.delete', {
+  persist: false,
   apply: (s, p: CronDeletePayload): CronModelState => {
     let next: Map<string, CronTask> | undefined;
     for (const id of p.ids) {
@@ -72,6 +76,7 @@ export interface CronCursorPayload {
 }
 
 export const cronCursor = defineOp(CronModel, 'cron.cursor', {
+  persist: false,
   apply: (s, p: CronCursorPayload): CronModelState => {
     const task = s.get(p.id);
     if (task === undefined) return s;

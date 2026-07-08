@@ -68,10 +68,8 @@ export class AgentTurnService implements IAgentTurnService {
     const origin = prompt?.origin ?? USER_PROMPT_ORIGIN;
     this.wire.dispatch(
       promptTurn({
-        turnId,
-        input: prompt?.input,
+        input: prompt?.input ?? [],
         origin,
-        steer: prompt?.steer,
       }),
     );
     const abortController = new AbortController();

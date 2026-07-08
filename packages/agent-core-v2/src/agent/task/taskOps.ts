@@ -38,6 +38,9 @@ export interface TaskInfoPayload {
 }
 
 export const taskStarted = defineOp(TaskModel, 'task.started', {
+  // Live-only: task records are not v1 wire types; the durable registry lives
+  // in `AgentTaskPersistence` on disk and is reconciled on resume.
+  persist: false,
   apply: (s, p: TaskInfoPayload): TaskModelState => {
     const next = new Map(s);
     next.set(p.info.taskId, p.info);
@@ -47,6 +50,7 @@ export const taskStarted = defineOp(TaskModel, 'task.started', {
 });
 
 export const taskTerminated = defineOp(TaskModel, 'task.terminated', {
+  persist: false,
   apply: (s, p: TaskInfoPayload): TaskModelState => {
     const next = new Map(s);
     next.set(p.info.taskId, p.info);

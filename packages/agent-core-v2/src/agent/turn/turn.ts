@@ -17,9 +17,8 @@ export interface Turn {
 }
 
 export interface TurnPromptInfo {
-  readonly input?: unknown;
+  readonly input?: readonly ContentPart[];
   readonly origin?: PromptOrigin;
-  readonly steer?: unknown;
 }
 
 export interface IAgentTurnService {

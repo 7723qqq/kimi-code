@@ -20,7 +20,6 @@ import {
   type ContextCompactionResult,
 } from '#/agent/contextMemory/contextMemory';
 import { computeUndoCut } from '#/agent/contextMemory/contextOps';
-import { ensureMessageId } from '#/agent/contextMemory/messageId';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import {
   HookDefSchema,
@@ -99,7 +98,7 @@ function stubContextMemory(): IAgentContextMemoryService & {
     _serviceBrand: undefined,
     get: () => [...messages],
     append: (...inserted) => {
-      messages.push(...inserted.map(ensureMessageId));
+      messages.push(...inserted);
     },
     appendLoopEvent: () => {},
     clear: () => {
@@ -118,9 +117,6 @@ function stubContextMemory(): IAgentContextMemoryService & {
       const { messages: _messages, ...result } = shape;
       void _messages;
       return result;
-    },
-    splice: (start, deleteCount, inserted) => {
-      messages.splice(start, deleteCount, ...inserted);
     },
     messages,
   };

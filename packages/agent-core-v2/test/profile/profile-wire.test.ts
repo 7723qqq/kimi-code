@@ -205,8 +205,9 @@ describe('AgentProfileService (wire-backed config.update)', () => {
         type: 'config.update',
         profileName: DEFAULT_AGENT_PROFILE_NAME,
         systemPrompt: 'You are helpful.',
+        time: expect.any(Number),
       },
-      { type: 'config.update', thinkingEffort: 'on' },
+      { type: 'config.update', thinkingEffort: 'on', time: expect.any(Number) },
     ]);
     expect(records.every((record) => 'payload' in record === false)).toBe(true);
   });

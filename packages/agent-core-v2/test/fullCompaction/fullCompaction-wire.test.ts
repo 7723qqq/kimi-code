@@ -83,7 +83,7 @@ describe('fullCompaction ops (wire-backed)', () => {
         instruction: 'keep facts',
       }),
     );
-    expect(records[1]).toEqual({ type: 'full_compaction.complete' });
+    expect(records[1]).toEqual({ type: 'full_compaction.complete', time: expect.any(Number) });
   });
 
   it('apply returns the same reference on a no-op (gate stays quiet)', () => {

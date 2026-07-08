@@ -1,20 +1,21 @@
 /**
- * `todo` domain (L4) — wire Model (`TodoModel`) and the `todo.set` Op
- * (`todoSet`) for the session's shared todo list.
+ * `todo` domain (L4) — wire Model (`TodoModel`) and the `tools.update_store`
+ * Op (`todoSet`) for the session's shared todo list.
  *
- * Declares the todo list as `readonly TodoItem[]` (initial `[]`) plus the single
- * `todo.set` Op whose `apply` replaces the whole list with the payload after
- * sanitizing it through `readTodoItems`. Replayed / hand-written records may
- * carry malformed items, and `apply` is the single log→model boundary that
- * keeps the model clean so every consumer (`getTodos`, the tool render, the
- * stale reminder, the compaction summary) can trust it without re-validating.
- * The Op type (`todo.set`) matches the legacy record type, so `wire.replay`
- * Model from the existing shared append log. Consumed cross-scope by the
- * Session-scope `SessionTodoService`: it dispatches `todo.set` to the MAIN
- * agent's wire (the single source of truth and replayable timeline) and, on
- * `wire.onRestored`, reads the rebuilt Model back from that same wire. The Op
- * registers into the global `OP_REGISTRY` at import time, so it is in place
- * before the main agent replays.
+ * Declares the todo list as `readonly TodoItem[]` (initial `[]`). The
+ * persisted record is v1's `tools.update_store` (`{ key: 'todo', value }`), so
+ * the on-disk vocabulary stays exactly v1's and `wire.replay` — of both v2 and
+ * v1 sessions — rebuilds the Model from the shared append log. `apply` is the
+ * single log→model boundary: it ignores non-`todo` keys and sanitizes the
+ * value through `readTodoItems`, so every consumer (`getTodos`, the tool
+ * render, the stale reminder, the compaction summary) can trust the Model
+ * without re-validating. A replay-only `todo.set` Op is kept for early v2
+ * development logs that persisted the pre-alignment record type. Consumed
+ * cross-scope by the Session-scope `SessionTodoService`: it dispatches to the
+ * MAIN agent's wire (the single source of truth and replayable timeline) and,
+ * on `wire.onRestored`, reads the rebuilt Model back from that same wire. The
+ * Ops register into the global `OP_REGISTRY` at import time, so they are in
+ * place before the main agent replays.
  */
 
 import { defineModel } from '#/wire/model';
@@ -26,10 +27,18 @@ export type TodoModelState = readonly TodoItem[];
 
 export const TodoModel = defineModel<TodoModelState>('todo', () => []);
 
-export interface TodoSetPayload {
-  readonly todos: readonly TodoItem[];
+export interface ToolStoreUpdatePayload {
+  readonly key: string;
+  readonly value: unknown;
 }
 
-export const todoSet = defineOp(TodoModel, 'todo.set', {
-  apply: (_s, p: TodoSetPayload): TodoModelState => readTodoItems(p.todos),
+export const todoSet = defineOp(TodoModel, 'tools.update_store', {
+  apply: (s, p: ToolStoreUpdatePayload): TodoModelState =>
+    p.key === 'todo' ? readTodoItems(p.value) : s,
+});
+
+/** @deprecated Replay-only: early v2 dev logs persisted `todo.set` before the v1 alignment. */
+export const legacyTodoSet = defineOp(TodoModel, 'todo.set', {
+  apply: (_s, p: { readonly todos: readonly TodoItem[] }): TodoModelState =>
+    readTodoItems(p.todos),
 });

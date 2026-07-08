@@ -88,11 +88,12 @@ describe('wire.jsonl round-trip', () => {
     // Read the bytes back through a fresh reader over the same on-disk storage.
     const records = await collect(makeReader(storage));
 
-    // Format zero-change: flat `{ type, ...payload }`, no nested `payload` key.
+    // Format zero-change: flat `{ type, ...payload }` (plus the engine-stamped
+    // `time`), no nested `payload` key.
     expect(records).toEqual([
-      { type: 'compat.counter.set', value: 3 },
-      { type: 'compat.tags.add', tag: 'a' },
-      { type: 'compat.tags.add', tag: 'b' },
+      { type: 'compat.counter.set', value: 3, time: expect.any(Number) },
+      { type: 'compat.tags.add', tag: 'a', time: expect.any(Number) },
+      { type: 'compat.tags.add', tag: 'b', time: expect.any(Number) },
     ]);
     for (const record of records) {
       expect('payload' in record).toBe(false);

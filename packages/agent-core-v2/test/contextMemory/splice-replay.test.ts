@@ -21,6 +21,7 @@ import {
   contextAppendMessage,
   contextApplyCompaction,
   contextClear,
+  contextSplice,
   contextUndo,
 } from '#/agent/contextMemory/contextOps';
 import { ContextSizeModel, contextSizeMeasured } from '#/agent/contextSize/contextSizeOps';
@@ -189,7 +190,9 @@ describe('AgentContextMemoryService (wire-backed)', () => {
     const host = buildHost(KEY);
     const model = () => host.wire.getModel(ContextModel) as readonly ContextMessage[];
 
-    host.svc.splice(0, 0, [userMessage('a'), userMessage('b')]);
+    host.wire.dispatch(
+      contextSplice({ start: 0, deleteCount: 0, messages: [userMessage('a'), userMessage('b')] }),
+    );
     expect(model()).toHaveLength(2);
 
     let prev = model();
@@ -400,7 +403,7 @@ describe('AgentContextMemoryService (wire-backed)', () => {
     const big = 'A'.repeat(200);
     const dataUri = `data:image/png;base64,${big}`;
 
-    host.svc.splice(0, 0, [imageMessage(big)]);
+    host.wire.dispatch(contextSplice({ start: 0, deleteCount: 0, messages: [imageMessage(big)] }));
     await host.wire.flush();
 
     const live = host.wire.getModel(ContextModel) as readonly ContextMessage[];
@@ -431,8 +434,8 @@ describe('AgentContextMemoryService (wire-backed)', () => {
       live.push({ start: event.start, deleteCount: event.deleteCount });
     }));
 
-    host.svc.splice(0, 0, [userMessage('x')]);
-    host.svc.splice(0, 0, [userMessage('y')]);
+    host.svc.append(userMessage('x'));
+    host.svc.append(userMessage('y'));
     expect(live).toHaveLength(2);
     await host.wire.flush();
     const records = await readRecords(host.log);
@@ -451,10 +454,10 @@ describe('AgentContextMemoryService (wire-backed)', () => {
     const host = buildHost(KEY);
 
     // Seed history and mark the first two messages as measured by the LLM.
-    host.svc.splice(0, 0, [
+    host.svc.append(
       { role: 'user', content: [{ type: 'text', text: 'hello' }], toolCalls: [] },
       { role: 'assistant', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
-    ]);
+    );
     host.wire.dispatch(contextSizeMeasured({ length: 2, tokens: 42 }));
     await host.wire.flush();
 
@@ -465,9 +468,11 @@ describe('AgentContextMemoryService (wire-backed)', () => {
 
     // Patch providerMessageId on a message inside the measured prefix.
     const history = host.svc.get();
-    host.svc.splice(1, 1, [
-      { ...history[1]!, providerMessageId: 'mock-1' },
-    ]);
+    host.wire.dispatch(contextSplice({
+      start: 1,
+      deleteCount: 1,
+      messages: [{ ...history[1]!, providerMessageId: 'mock-1' }],
+    }));
 
     // The measured aggregate must stay intact; the metadata edit does not
     // change the token-countable shape of the message.
@@ -477,8 +482,9 @@ describe('AgentContextMemoryService (wire-backed)', () => {
 
     await host.wire.flush();
     const records = await readRecords(host.log);
+    // `context_size.measured` is live-only (persist: false) — nothing lands on disk.
     const measuredAfterSplice = records.filter((record) => record.type === 'context_size.measured');
-    expect(measuredAfterSplice).toHaveLength(1);
+    expect(measuredAfterSplice).toHaveLength(0);
   });
 
 });

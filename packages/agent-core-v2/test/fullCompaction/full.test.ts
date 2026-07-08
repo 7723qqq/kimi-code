@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DefaultCompactionStrategy,
 } from '#/agent/fullCompaction/strategy';
+import { COMPACTION_SUMMARY_PREFIX } from '#/agent/contextMemory/compactionHandoff';
 import { makeHookRunner } from '../externalHooks/runner-stub';
 import type { IExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunner';
 import { MASTER_ENV } from '#/app/flag/flagService';
@@ -211,7 +212,8 @@ describe('FullCompaction', () => {
     await completed;
 
     const events = ctx.newEvents();
-    expect(countEvents(events, 'context.splice')).toBeGreaterThanOrEqual(3);
+    expect(countEvents(events, 'context.append_message')).toBeGreaterThanOrEqual(6);
+    expect(countEvents(events, 'context.apply_compaction')).toBeGreaterThanOrEqual(1);
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: '[wire]', event: 'full_compaction.begin' }),
@@ -230,7 +232,8 @@ describe('FullCompaction', () => {
       const candidate = event as { type?: unknown; event?: unknown };
       return candidate.type === '[wire]' && candidate.event === 'full_compaction.complete';
     });
-    expect(completeEvent?.args).toEqual({});
+    // The engine stamps `time` on every persisted record; the payload itself is empty.
+    expect(completeEvent?.args).toEqual({ time: '<time>' });
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
       tools: Agent, AgentSwarm, EnterPlanMode, ExitPlanMode
@@ -1083,7 +1086,8 @@ describe('FullCompaction', () => {
     await completed;
 
     const events = ctx.newEvents();
-    expect(countEvents(events, 'context.splice')).toBeGreaterThanOrEqual(3);
+    expect(countEvents(events, 'context.append_message')).toBeGreaterThanOrEqual(5);
+    expect(countEvents(events, 'context.apply_compaction')).toBeGreaterThanOrEqual(1);
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: '[wire]', event: 'full_compaction.begin' }),
@@ -1306,7 +1310,7 @@ describe('FullCompaction', () => {
     const events = await ctx.untilTurnEnd();
     expect(events).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: '[wire]', event: 'context.splice' }),
+        expect.objectContaining({ type: '[wire]', event: 'context.append_message' }),
         expect.objectContaining({ type: '[wire]', event: 'turn.prompt' }),
         expect.objectContaining({ type: '[rpc]', event: 'turn.started' }),
         expect.objectContaining({ type: '[wire]', event: 'full_compaction.begin' }),

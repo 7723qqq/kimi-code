@@ -14,154 +14,157 @@ import {
   testAgent,
   type TestAgentContext,
 } from '../harness';
-import { serializeV1WireRecord } from '#/agent/wireRecord/v1WireSerializer';
+import { SyncDescriptor } from '#/_base/di/descriptors';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { TestInstantiationService } from '#/_base/di/test';
+import { setRuntimePhase } from '#/agent/runtime/runtimeOps';
+import { wireMetadata } from '#/agent/wireRecord/metadataOps';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { todoSet, TodoModel } from '#/session/todo/todoOps';
+import { OP_REGISTRY } from '#/wire/op';
+import { IAgentWireService } from '#/wire/tokens';
 import type { PersistedRecord } from '#/wire/wireService';
+import { WireService } from '#/wire/wireServiceImpl';
 
-describe('serializeV1WireRecord', () => {
-  it('keeps non-user context.append_message records in the v1-compatible wire log', () => {
-    const assistantMessage: ContextMessage = {
-      role: 'assistant',
-      content: [{ type: 'text', text: 'answer' }],
-      toolCalls: [],
-      providerMessageId: 'msg_123',
-    };
+/**
+ * v1's wire-record vocabulary: the `AgentRecordEvents` keys from
+ * `packages/agent-core/src/agent/records/types.ts`, plus the `metadata`
+ * envelope. Every record v2 persists must use one of these types so a
+ * v2-written `wire.jsonl` stays byte-compatible with v1.
+ */
+const V1_RECORD_TYPES: ReadonlySet<string> = new Set([
+  'metadata',
+  'forked',
+  'turn.prompt',
+  'turn.steer',
+  'turn.cancel',
+  'config.update',
+  'permission.set_mode',
+  'permission.record_approval_result',
+  'full_compaction.begin',
+  'full_compaction.cancel',
+  'full_compaction.complete',
+  'micro_compaction.apply',
+  'plan_mode.enter',
+  'plan_mode.cancel',
+  'plan_mode.exit',
+  'swarm_mode.enter',
+  'swarm_mode.exit',
+  'tools.register_user_tool',
+  'tools.unregister_user_tool',
+  'tools.set_active_tools',
+  'tools.update_store',
+  'usage.record',
+  'context.append_message',
+  'context.append_loop_event',
+  'context.clear',
+  'context.apply_compaction',
+  'context.undo',
+  'goal.create',
+  'goal.update',
+  'goal.clear',
+  'llm.tools_snapshot',
+  'llm.request',
+  'mcp.tools_discovered',
+]);
 
-    expect(
-      serializeV1WireRecord({
-        type: 'context.append_message',
-        message: assistantMessage,
+/** Registered for replaying old logs only; the live path never dispatches them. */
+const REPLAY_ONLY_TYPES: ReadonlySet<string> = new Set([
+  'turn.launch',
+  'todo.set',
+  'context.splice',
+]);
+
+describe('v1 wire vocabulary', () => {
+  const SCOPE = 'wire';
+  const KEY = 'v1-vocabulary-test';
+
+  let disposables: DisposableStore;
+  let wire: WireService;
+  let log: IAppendLogStore;
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+    const ix = disposables.add(new TestInstantiationService());
+    ix.stub(IFileSystemStorageService, new InMemoryStorageService());
+    ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
+    ix.set(IAgentWireService, new SyncDescriptor(WireService, [{ logScope: SCOPE, logKey: KEY }]));
+    wire = ix.get(IAgentWireService) as WireService;
+    log = ix.get(IAppendLogStore);
+  });
+
+  afterEach(() => disposables.dispose());
+
+  async function readRecords(): Promise<PersistedRecord[]> {
+    await wire.flush();
+    const out: PersistedRecord[] = [];
+    for await (const record of log.read<PersistedRecord>(SCOPE, KEY)) {
+      out.push(record);
+    }
+    return out;
+  }
+
+  it('every persisted op type is a v1 record type', () => {
+    for (const [type, descriptor] of OP_REGISTRY) {
+      if (descriptor.persist === false) continue;
+      if (REPLAY_ONLY_TYPES.has(type)) continue;
+      expect(V1_RECORD_TYPES.has(type), `op "${type}" persists a non-v1 record type`).toBe(true);
+    }
+  });
+
+  it('stamps persisted records with time, except the metadata envelope', async () => {
+    wire.dispatch(wireMetadata({ protocol_version: '1.4', created_at: 123 }));
+    wire.dispatch(todoSet({ key: 'todo', value: [{ title: 'x', status: 'pending' }] }));
+
+    const records = await readRecords();
+    expect(records).toEqual([
+      { type: 'metadata', protocol_version: '1.4', created_at: 123 },
+      {
+        type: 'tools.update_store',
+        key: 'todo',
+        value: [{ title: 'x', status: 'pending' }],
+        time: expect.any(Number),
+      },
+    ]);
+  });
+
+  it('never persists nor emits persist:false ops, but still applies them', async () => {
+    const emissions: PersistedRecord[] = [];
+    disposables.add(wire.onEmission((e) => emissions.push(e.record)));
+
+    wire.dispatch(
+      setRuntimePhase({
+        phase: { kind: 'running', turnId: 0, step: 1, stepId: 's-1', since: Date.now() },
       }),
-    ).toEqual([
-      {
-        type: 'context.append_message',
-        message: assistantMessage,
-        time: expect.any(Number),
-      },
-    ]);
+    );
+
+    expect(await readRecords()).toEqual([]);
+    expect(emissions).toEqual([]);
   });
 
-  it('strips v2 message ids from context.append_message records', () => {
-    const message: ContextMessage = {
-      id: 'msg_test',
-      role: 'user',
-      content: [{ type: 'text', text: 'hello' }],
-      toolCalls: [],
-      origin: { kind: 'user' },
-    };
+  it('round-trips the todo list through the persisted tools.update_store record', async () => {
+    wire.dispatch(
+      todoSet({ key: 'todo', value: [{ title: 'restore me', status: 'in_progress' }] }),
+    );
+    const records = await readRecords();
 
-    expect(
-      serializeV1WireRecord({
-        type: 'context.append_message',
-        message,
-      }),
-    ).toEqual([
-      {
-        type: 'context.append_message',
-        message: {
-          role: 'user',
-          content: [{ type: 'text', text: 'hello' }],
-          toolCalls: [],
-          origin: { kind: 'user' },
-        },
-        time: expect.any(Number),
-      },
-    ]);
-  });
+    const store = new DisposableStore();
+    disposables.add(store);
+    const ix2 = store.add(new TestInstantiationService());
+    ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
+    ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
+    ix2.set(
+      IAgentWireService,
+      new SyncDescriptor(WireService, [{ logScope: SCOPE, logKey: 'todo-roundtrip' }]),
+    );
+    const fresh = ix2.get(IAgentWireService);
 
-  it('strips v2 message ids from injected context.splice projections', () => {
-    const message: ContextMessage = {
-      id: 'msg_injection',
-      role: 'user',
-      content: [{ type: 'text', text: 'reminder' }],
-      toolCalls: [],
-      origin: { kind: 'injection', variant: 'test' },
-    };
+    await fresh.replay(...records);
 
-    expect(
-      serializeV1WireRecord({
-        type: 'context.splice',
-        start: 0,
-        deleteCount: 0,
-        messages: [message],
-      }),
-    ).toEqual([
-      {
-        type: 'context.append_message',
-        message: {
-          role: 'user',
-          content: [{ type: 'text', text: 'reminder' }],
-          toolCalls: [],
-          origin: { kind: 'injection', variant: 'test' },
-        },
-        time: expect.any(Number),
-      },
-    ]);
-  });
-
-  it('passes source-shaped config.update records through without field projection', () => {
-    expect(
-      serializeV1WireRecord({
-        type: 'config.update',
-        modelAlias: 'mock-model',
-        thinkingEffort: 'low',
-      } satisfies PersistedRecord),
-    ).toEqual([
-      {
-        type: 'config.update',
-        modelAlias: 'mock-model',
-        thinkingEffort: 'low',
-        time: expect.any(Number),
-      },
-    ]);
-
-    expect(serializeV1WireRecord({ type: 'config.update' } satisfies PersistedRecord)).toEqual([
-      { type: 'config.update', time: expect.any(Number) },
-    ]);
-  });
-
-  it('defaults missing turn.prompt origin to the v1 user origin', () => {
-    expect(
-      serializeV1WireRecord({
-        type: 'turn.prompt',
-        input: [{ type: 'text', text: 'hello' }],
-      } satisfies PersistedRecord),
-    ).toEqual([
-      {
-        type: 'turn.prompt',
-        input: [{ type: 'text', text: 'hello' }],
-        origin: { kind: 'user' },
-        time: expect.any(Number),
-      },
-    ]);
-  });
-
-  it('preserves v1 context.apply_compaction accounting fields', () => {
-    expect(
-      serializeV1WireRecord({
-        type: 'context.apply_compaction',
-        summary: 'summary text',
-        contextSummary: 'summary shown to the model',
-        compactedCount: 4,
-        tokensBefore: 100,
-        tokensAfter: 25,
-        keptUserMessageCount: 2,
-        keptHeadUserMessageCount: 1,
-        droppedCount: 3,
-      } satisfies PersistedRecord),
-    ).toEqual([
-      {
-        type: 'context.apply_compaction',
-        summary: 'summary text',
-        contextSummary: 'summary shown to the model',
-        compactedCount: 4,
-        tokensBefore: 100,
-        tokensAfter: 25,
-        keptUserMessageCount: 2,
-        keptHeadUserMessageCount: 1,
-        droppedCount: 3,
-        time: expect.any(Number),
-      },
-    ]);
+    expect(fresh.getModel(TodoModel)).toEqual([{ title: 'restore me', status: 'in_progress' }]);
   });
 });
 

@@ -5,7 +5,6 @@ import type { ContentPart } from '#/app/llmProtocol/message';
 import { ErrorCodes, KimiError } from '#/errors';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { ensureMessageId } from '#/agent/contextMemory/messageId';
 import { USER_PROMPT_ORIGIN, type ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
@@ -60,13 +59,12 @@ export class AgentPromptService implements IAgentPromptService {
 
   async prompt(message: ContextMessage): Promise<Turn | undefined> {
     const { message: rerouted, captions } = this.extractCompressionCaptions(message);
-    const stamped = ensureMessageId(rerouted);
-    if (await this.blockedByHook(stamped, false)) {
-      this.appendPrompt(stamped, captions);
+    if (await this.blockedByHook(rerouted, false)) {
+      this.appendPrompt(rerouted, captions);
       return undefined;
     }
-    const turn = this.launch({ input: stamped.content, origin: stamped.origin });
-    this.appendPrompt(stamped, captions);
+    const turn = this.launch({ input: rerouted.content, origin: rerouted.origin });
+    this.appendPrompt(rerouted, captions);
     return turn;
   }
 
@@ -82,7 +80,7 @@ export class AgentPromptService implements IAgentPromptService {
     }
 
     const entry: QueuedSteer = {
-      message: ensureMessageId(message),
+      message,
       emitted: false,
       removed: false,
     };
@@ -116,7 +114,9 @@ export class AgentPromptService implements IAgentPromptService {
   }
 
   retry(): Turn | undefined {
-    return this.launch({ origin: { kind: 'retry' } });
+    // v1 parity: a retry is persisted as a `turn.prompt` with empty input, so
+    // the replayed turn counter matches the live one.
+    return this.launch({ input: [], origin: { kind: 'retry' } });
   }
 
   undo(count: number): number {
