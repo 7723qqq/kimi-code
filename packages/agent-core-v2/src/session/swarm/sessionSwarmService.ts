@@ -184,6 +184,7 @@ export class SessionSwarmService implements ISessionSwarmService {
     await this.requireOwnedSubagent(callerAgentId, agentId);
     const caller = this.requireHandle(callerAgentId, 'Caller agent');
     const child = this.requireHandle(agentId, 'Agent instance');
+    this.realignChildModel(caller, child);
     const profileName =
       child.accessor.get(IAgentProfileService).data().profileName ?? RESUMED_PROFILE_FALLBACK;
     emitAgentRunSpawned(caller, agentId, {
@@ -228,6 +229,14 @@ export class SessionSwarmService implements ISessionSwarmService {
     const handle = this.lifecycle.getHandle(agentId);
     if (handle === undefined) throw new Error(`${label} "${agentId}" does not exist`);
     return handle;
+  }
+
+  private realignChildModel(caller: IAgentScopeHandle, child: IAgentScopeHandle): void {
+    const modelAlias = caller.accessor.get(IAgentProfileService).data().modelAlias;
+    if (modelAlias === undefined) {
+      throw new Error('Caller agent has no model bound');
+    }
+    child.accessor.get(IAgentProfileService).update({ modelAlias });
   }
 
   private async requireOwnedSubagent(callerAgentId: string, agentId: string): Promise<void> {

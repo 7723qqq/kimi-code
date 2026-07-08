@@ -15,6 +15,7 @@
 
 import { z } from 'zod';
 
+import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { isUserCancellation } from '#/_base/utils/abort';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { matchesGlobRuleSubject } from '#/_base/tools/support/rule-match';
@@ -25,6 +26,7 @@ import {
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentTurnService } from '#/agent/turn/turn';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { isAbortError } from '#/agent/loop/errors';
 import { ToolAccesses } from '#/agent/tool/tool-access';
@@ -39,11 +41,12 @@ import { IAgentProfileCatalogService, type AgentProfile } from '#/app/agentProfi
 import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
 import { ILogService } from '#/_base/log/log';
 import { ISessionProcessRunner } from '#/session/process/processRunner';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 
 import { IAgentLifecycleService } from '../agentLifecycle';
 import { emitAgentRunSpawned, mirrorAgentRun } from '../mirrorAgentRun';
-import { subagentLabels } from '../subagentMetadata';
+import { isSubagentMeta, subagentLabels, subagentParentAgentId } from '../subagentMetadata';
 import { SubagentTask, type SubagentHandle } from './subagent-task';
 
 import AGENT_BACKGROUND_DISABLED_DESCRIPTION from './agent-background-disabled.md?raw';
@@ -144,6 +147,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
     @ISessionProcessRunner private readonly processRunner: ISessionProcessRunner,
+    @ISessionMetadata private readonly sessionMetadata: ISessionMetadata,
     @ILogService private readonly log: ILogService,
     @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
   ) {
@@ -231,6 +235,8 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
       if (target === undefined) {
         throw new Error(`Agent instance "${resumeAgentId}" does not exist`);
       }
+      await this.ensureOwnedIdleSubagent(resumeAgentId, target);
+      this.realignChildModel(target);
       agentId = target.id;
       profileName =
         target.accessor.get(IAgentProfileService).data().profileName ?? RESUMED_LABEL;
@@ -297,6 +303,30 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
       profileName,
       completion: mirrored.then((r) => ({ result: r.summary, usage: r.usage })),
     };
+  }
+
+  private async ensureOwnedIdleSubagent(
+    agentId: string,
+    target: IAgentScopeHandle,
+  ): Promise<void> {
+    const meta = (await this.sessionMetadata.read()).agents?.[agentId];
+    if (!isSubagentMeta(meta)) {
+      throw new Error(`Agent instance "${agentId}" is not a subagent`);
+    }
+    if (subagentParentAgentId(meta) !== this.callerAgentId) {
+      throw new Error(`Agent instance "${agentId}" does not belong to this parent agent`);
+    }
+    if (target.accessor.get(IAgentTurnService).getActiveTurn() !== undefined) {
+      throw new Error(`Agent instance "${agentId}" is already running and cannot run concurrently`);
+    }
+  }
+
+  private realignChildModel(target: IAgentScopeHandle): void {
+    const modelAlias = this.profile.data().modelAlias;
+    if (modelAlias === undefined) {
+      throw new Error('Caller agent has no model bound');
+    }
+    target.accessor.get(IAgentProfileService).update({ modelAlias });
   }
 
   private async execution(

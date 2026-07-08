@@ -1061,6 +1061,33 @@ describe('SessionSwarmService metadata compatibility', () => {
     ]);
     expect(runAgent).not.toHaveBeenCalled();
   });
+
+  it('realigns resumed children to the caller current model', async () => {
+    agents['agent-existing'] = {
+      homedir: '/tmp/kimi/s1/agents/agent-existing',
+      labels: { parentAgentId: 'main' },
+    };
+    const child = agentHandle('agent-existing', lifecycle, eventBus, {
+      profileName: 'explore',
+      modelAlias: 'stale-model',
+    });
+    handles.set('agent-existing', child);
+    const service = ix.get(ISessionSwarmService);
+
+    await expect(
+      service.run({
+        callerAgentId: 'main',
+        tasks: [resumeSessionTask('agent-existing')],
+      }),
+    ).resolves.toMatchObject([{ status: 'completed', agentId: 'agent-existing' }]);
+
+    expect(child.accessor.get(IAgentProfileService).data().modelAlias).toBe('kimi-test');
+    expect(runAgent).toHaveBeenCalledWith(
+      'agent-existing',
+      { kind: 'prompt', prompt: 'Continue' },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
 });
 
 function spawnSessionTask(swarmItem?: string): SessionSwarmTask {
@@ -1176,9 +1203,13 @@ function agentHandle(
 }
 
 function profileService(data: ProfileData): IAgentProfileService {
+  let current = data;
   return {
     _serviceBrand: undefined,
-    data: () => data,
+    data: () => current,
+    update: (changed) => {
+      current = { ...current, ...changed };
+    },
   } as IAgentProfileService;
 }
 

@@ -3,11 +3,12 @@
  * an agent and distills a summary from its context once the turn ends.
  *
  * Not a Service: `runAgentTurn` is a pure function that borrows
- * `IAgentPromptService`, `IAgentContextMemoryService`, `IAgentUsageService`
- * from the target agent's scope. It has no notion of a caller: it emits no
- * record signals, runs no hooks, and tracks no telemetry. Callers that want to
- * surface the run on their own record stream (the `Agent` tool, the swarm
- * scheduler) compose this with `mirrorAgentRun` from the `agentTool` domain.
+ * `IAgentPromptService`, `IAgentContextMemoryService`, `IAgentUsageService`,
+ * and `IEventBus` from the target agent's scope. It has no notion of a caller:
+ * it emits no record signals, runs no hooks, and tracks no telemetry. Callers
+ * that want to surface the run on their own record stream (the `Agent` tool,
+ * the swarm scheduler) compose this with `mirrorAgentRun` from the `agentTool`
+ * domain.
  *
  * The lifecycle is imperative — the caller awaits the returned `completion`
  * promise. Turn hooks are not used because there is exactly one observer (the
@@ -20,6 +21,7 @@ import { type TokenUsage } from '#/app/llmProtocol/usage';
 
 import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
+import type { IDisposable } from '#/_base/di/lifecycle';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
@@ -27,6 +29,7 @@ import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentUsageService } from '#/agent/usage/usage';
 import type { Turn } from '#/agent/turn/turn';
 import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { IEventBus } from '#/app/event/eventBus';
 
 import type { AgentRunHandle, AgentRunRequest } from './agentLifecycle';
 
@@ -41,6 +44,9 @@ export const AGENT_RUN_PROMPT_ORIGIN: PromptOrigin = {
   kind: 'system_trigger',
   name: 'subagent',
 };
+
+const SUBAGENT_MAX_TOKENS_ERROR =
+  'Subagent turn failed before completing its final summary: reason=max_tokens';
 
 export interface RunAgentTurnOptions {
   /** When set, drives a continuation-prompt loop when the agent's summary is too short. */
@@ -62,43 +68,57 @@ export async function runAgentTurn(
   options: RunAgentTurnOptions,
 ): Promise<AgentRunHandle> {
   options.signal.throwIfAborted();
-  const promptService = target.accessor.get(IAgentPromptService);
-  const turn =
-    request.kind === 'prompt'
-      ? await promptService.prompt({
-          role: 'user',
-          content: [{ type: 'text', text: request.prompt }],
-          toolCalls: [],
-          origin: AGENT_RUN_PROMPT_ORIGIN,
-        })
-      : promptService.retry();
-  if (turn === undefined) throw new Error('Agent turn could not be started');
+  const finishObserver = observeTurnFinishReasons(target);
+  try {
+    const promptService = target.accessor.get(IAgentPromptService);
+    const turn =
+      request.kind === 'prompt'
+        ? await promptService.prompt({
+            role: 'user',
+            content: [{ type: 'text', text: request.prompt }],
+            toolCalls: [],
+            origin: AGENT_RUN_PROMPT_ORIGIN,
+          })
+        : promptService.retry();
+    if (turn === undefined) throw new Error('Agent turn could not be started');
 
-  if (options.onReady !== undefined) {
-    void turn.ready.then(() => options.onReady?.()).catch(() => {});
+    if (options.onReady !== undefined) {
+      void turn.ready.then(() => options.onReady?.()).catch(() => {});
+    }
+
+    const completion = awaitRun(target, turn, options, finishObserver);
+    return { agentId: target.id, turn, completion };
+  } catch (error) {
+    finishObserver.dispose();
+    throw error;
   }
-
-  const completion = awaitRun(target, turn, options);
-  return { agentId: target.id, turn, completion };
 }
 
 async function awaitRun(
   target: IAgentScopeHandle,
   turn: Turn,
   options: RunAgentTurnOptions,
+  finishObserver: TurnFinishObserver,
 ): Promise<{ summary: string; usage?: TokenUsage }> {
   const controller = new AbortController();
   const unlink = linkAbortSignal(options.signal, controller);
   let turnRef: Turn = turn;
   try {
     const result = await awaitTurn(turnRef, controller);
-    classifyTurnResult(result);
-    const summary = await distillSummary(target, controller, options.summaryPolicy, (t) => {
-      turnRef = t;
-    });
+    classifyTurnResult(result, finishObserver.finishReasonFor(turnRef.id));
+    const summary = await distillSummary(
+      target,
+      controller,
+      options.summaryPolicy,
+      (t) => {
+        turnRef = t;
+      },
+      finishObserver,
+    );
     const usage = target.accessor.get(IAgentUsageService)?.status().total;
     return { summary, usage };
   } finally {
+    finishObserver.dispose();
     unlink();
     if (controller.signal.aborted) {
       turnRef.abortController.abort(controller.signal.reason);
@@ -126,6 +146,7 @@ async function distillSummary(
   controller: AbortController,
   policy: AgentProfileSummaryPolicy | undefined,
   setTurn: (turn: Turn) => void,
+  finishObserver: TurnFinishObserver,
 ): Promise<string> {
   const memory = target.accessor.get(IAgentContextMemoryService);
   let summary = latestAssistantText(memory.get());
@@ -143,6 +164,7 @@ async function distillSummary(
     if (turn === undefined) break;
     setTurn(turn);
     const result = await awaitTurn(turn, controller);
+    throwIfTruncatedSummary(result, finishObserver.finishReasonFor(turn.id));
     if (result.reason !== 'completed') break;
     const continued = latestAssistantText(memory.get());
     if (continued.trim().length > 0) summary = continued;
@@ -151,7 +173,14 @@ async function distillSummary(
   return summary;
 }
 
-function classifyTurnResult(result: { reason: string; error?: unknown }): void {
+function classifyTurnResult(
+  result: {
+    reason: string;
+    error?: unknown;
+  },
+  finishReason?: string,
+): void {
+  throwIfTruncatedSummary(result, finishReason);
   if (result.reason === 'filtered') {
     throw new Error('Agent turn blocked by provider safety policy');
   }
@@ -167,6 +196,27 @@ function classifyTurnResult(result: { reason: string; error?: unknown }): void {
   if (result.reason === 'cancelled') {
     throw userCancellationReason();
   }
+}
+
+function throwIfTruncatedSummary(result: { reason: string }, finishReason?: string): void {
+  if (result.reason === 'completed' && finishReason === 'truncated') {
+    throw new Error(SUBAGENT_MAX_TOKENS_ERROR);
+  }
+}
+
+interface TurnFinishObserver extends IDisposable {
+  finishReasonFor(turnId: number): string | undefined;
+}
+
+function observeTurnFinishReasons(target: IAgentScopeHandle): TurnFinishObserver {
+  const byTurnId = new Map<number, string>();
+  const disposable = target.accessor.get(IEventBus).subscribe('turn.step.completed', (event) => {
+    if (event.finishReason !== undefined) byTurnId.set(event.turnId, event.finishReason);
+  });
+  return {
+    dispose: () => disposable.dispose(),
+    finishReasonFor: (turnId) => byTurnId.get(turnId),
+  };
 }
 
 function toRunError(error: unknown): Error {

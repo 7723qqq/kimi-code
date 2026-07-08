@@ -1,6 +1,6 @@
 import { Readable, type Writable } from 'node:stream';
 
-import type { IAgentScopeHandle } from '#/_base/di/scope';
+import { LifecycleScope, type IAgentScopeHandle } from '#/_base/di/scope';
 import { Event, type Event as KimiEvent } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
@@ -17,6 +17,7 @@ import { IAgentProfileService } from '#/agent/profile/profile';
 import { ToolAccesses } from '#/agent/tool/tool-access';
 import type { ExecutableTool } from '#/agent/tool/toolContract';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentTurnService } from '#/agent/turn/turn';
 import { IAgentUserToolService, type UserToolRegistration } from '#/agent/userTool/userTool';
 import {
   AgentSwarmToolInputSchema,
@@ -26,6 +27,7 @@ import {
   AgentToolInputSchema,
   type AgentToolInput,
 } from '#/session/agentLifecycle/tools/agent';
+import { runAgentTurn } from '#/session/agentLifecycle/runAgentTurn';
 import {
   IAgentLifecycleService,
   type AgentRunHandle,
@@ -33,6 +35,7 @@ import {
   type RunAgentOptions,
 } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
+import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import type {
   ISessionSwarmService,
   SessionSwarmRunArgs,
@@ -124,6 +127,10 @@ function hookSlot<T>() {
   };
 }
 
+function noopDisposable() {
+  return { dispose: () => {} };
+}
+
 interface AgentLifecycleStubOptions {
   readonly createAgentIds?: readonly string[];
   readonly runCompletion?: (
@@ -176,7 +183,14 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
           return {
             _serviceBrand: undefined,
             data: () => ({ profileName: profileByAgentId.get(agentId) }),
+            update: () => {},
             isToolActive: () => false,
+          } as never;
+        }
+        if (serviceId === IAgentTurnService) {
+          return {
+            _serviceBrand: undefined,
+            getActiveTurn: () => undefined,
           } as never;
         }
         if (serviceId === IAgentToolRegistryService) {
@@ -198,8 +212,13 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
           return {
             _serviceBrand: undefined,
             dispatch: () => {},
+            replay: async () => {},
+            flush: async () => {},
+            attach: () => noopDisposable(),
             getModel: () => [],
-            onRestored: () => ({ dispose: () => {} }),
+            subscribe: () => noopDisposable(),
+            onEmission: () => noopDisposable(),
+            onRestored: () => noopDisposable(),
           } as never;
         }
         return undefined as never;
@@ -283,10 +302,48 @@ function executeAgentTool(
   });
 }
 
+function currentAgentHandle(ctx: TestAgentContext, agentId: string): IAgentScopeHandle {
+  return {
+    id: agentId,
+    kind: LifecycleScope.Agent,
+    accessor: {
+      get: ((serviceId: unknown) =>
+        ctx.get(serviceId as never)) as IAgentScopeHandle['accessor']['get'],
+    },
+    dispose: () => {},
+  };
+}
+
 const cronStub = {
   _serviceBrand: undefined,
   list: () => [],
 } as unknown as ISessionCronService;
+
+function sessionMetadataStub(agents: Readonly<Record<string, AgentMeta>>): ISessionMetadata {
+  return {
+    _serviceBrand: undefined,
+    ready: Promise.resolve(),
+    onDidChangeMetadata: Event.None as ISessionMetadata['onDidChangeMetadata'],
+    read: async () => ({
+      id: 'test-session',
+      createdAt: 0,
+      updatedAt: 0,
+      archived: false,
+      agents,
+    }),
+    update: async () => {},
+    setTitle: async () => {},
+    setArchived: async () => {},
+    registerAgent: async () => {},
+  };
+}
+
+function subagentMeta(agentId: string, parentAgentId = 'main'): AgentMeta {
+  return {
+    homedir: `/tmp/kimi-test/agents/${agentId}`,
+    labels: { parentAgentId },
+  };
+}
 
 describe('AgentToolInputSchema', () => {
   it('accepts the snake_case background parameter', () => {
@@ -571,7 +628,13 @@ describe('Agent tool execution contract', () => {
     const lifecycle = createAgentLifecycleStub({
       runCompletion: async () => ({ summary: 'resumed result' }),
     });
-    const context = createAgentToolContext(lifecycle);
+    const context = createAgentToolContext(
+      lifecycle,
+      sessionService(
+        ISessionMetadata,
+        sessionMetadataStub({ 'agent-existing': subagentMeta('agent-existing') }),
+      ),
+    );
     lifecycle.addHandle('agent-existing', 'explore');
 
     const result = await executeAgentTool(context, {
@@ -589,6 +652,130 @@ describe('Agent tool execution contract', () => {
     expect(result.output).toContain('agent_id: agent-existing');
     expect(result.output).toContain('actual_subagent_type: explore');
     expect(result.output).toContain('resumed result');
+  });
+
+  it('rejects direct resume of a non-subagent', async () => {
+    const lifecycle = createAgentLifecycleStub();
+    const context = createAgentToolContext(
+      lifecycle,
+      sessionService(
+        ISessionMetadata,
+        sessionMetadataStub({
+          main: { homedir: '/tmp/kimi-test/agents/main', type: 'main' },
+        }),
+      ),
+    );
+    lifecycle.addHandle('main', 'agent');
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Continue',
+      description: 'Continue main',
+      resume: 'main',
+    });
+
+    expect(result).toMatchObject({
+      isError: true,
+      output: 'subagent error: Agent instance "main" is not a subagent',
+    });
+    expect(lifecycle.run).not.toHaveBeenCalled();
+  });
+
+  it('rejects direct resume of another caller owned subagent', async () => {
+    const lifecycle = createAgentLifecycleStub();
+    const context = createAgentToolContext(
+      lifecycle,
+      sessionService(
+        ISessionMetadata,
+        sessionMetadataStub({ 'agent-existing': subagentMeta('agent-existing', 'other') }),
+      ),
+    );
+    lifecycle.addHandle('agent-existing', 'explore');
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Continue',
+      description: 'Continue work',
+      resume: 'agent-existing',
+    });
+
+    expect(result).toMatchObject({
+      isError: true,
+      output: 'subagent error: Agent instance "agent-existing" does not belong to this parent agent',
+    });
+    expect(lifecycle.run).not.toHaveBeenCalled();
+  });
+
+  it('rejects direct resume of an already running subagent before launching a turn', async () => {
+    const lifecycle = createAgentLifecycleStub();
+    const context = createAgentToolContext(
+      lifecycle,
+      sessionService(
+        ISessionMetadata,
+        sessionMetadataStub({ 'agent-existing': subagentMeta('agent-existing') }),
+      ),
+    );
+    lifecycle.addHandle(
+      'agent-existing',
+      'explore',
+      new Map([
+        [
+          IAgentTurnService,
+          {
+            _serviceBrand: undefined,
+            getActiveTurn: () => ({ id: 1 }),
+          },
+        ],
+      ]),
+    );
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Continue',
+      description: 'Continue work',
+      resume: 'agent-existing',
+    });
+
+    expect(result).toMatchObject({
+      isError: true,
+      output:
+        'subagent error: Agent instance "agent-existing" is already running and cannot run concurrently',
+    });
+    expect(lifecycle.run).not.toHaveBeenCalled();
+  });
+
+  it('realigns a directly resumed subagent to the caller current model', async () => {
+    const targetProfile = {
+      _serviceBrand: undefined,
+      data: () => ({ profileName: 'explore', modelAlias: 'stale-model' }),
+      update: vi.fn(),
+      isToolActive: () => false,
+    } as unknown as IAgentProfileService;
+    const lifecycle = createAgentLifecycleStub({
+      runCompletion: async () => ({ summary: 'resumed result' }),
+    });
+    const context = createAgentToolContext(
+      lifecycle,
+      sessionService(
+        ISessionMetadata,
+        sessionMetadataStub({ 'agent-existing': subagentMeta('agent-existing') }),
+      ),
+    );
+    lifecycle.addHandle(
+      'agent-existing',
+      'explore',
+      new Map([[IAgentProfileService, targetProfile]]),
+    );
+
+    await executeAgentTool(context, {
+      prompt: 'Continue',
+      description: 'Continue work',
+      resume: 'agent-existing',
+    });
+
+    expect(targetProfile.update).toHaveBeenCalledWith({ modelAlias: 'mock-model' });
+    expect(lifecycle.run).toHaveBeenCalledWith(
+      'agent-existing',
+      { kind: 'prompt', prompt: 'Continue' },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   it('registers background subagents with the task manager', async () => {
@@ -1757,6 +1944,26 @@ describe('Agent tools', () => {
             ],
           }),
         ]),
+      );
+    });
+
+    it('fails an agent run when the final summary is truncated', async () => {
+      await ctx.dispose();
+      ctx = createTestAgent();
+      ctx.mockNextProviderResponse({
+        parts: [{ type: 'text', text: 'partial summary' }],
+        finishReason: 'truncated',
+        rawFinishReason: 'length',
+      });
+
+      const run = await runAgentTurn(
+        currentAgentHandle(ctx, 'agent-child'),
+        { kind: 'prompt', prompt: 'Investigate' },
+        { signal },
+      );
+
+      await expect(run.completion).rejects.toThrow(
+        'Subagent turn failed before completing its final summary: reason=max_tokens',
       );
     });
   });
