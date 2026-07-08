@@ -32,6 +32,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { ErrorCodes, KimiError } from '#/errors';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { ISessionActivity } from '#/session/sessionActivity/sessionActivity';
+import { labelsFromAgentMeta } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
@@ -307,13 +308,10 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     // log. Creating them registers fresh agent entries with TARGET homedirs.
     for (const agentId of agentIds) {
       const sourceAgent = sourceAgents[agentId]!;
-      const legacy = sourceAgent as { parentAgentId?: string };
       const agentHandle = await target.accessor.get(IAgentLifecycleService).create({
         agentId,
-        forkedFrom: sourceAgent.forkedFrom ?? legacy.parentAgentId,
-        labels:
-          sourceAgent.labels ??
-          (sourceAgent.swarmItem !== undefined ? { swarmItem: sourceAgent.swarmItem } : undefined),
+        forkedFrom: sourceAgent.forkedFrom,
+        labels: labelsFromAgentMeta(sourceAgent),
       });
       const forkWireRecord = agentHandle.accessor.get(IAgentWireRecordService);
       await forkWireRecord.restore();
