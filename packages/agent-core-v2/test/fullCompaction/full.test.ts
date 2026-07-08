@@ -15,15 +15,12 @@ import {
 import { makeHookRunner } from '../externalHooks/runner-stub';
 import type { IExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunner';
 import { MASTER_ENV } from '#/app/flag/flagService';
-import { microCompactionFlag } from '#/agent/microCompaction/flag';
-import { COMPACTION_SUMMARY_PREFIX } from '#/agent/contextMemory/compactionHandoff';
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import type { TestAgentContext, TestAgentOptions, TestAgentServiceOverride } from '../harness';
 import { appServices, createCommandRunner, execEnvServices, sessionServices, testAgent } from '../harness';
 import {
   IAgentFullCompactionService,
-  IAgentMicroCompactionService,
   IOAuthService,
   IAgentProfileService,
   ISessionTodoService,
@@ -46,7 +43,6 @@ const CATALOGUED_MODEL_CAPABILITIES = {
   tool_use: true,
   max_context_tokens: 256_000,
 } as const;
-const MICRO_COMPACTION_FLAG_ENV = getMicroCompactionFlagEnv();
 const SNAPSHOT_VISIBLE_TOOLS = [
   'Agent',
   'AgentSwarm',
@@ -350,103 +346,6 @@ describe('FullCompaction', () => {
           message.toolCalls.length === 0,
       ),
     ).toBe(false);
-  });
-
-  it('strips dynamic tool protocol context from the summary request', async () => {
-    const ctx = testAgent();
-    ctx.configure({
-      provider: CATALOGUED_PROVIDER,
-      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
-      tools: SNAPSHOT_VISIBLE_TOOLS,
-    });
-    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
-    await ctx.dispatch({
-      type: 'context.splice',
-      start: ctx.context.get().length,
-      deleteCount: 0,
-      messages: [
-        {
-          role: 'system',
-          content: [],
-          toolCalls: [],
-          tools: [
-            {
-              name: 'LoadedDynamicTool',
-              description: 'schema text should not be summarized',
-              parameters: { type: 'object', properties: { query: { type: 'string' } } },
-            },
-          ],
-          origin: { kind: 'injection', variant: 'dynamic_tool_schema' },
-        },
-        {
-          role: 'user',
-          content: [{ type: 'text', text: '<tools_added>\nLoadedDynamicTool\n</tools_added>' }],
-          toolCalls: [],
-          origin: { kind: 'system_trigger', name: 'loadable-tools' },
-        },
-      ],
-    });
-    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
-    const compacted = ctx.once('full_compaction.complete');
-    const completed = ctx.once('compaction.completed');
-
-    ctx.mockNextResponse({ type: 'text', text: 'Summary without protocol context.' });
-    await ctx.rpc.beginCompaction({});
-    await compacted;
-    await completed;
-
-    const [compactionCall] = ctx.llmCalls;
-    const inputText = compactionCall?.history.map(messageText).join('\n') ?? '';
-    expect(compactionCall?.history.some((message) => message.tools !== undefined)).toBe(false);
-    expect(inputText).not.toContain('LoadedDynamicTool');
-    expect(inputText).not.toContain('<tools_added>');
-    expect(inputText).not.toContain('schema text should not be summarized');
-    expect(inputText).toContain('old user one');
-    expect(inputText).toContain('recent user two');
-    await ctx.expectResumeMatches();
-  });
-
-  it('micro-compacts old tool results before sending the summary request', async () => {
-    vi.useFakeTimers();
-    enableMicroCompactionFlag();
-    const ctx = testAgent({
-      microCompaction: {
-        config: {
-          keepRecentMessages: 2,
-          minContentTokens: 1,
-          cacheMissedThresholdMs: 60 * 60 * 1000,
-          minContextUsageRatio: 0,
-
-        }
-      },
-    });
-    ctx.configure({
-      provider: CATALOGUED_PROVIDER,
-      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
-      tools: SNAPSHOT_VISIBLE_TOOLS,
-    });
-
-    // Force-construct the micro-compaction service so it registers its
-    // onSpliced observer before the tool exchanges are appended (otherwise the
-    // lazily-instantiated service never records the assistant cache anchor that
-    // `detect()` needs).
-    (ctx.get(IAgentMicroCompactionService) as any).compact([]);
-
-    vi.setSystemTime(0);
-    ctx.appendToolExchange();
-    ctx.appendToolExchange();
-
-    vi.setSystemTime(61 * 60 * 1000);
-
-    (ctx.get(IAgentMicroCompactionService) as any).detect();
-    const compacted = ctx.once('full_compaction.complete');
-    ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
-    await ctx.rpc.beginCompaction({ instruction: 'Summarize tool exchanges.' });
-    await compacted;
-
-    const [compactionCall] = ctx.llmCalls;
-    expect(messageText(compactionCall?.history[2])).toBe('[Old tool result content cleared]');
-    expect(messageText(compactionCall?.history[5])).toBe('lookup result');
   });
 
   it('force-refreshes OAuth credentials on compaction 401 and falls back to login_required when replay 401', async () => {
@@ -2515,15 +2414,6 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllEnvs();
 });
-
-function enableMicroCompactionFlag(): void {
-  vi.stubEnv(MASTER_ENV, '0');
-  vi.stubEnv(MICRO_COMPACTION_FLAG_ENV, '1');
-}
-
-function getMicroCompactionFlagEnv(): string {
-  return microCompactionFlag.env;
-}
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;

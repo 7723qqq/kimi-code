@@ -90,7 +90,7 @@ Reference mapping (a **starting point**, not gospel — verify against the curre
 | `services/session/`, `session/` | `session`, `sessionStore`, `sessionMetaStore`, `sessionActivity`, `sessionContext`, `agentLifecycle` |
 | `services/tool/`, `tools/`, `agent/tool/` | `toolRegistry`, `toolStore`, `toolExecutor`, `tooldedup`, `userTool` |
 | `loop/`, `agent/` (turn loop) | `loop`, `llmRequester`, `llmRequestLog`, `turn` |
-| `agent/context/`, `agent/compaction/` | `contextMemory`, `contextProjector`, `contextSize`, `microCompaction`, `fullCompaction`, `dynamicInjector` |
+| `agent/context/`, `agent/compaction/` | `contextMemory`, `contextProjector`, `contextSize`, `fullCompaction`, `dynamicInjector` |
 | `agent/permission/` | `permission`, `permissionMode`, `permissionPolicy`, `permissionRules`, `approval`, `externalHooks` |
 | `agent/goal/`, `agent/plan/`, `agent/swarm/`, `agent/cron/`, `agent/background/` | `goal`, `plan`, `swarm`, `cron`, `background`, `subagentHost` |
 | `services/config/`, `agent/config/` | `config` |

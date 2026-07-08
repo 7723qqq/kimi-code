@@ -22,7 +22,6 @@ import { CronTaskPersistenceService } from '#/app/cron/cronTaskPersistenceServic
 import { IAgentGoalService } from '#/agent/goal/goal';
 import { AgentGoalService } from '#/agent/goal/goalService';
 import type { McpServiceOptions } from '#/agent/mcp/mcp';
-import { MICRO_COMPACTION_SECTION, type MicroCompactionConfig } from '#/agent/microCompaction/configSection';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import type { PermissionRule } from '#/agent/permissionRules/permissionRules';
 import { IAgentPlanService } from '#/agent/plan/plan';
@@ -80,7 +79,6 @@ import {
   IAgentLLMRequesterService,
   ILogService,
   IAgentMcpService,
-  IAgentMicroCompactionService,
   IAgentPermissionGate,
   IAgentPermissionModeService,
   IAgentPermissionRulesService,
@@ -101,7 +99,6 @@ import {
   AgentLLMRequesterService,
   LifecycleScope,
   AgentMcpService,
-  AgentMicroCompactionService,
   AgentPermissionGate,
   AgentPermissionRulesService,
   AgentProfileService,
@@ -291,11 +288,6 @@ export interface TestAgentOptions {
   readonly generate?: GenerateFn | undefined;
   readonly telemetry?: ITelemetryService | undefined;
   readonly persistence?: WireRecordPersistence | undefined;
-  readonly microCompaction?:
-  | {
-    readonly config?: Partial<MicroCompactionConfig> | undefined;
-  }
-  | undefined;
   readonly hookEngine?:
   | Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>
   | undefined;
@@ -594,15 +586,6 @@ const noopHookRunner: IExternalHooksRunnerService = {
   fireAndForgetTrigger: async () => [],
 };
 
-export function microCompactionServices(options: {
-  readonly config?: Partial<MicroCompactionConfig>;
-}): TestAgentServiceOverride {
-  return configServices(() => ({
-    ...emptyConfig(),
-    [MICRO_COMPACTION_SECTION]: options.config,
-  }));
-}
-
 export function permissionModeServices(mode: PermissionMode): TestAgentServiceOverride {
   return agentService(IAgentPermissionModeService, createPermissionModeService(mode));
 }
@@ -725,17 +708,6 @@ function mergeTestAgentOptions(base: TestAgentOptions, next: TestAgentOptions): 
   return {
     ...base,
     ...next,
-    microCompaction:
-      base.microCompaction === undefined && next.microCompaction === undefined
-        ? undefined
-        : {
-          ...base.microCompaction,
-          ...next.microCompaction,
-          config: {
-            ...base.microCompaction?.config,
-            ...next.microCompaction?.config,
-          },
-        },
     initialConfig: {
       ...base.initialConfig,
       ...next.initialConfig,
@@ -1086,10 +1058,6 @@ export class AgentTestContext {
               new SyncDescriptor(AgentExternalHooksService),
             );
             reg.defineDescriptor(
-              IAgentMicroCompactionService,
-              new SyncDescriptor(AgentMicroCompactionService),
-            );
-            reg.defineDescriptor(
               IAgentFullCompactionService,
               new SyncDescriptor(AgentFullCompactionService),
             );
@@ -1224,8 +1192,6 @@ export class AgentTestContext {
     const swarm = this.get(IAgentSwarmService);
 
     context.get();
-    const microCompaction = this.get(IAgentMicroCompactionService);
-    void microCompaction;
     void swarm.isActive;
     contextSize.get();
     usage.status();
@@ -2123,10 +2089,6 @@ function applyTestAgentOptionsToConfig(config: KimiConfig, options: TestAgentOpt
       ...config.models,
       ...initialConfig.models,
     },
-    [MICRO_COMPACTION_SECTION]:
-      options.microCompaction?.config ??
-      initialConfig[MICRO_COMPACTION_SECTION] ??
-      config[MICRO_COMPACTION_SECTION],
   };
 }
 

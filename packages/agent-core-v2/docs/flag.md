@@ -11,7 +11,7 @@ Gates not-yet-public features behind `IFlagService.enabled(id)`, per the reposit
 - `src/flag/flag.ts` — `IFlagService` token + resolver types (`ExperimentalFlagMap`, `ExperimentalFlagConfig`, `ExperimentalFlagSource`, `ExperimentalFeatureState`) + `ExperimentalConfigSchema` / `ExperimentalConfig` (zod).
 - `src/flag/flagService.ts` — `FlagService` impl + `MASTER_ENV` (`KIMI_CODE_EXPERIMENTAL_FLAG`) + `EXPERIMENTAL_SECTION` (`experimental`); reads definitions from `IFlagRegistry`; self-registers at App scope.
 - `src/flag/index.ts` — barrel; re-exported by `src/index.ts` at the L3 block.
-- `src/<domain>/flag.ts` — each domain that owns a flag declares it here and calls `registerFlagDefinition` at the module top level (e.g. `src/microCompaction/flag.ts`). The directory already names the domain, so the file is just `flag.ts`.
+- `src/<domain>/flag.ts` — each domain that owns a flag declares it here and calls `registerFlagDefinition` at the module top level (e.g. `src/multiServer/flag.ts`). The directory already names the domain, so the file is just `flag.ts`.
 
 ## Public surface
 
@@ -25,7 +25,7 @@ Gates not-yet-public features behind `IFlagService.enabled(id)`, per the reposit
 Highest wins; env is read live on every call (nothing cached):
 
 1. L1 master env `KIMI_CODE_EXPERIMENTAL_FLAG` truthy → every flag on.
-2. L2 per-feature `def.env` (e.g. `KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION`) → forces on/off.
+2. L2 per-feature `def.env` (e.g. `KIMI_CODE_EXPERIMENTAL_MY_FEATURE`) → forces on/off.
 3. L3 `[experimental]` config section per-flag override.
 4. L4 registry `default`.
 
@@ -42,7 +42,7 @@ Config shape mirrors v1:
 
 ```toml
 [experimental]
-micro_compaction = false
+my_feature = false
 ```
 
 Keys are intentionally loose (`z.record(z.string(), z.boolean())`), so obsolete flags stay inert config.
@@ -90,10 +90,8 @@ Inject `IFlagService` and gate on it. It is resolvable from any scope (App ances
 ```ts
 constructor(@IFlagService private readonly flags: IFlagService) {}
 // ...
-if (!this.flags.enabled('micro_compaction')) return;
+if (!this.flags.enabled('my_feature')) return;
 ```
-
-Current consumer: `microCompaction` (Agent scope) gates `micro_compaction`.
 
 ## Layering & scope
 
@@ -105,7 +103,7 @@ Current consumer: `microCompaction` (Agent scope) gates `micro_compaction`.
 ## References
 
 - `packages/agent-core-v2/src/flag/` — implementation (`IFlagRegistry` + `IFlagService`).
-- `packages/agent-core-v2/src/microCompaction/flag.ts` — example per-domain flag contribution.
+- `packages/agent-core-v2/src/app/multiServer/flag.ts` — example per-domain flag contribution.
 - `packages/agent-core-v2/test/flag/flag.test.ts` — precedence + config subscription tests.
 - `packages/agent-core/src/flags/` — v1 source this was ported from.
 - `plan/PLAN.md` §2/§3 — domain placement (`flag` at L3, not `_base/flags`).

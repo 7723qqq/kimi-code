@@ -4,8 +4,8 @@
  *
  * `projectLegacy` below is the previous implementation, copied verbatim so the
  * comparison stays runnable after the old code is gone. The "new" side goes
- * through the real `AgentContextProjectorService` with micro-compaction
- * stubbed to a pass-through, so it measures exactly the projection path.
+ * through the real `AgentContextProjectorService`, so it measures exactly the
+ * projection path.
  *
  * Run:
  *   pnpm --filter @moonshot-ai/agent-core-v2 exec vitest bench test/contextProjector/projector.bench.ts
@@ -19,7 +19,6 @@ import { TestInstantiationService } from '#/_base/di/test';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
 import { AgentContextProjectorService } from '#/agent/contextProjector/contextProjectorService';
-import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import { ErrorCodes, KimiError } from '#/errors';
 import type { ContentPart, Message, TextPart, ToolCall } from '#/app/llmProtocol/message';
 
@@ -187,7 +186,6 @@ function makeMixedHistory(turns: number): ContextMessage[] {
 function createProjector(disposables: DisposableStore): IAgentContextProjectorService {
   const ix = disposables.add(new TestInstantiationService());
   ix.set(IAgentContextProjectorService, new SyncDescriptor(AgentContextProjectorService));
-  ix.stub(IAgentMicroCompactionService, { compact: (messages) => messages });
   return ix.get(IAgentContextProjectorService);
 }
 

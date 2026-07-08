@@ -1,31 +1,20 @@
-import { IInstantiationService } from "#/_base/di/instantiation";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { ErrorCodes, KimiError } from '#/errors';
-import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import type { ContentPart, Message } from '#/app/llmProtocol/message';
 import { IAgentContextProjectorService } from './contextProjector';
 
 export class AgentContextProjectorService implements IAgentContextProjectorService {
   declare readonly _serviceBrand: undefined;
-  constructor(
-    @IInstantiationService private readonly instantiation: IInstantiationService,
-  ) {}
 
   project(messages: readonly ContextMessage[]): readonly Message[] {
-    return project(this.microCompaction().compact(messages));
+    return project(messages);
   }
 
   projectStrict(messages: readonly ContextMessage[]): readonly Message[] {
-    return projectStrict(this.microCompaction().compact(messages));
-  }
-
-  private microCompaction(): IAgentMicroCompactionService {
-    return this.instantiation.invokeFunction((accessor) =>
-      accessor.get(IAgentMicroCompactionService),
-    );
+    return projectStrict(messages);
   }
 }
 
@@ -102,8 +91,7 @@ function dropLeadingNonUserMessages(messages: readonly Message[]): Message[] {
 // never anchor an exchange. Tool messages are skipped where they originally
 // sat — a result either lands in its call's slot or it is an orphan,
 // wire-invalid and useless to the model. A history with no assistant at all
-// is a bare sizing slice (micro-compaction sizes single messages this way)
-// and passes through as-is. Emitting cleans each message (drops empty /
+// is a bare sizing slice and passes through as-is. Emitting cleans each message (drops empty /
 // whitespace-only text blocks, rejected by strict providers), merges runs of
 // adjacent user prompts (accumulated and materialized once per run), and
 // strips context-only metadata off the wire.

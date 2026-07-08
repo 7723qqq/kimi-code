@@ -61,9 +61,8 @@ import { OrderedHookSlot } from '#/hooks';
 
 // The `full_compaction.*` record shapes stay declared in `WireRecordMap`
 // because the records still ride the per-agent `wire.jsonl` log read by
-// `wireRecord.restore()` / `getRecords()`: `microCompaction` registers a
-// `full_compaction.complete` resumer against that stream. fullCompaction itself
-// no longer registers resumers here — its state rebuilds from the same log via
+// `wireRecord.restore()` / `getRecords()`. fullCompaction itself no longer
+// registers resumers here — its state rebuilds from the same log via
 // `wire.replay` into `CompactionModel`.
 declare module '#/agent/wireRecord/wireRecord' {
   interface WireRecordMap {

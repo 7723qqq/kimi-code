@@ -22,12 +22,11 @@ import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLog } from '../log/stubs';
 
-const microCompactionFlag: FlagDefinitionInput = {
-  id: 'micro_compaction',
-  title: 'Micro compaction',
-  description:
-    'Trim older large tool results from context while keeping recent conversation intact.',
-  env: 'KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION',
+const exampleFlag: FlagDefinitionInput = {
+  id: 'example_flag',
+  title: 'Example flag',
+  description: 'Example experimental flag used to exercise the flag registry.',
+  env: 'KIMI_CODE_EXPERIMENTAL_EXAMPLE_FLAG',
   default: true,
   surface: 'core',
 };
@@ -35,9 +34,9 @@ const microCompactionFlag: FlagDefinitionInput = {
 describe('FlagRegistryService', () => {
   it('registers and resolves by id', () => {
     const reg = new FlagRegistryService();
-    reg.register(microCompactionFlag);
-    expect(reg.list().map((d) => d.id)).toEqual(['micro_compaction']);
-    expect(reg.get('micro_compaction')?.env).toBe('KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION');
+    reg.register(exampleFlag);
+    expect(reg.list().map((d) => d.id)).toEqual(['example_flag']);
+    expect(reg.get('example_flag')?.env).toBe('KIMI_CODE_EXPERIMENTAL_EXAMPLE_FLAG');
   });
 
   it('returns undefined for an unknown id', () => {
@@ -47,15 +46,15 @@ describe('FlagRegistryService', () => {
 
   it('throws on a duplicate id', () => {
     const reg = new FlagRegistryService();
-    reg.register(microCompactionFlag);
-    expect(() => reg.register(microCompactionFlag)).toThrow();
+    reg.register(exampleFlag);
+    expect(() => reg.register(exampleFlag)).toThrow();
   });
 
   it('unregisters when the returned disposable is disposed', () => {
     const reg = new FlagRegistryService();
-    const handle = reg.register(microCompactionFlag);
+    const handle = reg.register(exampleFlag);
     handle.dispose();
-    expect(reg.get('micro_compaction')).toBeUndefined();
+    expect(reg.get('example_flag')).toBeUndefined();
   });
 });
 
@@ -79,7 +78,7 @@ describe('FlagService', () => {
     ix.set(IConfigService, new SyncDescriptor(ConfigService));
     ix.set(IFlagRegistry, new SyncDescriptor(FlagRegistryService));
     ix.set(IFlagService, new SyncDescriptor(FlagService));
-    ix.get(IFlagRegistry).register(microCompactionFlag);
+    ix.get(IFlagRegistry).register(exampleFlag);
     return {
       registry: ix.get(IConfigRegistry),
       config: ix.get(IConfigService),
@@ -97,10 +96,10 @@ describe('FlagService', () => {
 
   it('resolves the registry default when nothing overrides it', () => {
     const { flags } = makeFlags();
-    const state = flags.explain('micro_compaction');
+    const state = flags.explain('example_flag');
     expect(state?.enabled).toBe(true);
     expect(state?.source).toBe('default');
-    expect(flags.enabled('micro_compaction')).toBe(true);
+    expect(flags.enabled('example_flag')).toBe(true);
   });
 
   it('returns undefined for an unregistered flag', () => {
@@ -111,8 +110,8 @@ describe('FlagService', () => {
 
   it('applies config overrides above the default', async () => {
     const { config, flags } = makeFlags();
-    await config.set(EXPERIMENTAL_SECTION, { micro_compaction: false });
-    const state = flags.explain('micro_compaction');
+    await config.set(EXPERIMENTAL_SECTION, { example_flag: false });
+    const state = flags.explain('example_flag');
     expect(state?.enabled).toBe(false);
     expect(state?.source).toBe('config');
     expect(state?.configValue).toBe(false);
@@ -120,10 +119,10 @@ describe('FlagService', () => {
 
   it('lets per-feature env override config', async () => {
     const { config, flags } = makeFlags({
-      KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION: 'true',
+      KIMI_CODE_EXPERIMENTAL_EXAMPLE_FLAG: 'true',
     });
-    await config.set(EXPERIMENTAL_SECTION, { micro_compaction: false });
-    const state = flags.explain('micro_compaction');
+    await config.set(EXPERIMENTAL_SECTION, { example_flag: false });
+    const state = flags.explain('example_flag');
     expect(state?.enabled).toBe(true);
     expect(state?.source).toBe('env');
     expect(state?.configValue).toBe(false);
@@ -131,70 +130,70 @@ describe('FlagService', () => {
 
   it('lets the master env switch force every flag on', async () => {
     const { config, flags } = makeFlags({ [MASTER_ENV]: '1' });
-    await config.set(EXPERIMENTAL_SECTION, { micro_compaction: false });
-    const state = flags.explain('micro_compaction');
+    await config.set(EXPERIMENTAL_SECTION, { example_flag: false });
+    const state = flags.explain('example_flag');
     expect(state?.enabled).toBe(true);
     expect(state?.source).toBe('master-env');
   });
 
   it('refreshes overrides when the experimental config section changes', async () => {
     const { config, flags } = makeFlags();
-    expect(flags.enabled('micro_compaction')).toBe(true);
-    await config.set(EXPERIMENTAL_SECTION, { micro_compaction: false });
-    expect(flags.enabled('micro_compaction')).toBe(false);
-    await config.set(EXPERIMENTAL_SECTION, { micro_compaction: true });
-    expect(flags.enabled('micro_compaction')).toBe(true);
+    expect(flags.enabled('example_flag')).toBe(true);
+    await config.set(EXPERIMENTAL_SECTION, { example_flag: false });
+    expect(flags.enabled('example_flag')).toBe(false);
+    await config.set(EXPERIMENTAL_SECTION, { example_flag: true });
+    expect(flags.enabled('example_flag')).toBe(true);
   });
 
   it('ignores unrelated config section changes', async () => {
     const { config, flags } = makeFlags();
     await config.set('agent', { modelAlias: 'k2' });
-    expect(flags.explain('micro_compaction')?.source).toBe('default');
+    expect(flags.explain('example_flag')?.source).toBe('default');
   });
 
   it('supports imperative setConfigOverrides', () => {
     const { flags } = makeFlags();
-    flags.setConfigOverrides({ micro_compaction: false });
-    expect(flags.enabled('micro_compaction')).toBe(false);
+    flags.setConfigOverrides({ example_flag: false });
+    expect(flags.enabled('example_flag')).toBe(false);
     flags.setConfigOverrides(undefined);
-    expect(flags.enabled('micro_compaction')).toBe(true);
+    expect(flags.enabled('example_flag')).toBe(true);
   });
 
   it('exposes snapshot / enabledIds / explainAll', () => {
     const { flags } = makeFlags();
-    expect(flags.snapshot()).toEqual({ micro_compaction: true });
-    expect(flags.enabledIds()).toEqual(['micro_compaction']);
-    expect(flags.explainAll().map((s) => s.id)).toEqual(['micro_compaction']);
+    expect(flags.snapshot()).toEqual({ example_flag: true });
+    expect(flags.enabledIds()).toEqual(['example_flag']);
+    expect(flags.explainAll().map((s) => s.id)).toEqual(['example_flag']);
   });
 
   it('treats truthy env values case-insensitively', () => {
-    const { flags } = makeFlags({ KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION: 'YES' });
-    expect(flags.enabled('micro_compaction')).toBe(true);
+    const { flags } = makeFlags({ KIMI_CODE_EXPERIMENTAL_EXAMPLE_FLAG: 'YES' });
+    expect(flags.enabled('example_flag')).toBe(true);
   });
 
   it('treats falsy env values case-insensitively', () => {
-    const { flags } = makeFlags({ KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION: 'off' });
-    expect(flags.enabled('micro_compaction')).toBe(false);
+    const { flags } = makeFlags({ KIMI_CODE_EXPERIMENTAL_EXAMPLE_FLAG: 'off' });
+    expect(flags.enabled('example_flag')).toBe(false);
   });
 
   it('reads only the env name declared in the registry', () => {
     const { flags } = makeFlags({ KIMI_CODE_EXPERIMENTAL_UNKNOWN: 'false' });
-    expect(flags.enabled('micro_compaction')).toBe(true);
+    expect(flags.enabled('example_flag')).toBe(true);
   });
 
   it('ignores garbage env values', () => {
-    const { flags } = makeFlags({ KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION: 'maybe' });
-    expect(flags.enabled('micro_compaction')).toBe(true);
+    const { flags } = makeFlags({ KIMI_CODE_EXPERIMENTAL_EXAMPLE_FLAG: 'maybe' });
+    expect(flags.enabled('example_flag')).toBe(true);
   });
 
   it('ignores obsolete config ids outside the registry', async () => {
     const { config, flags } = makeFlags();
     await config.set(EXPERIMENTAL_SECTION, {
       obsolete_flag: false,
-      micro_compaction: false,
+      example_flag: false,
     });
 
-    expect(flags.snapshot()).toEqual({ micro_compaction: false });
+    expect(flags.snapshot()).toEqual({ example_flag: false });
     expect(flags.explain('obsolete_flag')).toBeUndefined();
   });
 });

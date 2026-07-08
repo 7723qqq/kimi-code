@@ -281,7 +281,7 @@ setTodos(todos: TodoItem[]): void {
 - **Command 不持有可折叠状态**。所有"resume 后必须还在"的状态在 view 里。
   service 私有字段只允许装真正的运行时资源（进程句柄、定时器、连接）。
 - **Command 不在 replay 中运行**（相位机保证）。resume 复用 live 命令的 hack
-  （microCompaction）消失：replay 只折叠 fact。
+  消失：replay 只折叠 fact。
 - 需要"先答应再补偿"的命令（plan.enter 失败后 cancel）就是两次 commit——
   补偿也是事实，天然可回放。
 - `define()` 的 facet 机制退役：`resume` → view fold；`toLive` → 定义处

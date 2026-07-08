@@ -104,7 +104,6 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>swarm</b>\n<size:9><i>Agent</i></size>\n  IAgentSwarmService" as swarm #FDEBD0
   rectangle "<b>mcp</b>\n<size:9><i>Agent</i></size>\n  IAgentMcpService" as mcp #FDEBD0
   rectangle "<b>fullCompaction</b>\n<size:9><i>Agent</i></size>\n  IAgentFullCompactionService" as fullCompaction #FDEBD0
-  rectangle "<b>microCompaction</b>\n<size:9><i>Agent</i></size>\n  IAgentMicroCompactionService" as microCompaction #FDEBD0
   rectangle "<b>externalHooks</b>\n<size:9><i>Agent</i></size>\n  IAgentExternalHooksService" as externalHooks #FDEBD0
   rectangle "<b>usage</b>\n<size:9><i>Agent</i></size>\n  IAgentUsageService" as usage #FDEBD0
   rectangle "<b>rpc</b>\n<size:9><i>Agent</i></size>\n  IAgentRPCService" as rpc #FDEBD0
@@ -306,14 +305,6 @@ fullCompaction --> telemetry #34495E
 fullCompaction --> wireRecord #34495E
 fullCompaction --> turn #34495E
 fullCompaction --> loop #34495E
-microCompaction --> contextMemory #34495E
-microCompaction --> contextSize #34495E
-microCompaction --> wire #34495E
-microCompaction --> flag #34495E
-microCompaction --> profile #34495E
-microCompaction --> telemetry #34495E
-microCompaction --> loop #34495E
-microCompaction --> config #34495E
 externalHooks --> config #34495E
 externalHooks --> bootstrap #34495E
 externalHooks --> plugin #34495E
@@ -383,7 +374,6 @@ goal ..> wireRecord #16A085 : goal.create/update/clear
 goal ..> turn #16A085 : turn lifecycle hooks
 goal ..> loop #16A085 : step/usage hooks
 goal ..> eventSink #16A085 : hook.result / goal.updated
-microCompaction ..> wire #16A085 : micro_compaction.apply
 swarm ..> wire #16A085 : swarm_mode.enter/exit
 swarm ..> turn #16A085 : hooks.onEnded
 task ..> wire #16A085 : task.started/terminated

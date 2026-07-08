@@ -192,7 +192,7 @@ an **event**, or a **hook**. From first principles, they answer three different 
   Note that the wire is the *durable record*, not the live notification channel: a live
   `spliceHistory(...)` call appends a `context.splice` record to the wire *and* applies it,
   and `contextMemory` then fires `hooks.onSpliced`, which `contextSize` / `loop` /
-  `background` / `microCompaction` / `dynamicInjector` actually subscribe to. Those listeners
+  `background` / `dynamicInjector` actually subscribe to. Those listeners
   react to the **hook**, not the wire — the wire is what makes the splice replayable.
 
 ### One-sentence rule

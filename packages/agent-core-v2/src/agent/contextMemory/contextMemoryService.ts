@@ -13,7 +13,7 @@
  * are the unmeasured tail (see `contextSizeService`). Every mutation still fires
  * `onSpliced` from the live path only (replay rebuilds
  * the Model silently and never invokes these methods), so existing subscribers
- * (micro-compaction, context-injector, task-notification) observe the same
+ * (context-injector, task-notification) observe the same
  * splice-shaped change events regardless of which 1.4 Op was persisted. Message
  * ids are stamped at the dispatch call site so `apply` stays pure. Blob
  * dehydrate/rehydrate is declared on `ContextModel.blobs`. Bound at

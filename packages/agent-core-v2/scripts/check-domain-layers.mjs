@@ -148,7 +148,6 @@ const DOMAIN_LAYER = new Map([
   ['contextProjector', 4],
   ['contextSize', 4],
   ['fullCompaction', 4],
-  ['microCompaction', 4],
   ['loop', 4],
   ['media', 4],
   // `edit` spans two scopes: the App-scope `IFileEditService` capability (pure

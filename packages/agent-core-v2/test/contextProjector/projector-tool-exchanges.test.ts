@@ -6,7 +6,6 @@ import { TestInstantiationService } from '#/_base/di/test';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
 import { AgentContextProjectorService } from '#/agent/contextProjector/contextProjectorService';
-import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import { toProtocolMessage } from '#/agent/contextMemory/messageProjection';
 import type { Message } from '#/app/llmProtocol/message';
 
@@ -51,7 +50,6 @@ describe('projector tool-exchange normalization', () => {
     disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     ix.set(IAgentContextProjectorService, new SyncDescriptor(AgentContextProjectorService));
-    ix.stub(IAgentMicroCompactionService, { compact: (messages) => messages });
     projector = ix.get(IAgentContextProjectorService);
   });
 
@@ -201,8 +199,7 @@ describe('projector tool-exchange normalization', () => {
   });
 
   it('keeps a bare result slice with no preceding assistant (used for sizing)', () => {
-    // micro-compaction projects single messages to size them — a leading result
-    // is kept rather than treated as an orphan.
+    // A leading result is kept rather than treated as an orphan.
     expect(shape([toolResult('c1', 'partial result')])).toEqual(['tool:c1']);
   });
 
