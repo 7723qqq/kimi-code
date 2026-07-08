@@ -33,7 +33,7 @@ export class PlanModeGuardDenyPermissionPolicyService implements PermissionPolic
       return {
         kind: 'deny',
         message:
-          'TaskStop is not available in plan mode. Call ExitPlanMode to exit plan mode before stopping a task.',
+          'TaskStop is not available in plan mode. Call ExitPlanMode to exit plan mode before stopping a background task.',
       };
     }
 
