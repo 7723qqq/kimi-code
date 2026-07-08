@@ -21,6 +21,7 @@ export * from '#/_base/log/fileLog';
 export * from '#/_base/log/logService';
 export { IAgentWireService, ISessionWireService } from '#/wire/tokens';
 export { type IWireService, type WireEmission } from '#/wire/wireService';
+export { defineDerivedModel, type DerivedModelDef } from '#/wire/model';
 export * from '#/session/sessionLog/sessionLogService';
 export * from '#/app/telemetry/telemetry';
 export * from '#/app/telemetry/telemetryService';

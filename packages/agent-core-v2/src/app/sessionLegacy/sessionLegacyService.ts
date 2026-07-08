@@ -12,6 +12,7 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
+import { IConfigService } from '#/app/config/config';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { toProtocolMessage } from '#/agent/contextMemory/messageProjection';
 import type { ContextMessage } from '#/agent/contextMemory/types';
@@ -19,6 +20,7 @@ import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
 import { ErrorCodes, isKimiError, KimiError } from '#/errors';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentGoalService } from '#/agent/goal/goal';
+import { IModelResolver } from '#/app/model/modelResolver';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentPlanService } from '#/agent/plan/plan';
@@ -404,8 +406,18 @@ export class SessionLegacyService implements ISessionLegacyService {
     const profileData = profile.data();
     const model = profile.getModel();
     const caps = profile.getModelCapabilities() as { max_context_tokens?: number };
-    const maxTokens = caps.max_context_tokens ?? 0;
-    const tokens = contextSize.get().measured;
+    // v1 binds the default model to the main agent at session creation, so its
+    // status always reports a real context window. v2 creates the main agent
+    // lazily without binding a model until the first prompt/profile update, so a
+    // fresh session has no model and `max_context_tokens` resolves to 0 — the
+    // status line then shows "0/0". Mirror v1 by falling back to the configured
+    // default model's context window whenever the agent has no model bound yet.
+    const maxTokens =
+      model === '' ? resolveDefaultModelContextTokens(agent) : (caps.max_context_tokens ?? 0);
+    // `size` (measured + estimated) mirrors v1's `context.tokenCount`: it
+    // reflects the live context even before the first measured exchange, whereas
+    // `measured` stays 0 until the first LLM response lands.
+    const tokens = contextSize.get().size;
     const planData = await plan.status();
 
     return {
@@ -426,6 +438,22 @@ function normalizeOptional(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const trimmed = value.trim();
   return trimmed.length === 0 ? undefined : trimmed;
+}
+
+/**
+ * Resolve the configured default model's context window for the status line
+ * when the main agent has no model bound yet (fresh session before the first
+ * prompt). Returns 0 when no default model is configured or it cannot be
+ * resolved (e.g. auth not ready), matching v1's "unknown" fallback.
+ */
+function resolveDefaultModelContextTokens(agent: IAgentScopeHandle): number {
+  const defaultModel = agent.accessor.get(IConfigService).get<string>('defaultModel');
+  if (typeof defaultModel !== 'string' || defaultModel.length === 0) return 0;
+  try {
+    return agent.accessor.get(IModelResolver).resolve(defaultModel).capabilities.max_context_tokens;
+  } catch {
+    return 0;
+  }
 }
 
 /**

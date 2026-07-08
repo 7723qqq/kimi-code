@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -680,5 +680,94 @@ describe('server-v2 /api/v1/sessions', () => {
     const meta = events.find((e) => e.type === 'session.meta.updated');
     expect(meta).toBeDefined();
     expect((meta?.payload as { title?: string } | undefined)?.title).toBe('hello web title');
+  });
+});
+
+describe('server-v2 /api/v1/sessions status context window', () => {
+  let server: RunningServer | undefined;
+  let home: string | undefined;
+  let base: string;
+
+  beforeEach(async () => {
+    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-status-'));
+    await writeFile(
+      join(home, 'config.toml'),
+      [
+        'default_model = "k2"',
+        '',
+        '[providers.kimi]',
+        'type = "kimi"',
+        'api_key = "sk-test"',
+        'base_url = "https://api.example.test/v1"',
+        '',
+        '[models.k2]',
+        'provider = "kimi"',
+        'model = "kimi-k2"',
+        'max_context_size = 131072',
+        'display_name = "Kimi K2"',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    server = await startServer({
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
+    base = `http://127.0.0.1:${server.port}`;
+  });
+
+  afterEach(async () => {
+    if (server !== undefined) {
+      await server.close();
+      server = undefined;
+    }
+    if (home !== undefined) {
+      await rm(home, { recursive: true, force: true });
+      home = undefined;
+    }
+  });
+
+  async function postJson<T>(
+    path: string,
+    body?: unknown,
+  ): Promise<{ status: number; body: Envelope<T> }> {
+    const hasBody = body !== undefined;
+    const res = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: authHeaders(
+        server as RunningServer,
+        hasBody ? { 'content-type': 'application/json' } : {},
+      ),
+      body: hasBody ? JSON.stringify(body) : undefined,
+    } as never);
+    return { status: res.status, body: (await res.json()) as Envelope<T> };
+  }
+
+  async function getJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
+    const res = await fetch(`${base}${path}`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
+    return { status: res.status, body: (await res.json()) as Envelope<T> };
+  }
+
+  it('reports the default model context window before any model is bound', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const { body } = await getJson<{
+      status: string;
+      model?: string;
+      context_tokens: number;
+      max_context_tokens: number;
+      context_usage: number;
+    }>(`/api/v1/sessions/${created.body.data.id}/status`);
+    expect(body.code).toBe(0);
+    // No model is bound to the lazily-created main agent yet, but the status
+    // line should still show the configured default model's context window
+    // instead of 0 (mirrors v1, which binds the default model at creation).
+    expect(body.data.max_context_tokens).toBe(131072);
+    expect(body.data.context_tokens).toBe(0);
+    expect(body.data.context_usage).toBe(0);
   });
 });
