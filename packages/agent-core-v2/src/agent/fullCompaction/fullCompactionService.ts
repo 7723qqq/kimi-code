@@ -191,7 +191,11 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     abortController.signal.addEventListener('abort', () => {
       this.cancelActive(active);
     }, { once: true });
-    void this.compactionWorker(active, data, compactedCount)
+    void this.compactionWorker(
+      active,
+      data,
+      data.source === 'manual' ? history.length : compactedCount,
+    )
       .then(resolveCompaction, rejectCompaction);
     void active.promise.catch(() => undefined);
     return true;

@@ -1065,7 +1065,7 @@ describe('FullCompaction', () => {
     await ctx.expectResumeMatches();
   });
 
-  it('keeps an unresolved tool exchange out of the compaction prompt', async () => {
+  it('closes an unresolved tool exchange in the compaction prompt with a synthetic result', async () => {
     const ctx = testAgent();
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -1084,37 +1084,34 @@ describe('FullCompaction', () => {
 
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: Agent, AgentSwarm, CronCreate, CronDelete, CronList, EnterPlanMode, ExitPlanMode
+      tools: Agent, AgentSwarm, EnterPlanMode, ExitPlanMode
       messages:
         user: text "old user one"
         assistant: text "old assistant one"
+        user: text "run both tools"
+        assistant: []  calls call_open_one:LookupOne { "query": "one" }, call_open_two:LookupTwo { "query": "two" }
+        tool[call_open_one]: text "one result"
+        tool[call_open_two]: text "Tool result is not available in the current context. Do not assume the tool completed successfully."
         user: text <compaction-instruction>
     `);
     expect(ctx.context.get().map((message) => message.role)).toEqual([
-      'assistant',
       'user',
-      'assistant',
-      'tool',
+      'user',
+      'user',
     ]);
     await ctx.dispatch({
-      type: 'context.splice',
-      start: ctx.context.get().length,
-      deleteCount: 0,
-      messages: [
-        {
-          role: 'tool',
-          content: [{ type: 'text', text: 'two result' }],
-          toolCalls: [],
-          toolCallId: 'call_open_two',
-        },
-      ],
+      type: 'context.append_loop_event',
+      event: {
+        type: 'tool.result',
+        parentUuid: 'call_open_two',
+        toolCallId: 'call_open_two',
+        result: { output: 'two result' },
+      },
     });
     expect(ctx.context.get().map((message) => message.role)).toEqual([
-      'assistant',
       'user',
-      'assistant',
-      'tool',
-      'tool',
+      'user',
+      'user',
     ]);
     await ctx.expectResumeMatches();
   });
@@ -1148,7 +1145,7 @@ describe('FullCompaction', () => {
     );
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: <system-prompt>
-      tools: Agent, AgentSwarm, CronCreate, CronDelete, CronList, EnterPlanMode, ExitPlanMode
+      tools: Agent, AgentSwarm, EnterPlanMode, ExitPlanMode
       messages:
         user: text "old user one"
         assistant: text "old assistant one"
@@ -1159,12 +1156,21 @@ describe('FullCompaction', () => {
     expect(ctx.compactHistory()).toMatchInlineSnapshot(`
       [
         {
-          "role": "assistant",
-          "text": "Compacted prefix.",
+          "role": "user",
+          "text": "old user one",
+        },
+        {
+          "role": "user",
+          "text": "recent user two",
         },
         {
           "role": "user",
           "text": "new user while compacting",
+        },
+        {
+          "role": "user",
+          "text": "The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Treat it as notes, not proof: where it says a step was done, tests passed, or a fix worked, verify that yourself before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary.
+      Compacted prefix.",
         },
       ]
     `);
@@ -1431,67 +1437,39 @@ describe('FullCompaction', () => {
     await ctx.rpc.beginCompaction({});
     await compacted;
 
-    // Compaction preserves the in-flight tool exchange (and the reminder behind
-    // it) in recent; the projection closes the open calls and keeps the
-    // reminder after them.
+    // Compaction drops the in-flight tool exchange and the deferred reminder;
+    // only real user messages and the compaction summary remain.
     expect(ctx.context.get().map((m) => m.role)).toEqual([
-      'assistant',
       'user',
-      'assistant',
       'user',
-    ]);
-    expect(ctx.project().map((m) => m.role)).toEqual([
-      'assistant',
-      'user',
-      'assistant',
-      'tool',
-      'tool',
       'user',
     ]);
+    expect(ctx.context.get().at(-1)?.origin).toEqual({ kind: 'compaction_summary' });
 
-    // Closing the exchange (both results together) lets the projector place the
-    // reminder after the tool results.
+    // The dropped tool calls no longer exist, so late tool results are orphans
+    // and do not change history.
     await ctx.dispatch({
-      type: 'context.splice',
-      start: ctx.context.get().length,
-      deleteCount: 0,
-      messages: [
-        {
-          role: 'tool',
-          content: [{ type: 'text', text: 'one result' }],
-          toolCalls: [],
-          toolCallId: 'call_unresolved_one',
-        },
-        {
-          role: 'tool',
-          content: [{ type: 'text', text: 'two result' }],
-          toolCalls: [],
-          toolCallId: 'call_unresolved_two',
-        },
-      ],
+      type: 'context.append_loop_event',
+      event: {
+        type: 'tool.result',
+        parentUuid: 'call_unresolved_one',
+        toolCallId: 'call_unresolved_one',
+        result: { output: 'one result' },
+      },
     });
-
-    // Raw history keeps insertion order (reminder before the trailing results).
+    await ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: {
+        type: 'tool.result',
+        parentUuid: 'call_unresolved_two',
+        toolCallId: 'call_unresolved_two',
+        result: { output: 'two result' },
+      },
+    });
     expect(ctx.context.get().map((m) => m.role)).toEqual([
-      'assistant',
       'user',
-      'assistant',
       'user',
-      'tool',
-      'tool',
-    ]);
-    // Projection moves the reminder to after the now-closed tool exchange.
-    const projected = ctx.project();
-    expect(projected.map((m) => m.role)).toEqual([
-      'assistant',
       'user',
-      'assistant',
-      'tool',
-      'tool',
-      'user',
-    ]);
-    expect(projected.at(-1)?.content).toEqual([
-      { type: 'text', text: '<system-reminder>\nhost note\n</system-reminder>' },
     ]);
   });
 
@@ -1535,57 +1513,30 @@ describe('FullCompaction', () => {
     await ctx.rpc.beginCompaction({});
     await compacted;
 
+    // Compaction drops the partially-resolved tool exchange and the deferred
+    // reminder; only real user messages and the compaction summary remain.
     expect(ctx.context.get().map((m) => m.role)).toEqual([
-      'assistant',
       'user',
-      'assistant',
-      'tool',
+      'user',
       'user',
     ]);
-    expect(ctx.project().map((m) => m.role)).toEqual([
-      'assistant',
-      'user',
-      'assistant',
-      'tool',
-      'tool',
-      'user',
-    ]);
+    expect(ctx.context.get().at(-1)?.origin).toEqual({ kind: 'compaction_summary' });
 
+    // The dropped tool calls no longer exist, so a late tool result is an
+    // orphan and does not change history.
     await ctx.dispatch({
-      type: 'context.splice',
-      start: ctx.context.get().length,
-      deleteCount: 0,
-      messages: [
-        {
-          role: 'tool',
-          content: [{ type: 'text', text: 'two result' }],
-          toolCalls: [],
-          toolCallId: 'call_unresolved_two',
-        },
-      ],
+      type: 'context.append_loop_event',
+      event: {
+        type: 'tool.result',
+        parentUuid: 'call_unresolved_two',
+        toolCallId: 'call_unresolved_two',
+        result: { output: 'two result' },
+      },
     });
-
-    // Raw history keeps insertion order; the projector moves the reminder to
-    // after the now-closed tool exchange.
     expect(ctx.context.get().map((m) => m.role)).toEqual([
-      'assistant',
       'user',
-      'assistant',
-      'tool',
       'user',
-      'tool',
-    ]);
-    const projected = ctx.project();
-    expect(projected.map((m) => m.role)).toEqual([
-      'assistant',
       'user',
-      'assistant',
-      'tool',
-      'tool',
-      'user',
-    ]);
-    expect(projected.at(-1)?.content).toEqual([
-      { type: 'text', text: '<system-reminder>\nhost note\n</system-reminder>' },
     ]);
   });
 
