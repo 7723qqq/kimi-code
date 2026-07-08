@@ -148,6 +148,10 @@ export class ModelImpl implements Model {
     return this.clone((p) => p.withThinking(effort), { thinkingEffort: effort });
   }
 
+  get maxCompletionTokens(): number | undefined {
+    return this.resolveChatProvider().maxCompletionTokens;
+  }
+
   withMaxCompletionTokens(n: number, options?: MaxCompletionTokensOptions): Model {
     return this.clone((p) =>
       p.withMaxCompletionTokens !== undefined ? p.withMaxCompletionTokens(n, options) : p,

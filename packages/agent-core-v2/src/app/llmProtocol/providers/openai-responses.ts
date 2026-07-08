@@ -1034,6 +1034,10 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     return reasoningEffortToThinkingEffort(this._generationKwargs.reasoning_effort);
   }
 
+  get maxCompletionTokens(): number | undefined {
+    return this._generationKwargs.max_output_tokens;
+  }
+
   get modelParameters(): Record<string, unknown> {
     return {
       model: this._model,

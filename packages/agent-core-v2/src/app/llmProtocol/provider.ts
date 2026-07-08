@@ -194,6 +194,7 @@ export interface ChatProvider {
   readonly modelName: string;
   /** Current thinking-effort level, or `null` if thinking is not configured. */
   readonly thinkingEffort: ThinkingEffort | null;
+  readonly maxCompletionTokens?: number;
   /**
    * Send a conversation to the LLM and return a streamed response.
    *

@@ -1008,6 +1008,10 @@ export class AnthropicChatProvider implements ChatProvider {
     return 'high';
   }
 
+  get maxCompletionTokens(): number | undefined {
+    return this._generationKwargs.max_tokens;
+  }
+
   get modelParameters(): Record<string, unknown> {
     return {
       model: this._model,

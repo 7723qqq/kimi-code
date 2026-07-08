@@ -510,6 +510,10 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     return reasoningEffortToThinkingEffort(this._reasoningEffort);
   }
 
+  get maxCompletionTokens(): number | undefined {
+    return this._generationKwargs.max_completion_tokens ?? this._generationKwargs.max_tokens;
+  }
+
   get modelParameters(): Record<string, unknown> {
     return {
       model: this._model,

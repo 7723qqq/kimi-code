@@ -769,6 +769,10 @@ export class GoogleGenAIChatProvider implements ChatProvider {
     return null;
   }
 
+  get maxCompletionTokens(): number | undefined {
+    return this._generationKwargs.maxOutputTokens;
+  }
+
   get modelParameters(): Record<string, unknown> {
     return {
       model: this._model,
