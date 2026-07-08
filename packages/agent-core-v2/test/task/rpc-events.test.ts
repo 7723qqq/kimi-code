@@ -15,6 +15,7 @@ import {
   type AgentTaskInfo,
   IAgentTaskService,
 } from '#/agent/task/task';
+import { TaskStopTool } from '#/agent/task/tools/task-stop';
 import {
   SubagentTask,
   type SubagentHandle,
@@ -35,6 +36,7 @@ import {
   type TestAgentServiceOverride,
 } from '../harness';
 import { recordingTelemetry } from '../telemetry/stubs';
+import { executeTool, type TestExecutableToolContext } from '../tools/fixtures/execute-tool';
 import {
   createAgentTaskPersistence,
   type TaskServiceTestManager,
@@ -258,6 +260,22 @@ function firstAppendedContextMessage(agent: FakeTaskAgent): TestContextMessage {
   const message = call.at(-1);
   if (message === undefined) throw new Error('Expected an appended context message');
   return message;
+}
+
+function toolContext<Input>(
+  toolCallId: string,
+  args: Input,
+): TestExecutableToolContext<Input> {
+  return {
+    turnId: 0,
+    toolCallId,
+    args,
+    signal: new AbortController().signal,
+  };
+}
+
+function outputString(result: { readonly output: string | readonly unknown[] }): string {
+  return typeof result.output === 'string' ? result.output : JSON.stringify(result.output);
 }
 
 function registerProcess(
@@ -486,6 +504,66 @@ describe('AgentTaskService — notification delivery', () => {
     expect(content[0]!.text).toContain(
       'Background process killed',
     );
+  });
+
+  it('TaskStopTool suppresses the real terminal notification for model-requested stops', async () => {
+    const { agent, manager } = createAgentTaskService();
+    const taskId = registerProcess(manager, pendingProcess(), 'sleep 60', 'stop test');
+
+    const result = await executeTool(
+      new TaskStopTool(manager),
+      toolContext('task_stop_silent', { task_id: taskId }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(result.isError ?? false).toBe(false);
+    expect(outputString(result)).toContain('status: killed');
+    expect(agent.turn.steer).not.toHaveBeenCalled();
+    expect(agent.context.appendUserMessage).not.toHaveBeenCalled();
+    expect(manager.getTask(taskId)).toMatchObject({
+      status: 'killed',
+      terminalNotificationSuppressed: true,
+    });
+  });
+
+  it('TaskStopTool persists stop reason and suppression across reload', async () => {
+    const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-tool-stop-'));
+    let writerFixture: TaskServiceFixture | undefined;
+    let readerFixture: TaskServiceFixture | undefined;
+    try {
+      writerFixture = createAgentTaskService({ sessionDir });
+      const taskId = registerProcess(
+        writerFixture.manager,
+        pendingProcess(),
+        'sleep 60',
+        'persist stop',
+      );
+
+      const result = await executeTool(
+        new TaskStopTool(writerFixture.manager),
+        toolContext('task_stop_persisted', { task_id: taskId, reason: 'operator cancelled' }),
+      );
+      expect(result.isError ?? false).toBe(false);
+
+      readerFixture = createAgentTaskService({ sessionDir });
+      const { agent, manager: reader } = readerFixture;
+      await reader.loadFromDisk();
+      expect(reader.getTask(taskId)).toMatchObject({
+        stopReason: 'operator cancelled',
+        terminalNotificationSuppressed: true,
+      });
+
+      await reader.reconcile();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(agent.context.appendUserMessage).not.toHaveBeenCalled();
+      expect(agent.turn.steer).not.toHaveBeenCalled();
+    } finally {
+      if (readerFixture !== undefined) {
+        await readerFixture.ctx.dispose();
+      }
+      await cleanupSessionDir(sessionDir, writerFixture);
+    }
   });
 
   it('replays restored terminal agent task notifications when undelivered', async () => {

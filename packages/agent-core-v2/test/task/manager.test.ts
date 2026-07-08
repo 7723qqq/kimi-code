@@ -1159,6 +1159,31 @@ describe('AgentTaskService', () => {
     expect(await manager.wait(runningId, 0)).toMatchObject({ status: 'running' });
   });
 
+  it('wait with a zero timeout returns the immediate snapshot before next-tick completion', async () => {
+    const { manager } = createAgentTaskService();
+    const proc = manuallyResolvedProcess();
+    const taskId = registerProcess(
+      manager,
+      proc.proc,
+      'sleep 0',
+      'next-tick completion',
+    );
+
+    await Promise.resolve();
+    setTimeout(() => {
+      proc.resolve(0);
+    }, 0);
+
+    expect(await manager.wait(taskId, 0)).toMatchObject({
+      status: 'running',
+      exitCode: null,
+    });
+    await expect(manager.wait(taskId)).resolves.toMatchObject({
+      status: 'completed',
+      exitCode: 0,
+    });
+  });
+
   it('clears task deadline timers when completion wins the race', async () => {
     vi.useFakeTimers();
     const { manager } = createAgentTaskService();

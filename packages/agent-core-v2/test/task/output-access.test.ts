@@ -7,9 +7,11 @@ import type { IProcess } from '#/session/process/processRunner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IAgentTaskService } from '#/agent/task/task';
 import { TERMINAL_STATUSES } from '#/agent/task/types';
+import { TaskOutputTool } from '#/agent/task/tools/task-output';
 import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
 import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
 import { taskServices, createTestAgent, homeDirServices, type TestAgentContext } from '../harness';
+import { executeTool, type TestExecutableToolContext } from '../tools/fixtures/execute-tool';
 
 interface TaskServiceFixture {
   readonly ctx: TestAgentContext;
@@ -35,6 +37,22 @@ function registerProcess(
   description: string,
 ): string {
   return manager.registerTask(new ProcessTask(proc, command, description));
+}
+
+function toolContext<Input>(
+  toolCallId: string,
+  args: Input,
+): TestExecutableToolContext<Input> {
+  return {
+    turnId: 0,
+    toolCallId,
+    args,
+    signal: new AbortController().signal,
+  };
+}
+
+function outputString(result: { readonly output: string | readonly unknown[] }): string {
+  return typeof result.output === 'string' ? result.output : JSON.stringify(result.output);
 }
 
 async function waitForOutput(
@@ -205,6 +223,38 @@ describe('AgentTaskService — readOutput / getOutputSnapshot', () => {
       await fresh.reconcile();
 
       expect(await fresh.readOutput(taskId)).toContain('persisted line');
+      await freshFixture.ctx.expectResumeMatches();
+    } finally {
+      await freshFixture.ctx.dispose();
+    }
+  });
+
+  it('TaskOutputTool reads persisted output for a ghost task loaded after restart', async () => {
+    const taskId = registerProcess(
+      manager,
+      immediateProcess(0, 'persisted output\n'),
+      'echo persisted output',
+      'persist output test',
+    );
+    await waitForOutput(manager, taskId, 'persisted output');
+    await manager.wait(taskId);
+
+    const freshFixture = createTaskService(sessionDir);
+    const fresh = freshFixture.manager;
+    try {
+      await fresh.loadFromDisk();
+      await fresh.reconcile();
+
+      const result = await executeTool(
+        new TaskOutputTool(fresh),
+        toolContext('task_output_restored', { task_id: taskId }),
+      );
+      const output = outputString(result);
+
+      expect(result.isError ?? false).toBe(false);
+      expect(output).toContain('status: completed');
+      expect(output).toContain('output_path:');
+      expect(output).toContain('persisted output');
       await freshFixture.ctx.expectResumeMatches();
     } finally {
       await freshFixture.ctx.dispose();

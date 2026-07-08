@@ -686,6 +686,9 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       await entry.persistWriteQueue;
       return this.toInfo(entry);
     }
+    if (timeoutMs <= 0) {
+      return this.toInfo(entry);
+    }
 
     let waiter: (() => void) | undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
