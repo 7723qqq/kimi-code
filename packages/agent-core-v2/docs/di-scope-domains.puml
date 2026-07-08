@@ -296,6 +296,7 @@ swarm --> systemReminder #34495E
 mcp --> toolRegistry #34495E
 mcp --> wire #34495E
 mcp --> toolExecutor #34495E
+mcp --> telemetry #34495E
 fullCompaction --> contextMemory #34495E
 fullCompaction --> contextSize #34495E
 fullCompaction --> llmRequester #34495E

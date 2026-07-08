@@ -432,6 +432,7 @@ function isFullHostFs(input: unknown): boolean {
   const keys: readonly (keyof IHostFileSystem)[] = [
     'readText',
     'writeText',
+    'appendText',
     'readBytes',
     'writeBytes',
     'readLines',
