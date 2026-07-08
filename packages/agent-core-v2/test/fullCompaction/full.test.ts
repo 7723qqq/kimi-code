@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
@@ -511,14 +511,14 @@ describe('FullCompaction', () => {
     const [pre, post] = readHookPayloads(hookLog);
     expect(pre).toMatchObject({
       hook_event_name: 'PreCompact',
-      session_id: 'session-hooks',
+      session_id: 'test-session',
       cwd: dir,
       trigger: 'auto',
       token_count: 39,
     });
     expect(post).toMatchObject({
       hook_event_name: 'PostCompact',
-      session_id: 'session-hooks',
+      session_id: 'test-session',
       cwd: dir,
       trigger: 'auto',
       estimated_token_count: ctx.contextData().tokenCount,
@@ -2545,6 +2545,10 @@ function messageText(message: Message | undefined): string {
 }
 
 function hookPayloadLoggerCommand(logPath: string): string {
+  // Write the hook script to a file and run it with node, instead of
+  // `node -e <json>`; cmd.exe on Windows mangles the escaped quotes in the
+  // inline form and corrupts the script before it can run.
+  const scriptPath = `${logPath}.cjs`;
   const script = [
     "const fs = require('node:fs');",
     "let input = '';",
@@ -2553,7 +2557,8 @@ function hookPayloadLoggerCommand(logPath: string): string {
     `  fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(JSON.parse(input)) + '\\n');`,
     '});',
   ].join('');
-  return `node -e ${JSON.stringify(script)}`;
+  writeFileSync(scriptPath, script);
+  return `${process.execPath} ${scriptPath}`;
 }
 
 function readHookPayloads(logPath: string): Array<Record<string, unknown>> {
