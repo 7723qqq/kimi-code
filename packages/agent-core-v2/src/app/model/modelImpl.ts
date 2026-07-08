@@ -197,7 +197,7 @@ export class ModelImpl implements Model {
     const queue = new AsyncEventQueue<LLMEvent>();
     void this.runRequest(input, signal, queue).then(
       () => queue.end(),
-      (err) => queue.fail(err),
+      (error) => queue.fail(error),
     );
     return queue;
   }
@@ -262,6 +262,7 @@ export class ModelImpl implements Model {
             streamEndedAt = Date.now();
             decodeStats = stats;
           },
+          responseFormat: input.responseFormat,
         },
       );
     });

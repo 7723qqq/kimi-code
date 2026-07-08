@@ -6,6 +6,7 @@ import type {
   GenerateOptions,
   MaxCompletionTokensOptions,
   ProviderRequestAuth,
+  ResponseFormat,
   StreamedMessage,
   ThinkingEffort,
 } from '../provider';
@@ -139,6 +140,21 @@ function normalizeGenerationKwargs(
     delete kwargs.max_tokens;
   }
   return kwargs;
+}
+
+function responseFormatToOpenAI(format: ResponseFormat): Record<string, unknown> {
+  if (format.type === 'json_object') {
+    return { type: 'json_object' };
+  }
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: format.jsonSchema.name,
+      schema: format.jsonSchema.schema,
+      strict: format.jsonSchema.strict,
+      description: format.jsonSchema.description,
+    },
+  };
 }
 
 function convertMessage(
@@ -561,6 +577,9 @@ export class OpenAILegacyChatProvider implements ChatProvider {
 
     if (tools.length > 0) {
       createParams['tools'] = tools.map((t) => toolToOpenAI(t));
+    }
+    if (options?.responseFormat !== undefined) {
+      createParams['response_format'] = responseFormatToOpenAI(options.responseFormat);
     }
 
     if (this._stream) {
