@@ -124,7 +124,7 @@ export function registerQuestionsRoutes(app: QuestionRouteHost, core: Scope): vo
     },
     async (req, reply) => {
       const { session_id } = req.params;
-      const handle = core.accessor.get(ISessionLifecycleService).get(session_id);
+      const handle = await core.accessor.get(ISessionLifecycleService).resume(session_id);
       if (handle === undefined) {
         reply.send(
           errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${session_id} does not exist`, req.id),
@@ -173,7 +173,7 @@ export function registerQuestionsRoutes(app: QuestionRouteHost, core: Scope): vo
       const questionId = parsed.id;
       const action: 'resolve' | 'dismiss' = parsed.kind === 'bare' ? 'resolve' : parsed.action;
 
-      const handle = core.accessor.get(ISessionLifecycleService).get(session_id);
+      const handle = await core.accessor.get(ISessionLifecycleService).resume(session_id);
       if (handle === undefined) {
         reply.send(
           errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${session_id} does not exist`, req.id),
