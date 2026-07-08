@@ -34,6 +34,7 @@ import {
   type ResyncReason,
   type SessionEventBroadcaster,
 } from './sessionEventBroadcaster';
+import { FsWatchBridge } from './fsWatchBridge';
 
 const DEFAULT_PING_INTERVAL_MS = 30_000;
 const DEFAULT_PONG_TIMEOUT_MS = 10_000;
@@ -57,6 +58,7 @@ interface InboundFrame {
 export interface WsConnectionV1Options {
   readonly socket: WebSocket;
   readonly broadcaster: SessionEventBroadcaster;
+  readonly fsWatchBridge?: FsWatchBridge;
   readonly connectionRegistry: IConnectionRegistry;
   /**
    * Present-only credential check for the post-connect `client_hello`
@@ -88,6 +90,7 @@ export class WsConnectionV1 implements BroadcastTarget {
 
   private readonly socket: WebSocket;
   private readonly broadcaster: SessionEventBroadcaster;
+  private readonly fsWatchBridge?: FsWatchBridge;
   private readonly validateCredential?: CredentialValidator;
   private readonly pingIntervalMs: number;
   private readonly pongTimeoutMs: number;
@@ -119,6 +122,7 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.userAgent = opts.userAgent;
     this.socket = opts.socket;
     this.broadcaster = opts.broadcaster;
+    this.fsWatchBridge = opts.fsWatchBridge;
     this.validateCredential = opts.validateCredential;
     this.logger = opts.logger;
     this.pingIntervalMs = opts.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS;
@@ -178,12 +182,18 @@ export class WsConnectionV1 implements BroadcastTarget {
       case 'unsubscribe':
         void this.onUnsubscribe(frame);
         return;
+      case 'watch_fs_add':
+        void this.onWatchFs(frame, true);
+        return;
+      case 'watch_fs_remove':
+        void this.onWatchFs(frame, false);
+        return;
       case 'pong':
         this.onPong();
         return;
       default:
-        // Unknown / not-yet-implemented control frame (e.g. terminal_*, abort,
-        // watch_fs_*) — ignore for now; terminal/abort stay on REST.
+        // Unknown / not-yet-implemented control frame (e.g. terminal_*, abort)
+        // — ignore for now; terminal/abort stay on REST.
         return;
     }
   }
@@ -272,6 +282,36 @@ export class WsConnectionV1 implements BroadcastTarget {
         accepted: [],
         not_found: [],
         resync_required: [],
+      }),
+    );
+  }
+
+  private async onWatchFs(frame: InboundFrame, isAdd: boolean): Promise<void> {
+    const payload = frame.payload ?? {};
+    const sessionId = typeof payload['session_id'] === 'string' ? payload['session_id'] : '';
+    const paths = asStringArray(payload['paths']);
+    const bridge = this.fsWatchBridge;
+    if (bridge === undefined) {
+      this.sendFrame(buildAck(frame.id ?? '', 1, 'fs watch unavailable', {}));
+      return;
+    }
+    let result;
+    try {
+      result = isAdd
+        ? await bridge.addWatch(this, sessionId, paths)
+        : await bridge.removeWatch(this, sessionId, paths);
+    } catch (error) {
+      this.sendFrame(
+        buildAck(frame.id ?? '', 1, 'internal error', {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      return;
+    }
+    this.sendFrame(
+      buildAck(frame.id ?? '', result.code, result.msg, {
+        watched_paths: result.watched_paths ?? [],
+        current_count: result.current_count ?? 0,
       }),
     );
   }
@@ -461,6 +501,7 @@ export class WsConnectionV1 implements BroadcastTarget {
     if (this.backpressureRetryTimer !== undefined) clearTimeout(this.backpressureRetryTimer);
     this.outbound = [];
     for (const sid of this.subscriptions.keys()) this.broadcaster.unsubscribe(sid, this);
+    this.fsWatchBridge?.detachConnection(this);
     // registry removal is handled by registerWsV1 on the socket 'close' event.
   }
 }
