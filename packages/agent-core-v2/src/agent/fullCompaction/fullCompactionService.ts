@@ -115,7 +115,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentWireService private readonly wire: IWireService,
     @IEventBus private readonly eventBus: IEventBus,
-    @IAgentTurnService turnService: IAgentTurnService,
+    @IAgentTurnService private readonly turn: IAgentTurnService,
     @IAgentLoopService loopService: IAgentLoopService,
   ) {
     super();
@@ -158,6 +158,12 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     if (this.compactionCountInTurn > this.strategy.maxCompactionPerTurn) return false;
 
     const history = this.context.get();
+    if (data.source === 'manual' && this.turn.getActiveTurn() !== undefined) {
+      throw new KimiError(
+        ErrorCodes.COMPACTION_UNABLE,
+        'Cannot compact while a turn is active. Wait for it to finish, then retry.',
+      );
+    }
     const tokenCount = estimateTokensForMessages(history);
     const compactedCount = this.strategy.computeCompactCount(history, data.source);
     if (compactedCount === 0) {

@@ -19,7 +19,7 @@ import { microCompactionFlag } from '#/agent/microCompaction/flag';
 import { estimateTokensForMessages } from '#/_base/utils/tokens';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import type { TestAgentContext, TestAgentOptions, TestAgentServiceOverride } from '../harness';
-import { appServices, testAgent } from '../harness';
+import { appServices, createCommandRunner, execEnvServices, testAgent } from '../harness';
 import {
   IAgentFullCompactionService,
   IAgentMicroCompactionService,
@@ -27,6 +27,7 @@ import {
   IAgentProfileService,
   ISessionTodoService,
 } from '#/index';
+import { IAgentTurnService } from '#/agent/turn/turn';
 
 type GenerateFn = NonNullable<TestAgentOptions['generate']>;
 
@@ -273,13 +274,43 @@ describe('FullCompaction', () => {
         compacted_count: 6,
         retry_count: 0,
         thinking_level: 'off',
-        input_other: 520,
+        input_other: 1181,
         output: 8,
         input_cache_read: 0,
         input_cache_creation: 0,
       }),
     });
     await ctx.expectResumeMatches();
+  });
+
+  it('rejects a manual compaction while a turn is active', async () => {
+    const ctx = testAgent(execEnvServices({ processRunner: createCommandRunner('should-not-run') }));
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+      tools: ['Bash'],
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.mockNextResponse({ type: 'text', text: 'I will wait for approval.' }, bashCall());
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Start the active turn' }] });
+    const approval = await ctx.takeApprovalRequest();
+    expect(ctx.get(IAgentTurnService).getActiveTurn()).toBeDefined();
+
+    await expect(ctx.rpc.beginCompaction({})).rejects.toMatchObject({
+      code: 'compaction.unable',
+      message: 'Cannot compact while a turn is active. Wait for it to finish, then retry.',
+    });
+    const events = ctx.newEvents();
+    expect(eventIndex(events, 'full_compaction.begin')).toBe(-1);
+    expect(eventIndex(events, 'compaction.started')).toBe(-1);
+    expect(ctx.get(IAgentFullCompactionService).compacting).toBeNull();
+    expect(ctx.llmCalls).toHaveLength(1);
+
+    ctx.mockNextResponse({ type: 'text', text: 'Turn done.' });
+    approval.respond({ decision: 'rejected', selectedLabel: 'reject' });
+    await ctx.untilTurnEnd();
+    expect(ctx.get(IAgentTurnService).getActiveTurn()).toBeUndefined();
   });
 
   it('projects the compacted prefix before sending the summary request', async () => {
@@ -434,7 +465,12 @@ describe('FullCompaction', () => {
     expect(authKeys).toEqual(['fresh-token', 'forced-refresh-token', 'fresh-token']);
     expect(tokenCalls).toEqual([undefined, true, undefined]);
     expect(ctx.compactHistory()).toEqual([
-      { role: 'assistant', text: 'Recovered compacted summary.' },
+      { role: 'user', text: 'old user one' },
+      { role: 'user', text: 'recent user two' },
+      {
+        role: 'user',
+        text: expect.stringContaining('Recovered compacted summary.'),
+      },
     ]);
     await ctx.expectResumeMatches();
   });
@@ -1595,7 +1631,12 @@ describe('FullCompaction', () => {
 
     expect(ctx.llmCalls).toHaveLength(1);
     expect(ctx.compactHistory()).toEqual([
-      { role: 'assistant', text: 'Compacted after no-op cancel.' },
+      { role: 'user', text: 'old user one' },
+      { role: 'user', text: 'recent user two' },
+      {
+        role: 'user',
+        text: expect.stringContaining('Compacted after no-op cancel.'),
+      },
     ]);
     await ctx.expectResumeMatches();
   });
@@ -2487,6 +2528,15 @@ function textMessage(role: 'user' | 'assistant', text: string): Message {
     role,
     content: [{ type: 'text', text }],
     toolCalls: [],
+  };
+}
+
+function bashCall(): ToolCall {
+  return {
+    type: 'function',
+    id: 'call_bash',
+    name: 'Bash',
+    arguments: JSON.stringify({ command: 'printf should-not-run', timeout: 60 }),
   };
 }
 
