@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
 import { makeHookRunner } from '../externalHooks/runner-stub';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { ToolAccesses } from '#/agent/tool/tool-access';
@@ -28,12 +29,15 @@ import {
   type AgentToolInput,
 } from '#/session/agentLifecycle/tools/agent';
 import { runAgentTurn } from '#/session/agentLifecycle/runAgentTurn';
+import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/agentLifecycle/mirrorAgentRun';
 import {
   IAgentLifecycleService,
   type AgentRunHandle,
   type AgentRunRequest,
   type RunAgentOptions,
 } from '#/session/agentLifecycle/agentLifecycle';
+import { IEventBus, type DomainEvent } from '#/app/event/eventBus';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
 import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import type {
@@ -568,6 +572,74 @@ describe('Agent tool execution contract', () => {
     expect(result.output).toContain('agent_id: agent-child');
     expect(result.output).toContain('actual_subagent_type: explore');
     expect(result.output).toContain('child result');
+  });
+
+  it('mirrors v1-compatible subagent lifecycle event fields', async () => {
+    const lifecycle = createAgentLifecycleStub();
+    const events: DomainEvent[] = [];
+    const eventBus = {
+      _serviceBrand: undefined,
+      publish: vi.fn((event: DomainEvent) => {
+        events.push(event);
+      }),
+      subscribe: vi.fn(() => noopDisposable()),
+    } as IEventBus;
+    lifecycle.addHandle(
+      'agent-child',
+      'explore',
+      new Map([
+        [
+          IAgentContextSizeService,
+          {
+            _serviceBrand: undefined,
+            get: () => ({ size: 321, measured: 300, estimated: 21 }),
+            measured: () => {},
+          },
+        ],
+      ]),
+    );
+    const requester = {
+      id: 'main',
+      kind: LifecycleScope.Agent,
+      accessor: {
+        get: ((serviceId: unknown) => {
+          if (serviceId === IEventBus) return eventBus;
+          if (serviceId === IAgentLifecycleService) return lifecycle;
+          if (serviceId === ITelemetryService) return noopTelemetryService;
+          return undefined;
+        }) as IAgentScopeHandle['accessor']['get'],
+      },
+      dispose: () => {},
+    } satisfies IAgentScopeHandle;
+
+    emitAgentRunSpawned(requester, 'agent-child', {
+      profileName: 'explore',
+      parentToolCallId: 'call_agent',
+      runInBackground: false,
+    });
+    await mirrorAgentRun(
+      requester,
+      {
+        agentId: 'agent-child',
+        turn: {} as AgentRunHandle['turn'],
+        completion: Promise.resolve({ summary: 'child result' }),
+      },
+      {
+        profileName: 'explore',
+        prompt: 'Investigate',
+        signal,
+      },
+    );
+
+    expect(events.find((event) => event.type === 'subagent.spawned')).toMatchObject({
+      parentAgentId: 'main',
+      callerAgentId: 'main',
+    });
+    expect(events.find((event) => event.type === 'subagent.completed')).toMatchObject({
+      subagentId: 'agent-child',
+      resultSummary: 'child result',
+      contextTokens: 321,
+    });
   });
 
   it('inherits parent user tools when spawning a subagent', async () => {

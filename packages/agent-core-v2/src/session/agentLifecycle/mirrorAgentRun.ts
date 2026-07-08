@@ -23,6 +23,7 @@
 
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { userCancellationReason } from '#/_base/utils/abort';
+import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
 import { isProviderRateLimitError } from '#/app/llmProtocol/errors';
 import { type TokenUsage } from '#/app/llmProtocol/usage';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -89,6 +90,7 @@ export function emitAgentRunSpawned(
     subagentName: meta.profileName,
     parentToolCallId: meta.parentToolCallId ?? '',
     parentToolCallUuid: meta.parentToolCallUuid,
+    parentAgentId: requester.id,
     callerAgentId: requester.id,
     description: meta.description,
     swarmIndex: meta.swarmIndex,
@@ -134,11 +136,13 @@ export async function mirrorAgentRun(
   }
   try {
     const result = await run.completion;
+    const contextTokens = childContextTokens(agentLifecycle, run.agentId);
     eventBus?.publish({
       type: 'subagent.completed',
       subagentId: run.agentId,
       resultSummary: result.summary,
       usage: result.usage,
+      contextTokens,
     });
     void agentLifecycle?.hooks
       .onDidStopAgentTask.run({
@@ -167,4 +171,12 @@ function shouldSuppressFailure(options: MirrorAgentRunOptions, error: unknown): 
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function childContextTokens(
+  agentLifecycle: IAgentLifecycleService,
+  agentId: string,
+): number | undefined {
+  const child = agentLifecycle.getHandle(agentId);
+  return child?.accessor.get(IAgentContextSizeService)?.get().size;
 }

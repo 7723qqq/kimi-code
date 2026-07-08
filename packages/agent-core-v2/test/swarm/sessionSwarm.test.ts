@@ -10,6 +10,7 @@ import { Event } from '#/_base/event';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
+import { IAgentTurnService } from '#/agent/turn/turn';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { IEventBus, type DomainEvent } from '#/app/event/eventBus';
 import { IAgentProfileCatalogService } from '#/app/agentProfileCatalog/agentProfileCatalog';
@@ -1088,6 +1089,44 @@ describe('SessionSwarmService metadata compatibility', () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
+
+  it('rejects resume of an already running child before launching or emitting spawned', async () => {
+    agents['agent-existing'] = {
+      homedir: '/tmp/kimi/s1/agents/agent-existing',
+      labels: { parentAgentId: 'main' },
+    };
+    handles.set(
+      'agent-existing',
+      agentHandle('agent-existing', lifecycle, eventBus, {}, new Map([
+        [
+          IAgentTurnService,
+          {
+            _serviceBrand: undefined,
+            getActiveTurn: () => ({ id: 1 }),
+          },
+        ],
+      ])),
+    );
+    const service = ix.get(ISessionSwarmService);
+
+    await expect(
+      service.run({
+        callerAgentId: 'main',
+        tasks: [resumeSessionTask('agent-existing')],
+      }),
+    ).resolves.toMatchObject([
+      {
+        status: 'failed',
+        state: 'not_started',
+        error:
+          'Agent instance "agent-existing" is already running and cannot run concurrently',
+      },
+    ]);
+    expect(runAgent).not.toHaveBeenCalled();
+    expect(eventBus.publish).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'subagent.spawned' }),
+    );
+  });
 });
 
 function spawnSessionTask(swarmItem?: string): SessionSwarmTask {
@@ -1191,6 +1230,12 @@ function agentHandle(
         if (service !== undefined) return service;
         if (serviceId === IAgentProfileService) return profile;
         if (serviceId === IAgentPermissionModeService) return permissionMode;
+        if (serviceId === IAgentTurnService) {
+          return {
+            _serviceBrand: undefined,
+            getActiveTurn: () => undefined,
+          } as IAgentTurnService;
+        }
         if (serviceId === IAgentUserToolService) return userToolServiceStub();
         if (serviceId === IEventBus) return eventBus;
         if (serviceId === ITelemetryService) return noopTelemetryService;
