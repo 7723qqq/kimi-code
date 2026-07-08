@@ -14,6 +14,7 @@
 
 import { addUsage, type TokenUsage } from '#/app/llmProtocol/usage';
 import type { LLMRequestSource } from '#/agent/llmRequester/llmRequester';
+import type { AgentPhase } from '#/agent/runtime/runtime';
 import { defineModel } from '#/wire/model';
 import { defineOp } from '#/wire/op';
 
@@ -32,6 +33,7 @@ declare module '#/app/event/eventBus' {
       model?: string;
       maxContextTokens?: number;
       contextTokens?: number;
+      phase?: AgentPhase;
     };
   }
 }

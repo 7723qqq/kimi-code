@@ -176,6 +176,9 @@ export * from '#/agent/swarm/swarm';
 export * from '#/agent/swarm/swarmService';
 export * from '#/agent/usage/usage';
 export * from '#/agent/usage/usageService';
+export * from '#/agent/runtime/runtime';
+export * from '#/agent/runtime/runtimeOps';
+export * from '#/agent/runtime/runtimeService';
 export * from '#/agent/toolDedupe/toolDedupe';
 export * from '#/agent/toolDedupe/toolDedupeService';
 
