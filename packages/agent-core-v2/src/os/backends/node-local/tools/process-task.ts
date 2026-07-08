@@ -145,6 +145,7 @@ function observeProcessStream(
   const onData = (chunk: string): void => {
     if (chunk.length === 0) return;
     sink.appendOutput(chunk);
+    if (sink.signal.aborted) return;
     onOutput?.(kind, chunk);
   };
   stream.on('data', onData);
@@ -211,6 +212,7 @@ export function createProcessExecutor(
     const forwardOutput = (chunk: string, kind: ProcessTaskOutputKind): void => {
       if (chunk.length === 0) return;
       output(chunk);
+      if (signal.aborted) return;
       onOutput?.(kind, chunk);
     };
 
