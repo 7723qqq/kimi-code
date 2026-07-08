@@ -786,6 +786,7 @@ describe('FullCompaction', () => {
     await compacted;
 
     expect(attempts).toBe(2);
+    vi.useRealTimers();
     await ctx.expectResumeMatches();
   });
 
@@ -817,6 +818,7 @@ describe('FullCompaction', () => {
     await vi.advanceTimersByTimeAsync(10_000);
 
     expect(attempts).toBe(1);
+    vi.useRealTimers();
     await ctx.expectResumeMatches();
   });
 
@@ -988,6 +990,7 @@ describe('FullCompaction', () => {
         error_type: 'APIConnectionError',
       }),
     });
+    vi.useRealTimers();
     await ctx.expectResumeMatches();
   });
 
