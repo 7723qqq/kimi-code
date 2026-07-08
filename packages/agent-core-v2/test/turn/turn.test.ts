@@ -1908,7 +1908,6 @@ describe('Agent turn flow', () => {
       [wire] context.splice                      { "start": 2, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "approved" } ], "toolCalls": [], "toolCallId": "call_bash", "id": "<msg-3>" } ], "time": "<time>" }
       [emit] tool.result                         { "turnId": 0, "toolCallId": "call_bash", "output": "approved" }
       [wire] context.splice                      { "start": 1, "deleteCount": 1, "messages": [ { "id": "<msg-2>", "role": "assistant", "content": [ { "type": "text", "text": "I will ask first." } ], "toolCalls": [ { "type": "function", "id": "call_bash", "name": "Bash", "arguments": "{\\"command\\":\\"printf approved\\",\\"timeout\\":60}" } ], "providerMessageId": "mock-1" } ], "time": "<time>" }
-      [emit] agent.status.updated                { "contextTokens": 0 }
       [emit] turn.step.completed                 { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 7, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_calls" }
       [wire] context.splice                      { "start": 3, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Also mention the steer." } ], "toolCalls": [], "id": "<msg-4>" } ], "time": "<time>" }
       [emit] turn.step.started                   { "turnId": 0, "step": 2, "stepId": "<uuid-2>" }
@@ -1919,7 +1918,6 @@ describe('Agent turn flow', () => {
       [wire] context_size.measured               { "length": 5, "tokens": 50, "time": "<time>" }
       [emit] agent.status.updated                { "contextTokens": 50 }
       [wire] context.splice                      { "start": 4, "deleteCount": 1, "messages": [ { "id": "<msg-5>", "role": "assistant", "content": [ { "type": "text", "text": "Approved, and I saw the steer." } ], "toolCalls": [], "providerMessageId": "mock-2" } ], "time": "<time>" }
-      [emit] agent.status.updated                { "contextTokens": 0 }
       [emit] turn.step.completed                 { "turnId": 0, "step": 2, "stepId": "<uuid-2>", "usage": { "inputOther": 39, "output": 11, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "completed" }
       [emit] turn.ended                          { "turnId": 0, "reason": "completed" }
     `);

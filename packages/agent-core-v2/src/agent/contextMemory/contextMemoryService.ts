@@ -185,9 +185,13 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
   /**
    * Cascade a `context_size.measured` Op when a splice touches the measured
    * prefix. A splice confined to the unmeasured tail leaves the prefix intact
-   * and emits nothing; a splice that reaches into the prefix invalidates the
+   * and emits nothing. A splice that reaches into the prefix invalidates the
    * measured aggregate, so the whole surviving context is rebased to an
-   * estimate (caller-provided `tokens` win when present).
+   * estimate (caller-provided `tokens` win when present), unless the splice is
+   * a 1-for-1 replacement inside the prefix whose token-countable shape is
+   * unchanged (e.g. patching `providerMessageId` or other metadata that
+   * `estimateTokensForMessages` ignores). In that case the existing measured
+   * aggregate is preserved.
    */
   private sizeOpsForSplice(
     start: number,
@@ -197,7 +201,25 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
   ): Op[] {
     const model = this.wire.getModel(ContextSizeModel);
     if (start >= model.length) return [];
-    const next = this.get().slice();
+
+    const history = this.get();
+    const deletedEnd = Math.min(start + deleteCount, model.length);
+    const deleted = history.slice(start, deletedEnd);
+
+    // Preserve the measured aggregate for a same-length replacement that is
+    // confined to the measured prefix and whose estimated token count is
+    // unchanged. The estimate only looks at role/content/toolCalls, so this
+    // covers metadata-only edits (id, providerMessageId, origin, isError).
+    if (
+      tokens === undefined &&
+      inserted.length === deleteCount &&
+      start + deleteCount <= model.length &&
+      estimateTokensForMessages(deleted) === estimateTokensForMessages(inserted)
+    ) {
+      return [];
+    }
+
+    const next = history.slice();
     next.splice(start, deleteCount, ...inserted);
     return [
       contextSizeMeasured({
