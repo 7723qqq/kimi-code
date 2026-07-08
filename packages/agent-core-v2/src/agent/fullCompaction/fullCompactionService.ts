@@ -502,13 +502,20 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         throw compactionCancelledReason(active);
       }
 
+      const shouldKeepPartialTail =
+        data.source === 'auto' &&
+        maxContextTokens > 0 &&
+        compactedCount < originalHistory.length &&
+        tokensBefore > maxContextTokens;
+      const appliedCompactedCount = shouldKeepPartialTail ? historyForModel.length : compactedCount;
       const summary = this.postProcessSummary(attempt.summary);
       const result = this.context.applyCompaction({
         summary,
         contextSummary: buildCompactionSummaryText(summary),
-        compactedCount,
+        compactedCount: appliedCompactedCount,
         tokensBefore,
         droppedCount: droppedCount === 0 ? undefined : droppedCount,
+        legacyTail: shouldKeepPartialTail ? true : undefined,
       });
 
       this.telemetry.track('compaction_finished', {
