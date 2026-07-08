@@ -15,7 +15,11 @@ import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentTurnService } from '#/agent/turn/turn';
 import { ISessionTodoService } from '#/session/todo/sessionTodo';
 import { renderTodoList, type TodoItem } from '#/session/todo/todoItem';
-import { APIContextOverflowError, APIEmptyResponseError } from '#/app/llmProtocol/errors';
+import {
+  APIContextOverflowError,
+  APIEmptyResponseError,
+  APIStatusError,
+} from '#/app/llmProtocol/errors';
 import { createUserMessage, type Message } from '#/app/llmProtocol/message';
 import { type TokenUsage } from '#/app/llmProtocol/usage';
 import { IEventBus } from '#/app/event/eventBus';
@@ -62,6 +66,7 @@ declare module '#/agent/wireRecord/wireRecord' {
 
 export const MAX_COMPACTION_RETRY_ATTEMPTS = 5;
 const DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS = 128 * 1024;
+const OVERFLOW_STATUS_RECOVERY_RATIO = 0.5;
 
 type CompactionTelemetryProperties = Record<string, string | number | boolean | undefined>;
 
@@ -222,7 +227,9 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     context: LoopErrorContext,
     next: () => Promise<void>,
   ): Promise<void> {
-    if (!isContextOverflowError(context.error)) {
+    const isOverflow =
+      isContextOverflowError(context.error) || this.shouldRecoverFromPlain413(context.error);
+    if (!isOverflow) {
       await next();
       return;
     }
@@ -428,7 +435,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
           break;
         } catch (error) {
           if (
-            error instanceof APIContextOverflowError ||
+            this.shouldRecoverFromCompactionOverflow(error, messages) ||
             error instanceof CompactionTruncatedError ||
             error instanceof APIEmptyResponseError
           ) {
@@ -515,6 +522,26 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
 
   private tokenCountWithPending(): number {
     return this.contextSize.get().size;
+  }
+
+  private shouldRecoverFromPlain413(
+    error: unknown,
+    estimatedRequestTokens = this.tokenCountWithPending(),
+  ): boolean {
+    if (!(error instanceof APIStatusError) || error.statusCode !== 413) return false;
+    const maxContextTokens = this.profile.getModelCapabilities().max_context_tokens;
+    return (
+      maxContextTokens > 0 &&
+      estimatedRequestTokens >= maxContextTokens * OVERFLOW_STATUS_RECOVERY_RATIO
+    );
+  }
+
+  private shouldRecoverFromCompactionOverflow(
+    error: unknown,
+    messages: readonly Message[],
+  ): boolean {
+    if (error instanceof APIContextOverflowError) return true;
+    return this.shouldRecoverFromPlain413(error, estimateTokensForMessages(messages));
   }
 }
 
