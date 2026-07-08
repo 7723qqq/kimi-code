@@ -622,7 +622,9 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         }
 
         if (parsed.action === 'btw') {
-          const session = core.accessor.get(ISessionLifecycleService).get(parsed.id);
+          // `resume` (not `get`) so a freshly-opened cold session can start a
+          // side-channel agent; matches v1's `startBtw` which resumes first.
+          const session = await core.accessor.get(ISessionLifecycleService).resume(parsed.id);
           if (session === undefined) {
             throw new KimiError(
               ErrorCodes.SESSION_NOT_FOUND,
@@ -772,7 +774,9 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
     },
     async (req, reply) => {
       const { session_id } = req.params;
-      const session = core.accessor.get(ISessionLifecycleService).get(session_id);
+      // `resume` (not `get`) so a freshly-opened cold session still computes its
+      // warnings; matches v1's best-effort `resumeSession` before reading them.
+      const session = await core.accessor.get(ISessionLifecycleService).resume(session_id);
       if (session === undefined) {
         reply.send(
           errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${session_id} does not exist`, req.id),

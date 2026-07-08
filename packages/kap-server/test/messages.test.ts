@@ -302,10 +302,11 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     ]);
     await agent.accessor.get(IAgentWireRecordService).flush();
 
-    // Live (post-compaction) context exposes only the folded summary; capture
-    // its id so we can assert it survives the restart unchanged.
+    // The live read already serves the full transcript (pre-compaction prefix
+    // + summary), matching v1's `/messages`. Capture the summary id so we can
+    // assert it survives the restart unchanged.
     const livePage = await getJson<PageWire>(`/api/v1/sessions/${id}/messages?page_size=100`);
-    expect(livePage.body.data.items).toHaveLength(1);
+    expect(livePage.body.data.items).toHaveLength(4);
     const liveSummaryId = livePage.body.data.items[0]!.id;
 
     // Restart the server on the same homeDir → the session is cold for the next
