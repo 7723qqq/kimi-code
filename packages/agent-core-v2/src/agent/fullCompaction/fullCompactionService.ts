@@ -316,7 +316,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     try {
       await active.promise;
     } catch (error) {
-      if (active.abortController.signal.aborted || isAbortError(error)) return;
+      if (signal?.aborted === true && (active.abortController.signal.aborted || isAbortError(error))) return;
       throw error;
     }
   }
