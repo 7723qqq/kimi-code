@@ -11,6 +11,7 @@ import type { ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
 
 export interface ThinkingDefaults {
   readonly defaultThinking?: boolean;
+  readonly enabled?: boolean;
   readonly mode?: string;
   readonly effort?: string;
 }
@@ -99,7 +100,11 @@ export function resolveThinkingEffortForModel(
         : (normalized as ThinkingEffort);
   } else if (defaults?.mode === 'on') {
     effort = configured ?? enabledThinkingEffortForModel(model);
-  } else if (defaults?.defaultThinking === false || defaults?.mode === 'off') {
+  } else if (
+    defaults?.enabled === false ||
+    defaults?.defaultThinking === false ||
+    defaults?.mode === 'off'
+  ) {
     effort = 'off';
   } else {
     effort = configured ?? defaultThinkingEffortForModel(model);

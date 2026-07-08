@@ -50,11 +50,12 @@ import {
   fullCompactionBegin,
   fullCompactionCancel,
   fullCompactionComplete,
+  type FullCompactionCompletePayload,
 } from './compactionOps';
 import {
   type CompactionBeginData,
-  type CompactionResult,
   type FullCompactionCompleteData,
+  type CompactionResult,
 } from './types';
 import { OrderedHookSlot } from '#/hooks';
 
@@ -68,7 +69,7 @@ declare module '#/agent/wireRecord/wireRecord' {
   interface WireRecordMap {
     'full_compaction.begin': CompactionBeginData;
     'full_compaction.cancel': {};
-    'full_compaction.complete': FullCompactionCompleteData;
+    'full_compaction.complete': FullCompactionCompletePayload;
   }
 }
 
@@ -298,9 +299,9 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     return true;
   }
 
-  private markCompleted(active: ActiveCompaction, result: FullCompactionCompleteData): boolean {
+  private markCompleted(active: ActiveCompaction, data: FullCompactionCompleteData): boolean {
     if (this._compacting !== active) return false;
-    this.wire.dispatch(fullCompactionComplete(result));
+    this.wire.dispatch(fullCompactionComplete(data));
     this._compacting = null;
     return true;
   }

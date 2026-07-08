@@ -35,7 +35,7 @@ import picomatch from 'picomatch';
 import { ErrorCodes, KimiError } from "#/errors";
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { resolveThinkingEffort, resolveThinkingKeep } from './thinking';
+import { resolveThinkingEffort, resolveThinkingKeep, resolveThinkingLevel } from './thinking';
 import type { LoopControl } from '#/agent/loop/configSection';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -63,6 +63,7 @@ import type {
 } from './profile';
 import { IAgentProfileService } from './profile';
 import {
+  DEFAULT_THINKING_SECTION,
   THINKING_SECTION,
   type ThinkingConfig,
 } from './configSection';
@@ -153,22 +154,27 @@ export class AgentProfileService implements IAgentProfileService {
     }
     // Resolve eagerly so an unknown model id fails the bind here rather than on
     // the first turn.
-    this.modelFactory.resolve(input.model);
+    const model = this.modelFactory.resolve(input.model);
 
     const context = await this.buildSystemPromptContext(input.cwd);
     const systemPrompt = profile.systemPrompt(context);
     const { agentsMdWarning } = context;
     this.agentsMdWarning = agentsMdWarning;
 
+    const thinkingLevel = resolveThinkingLevel(input.thinking, {
+      defaultThinking: this.config.get<boolean | undefined>(DEFAULT_THINKING_SECTION),
+      thinking: this.config.get<ThinkingConfig>(THINKING_SECTION),
+      model,
+    });
+
     this.update({
       cwd: input.cwd,
       profileName: profile.name,
-      modelAlias: input.model,
-      thinkingLevel: input.thinking,
       systemPrompt,
-      activeToolNames: profile.tools,
     });
-    this.wire.dispatch(configUpdate({}));
+    this.setActiveTools(profile.tools);
+    this.wire.dispatch(configUpdate({ modelAlias: input.model, thinkingEffort: thinkingLevel }));
+    this.afterConfigDispatch({ modelAlias: input.model, thinkingLevel });
 
     if (agentsMdWarning !== undefined) {
       this.eventBus.publish({
@@ -387,7 +393,7 @@ export class AgentProfileService implements IAgentProfileService {
     if (changed.profileName !== undefined) payload.profileName = changed.profileName;
     if (changed.thinkingLevel !== undefined) {
       const model = this.resolveModelForThinking(changed.modelAlias);
-      payload.thinkingLevel = resolveThinkingEffort(
+      payload.thinkingEffort = resolveThinkingEffort(
         changed.thinkingLevel,
         this.config.get<ThinkingConfig>(THINKING_SECTION),
         model,
