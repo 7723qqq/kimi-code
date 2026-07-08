@@ -5,7 +5,7 @@
  * Bound at App scope.
  */
 
-import { appendFile, open, readFile, readdir, stat, mkdir, rm, writeFile } from 'node:fs/promises';
+import { appendFile, lstat, open, readFile, readdir, mkdir, rm, writeFile } from 'node:fs/promises';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -153,10 +153,15 @@ export class HostFileSystem implements IHostFileSystem {
   }
 
   async stat(path: string): Promise<HostFileStat> {
-    const s = await stat(path);
+    // Non-following `lstat` so a symbolic link is reported as itself
+    // (`isSymbolicLink: true`) rather than transparently resolved to its
+    // target. Callers that confine paths lexically rely on this to avoid
+    // escaping the workspace through a symlinked directory.
+    const s = await lstat(path);
     return {
       isFile: s.isFile(),
       isDirectory: s.isDirectory(),
+      isSymbolicLink: s.isSymbolicLink(),
       size: s.size,
       mtimeMs: s.mtimeMs,
       ino: s.ino,
@@ -169,6 +174,7 @@ export class HostFileSystem implements IHostFileSystem {
       name: d.name,
       isFile: d.isFile(),
       isDirectory: d.isDirectory(),
+      isSymbolicLink: d.isSymbolicLink(),
     }));
   }
 

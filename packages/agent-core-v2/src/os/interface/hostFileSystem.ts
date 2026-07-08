@@ -13,6 +13,12 @@ import type { TextDecodeErrors } from '#/_base/execEnv/decodeText';
 export interface HostFileStat {
   readonly isFile: boolean;
   readonly isDirectory: boolean;
+  /**
+   * `true` when the path itself is a symbolic link (reported via a
+   * non-following `lstat`). Lets callers surface `kind: 'symlink'` instead of
+   * silently following the link and reporting the target's type.
+   */
+  readonly isSymbolicLink?: boolean;
   readonly size: number;
   /** Last-modified time in epoch milliseconds, when the backend exposes it. */
   readonly mtimeMs?: number;
@@ -24,6 +30,12 @@ export interface HostDirEntry {
   readonly name: string;
   readonly isFile: boolean;
   readonly isDirectory: boolean;
+  /**
+   * `true` when the directory entry is a symbolic link (from `readdir`
+   * `withFileTypes`). Does not follow the link — a symlink to a directory is
+   * reported with `isSymbolicLink: true` and `isDirectory: false`.
+   */
+  readonly isSymbolicLink?: boolean;
 }
 
 export interface IHostFileSystem {
