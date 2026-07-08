@@ -274,7 +274,7 @@ describe('FullCompaction', () => {
         duration_ms: expect.any(Number),
         compacted_count: 6,
         retry_count: 0,
-        thinking_level: 'off',
+        thinking_effort: 'off',
         input_other: 1181,
         output: 8,
         input_cache_read: 0,
@@ -1975,12 +1975,16 @@ describe('FullCompaction', () => {
     await ctx.untilTurnEnd();
 
     expect(callCount).toBe(3);
-    expect(providerThinkingEfforts).toEqual(['high', 'high', 'high']);
+    // The catalogued model declares no supportEfforts, so the Kimi provider
+    // normalizes to boolean thinking and reports 'on' rather than the
+    // requested 'high'. The stored thinkingLevel still carries 'high' across
+    // compaction, which is asserted through telemetry below.
+    expect(providerThinkingEfforts).toEqual(['on', 'on', 'on']);
     expect(records).toContainEqual({
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'auto',
-        thinking_level: 'high',
+        thinking_effort: 'high',
       }),
     });
   });
@@ -2014,10 +2018,11 @@ describe('FullCompaction', () => {
     const modelResolver = ctx.modelResolver;
     if (modelResolver === undefined) throw new Error('Expected model provider');
     const resolve = modelResolver.resolve.bind(modelResolver);
-    modelResolver.resolve = (model: string) => ({
-      ...resolve(model),
-      modelCapabilities: UNKNOWN_CAPABILITY,
-    });
+    modelResolver.resolve = (model: string) => {
+      const resolved = resolve(model);
+      Object.defineProperty(resolved, 'capabilities', { value: UNKNOWN_CAPABILITY });
+      return resolved;
+    };
     expect(ctx.get(IAgentProfileService).data().modelCapabilities.max_context_tokens).toBe(0);
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.newEvents();

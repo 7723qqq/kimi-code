@@ -239,7 +239,9 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     next: () => Promise<void>,
   ): Promise<void> {
     const isOverflow =
-      isContextOverflowError(context.error) || this.shouldRecoverFromPlain413(context.error);
+      isContextOverflowError(context.error) ||
+      findAPIStatusError(context.error) instanceof APIContextOverflowError ||
+      this.shouldRecoverFromPlain413(context.error);
     if (!isOverflow) {
       await next();
       return;
@@ -525,9 +527,10 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         tokens_after: result.tokensAfter,
         duration_ms: Date.now() - startedAt,
         compacted_count: result.compactedCount,
+        dropped_count: result.droppedCount,
         retry_count: retryCount,
         round,
-        thinking_level: this.profile.data().thinkingLevel,
+        thinking_effort: this.profile.data().thinkingLevel,
         ...usageTelemetry(attempt.usage),
       });
       return result;
@@ -539,7 +542,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         duration_ms: Date.now() - startedAt,
         round,
         retry_count: retryCount,
-        thinking_level: this.profile.data().thinkingLevel,
+        thinking_effort: this.profile.data().thinkingLevel,
         error_type: error instanceof Error ? error.name : 'Unknown',
       });
       if (isKimiError(error) && error.code === ErrorCodes.AUTH_LOGIN_REQUIRED) throw error;
@@ -567,7 +570,8 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     error: unknown,
     estimatedRequestTokens = this.tokenCountWithPending(),
   ): boolean {
-    if (!(error instanceof APIStatusError) || error.statusCode !== 413) return false;
+    const statusError = findAPIStatusError(error);
+    if (statusError === undefined || statusError.statusCode !== 413) return false;
     const maxContextTokens = this.profile.getModelCapabilities().max_context_tokens;
     return (
       maxContextTokens > 0 &&
@@ -582,6 +586,17 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     if (error instanceof APIContextOverflowError) return true;
     return this.shouldRecoverFromPlain413(error, estimateTokensForMessages(messages));
   }
+}
+
+function findAPIStatusError(error: unknown): APIStatusError | undefined {
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  while (current !== undefined && current !== null && !seen.has(current)) {
+    if (current instanceof APIStatusError) return current;
+    seen.add(current);
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return undefined;
 }
 
 function collectSummary(finish: LLMRequestFinish): CompactionAttemptResult {
