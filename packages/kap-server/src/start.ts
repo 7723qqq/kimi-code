@@ -26,6 +26,7 @@ import { installErrorHandler } from './error-handler';
 import { acquireLock, type AcquireLockResult, ServerLockedError } from './lock';
 import { createInstanceRegistry, type InstanceRegistration } from './instanceRegistry';
 import { transformOpenApiDocument } from './openapi/transforms';
+import { registerRequestLogging } from './requestLogging';
 import { resolveRequestId } from './request-id';
 import { registerApiV1Routes } from './routes/registerApiV1Routes';
 import { registerWebAssetRoutes } from './routes/webAssets';
@@ -36,6 +37,8 @@ import {
 } from './services/pinoLoggerService';
 import { join } from 'node:path';
 import type { Socket } from 'node:net';
+import type { IncomingMessage } from 'node:http';
+import type { Duplex } from 'node:stream';
 
 import { registerRpcRoutes } from './transport/registerRpcRoutes';
 import {
@@ -238,9 +241,13 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
 
   const app = Fastify({
     loggerInstance: logger,
-    disableRequestLogging: false,
+    // Fastify's default access log records `res.statusCode`, but every
+    // kap-server response is HTTP 200 by design — the outcome lives in the
+    // envelope `code`. `registerRequestLogging` emits our own line instead.
+    disableRequestLogging: true,
     genReqId: (req) => resolveRequestId(req.headers),
   }) as unknown as FastifyInstance;
+  registerRequestLogging(app);
   // Validation is performed by the route-level Zod preHandlers (defineRoute),
   // not by Fastify's AJV layer — keep both compilers as pass-throughs.
   app.setValidatorCompiler(() => () => true);
@@ -366,7 +373,11 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     logger,
   });
 
-  app.server.on('upgrade', async (req, socket, head) => {
+  const handleUpgrade = async (
+    req: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+  ): Promise<void> => {
     const url = req.url ?? '';
     const isV1 = url === WS_PATH_V1 || url.startsWith(`${WS_PATH_V1}?`);
     const isV2 = url === WS_PATH_V2 || url.startsWith(`${WS_PATH_V2}?`);
@@ -419,6 +430,9 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     } else {
       wssV2.handleUpgrade(req, socket, head, (ws) => wssV2.emit('connection', ws, req));
     }
+  };
+  app.server.on('upgrade', (req, socket, head) => {
+    void handleUpgrade(req, socket, head);
   });
 
   app.addHook('onClose', async () => {
