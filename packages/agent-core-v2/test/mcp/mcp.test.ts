@@ -426,7 +426,7 @@ describe('AgentMcpService', () => {
   it('reports MCP image compression telemetry through the wrapped tool path', async () => {
     const manager = new FakeMcpManager();
     const image = Buffer.from(
-      await new Jimp({ width: 2600, height: 2600, color: 0x3366ccff }).getBuffer('image/png'),
+      await new Jimp({ width: 3600, height: 1800, color: 0x3366ccff }).getBuffer('image/png'),
     ).toString('base64');
     const client: MCPClient = {
       async listTools() {
@@ -466,12 +466,12 @@ describe('AgentMcpService', () => {
         source: 'mcp_tool_result',
         outcome: 'compressed',
         input_mime: 'image/png',
-        original_width: 2600,
-        original_height: 2600,
+        original_width: 3600,
+        original_height: 1800,
       }),
     );
-    expect(properties?.['final_width']).toBeLessThanOrEqual(2000);
-    expect(properties?.['final_height']).toBeLessThanOrEqual(2000);
+    expect(properties?.['final_width']).toBeLessThanOrEqual(3000);
+    expect(properties?.['final_height']).toBeLessThanOrEqual(3000);
   });
 
   it('forwards the execution AbortSignal through the wrapped MCP tool', async () => {
