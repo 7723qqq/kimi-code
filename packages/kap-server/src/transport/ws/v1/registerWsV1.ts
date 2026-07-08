@@ -29,6 +29,9 @@ export interface RegisterWsV1Options {
   readonly pingIntervalMs?: number;
   readonly pongTimeoutMs?: number;
   readonly maxBufferSize?: number;
+  readonly flushIntervalMs?: number;
+  readonly maxBatchSize?: number;
+  readonly highWaterMarkBytes?: number;
 }
 
 export function registerWsV1(core: Scope, opts: RegisterWsV1Options): WebSocketServer {
@@ -48,6 +51,9 @@ export function registerWsV1(core: Scope, opts: RegisterWsV1Options): WebSocketS
       pingIntervalMs: opts.pingIntervalMs,
       pongTimeoutMs: opts.pongTimeoutMs,
       maxBufferSize: opts.maxBufferSize,
+      flushIntervalMs: opts.flushIntervalMs,
+      maxBatchSize: opts.maxBatchSize,
+      highWaterMarkBytes: opts.highWaterMarkBytes,
     });
     socket.on('close', () => registry.remove(conn.id));
   });
