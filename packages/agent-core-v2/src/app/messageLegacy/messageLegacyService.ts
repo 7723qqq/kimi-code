@@ -3,25 +3,44 @@
  *
  * Stateless App-scope dispatcher: each call resolves the target session (and
  * its main agent), sources the transcript, and projects it into the v1 wire
- * shape. Both live and cold sessions are read from the main agent's
- * `IAgentContextMemoryService`: live sessions already hold the folded history in
- * memory, and cold sessions are resumed (restoring the main agent's wire log and
- * replaying it into the `ContextModel`) before the read, so the same `get()`
- * yields the full transcript. Pagination, id derivation, and the role filter
- * mirror v1's `MessageService`
+ * shape.
+ *
+ * History source is the main agent's `wire.jsonl` record log, NOT the live
+ * `IAgentContextMemoryService.get()`: that live history is the model's CURRENT
+ * context — after a compaction it collapses into `[...keptUserMessages,
+ * compaction_summary]`, which made `GET /sessions/{sid}/messages` lose
+ * everything before the fold. The wire log keeps every record, so
+ * `reduceContextTranscript` rebuilds the full transcript (compaction inserts a
+ * summary marker instead of dropping the prefix) — the same view v1's
+ * `MessageService` serves. Records reach disk through an async flush queue, so
+ * a request on a live session may find the wire a few records behind memory:
+ * `foldedLength` is what the live history length WOULD be from the file's
+ * records, and anything beyond it in the real live context is appended as the
+ * unflushed tail. Pagination, id derivation, and the role filter mirror v1's
+ * `MessageService`
  * (`packages/agent-core/src/services/message/messageService.ts`).
  */
+
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import type { Message, PageResponse } from '@moonshot-ai/protocol';
 
 import { InstantiationType } from '#/_base/di/extensions';
-import { type IAgentScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
+import { type ISessionScopeHandle, LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { ensureMainAgent, MAIN_AGENT_ID } from '#/session/agentLifecycle/mainAgent';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import {
+  reduceContextTranscript,
+  type ContextTranscript,
+} from '#/agent/contextMemory/contextTranscript';
 import { toProtocolMessage } from '#/agent/contextMemory/messageProjection';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import { ErrorCodes, KimiError } from '#/errors';
 import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import type { PersistedRecord } from '#/wire/wireService';
 
 import { IMessageLegacyService, type MessageListQuery } from './messageLegacy';
 
@@ -97,33 +116,85 @@ export class MessageLegacyService implements IMessageLegacyService {
       throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
     }
 
-    const agent = await this.resolveMainAgent(sessionId);
-    if (agent === undefined) return [];
-
-    // The transcript is the main agent's `ContextModel`: live sessions already
-    // hold it in memory, and cold sessions have been resumed (wire log restored
-    // + replayed into the Model) by `resolveMainAgent` before we get here, so a
-    // single `get()` covers both. The legacy replay read model
-    // (`IAgentRecordService.buildReplay`) is empty on every path and is gone.
-    const source = agent.accessor.get(IAgentContextMemoryService).get();
-
-    return source.map((msg, index) => toProtocolMessage(sessionId, index, msg, summary.createdAt));
-  }
-
-  /**
-   * Resolve the session's main agent, loading + restoring it from the persisted
-   * wire log when the session is cold (delegated to `ISessionLifecycleService.resume`).
-   * Returns `undefined` only when a cold session's workspace is gone and the
-   * session directory cannot be reconstructed (mirrors the `fork` limitation).
-   */
-  private async resolveMainAgent(sessionId: string): Promise<IAgentScopeHandle | undefined> {
     const session = await this.lifecycle.resume(sessionId);
-    if (session === undefined) return undefined;
-    // Live session whose main agent has not been materialized yet: create it
-    // fresh. No restore here — the session was already live, so any persisted
-    // wire is already reflected in memory; re-restoring would re-apply splices.
-    return ensureMainAgent(session);
+    if (session === undefined) return [];
+    // Materialize the main agent so the live context is available for the
+    // unflushed-tail merge below. `resume` already restored + replayed the
+    // wire for a cold session; a live session is already current.
+    const agent = await ensureMainAgent(session);
+
+    // Read the wire file BEFORE the live context so the in-memory history is
+    // always at least as new as the file snapshot and the tail merge can only
+    // append (mirrors v1 `MessageService`).
+    const transcript = await this.readTranscript(session);
+    const contextMessages = agent.accessor.get(IAgentContextMemoryService).get();
+    const entries = mergeLiveTail(transcript, contextMessages);
+
+    return entries.map((msg, index) => toProtocolMessage(sessionId, index, msg, summary.createdAt));
   }
+
+  /** Reduce the main agent's persisted wire log into the full transcript. */
+  private async readTranscript(session: ISessionScopeHandle): Promise<ContextTranscript> {
+    const ctx = session.accessor.get(ISessionContext);
+    const wirePath = join(ctx.sessionDir, 'agents', MAIN_AGENT_ID, 'wire.jsonl');
+    const records = await readWireRecords(wirePath);
+    return reduceContextTranscript(records);
+  }
+}
+
+/**
+ * Append the unflushed live tail: when the in-memory (folded) context is
+ * longer than the wire-derived `foldedLength`, the surplus is records that
+ * have not reached disk yet and must be appended so a read on a live session
+ * does not trail memory.
+ */
+function mergeLiveTail(
+  transcript: ContextTranscript,
+  contextMessages: readonly ContextMessage[],
+): readonly ContextMessage[] {
+  if (contextMessages.length <= transcript.foldedLength) return transcript.entries;
+  return [...transcript.entries, ...contextMessages.slice(transcript.foldedLength)];
+}
+
+/**
+ * Parse a `wire.jsonl` file. A torn final line (crash mid-flush) is dropped;
+ * corruption anywhere else throws. A missing file yields an empty record list
+ * (a brand-new session whose context has not been flushed yet).
+ */
+async function readWireRecords(wirePath: string): Promise<PersistedRecord[]> {
+  let raw: string;
+  try {
+    raw = await readFile(wirePath, 'utf8');
+  } catch (error) {
+    if (isEnoent(error)) return [];
+    throw error;
+  }
+  const lines = raw.split('\n');
+  const records: PersistedRecord[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i]!;
+    if (line.endsWith('\r')) line = line.slice(0, -1);
+    if (line.length === 0) continue;
+    try {
+      records.push(JSON.parse(line) as PersistedRecord);
+    } catch (parseError) {
+      if (i === lines.length - 1) break;
+      throw new Error(
+        `wire.jsonl: corrupted line ${i + 1} in ${wirePath}: ${String(parseError)}`,
+        { cause: parseError },
+      );
+    }
+  }
+  return records;
+}
+
+function isEnoent(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as NodeJS.ErrnoException).code === 'ENOENT'
+  );
 }
 
 registerScopedService(
