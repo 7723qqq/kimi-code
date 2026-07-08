@@ -82,7 +82,7 @@ export class SessionLegacyService implements ISessionLegacyService {
     sessionId: string,
     body: UpdateSessionProfileRequest,
   ): Promise<SessionWireFields> {
-    const session = this.lifecycle.get(sessionId);
+    const session = await this.lifecycle.resume(sessionId);
     if (session === undefined) {
       throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
     }
@@ -274,7 +274,10 @@ export class SessionLegacyService implements ISessionLegacyService {
     // Native `ISessionLifecycleService.archive` is a no-op for sessions that
     // are not live, so gate on the live handle (matches the previous route
     // behaviour): a missing live session is reported as `session.not_found`.
-    if (this.lifecycle.get(sessionId) === undefined) {
+    // `resume` (not `get`) so archiving a freshly-opened cold session still
+    // works; `resume` returns undefined only when the session is unknown or its
+    // workspace is gone, which is reported as `session.not_found`.
+    if ((await this.lifecycle.resume(sessionId)) === undefined) {
       throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
     }
     await this.lifecycle.archive(sessionId);
@@ -315,11 +318,6 @@ export class SessionLegacyService implements ISessionLegacyService {
     };
   }
 
-  /**
-   * Resolve the session's main agent, creating it on demand (mirrors v1's
-   * `resumeSession`; delegates to the `agentLifecycle` domain's
-   * `ensureMainAgent` bootstrap helper).
-   */
   /**
    * Apply the v1 `agent_config` patch onto the main agent. Mirrors v1's
    * `IPromptService.applyAgentState` (`promptService.ts:650-743`) in both order
@@ -383,7 +381,13 @@ export class SessionLegacyService implements ISessionLegacyService {
   }
 
   private async resolveMainAgent(sessionId: string): Promise<IAgentScopeHandle> {
-    const session = this.lifecycle.get(sessionId);
+    // `resume` (not `get`) so a persisted-but-cold session — freshly opened in
+    // the web UI before any prompt, or created by a previous process — is loaded
+    // from disk instead of being reported as `session.not_found`. Mirrors v1's
+    // `SessionService.undo`/`compact`, which call `resumeSession` first; `resume`
+    // returns `undefined` only when the session is unknown or its workspace is
+    // gone, so a genuinely missing session still 404s.
+    const session = await this.lifecycle.resume(sessionId);
     if (session === undefined) {
       throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
     }
