@@ -35,6 +35,15 @@ export interface IHostFileSystem {
   ): Promise<string>;
   writeText(path: string, data: string): Promise<void>;
   /**
+   * Append UTF-8 `data` to the end of `path`, creating the file if it does not
+   * exist. Maps to a native append (POSIX `O_APPEND` / `fs.appendFile`): it
+   * never reads or truncates existing content, so concurrent readers never see
+   * a partially-rewritten file and a crash mid-write can lose only the new
+   * bytes, never the prior contents. Prefer this over a read-then-rewrite for
+   * log-style appends.
+   */
+  appendText(path: string, data: string): Promise<void>;
+  /**
    * Read bytes from `path`. When `n` is given, reads at most the first `n`
    * bytes (a ranged/prefix read); otherwise reads the whole file. The ranged
    * form is used by callers that only need a header (e.g. file-type sniffing)

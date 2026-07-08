@@ -66,6 +66,7 @@ function fakeFs(files: Record<string, string>): IHostFileSystem {
       return c;
     },
     writeText: async () => {},
+    appendText: async () => {},
     readBytes: async (p, n) => {
       const c = fileMap.get(p);
       if (c === undefined) throw enoent(p);

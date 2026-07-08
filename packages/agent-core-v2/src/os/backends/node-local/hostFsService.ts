@@ -5,7 +5,7 @@
  * Bound at App scope.
  */
 
-import { open, readFile, readdir, stat, mkdir, rm, writeFile } from 'node:fs/promises';
+import { appendFile, open, readFile, readdir, stat, mkdir, rm, writeFile } from 'node:fs/promises';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -50,6 +50,10 @@ export class HostFileSystem implements IHostFileSystem {
 
   async writeText(path: string, data: string): Promise<void> {
     await writeFile(path, data, 'utf8');
+  }
+
+  async appendText(path: string, data: string): Promise<void> {
+    await appendFile(path, data, 'utf8');
   }
 
   async readBytes(path: string, n?: number): Promise<Uint8Array> {
