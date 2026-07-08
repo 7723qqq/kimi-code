@@ -157,6 +157,7 @@ const TEST_HOME_DIR = '/home/test';
 const MOCK_PROVIDER = {
   type: 'kimi',
   apiKey: 'test-key',
+  baseUrl: 'https://api.example.test/v1',
   model: 'mock-model',
 } as const;
 
@@ -639,9 +640,20 @@ function createSessionSkillCatalog(catalog: SkillCatalog): ISessionSkillCatalog 
   };
 }
 
-export function swarmServices(swarmService: ISessionSwarmService): TestAgentServiceOverride {
+export function swarmServices(
+  swarmService: ISessionSwarmService | ISessionSwarmService['run'],
+): TestAgentServiceOverride {
+  const service =
+    typeof swarmService === 'function'
+      ? {
+          _serviceBrand: undefined,
+          getSwarmItem: async () => undefined,
+          run: swarmService,
+          cancel: () => {},
+        } satisfies ISessionSwarmService
+      : swarmService;
   return [
-    sessionService(ISessionSwarmService, swarmService),
+    sessionService(ISessionSwarmService, service),
     agentService(IAgentSwarmService, new SyncDescriptor(AgentSwarmService)),
   ];
 }

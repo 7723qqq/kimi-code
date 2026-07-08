@@ -46,6 +46,7 @@ package "App scope (process-wide)" #EAF3FB {
   rectangle "<b>chatProvider</b>\n<size:9><i>App</i></size>\n  IChatProviderFactory" as chatProvider #D6EAF8
   rectangle "<b>model</b>\n<size:9><i>App</i></size>\n  IModelService" as model #D6EAF8
   rectangle "<b>modelCatalog</b>\n<size:9><i>App</i></size>\n  IModelCatalogService" as modelCatalog #D6EAF8
+  rectangle "<b>agentProfileCatalog</b>\n<size:9><i>App</i></size>\n  IAgentProfileCatalogService" as agentProfileCatalog #D6EAF8
   rectangle "<b>skillCatalog</b>\n<size:9><i>App</i></size>\n  ISkillDiscovery\n  ISkillSource\n  Builtin/UserSkillSource" as skillCatalog #D6EAF8
 }
 
@@ -54,6 +55,7 @@ package "Session scope (per session)" #EAFAF1 {
   rectangle "<b>sessionMetadata</b>\n<size:9><i>Session</i></size>\n  ISessionMetadata" as session_metadata #D5F5E3
   rectangle "<b>sessionActivity</b>\n<size:9><i>Session</i></size>\n  ISessionActivity" as session_activity #D5F5E3
   rectangle "<b>agentLifecycle</b>\n<size:9><i>Session</i></size>\n  IAgentLifecycleService" as agent_lifecycle #D5F5E3
+  rectangle "<b>sessionSwarm</b>\n<size:9><i>Session</i></size>\n  ISessionSwarmService" as sessionSwarm #D5F5E3
   rectangle "<b>interaction</b>\n<size:9><i>Session</i></size>\n  IInteractionService" as interaction #D5F5E3
   rectangle "<b>workspaceContext</b>\n<size:9><i>Session</i></size>\n  IWorkspaceContext" as workspaceContext #D5F5E3
   rectangle "<b>workspaceCommand</b>\n<size:9><i>Session</i></size>\n  ISessionWorkspaceCommandService" as workspaceCommand #D5F5E3
@@ -171,6 +173,12 @@ session_metadata --> log #34495E
 agent_lifecycle --> storage #34495E
 session_activity --> agent_lifecycle #34495E
 session_activity --> interaction #34495E
+sessionSwarm --> agent_lifecycle #34495E
+sessionSwarm --> agentProfileCatalog #34495E
+sessionSwarm --> session_context #34495E
+sessionSwarm --> session_metadata #34495E
+sessionSwarm --> process #34495E
+sessionSwarm --> log #34495E
 wireRecord --> blobStore #34495E
 wireRecord --> bootstrap #34495E
 wireRecord --> storage #34495E

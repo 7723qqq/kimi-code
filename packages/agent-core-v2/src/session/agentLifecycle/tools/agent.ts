@@ -42,6 +42,7 @@ import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceCo
 
 import { IAgentLifecycleService } from '../agentLifecycle';
 import { emitAgentRunSpawned, mirrorAgentRun } from '../mirrorAgentRun';
+import { subagentLabels } from '../subagentMetadata';
 import { SubagentTask, type SubagentHandle } from './subagent-task';
 
 import AGENT_BACKGROUND_DISABLED_DESCRIPTION from './agent-background-disabled.md?raw';
@@ -253,6 +254,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
           cwd: own.cwd,
         },
         permissionMode: this.permissionMode.mode,
+        labels: subagentLabels(this.callerAgentId),
       });
       agentId = created.id;
       profileName = profile.name;
