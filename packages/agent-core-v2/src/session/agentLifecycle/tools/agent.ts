@@ -23,6 +23,7 @@ import {
   type RegisterAgentTaskOptions,
 } from '#/agent/task/task';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { isAbortError } from '#/agent/loop/errors';
 import { ToolAccesses } from '#/agent/tool/tool-access';
@@ -140,6 +141,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
     @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
     @ISessionProcessRunner private readonly processRunner: ISessionProcessRunner,
     @ILogService private readonly log: ILogService,
+    @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
   ) {
     this.callerAgentId = scopeContext.agentId;
     this.canRunInBackground = () =>
@@ -241,7 +243,8 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
         throw new Error('Caller agent has no model bound');
       }
       // Explicit inheritance: the new agent runs the requested profile on this
-      // agent's own model / thinking level / cwd (Profile + Model ⇒ Agent).
+      // agent's own model / thinking level / cwd, and inherits this agent's
+      // permission mode so it does not fall back to `manual`.
       const created = await this.lifecycle.create({
         binding: {
           profile: profile.name,
@@ -249,6 +252,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
           thinking: own.thinkingLevel,
           cwd: own.cwd,
         },
+        permissionMode: this.permissionMode.mode,
       });
       agentId = created.id;
       profileName = profile.name;

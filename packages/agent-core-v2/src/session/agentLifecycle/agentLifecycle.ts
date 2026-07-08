@@ -31,6 +31,7 @@ import type { Event } from '#/_base/event';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
 import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import type { BindAgentInput } from '#/agent/profile/profile';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import type { Turn } from '#/agent/turn/turn';
 import type { Hooks } from '#/hooks';
 
@@ -44,6 +45,13 @@ export interface CreateAgentOptions {
    * other creation path must pass a full binding.
    */
   readonly binding?: BindAgentInput;
+  /**
+   * Initial permission mode for the new agent. Used by subagent dispatch
+   * (`Agent` / `AgentSwarm`) so a child inherits its caller's mode instead of
+   * falling back to the model default (`manual`). Applied right after binding,
+   * before the handle is returned — i.e. before any turn runs.
+   */
+  readonly permissionMode?: PermissionMode;
   /** Agent this one is derived from (provenance only; not used by business logic). */
   readonly forkedFrom?: string;
   /**

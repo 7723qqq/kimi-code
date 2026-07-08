@@ -7,6 +7,7 @@ import { Event } from '#/_base/event';
 import { type McpServerConfig } from '#/agent/mcp/config-schema';
 import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { McpConnectionManager } from '#/agent/mcp/connection-manager';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { AgentLifecycleService } from '#/session/agentLifecycle/agentLifecycleService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -114,6 +115,7 @@ describe('AgentLifecycleService', () => {
   let ix: TestInstantiationService;
   let registerAgent: ReturnType<typeof vi.fn>;
   let atomicDocs: Map<string, unknown>;
+  let permissionModeSetMode: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     // The unit under test force-instantiates the builtin-tools registrar per
@@ -196,6 +198,13 @@ describe('AgentLifecycleService', () => {
         onDidExecuteTool: { register: () => ({ dispose: () => {} }) },
       },
     } as unknown as IAgentToolExecutorService);
+    permissionModeSetMode = vi.fn();
+    ix.stub(IAgentPermissionModeService, {
+      _serviceBrand: undefined,
+      mode: 'manual',
+      setMode: permissionModeSetMode,
+      hooks: { onChanged: { register: () => ({ dispose: () => {} }) } },
+    } as unknown as IAgentPermissionModeService);
     ix.set(IAgentLifecycleService, new SyncDescriptor(AgentLifecycleService));
   });
   afterEach(() => disposables.dispose());
@@ -286,6 +295,23 @@ describe('AgentLifecycleService', () => {
       forkedFrom: 'main',
       labels: { swarmItem: 'swarm-item-1' },
     });
+  });
+
+  it('applies permissionMode when provided on create', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+
+    await svc.create({ agentId: 'auto-child', permissionMode: 'auto' });
+    expect(permissionModeSetMode).toHaveBeenLastCalledWith('auto');
+
+    await svc.create({ agentId: 'yolo-child', permissionMode: 'yolo' });
+    expect(permissionModeSetMode).toHaveBeenLastCalledWith('yolo');
+  });
+
+  it('leaves permission mode at the default when permissionMode is omitted', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+
+    await svc.create({ agentId: 'child' });
+    expect(permissionModeSetMode).not.toHaveBeenCalled();
   });
 
   it('wires MCP OAuth credentials through the session atomic document store', async () => {

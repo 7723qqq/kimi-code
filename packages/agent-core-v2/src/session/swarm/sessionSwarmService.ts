@@ -20,6 +20,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { linkAbortSignal } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import type { SubagentSuspendedEvent } from '@moonshot-ai/protocol';
 import { IEventBus } from '#/app/event/eventBus';
 import { IAgentProfileCatalogService } from '#/app/agentProfileCatalog/agentProfileCatalog';
@@ -120,7 +121,8 @@ export class SessionSwarmService implements ISessionSwarmService {
       throw new Error('Caller agent has no model bound');
     }
     // Explicit inheritance: the child runs the requested profile on the
-    // caller's own model / thinking level / cwd (Profile + Model ⇒ Agent).
+    // caller's own model / thinking level / cwd, and inherits the caller's
+    // permission mode so it does not fall back to `manual`.
     const child = await this.lifecycle.create({
       binding: {
         profile: profile.name,
@@ -128,6 +130,7 @@ export class SessionSwarmService implements ISessionSwarmService {
         thinking: callerData.thinkingLevel,
         cwd: callerData.cwd,
       },
+      permissionMode: caller.accessor.get(IAgentPermissionModeService).mode,
       labels: options.swarmItem === undefined ? undefined : { swarmItem: options.swarmItem },
     });
     emitAgentRunSpawned(caller, child.id, {

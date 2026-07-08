@@ -44,6 +44,7 @@ import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentBuiltinToolsRegistrar } from '#/agent/toolRegistry/builtinToolsRegistrar';
 import {
@@ -193,6 +194,9 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     await this.ensureWireMetadata(handle, agentScope);
     if (opts.binding !== undefined) {
       await handle.accessor.get(IAgentProfileService).bind(opts.binding);
+    }
+    if (opts.permissionMode !== undefined) {
+      handle.accessor.get(IAgentPermissionModeService).setMode(opts.permissionMode);
     }
     return handle;
   }
