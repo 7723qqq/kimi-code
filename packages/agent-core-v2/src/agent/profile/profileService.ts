@@ -35,7 +35,7 @@ import picomatch from 'picomatch';
 import { ErrorCodes, KimiError } from "#/errors";
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { resolveThinkingEffort, resolveThinkingKeep, resolveThinkingLevel } from './thinking';
+import { resolveThinkingEffort, resolveThinkingKeep } from './thinking';
 import type { LoopControl } from '#/agent/loop/configSection';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -63,7 +63,6 @@ import type {
 } from './profile';
 import { IAgentProfileService } from './profile';
 import {
-  DEFAULT_THINKING_SECTION,
   THINKING_SECTION,
   type ThinkingConfig,
 } from './configSection';
@@ -161,11 +160,11 @@ export class AgentProfileService implements IAgentProfileService {
     const { agentsMdWarning } = context;
     this.agentsMdWarning = agentsMdWarning;
 
-    const thinkingLevel = resolveThinkingLevel(input.thinking, {
-      defaultThinking: this.config.get<boolean | undefined>(DEFAULT_THINKING_SECTION),
-      thinking: this.config.get<ThinkingConfig>(THINKING_SECTION),
+    const thinkingLevel = resolveThinkingEffort(
+      input.thinking,
+      this.config.get<ThinkingConfig>(THINKING_SECTION),
       model,
-    });
+    );
 
     this.update({
       cwd: input.cwd,
@@ -462,8 +461,10 @@ export class AgentProfileService implements IAgentProfileService {
   private get thinkingLevel(): ThinkingEffort {
     const stored = this.profileState.thinkingLevel;
     if (stored === 'off' && this.alwaysThinkingModel) {
+      // Re-run the resolver so the always_thinking clamp restores the
+      // configured effort (or the model default) instead of a stale 'off'.
       return resolveThinkingEffort(
-        'on',
+        stored,
         this.config.get<ThinkingConfig>(THINKING_SECTION),
         this.tryResolveRawModel(),
       );
