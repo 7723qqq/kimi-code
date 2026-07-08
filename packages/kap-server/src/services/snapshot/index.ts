@@ -2,7 +2,6 @@ export type { ISnapshotReader } from './snapshot';
 export { SnapshotNotFoundError, SnapshotTimeoutError } from './snapshot';
 export {
   SnapshotReader,
-  reduceContextRecords,
   readWireRecords,
   type SnapshotReaderDeps,
   type SnapshotReaderLogger,

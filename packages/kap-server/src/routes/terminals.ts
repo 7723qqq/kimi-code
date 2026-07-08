@@ -77,12 +77,13 @@ const sessionAndTailParamSchema = z.object({
 const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
 /**
- * Resolve the session's `ISessionTerminalService` from the URL session id. Throws a
- * coded `session.not_found` when the session is not live — terminals are
- * inherently live PTY state, so a persisted-but-not-live session is `40401`.
+ * Resolve the session's `ISessionTerminalService` from the URL session id,
+ * cold-loading a persisted-but-not-live session first (matches v1, which spawns
+ * from the persisted cwd). Throws `session.not_found` only when the session is
+ * unknown or its workspace is gone.
  */
-function resolveTerminal(core: Scope, sessionId: string): ISessionTerminalService {
-  const session = core.accessor.get(ISessionLifecycleService).get(sessionId);
+async function resolveTerminal(core: Scope, sessionId: string): Promise<ISessionTerminalService> {
+  const session = await core.accessor.get(ISessionLifecycleService).resume(sessionId);
   if (session === undefined) {
     throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
   }
@@ -106,7 +107,7 @@ export function registerTerminalsRoutes(app: TerminalsRouteHost, core: Scope): v
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const items = await resolveTerminal(core, session_id).list();
+        const items = await (await resolveTerminal(core, session_id)).list();
         reply.send(okEnvelope({ items }, req.id));
       } catch (err) {
         sendMappedError(reply, req.id, err);
@@ -137,7 +138,7 @@ export function registerTerminalsRoutes(app: TerminalsRouteHost, core: Scope): v
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const terminal = await resolveTerminal(core, session_id).create(req.body);
+        const terminal = await (await resolveTerminal(core, session_id)).create(req.body);
         reply.send(okEnvelope(terminal, req.id));
       } catch (err) {
         sendMappedError(reply, req.id, err);
@@ -167,7 +168,7 @@ export function registerTerminalsRoutes(app: TerminalsRouteHost, core: Scope): v
     async (req, reply) => {
       try {
         const { session_id, terminal_id } = req.params;
-        const terminal = await resolveTerminal(core, session_id).get(terminal_id);
+        const terminal = await (await resolveTerminal(core, session_id)).get(terminal_id);
         reply.send(okEnvelope(terminal, req.id));
       } catch (err) {
         sendMappedError(reply, req.id, err);
@@ -209,7 +210,7 @@ export function registerTerminalsRoutes(app: TerminalsRouteHost, core: Scope): v
           reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, message, req.id));
           return;
         }
-        const result = await resolveTerminal(core, session_id).close(parsed.id);
+        const result = await (await resolveTerminal(core, session_id)).close(parsed.id);
         reply.send(okEnvelope(result, req.id));
       } catch (err) {
         sendMappedError(reply, req.id, err);

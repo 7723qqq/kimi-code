@@ -146,16 +146,18 @@ describe('server-v2 /api/v1 skills', () => {
       expect(body.msg).toMatch(/does not exist/);
     });
 
-    it('returns 40401 with an activation hint for a persisted but not activated session', async () => {
+    it('cold-loads a persisted but not live (archived) session and lists skills', async () => {
       const id = await createSession();
       // Archiving removes the session from the live map but keeps it in the index.
       const archived = await postJson<{ archived: boolean }>(`/api/v1/sessions/${id}:archive`);
       expect(archived.body.code).toBe(0);
 
-      const { body } = await getJson<null>(`/api/v1/sessions/${id}/skills`);
-      expect(body.code).toBe(40401);
-      expect(body.msg).toMatch(/not activated/);
-      expect(body.msg).toMatch(/activate it first/);
+      // Cold-loaded on demand (matches v1's `resumeSession` in SkillService):
+      // listing skills succeeds instead of reporting "not activated".
+      const { body } = await getJson<{ skills: SkillWire[] }>(`/api/v1/sessions/${id}/skills`);
+      expect(body.code).toBe(0);
+      const skills = listSkillsResponseSchema.parse(body.data).skills;
+      expect(skills.some((s) => s.name === 'update-config')).toBe(true);
     });
 
     it('lists builtin skills projected to the wire shape', async () => {
