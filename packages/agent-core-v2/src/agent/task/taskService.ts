@@ -127,6 +127,24 @@ export function isAgentTaskTerminal(status: AgentTaskStatus): boolean {
   return TERMINAL_STATUSES.has(status);
 }
 
+/**
+ * A manager-driven deadline (`timeoutMs` / `detachTimeoutMs`) sets
+ * `entry.timedOut` before aborting. A process task that self-settles on that
+ * abort reports `killed` (its signal was aborted); rewrite it to `timed_out`
+ * so the terminal status always reflects the deadline, matching v1's
+ * `settlementForOutcome` where a timeout outcome is forced to `timed_out`
+ * regardless of how the worker responded to SIGTERM.
+ */
+function coerceTimeoutSettlement(
+  entry: ManagedTask,
+  settlement: AgentTaskSettlement,
+): AgentTaskSettlement {
+  if (entry.timedOut && settlement.status === 'killed') {
+    return { ...settlement, status: 'timed_out' };
+  }
+  return settlement;
+}
+
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
     'task.notified': AgentTaskNotificationContext;
@@ -248,8 +266,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
 
     if (timeoutMs !== undefined && timeoutMs > 0) {
       entry.timeoutHandle = setTimeout(() => {
-        entry.abortController.abort('Timed out');
-        void this.settleTask(entry, { status: 'timed_out' });
+        void this.terminateWithGrace(entry, {
+          abortReason: 'Timed out',
+          finalStatus: 'timed_out',
+        });
       }, timeoutMs);
       entry.timeoutHandle.unref?.();
     }
@@ -261,11 +281,20 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
           appendOutput: (chunk) => {
             this.appendOutput(entry, chunk);
           },
-          settle: (settlement) => this.settleTask(entry, settlement),
+          settle: (settlement) =>
+            this.settleTask(entry, coerceTimeoutSettlement(entry, settlement)),
         }),
       )
       .catch(async (error: unknown) => {
-        const status = entry.abortController.signal.aborted ? 'killed' : 'failed';
+        const aborted = entry.abortController.signal.aborted;
+        let status: AgentTaskStatus;
+        if (entry.timedOut) {
+          status = 'timed_out';
+        } else if (aborted) {
+          status = 'killed';
+        } else {
+          status = 'failed';
+        }
         await this.settleTask(entry, {
           status,
           stopReason: status === 'failed' ? errorMessage(error) : undefined,
@@ -319,8 +348,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
 
     if (timeoutMs !== undefined && timeoutMs > 0) {
       entry.timeoutHandle = setTimeout(() => {
-        entry.timedOut = true;
-        handle.cancel();
+        void this.terminateWithGrace(entry, {
+          abortReason: 'Timed out',
+          finalStatus: 'timed_out',
+        });
       }, timeoutMs);
       entry.timeoutHandle.unref?.();
     }
@@ -511,13 +542,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     }
     if (timeoutMs > 0) {
       entry.timeoutHandle = setTimeout(() => {
-        entry.timedOut = true;
-        if (entry.handle) {
-          entry.handle.cancel();
-        } else {
-          entry.abortController.abort('Timed out');
-          void this.settleTask(entry, { status: 'timed_out' });
-        }
+        void this.terminateWithGrace(entry, {
+          abortReason: 'Timed out',
+          finalStatus: 'timed_out',
+        });
       }, timeoutMs);
       entry.timeoutHandle.unref?.();
     }
@@ -526,24 +554,52 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   async stop(taskId: string, reason?: string): Promise<AgentTaskInfo | undefined> {
     const entry = this.tasks.get(taskId);
     if (entry === undefined) return undefined;
-    return this.stopEntry(entry, normalizeReason(reason), normalizeReason(reason));
+    const normalized = normalizeReason(reason);
+    return this.terminateWithGrace(entry, {
+      stopReason: normalized,
+      abortReason: normalized,
+      finalStatus: 'killed',
+    });
   }
 
-  private async stopEntry(
+  /**
+   * Manager-driven teardown shared by every termination path: explicit `stop`,
+   * the wall-clock `timeoutMs` deadline, and the post-detach `detachTimeoutMs`
+   * deadline. It sends SIGTERM (or `handle.cancel()`), gives the task up to
+   * `SIGTERM_GRACE_MS` to settle, escalates to `forceStop` (SIGKILL) when it is
+   * still alive, and records `finalStatus`.
+   *
+   * This mirrors v1's `settlementForOutcome`, where timeout and stop always
+   * shared the same grace + force-stop sequence. Routing the deadline paths
+   * through here is what keeps a runaway process that ignores SIGTERM from
+   * leaking when its deadline fires.
+   */
+  private async terminateWithGrace(
     entry: ManagedTask,
-    stopReason: string | undefined,
-    abortReason: unknown,
+    options: {
+      readonly stopReason?: string;
+      readonly abortReason: unknown;
+      readonly finalStatus: 'killed' | 'timed_out';
+    },
   ): Promise<AgentTaskInfo | undefined> {
     if (TERMINAL_STATUSES.has(entry.status)) {
       await entry.persistWriteQueue;
       return this.toInfo(entry);
     }
 
-    entry.stopReason = stopReason;
+    // Disarm a pending wall-clock deadline so it cannot re-enter teardown.
+    if (entry.timeoutHandle !== undefined) {
+      clearTimeout(entry.timeoutHandle);
+      entry.timeoutHandle = undefined;
+    }
+    if (options.finalStatus === 'timed_out') {
+      entry.timedOut = true;
+    }
+    entry.stopReason = options.stopReason;
     if (entry.handle) {
       entry.handle.cancel();
     } else {
-      entry.abortController.abort(abortReason);
+      entry.abortController.abort(options.abortReason);
     }
 
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -582,7 +638,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       return this.toInfo(entry);
     }
 
-    await this.settleTask(entry, { status: 'killed', stopReason });
+    await this.settleTask(entry, {
+      status: options.finalStatus,
+      stopReason: options.stopReason,
+    });
     await entry.persistWriteQueue;
     return this.toInfo(entry);
   }
@@ -943,7 +1002,11 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
 
     const abortFromSignal = (): void => {
       if (this.isDetached(entry)) return;
-      void this.stopEntry(entry, USER_INTERRUPT_REASON, signal.reason);
+      void this.terminateWithGrace(entry, {
+        stopReason: USER_INTERRUPT_REASON,
+        abortReason: signal.reason,
+        finalStatus: 'killed',
+      });
     };
     if (signal.aborted) {
       abortFromSignal();
