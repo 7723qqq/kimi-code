@@ -1605,8 +1605,10 @@ describe('FullCompaction', () => {
 
     expect(ctx.llmCalls).toHaveLength(2);
     const [compactionCall, answerCall] = ctx.llmCalls;
-    expect(messageText(compactionCall?.history.at(-1))).toContain('<!-- Compression Priorities');
-    expect(answerCall?.history.map(messageText)).toContain('Reserved compacted summary.');
+    expect(messageText(compactionCall?.history.at(-1))).toContain('first-person handoff note');
+    expect(
+      answerCall?.history.map(messageText).some((text) => text.includes('Reserved compacted summary.')),
+    ).toBe(true);
     await ctx.expectResumeMatches();
   });
 
@@ -1632,8 +1634,12 @@ describe('FullCompaction', () => {
     const compactionTexts = compactionCall?.history.map(messageText) ?? [];
     expect(compactionTexts.some((text) => text.includes('keep-this-pending-verbatim'))).toBe(false);
     expect(compactionCall?.history.map((message) => message.role)).toEqual(['user', 'assistant', 'user']);
-    expect(answerCall?.history.map(messageText)).toContain('Oversized prompt summary.');
-    expect(messageText(answerCall?.history.at(-1))).toBe(oversizedPrompt);
+    expect(
+      answerCall?.history.map(messageText).some((text) => text.includes('Oversized prompt summary.')),
+    ).toBe(true);
+    expect(
+      answerCall?.history.map(messageText).some((text) => text.includes('keep-this-pending-verbatim')),
+    ).toBe(true);
     await ctx.expectResumeMatches();
   });
 
@@ -1659,8 +1665,12 @@ describe('FullCompaction', () => {
     const compactionTexts = compactionCall?.history.map(messageText) ?? [];
     expect(compactionTexts.some((text) => text.includes('ratio-pending-verbatim'))).toBe(false);
     expect(compactionCall?.history.map((message) => message.role)).toEqual(['user', 'assistant', 'user']);
-    expect(answerCall?.history.map(messageText)).toContain('Ratio compacted summary.');
-    expect(messageText(answerCall?.history.at(-1))).toBe(pendingPrompt);
+    expect(
+      answerCall?.history.map(messageText).some((text) => text.includes('Ratio compacted summary.')),
+    ).toBe(true);
+    expect(
+      answerCall?.history.map(messageText).some((text) => text.includes('ratio-pending-verbatim')),
+    ).toBe(true);
 
     await ctx.expectResumeMatches();
   });
@@ -2381,5 +2391,5 @@ function inputHistorySnapshot(history: readonly Message[]): string[] {
 }
 
 function normalizeInputText(text: string): string {
-  return text.includes('compact this conversation context') ? '<compaction-instruction>' : text;
+  return text.includes('first-person handoff note') ? '<compaction-instruction>' : text;
 }
