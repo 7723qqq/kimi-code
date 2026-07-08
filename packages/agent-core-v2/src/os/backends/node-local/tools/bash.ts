@@ -401,7 +401,7 @@ export class BashTool implements BuiltinTool<BashInput> {
       `description: ${description}\n` +
       `status: ${status}\n` +
       `automatic_notification: true\n` +
-      this.nextStepLines(taskId, scenario) +
+      this.nextStepLines(scenario) +
       'human_shell_hint: Tell the human to run /tasks to open the interactive task panel.';
 
     const foregroundResult = builder.ok('');
@@ -418,10 +418,7 @@ export class BashTool implements BuiltinTool<BashInput> {
     };
   }
 
-  private nextStepLines(
-    taskId: string,
-    scenario: 'detached_started' | 'foreground_detached',
-  ): string {
+  private nextStepLines(scenario: 'detached_started' | 'foreground_detached'): string {
     if (scenario === 'foreground_detached') {
       // The user explicitly moved a foreground call to the background to avoid
       // blocking the current turn. Steer the model away from waiting on it.
@@ -439,8 +436,8 @@ export class BashTool implements BuiltinTool<BashInput> {
       return 'next_step: You will be automatically notified when it completes.\n';
     }
     return (
-      'next_step: The completion arrives automatically in a later turn — no polling needed. ' +
-      `To peek at progress without blocking, call TaskOutput(task_id="${taskId}", block=false).\n` +
+      'next_step: The completion arrives automatically in a later turn — do NOT wait, poll, ' +
+      'or call TaskOutput on it; continue with your current work.\n' +
       'next_step: Use TaskStop only if the task must be cancelled.\n'
     );
   }

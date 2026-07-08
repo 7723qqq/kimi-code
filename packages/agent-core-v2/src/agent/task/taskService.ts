@@ -92,6 +92,7 @@ interface ManagedTask {
   readonly outputChunks: string[];
   outputSizeBytes: number;
   retainedOutputBytes: number;
+  outputLimitTripped: boolean;
   status: AgentTaskStatus;
   options: RegisterAgentTaskOptions & { description?: string };
   readonly startedAt: number;
@@ -115,6 +116,7 @@ interface ManagedTask {
 }
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
+const MAX_TASK_OUTPUT_BYTES = 16 * 1024 * 1024;
 const SIGTERM_GRACE_MS = 5_000;
 const TASK_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
 const USER_INTERRUPT_REASON = 'Interrupted by user';
@@ -208,6 +210,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       outputChunks: [],
       outputSizeBytes: 0,
       retainedOutputBytes: 0,
+      outputLimitTripped: false,
       status: 'running',
       options: entryOptions,
       startedAt: Date.now(),
@@ -278,6 +281,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       outputChunks: [],
       outputSizeBytes: 0,
       retainedOutputBytes: 0,
+      outputLimitTripped: false,
       status: 'running',
       options: { detached, timeoutMs, detachTimeoutMs: options.detachTimeoutMs, signal: detached ? undefined : options.signal, description: options.description },
       startedAt: Date.now(),
@@ -695,6 +699,17 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     entry.outputSizeBytes += chunkBytes;
     this.appendRetainedOutput(entry, chunk, chunkBytes);
 
+    if (
+      !entry.outputLimitTripped &&
+      entry.task?.kind === 'process' &&
+      entry.outputSizeBytes > MAX_TASK_OUTPUT_BYTES
+    ) {
+      entry.outputLimitTripped = true;
+      void this.stop(entry.taskId, outputLimitReason());
+    }
+
+    if (entry.outputLimitTripped) return;
+
     if (!entry.outputPersistStarted) {
       entry.pendingOutput.push(chunk);
       entry.pendingOutputBytes += chunkBytes;
@@ -949,6 +964,15 @@ function emptyOutputSnapshot(): AgentTaskOutputSnapshot {
     fullOutputAvailable: false,
     preview: '',
   };
+}
+
+function outputLimitReason(): string {
+  const mib = Math.floor(MAX_TASK_OUTPUT_BYTES / (1024 * 1024));
+  return (
+    `Output limit exceeded: the command produced more than ${String(mib)} MiB and was ` +
+    'terminated. Redirect large output to a file (e.g. `command > out.txt`) and ' +
+    'inspect it in slices instead.'
+  );
 }
 
 function agentTaskNotificationChildren(
