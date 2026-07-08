@@ -16,11 +16,27 @@ import { bench, describe } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
+import { ILogService, type ILogger } from '#/_base/log/log';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
 import { AgentContextProjectorService } from '#/agent/contextProjector/contextProjectorService';
 import { ErrorCodes, KimiError } from '#/errors';
 import type { ContentPart, Message, TextPart, ToolCall } from '#/app/llmProtocol/message';
+
+const noopLogger: ILogger = {
+  error: () => {},
+  warn: () => {},
+  info: () => {},
+  debug: () => {},
+  child: () => noopLogger,
+};
+const noopLogService: ILogService = {
+  ...noopLogger,
+  _serviceBrand: undefined,
+  level: 'off',
+  setLevel: () => {},
+  flush: () => Promise.resolve(),
+};
 
 // ---------------------------------------------------------------------------
 // Legacy implementation (verbatim copy of the pre-rewrite `project`)
@@ -185,6 +201,7 @@ function makeMixedHistory(turns: number): ContextMessage[] {
 
 function createProjector(disposables: DisposableStore): IAgentContextProjectorService {
   const ix = disposables.add(new TestInstantiationService());
+  ix.set(ILogService, noopLogService);
   ix.set(IAgentContextProjectorService, new SyncDescriptor(AgentContextProjectorService));
   return ix.get(IAgentContextProjectorService);
 }
