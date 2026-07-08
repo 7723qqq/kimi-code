@@ -539,7 +539,10 @@ export function wireRecordPersistenceServices(
 }
 
 export function logServices(logger: Logger): TestAgentServiceOverride {
-  return appService(ILogService, createLogService(logger));
+  return [
+    appService(ILogService, createLogService(logger)),
+    sessionService(ILogService, createLogService(logger)),
+  ];
 }
 
 export function llmGenerateServices(generate: GenerateFn): TestAgentServiceOverride {
@@ -2294,6 +2297,11 @@ class GenerateBackedChatProvider implements ChatProvider {
   ) {
     this.name = config.type;
     this.modelName = modelNameFromConfig(config);
+  }
+
+  get maxCompletionTokens(): number | undefined {
+    const value = this.modelParameters[completionBudgetParamName(this.config.type)];
+    return typeof value === 'number' ? value : undefined;
   }
 
   async generate(

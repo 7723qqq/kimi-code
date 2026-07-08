@@ -231,6 +231,7 @@ llmRequester --> telemetry #34495E
 llmRequester --> usage #34495E
 llmRequester --> modelProvider #34495E
 llmRequester --> config #34495E
+llmRequester --> wire #34495E
 toolExecutor --> toolRegistry #34495E
 toolExecutor --> wire #34495E
 toolExecutor --> telemetry #34495E
@@ -395,6 +396,7 @@ sessionExternalHooks ..> agent_lifecycle #16A085 : SubagentStart/Stop (observes 
 usage ..> wire #16A085 : usage.record
 turn ..> wire #16A085 : turn.launch
 contextSize ..> wire #16A085 : context_size.measured
+llmRequester ..> wire #16A085 : llm.tools_snapshot / request
 loop ..> contextMemory #16A085 : hooks.onSpliced
 loop ..> wireRecord #16A085 : hooks.onResumeEnded
 plan ..> wire #16A085 : plan_mode.enter/cancel/exit

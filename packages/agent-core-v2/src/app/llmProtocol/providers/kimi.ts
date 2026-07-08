@@ -444,6 +444,10 @@ export class KimiChatProvider implements ChatProvider {
     return thinking.effort ?? 'on';
   }
 
+  get maxCompletionTokens(): number | undefined {
+    return this._generationKwargs.max_completion_tokens ?? this._generationKwargs.max_tokens;
+  }
+
   get modelParameters(): Record<string, unknown> {
     return {
       model: this._model,

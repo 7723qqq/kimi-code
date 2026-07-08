@@ -98,6 +98,7 @@ export interface Model {
   readonly supportEfforts?: readonly string[];
   readonly defaultEffort?: string;
   readonly thinkingEffort: ThinkingEffort | null;
+  readonly maxCompletionTokens?: number;
   /**
    * True when this Model's capabilities include `always_thinking` — the
    * runtime should force a thinking pass even if the user's requested
