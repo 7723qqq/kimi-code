@@ -10,7 +10,12 @@ import type { McpConnectionManager, McpServerEntry } from '#/agent/mcp/connectio
 import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { AgentMcpService } from '#/agent/mcp/mcpService';
 import type { McpOAuthService } from '#/agent/mcp/oauth/service';
-import type { MCPClient } from '#/agent/mcp/types';
+import type { MCPClient, MCPToolDefinition } from '#/agent/mcp/types';
+import { IAgentWireService } from '#/wire/tokens';
+import { WireService } from '#/wire/wireServiceImpl';
+import { McpDiscoveryModel } from '#/agent/mcp/mcpDiscoveryOps';
+import { AGENT_WIRE_PROTOCOL_VERSION } from '#/agent/wireRecord/wireRecord';
+import { wireMetadata } from '#/agent/wireRecord/metadataOps';
 import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -29,6 +34,7 @@ const MCP_OUTPUT_TRUNCATED_TEXT =
 interface ResolvedServer {
   readonly client: MCPClient;
   readonly tools: readonly KosongTool[];
+  readonly rawTools: readonly MCPToolDefinition[];
   readonly enabledNames: ReadonlySet<string>;
 }
 
@@ -74,8 +80,21 @@ class FakeMcpManager {
     client: MCPClient,
     tools: readonly KosongTool[],
     enabledNames = new Set(tools.map((tool) => tool.name)),
+    rawTools?: readonly MCPToolDefinition[],
   ): void {
-    this.resolvedEntries.set(name, { client, tools, enabledNames });
+    const resolvedRawTools =
+      rawTools ??
+      tools.map((tool) => ({
+        name: tool.name,
+        description: tool.description ?? '',
+        inputSchema: (tool.parameters ?? {}) as MCPToolDefinition['inputSchema'],
+      }));
+    this.resolvedEntries.set(name, {
+      client,
+      tools,
+      rawTools: resolvedRawTools,
+      enabledNames,
+    });
   }
 
   connect(name: string, options: { readonly transport?: 'stdio' | 'http' | 'sse' } = {}): void {
@@ -128,6 +147,7 @@ describe('AgentMcpService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let events: DomainEvent[];
+  let wire: WireService;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -142,6 +162,8 @@ describe('AgentMcpService', () => {
     ix.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
     ix.set(IAgentToolExecutorService, new SyncDescriptor(AgentToolExecutorService));
     ix.stub(IAgentTurnService, stubTurnWithHooks());
+    wire = disposables.add(new WireService({ logScope: 'mcp-test', logKey: 'wire.jsonl' }));
+    ix.stub(IAgentWireService, wire);
   });
   afterEach(() => {
     disposables.dispose();
@@ -468,6 +490,200 @@ describe('AgentMcpService', () => {
         serverName: 's',
       }),
     );
+  });
+
+  const RAW_QUERY: MCPToolDefinition = {
+    name: 'query_range',
+    description: 'Query a metrics range',
+    inputSchema: {
+      type: 'object',
+      properties: { query: { type: 'string' } },
+      required: ['query'],
+    },
+  };
+
+  function collectDiscoveries(): {
+    records: { type: string; [key: string]: unknown }[];
+    off: { dispose(): void };
+  } {
+    const records: { type: string; [key: string]: unknown }[] = [];
+    const off = wire.onEmission((e) => {
+      if (e.record.type === 'mcp.tools_discovered') {
+        records.push(e.record as { type: string; [key: string]: unknown });
+      }
+    });
+    return { records, off };
+  }
+
+  it('records tools/list once after restore and dedups unchanged reconnects', async () => {
+    const manager = new FakeMcpManager();
+    const client = fakeMcpClient([RAW_QUERY]);
+    const rawTools = await client.listTools();
+    manager.setResolved(
+      'grafana',
+      client,
+      await discoverTools(client),
+      new Set(['query_range']),
+      rawTools,
+    );
+    createService(manager);
+
+    const { records, off } = collectDiscoveries();
+    try {
+      manager.connect('grafana');
+      expect(records).toHaveLength(0); // parked until restore
+      await wire.replay();
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({
+        type: 'mcp.tools_discovered',
+        serverName: 'grafana',
+        tools: rawTools,
+        enabledNames: ['query_range'],
+      });
+      expect(records[0]!['collisions']).toBeUndefined();
+
+      // identical content -> no second record
+      manager.connect('grafana');
+      expect(records).toHaveLength(1);
+
+      // allow-list change is a different gating decision -> record again
+      manager.setResolved('grafana', client, await discoverTools(client), new Set(), rawTools);
+      manager.connect('grafana');
+      expect(records).toHaveLength(2);
+    } finally {
+      off.dispose();
+    }
+  });
+
+  it('parks a discovery observed before restore and flushes it after replay', async () => {
+    const manager = new FakeMcpManager();
+    const client = fakeMcpClient([RAW_QUERY]);
+    const rawTools = await client.listTools();
+    manager.setResolved(
+      'grafana',
+      client,
+      await discoverTools(client),
+      new Set(['query_range']),
+      rawTools,
+    );
+    createService(manager);
+
+    const { records, off } = collectDiscoveries();
+    try {
+      manager.connect('grafana');
+      expect(records).toHaveLength(0); // parked, not yet durable
+      await wire.replay();
+      expect(records).toHaveLength(1);
+    } finally {
+      off.dispose();
+    }
+  });
+
+  it('snapshots enabledNames when parking a discovery before restore', async () => {
+    const manager = new FakeMcpManager();
+    const client = fakeMcpClient([RAW_QUERY]);
+    const rawTools = await client.listTools();
+    const enabledNames = new Set(['query_range']);
+    manager.setResolved(
+      'grafana',
+      client,
+      await discoverTools(client),
+      enabledNames,
+      rawTools,
+    );
+    createService(manager);
+
+    const { records, off } = collectDiscoveries();
+    try {
+      manager.connect('grafana');
+      enabledNames.clear();
+      enabledNames.add('mutated_after_observation');
+      await wire.replay();
+
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({
+        type: 'mcp.tools_discovered',
+        serverName: 'grafana',
+        tools: rawTools,
+        enabledNames: ['query_range'],
+      });
+    } finally {
+      off.dispose();
+    }
+  });
+
+  it('flushes a parked discovery after the first live wire record on a fresh session', async () => {
+    const manager = new FakeMcpManager();
+    const client = fakeMcpClient([RAW_QUERY]);
+    const rawTools = await client.listTools();
+    manager.setResolved(
+      'grafana',
+      client,
+      await discoverTools(client),
+      new Set(['query_range']),
+      rawTools,
+    );
+    createService(manager);
+
+    const { records, off } = collectDiscoveries();
+    try {
+      manager.connect('grafana');
+      expect(records).toHaveLength(0);
+      wire.dispatch(
+        wireMetadata({
+          protocol_version: AGENT_WIRE_PROTOCOL_VERSION,
+          created_at: 1,
+        }),
+      );
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({
+        type: 'mcp.tools_discovered',
+        serverName: 'grafana',
+        tools: rawTools,
+        enabledNames: ['query_range'],
+      });
+    } finally {
+      off.dispose();
+    }
+  });
+
+  it('re-records when only the collision outcome changes', async () => {
+    const manager = new FakeMcpManager();
+    const occupant = fakeMcpClient([RAW_QUERY]);
+    const occupantRaw = await occupant.listTools();
+    manager.setResolved(
+      'graf.ana',
+      occupant,
+      await discoverTools(occupant),
+      new Set(['query_range']),
+      occupantRaw,
+    );
+    createService(manager);
+    manager.connect('graf.ana');
+    await wire.replay(); // restore; occupant discovery recorded (before we subscribe)
+
+    const { records, off } = collectDiscoveries();
+    try {
+      const client = fakeMcpClient([RAW_QUERY]);
+      const rawTools = await client.listTools();
+      manager.setResolved(
+        'graf_ana',
+        client,
+        await discoverTools(client),
+        new Set(['query_range']),
+        rawTools,
+      );
+      manager.connect('graf_ana'); // collides with the occupant's qualified name
+      expect(records).toHaveLength(1);
+      expect(records[0]!['collisions']).toHaveLength(1);
+
+      manager.disconnect('graf.ana'); // occupant gone
+      manager.connect('graf_ana'); // same rawTools/allow-list, collision flipped
+      expect(records).toHaveLength(2);
+      expect(records[1]!['collisions']).toBeUndefined();
+    } finally {
+      off.dispose();
+    }
   });
 });
 

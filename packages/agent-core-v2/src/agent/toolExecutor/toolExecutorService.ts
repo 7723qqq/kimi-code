@@ -731,9 +731,20 @@ function normalizeToolResult(result: ExecutableToolResult): ToolResult {
     }
   }
   if (result.isError === true) {
-    return { output, isError: true, stopTurn: result.stopTurn };
+    return {
+      output,
+      isError: true,
+      stopTurn: result.stopTurn,
+      truncated: result.truncated,
+      note: result.note,
+    };
   }
-  return { output, stopTurn: result.stopTurn };
+  return {
+    output,
+    stopTurn: result.stopTurn,
+    truncated: result.truncated,
+    note: result.note,
+  };
 }
 
 function toolTelemetryOutcome(result: ToolResult): 'success' | 'error' | 'cancelled' {
