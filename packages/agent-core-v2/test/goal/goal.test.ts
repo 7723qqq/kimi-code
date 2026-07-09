@@ -121,6 +121,16 @@ async function runTerminalUpdateGoalResult(
   });
 }
 
+async function executeUpdateGoal(tool: UpdateGoalTool, status: 'active' | 'complete' | 'blocked') {
+  const execution = tool.resolveExecution({ status });
+  if (!('execute' in execution)) throw new Error('expected a runnable execution');
+  return execution.execute({
+    turnId: 0,
+    toolCallId: 'call_update_goal',
+    signal: new AbortController().signal,
+  });
+}
+
 function endTurn(
   eventBus: IEventBus,
   turn: Turn,
@@ -321,6 +331,36 @@ describe('AgentGoalService', () => {
         output: 'Invalid goal status. Use `active`, `complete`, or `blocked`.',
       });
       expect(goals.getGoal().goal?.status).toBe('active');
+    });
+
+    it('fails UpdateGoal as a tool error when no goal matches the requested status', async () => {
+      const tool = new UpdateGoalTool(goals);
+
+      expect(await executeUpdateGoal(tool, 'active')).toEqual({
+        isError: true,
+        output: 'Goal not resumed: no current goal.',
+      });
+      expect(await executeUpdateGoal(tool, 'complete')).toEqual({
+        isError: true,
+        output: 'Goal not completed: no active goal.',
+      });
+      expect(await executeUpdateGoal(tool, 'blocked')).toEqual({
+        isError: true,
+        output: 'Goal not blocked: no active goal.',
+      });
+      expect(goals.getGoal().goal).toBeNull();
+
+      await goals.createGoal({ objective: 'work' });
+      await goals.pauseGoal();
+      expect(await executeUpdateGoal(tool, 'complete')).toEqual({
+        isError: true,
+        output: 'Goal not completed: no active goal.',
+      });
+      expect(await executeUpdateGoal(tool, 'blocked')).toEqual({
+        isError: true,
+        output: 'Goal not blocked: no active goal.',
+      });
+      expect(goals.getGoal().goal?.status).toBe('paused');
     });
   });
 
