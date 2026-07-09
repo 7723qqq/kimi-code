@@ -236,9 +236,9 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       const contextAfter = contextMemory.get();
       console.log(
         `[doResume] session=${sessionId} wireRecords=${records.length}` +
-          ` contextRecordTypes=[${records.filter((r) => r.type.startsWith('context.')).map((r) => r.type)}]` +
+          ` contextRecordTypes=[${records.filter((r) => r.type.startsWith('context.')).map((r) => r.type).join(',')}]` +
           ` contextAfterReplay=${contextAfter.length}` +
-          ` roles=[${contextAfter.map((m) => `${m.role}:${m.origin?.kind ?? 'none'}`)}]`,
+          ` roles=[${contextAfter.map((m) => `${m.role}:${m.origin?.kind ?? 'none'}`).join(',')}]`,
       );
     }
     await this.announceCreated({ sessionId, handle, source: 'resume' });

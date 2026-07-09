@@ -59,7 +59,6 @@ import {
   type HeadlessGoalCreate,
 } from '../goal-prompt';
 import {
-  type PromptProcess,
   type PromptRunIO,
   configuredModel,
   installPromptTerminationCleanup,
@@ -404,7 +403,7 @@ async function runNativeGoal(
     await runNativeTurn(app, session, agent, goal.objective, outputFormat, stdout, stderr);
   } finally {
     subscription.dispose();
-    const snapshot = completedSnapshot ?? (await goalService.getGoal()).goal;
+    const snapshot = completedSnapshot ?? goalService.getGoal().goal;
     if (outputFormat === 'stream-json') {
       stdout.write(`${JSON.stringify(goalSummaryJson(snapshot))}\n`);
     } else {

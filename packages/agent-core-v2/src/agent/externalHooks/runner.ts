@@ -1,8 +1,4 @@
-import {
-  spawn,
-  type ChildProcessWithoutNullStreams,
-  type SpawnOptionsWithoutStdio,
-} from 'node:child_process';
+import { type SpawnOptionsWithoutStdio } from 'node:child_process';
 
 import { z } from 'zod';
 
@@ -127,12 +123,12 @@ export async function runHook(
     );
 
     const timeout = setTimeout(() => {
-      void killProcess(proc);
+      killProcess(proc);
       settle(allowResult({ stdout, stderr, timedOut: true }));
     }, timeoutMs);
 
     const onAbort = (): void => {
-      void killProcess(proc);
+      killProcess(proc);
       settle(allowResult({ stdout, stderr }));
     };
 

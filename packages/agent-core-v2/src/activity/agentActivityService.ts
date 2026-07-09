@@ -34,7 +34,7 @@ import type {
   BeginOptions,
 } from './activity';
 import { IAgentActivityService, ISessionActivityKernel } from './activity';
-import { type LaneLastTurnState, LaneModel, setLane } from './activityOps';
+import { type LaneLastTurnState, setLane } from './activityOps';
 
 let nextBackgroundId = 0;
 
@@ -116,7 +116,7 @@ export class AgentActivityService extends Disposable implements IAgentActivitySe
 
   begin(kind: 'turn', opts?: BeginOptions): ActivityLease {
     if (kind !== 'turn') {
-      throw new KimiError(ErrorCodes.NOT_IMPLEMENTED, `Unsupported activity kind: ${kind}`);
+      throw new KimiError(ErrorCodes.NOT_IMPLEMENTED, `Unsupported activity kind: ${String(kind)}`);
     }
     switch (this._lane) {
       case 'turn':

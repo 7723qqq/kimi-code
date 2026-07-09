@@ -538,7 +538,7 @@ export class SessionFsService implements ISessionFsService {
     } finally {
       signal.removeEventListener('abort', onAbort);
       try {
-        proc.dispose();
+        void proc.dispose();
       } catch {
         /* best-effort cleanup */
       }
