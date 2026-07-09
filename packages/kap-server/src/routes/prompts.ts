@@ -221,13 +221,13 @@ function sendMappedError(
     switch (err.code) {
       case 'session.not_found':
       case 'agent.not_found':
-        reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId, err.stack));
         return;
       case 'prompt.not_found':
-        reply.send(errEnvelope(ErrorCode.PROMPT_NOT_FOUND, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.PROMPT_NOT_FOUND, err.message, requestId, err.stack));
         return;
       case 'session.busy':
-        reply.send(errEnvelope(ErrorCode.SESSION_BUSY, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.SESSION_BUSY, err.message, requestId, err.stack));
         return;
       case 'prompt.already_completed':
         reply.send({
@@ -235,11 +235,12 @@ function sendMappedError(
           msg: err.message,
           data: { aborted: false },
           request_id: requestId,
+          stack: err.stack,
         });
         return;
       case 'request.invalid':
       case 'validation.failed':
-        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId, err.stack));
         return;
       case 'auth.provisioning_required':
         reply.send({
@@ -247,6 +248,7 @@ function sendMappedError(
           msg: err.message,
           data: null,
           request_id: requestId,
+          stack: err.stack,
           details: null,
         });
         return;
@@ -267,6 +269,7 @@ function sendMappedError(
           msg: err.message,
           data: null,
           request_id: requestId,
+          stack: err.stack,
           details,
         });
         return;
@@ -288,6 +291,7 @@ function sendMappedError(
           msg: err.message,
           data: null,
           request_id: requestId,
+          stack: err.stack,
           details,
         });
         return;
@@ -298,6 +302,7 @@ function sendMappedError(
           msg: err.message,
           data: null,
           request_id: requestId,
+          stack: err.stack,
           details: authModelDetails(err),
         });
         return;
@@ -308,6 +313,7 @@ function sendMappedError(
       ErrorCode.INTERNAL_ERROR,
       err instanceof Error ? err.message : String(err),
       requestId,
+      err instanceof Error ? err.stack : undefined,
     ),
   );
 }

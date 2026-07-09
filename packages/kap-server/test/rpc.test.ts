@@ -499,9 +499,13 @@ describe('server-v2 /api/v2 RPC', () => {
     expect(code).not.toBe(0);
   });
 
-  it('does not leak stack traces on error', async () => {
+  it('surfaces the originating stack trace on error', async () => {
     const { body } = await call<null>('POST', '/api/v2/session/nope/session:read');
-    expect(JSON.stringify(body)).not.toContain('stack');
+    // Contract: error envelopes carry the thrown error's stack so operators can
+    // locate the source (the 40401 below originates in `dispatch`).
+    const json = JSON.stringify(body);
+    expect(json).toContain('"stack"');
+    expect(json).toContain('dispatch');
   });
 });
 

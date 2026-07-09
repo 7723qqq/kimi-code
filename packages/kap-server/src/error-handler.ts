@@ -45,6 +45,7 @@ export function installErrorHandler(app: ErrorHandlerHost): void {
         ErrorCode.INTERNAL_ERROR,
         err.message !== undefined && err.message !== '' ? err.message : 'internal error',
         requestId,
+        err.stack,
       ),
     );
   });

@@ -158,14 +158,14 @@ function sendMappedError(
   if (isKimiError(err)) {
     switch (err.code) {
       case 'session.not_found':
-        reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId, err.stack));
         return;
       case 'message.not_found':
-        reply.send(errEnvelope(ErrorCode.MESSAGE_NOT_FOUND, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.MESSAGE_NOT_FOUND, err.message, requestId, err.stack));
         return;
     }
   }
   reply.send(
-    errEnvelope(ErrorCode.INTERNAL_ERROR, err instanceof Error ? err.message : String(err), requestId),
+    errEnvelope(ErrorCode.INTERNAL_ERROR, err instanceof Error ? err.message : String(err), requestId, err instanceof Error ? err.stack : undefined),
   );
 }
