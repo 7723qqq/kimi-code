@@ -5,12 +5,20 @@
  * working against server-v2.
  */
 
+import { createWriteStream } from 'node:fs';
+import { mkdir, stat } from 'node:fs/promises';
+import { extname, join } from 'node:path';
+import { pipeline } from 'node:stream/promises';
+
 import {
+  IBootstrapService,
   IAgentLifecycleService,
   IAgentPromptLegacyService,
+  IFileService,
   ISessionLifecycleService,
   isKimiError,
   KimiError,
+  type GetResult,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
 import {
@@ -21,6 +29,7 @@ import {
   promptSteerResultSchema,
   promptSubmissionSchema,
   promptSubmitResultSchema,
+  type PromptSubmission,
 } from '@moonshot-ai/protocol';
 import { z } from 'zod';
 
@@ -55,6 +64,14 @@ const sessionIdParamSchema = z.object({
 const validationDetailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 const authProviderDetailsSchema = z.object({ provider_id: z.string() });
 const authModelDetailsSchema = z.object({ model_id: z.string(), provider_id: z.string() }).partial();
+const VIDEO_EXT_BY_MIME: Record<string, string> = {
+  'video/mp4': '.mp4',
+  'video/quicktime': '.mov',
+  'video/webm': '.webm',
+  'video/x-msvideo': '.avi',
+  'video/x-matroska': '.mkv',
+  'video/mpeg': '.mpeg',
+};
 
 async function resolveLegacy(
   core: Scope,
@@ -131,8 +148,13 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const legacy = await resolveLegacy(core, session_id, req.body.agent_id);
-        const result = await legacy.submit(req.body);
+        const resolvedBody = await resolvePromptMediaFiles(
+          req.body,
+          core.accessor.get(IFileService),
+          core.accessor.get(IBootstrapService).cacheDir,
+        );
+        const legacy = await resolveLegacy(core, session_id, resolvedBody.agent_id);
+        const result = await legacy.submit(resolvedBody);
         reply.send(okEnvelope(result, req.id));
       } catch (error) {
         sendMappedError(reply, req.id, error);
@@ -212,6 +234,50 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
   app.post(actionRoute.path, actionRoute.options, actionRoute.handler as Parameters<PromptRouteHost['post']>[2]);
 }
 
+async function resolvePromptMediaFiles(
+  body: PromptSubmission,
+  store: IFileService,
+  cacheDir: string,
+): Promise<PromptSubmission> {
+  const content: PromptSubmission['content'] = [];
+  for (const part of body.content) {
+    if (part.type !== 'video' || part.source.kind !== 'file') {
+      content.push(part);
+      continue;
+    }
+
+    const file = await store.get(part.source.file_id);
+    if (!file.meta.media_type.toLowerCase().startsWith('video/')) {
+      throw new KimiError(
+        'validation.failed',
+        `file ${file.meta.id} is ${file.meta.media_type}, not a video`,
+      );
+    }
+    const cachePath = await materializeVideoToCache(file, cacheDir);
+    content.push({ type: 'text', text: `<video path="${escapeAttribute(cachePath)}"></video>` });
+  }
+  return { ...body, content };
+}
+
+async function materializeVideoToCache(file: GetResult, cacheDir: string): Promise<string> {
+  await mkdir(cacheDir, { recursive: true });
+  const ext = extname(file.meta.name) || (VIDEO_EXT_BY_MIME[file.meta.media_type.toLowerCase()] ?? '.bin');
+  const target = join(cacheDir, `${file.meta.id}${ext}`);
+  const info = await stat(target).catch(() => undefined);
+  if (info?.size === file.meta.size) return target;
+
+  await pipeline(file.stream, createWriteStream(target));
+  return target;
+}
+
+function escapeAttribute(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
 function sendMappedError(
   reply: { send(payload: unknown): unknown },
   requestId: string,
@@ -222,6 +288,9 @@ function sendMappedError(
       case 'session.not_found':
       case 'agent.not_found':
         reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId, err.stack));
+        return;
+      case 'file.not_found':
+        reply.send(errEnvelope(ErrorCode.FILE_NOT_FOUND, err.message, requestId, err.stack));
         return;
       case 'prompt.not_found':
         reply.send(errEnvelope(ErrorCode.PROMPT_NOT_FOUND, err.message, requestId, err.stack));

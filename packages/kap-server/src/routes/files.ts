@@ -137,11 +137,11 @@ export function registerFilesRoutes(app: FilesRouteHost, core: Scope): void {
             return;
           }
           reply.send(okEnvelope(meta, req.id));
-        } catch (err) {
-          sendMappedError(reply as unknown as FilesReply, req.id, err);
+        } catch (error) {
+          sendMappedError(reply as unknown as FilesReply, req.id, error);
         }
-      } catch (err) {
-        sendMappedError(reply as unknown as FilesReply, req.id, err);
+      } catch (error) {
+        sendMappedError(reply as unknown as FilesReply, req.id, error);
       }
     },
   );
@@ -171,14 +171,25 @@ export function registerFilesRoutes(app: FilesRouteHost, core: Scope): void {
         const store = core.accessor.get(IFileService);
         const { meta, stream } = await store.get(file_id);
         const r = reply as unknown as FilesReply;
+        const size = meta.size;
         r.type(meta.media_type)
-          .header('content-disposition', buildContentDisposition(meta.name))
-          .header('content-length', meta.size)
-          .header('etag', `"${meta.id}-${meta.size}"`)
-          .code(200);
+          .header('content-disposition', buildContentDisposition(meta.name, meta.media_type))
+          .header('accept-ranges', 'bytes')
+          .header('etag', `"${meta.id}-${size}"`);
+
+        const range = parseRange((req as unknown as FastifyRequestLike).headers['range'], size);
+        if (range) {
+          const data = await readStream(stream);
+          r.header('content-range', `bytes ${range.start}-${range.end}/${size}`)
+            .header('content-length', range.length)
+            .code(206);
+          return r.send(data.subarray(range.start, range.end + 1)) as unknown as void;
+        }
+
+        r.header('content-length', size).code(200);
         return r.send(stream) as unknown as void;
-      } catch (err) {
-        sendMappedError(reply as unknown as FilesReply, req.id, err);
+      } catch (error) {
+        sendMappedError(reply as unknown as FilesReply, req.id, error);
         return;
       }
     },
@@ -204,8 +215,8 @@ export function registerFilesRoutes(app: FilesRouteHost, core: Scope): void {
         const store = core.accessor.get(IFileService);
         await store.delete(file_id);
         reply.send(okEnvelope({ deleted: true as const }, req.id));
-      } catch (err) {
-        sendMappedError(reply as unknown as FilesReply, req.id, err);
+      } catch (error) {
+        sendMappedError(reply as unknown as FilesReply, req.id, error);
       }
     },
   );
@@ -266,9 +277,33 @@ function readFieldNumber(field: unknown): number | undefined {
   return undefined;
 }
 
-function buildContentDisposition(name: string): string {
-  if (/^[\w. ()+[\]-]+$/.test(name)) {
-    return `attachment; filename="${name}"`;
+async function readStream(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.from(chunk as string | Uint8Array));
   }
-  return 'attachment';
+  return Buffer.concat(chunks);
+}
+
+function buildContentDisposition(name: string, mediaType?: string): string {
+  const disposition = /^(image|video|audio)\//.test(mediaType ?? '') ? 'inline' : 'attachment';
+  if (/^[\w. ()+[\]-]+$/.test(name)) {
+    return `${disposition}; filename="${name}"`;
+  }
+  return disposition;
+}
+
+function parseRange(
+  value: string | string[] | undefined,
+  size: number,
+): { start: number; end: number; length: number } | undefined {
+  const header = Array.isArray(value) ? value[0] : value;
+  const match = size > 0 ? /^bytes=(\d*)-(\d*)$/i.exec(header?.trim() ?? '') : null;
+  if (!match || (match[1] === '' && match[2] === '')) return undefined;
+
+  const start = match[1] === '' ? Math.max(size - Number(match[2]), 0) : Number(match[1]);
+  let end = match[1] === '' || match[2] === '' ? size - 1 : Number(match[2]);
+  if (![start, end].every(Number.isSafeInteger) || start < 0 || start >= size || start > end) return undefined;
+  end = Math.min(end, size - 1);
+  return { start, end, length: end - start + 1 };
 }

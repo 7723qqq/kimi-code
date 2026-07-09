@@ -254,6 +254,55 @@ describe('POST /api/v1/files (server-v2)', () => {
     expect((res.json() as Envelope<{ name: string }>).data?.name).toBe('overridden.txt');
   });
 
+  it('serves byte ranges with 206 Partial Content for video playback', async () => {
+    const r = await boot();
+    const data = Buffer.from('0123456789abcdefghijklmnopqrstuvwxyz');
+    const mp = buildMultipart({
+      file: {
+        fieldName: 'file',
+        filename: 'clip.mp4',
+        contentType: 'video/mp4',
+        data,
+      },
+    });
+    const upRes = await appOf(r).inject({
+      method: 'POST',
+      url: '/api/v1/files',
+      payload: mp.body,
+      headers: { 'content-type': mp.contentType },
+    });
+    const meta = (upRes.json() as Envelope<{ id: string; size: number }>).data!;
+
+    const full = await appOf(r).inject({
+      method: 'GET',
+      url: `/api/v1/files/${meta.id}`,
+    });
+    expect(full.statusCode).toBe(200);
+    expect(full.headers['accept-ranges']).toBe('bytes');
+    expect(full.headers['content-type']).toBe('video/mp4');
+    expect(String(full.headers['content-disposition'])).toMatch(/^inline;/);
+    expect(full.rawPayload).toEqual(data);
+
+    const part = await appOf(r).inject({
+      method: 'GET',
+      url: `/api/v1/files/${meta.id}`,
+      headers: { range: 'bytes=4-9' },
+    });
+    expect(part.statusCode).toBe(206);
+    expect(part.headers['content-range']).toBe(`bytes 4-9/${data.length}`);
+    expect(part.headers['content-length']).toBe('6');
+    expect(part.rawPayload).toEqual(data.subarray(4, 10));
+
+    const tail = await appOf(r).inject({
+      method: 'GET',
+      url: `/api/v1/files/${meta.id}`,
+      headers: { range: 'bytes=30-' },
+    });
+    expect(tail.statusCode).toBe(206);
+    expect(tail.headers['content-range']).toBe(`bytes 30-${data.length - 1}/${data.length}`);
+    expect(tail.rawPayload).toEqual(data.subarray(30));
+  });
+
   it('missing file part → 40001 validation error', async () => {
     const r = await boot();
     const boundary = '------WebKitFormBoundaryNoFile';
