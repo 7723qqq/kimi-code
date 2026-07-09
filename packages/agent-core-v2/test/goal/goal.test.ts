@@ -4,6 +4,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
 import { IAgentGoalService } from '#/agent/goal/goal';
 import { type AgentGoalService } from '#/agent/goal/goalService';
+import { UpdateGoalTool, UpdateGoalToolInputSchema } from '#/agent/goal/tools/update-goal';
 import { IAgentLoopService, type AfterStepContext } from '#/agent/loop/loop';
 import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn/turn';
 import type { PersistedWireRecord, WireRecord } from '#/agent/wireRecord/wireRecord';
@@ -277,6 +278,25 @@ describe('AgentGoalService', () => {
       expect(reminder?.origin).toEqual({ kind: 'system_trigger', name: 'goal_cancelled' });
       expect(JSON.stringify(reminder?.content)).toContain('Ignore earlier active-goal reminders');
       await expect(goals.cancelGoal()).rejects.toMatchObject({ code: ErrorCodes.GOAL_NOT_FOUND });
+    });
+
+    it('forbids model-driven goal pauses', async () => {
+      await goals.createGoal({ objective: 'work' });
+      const tool = new UpdateGoalTool(goals);
+
+      for (const status of ['active', 'complete', 'blocked']) {
+        expect(UpdateGoalToolInputSchema.safeParse({ status }).success).toBe(true);
+      }
+      for (const status of ['paused', 'impossible', 'cancelled', '']) {
+        expect(UpdateGoalToolInputSchema.safeParse({ status }).success).toBe(false);
+      }
+
+      const execution = tool.resolveExecution({ status: 'paused' } as never);
+      expect(execution).toMatchObject({
+        isError: true,
+        output: 'Invalid goal status. Use `active`, `complete`, or `blocked`.',
+      });
+      expect(goals.getGoal().goal?.status).toBe('active');
     });
   });
 
