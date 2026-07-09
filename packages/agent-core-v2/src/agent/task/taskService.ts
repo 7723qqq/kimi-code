@@ -1158,13 +1158,9 @@ function taskOriginsFromRecord(record: WireRecord): readonly TaskNotificationOri
   const raw = record as {
     readonly type: string;
     readonly message?: unknown;
-    readonly messages?: unknown;
   };
   if (raw.type === 'context.append_message') {
     return taskOriginFromMessage(raw.message);
-  }
-  if (raw.type === 'context.splice' && Array.isArray(raw.messages)) {
-    return raw.messages.flatMap(taskOriginFromMessage);
   }
   return [];
 }

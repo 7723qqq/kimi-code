@@ -317,10 +317,8 @@ describe('FullCompaction', () => {
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     await ctx.dispatch({
-      type: 'context.splice',
-      start: ctx.context.get().length,
-      deleteCount: 0,
-      messages: [{ role: 'assistant', content: [], toolCalls: [] }],
+      type: 'context.append_message',
+      message: { role: 'assistant', content: [], toolCalls: [] },
     });
     ctx.appendExchange(3, 'old user two', 'old assistant two', 40);
     const compacted = new Promise<void>((resolve) => {

@@ -208,9 +208,9 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     const agents = handle.accessor.get(IAgentLifecycleService);
     if (agents.getHandle(MAIN_AGENT_ID) === undefined) {
       const main = await ensureMainAgent(handle);
-      // Resolve context memory BEFORE restoring so its `context.splice` resumer
-      // is registered; otherwise the wire replay applies splices into a void and
-      // the restored transcript never lands in context memory.
+      // Resolve context memory BEFORE restoring so its reducers are registered;
+      // otherwise the wire replay applies context records into a void and the
+      // restored transcript never lands in context memory.
       main.accessor.get(IAgentContextMemoryService);
       const mainWireRecord = main.accessor.get(IAgentWireRecordService);
       await mainWireRecord.restore();
