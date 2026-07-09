@@ -21,6 +21,7 @@ import {
   IFileService,
   fileNotFoundError,
   fileTooLargeError,
+  type FileReadRange,
   type GetResult,
   type SaveOptions,
 } from './fileService';
@@ -118,7 +119,11 @@ export class FileServiceImpl implements IFileService {
       throw fileNotFoundError(fileId);
     }
 
-    return { meta, stream: Readable.from(this.blobs.getStream(BLOB_SCOPE, fileId)) };
+    return {
+      meta,
+      stream: (range?: FileReadRange) =>
+        Readable.from(this.blobs.getStream(BLOB_SCOPE, fileId, range)),
+    };
   }
 
   async delete(fileId: string): Promise<void> {

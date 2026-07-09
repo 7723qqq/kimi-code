@@ -9,7 +9,7 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IBlobStore } from '#/persistence/interface/blobStore';
+import { IBlobStore, type BlobReadRange } from '#/persistence/interface/blobStore';
 
 export class BlobStoreService implements IBlobStore {
   declare readonly _serviceBrand: undefined;
@@ -24,8 +24,8 @@ export class BlobStoreService implements IBlobStore {
     return this.storage.read(scope, key);
   }
 
-  getStream(scope: string, key: string): AsyncIterable<Uint8Array> {
-    return this.storage.readStream(scope, key);
+  getStream(scope: string, key: string, range?: BlobReadRange): AsyncIterable<Uint8Array> {
+    return this.storage.readStream(scope, key, range);
   }
 
   async has(scope: string, key: string): Promise<boolean> {
