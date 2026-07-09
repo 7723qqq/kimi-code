@@ -54,7 +54,6 @@ import {
 } from './compactionOps';
 import {
   type CompactionBeginData,
-  type FullCompactionCompleteData,
   type CompactionResult,
 } from './types';
 import { OrderedHookSlot } from '#/hooks';
