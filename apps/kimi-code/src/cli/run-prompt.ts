@@ -110,7 +110,7 @@ export async function runPrompt(
   // can identify which build produced the stream, in both `text` and `stream-json`
   // formats. The default v1 path keeps its established output unchanged.
   if (isKimiV2Enabled()) {
-    writeExperimentalVersion(version, outputFormat, stdout, stderr);
+    writeExperimentalVersion(version, outputFormat, stderr);
   }
   const workDir = process.cwd();
   const telemetryBootstrap = createCliTelemetryBootstrap();
@@ -673,27 +673,16 @@ interface PromptJsonResumeMetaMessage {
   content: string;
 }
 
-interface PromptJsonVersionMetaMessage {
-  role: 'meta';
-  type: 'system.version';
-  version: string;
-}
-
 function writeExperimentalVersion(
   version: string,
   outputFormat: PromptOutputFormat,
-  stdout: PromptOutput,
   stderr: PromptOutput,
 ): void {
-  if (outputFormat === 'stream-json') {
-    const message: PromptJsonVersionMetaMessage = {
-      role: 'meta',
-      type: 'system.version',
-      version,
-    };
-    stdout.write(`${JSON.stringify(message)}\n`);
-    return;
-  }
+  // Stream-json output is consumed by structured pipelines whose role
+  // sequence is asserted downstream (e.g. release-e2e stream-json-cron);
+  // emitting a leading version meta line breaks that contract. Keep the
+  // experimental version banner on stderr for text mode only.
+  if (outputFormat === 'stream-json') return;
   stderr.write(`kimi version ${version}\n`);
 }
 
