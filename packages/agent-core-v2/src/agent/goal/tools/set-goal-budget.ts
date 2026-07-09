@@ -38,14 +38,19 @@ export class SetGoalBudgetTool implements BuiltinTool<SetGoalBudgetToolInput> {
 
   resolveExecution(args: SetGoalBudgetToolInput): ToolExecution {
     const normalizedArgs = normalizeBudgetInput(args);
+    const budget = budgetLimitsFromInput(normalizedArgs);
+    const overBudgetAfterSet = budget !== null && this.wouldExceedBudget(budget);
     return {
       description: `Setting goal budget: ${formatBudget(
         normalizedArgs.value,
         normalizedArgs.unit,
       )}`,
+      stopBatchAfterThis: overBudgetAfterSet,
       approvalRule: this.name,
       execute: async () => {
-        const budget = budgetLimitsFromInput(normalizedArgs);
+        if (this.goal.getGoal().goal === null) {
+          return { output: 'Goal budget not set: no current goal.' };
+        }
         if (budget === null) {
           return {
             output:
@@ -53,12 +58,34 @@ export class SetGoalBudgetTool implements BuiltinTool<SetGoalBudgetToolInput> {
               'reasonable goal budget.',
           };
         }
-        await this.goal.setBudgetLimits({ budgetLimits: budget }, 'model');
+        const snapshot = await this.goal.setBudgetLimits({ budgetLimits: budget }, 'model');
+        if (snapshot.budget.overBudget) {
+          return {
+            output:
+              `Goal budget set: ${formatBudget(normalizedArgs.value, normalizedArgs.unit)}. ` +
+              'The goal has already reached this budget and will stop now.',
+            stopTurn: true,
+          };
+        }
         return {
           output: `Goal budget set: ${formatBudget(normalizedArgs.value, normalizedArgs.unit)}.`,
         };
       },
     };
+  }
+
+  private wouldExceedBudget(newLimits: GoalBudgetLimits): boolean {
+    const goal = this.goal.getGoal().goal;
+    if (goal === null) return false;
+    const current = goal.budget;
+    const turnBudget = newLimits.turnBudget ?? current.turnBudget;
+    const tokenBudget = newLimits.tokenBudget ?? current.tokenBudget;
+    const wallClockBudgetMs = newLimits.wallClockBudgetMs ?? current.wallClockBudgetMs;
+    return (
+      (turnBudget !== null && goal.turnsUsed >= turnBudget) ||
+      (tokenBudget !== null && goal.tokensUsed >= tokenBudget) ||
+      (wallClockBudgetMs !== null && goal.wallClockMs >= wallClockBudgetMs)
+    );
   }
 }
 

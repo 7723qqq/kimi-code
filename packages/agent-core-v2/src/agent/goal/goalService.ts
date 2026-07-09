@@ -83,6 +83,7 @@ declare module '#/agent/wireRecord/wireRecord' {
 }
 
 const MAX_GOAL_OBJECTIVE_LENGTH = 4000;
+const MAX_GOAL_COMPLETION_CRITERION_LENGTH = MAX_GOAL_OBJECTIVE_LENGTH;
 
 const GOAL_CANCELLED_REMINDER = [
   'The user cancelled the current goal.',
@@ -614,12 +615,15 @@ function budgetTelemetryProperties(limits: GoalBudgetLimits): TelemetryPropertie
 }
 
 function tokenUsageTotal(usage: TokenUsage): number {
-  return usage.inputCacheRead + usage.inputCacheCreation + usage.inputOther + usage.output;
+  return usage.output;
 }
 
 function normalizeCompletionCriterion(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
-  return trimmed?.length ? trimmed : undefined;
+  if (!trimmed?.length) return undefined;
+  return trimmed.length > MAX_GOAL_COMPLETION_CRITERION_LENGTH
+    ? trimmed.slice(0, MAX_GOAL_COMPLETION_CRITERION_LENGTH)
+    : trimmed;
 }
 
 function isGoalOutcomeReminder(message: ContextMessage | undefined): boolean {
