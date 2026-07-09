@@ -36,9 +36,10 @@ import type { WireMessageContent } from './wire';
 // parent transcript — doing so created empty "skeleton" assistant bubbles (a
 // subagent turn.step.started opens a parent assistant message that never gets
 // the main agent's text) and fragmented snippets (subagent deltas appended to
-// the parent). The subagent's progress is surfaced separately via the
-// subagent.* → task → AgentCard path. This mirrors the server's
-// InFlightTurnTracker, which likewise tracks only main-agent activity.
+// the parent). The subagent's live progress is surfaced separately via the
+// subagent.* → task → right-side detail panel path (the spawning `Agent` tool
+// itself renders as a normal tool card in the transcript). This mirrors the
+// server's InFlightTurnTracker, which likewise tracks only main-agent activity.
 const MAIN_AGENT_ID = 'main';
 const MAIN_AGENT_TRANSCRIPT_FRAMES = new Set<string>([
   'turn.started',
@@ -273,6 +274,38 @@ function projectSubagentProgress(
   // agentDelta events; don't pollute the main task output with generic step
   // placeholders like "Started a step".
   if (sideChannelAgents.has(subagentId) && rawType === 'turn.step.started') return [];
+
+  // The subagent's own streamed text: forward each delta as a `text`-kind
+  // progress chunk so the reducer concatenates it into `AppTask.text`, letting
+  // the right-side detail panel show the subagent's output growing live (like
+  // a thinking block) instead of staying blank until the first tool call.
+  if (rawType === 'assistant.delta') {
+    const delta = stringField(payload, 'delta');
+    if (!delta) return [];
+    // Ensure the subagent task exists before forwarding the text delta. A client
+    // that subscribed from a snapshot after `subagent.spawned` already fired
+    // never received the lifecycle taskCreated, and the reducer only applies
+    // taskProgress to existing tasks — without this, the deltas are dropped and
+    // the live detail stays blank until a non-text frame recreates the task.
+    const previous = state.subagentMeta.get(subagentId);
+    const task = patchSubagent(state, sessionId, subagentId, {
+      status: 'running',
+      subagentPhase: 'working',
+      startedAt: previous?.startedAt ?? new Date().toISOString(),
+    });
+    const out: AppEvent[] = [];
+    if (task) out.push({ type: 'taskCreated', sessionId, task });
+    out.push({
+      type: 'taskProgress',
+      sessionId,
+      taskId: subagentId,
+      outputChunk: delta,
+      stream: 'stdout',
+      kind: 'text',
+    });
+    return out;
+  }
+
   const text = subagentProgressText(rawType, payload);
   if (text === null || text.length === 0) return [];
   const previous = state.subagentMeta.get(subagentId);
@@ -987,6 +1020,7 @@ export function createAgentProjector(): AgentProjector {
           subagentType: typeof p?.subagentName === 'string' ? p.subagentName : undefined,
           parentToolCallId: typeof p?.parentToolCallId === 'string' ? p.parentToolCallId : undefined,
           swarmIndex: typeof p?.swarmIndex === 'number' ? p.swarmIndex : undefined,
+          runInBackground: p?.runInBackground === true,
         };
         s.subagentMeta.set(task.id, task);
         out.push({
@@ -1184,9 +1218,43 @@ export function createAgentProjector(): AgentProjector {
       }
 
       // -----------------------------------------------------------------------
+      case 'cron.fired': {
+        // A scheduled reminder fired into the session. agent-core persists the
+        // injected user message (so a refresh renders it via messagesToTurns),
+        // but turn.steer() does NOT broadcast a prompt.submitted / message.created
+        // for it — synthesize one here so the notice shows up live too. A later
+        // snapshot reload replaces the message log wholesale, so this synthesized
+        // copy never duplicates the persisted one. The promptId is intentionally
+        // omitted: the web client caches every user message's promptId into
+        // promptIdBySession for Stop/abort, and a synthetic id the daemon would
+        // reject would clobber the real active promptId. The reducer already skips
+        // optimistic-echo reconciliation for cron-origin messages, so no promptId
+        // is needed for de-dup either.
+        const origin = p?.origin;
+        const promptText = stringField(p ?? {}, 'prompt');
+        if (
+          origin &&
+          typeof origin === 'object' &&
+          (origin as Record<string, unknown>)['kind'] === 'cron_job' &&
+          promptText
+        ) {
+          const msg: AppMessage = {
+            id: ulid('cron_'),
+            sessionId,
+            role: 'user',
+            content: [{ type: 'text', text: promptText }],
+            createdAt: new Date().toISOString(),
+            metadata: { origin: origin as Record<string, unknown> },
+          };
+          s.messages.push(msg);
+          out.push({ type: 'messageCreated', message: cloneMessage(msg) });
+        }
+        break;
+      }
+
+      // -----------------------------------------------------------------------
       // Explicitly known but not projected
       case 'compaction.blocked':
-      case 'cron.fired':
       case 'hook.result':
       case 'mcp.server.status':
       case 'skill.activated':
@@ -1267,6 +1335,7 @@ const KNOWN_AGENT_CORE_TYPES = new Set([
   'subagent.failed',
   'background.task.started',
   'background.task.terminated',
+  'cron.fired',
 ]);
 
 /**

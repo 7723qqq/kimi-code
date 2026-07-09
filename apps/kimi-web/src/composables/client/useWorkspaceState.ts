@@ -7,8 +7,10 @@
 // the view-model computeds stay in the facade; cross-dependencies are injected
 // here as params.
 
-import { type ComputedRef, type Ref } from 'vue';
+import { reactive, type ComputedRef, type Ref } from 'vue';
 import { getKimiWebApi } from '../../api';
+import { i18n } from '../../i18n';
+import { useConfirmDialog } from '../useConfirmDialog';
 import { isDaemonApiError } from '../../api/errors';
 import type {
   AppConfig,
@@ -21,8 +23,14 @@ import type {
   KimiEventConnection,
   QuestionResponse,
 } from '../../api/types';
-import { safeRemove, STORAGE_KEYS } from '../../lib/storage';
+import {
+  loadWorkspaceNameOverrides,
+  safeRemove,
+  saveWorkspaceNameOverrides,
+  STORAGE_KEYS,
+} from '../../lib/storage';
 import { parseDiff } from '../../lib/parseDiff';
+import { coerceThinkingForModel } from '../../lib/modelThinking';
 import { readSessionIdFromLocation, sessionUrl } from '../../lib/sessionRoute';
 import type { SessionUrlMode } from '../../lib/sessionRoute';
 import type {
@@ -38,7 +46,42 @@ import type { UseSideChat } from './useSideChat';
 import type { UseTaskPoller } from './useTaskPoller';
 
 const MESSAGES_PAGE_SIZE = 50;
+// Sessions fetched per workspace on first load — keeps the initial request
+// count at (number of workspaces) and each response small. Exported so the
+// sidebar can fall back to it when a workspace's first-page size is unknown.
+export const SESSIONS_INITIAL_PAGE_SIZE = 5;
 const PROMPT_NOT_FOUND_CODE = 40402;
+const WORKSPACE_NOT_FOUND_CODE = 40410;
+// Shared "already resolved" conflict (40902). The daemon reuses it for both
+// approvals and questions when a second client races the resolve, so a
+// duplicate submit is reported as a conflict even though the desired end
+// state (resolved) is already reached. We treat it as a benign no-op.
+const ALREADY_RESOLVED_CODE = 40902;
+
+function isAlreadyResolvedError(err: unknown): boolean {
+  return isDaemonApiError(err) && err.code === ALREADY_RESOLVED_CODE;
+}
+
+// 40904 — cancel raced the task reaching a terminal state. Like 40902 this is
+// an idempotent "already in the desired end state" conflict, not a real error.
+const TASK_ALREADY_FINISHED_CODE = 40904;
+
+function isTaskAlreadyFinishedError(err: unknown): boolean {
+  return isDaemonApiError(err) && err.code === TASK_ALREADY_FINISHED_CODE;
+}
+
+/**
+ * Question ids with an in-flight respond/dismiss, keyed by questionId with the
+ * action kind. Drives the card's loading state and guards against a duplicate
+ * submit while the first request is still in flight (the server would reject
+ * the second resolve with 40902). Module-level singleton — matches
+ * `inFlightPromptSessions` in the facade.
+ */
+const pendingQuestionActions = reactive<Record<string, 'answer' | 'dismiss'>>({});
+/** Approval ids with an in-flight respond, keyed by approvalId. */
+const pendingApprovalActions = reactive<Record<string, true>>({});
+/** Task ids with an in-flight cancel, keyed by taskId. */
+const pendingTaskCancellations = reactive<Record<string, true>>({});
 
 type SyncSessionResult = 'ok' | 'not-found' | 'failed';
 
@@ -80,24 +123,26 @@ export interface UseWorkspaceStateDeps {
   nextOptimisticMsgId: () => string;
   getEventConn: () => KimiEventConnection | null;
   syncSessionFromSnapshot: (sessionId: string) => Promise<SyncSessionResult>;
-  subscribeToSessionEvents: (sessionId: string) => void;
+  reopenSession: (sessionId: string) => Promise<SyncSessionResult>;
   hasLoadedMessages: (sessionId: string) => boolean;
   refreshSessionStatus: (sessionId: string) => Promise<void>;
-  persistSessionProfile: (patch: PersistSessionProfilePatch) => void;
+  persistSessionProfile: (patch: PersistSessionProfilePatch, sessionId?: string) => Promise<void>;
   mergedWorkspaces: ComputedRef<AppWorkspace[]>;
   /** Sidebar-facing workspaces in the user's (dragged) display order. */
   workspacesView: ComputedRef<WorkspaceView[]>;
   status: ComputedRef<ConversationStatus>;
   workspaceIdForSession: (s: { workspaceId?: string; cwd: string }) => string;
   savePermissionToStorage: (mode: PermissionMode) => void;
-  savePlanModeToStorage: (v: boolean) => void;
-  saveSwarmModeToStorage: (v: boolean) => void;
-  saveGoalModeToStorage: (v: boolean) => void;
+  /** Persist the current per-session mode maps (read off rawState). */
+  savePlanModeToStorage: () => void;
+  saveSwarmModeToStorage: () => void;
+  saveGoalModeToStorage: () => void;
+  /** Staged mode toggles for the not-yet-created draft session. */
+  draftModes: { planMode: boolean; swarmMode: boolean; goalMode: boolean };
   saveUnread: (changes: Record<string, boolean>) => void;
   saveActiveWorkspaceToStorage: (id: string) => void;
   saveHiddenWorkspacesToStorage: (roots: string[]) => void;
   goalErrorMessage: (err: unknown) => string | undefined;
-  basename: (path: string) => string;
   resetFastMoon: () => void;
   initialized: Ref<boolean>;
   selectedDiffPath: Ref<string | null>;
@@ -106,6 +151,8 @@ export interface UseWorkspaceStateDeps {
 }
 
 export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceStateDeps) {
+  const { t } = i18n.global;
+  const { confirm } = useConfirmDialog();
   const {
     taskPoller,
     sideChat,
@@ -124,7 +171,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     nextOptimisticMsgId,
     getEventConn,
     syncSessionFromSnapshot,
-    subscribeToSessionEvents,
+    reopenSession,
     hasLoadedMessages,
     refreshSessionStatus,
     persistSessionProfile,
@@ -136,11 +183,11 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     savePlanModeToStorage,
     saveSwarmModeToStorage,
     saveGoalModeToStorage,
+    draftModes,
     saveUnread,
     saveActiveWorkspaceToStorage,
     saveHiddenWorkspacesToStorage,
     goalErrorMessage,
-    basename,
     resetFastMoon,
     initialized,
     selectedDiffPath,
@@ -285,11 +332,13 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
   // Backend max page size for GET /sessions. Bigger pages mean fewer round-trips
   // when draining the full session list.
   const SESSION_PAGE_SIZE = 100;
-  // Sessions fetched per workspace on first load — keeps the initial request
-  // count at (number of workspaces) and each response small.
-  const SESSIONS_INITIAL_PAGE_SIZE = 5;
   // Sessions fetched per "load more" click within a workspace.
   const SESSIONS_LOAD_MORE_SIZE = 30;
+  // On initial load, if the oldest session of the first page is still within
+  // this window, keep fetching older pages until the oldest loaded session falls
+  // outside it. Avoids clipping an active workspace's history at an arbitrary
+  // 5-session boundary when it has a run of recently-updated sessions.
+  const SESSIONS_RECENT_WINDOW_MS = 12 * 60 * 60 * 1000;
 
   /** Drain every page of sessions, newest first. A single global walk (instead of
    *  per-workspace) so sessions whose cwd is not a registered workspace root are
@@ -311,10 +360,68 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     return items;
   }
 
+  /** Load the initial page of sessions for one workspace, then keep fetching
+   *  older pages while the oldest loaded session is still within
+   *  SESSIONS_RECENT_WINDOW_MS. Every page (including continuations) uses the
+   *  small initial page size so a sparse page cannot pull in days of history at
+   *  once. Continuation pages are also trimmed at the recent-window boundary,
+   *  keeping only up to the first session that falls outside the window. */
+  async function loadInitialSessionsForWorkspace(
+    workspaceId: string,
+  ): Promise<{ workspaceId: string; page: { items: AppSession[]; hasMore: boolean } }> {
+    const api = getKimiWebApi();
+    const items: AppSession[] = [];
+    const now = Date.now();
+    const ageOf = (s: AppSession): number => now - new Date(s.updatedAt).getTime();
+    let beforeId: string | undefined;
+    let hasMore = false;
+    let isFirstPage = true;
+    for (;;) {
+      let page: { items: AppSession[]; hasMore: boolean };
+      try {
+        page = await api.listSessions({
+          workspaceId,
+          pageSize: SESSIONS_INITIAL_PAGE_SIZE,
+          beforeId,
+          excludeEmpty: true,
+        });
+      } catch (error) {
+        // A failed continuation page must not discard sessions already loaded
+        // from earlier pages; only a page-1 failure propagates (the caller then
+        // falls back to an empty page for that workspace).
+        if (isFirstPage) throw error;
+        break;
+      }
+      hasMore = page.hasMore;
+      if (page.items.length === 0) break;
+      const oldest = page.items[page.items.length - 1]!;
+      const oldestBeyondWindow = ageOf(oldest) >= SESSIONS_RECENT_WINDOW_MS;
+
+      if (!isFirstPage && oldestBeyondWindow) {
+        // This continuation page crosses the recent-window boundary. Keep only
+        // up to and including the first session that falls outside the window
+        // (so the oldest loaded is the first one older than the window) and
+        // drop the older tail instead of loading the whole page.
+        const boundaryIndex = page.items.findIndex(
+          (s) => ageOf(s) >= SESSIONS_RECENT_WINDOW_MS,
+        );
+        const keep = boundaryIndex >= 0 ? boundaryIndex + 1 : page.items.length;
+        items.push(...page.items.slice(0, keep));
+        hasMore = page.hasMore || keep < page.items.length;
+        break;
+      }
+
+      items.push(...page.items);
+      isFirstPage = false;
+      if (!page.hasMore || oldestBeyondWindow) break;
+      beforeId = oldest.id;
+    }
+    return { workspaceId, page: { items, hasMore } };
+  }
+
   /** Fetch the first page of sessions for every known workspace concurrently.
    *  Returns the merged, recency-sorted list and seeds per-workspace hasMore. */
   async function loadInitialSessionsByWorkspace(): Promise<AppSession[]> {
-    const api = getKimiWebApi();
     const workspaces = rawState.workspaces;
     if (workspaces.length === 0) {
       // /workspaces may be unavailable or empty on older / partially-failing
@@ -324,27 +431,22 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const fallback = await listAllSessionsGlobal().catch(() => [] as AppSession[]);
       rawState.sessionsHasMoreByWorkspace = {};
       rawState.sessionsCursorByWorkspace = {};
+      rawState.sessionsInitialCountByWorkspace = {};
       rawState.sessionsFullyLoaded = true;
       return fallback;
     }
     const pages = await Promise.all(
       workspaces.map((w) =>
-        api
-          .listSessions({
-            workspaceId: w.id,
-            pageSize: SESSIONS_INITIAL_PAGE_SIZE,
-            excludeEmpty: true,
-          })
-          .then((page) => ({ workspaceId: w.id, page }))
-          .catch(() => ({
-            workspaceId: w.id,
-            page: { items: [] as AppSession[], hasMore: false },
-          })),
+        loadInitialSessionsForWorkspace(w.id).catch(() => ({
+          workspaceId: w.id,
+          page: { items: [] as AppSession[], hasMore: false },
+        })),
       ),
     );
     const loaded: AppSession[] = [];
     const hasMore: Record<string, boolean> = {};
     const cursors: Record<string, string | undefined> = {};
+    const counts: Record<string, number> = {};
     for (const { workspaceId, page } of pages) {
       loaded.push(...page.items);
       // Trust the server's hasMore — the per-workspace session_count is only a
@@ -355,9 +457,17 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // out of band cannot shift the cursor and skip intervening sessions.
       cursors[workspaceId] =
         page.items.length > 0 ? page.items[page.items.length - 1]!.id : undefined;
+      // Collapse target for the sidebar's in-group "show less" control: the
+      // first-page capacity, floored at a full page so a workspace that was
+      // empty or sparse on first paint does not hide sessions created later.
+      // If the initial load pulled more than a page (recent-window
+      // continuations), keep the larger count so collapse returns to what was
+      // first visible.
+      counts[workspaceId] = Math.max(page.items.length, SESSIONS_INITIAL_PAGE_SIZE);
     }
     rawState.sessionsHasMoreByWorkspace = hasMore;
     rawState.sessionsCursorByWorkspace = cursors;
+    rawState.sessionsInitialCountByWorkspace = counts;
     rawState.sessionsFullyLoaded = false;
     // Keep rawState.sessions newest-first for readers that pick sessions[0]
     // (e.g. auto-selecting the most recent session on first load).
@@ -434,6 +544,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         api.getMeta().then((m) => {
           rawState.serverVersion = m.serverVersion;
           rawState.availableOpenInApps = m.openInApps;
+          rawState.dangerousBypassAuth = m.dangerousBypassAuth;
         }).catch(() => null),
         modelProvider.loadModels(),
       ]);
@@ -497,12 +608,23 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         api.listWorkspaces().catch(() => [] as AppWorkspace[]),
         api.getFsHome().catch(() => ({ home: '', recentRoots: [] })),
       ]);
-      rawState.workspaces = list;
+      rawState.workspaces = applyWorkspaceNameOverrides(list);
       rawState.fsHome = home.home || null;
       rawState.recentRoots = home.recentRoots;
     } catch {
       // Defensive — derived workspaces still work off the loaded sessions.
     }
+  }
+
+  /** Overlay locally-persisted name overrides (see renameWorkspace fallback)
+   *  onto a freshly loaded workspace list, keyed by root. */
+  function applyWorkspaceNameOverrides(workspaces: AppWorkspace[]): AppWorkspace[] {
+    const overrides = loadWorkspaceNameOverrides();
+    if (Object.keys(overrides).length === 0) return workspaces;
+    return workspaces.map((w) => {
+      const override = overrides[w.root];
+      return override !== undefined ? { ...w, name: override } : w;
+    });
   }
 
   /** Set the active workspace and persist it. */
@@ -532,20 +654,25 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
   /** Upsert a workspace: preserve existing order when updating; prepend only
    *  for truly new workspaces. */
   function upsertWorkspacePreserveOrder(workspace: AppWorkspace): void {
+    // A locally-renamed derived workspace may carry a saved name override; apply
+    // it so a daemon upsert (e.g. registering the root on first chat) doesn't
+    // clobber the name with the default basename.
+    const override = loadWorkspaceNameOverrides()[workspace.root];
+    const ws = override !== undefined ? { ...workspace, name: override } : workspace;
     // Re-adding a path the user previously removed should bring it back.
-    if (rawState.hiddenWorkspaceRoots.includes(workspace.root)) {
-      rawState.hiddenWorkspaceRoots = rawState.hiddenWorkspaceRoots.filter((r) => r !== workspace.root);
+    if (rawState.hiddenWorkspaceRoots.includes(ws.root)) {
+      rawState.hiddenWorkspaceRoots = rawState.hiddenWorkspaceRoots.filter((r) => r !== ws.root);
       saveHiddenWorkspacesToStorage(rawState.hiddenWorkspaceRoots);
     }
     const index = rawState.workspaces.findIndex(
-      (w) => w.id === workspace.id || w.root === workspace.root,
+      (w) => w.id === ws.id || w.root === ws.root,
     );
     if (index === -1) {
-      rawState.workspaces = [workspace, ...rawState.workspaces];
+      rawState.workspaces = [ws, ...rawState.workspaces];
       return;
     }
     const next = [...rawState.workspaces];
-    next[index] = workspace;
+    next[index] = ws;
     rawState.workspaces = next;
   }
 
@@ -610,6 +737,75 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
   }
 
   /**
+   * Create a session in a workspace for an immediate first action — the first
+   * prompt (`startSessionAndSendPrompt`) or a skill activation
+   * (`startSessionAndActivateSkill`) from the empty-session composer. Returns
+   * the new session id, or null if the workspace is unknown. Applies the staged
+   * draft model + modes onto the new session. Throws on daemon failure so the
+   * caller can surface the error via pushOperationFailure.
+   */
+  async function createDraftSession(workspaceId: string): Promise<string | null> {
+    const ws = mergedWorkspaces.value.find((w) => w.id === workspaceId);
+    if (!ws) return null;
+    const api = getKimiWebApi();
+    let workspaceIdForCreate: string | undefined;
+    let cwdForCreate = ws.root;
+    try {
+      const registered = await api.addWorkspace({ root: ws.root });
+      workspaceIdForCreate = registered.id;
+      cwdForCreate = registered.root;
+      upsertWorkspacePreserveOrder(registered);
+    } catch {
+      // Older daemons may not have /workspaces.
+    }
+    const draftPick = modelProvider.draftModel.value ?? undefined;
+    const session = await api.createSession({
+      workspaceId: workspaceIdForCreate,
+      cwd: cwdForCreate,
+      model: draftPick,
+    });
+    modelProvider.draftModel.value = null; // applied — the next draft starts from the default
+    // The create echo may return model as '' (same daemon quirk as /profile);
+    // keep the user's pick so the status line doesn't snap back to the default.
+    const created =
+      draftPick !== undefined && (!session.model || session.model.length === 0)
+        ? { ...session, model: draftPick }
+        : session;
+    upsertSessionFront(created);
+    selectWorkspace(session.workspaceId ?? workspaceIdForCreate ?? workspaceId);
+    // NOTE: do NOT mark this session known-empty. Unlike "open a new empty
+    // session" (createSession), here we immediately act on it: keeping
+    // sessionLoading=true through the snapshot avoids flashing the empty-session
+    // composer before the optimistic first turn lands. selectSession resolves,
+    // then the caller adds the first turn synchronously (no await in between),
+    // so the view goes loading → message with no empty-composer frame.
+    await selectSession(session.id);
+    // Carry any mode toggles the user staged in the empty composer into the
+    // newly-created session, so the first action honors them. Write them to
+    // this session's per-session maps by id (not via the activeSessionId-based
+    // setters): if the user switches to another session while selectSession is
+    // awaiting the snapshot, the setters would otherwise read the then-current
+    // activeSessionId and pollute that session while this one loses the modes.
+    const sid = session.id;
+    if (draftModes.planMode) {
+      rawState.planModeBySession = { ...rawState.planModeBySession, [sid]: true };
+      savePlanModeToStorage();
+    }
+    if (draftModes.swarmMode) {
+      rawState.swarmModeBySession = { ...rawState.swarmModeBySession, [sid]: true };
+      saveSwarmModeToStorage();
+    }
+    if (draftModes.goalMode) {
+      rawState.goalModeBySession = { ...rawState.goalModeBySession, [sid]: true };
+      saveGoalModeToStorage();
+    }
+    draftModes.planMode = false;
+    draftModes.swarmMode = false;
+    draftModes.goalMode = false;
+    return sid;
+  }
+
+  /**
    * Create a session and immediately submit the first prompt.
    * This is the unified path when there is no active session (e.g. after
    * clicking "+" or in an empty workspace).
@@ -619,77 +815,106 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     text: string,
     attachments?: PromptAttachment[],
   ): Promise<void> {
-    const ws = mergedWorkspaces.value.find((w) => w.id === workspaceId);
-    if (!ws) return;
     try {
-      const api = getKimiWebApi();
-      let workspaceIdForCreate: string | undefined;
-      let cwdForCreate = ws.root;
-      try {
-        const registered = await api.addWorkspace({ root: ws.root });
-        workspaceIdForCreate = registered.id;
-        cwdForCreate = registered.root;
-        upsertWorkspacePreserveOrder(registered);
-      } catch {
-        // Older daemons may not have /workspaces.
-      }
-      const draftPick = modelProvider.draftModel.value ?? undefined;
-      const session = await api.createSession({
-        workspaceId: workspaceIdForCreate,
-        cwd: cwdForCreate,
-        model: draftPick,
-      });
-      modelProvider.draftModel.value = null; // applied — the next draft starts from the default
-      // The create echo may return model as '' (same daemon quirk as /profile);
-      // keep the user's pick so the status line doesn't snap back to the default.
-      const created =
-        draftPick !== undefined && (!session.model || session.model.length === 0)
-          ? { ...session, model: draftPick }
-          : session;
-      upsertSessionFront(created);
-      selectWorkspace(session.workspaceId ?? workspaceIdForCreate ?? workspaceId);
-      // NOTE: do NOT mark this session known-empty. Unlike "open a new empty
-      // session" (createSession), here we immediately send a prompt: keeping
-      // sessionLoading=true through the snapshot avoids flashing the empty-session
-      // composer before the optimistic user message lands. selectSession resolves,
-      // then submitPromptInternal adds the user turn synchronously (no await in
-      // between), so the view goes loading → message with no empty-composer frame.
-      await selectSession(session.id);
-      await submitPromptInternal(session.id, text, attachments);
+      const sid = await createDraftSession(workspaceId);
+      if (!sid) return;
+      await submitPromptInternal(sid, text, attachments);
     } catch (err) {
       pushOperationFailure('startSessionAndSendPrompt', err);
     }
   }
 
   /**
-   * Add a workspace by folder path. Tries the daemon registry; on failure (or in
-   * fallback mode) creates a locally-derived workspace from the path and
-   * remembers it, then selects it.
+   * Create a session and immediately activate a skill — the empty-composer
+   * counterpart to startSessionAndSendPrompt. Without this, `/<skill>` from the
+   * new-session screen silently dropped the activation (`activateSkill` needs a
+   * session id). Shares createDraftSession so the model and draft modes are
+   * applied identically to a prompt-started session; then persists any draft
+   * plan/swarm modes here, because skill activation carries only `args`.
    */
-  async function addWorkspaceByPath(root: string): Promise<void> {
+  async function startSessionAndActivateSkill(
+    workspaceId: string,
+    skillName: string,
+    args?: string,
+  ): Promise<void> {
+    try {
+      const sid = await createDraftSession(workspaceId);
+      if (!sid) return;
+      // Unlike a plain prompt, skill activation only carries `args`, so the
+      // daemon never sees the prompt-time controls the user may have changed on
+      // the draft (plan/swarm, plus permission via /auto|/yolo and thinking via
+      // /thinking). Persist them onto this new session's profile and await it
+      // before activating, otherwise the first skill turn can start before
+      // applyAgentState and run at daemon defaults while the UI shows otherwise.
+      // Goal mode is a one-shot flag consumed per send, not a profile field, so
+      // there is nothing to persist for it.
+      const planMode = rawState.planModeBySession[sid] ?? false;
+      const swarmMode = rawState.swarmModeBySession[sid] ?? false;
+      // Coerce thinking against the new session's model the same way the
+      // first-prompt path does (coercePromptThinking below): a value carried
+      // over from another/default model (e.g. 'max' from an effort model) would
+      // otherwise be persisted verbatim, and the first skill turn would run at
+      // a level the UI wouldn't send for this model.
+      const promptSession = rawState.sessions.find((s) => s.id === sid);
+      const model =
+        (promptSession?.model && promptSession.model.length > 0
+          ? promptSession.model
+          : rawState.defaultModel) ?? undefined;
+      await persistSessionProfile(
+        {
+          planMode,
+          swarmMode,
+          permissionMode: rawState.permission,
+          thinking: coercePromptThinking(model),
+        },
+        sid,
+      );
+      await modelProvider.activateSkill(skillName, args, sid);
+    } catch (err) {
+      pushOperationFailure('startSessionAndActivateSkill', err);
+    }
+  }
+
+  /**
+   * Create a session and open a BTW side chat under it — the empty-composer
+   * counterpart to startSessionAndSendPrompt. Without this, `/btw <question>`
+   * from the new-session screen silently no-ops (the panel still opens, but
+   * empty), because openSideChat reads the active session id directly. The side
+   * chat prompt itself carries model / thinking / permissionMode / plan / swarm
+   * (see sendSideChatPromptOn), so unlike skill activation we don't need to
+   * persist them onto the parent profile here.
+   */
+  async function startSessionAndOpenSideChat(
+    workspaceId: string,
+    prompt?: string,
+  ): Promise<void> {
+    try {
+      const sid = await createDraftSession(workspaceId);
+      if (!sid) return;
+      await sideChat.openSideChatOn(sid, prompt);
+    } catch (err) {
+      pushOperationFailure('startSessionAndOpenSideChat', err);
+    }
+  }
+
+  /**
+   * Add a workspace by folder path, registering it with the daemon. Returns true
+   * when the workspace was registered and selected; false when the daemon
+   * rejected the path, so callers can keep the picker open and any pending
+   * submission instead of dropping it. The caller surfaces the failure to the
+   * user (e.g. an inline error in the picker).
+   */
+  async function addWorkspaceByPath(root: string): Promise<boolean> {
     const trimmed = root.trim();
-    if (!trimmed) return;
+    if (!trimmed) return false;
     const api = getKimiWebApi();
     try {
       const ws = await api.addWorkspace({ root: trimmed });
       upsertWorkspacePreserveOrder(ws);
       openWorkspaceDraft(ws.id);
+      return true;
     } catch {
-      // Fallback: remember a derived workspace locally (id = root = path).
-      const existing = rawState.workspaces.find((w) => w.root === trimmed);
-      if (!existing) {
-        rawState.workspaces = [
-          {
-            id: trimmed,
-            root: trimmed,
-            name: basename(trimmed),
-            isGitRepo: false,
-            sessionCount: 0,
-          },
-          ...rawState.workspaces,
-        ];
-      }
-      openWorkspaceDraft(trimmed);
+      return false;
     }
   }
 
@@ -834,9 +1059,11 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         const result = await syncSessionFromSnapshot(sessionId);
         if (result === 'not-found') return;
       } else {
-        // Re-open: resume from the tracked cursor; the daemon replays any
-        // missed durable events (or answers resync_required → snapshot).
-        subscribeToSessionEvents(sessionId);
+        // Re-open: rebuild from a fresh snapshot rather than resuming from the
+        // tracked cursor — the daemon only replays durable events, so volatile
+        // streamed deltas lost to a WS hiccup would otherwise stay missing.
+        const result = await reopenSession(sessionId);
+        if (result === 'not-found') return;
       }
 
       // Refresh sidecars AFTER the snapshot settles so status/usage updates
@@ -849,6 +1076,22 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         rawState.sessionLoading = false;
       }
     }
+  }
+
+  // Coerce the persisted thinking level against the prompt's target model before
+  // submitting, so a stale value carried over from another session (e.g. 'max'
+  // from an effort model) isn't sent to a model that doesn't declare it. The
+  // composer already renders the coerced value; this keeps the submitted level
+  // in sync with what's displayed. Falls back to the raw level when the model
+  // catalog hasn't loaded yet (coerceThinkingForModel preserves it).
+  function coercePromptThinking(model: string | undefined) {
+    const promptModel =
+      model === undefined
+        ? undefined
+        : modelProvider.models.value.find(
+            (m) => m.model === model || m.id === model || m.displayName === model,
+          );
+    return coerceThinkingForModel(promptModel, rawState.thinking);
   }
 
   /** Internal: submit a prompt to a specific session, bypassing the queue check.
@@ -895,7 +1138,14 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
           ? promptSession.model
           : rawState.defaultModel) ?? undefined;
 
-      if (rawState.goalMode && text) {
+      // Modes are per-session: read this session's own toggles (not the global
+      // active-session value), so a prompt enqueued for a background session uses
+      // that session's settings.
+      const planMode = rawState.planModeBySession[sid] ?? false;
+      const swarmMode = rawState.swarmModeBySession[sid] ?? false;
+      const goalMode = rawState.goalModeBySession[sid] ?? false;
+
+      if (goalMode && text) {
         try {
           await api.updateSession(sid, { goalObjective: text.trim() });
         } catch (err) {
@@ -912,15 +1162,16 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const result = await api.submitPrompt(sid, {
         content,
         model,
-        thinking: rawState.thinking,
+        thinking: coercePromptThinking(model),
         permissionMode: rawState.permission,
-        planMode: rawState.planMode,
-        swarmMode: rawState.swarmMode,
+        planMode,
+        swarmMode,
       });
 
-      if (rawState.goalMode) {
-        rawState.goalMode = false;
-        saveGoalModeToStorage(false);
+      // Goal mode is a one-shot flag: consumed by this send, then cleared.
+      if (goalMode) {
+        rawState.goalModeBySession = { ...rawState.goalModeBySession, [sid]: false };
+        saveGoalModeToStorage();
       }
 
       // Authoritative prompt_id for :abort — race-free (the projector binding can
@@ -1045,10 +1296,10 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const result = await api.submitPrompt(sid, {
         content,
         model,
-        thinking: rawState.thinking,
+        thinking: coercePromptThinking(model),
         permissionMode: rawState.permission,
-        planMode: rawState.planMode,
-        swarmMode: rawState.swarmMode,
+        planMode: rawState.planModeBySession[sid] ?? false,
+        swarmMode: rawState.swarmModeBySession[sid] ?? false,
       });
 
       // Stamp the real prompt_id onto the optimistic echo. Unlike a normal send,
@@ -1162,12 +1413,31 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     }
   }
 
+  function removePendingApproval(sid: string, approvalId: string): void {
+    const list = rawState.approvalsBySession[sid] ?? [];
+    rawState.approvalsBySession = {
+      ...rawState.approvalsBySession,
+      [sid]: list.filter((a) => a.approvalId !== approvalId),
+    };
+  }
+
+  function removePendingQuestion(sid: string, questionId: string): void {
+    const list = rawState.questionsBySession[sid] ?? [];
+    rawState.questionsBySession = {
+      ...rawState.questionsBySession,
+      [sid]: list.filter((q) => q.questionId !== questionId),
+    };
+  }
+
   async function respondApproval(
     approvalId: string,
     response: { decision: ApprovalDecision; scope?: 'session'; feedback?: string; selectedLabel?: string },
   ): Promise<void> {
     const sid = rawState.activeSessionId;
     if (!sid) return;
+    // Guard against a second click while the first respond is in flight.
+    if (pendingApprovalActions[approvalId]) return;
+    pendingApprovalActions[approvalId] = true;
     try {
       const api = getKimiWebApi();
       const fullResponse: ApprovalResponse = {
@@ -1178,13 +1448,17 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       };
       await api.respondApproval(sid, approvalId, fullResponse);
       // Remove from local approvals immediately (WS event will confirm)
-      const list = rawState.approvalsBySession[sid] ?? [];
-      rawState.approvalsBySession = {
-        ...rawState.approvalsBySession,
-        [sid]: list.filter((a) => a.approvalId !== approvalId),
-      };
+      removePendingApproval(sid, approvalId);
     } catch (err) {
-      pushOperationFailure('respondApproval', err, { sessionId: sid });
+      if (isAlreadyResolvedError(err)) {
+        // Already resolved (another client or a raced event) — that is the
+        // desired end state, so drop it locally without surfacing an error.
+        removePendingApproval(sid, approvalId);
+      } else {
+        pushOperationFailure('respondApproval', err, { sessionId: sid });
+      }
+    } finally {
+      delete pendingApprovalActions[approvalId];
     }
   }
 
@@ -1194,38 +1468,53 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
   ): Promise<void> {
     const sid = rawState.activeSessionId;
     if (!sid) return;
+    // Guard against a second click while the first respond is in flight.
+    if (pendingQuestionActions[questionId]) return;
+    pendingQuestionActions[questionId] = 'answer';
     try {
       const api = getKimiWebApi();
       await api.respondQuestion(sid, questionId, response);
-      const list = rawState.questionsBySession[sid] ?? [];
-      rawState.questionsBySession = {
-        ...rawState.questionsBySession,
-        [sid]: list.filter((q) => q.questionId !== questionId),
-      };
+      removePendingQuestion(sid, questionId);
     } catch (err) {
-      pushOperationFailure('respondQuestion', err, { sessionId: sid });
+      if (isAlreadyResolvedError(err)) {
+        // Already resolved (another client or a raced event) — that is the
+        // desired end state, so drop it locally without surfacing an error.
+        removePendingQuestion(sid, questionId);
+      } else {
+        pushOperationFailure('respondQuestion', err, { sessionId: sid });
+      }
+    } finally {
+      delete pendingQuestionActions[questionId];
     }
   }
 
   async function dismissQuestion(questionId: string): Promise<void> {
     const sid = rawState.activeSessionId;
     if (!sid) return;
+    // Guard against a second click while a respond/dismiss is in flight.
+    if (pendingQuestionActions[questionId]) return;
+    pendingQuestionActions[questionId] = 'dismiss';
     try {
       const api = getKimiWebApi();
       await api.dismissQuestion(sid, questionId);
-      const list = rawState.questionsBySession[sid] ?? [];
-      rawState.questionsBySession = {
-        ...rawState.questionsBySession,
-        [sid]: list.filter((q) => q.questionId !== questionId),
-      };
+      removePendingQuestion(sid, questionId);
     } catch (err) {
-      pushOperationFailure('dismissQuestion', err, { sessionId: sid });
+      if (isAlreadyResolvedError(err)) {
+        removePendingQuestion(sid, questionId);
+      } else {
+        pushOperationFailure('dismissQuestion', err, { sessionId: sid });
+      }
+    } finally {
+      delete pendingQuestionActions[questionId];
     }
   }
 
   async function cancelTask(taskId: string): Promise<void> {
     const sid = rawState.activeSessionId;
     if (!sid) return;
+    // Guard against a second click while the first cancel is in flight.
+    if (pendingTaskCancellations[taskId]) return;
+    pendingTaskCancellations[taskId] = true;
     try {
       const api = getKimiWebApi();
       await api.cancelTask(sid, taskId);
@@ -1238,48 +1527,85 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         ),
       };
     } catch (err) {
-      pushOperationFailure('cancelTask', err, { sessionId: sid });
+      if (isTaskAlreadyFinishedError(err)) {
+        // Already in a terminal state — that is the desired end state for
+        // "cancel", so stay silent. Don't force status to 'cancelled': the
+        // task may have completed/failed, and the task event stream / poller
+        // will reflect its real status.
+      } else {
+        pushOperationFailure('cancelTask', err, { sessionId: sid });
+      }
+    } finally {
+      delete pendingTaskCancellations[taskId];
     }
   }
 
-  /** Persist and apply plan mode (pushed to the session profile + sent per-prompt). */
+  /** Persist and apply plan mode for the active session (pushed to its profile
+   *  + sent per-prompt). With no active session the toggle is staged on the
+   *  draft and transferred when the first prompt creates the session. */
   function setPlanMode(on: boolean): void {
-    rawState.planMode = on;
-    savePlanModeToStorage(on);
-    persistSessionProfile({ planMode: on });
+    const sid = rawState.activeSessionId;
+    if (sid) {
+      rawState.planModeBySession = { ...rawState.planModeBySession, [sid]: on };
+      savePlanModeToStorage();
+      void persistSessionProfile({ planMode: on });
+    } else {
+      draftModes.planMode = on;
+    }
   }
 
-  /** Flip plan mode on/off. */
+  /** Flip plan mode on/off for the active session (or the draft). */
   function togglePlanMode(): void {
-    setPlanMode(!rawState.planMode);
+    const sid = rawState.activeSessionId;
+    const current = sid ? (rawState.planModeBySession[sid] ?? false) : draftModes.planMode;
+    setPlanMode(!current);
   }
 
-  /** Persist and apply swarm mode (pushed to the session profile + sent per-prompt). */
+  /** Persist and apply swarm mode for the active session (pushed to its profile
+   *  + sent per-prompt). With no active session the toggle is staged on the draft. */
   function setSwarmMode(on: boolean): void {
-    rawState.swarmMode = on;
-    saveSwarmModeToStorage(on);
-    persistSessionProfile({ swarmMode: on });
+    const sid = rawState.activeSessionId;
+    if (sid) {
+      rawState.swarmModeBySession = { ...rawState.swarmModeBySession, [sid]: on };
+      saveSwarmModeToStorage();
+      void persistSessionProfile({ swarmMode: on });
+    } else {
+      draftModes.swarmMode = on;
+    }
   }
 
   /** Flip swarm mode on/off. In manual permission mode, ask before enabling. */
-  function toggleSwarmMode(): void {
-    const on = !rawState.swarmMode;
+  async function toggleSwarmMode(): Promise<void> {
+    const sid = rawState.activeSessionId;
+    const current = sid ? (rawState.swarmModeBySession[sid] ?? false) : draftModes.swarmMode;
+    const on = !current;
     if (on && rawState.permission === 'manual') {
-      const ok = confirm('Enable swarm mode? The agent will run multiple sub agents in parallel.');
+      const ok = await confirm({
+        title: t('workspace.swarmEnableConfirm'),
+        variant: 'primary',
+      });
       if (!ok) return;
     }
     setSwarmMode(on);
   }
 
-  /** Persist goal mode locally. Unlike plan/swarm, this is a one-shot flag consumed on send. */
+  /** Persist goal mode for the active session. Unlike plan/swarm, this is a
+   *  one-shot flag consumed on send (not pushed to the session profile). */
   function setGoalMode(on: boolean): void {
-    rawState.goalMode = on;
-    saveGoalModeToStorage(on);
+    const sid = rawState.activeSessionId;
+    if (sid) {
+      rawState.goalModeBySession = { ...rawState.goalModeBySession, [sid]: on };
+      saveGoalModeToStorage();
+    } else {
+      draftModes.goalMode = on;
+    }
   }
 
-  /** Flip goal mode on/off. */
+  /** Flip goal mode on/off for the active session (or the draft). */
   function toggleGoalMode(): void {
-    setGoalMode(!rawState.goalMode);
+    const sid = rawState.activeSessionId;
+    const current = sid ? (rawState.goalModeBySession[sid] ?? false) : draftModes.goalMode;
+    setGoalMode(!current);
   }
 
   /** Create a goal by sending its objective to the session profile, then submit it as a prompt. */
@@ -1287,18 +1613,72 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     const trimmed = objective.trim();
     if (!trimmed) return;
     if (rawState.permission === 'manual') {
-      const ok = confirm(`Start goal: "${trimmed}"? The agent will run autonomously toward this objective.`);
+      const ok = await confirm({
+        title: t('workspace.goalStartConfirm', { objective: trimmed }),
+        variant: 'primary',
+      });
       if (!ok) return;
     }
-    const sid = rawState.activeSessionId;
-    if (!sid) return;
+    // Empty-composer heal: `/goal <objective>` from the new-session screen
+    // would otherwise silently clear and run nothing. Create the session first
+    // (same path as the first prompt / a new-session skill), then target it.
+    let sid = rawState.activeSessionId;
+    if (!sid) {
+      // Use the same fallback as the client-wide computed activeWorkspaceId
+      // (raw value if it exists, else the first sidebar-visible workspace). On a
+      // fresh empty workspace load() never writes rawState.activeWorkspaceId
+      // (there's no most-recent session to anchor it), so a raw read here would
+      // be null and silently no-op even though the UI can still show a usable
+      // workspace. Plain first-prompts and skill activations don't hit this
+      // because App.vue passes the computed activeWorkspaceId in.
+      const raw = rawState.activeWorkspaceId;
+      const wsId =
+        raw && workspacesView.value.some((w) => w.id === raw)
+          ? raw
+          : (workspacesView.value[0]?.id ?? null);
+      if (!wsId) return;
+      // App.vue invokes createGoal fire-and-forget, so a rejection here would
+      // otherwise surface as an unhandled rejection instead of an operation
+      // failure. Mirror the other draft-session paths (skill / BTW / first
+      // prompt) which wrap createDraftSession.
+      try {
+        sid = (await createDraftSession(wsId)) ?? undefined;
+      } catch (err) {
+        pushOperationFailure('createGoal', err);
+        return;
+      }
+      if (!sid) return;
+    }
     try {
       await getKimiWebApi().updateSession(sid, { goalObjective: trimmed });
     } catch (err) {
       pushOperationFailure('createGoal', err, { sessionId: sid, message: goalErrorMessage(err) });
       return;
     }
-    await sendPrompt(trimmed);
+    // The goal objective is set explicitly above. If goal mode was staged on the
+    // draft (e.g. the user ran bare `/goal`, then `/goal <objective>`),
+    // createDraftSession copied it into this session's goalModeBySession map.
+    // Leaving it on would make submitPromptInternal (via sendPrompt) re-POST
+    // another goalObjective — which the daemon rejects because a goal already
+    // exists — and the user's objective prompt would never be submitted.
+    // Clear the one-shot flag here: an explicit `/goal <objective>` has exactly
+    // the same effect as the goal-mode flag's consumption.
+    if (rawState.goalModeBySession[sid]) {
+      rawState.goalModeBySession = { ...rawState.goalModeBySession, [sid]: false };
+      saveGoalModeToStorage();
+    }
+    // Preserve normal send queueing semantics whenever the goal still targets the
+    // active session (the overwhelmingly common case): sendPrompt enqueues when
+    // another turn is running or a prompt is already in flight. Only fall back to
+    // the explicit-session send when activeSessionId moved during the create
+    // window above, so a concurrent session switch can't redirect the goal prompt.
+    // (The new session is otherwise idle+not-in-flight, so this does not race
+    // another turn.)
+    if (rawState.activeSessionId === sid) {
+      await sendPrompt(trimmed);
+    } else {
+      await submitPromptInternal(sid, trimmed);
+    }
   }
 
   /** Send a one-shot goal control action (pause/resume/cancel). */
@@ -1317,7 +1697,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
   function setPermission(mode: PermissionMode): void {
     rawState.permission = mode;
     savePermissionToStorage(mode);
-    persistSessionProfile({ permissionMode: mode });
+    void persistSessionProfile({ permissionMode: mode });
   }
 
   /** Dismiss a warning by index */
@@ -1338,11 +1718,41 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     }
   }
 
-  /** Rename a workspace — local-only until the daemon ships a workspace update API. */
-  function renameWorkspace(id: string, name: string): void {
-    rawState.workspaces = rawState.workspaces.map((w) =>
-      w.id === id ? { ...w, name } : w,
-    );
+  /** Rename a workspace — persists via the daemon update API, then applies
+   *  locally. Derived workspaces (a cwd with sessions that was never explicitly
+   *  registered) can't be renamed by the daemon yet: PATCH rejects them with
+   *  404. In that case the name is persisted in localStorage (keyed by root)
+   *  and overlaid onto the loaded list, so the rename still survives a refresh. */
+  async function renameWorkspace(id: string, name: string): Promise<void> {
+    const root = rawState.workspaces.find((w) => w.id === id)?.root;
+    const applyLocal = (): void => {
+      rawState.workspaces = rawState.workspaces.map((w) =>
+        w.id === id ? { ...w, name } : w,
+      );
+    };
+    try {
+      await getKimiWebApi().updateWorkspace(id, { name });
+      // Server accepted the rename — drop any local override for this root.
+      if (root !== undefined) {
+        const overrides = loadWorkspaceNameOverrides();
+        if (root in overrides) {
+          delete overrides[root];
+          saveWorkspaceNameOverrides(overrides);
+        }
+      }
+      applyLocal();
+    } catch (err) {
+      if (
+        root !== undefined &&
+        isDaemonApiError(err) &&
+        err.code === WORKSPACE_NOT_FOUND_CODE
+      ) {
+        saveWorkspaceNameOverrides({ ...loadWorkspaceNameOverrides(), [root]: name });
+        applyLocal();
+        return;
+      }
+      pushOperationFailure('renameWorkspace', err);
+    }
   }
 
   /** Delete a workspace — calls API, removes locally */
@@ -1419,6 +1829,30 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     } catch (err) {
       pushOperationFailure('archiveSession', err, { sessionId: id });
     }
+  }
+
+  /** Restore an archived session — calls API, then puts the returned session
+   *  back at the front of the list so it reappears in the sidebar. */
+  async function restoreSession(id: string): Promise<boolean> {
+    try {
+      const restored = await getKimiWebApi().restoreSession(id);
+      upsertSessionFront(restored);
+      return true;
+    } catch (err) {
+      pushOperationFailure('restoreSession', err, { sessionId: id });
+      return false;
+    }
+  }
+
+  /** List archived sessions (server-side `archived_only` filter). Kept separate
+   *  from the per-workspace active list — callers (e.g. Settings) hold the page
+   *  locally and do their own search/filter/sort. */
+  function loadArchivedSessions(input?: { beforeId?: string; pageSize?: number }) {
+    return getKimiWebApi().listSessions({
+      archivedOnly: true,
+      beforeId: input?.beforeId,
+      pageSize: input?.pageSize ?? 50,
+    });
   }
 
   /** Logout from the managed Kimi provider. Re-checks auth and reloads sessions. */
@@ -1509,6 +1943,23 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     if (index < 0 || index >= current.length) return;
     const next = [...current];
     next.splice(index, 1);
+    rawState.queuedBySession = { ...rawState.queuedBySession, [sid]: next };
+  }
+
+  /**
+   * Move a queued message within the active session's queue (drag-to-reorder).
+   * Defensive: no-op if indices are equal, out of range, or no active session.
+   */
+  function reorderQueue(from: number, to: number): void {
+    const sid = rawState.activeSessionId;
+    if (!sid) return;
+    const current = rawState.queuedBySession[sid] ?? [];
+    if (from === to) return;
+    if (from < 0 || from >= current.length || to < 0 || to >= current.length) return;
+    const next = [...current];
+    const [moved] = next.splice(from, 1);
+    if (moved === undefined) return;
+    next.splice(to, 0, moved);
     rawState.queuedBySession = { ...rawState.queuedBySession, [sid]: next };
   }
 
@@ -1681,6 +2132,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     clearActiveSession,
     openWorkspaceDraft,
     startSessionAndSendPrompt,
+    startSessionAndActivateSkill,
+    startSessionAndOpenSideChat,
     addWorkspaceByPath,
     browseFs,
     getFsHome,
@@ -1695,10 +2148,13 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     uploadImage,
     enqueue,
     unqueue,
+    reorderQueue,
     abortCurrentPrompt,
     respondApproval,
     respondQuestion,
     dismissQuestion,
+    pendingQuestionActions,
+    pendingApprovalActions,
     cancelTask,
     setPlanMode,
     togglePlanMode,
@@ -1714,6 +2170,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     renameWorkspace,
     deleteWorkspace,
     archiveSession,
+    restoreSession,
+    loadArchivedSessions,
     logout,
     compact,
     forkSession,

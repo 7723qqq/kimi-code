@@ -19,7 +19,7 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 import { resolve } from 'pathe';
 
-import { CLI_SHUTDOWN_TIMEOUT_MS } from '#/constant/app';
+import { CLI_SHUTDOWN_TIMEOUT_MS, PROMPT_CLEANUP_TIMEOUT_MS } from '#/constant/app';
 
 import type { CLIOptions, PromptOutputFormat } from './options';
 import {
@@ -31,6 +31,47 @@ import {
 } from './goal-prompt';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
 import { createKimiCodeHostIdentity } from './version';
+
+/**
+ * Await `promise`, but stop waiting after `timeoutMs`.
+ *
+ * The timeout only bounds how long we WAIT — it does not change the outcome:
+ *  - if `promise` settles first, its result is propagated (a rejection throws),
+ *    so a cleanup step that actually fails in time still surfaces;
+ *  - if the timeout wins, we resolve (give up waiting) and swallow the abandoned
+ *    promise's eventual late rejection so it can't surface as an unhandled
+ *    rejection.
+ *
+ * Used to bound shutdown so a wedged cleanup step can't keep a completed
+ * headless run alive, without silently swallowing a cleanup that fails fast. The
+ * timer stays ref'd so a cleanup step that suspends on an unref'd handle (e.g.
+ * telemetry's retry backoff when the network is blocked) can't drain the event
+ * loop and exit 0 before the rejection propagates — the timer keeps the loop
+ * alive until it fires, then gives the rejection a chance to surface. A wedged
+ * cleanup is still bounded by `timeoutMs`, so this can't hang the run forever.
+ */
+async function raceWithTimeout(promise: Promise<void>, timeoutMs: number): Promise<void> {
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Attach the catch eagerly (synchronously) so `promise` is always consumed and
+  // a late rejection can never become an unhandled rejection. Before the timeout
+  // wins, the handler rethrows so a real cleanup failure still propagates.
+  const guarded = promise.catch((error: unknown) => {
+    if (timedOut) return;
+    throw error;
+  });
+  const timedOutSignal = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      resolve();
+    }, timeoutMs);
+  });
+  try {
+    await Promise.race([guarded, timedOutSignal]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 interface PromptOutput {
   readonly columns?: number | undefined;
@@ -96,7 +137,7 @@ export async function runPrompt(
   let removeTerminationCleanup: (() => void) | undefined;
   let cleanupPromise: Promise<void> | undefined;
   const cleanupPromptRun = async (): Promise<void> => {
-    cleanupPromise ??= (async () => {
+    const pending = (cleanupPromise ??= (async () => {
       removeTerminationCleanup?.();
       setCrashPhase('shutdown');
       try {
@@ -105,8 +146,13 @@ export async function runPrompt(
         await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
         await harness.close();
       }
-    })();
-    await cleanupPromise;
+    })());
+    // Bound cleanup so a wedged shutdown step (e.g. a SessionEnd hook, MCP
+    // shutdown, or a connection blackholed by a restrictive firewall) cannot
+    // keep a completed headless run alive forever. The cleanup keeps running in
+    // the background if it overruns; the caller (`kimi -p`) force-exits shortly
+    // after, so any straggling work is torn down with the process.
+    await raceWithTimeout(pending, PROMPT_CLEANUP_TIMEOUT_MS);
   };
   removeTerminationCleanup = installPromptTerminationCleanup(promptProcess, cleanupPromptRun);
 
@@ -136,6 +182,7 @@ export async function runPrompt(
       version,
       uiMode: PROMPT_UI_MODE,
       model: telemetryModel,
+      sessionId: session.id,
     });
     setCrashPhase('runtime');
 
@@ -295,6 +342,7 @@ async function resolvePromptSession(
     model,
     permission: 'auto',
     additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
+    drainAgentTasksOnStop: true,
   });
   installHeadlessHandlers(session);
   return {
@@ -467,7 +515,19 @@ function runPromptTurn(
           return;
         case 'turn.ended':
           if (event.reason === 'completed') {
-            finish();
+            void (async () => {
+              // Flush the buffered assistant message before draining background
+              // tasks: in stream-json mode the final message is only emitted by
+              // finish(), so a long background wait would otherwise withhold the
+              // main turn's result until the drain settles.
+              outputWriter.flushAssistant();
+              try {
+                await session.waitForBackgroundTasksOnPrint();
+              } catch (error) {
+                log.warn('waitForBackgroundTasksOnPrint failed', { error });
+              }
+              finish();
+            })();
             return;
           }
           finish(new Error(formatTurnEndedFailure(event)));

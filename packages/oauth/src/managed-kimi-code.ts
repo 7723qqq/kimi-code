@@ -5,6 +5,7 @@ import { DEFAULT_KIMI_CODE_OAUTH_HOST } from './constants';
 import { OAuthUnauthorizedError } from './errors';
 import { parseKimiCodeCustomHeaders } from './identity';
 import { DEFAULT_KIMI_CODE_BASE_URL, kimiCodeBaseUrl } from './managed-usage';
+import { MANAGED_KIMI_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
 import { isRecord } from './utils';
 
 export const KIMI_CODE_PLATFORM_ID = 'kimi-code';
@@ -35,6 +36,8 @@ export interface ManagedKimiCodeModelInfo {
   readonly supportsVideoIn: boolean;
   readonly supportsToolUse?: boolean;
   readonly supportsThinkingType?: SupportsThinkingType;
+  readonly supportEfforts?: readonly string[];
+  readonly defaultEffort?: string;
   readonly displayName?: string | undefined;
   readonly protocol?: ManagedKimiCodeProtocol | undefined;
 }
@@ -122,14 +125,30 @@ export interface ManagedKimiProviderConfig {
   readonly [key: string]: unknown;
 }
 
+export interface ManagedKimiModelAliasOverrides {
+  maxContextSize?: number | undefined;
+  maxOutputSize?: number | undefined;
+  capabilities?: string[] | undefined;
+  displayName?: string | undefined;
+  reasoningKey?: string | undefined;
+  adaptiveThinking?: boolean | undefined;
+  supportEfforts?: readonly string[] | undefined;
+  defaultEffort?: string | undefined;
+  readonly [key: string]: unknown;
+}
+
 export interface ManagedKimiModelAlias {
   provider: string;
   model: string;
   maxContextSize: number;
   capabilities?: string[] | undefined;
+  supportEfforts?: readonly string[] | undefined;
+  defaultEffort?: string | undefined;
   displayName?: string | undefined;
   protocol?: ManagedKimiCodeProtocol;
   betaApi?: boolean;
+  adaptiveThinking?: boolean | undefined;
+  overrides?: ManagedKimiModelAliasOverrides | undefined;
   readonly [key: string]: unknown;
 }
 
@@ -145,11 +164,17 @@ export interface ManagedKimiServicesConfig {
   readonly [key: string]: unknown;
 }
 
+export interface ManagedKimiThinkingShape {
+  enabled?: boolean | undefined;
+  effort?: string | undefined;
+  [key: string]: unknown;
+}
+
 export interface ManagedKimiConfigShape {
   providers: Record<string, ManagedKimiProviderConfig | Record<string, unknown>>;
   models?: Record<string, ManagedKimiModelAlias | Record<string, unknown>> | undefined;
   defaultModel?: string | undefined;
-  defaultThinking?: boolean | undefined;
+  thinking?: ManagedKimiThinkingShape | undefined;
   services?: ManagedKimiServicesConfig | undefined;
   [key: string]: unknown;
 }
@@ -391,6 +416,9 @@ function toModelInfo(item: unknown): ManagedKimiCodeModelInfo | undefined {
   const supportsToolUse = Object.hasOwn(item, 'supports_tool_use')
     ? Boolean(item['supports_tool_use'])
     : true;
+  // Effort levels come from the nested `think_efforts` object
+  // ({ support, valid_efforts, default_effort }) returned by /models.
+  const thinkEfforts = parseThinkEfforts(item['think_efforts']);
   return {
     id: item['id'],
     contextLength,
@@ -399,15 +427,51 @@ function toModelInfo(item: unknown): ManagedKimiCodeModelInfo | undefined {
     supportsVideoIn: Boolean(item['supports_video_in']),
     supportsToolUse,
     supportsThinkingType: parseSupportsThinkingType(item['supports_thinking_type']),
+    supportEfforts: thinkEfforts.supportEfforts,
+    defaultEffort: thinkEfforts.defaultEffort,
     displayName: normalizedDisplayName,
     protocol: parseModelProtocol(item['protocol']),
   };
+}
+
+export function parseStringArray(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out = value.filter((v): v is string => typeof v === 'string' && v.length > 0);
+  return out.length > 0 ? out : undefined;
 }
 
 // Unknown or missing values resolve to undefined so callers fall back to the
 // legacy supports_reasoning boolean instead of guessing.
 export function parseSupportsThinkingType(value: unknown): SupportsThinkingType | undefined {
   return value === 'only' || value === 'no' || value === 'both' ? value : undefined;
+}
+
+/**
+ * Parse the nested `think_efforts` object from `/models`:
+ *   { "support": true, "valid_efforts": ["low", "high", "max"], "default_effort": "high" }
+ * Returns the effort list and default effort, or undefineds when absent so
+ * callers can fall back to the legacy flat `support_efforts` / `default_effort`
+ * fields on older servers.
+ */
+export function parseThinkEfforts(value: unknown): {
+  supportEfforts: readonly string[] | undefined;
+  defaultEffort: string | undefined;
+} {
+  if (value === null || typeof value !== 'object') {
+    return { supportEfforts: undefined, defaultEffort: undefined };
+  }
+  const record = value as Record<string, unknown>;
+  // `support` gates the whole object: when it is not true, ignore
+  // valid_efforts / default_effort entirely.
+  if (record['support'] !== true) {
+    return { supportEfforts: undefined, defaultEffort: undefined };
+  }
+  const rawDefault = record['default_effort'];
+  return {
+    supportEfforts: parseStringArray(record['valid_efforts']),
+    defaultEffort:
+      typeof rawDefault === 'string' && rawDefault.length > 0 ? rawDefault : undefined,
+  };
 }
 
 export async function fetchManagedKimiCodeModels(
@@ -480,13 +544,25 @@ export function applyManagedKimiCodeConfig(
     oauth,
   };
 
+  // Selectively merge upstream models into the existing config so any fields
+  // the user added by hand (or that upstream does not declare) survive a
+  // refresh. Managed models that upstream no longer lists are removed; the
+  // rest are merged field-by-field — upstream-owned fields are overwritten,
+  // everything else is preserved.
+  const upstreamKeys = new Set(options.models.map((m) => managedModelKey(m.id)));
   for (const [key, model] of Object.entries(existingModels)) {
-    if (isRecord(model) && model['provider'] === KIMI_CODE_PROVIDER_NAME) {
+    if (
+      isRecord(model) &&
+      model['provider'] === KIMI_CODE_PROVIDER_NAME &&
+      !upstreamKeys.has(key)
+    ) {
       delete existingModels[key];
     }
   }
   for (const model of options.models) {
     const capabilities = capabilitiesForModel(model);
+    const key = managedModelKey(model.id);
+    const existing = isRecord(existingModels[key]) ? existingModels[key] : {};
     // Kimi's Anthropic-compatible endpoint only accepts adaptive thinking
     // (`thinking: { type: 'adaptive' }`); the kosong adapter otherwise infers
     // budget-based thinking from the model name, which fails for Kimi model ids.
@@ -497,24 +573,28 @@ export function applyManagedKimiCodeConfig(
       model.protocol === 'anthropic' &&
       (capabilities?.includes('thinking') === true ||
         capabilities?.includes('always_thinking') === true);
-    existingModels[managedModelKey(model.id)] = {
+    const remoteAlias: ManagedKimiModelAlias = {
       provider: KIMI_CODE_PROVIDER_NAME,
       model: model.id,
       maxContextSize: model.contextLength,
       capabilities,
-      displayName: model.displayName,
+      ...(model.displayName !== undefined ? { displayName: model.displayName } : {}),
+      ...(model.supportEfforts !== undefined ? { supportEfforts: model.supportEfforts } : {}),
+      ...(model.defaultEffort !== undefined ? { defaultEffort: model.defaultEffort } : {}),
       protocol: model.protocol,
       // Kimi's anthropic-compatible endpoint is served behind the beta Messages
       // API (`/v1/messages?beta=true`), so route anthropic-protocol models
-      // through `client.beta.messages.create`.
-      ...(model.protocol === 'anthropic' ? { betaApi: true } : {}),
-      ...(supportsAdaptiveThinking ? { adaptiveThinking: true } : {}),
+      // through `client.beta.messages.create`. Cleared on refresh when the
+      // server stops declaring anthropic so stale routing never lingers.
+      betaApi: model.protocol === 'anthropic' ? true : undefined,
+      adaptiveThinking: supportsAdaptiveThinking ? true : undefined,
     };
+    existingModels[key] = mergeRefreshedModelAlias(existing, remoteAlias, MANAGED_KIMI_MODEL_FIELDS);
   }
 
   config.models = existingModels;
   config.defaultModel = selectedDefault.modelKey;
-  config.defaultThinking = selectedDefault.thinking;
+  config.thinking = { ...config.thinking, enabled: selectedDefault.thinking };
   config.services = {
     moonshotSearch: {
       baseUrl: `${baseUrl}/search`,
@@ -563,7 +643,7 @@ export function applyManagedKimiCodeLogoutConfig(config: ManagedKimiConfigShape)
   }
 }
 
-// The server's three-state declaration overrides any stale defaultThinking
+// The server's three-state declaration overrides any stale thinking.enabled
 // being preserved from an earlier config: an always-thinking model ('only')
 // must never end up with thinking off, and a non-thinking model ('no') must
 // never end up with thinking on.
@@ -603,14 +683,14 @@ function selectDefaultModel(
       modelKey: currentDefault,
       thinking: forcedThinking(
         preservedModel,
-        config.defaultThinking ?? preservedModel?.supportsReasoning ?? false,
+        config.thinking?.enabled ?? preservedModel?.supportsReasoning ?? false,
       ),
     };
   }
 
   return {
     modelKey: managedModelKey(firstModel.id),
-    thinking: forcedThinking(firstModel, config.defaultThinking ?? firstModel.supportsReasoning),
+    thinking: forcedThinking(firstModel, config.thinking?.enabled ?? firstModel.supportsReasoning),
   };
 }
 

@@ -4,13 +4,22 @@ Package-local rules for `apps/kimi-web` (`@moonshot-ai/kimi-web`).
 
 ## What it is
 
-The browser web UI for Kimi Code — a peer to the TUI in `apps/kimi-code`. It talks to the local server over REST + WebSocket under `/api/v1`. Stack: Vue 3 + Vite 6 + TypeScript (strict) + Tailwind v4 + vue-i18n v11. There is no client router and no Pinia; state lives in composables/refs and provide/inject.
+The browser web UI for Kimi Code — a peer to the TUI in `apps/kimi-code`. It talks to the local server over REST + WebSocket under `/api/v1`. Stack: Vue 3 + Vite 6 + TypeScript (strict) + vue-i18n v11. (Tailwind was removed; all styling is via design tokens in `src/style.css` + scoped component styles.) There is no client router and no Pinia; state lives in composables/refs and provide/inject.
+
+## Design system (normative — required when modifying the UI)
+
+- **Before changing any component, style, layout, or theme, read the design system view at `src/views/DesignSystemView.vue` (open it as an overlay: long-press the sidebar logo).** It is the canonical design system and visual spec for this app (tokens §02, primitives §03, chat §04, theme rules §05, style rules §06). It consumes the product tokens from `src/style.css` directly, so it stays in sync with the app. New and modified UI must match it.
+- **Use the primitives in `src/components/ui/`.** The library covers Button, IconButton, Badge, Pill, Card, Input/Select/Textarea/Field, Dialog, Spinner, MoonSpinner, Link, Menu/MenuItem, SegmentedControl, Tabs, Switch, Checkbox, Avatar, EmptyState, Divider, Tooltip, Banner, Sheet, Skeleton, CommandBar, TopBar. One semantic = one component — do not hand-roll a bespoke button/badge/dialog/input for a single screen. When a primitive replaces an element, **delete the old scoped CSS** (do not append override blocks).
+- **Use the tokens, not ad-hoc values.** Colors, fonts, radii, spacing, shadows, z-index, and motion come from the CSS custom properties in `src/style.css` (catalogued in the design-system view §02). Canonical names are `--color-*` / `--radius-*` / `--space-*` / `--text-*` / `--font-*` / `--z-*` / `--shadow-*` / `--ease-*` / `--duration-*` / `--weight-*` / `--leading-*`. A small set of layout/focus tokens keep the `--p-` prefix: `--p-focus-ring`, `--p-selection`, `--p-ic-sm/md/lg`, `--p-sidebar-w`, `--p-content-max/-wide`, `--p-bp-sm/-md`.
+- **The moon spinner (🌑…🌘) is reserved** for the chat "waiting for the agent's first response" state only, and is rendered solely by `ui/MoonSpinner.vue`; every other loading state uses the plain `Spinner`.
+- **Run `pnpm --filter @moonshot-ai/kimi-web check:style`** (`scripts/check-style.mjs`) — it enforces the §06 anti-pattern rules (no-gradient, no-glassmorphism except TopBar `frost`, no-emoji-icon except moon, no-hardcoded-hex/font, radius/z/weight from scale). Do not add new violations.
+- **Verify visually.** For any UI change, render it in the browser (light + dark, plus hover/focus states) and confirm it matches the design-system view and introduces no regression before considering it done. Build/typecheck/check-style are necessary but not sufficient.
 
 ## Layout (`src/`)
 
 - `main.ts` — bootstrap (creates the app, installs i18n, mounts `#app`). `App.vue` — root component, holds most app state.
 - `api/` — server client. `index.ts` exposes the `getKimiWebApi()` singleton; `config.ts` builds REST/WS URLs; `daemon/` holds the wire client (`http.ts`, `ws.ts`, `wire.ts`, `mappers.ts`, `agentEventProjector.ts`, `eventReducer.ts`).
-- `components/` — SFCs grouped by area: `chat/` (conversation/chat UI), `settings/` (settings & configuration), `dialogs/` (modal dialogs & sheets), `mobile/` (mobile-specific shell), plus shared layout components at the top level.
+- `components/` — SFCs grouped by area: `chat/` (conversation/chat UI), `settings/` (settings & configuration), `dialogs/` (modal dialogs & sheets), `mobile/` (mobile-specific shell), `ui/` (design-system primitives — see "Design system" above), plus shared layout components at the top level.
 - `composables/` — reusable state logic, `useX` naming (`useKimiWebClient`, `useIsDark`, `usePaneLayout`, …).
 - `lib/` — pure helpers (`parseDiff`, `slashCommands`, `sessionRoute`, `toolMeta`, …).
 - `i18n/` — vue-i18n setup plus locale namespaces.
@@ -40,6 +49,7 @@ All via `pnpm --filter @moonshot-ai/kimi-web …`:
 - `build` — production build into `dist/`.
 - `typecheck` — `vue-tsc --noEmit`.
 - `test` — `vitest run` (pure logic tests only; no jsdom / component tests).
+- `check:style` — design-system §06 anti-pattern guard (`scripts/check-style.mjs`).
 - There is **no `lint` script** in this package; linting runs at the repo root via oxlint.
 
 ## Gotchas / hard rules

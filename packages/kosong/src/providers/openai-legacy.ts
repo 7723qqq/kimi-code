@@ -1,10 +1,12 @@
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
+import { isToolDeclarationOnlyMessage } from '#/message';
 import type {
   ChatProvider,
   FinishReason,
   GenerateOptions,
   MaxCompletionTokensOptions,
   ProviderRequestAuth,
+  ResponseFormat,
   StreamedMessage,
   ThinkingEffort,
 } from '#/provider';
@@ -59,6 +61,21 @@ const OPENAI_CHAT_TOOL_CALL_ID_POLICY: ToolCallIdPolicy = {
   normalize: (id) => sanitizeToolCallId(id, 64),
   maxLength: 64,
 };
+
+function responseFormatToOpenAI(format: ResponseFormat): Record<string, unknown> {
+  if (format.type === 'json_object') {
+    return { type: 'json_object' };
+  }
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: format.jsonSchema.name,
+      schema: format.jsonSchema.schema,
+      strict: format.jsonSchema.strict,
+      description: format.jsonSchema.description,
+    },
+  };
+}
 
 function extractReasoningContent(
   source: unknown,
@@ -287,6 +304,10 @@ function convertHistoryMessages(
   const pendingToolResultMedia: OpenAIContentPart[] = [];
 
   for (const msg of history) {
+    // Message-level tool declarations are a Kimi wire feature; skipped here
+    // because the leftover `{role:"system"}` without content is rejected by
+    // the Chat Completions API. See isToolDeclarationOnlyMessage.
+    if (isToolDeclarationOnlyMessage(msg)) continue;
     if (msg.role !== 'tool') {
       appendToolResultMediaMessage(messages, pendingToolResultMedia);
     }
@@ -446,6 +467,16 @@ export class OpenAILegacyStreamedMessage implements StreamedMessage {
 export class OpenAILegacyChatProvider implements ChatProvider {
   readonly name: string = 'openai';
 
+  /**
+   * See {@link ChatProvider.maxCompletionTokens}. Reuses the request-time
+   * kwargs normalization so the model-dependent `max_tokens` /
+   * `max_completion_tokens` aliasing is mirrored exactly.
+   */
+  get maxCompletionTokens(): number | undefined {
+    const kwargs = normalizeGenerationKwargs(this._model, this._generationKwargs);
+    return kwargs.max_completion_tokens ?? kwargs.max_tokens;
+  }
+
   private _model: string;
   private _stream: boolean;
   private _apiKey: string | undefined;
@@ -560,6 +591,9 @@ export class OpenAILegacyChatProvider implements ChatProvider {
       stream: this._stream,
       ...kwargs,
     };
+    if (options?.responseFormat !== undefined) {
+      createParams['response_format'] = responseFormatToOpenAI(options.responseFormat);
+    }
 
     if (tools.length > 0) {
       createParams['tools'] = tools.map((t) => toolToOpenAI(t));
@@ -575,6 +609,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
 
     try {
       const client = this._createClient(options?.auth);
+      options?.onRequestSent?.();
       const response = (await client.chat.completions.create(
         createParams as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
         options?.signal ? { signal: options.signal } : undefined,

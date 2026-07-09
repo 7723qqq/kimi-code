@@ -1,13 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import {
-  deleteAllKittyImages,
-  type Component,
-  type Focusable,
-  getCapabilities,
-  Spacer,
-} from '@earendil-works/pi-tui';
 import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
 import type {
   ApprovalRequest,
@@ -20,6 +13,13 @@ import type {
   Session,
 } from '@moonshot-ai/kimi-code-sdk';
 import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
+import {
+  deleteAllKittyImages,
+  type Component,
+  type Focusable,
+  getCapabilities,
+  Spacer,
+} from '@moonshot-ai/pi-tui';
 import { resolve } from 'pathe';
 
 import type { CLIOptions } from '#/cli/options';
@@ -30,11 +30,13 @@ import { openUrl } from '#/utils/open-url';
 import { getInputHistoryFile } from '#/utils/paths';
 import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
+import { restoreTerminalModes } from '#/utils/terminal-restore';
 
 import { BannerProvider } from './banner/banner-provider';
 import { readBannerDisplayState, writeBannerDisplayState } from './banner/state';
 import {
   BUILTIN_SLASH_COMMANDS,
+  buildPluginSlashCommands,
   buildSkillSlashCommands,
   isExperimentalFlagEnabled,
   setExperimentalFeatures,
@@ -73,14 +75,15 @@ import {
   GoalCompletionMessageComponent,
   GoalSetMessageComponent,
 } from './components/messages/goal-panel';
-import { SkillActivationComponent } from './components/messages/skill-activation';
+import { PluginCommandComponent } from './components/messages/plugin-command';
 import { ShellRunComponent } from './components/messages/shell-run';
+import { SkillActivationComponent } from './components/messages/skill-activation';
 import {
   NoticeMessageComponent,
   StatusMessageComponent,
 } from './components/messages/status-message';
-import { ThinkingComponent } from './components/messages/thinking';
 import { StepSummaryComponent } from './components/messages/step-summary';
+import { ThinkingComponent } from './components/messages/thinking';
 import { ToolCallComponent } from './components/messages/tool-call';
 import { UserMessageComponent } from './components/messages/user-message';
 import { ActivityPaneComponent, type ActivityPaneMode } from './components/panes/activity-pane';
@@ -132,12 +135,17 @@ import { ImageAttachmentStore, type ImageAttachment } from './utils/image-attach
 import { extractMediaAttachments } from './utils/image-placeholder';
 import { hasPatchChanges } from './utils/object-patch';
 import { sessionRowsForPicker } from './utils/session-picker-rows';
+import { formatBashOutputForDisplay } from './utils/shell-output';
 import { combineStartupNotice, isOAuthLoginRequiredError } from './utils/startup';
 import { installTerminalFocusTracking } from './utils/terminal-focus';
 import { notifyTerminalOnce } from './utils/terminal-notification';
 import { installTerminalThemeTracking } from './utils/terminal-theme';
 import { detectTmuxKeyboardWarning } from './utils/tmux-keyboard';
-import { getTranscriptComponentEntry, markTranscriptComponent } from './utils/transcript-component-metadata';
+import {
+  getTranscriptComponentEntry,
+  markTranscriptComponent,
+} from './utils/transcript-component-metadata';
+import { nextTranscriptId } from './utils/transcript-id';
 import {
   TRANSCRIPT_EXPAND_TURNS,
   TRANSCRIPT_HYSTERESIS,
@@ -147,8 +155,6 @@ import {
   groupTurns,
   turnsToTrim,
 } from './utils/transcript-window';
-import { formatBashOutputForDisplay } from './utils/shell-output';
-import { nextTranscriptId } from './utils/transcript-id';
 
 export type { TUIState } from './tui-state';
 export { createTUIState } from './tui-state';
@@ -203,7 +209,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     planMode: input.cliOptions.plan,
     inputMode: 'prompt',
     swarmMode: false,
-    thinking: false,
+    thinkingEffort: 'off',
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 0,
@@ -214,6 +220,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     theme: input.tuiConfig.theme,
     version: input.version,
     editorCommand: input.tuiConfig.editorCommand,
+    disablePasteBurst: input.tuiConfig.disablePasteBurst,
     notifications: input.tuiConfig.notifications,
     upgrade: input.tuiConfig.upgrade,
     availableModels: {},
@@ -244,6 +251,8 @@ export class KimiTUI {
   private readonly reverseRpcDisposers: Array<() => void> = [];
   private skillCommands: readonly KimiSlashCommand[] = [];
   readonly skillCommandMap = new Map<string, string>();
+  private pluginCommands: readonly KimiSlashCommand[] = [];
+  readonly pluginCommandMap = new Map<string, string>();
   private readonly imageStore = new ImageAttachmentStore();
   private fdPath: string | null = detectFdPath();
   private fdDownloadStarted = false;
@@ -364,7 +373,7 @@ export class KimiTUI {
     const builtins = sortSlashCommands(BUILTIN_SLASH_COMMANDS).filter((command) =>
       isExperimentalFlagEnabled(command.experimentalFlag),
     );
-    return [...builtins, ...this.skillCommands];
+    return [...builtins, ...this.skillCommands, ...this.pluginCommands];
   }
 
   private setupAutocomplete(): void {
@@ -385,6 +394,7 @@ export class KimiTUI {
       this.state.appState.workDir,
       this.fdPath,
       this.state.appState.additionalDirs,
+      () => this.state.appState.inputMode,
     );
     this.state.editor.setAutocompleteProvider(provider);
 
@@ -422,6 +432,29 @@ export class KimiTUI {
     this.skillCommandMap.clear();
     for (const [commandName, skillName] of skillCommands.commandMap) {
       this.skillCommandMap.set(commandName, skillName);
+    }
+    this.setupAutocomplete();
+  }
+
+  async refreshPluginCommands(session?: Session): Promise<void> {
+    if (session === undefined) {
+      this.pluginCommands = [];
+      this.pluginCommandMap.clear();
+      this.setupAutocomplete();
+      return;
+    }
+
+    let defs;
+    try {
+      defs = await session.listPluginCommands();
+    } catch {
+      return;
+    }
+    const pluginSlashCommands = buildPluginSlashCommands(defs);
+    this.pluginCommands = pluginSlashCommands.commands;
+    this.pluginCommandMap.clear();
+    for (const [commandName, body] of pluginSlashCommands.commandMap) {
+      this.pluginCommandMap.set(commandName, body);
     }
     this.setupAutocomplete();
   }
@@ -537,6 +570,9 @@ export class KimiTUI {
   }
 
   private startEventLoop(): void {
+    // Dispose any previous focus/clipboard/theme tracking so re-entering the
+    // event loop (e.g. a future TUI reconnect) can't stack duplicate listeners.
+    this.disposeTerminalTracking();
     this.state.ui.start();
     this.startClipboardImageHintController();
     this.terminalFocusTrackingDispose = installTerminalFocusTracking(this.state);
@@ -612,6 +648,7 @@ export class KimiTUI {
       this.updateTerminalTitle();
     }
     void this.refreshSkillCommands(this.session);
+    void this.refreshPluginCommands(this.session);
   }
 
   private async showSessionWarnings(session: Session): Promise<void> {
@@ -735,18 +772,42 @@ export class KimiTUI {
     this.unregisterSignalHandlers();
     this.aborted = true;
     this.streamingUI.discardPending();
-    this.editorKeyboard.clearPendingExit();
+    // Stop background polling, streaming intervals, and per-component timers
+    // before tearing the UI down, so they can't keep firing requestRender after
+    // stop() returns (or leak when stop() runs without process.exit).
+    this.tasksBrowserController.close();
+    this.btwPanelController.clear();
+    this.stopActivitySpinner();
+    this.streamingUI.disposeActiveCompactionBlock();
+    this.streamingUI.resetToolUi();
+    this.disposeTranscriptChildren();
+    this.editorKeyboard.dispose();
+    this.state.footer.dispose();
     for (const dispose of this.reverseRpcDisposers) {
       dispose();
     }
     this.reverseRpcDisposers.length = 0;
     this.disposeTerminalTracking();
-    await this.closeSession('shutting down');
-    await this.harness.close();
-    this.sessionEventHandler.stopAllMcpServerStatusSpinners();
-    this.uninstallRainbowDance();
-    await this.state.terminal.drainInput();
-    this.state.ui.stop();
+    // Restore the terminal even if closing the session / harness throws — a
+    // SIGTERM during a network or MCP shutdown must not leave the user stuck in
+    // raw mode with a hidden cursor.
+    try {
+      await this.closeSession('shutting down');
+      await this.harness.close();
+    } finally {
+      this.sessionEventHandler.stopAllMcpServerStatusSpinners();
+      this.uninstallRainbowDance();
+      try {
+        await this.state.terminal.drainInput();
+      } catch {
+        // best effort — the terminal may already be dead (SIGHUP / EIO).
+      }
+      try {
+        this.state.ui.stop();
+      } catch {
+        // best effort terminal restore.
+      }
+    }
     if (this.onExit) {
       await this.onExit(exitCode);
     }
@@ -810,6 +871,10 @@ export class KimiTUI {
   private emergencyTerminalExit(exitCode = 129): never {
     this.isShuttingDown = true;
     this.unregisterSignalHandlers();
+    // Best-effort terminal restore: stop() may not have run (SIGHUP) or may
+    // have thrown (SIGTERM cleanup failure), so recover raw mode / cursor /
+    // bracketed paste before exiting instead of leaving the user's shell broken.
+    restoreTerminalModes();
     process.exit(exitCode);
   }
 
@@ -869,11 +934,11 @@ export class KimiTUI {
       this.showError('Cannot send input while session history is replaying.');
       return;
     }
-    // Shell commands (`! …`) are not prompts — keep them out of input history
-    // so ↑ recall never surfaces a bare command stripped of its `!`.
-    if (!wasBashMode) {
-      void this.persistInputHistory(text);
-    }
+    // Shell commands are stored with a leading `!` so ↑ recall can tell them
+    // apart from prompts and restore bash mode (see CustomEditor's mode-aware
+    // history navigation). The `!` is stripped again when the entry is recalled.
+    const historyText = wasBashMode ? `!${text}` : text;
+    void this.persistInputHistory(historyText);
     if (wasBashMode) {
       // Only one foreground action at a time: queue the shell command while
       // another shell command is running or an agent turn is in progress.
@@ -925,6 +990,8 @@ export class KimiTUI {
     // pane shows the moon spinner, and ctrl+b is enabled while it runs.
     this.setAppState({ streamingPhase: 'shell' });
     this.state.ui.requestRender();
+
+    this.track('shell_command');
 
     void session.runShellCommand(command, { commandId }).then(
       ({ stdout, stderr, isError, backgrounded }) => {
@@ -1183,6 +1250,19 @@ export class KimiTUI {
     });
   }
 
+  activatePluginCommand(
+    session: Session,
+    pluginId: string,
+    commandName: string,
+    args: string,
+  ): void {
+    this.beginSessionRequest();
+    void session.activatePluginCommand(pluginId, commandName, args).catch((error: unknown) => {
+      const message = formatErrorMessage(error);
+      this.failSessionRequest(`Command "${pluginId}:${commandName}" failed: ${message}`);
+    });
+  }
+
   private sendMessage(session: Session, input: string, options?: SendMessageOptions): void {
     if (
       this.deferUserMessages ||
@@ -1343,8 +1423,7 @@ export class KimiTUI {
     const options: MutableCreateSessionOptions = {
       workDir: this.state.appState.workDir,
       model,
-      thinking:
-        this.session === undefined ? undefined : this.state.appState.thinking ? 'on' : 'off',
+      thinking: this.session === undefined ? undefined : this.state.appState.thinkingEffort,
       permission: this.state.appState.permissionMode,
       planMode: this.state.appState.planMode ? true : undefined,
     };
@@ -1368,7 +1447,7 @@ export class KimiTUI {
     this.setAppState({
       sessionId: session.id,
       model: status.model ?? '',
-      thinking: status.thinkingLevel !== 'off',
+      thinkingEffort: status.thinkingEffort,
       permissionMode: status.permission,
       planMode: status.planMode,
       swarmMode: status.swarmMode ?? false,
@@ -1447,6 +1526,7 @@ export class KimiTUI {
     for (const dispose of this.reverseRpcDisposers) {
       dispose();
     }
+    this.reverseRpcDisposers.length = 0;
   }
 
   private registerSessionHandlers(session: Session): void {
@@ -1549,6 +1629,7 @@ export class KimiTUI {
     this.updateTerminalTitle();
     try {
       await this.refreshSkillCommands(this.session);
+      await this.refreshPluginCommands(this.session);
     } catch {
       /* keep the switched session usable even if dynamic skills fail */
     }
@@ -1586,6 +1667,7 @@ export class KimiTUI {
     this.updateTerminalTitle();
     try {
       await this.refreshSkillCommands(session);
+      await this.refreshPluginCommands(session);
     } catch {
       /* keep the reloaded session usable even if dynamic skills fail */
     }
@@ -1627,6 +1709,7 @@ export class KimiTUI {
     }
     try {
       await this.refreshSkillCommands(this.session);
+      await this.refreshPluginCommands(this.session);
     } catch {
       /* keep the new session usable even if dynamic skills fail */
     }
@@ -1660,7 +1743,10 @@ export class KimiTUI {
       if (data.result === 'cancelled') {
         block.markCanceled();
       } else {
-        block.markDone(data.tokensBefore, data.tokensAfter);
+        block.markDone(data.tokensBefore, data.tokensAfter, data.summary);
+        if (this.state.toolOutputExpanded) {
+          block.setExpanded(true);
+        }
       }
       return block;
     }
@@ -1678,6 +1764,11 @@ export class KimiTUI {
           entry.skillArgs,
           entry.skillTrigger,
         );
+      case 'plugin_command': {
+        const data = entry.pluginCommandData;
+        if (data === undefined) return null;
+        return new PluginCommandComponent(data.pluginId, data.commandName, data.args);
+      }
       case 'cron':
         return new CronMessageComponent(entry.content, entry.cronData ?? {});
       case 'goal':
@@ -1796,6 +1887,16 @@ export class KimiTUI {
     this.state.terminal.write(deleteAllKittyImages());
   }
 
+  private disposeTranscriptChildren(): void {
+    // Dispose disposable children (e.g. ShellRunComponent's 1s timer,
+    // ThinkingComponent's spinner) before dropping them, so a /clear, session
+    // switch, or shutdown can't leak intervals that keep firing requestRender
+    // on a removed component.
+    for (const child of this.state.transcriptContainer.children) {
+      if (hasDispose(child)) child.dispose();
+    }
+  }
+
   private clearTranscriptAndRedraw(): void {
     this.streamingUI.discardPending();
     this.state.transcriptEntries = [];
@@ -1803,12 +1904,7 @@ export class KimiTUI {
     this.streamingUI.resetLiveText();
     this.streamingUI.resetToolUi();
     this.sessionEventHandler.stopAllMcpServerStatusSpinners();
-    // Dispose disposable children (e.g. ShellRunComponent's 1s timer) before
-    // dropping them, so a /clear or session switch can't leak intervals that
-    // keep firing requestRender on a removed component.
-    for (const child of this.state.transcriptContainer.children) {
-      if (hasDispose(child)) child.dispose();
-    }
+    this.disposeTranscriptChildren();
     this.state.transcriptContainer.clear();
     this.btwPanelController.clear();
     this.clearTerminalInlineImages();
@@ -1816,15 +1912,26 @@ export class KimiTUI {
     this.state.todoPanelContainer.clear();
     this.imageStore.clear();
     this.renderWelcome();
+    // Session resets (/new, /clear, session switch) want a pristine screen.
+    // Force a destructive full render: the renderer's collapse repaint
+    // intentionally preserves scrollback, which would leave the previous
+    // session's text above the welcome banner.
+    this.state.ui.requestRender(true);
   }
 
   private isTurnBoundaryComponent(child: Component): boolean {
-    if (!(child instanceof UserMessageComponent)) return false;
+    if (
+      !(child instanceof UserMessageComponent) &&
+      !(child instanceof SkillActivationComponent) &&
+      !(child instanceof PluginCommandComponent)
+    ) {
+      return false;
+    }
     const entry = getTranscriptComponentEntry(child);
     if (entry === undefined) return false;
-    // Live user messages have an undefined turnId; replayed user messages get a
-    // `replay:N` turnId. Both start a new turn. Steer messages carry a defined
-    // non-replay turnId and are not boundaries.
+    // Live user messages / slash activations have an undefined turnId; replayed
+    // ones get a `replay:N` turnId. Both start a new turn. Steer messages carry
+    // a defined non-replay turnId and are not boundaries.
     return entry.turnId === undefined || entry.turnId.startsWith('replay:');
   }
 
@@ -1849,9 +1956,25 @@ export class KimiTUI {
     const toRemove = turnsToTrim(turns, TRANSCRIPT_MAX_TURNS, TRANSCRIPT_HYSTERESIS);
     if (toRemove.size === 0) return false;
 
+    // Reclaim image bytes referenced by trimmed user messages. The transcript
+    // renders historical thumbnails via imageStore.get(id), so an attachment can
+    // only be dropped once its owning user message leaves the transcript.
+    for (const entry of toRemove) {
+      if (entry.kind === 'user' && entry.imageAttachmentIds !== undefined) {
+        this.imageStore.removeMany(entry.imageAttachmentIds);
+      }
+    }
+
     let boundariesToRemove = 0;
     for (const entry of toRemove) {
-      if (entry.kind === 'user' && entry.turnId === undefined) boundariesToRemove++;
+      if (
+        (entry.kind === 'user' ||
+          entry.kind === 'skill_activation' ||
+          entry.kind === 'plugin_command') &&
+        entry.turnId === undefined
+      ) {
+        boundariesToRemove++;
+      }
     }
     if (boundariesToRemove === 0) {
       this.state.transcriptEntries = this.state.transcriptEntries.filter((e) => !toRemove.has(e));
@@ -2169,6 +2292,10 @@ export class KimiTUI {
       case 'session': {
         this.stopActivitySpinner();
         this.syncAgentSwarmActivitySpinner(undefined);
+        // Keep a placeholder row so the activity area does not fully shrink
+        // when the spinner is removed at the end of streaming; combined with
+        // pi-tui's clamp, this avoids a destructive full redraw (viewport jump).
+        this.state.activityContainer.addChild(new Spacer(1));
         break;
       }
     }
@@ -2235,7 +2362,12 @@ export class KimiTUI {
       if (!isExpandable(child)) continue;
       child.setExpanded(this.state.toolOutputExpanded && i >= expandCutoff);
     }
-    this.state.ui.requestRender();
+    // Expanding/collapsing shifts content above the viewport; the clamped
+    // differential render would paint a second copy below the stale one in
+    // scrollback. This is a deliberate user action (like /clear), so do a
+    // destructive full render: scrollback holds exactly one copy and the
+    // expanded output can be read by scrolling up.
+    this.state.ui.requestRender(true);
   }
 
   toggleTodoPanelExpansion(): void {
@@ -2324,7 +2456,8 @@ export class KimiTUI {
     if (detached === 0 && alreadyFinished > 0) {
       hint = alreadyFinished === 1 ? 'Task already finished.' : 'Tasks already finished.';
     } else if (detached === targets.length) {
-      hint = detached === 1 ? 'Moved 1 task to background.' : `Moved ${detached} tasks to background.`;
+      hint =
+        detached === 1 ? 'Moved 1 task to background.' : `Moved ${detached} tasks to background.`;
     } else {
       hint = `Moved ${detached} of ${targets.length} tasks to background.`;
     }
@@ -2472,7 +2605,18 @@ export class KimiTUI {
     this.state.editorContainer.clear();
     this.state.editorContainer.addChild(this.state.editor);
     this.state.ui.setFocus(this.state.editor);
-    this.state.ui.requestRender();
+    // Measure overflow against the restored tree (editor mounted), not the tall
+    // panel just removed — otherwise a short session with a tall panel looks like
+    // it overflows and we take a full clear/home that yanks the editor to the top.
+    // Treat an exact one-screen fill as overflowing too: a full redraw is safe
+    // there (no blank tail) and clears a stale viewport offset after a shrink.
+    const { columns, rows } = this.state.terminal;
+    const overflowsViewport = this.state.ui.render(columns).length >= rows;
+    // Force a full re-render after replacing a tall panel with the shorter editor:
+    // differential rendering leaves the editor shifted up when the bottom-anchored
+    // region shrinks in place. Skip under tmux (its own reflow handles the shrink)
+    // and when content fits on one screen (a full clear would pull the editor up).
+    this.state.ui.requestRender(!this.state.terminalState.insideTmux && overflowsViewport);
   }
 
   restoreInputText(text: string): void {
@@ -2612,6 +2756,10 @@ export class KimiTUI {
     this.editorKeyboard.clearPendingExit();
     this.state.activeDialog = null;
     this.restoreEditor();
+  }
+
+  openUndoSelector(): void {
+    void slashCommands.handleUndoCommand(this, '');
   }
 
   private mountSessionPicker(options: {

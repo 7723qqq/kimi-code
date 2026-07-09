@@ -30,7 +30,7 @@ import {
   type McpServerEntry,
   type SessionMcpConfig,
 } from '../mcp';
-import type { EnabledPluginSessionStart } from '../plugin';
+import type { EnabledPluginSessionStart, PluginCommandDef } from '../plugin';
 import {
   DEFAULT_AGENT_PROFILES,
   DEFAULT_INIT_PROMPT,
@@ -49,6 +49,7 @@ import {
 } from '../skill';
 import { noopTelemetryClient, type TelemetryClient } from '../telemetry';
 import { SessionSubagentHost } from './subagent-host';
+import { sessionMediaOriginalsDir } from '../tools/support/image-originals';
 import type { ToolServices } from '../tools/support/services';
 import { FlagResolver, type ExperimentalFlagResolver } from '../flags';
 import { abortError } from '../utils/abort';
@@ -71,9 +72,16 @@ export interface SessionOptions {
   readonly mcpConfig?: SessionMcpConfig;
   readonly telemetry?: TelemetryClient | undefined;
   readonly pluginSessionStarts?: readonly EnabledPluginSessionStart[];
+  readonly pluginCommands?: readonly PluginCommandDef[];
   readonly appVersion?: string;
   readonly experimentalFlags?: ExperimentalFlagResolver;
   readonly additionalDirs?: readonly string[];
+  /**
+   * Print-mode (`kimi -p`) only: hold the main turn open while background
+   * subagents (`kind === 'agent'`) are still running, idle-waiting until they
+   * finish before the run exits. Set via the SDK `createSession` option.
+   */
+  readonly drainAgentTasksOnStop?: boolean;
 }
 
 export interface SessionSkillConfig {
@@ -115,6 +123,10 @@ export interface SessionMeta {
   isCustomTitle: boolean;
   lastPrompt?: string;
   forkedFrom?: string;
+  /** Absolute working directory the session was created in. Persisted so the
+   *  session directory is self-describing and the global session index does not
+   *  have to be trusted for the (one-way-hashed) workDir. */
+  workDir?: string;
   agents: Record<string, AgentMeta>;
   custom: Record<string, any>;
 }
@@ -160,6 +172,7 @@ export class Session {
   private toolKaos: Kaos;
   private persistenceKaos: Kaos;
   private additionalDirs: readonly string[];
+  private readonly pluginCommands: readonly PluginCommandDef[];
   private agentIdCounter = 0;
   private readonly skillsReady: Promise<void>;
   metadata: SessionMeta = {
@@ -197,6 +210,7 @@ export class Session {
     this.toolKaos = options.kaos;
     this.persistenceKaos = options.persistenceKaos ?? options.kaos;
     this.additionalDirs = normalizeAdditionalDirs(options.additionalDirs ?? []);
+    this.pluginCommands = options.pluginCommands ?? [];
     this.skills = new SessionSkillRegistry({
       sessionId: options.id,
     });
@@ -289,6 +303,9 @@ export class Session {
     const { agent } = await this.createAgent({ type: 'main' }, {
       profile: DEFAULT_AGENT_PROFILES['agent'],
     });
+    if (this.options.drainAgentTasksOnStop) {
+      agent.printDrainAgentTasksOnStop = true;
+    }
     await this.triggerSessionStart('startup');
     return agent;
   }
@@ -419,6 +436,81 @@ export class Session {
     );
   }
 
+  /**
+   * Wait for all still-running background tasks (across every agent) to reach a
+   * terminal state before a `kimi -p` (print) run exits.
+   *
+   * Gated by `background.keep_alive_on_exit`: when it is not `true`, this returns
+   * immediately so print mode keeps its default single-turn semantics. The wait is
+   * bounded by `background.print_wait_ceiling_s` (default 3600s) so a wedged task
+   * cannot keep the process alive forever.
+   *
+   * Terminal notifications are suppressed for each task while we wait, so a task
+   * completing cannot `turn.steer` the (already finished) main agent into launching
+   * a new turn.
+   */
+  async waitForBackgroundTasksOnPrint(): Promise<void> {
+    const keepAliveOnExit = resolveConfigValue({
+      env: process.env,
+      envKey: BACKGROUND_KEEP_ALIVE_ON_EXIT_ENV,
+      configValue: this.options.background?.keepAliveOnExit,
+      defaultValue: false,
+      parseEnv: parseBooleanEnv,
+    });
+    if (!keepAliveOnExit) return;
+
+    const ceilingS = this.options.background?.printWaitCeilingS ?? 3600;
+    const timeoutMs = ceilingS * 1000;
+    const deadline = Date.now() + timeoutMs;
+
+    // Re-enumerate active background tasks across every agent until none remain
+    // (or the ceiling expires). A subagent may fan out new background tasks
+    // after a previous enumeration, so a single pass could return while those
+    // later tasks are still running — breaking the "every background task"
+    // guarantee. Each round waits for the newly discovered tasks, then rescans
+    // to catch anything spawned in the meantime.
+    const seen = new Set<string>();
+    const allWaiters: Promise<unknown>[] = [];
+    while (Date.now() < deadline) {
+      const batch: Promise<unknown>[] = [];
+      const suppressions: Promise<void>[] = [];
+      let activeCount = 0;
+      for (const agent of this.readyAgents()) {
+        for (const task of agent.background.list(true)) {
+          activeCount++;
+          if (seen.has(task.taskId)) continue;
+          seen.add(task.taskId);
+          // suppressTerminalNotification sets the suppressed flag synchronously
+          // when called; defer awaiting the persist until after the whole
+          // enumeration so no task can complete and fire a notification while
+          // another task's persist write is pending.
+          suppressions.push(agent.background.suppressTerminalNotification(task.taskId));
+          const remaining = Math.max(1, deadline - Date.now());
+          const waiter = agent.background.wait(task.taskId, remaining);
+          batch.push(waiter);
+          allWaiters.push(waiter);
+        }
+      }
+      if (suppressions.length > 0) {
+        await Promise.all(suppressions);
+      }
+      if (activeCount === 0 || batch.length === 0) break;
+      this.log.info('waiting for background tasks before print exit', {
+        active: activeCount,
+        new: batch.length,
+        timeoutMs,
+      });
+      await Promise.all(batch);
+    }
+    if (allWaiters.length > 0) {
+      await Promise.all(allWaiters);
+      this.log.info('background tasks settled before print exit', {
+        count: seen.size,
+        timeoutMs,
+      });
+    }
+  }
+
   async createAgent(
     config: Partial<AgentOptions>,
     options: CreateAgentOptions = {},
@@ -470,7 +562,7 @@ export class Session {
       this.options.kimiHomeDir,
       { additionalDirs: this.additionalDirs },
     );
-    agent.useProfile(profile, context);
+    agent.useProfile(profile, context, this.options.kimiHomeDir);
     const { agentsMdWarning } = context;
     if (agentsMdWarning !== undefined) {
       this.agentsMdWarning = agentsMdWarning;
@@ -634,6 +726,10 @@ export class Session {
     return this.skills.listSkills().map(summarizeSkill);
   }
 
+  listPluginCommands(): readonly PluginCommandDef[] {
+    return this.pluginCommands;
+  }
+
   private async loadSkills(): Promise<void> {
     const roots = await resolveSkillRoots({
       paths: {
@@ -718,13 +814,17 @@ export class Session {
   ): Agent {
     const parentAgent = parentAgentId !== null ? this.getReadyAgent(parentAgentId) : undefined;
     const cwd = parentAgent?.config.cwd ?? this.toolKaos.getcwd();
-    return new Agent({
+    let agent!: Agent;
+    agent = new Agent({
       ...config,
       type,
       kaos: this.toolKaos.withCwd(cwd),
       toolServices: this.options.toolServices,
       config: this.options.config,
       homedir,
+      // Session-level, shared across agents: originals persisted for
+      // compression captions live with the session, not the agent.
+      mediaOriginalsDir: sessionMediaOriginalsDir(this.options.homedir),
       skills: this.skills,
       rpc: proxyWithExtraPayload(this.rpc, { agentId: id }),
       modelProvider: this.options.providerManager,
@@ -735,9 +835,17 @@ export class Session {
       telemetry: this.telemetry,
       log: this.log.createChild({ agentId: id }),
       pluginSessionStarts: type === 'main' ? this.options.pluginSessionStarts : undefined,
+      pluginCommands: type === 'main' ? this.options.pluginCommands : undefined,
       experimentalFlags: this.experimentalFlags,
       additionalDirs: parentAgent?.getAdditionalDirs() ?? this.additionalDirs,
+      systemPromptContextProvider: () =>
+        prepareSystemPromptContext(
+          this.systemContextKaos(agent.kaos.getcwd()),
+          this.options.kimiHomeDir,
+          { additionalDirs: agent.getAdditionalDirs() },
+        ),
     });
+    return agent;
   }
 
   private permissionOptions(
@@ -810,6 +918,7 @@ export class Session {
     try {
       const agent = this.instantiateAgent(id, meta.homedir, meta.type, {}, parentAgentId);
       const result = await agent.resume();
+      this.restoreAgentProfileHandle(agent, meta, parent?.agent);
       this.agents.set(id, agent);
       return { agent, warning: parent?.warning ?? result.warning };
     } catch (error) {
@@ -819,6 +928,34 @@ export class Session {
       }
       throw error;
     }
+  }
+
+  private restoreAgentProfileHandle(
+    agent: Agent,
+    meta: AgentMeta,
+    parentAgent: Agent | undefined,
+  ): void {
+    if (agent.config.systemPrompt === '') return;
+    const profile = this.resolvePersistedProfile(agent, meta, parentAgent);
+    if (profile === undefined) return;
+    agent.setActiveProfile(profile, this.options.kimiHomeDir);
+  }
+
+  private resolvePersistedProfile(
+    agent: Agent,
+    meta: AgentMeta,
+    parentAgent: Agent | undefined,
+  ): ResolvedAgentProfile | undefined {
+    const profileName = agent.config.profileName;
+    if (profileName === undefined) return undefined;
+    if (meta.type === 'sub') {
+      const parentProfileName = parentAgent?.config.profileName;
+      return (
+        DEFAULT_AGENT_PROFILES[parentProfileName ?? 'agent']?.subagents?.[profileName] ??
+        DEFAULT_AGENT_PROFILES['agent']?.subagents?.[profileName]
+      );
+    }
+    return DEFAULT_AGENT_PROFILES[profileName];
   }
 
   private nextGeneratedAgentId(): string {
@@ -854,6 +991,7 @@ export class Session {
 }
 
 export * from './subagent-host';
+export * from './store';
 
 function initCompletionReminder(agentsMd: string): string {
   const latest =

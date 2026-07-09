@@ -5,17 +5,20 @@ import {
   normalizeAPIStatusError,
 } from '#/errors';
 import type { Message, StreamedMessagePart, ToolCall } from '#/message';
+import { isToolDeclarationOnlyMessage } from '#/message';
 import type {
   ChatProvider,
   FinishReason,
   GenerateOptions,
   ProviderRequestAuth,
+  ResponseFormat,
   StreamedMessage,
   ThinkingEffort,
 } from '#/provider';
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
 import { ApiError as GoogleApiError, GoogleGenAI as GenAIClient } from '@google/genai';
+import { mergeConsecutiveUserMessages } from './merge-user-messages';
 
 import { requireProviderApiKey, resolveAuthBackedClient } from './request-auth';
 
@@ -74,6 +77,14 @@ function normalizeGoogleGenAIFinishReason(raw: unknown): {
 export interface GoogleGenAIOptions {
   apiKey?: string | undefined;
   model: string;
+  /**
+   * Override the endpoint the SDK talks to (forwarded as
+   * `httpOptions.baseUrl`). When unset, the SDK falls back to its default
+   * (`generativelanguage.googleapis.com` for Gemini, the regional
+   * `*-aiplatform.googleapis.com` for Vertex). Set this to route through a
+   * Gemini-compatible proxy/gateway.
+   */
+  baseUrl?: string | undefined;
   vertexai?: boolean | undefined;
   project?: string | undefined;
   location?: string | undefined;
@@ -83,39 +94,52 @@ export interface GoogleGenAIOptions {
 }
 
 export interface GoogleGenAIGenerationKwargs {
-  max_output_tokens?: number | undefined;
+  maxOutputTokens?: number | undefined;
   temperature?: number | undefined;
-  top_k?: number | undefined;
-  top_p?: number | undefined;
-  thinking_config?: ThinkingConfig | undefined;
+  topK?: number | undefined;
+  topP?: number | undefined;
+  thinkingConfig?: ThinkingConfig | undefined;
   [key: string]: unknown;
 }
 
 interface ThinkingConfig {
-  include_thoughts?: boolean;
-  thinking_budget?: number;
-  thinking_level?: string;
+  includeThoughts?: boolean;
+  thinkingBudget?: number;
+  thinkingLevel?: string;
 }
 interface GoogleFunctionDeclaration {
   name: string;
   description: string;
-  parameters_json_schema: Record<string, unknown>;
+  parametersJsonSchema: Record<string, unknown>;
 }
 
 interface GoogleTool {
-  function_declarations: GoogleFunctionDeclaration[];
+  functionDeclarations: GoogleFunctionDeclaration[];
 }
 
 function toolToGoogleGenAI(tool: Tool): GoogleTool {
   return {
-    function_declarations: [
+    functionDeclarations: [
       {
         name: tool.name,
         description: tool.description,
-        parameters_json_schema: tool.parameters,
+        parametersJsonSchema: tool.parameters,
       },
     ],
   };
+}
+
+function applyResponseFormat(
+  config: Record<string, unknown>,
+  format: ResponseFormat | undefined,
+): void {
+  if (format === undefined) return;
+  config['responseMimeType'] = 'application/json';
+  delete config['responseSchema'];
+  delete config['responseJsonSchema'];
+  if (format.type === 'json_schema') {
+    config['responseJsonSchema'] = format.jsonSchema.schema;
+  }
 }
 interface GoogleContent {
   role: string;
@@ -124,13 +148,13 @@ interface GoogleContent {
 
 interface GooglePart {
   text?: string;
-  function_call?: { name: string; args: Record<string, unknown> };
-  function_response?: {
+  functionCall?: { name: string; args: Record<string, unknown> };
+  functionResponse?: {
     name: string;
     response: Record<string, string>;
     parts: unknown[];
   };
-  thought_signature?: string;
+  thoughtSignature?: string;
   [key: string]: unknown;
 }
 
@@ -265,15 +289,15 @@ function messageToGoogleGenAI(message: Message): GoogleContent {
     }
 
     const functionCallPart: GooglePart = {
-      function_call: {
+      functionCall: {
         name: toolCall.name,
         args,
       },
     };
 
-    // Restore thought_signature if available
+    // Restore thoughtSignature if available
     if (toolCall.extras && 'thought_signature_b64' in toolCall.extras) {
-      functionCallPart['thought_signature'] = toolCall.extras['thought_signature_b64'] as string;
+      functionCallPart['thoughtSignature'] = toolCall.extras['thought_signature_b64'] as string;
     }
 
     parts.push(functionCallPart);
@@ -326,7 +350,7 @@ function toolMessageToFunctionResponseParts(
   }
 
   const functionResponsePart: GooglePart = {
-    function_response: {
+    functionResponse: {
       name: toolCallIdToName(message.toolCallId, toolNameById),
       response: { output: textOutput },
       parts: [],
@@ -345,6 +369,15 @@ export function messagesToGoogleGenAIContents(messages: Message[]): GoogleConten
     const message = messages[i];
     if (message === undefined) break;
 
+    // Message-level tool declarations are a Kimi wire feature. The system
+    // branch below would already drop the empty leftover via its text-length
+    // check, but skip explicitly so the behavior does not hinge on that
+    // coincidence (and covers a non-system carrier defensively).
+    if (isToolDeclarationOnlyMessage(message)) {
+      i += 1;
+      continue;
+    }
+
     if (message.role === 'system') {
       // Google GenAI's `Content.role` only accepts "user" or "model", so a
       // system message in the history (e.g. from session restore or
@@ -352,7 +385,7 @@ export function messagesToGoogleGenAIContents(messages: Message[]): GoogleConten
       // the content by wrapping it in a `<system>` tag and attaching it as
       // a user turn — mirrors the Anthropic provider's behavior. The
       // dedicated top-level `systemPrompt` still flows into
-      // `system_instruction` separately; only historical system messages
+      // `systemInstruction` separately; only historical system messages
       // come through here.
       const text = message.content
         .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
@@ -447,7 +480,16 @@ export function messagesToGoogleGenAIContents(messages: Message[]): GoogleConten
     i += 1;
   }
 
-  return contents;
+  // Gemini/Vertex require strictly alternating user/model turns. Consecutive
+  // user Contents arise after compaction (`[prompts, summary, reminders]`) and
+  // when a user turn follows a tool result; collapse them into one user turn.
+  return mergeConsecutiveUserMessages(contents, {
+    isUser: (content) => content.role === 'user',
+    isToolResultOnly: (content) =>
+      content.parts.length > 0 &&
+      content.parts.every((part) => part.functionResponse !== undefined),
+    merge: (last, next) => ({ ...last, parts: [...last.parts, ...next.parts] }),
+  });
 }
 export class GoogleGenAIStreamedMessage implements StreamedMessage {
   private _id: string | null = null;
@@ -666,12 +708,18 @@ export function convertGoogleGenAIError(error: unknown): ChatProviderError {
 export class GoogleGenAIChatProvider implements ChatProvider {
   readonly name: string = 'google_genai';
 
+  /** See {@link ChatProvider.maxCompletionTokens}. */
+  get maxCompletionTokens(): number | undefined {
+    return this._generationKwargs.maxOutputTokens;
+  }
+
   private _model: string;
   private _client: GenAIClient | undefined;
   private _generationKwargs: GoogleGenAIGenerationKwargs;
   private _vertexai: boolean;
   private _stream: boolean;
   private _apiKey: string | undefined;
+  private _baseUrl: string | undefined;
   private _project: string | undefined;
   private _location: string | undefined;
   private _defaultHeaders: Record<string, string> | undefined;
@@ -685,6 +733,8 @@ export class GoogleGenAIChatProvider implements ChatProvider {
 
     const apiKey = options.apiKey ?? process.env['GOOGLE_API_KEY'];
     this._apiKey = apiKey === undefined || apiKey.length === 0 ? undefined : apiKey;
+    this._baseUrl =
+      options.baseUrl === undefined || options.baseUrl.length === 0 ? undefined : options.baseUrl;
     this._project = options.project;
     this._location = options.location;
     this._defaultHeaders = options.defaultHeaders;
@@ -694,6 +744,19 @@ export class GoogleGenAIChatProvider implements ChatProvider {
   }
 
   private _buildClient(apiKey: string | undefined): GenAIClient {
+    // The Google GenAI SDK reads the endpoint and headers from `httpOptions`,
+    // deep-merging them over its defaults: a `baseUrl` here overrides the
+    // default host (`generativelanguage.googleapis.com` / Vertex regional),
+    // and a `User-Agent` overrides the SDK default (`google-genai-sdk/<ver> …`)
+    // while preserving the other default headers (`x-goog-api-client`,
+    // `Content-Type`). Build the object once so both can coexist.
+    const httpOptions: { headers?: Record<string, string>; baseUrl?: string } = {};
+    if (this._defaultHeaders !== undefined) {
+      httpOptions.headers = this._defaultHeaders;
+    }
+    if (this._baseUrl !== undefined) {
+      httpOptions.baseUrl = this._baseUrl;
+    }
     return new GenAIClient({
       apiKey,
       ...(this._vertexai
@@ -703,13 +766,7 @@ export class GoogleGenAIChatProvider implements ChatProvider {
             location: this._location,
           }
         : {}),
-      // The Google GenAI SDK deep-merges `httpOptions.headers` into its
-      // default request headers, so a `User-Agent` here overrides the SDK
-      // default (`google-genai-sdk/<ver> …`) while preserving the other
-      // defaults (`x-goog-api-client`, `Content-Type`).
-      ...(this._defaultHeaders !== undefined
-        ? { httpOptions: { headers: this._defaultHeaders } }
-        : {}),
+      ...(Object.keys(httpOptions).length > 0 ? { httpOptions } : {}),
     });
   }
 
@@ -718,16 +775,16 @@ export class GoogleGenAIChatProvider implements ChatProvider {
   }
 
   get thinkingEffort(): ThinkingEffort | null {
-    const thinkingConfig = this._generationKwargs.thinking_config;
+    const thinkingConfig = this._generationKwargs.thinkingConfig;
     if (thinkingConfig === undefined) return null;
 
-    // For gemini-3 models that use thinking_level
-    if (thinkingConfig.thinking_level !== undefined) {
-      switch (thinkingConfig.thinking_level) {
+    // For gemini-3 models that use thinkingLevel
+    if (thinkingConfig.thinkingLevel !== undefined) {
+      switch (thinkingConfig.thinkingLevel) {
         case 'MINIMAL':
           // MINIMAL + suppressed thoughts is how 'off' is encoded for Gemini 3,
           // which has no true "disabled" level.
-          return thinkingConfig.include_thoughts === false ? 'off' : 'low';
+          return thinkingConfig.includeThoughts === false ? 'off' : 'low';
         case 'LOW':
           return 'low';
         case 'MEDIUM':
@@ -739,11 +796,11 @@ export class GoogleGenAIChatProvider implements ChatProvider {
       }
     }
 
-    // For other models that use thinking_budget
-    if (thinkingConfig.thinking_budget !== undefined) {
-      if (thinkingConfig.thinking_budget === 0) return 'off';
-      if (thinkingConfig.thinking_budget <= 1024) return 'low';
-      if (thinkingConfig.thinking_budget <= 4096) return 'medium';
+    // For other models that use thinkingBudget
+    if (thinkingConfig.thinkingBudget !== undefined) {
+      if (thinkingConfig.thinkingBudget === 0) return 'off';
+      if (thinkingConfig.thinkingBudget <= 1024) return 'low';
+      if (thinkingConfig.thinkingBudget <= 4096) return 'medium';
       return 'high';
     }
 
@@ -773,9 +830,10 @@ export class GoogleGenAIChatProvider implements ChatProvider {
 
     const config: Record<string, unknown> = {
       ...this._generationKwargs,
-      system_instruction: systemPrompt,
+      systemInstruction: systemPrompt,
       ...(tools.length > 0 ? { tools: tools.map((t) => toolToGoogleGenAI(t)) } : {}),
     };
+    applyResponseFormat(config, options?.responseFormat);
 
     try {
       const client = this._createClient(options?.auth);
@@ -790,6 +848,7 @@ export class GoogleGenAIChatProvider implements ChatProvider {
       // the initial SDK request against the caller's abort signal ourselves.
       // Once we have a response/stream object, the wrapper below continues to
       // check the signal at each chunk boundary.
+      options?.onRequestSent?.();
       if (this._stream) {
         const stream = await Promise.race([
           models.generateContentStream(params),
@@ -837,53 +896,53 @@ export class GoogleGenAIChatProvider implements ChatProvider {
   }
 
   withThinking(effort: ThinkingEffort): GoogleGenAIChatProvider {
-    const thinkingConfig: ThinkingConfig = { include_thoughts: true };
+    const thinkingConfig: ThinkingConfig = { includeThoughts: true };
 
     if (this._model.includes('gemini-3')) {
-      // Gemini 3 models use thinking_level (MINIMAL/LOW/MEDIUM/HIGH). The SDK
+      // Gemini 3 models use thinkingLevel (MINIMAL/LOW/MEDIUM/HIGH). The SDK
       // does not expose a "disabled" level, so 'off' maps to MINIMAL with
       // thought output suppressed — the lowest thinking intensity available.
       switch (effort) {
         case 'off':
-          thinkingConfig.thinking_level = 'MINIMAL';
-          thinkingConfig.include_thoughts = false;
+          thinkingConfig.thinkingLevel = 'MINIMAL';
+          thinkingConfig.includeThoughts = false;
           break;
         case 'low':
-          thinkingConfig.thinking_level = 'LOW';
+          thinkingConfig.thinkingLevel = 'LOW';
           break;
         case 'medium':
-          thinkingConfig.thinking_level = 'MEDIUM';
+          thinkingConfig.thinkingLevel = 'MEDIUM';
           break;
         case 'high':
         case 'xhigh':
         case 'max':
-          thinkingConfig.thinking_level = 'HIGH';
+          thinkingConfig.thinkingLevel = 'HIGH';
           break;
       }
     } else {
       switch (effort) {
         case 'off':
-          thinkingConfig.thinking_budget = 0;
-          thinkingConfig.include_thoughts = false;
+          thinkingConfig.thinkingBudget = 0;
+          thinkingConfig.includeThoughts = false;
           break;
         case 'low':
-          thinkingConfig.thinking_budget = 1024;
-          thinkingConfig.include_thoughts = true;
+          thinkingConfig.thinkingBudget = 1024;
+          thinkingConfig.includeThoughts = true;
           break;
         case 'medium':
-          thinkingConfig.thinking_budget = 4096;
-          thinkingConfig.include_thoughts = true;
+          thinkingConfig.thinkingBudget = 4096;
+          thinkingConfig.includeThoughts = true;
           break;
         case 'high':
         case 'xhigh':
         case 'max':
-          thinkingConfig.thinking_budget = 32_000;
-          thinkingConfig.include_thoughts = true;
+          thinkingConfig.thinkingBudget = 32_000;
+          thinkingConfig.includeThoughts = true;
           break;
       }
     }
 
-    return this.withGenerationKwargs({ thinking_config: thinkingConfig });
+    return this.withGenerationKwargs({ thinkingConfig });
   }
 
   withGenerationKwargs(kwargs: GoogleGenAIGenerationKwargs): GoogleGenAIChatProvider {
@@ -893,7 +952,7 @@ export class GoogleGenAIChatProvider implements ChatProvider {
   }
 
   withMaxCompletionTokens(maxCompletionTokens: number): GoogleGenAIChatProvider {
-    return this.withGenerationKwargs({ max_output_tokens: maxCompletionTokens });
+    return this.withGenerationKwargs({ maxOutputTokens: maxCompletionTokens });
   }
 
   private _clone(): GoogleGenAIChatProvider {

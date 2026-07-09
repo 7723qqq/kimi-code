@@ -98,6 +98,7 @@ interface WireMeta {
   started_at: string;
   capabilities: Record<string, boolean>;
   open_in_apps?: string[];
+  dangerous_bypass_auth?: boolean;
 }
 
 interface WireAbortResult {
@@ -270,6 +271,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
     startedAt: string;
     capabilities: Record<string, boolean>;
     openInApps: string[];
+    dangerousBypassAuth: boolean;
   }> {
     const data = await this.http.get<WireMeta>('/meta');
     return {
@@ -278,6 +280,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
       startedAt: data.started_at,
       capabilities: data.capabilities,
       openInApps: Array.isArray(data.open_in_apps) ? data.open_in_apps : [],
+      dangerousBypassAuth: data.dangerous_bypass_auth === true,
     };
   }
 
@@ -290,6 +293,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
       status?: AppSessionStatus;
       workspaceId?: string;
       includeArchive?: boolean;
+      archivedOnly?: boolean;
       excludeEmpty?: boolean;
     },
   ): Promise<Page<AppSession>> {
@@ -299,6 +303,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
       page_size: input?.pageSize,
       status: input?.status ? toWireSessionStatus(input.status) : undefined,
       include_archive: input?.includeArchive,
+      archived_only: input?.archivedOnly,
       exclude_empty: input?.excludeEmpty,
       // PRESUMED — daemon supports ?workspace_id= once the registry ships; it
       // ignores unknown query params until then, so this is safe to always send.
@@ -392,7 +397,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
     );
     return {
       model: data.model && data.model.length > 0 ? data.model : null,
-      thinkingLevel: data.thinking_level,
+      thinkingEffort: data.thinking_level,
       permission: data.permission,
       planMode: data.plan_mode === true,
       swarmMode: data.swarm_mode === true,
@@ -415,6 +420,16 @@ export class DaemonKimiWebApi implements KimiWebApi {
       {},
     );
     return data;
+  }
+
+  // POST /sessions/{id}:restore — clear the archived flag. The daemon returns
+  // the full restored session, so callers can merge it straight back into lists.
+  async restoreSession(sessionId: string): Promise<AppSession> {
+    const data = await this.http.post<WireSession>(
+      `/sessions/${encodeURIComponent(sessionId)}:restore`,
+      {},
+    );
+    return toAppSession(data);
   }
 
   // -------------------------------------------------------------------------
@@ -714,14 +729,26 @@ export class DaemonKimiWebApi implements KimiWebApi {
   }
 
   // -------------------------------------------------------------------------
-  // Skills — session-scoped slash-invocable skills
+  // Skills — slash-invocable skills (session- or workspace-scoped)
   // GET  /sessions/{id}/skills              → { skills: WireSkillDescriptor[] }
+  // GET  /workspaces/{id}/skills            → { skills: WireSkillDescriptor[] } (no session)
   // POST /sessions/{id}/skills/{name}:activate body { args? } → { activated, skill_name }
   // -------------------------------------------------------------------------
 
   async listSkills(sessionId: string): Promise<AppSkill[]> {
     const data = await this.http.get<{ skills: WireSkillDescriptor[] }>(
       `/sessions/${encodeURIComponent(sessionId)}/skills`,
+    );
+    return (data.skills ?? []).map((s) => ({
+      name: s.name,
+      description: s.description,
+      source: s.source,
+    }));
+  }
+
+  async listSkillsForWorkspace(workspaceId: string): Promise<AppSkill[]> {
+    const data = await this.http.get<{ skills: WireSkillDescriptor[] }>(
+      `/workspaces/${encodeURIComponent(workspaceId)}/skills`,
     );
     return (data.skills ?? []).map((s) => ({
       name: s.name,
@@ -973,8 +1000,8 @@ export class DaemonKimiWebApi implements KimiWebApi {
 
   /**
    * Register a workspace by folder path.
-   * PRESUMED — POST /api/v1/workspaces { root, name? }. On error this throws so
-   * the composable can fall back to a locally-derived workspace from the path.
+   * PRESUMED — POST /api/v1/workspaces { root, name? }. Throws on error (e.g.
+   * path not found) so the caller can surface it to the user.
    */
   async addWorkspace(input: { root: string; name?: string }): Promise<AppWorkspace> {
     const body: Record<string, unknown> = { root: input.root };
@@ -989,6 +1016,18 @@ export class DaemonKimiWebApi implements KimiWebApi {
    */
   async deleteWorkspace(id: string): Promise<void> {
     await this.http.delete(`/workspaces/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Rename a workspace (display name only).
+   * PATCH /api/v1/workspaces/:id { name }. On error this throws.
+   */
+  async updateWorkspace(id: string, input: { name: string }): Promise<AppWorkspace> {
+    const data = await this.http.patch<WireWorkspace>(
+      `/workspaces/${encodeURIComponent(id)}`,
+      { name: input.name },
+    );
+    return toAppWorkspace(data);
   }
 
   /**
@@ -1065,26 +1104,21 @@ export class DaemonKimiWebApi implements KimiWebApi {
     return this.http.delete<{ deleted: true }>(`/providers/${encodeURIComponent(id)}`);
   }
 
-  async refreshProvider(id: string): Promise<AppProvider> {
-    // PRESUMED endpoint: POST /v1/providers/{id}:refresh → WireProvider
-    const data = await this.http.post<WireProvider>(
+  async refreshProvider(id: string): Promise<ProviderRefreshResult> {
+    const data = await this.http.post<WireProviderRefreshResult>(
       `/providers/${encodeURIComponent(id)}:refresh`,
     );
-    return toAppProvider(data);
+    return toProviderRefreshResult(data);
+  }
+
+  async refreshAllProviders(): Promise<ProviderRefreshResult> {
+    const data = await this.http.post<WireProviderRefreshResult>('/providers:refresh');
+    return toProviderRefreshResult(data);
   }
 
   async refreshOAuthProviderModels(): Promise<ProviderRefreshResult> {
     const data = await this.http.post<WireProviderRefreshResult>('/providers:refresh_oauth');
-    return {
-      changed: data.changed.map((item) => ({
-        providerId: item.provider_id,
-        providerName: item.provider_name,
-        added: item.added,
-        removed: item.removed,
-      })),
-      unchanged: data.unchanged,
-      failed: data.failed,
-    };
+    return toProviderRefreshResult(data);
   }
 
   // -------------------------------------------------------------------------
@@ -1106,7 +1140,6 @@ export class DaemonKimiWebApi implements KimiWebApi {
       thinking: 'thinking',
       planMode: 'plan_mode',
       yolo: 'yolo',
-      defaultThinking: 'default_thinking',
       defaultPermissionMode: 'default_permission_mode',
       defaultPlanMode: 'default_plan_mode',
       permission: 'permission',
@@ -1222,6 +1255,13 @@ export class DaemonKimiWebApi implements KimiWebApi {
 
   getFileUrl(fileId: string): string {
     return buildRestUrl(this.config.serverHttpUrl, `/files/${encodeURIComponent(fileId)}`);
+  }
+
+  /** Fetch a file's bytes with the Bearer credential attached. Use this (not
+   *  getFileUrl) when the bytes feed a <video>/<img> src: the browser loads
+   *  those natively without the Authorization header, so the URL alone 401s. */
+  async getFileBlob(fileId: string): Promise<Blob> {
+    return this.http.getBlob(`/files/${encodeURIComponent(fileId)}`);
   }
 
   // -------------------------------------------------------------------------
@@ -1357,9 +1397,28 @@ export class DaemonKimiWebApi implements KimiWebApi {
       markSideChannelAgent(agentId: string): void {
         projector.markSideChannelAgent(agentId);
       },
+      health(): { connected: boolean; open: boolean; stale: boolean } {
+        return socket.health();
+      },
+      reconnect(): void {
+        socket.reconnect();
+      },
       close(): void {
         socket.close();
       },
     };
   }
+}
+
+function toProviderRefreshResult(data: WireProviderRefreshResult): ProviderRefreshResult {
+  return {
+    changed: data.changed.map((item) => ({
+      providerId: item.provider_id,
+      providerName: item.provider_name,
+      added: item.added,
+      removed: item.removed,
+    })),
+    unchanged: data.unchanged,
+    failed: data.failed,
+  };
 }
