@@ -286,4 +286,23 @@ describe('AgentContextInjectorService', () => {
       { kind: 'injection', variant: 'recording_b' },
     ]);
   });
+
+  it('re-arms per-turn providers when injectAfterCompaction runs', async () => {
+    const seen: boolean[] = [];
+    injector(ix).register('per_turn_test', ({ isNewTurn }) => {
+      seen.push(isNewTurn);
+      return isNewTurn ? 'per-turn reminder' : undefined;
+    });
+
+    await injector(ix).inject();
+    await injector(ix).inject();
+    spliceContext(0, 1, [compactionSummary('Compacted summary.')]);
+    await injector(ix).injectAfterCompaction();
+
+    expect(seen).toEqual([true, false, true]);
+    expect(context.get().map((message) => message.origin)).toEqual([
+      { kind: 'compaction_summary' },
+      { kind: 'injection', variant: 'per_turn_test' },
+    ]);
+  });
 });

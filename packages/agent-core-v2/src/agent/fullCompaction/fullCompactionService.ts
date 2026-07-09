@@ -1,5 +1,6 @@
 import { Disposable } from "#/_base/di/lifecycle";
 import { InstantiationType } from '#/_base/di/extensions';
+import { IInstantiationService } from '#/_base/di/instantiation';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { renderPrompt } from "#/_base/utils/render-prompt";
@@ -10,6 +11,7 @@ import {
   estimateTokensForTools,
 } from "#/_base/utils/tokens";
 import { buildCompactionSummaryText, isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
@@ -122,6 +124,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   // stop an overflow -> compact -> overflow loop when compaction can no
   // longer shrink the request below the model window.
   private consecutiveOverflowCompactions = 0;
+  private contextInjectorService: IAgentContextInjectorService | undefined;
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -129,6 +132,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
+    @IInstantiationService private readonly instantiation: IInstantiationService,
     @ISessionTodoService private readonly todo: ISessionTodoService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentWireService private readonly wire: IWireService,
@@ -429,7 +433,19 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       } catch (error) {
         this.log.error('failed to refresh system prompt after compaction', { error });
       }
+      // Fallback floor when reinjection throws; raised below once the per-turn
+      // reminders are back.
       this.lastCompactedTokenCount = result.tokensAfter;
+      // Re-arm the per-turn injectors while the compaction still holds the
+      // context (before markCompleted), so the first post-compaction request —
+      // including a replayed deferred prompt's — already carries the goal
+      // reminder the compaction folded away.
+      await this.contextInjector.injectAfterCompaction();
+      // The reinjected reminders are part of the post-compaction floor: a
+      // baseline captured before this point would leave them outside the
+      // "nothing new since compaction" guard and checkAutoCompaction could
+      // re-trigger against a shape that cannot shrink.
+      this.lastCompactedTokenCount = this.tokenCountWithPending();
       if (!this.markCompleted(active)) {
         throw compactionCancelledReason(active);
       }
@@ -634,6 +650,21 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
 
   private tokenCountWithPending(): number {
     return this.contextSize.get().size;
+  }
+
+  /**
+   * Resolved lazily (not constructor-injected): materializing the injector
+   * from this constructor would reorder loop-hook registration across the
+   * dependency cascade (see AgentPromptService.fullCompaction for the same
+   * hazard).
+   */
+  private get contextInjector(): IAgentContextInjectorService {
+    if (this.contextInjectorService === undefined) {
+      this.contextInjectorService = this.instantiation.invokeFunction((accessor) =>
+        accessor.get(IAgentContextInjectorService),
+      );
+    }
+    return this.contextInjectorService;
   }
 }
 
