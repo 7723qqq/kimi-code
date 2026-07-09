@@ -1,32 +1,27 @@
 /**
  * `sessionLegacy` domain (L7 edge adapter) — v1-compatible session actions.
  *
- * Implements the legacy `undo` action, the `/sessions/{id}/children` endpoints
- * (`createChild` / `listChildren`), and `POST /sessions/{id}/profile`
- * (`updateProfile` — title rename, metadata merge, and the cross-domain
- * `agent_config` patch) on top of the native v2 services
- * (`ISessionLifecycleService`, `ISessionIndex`, `IAgentPromptService`, …).
+ * Implements `POST /sessions/{id}/profile` (`updateProfile` — title rename,
+ * metadata merge, and the cross-domain `agent_config` patch) and
+ * `GET /sessions/{id}/status` (`status`) on top of the native v2 services
+ * (`ISessionLifecycleService`, `IAgentProfileService`, …).
  *
- * The thin pass-through actions (`fork` / `compact` / `abort` / `archive`) are
- * deliberately NOT wrapped here: the edge route calls the native services
- * (`ISessionLifecycleService.fork` / `archive`, `IAgentFullCompactionService.begin`,
- * `IAgentRPCService.cancel`) directly, because none of them carries v1-only
- * projection worth centralizing. Only the actions above hold real adaptation
- * logic (wire projection, child tagging, undo precheck), so they stay in this
- * adapter. The native services keep serving `/api/v2` and are left untouched;
- * this adapter exists only so clients of the v1 server keep working against
- * server-v2. Bound at App scope — it is a stateless dispatcher that resolves
- * the target session/agent per call.
+ * The thin pass-through actions (`fork` / `compact` / `abort` / `archive`), the
+ * `:undo` action, and the `/sessions/{id}/children` endpoints are deliberately
+ * NOT wrapped here: the edge route calls the native services directly —
+ * `ISessionLifecycleService.fork` / `archive` / `createChild`,
+ * `IAgentFullCompactionService.begin`, `IAgentRPCService.cancel`,
+ * `IAgentPromptService.undo`, and `ISessionIndex.list({ childOf })` — because
+ * none of them carries v1-only projection worth centralizing beyond what the
+ * native services already provide. Only `updateProfile` and `status` hold real
+ * cross-domain adaptation logic (the `agent_config` patch and the
+ * best-effort status rollup), so they stay in this adapter. The native services
+ * keep serving `/api/v2` and are left untouched; this adapter exists only so
+ * clients of the v1 server keep working against server-v2. Bound at App scope —
+ * it is a stateless dispatcher that resolves the target session/agent per call.
  */
 
-import type {
-  CreateSessionChildRequest,
-  SessionStatus,
-  SessionStatusResponse,
-  UndoSessionRequest,
-  UndoSessionResponse,
-  UpdateSessionProfileRequest,
-} from '@moonshot-ai/protocol';
+import type { SessionStatusResponse, UpdateSessionProfileRequest } from '@moonshot-ai/protocol';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
@@ -47,27 +42,10 @@ export interface SessionWireFields {
   readonly custom?: Record<string, unknown>;
 }
 
-/** Query mirror of the v1 `GET /sessions/{id}/children` cursor + status filter. */
-export interface SessionChildrenQuery {
-  readonly before_id?: string;
-  readonly after_id?: string;
-  readonly page_size?: number;
-  readonly status?: SessionStatus;
-}
-
-/** Page of child sessions, projected by the route into the wire `Page<Session>`. */
-export interface SessionChildrenPage {
-  readonly items: readonly SessionWireFields[];
-  readonly has_more: boolean;
-}
-
 export interface ISessionLegacyService {
   readonly _serviceBrand: undefined;
 
   updateProfile(sessionId: string, body: UpdateSessionProfileRequest): Promise<SessionWireFields>;
-  createChild(sessionId: string, body: CreateSessionChildRequest): Promise<SessionWireFields>;
-  listChildren(sessionId: string, query: SessionChildrenQuery): Promise<SessionChildrenPage>;
-  undo(sessionId: string, body: UndoSessionRequest): Promise<UndoSessionResponse>;
   status(sessionId: string): Promise<SessionStatusResponse>;
 }
 

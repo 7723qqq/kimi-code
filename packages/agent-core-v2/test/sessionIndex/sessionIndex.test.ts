@@ -1,13 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 import { InstantiationType } from '#/_base/di/extensions';
-import { ILogService } from '#/_base/log/log';
-import { LifecycleScope, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
+import {
+  LifecycleScope,
+  _clearScopedRegistryForTests,
+  registerScopedService,
+} from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
+import { ILogService } from '#/_base/log/log';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
@@ -19,6 +23,7 @@ import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageSe
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IQueryStore } from '#/persistence/interface/queryStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubFlag } from '../flag/stubs';
 import { stubLog } from '../log/stubs';
@@ -35,7 +40,13 @@ describe('FileSessionIndex (legacy)', () => {
 
   beforeEach(async () => {
     _clearScopedRegistryForTests();
-    registerScopedService(LifecycleScope.App, ISessionIndex, FileSessionIndex, InstantiationType.Delayed, 'sessionIndex');
+    registerScopedService(
+      LifecycleScope.App,
+      ISessionIndex,
+      FileSessionIndex,
+      InstantiationType.Delayed,
+      'sessionIndex',
+    );
     homeDir = await fsp.mkdtemp(join(os.tmpdir(), 'ws-sessions-'));
     sessionsDir = join(homeDir, 'sessions');
     workspaceId = encodeWorkDirKey(WORK_DIR);
@@ -56,7 +67,9 @@ describe('FileSessionIndex (legacy)', () => {
       stubPair(IQueryStore, stubQueryStore()),
       stubPair(IFlagService, stubFlag(false)),
     ]);
-    disposeHost = () => { host.dispose(); };
+    disposeHost = () => {
+      host.dispose();
+    };
     return host.app.accessor.get(ISessionIndex);
   }
 
@@ -133,6 +146,36 @@ describe('FileSessionIndex (legacy)', () => {
     expect(archivedIncluded.items.map((s) => s.id)).toEqual(['archived']);
   });
 
+  it('list filters by childOf using the parent_session_id + child_session_kind markers', async () => {
+    await seedSession('parent', { createdAt: 1, updatedAt: 10 });
+    await seedSession('child-a', {
+      createdAt: 2,
+      updatedAt: 9,
+      custom: { parent_session_id: 'parent', child_session_kind: 'child' },
+    });
+    await seedSession('child-b', {
+      createdAt: 3,
+      updatedAt: 8,
+      custom: { parent_session_id: 'parent', child_session_kind: 'child' },
+    });
+    // A plain fork carries `parent_session_id` but no `child_session_kind` — excluded.
+    await seedSession('fork', {
+      createdAt: 4,
+      updatedAt: 7,
+      custom: { parent_session_id: 'parent' },
+    });
+    // A grandchild points at `child-a`, not `parent` — excluded.
+    await seedSession('grandchild', {
+      createdAt: 5,
+      updatedAt: 6,
+      custom: { parent_session_id: 'child-a', child_session_kind: 'child' },
+    });
+
+    const store = build();
+    const page = await store.list({ childOf: 'parent' });
+    expect(page.items.map((s) => s.id).toSorted()).toEqual(['child-a', 'child-b']);
+  });
+
   it('countActive counts non-archived sessions', async () => {
     await seedSession('a', {});
     await seedSession('b', {});
@@ -154,8 +197,20 @@ describe('FileSessionIndex (read model)', () => {
 
   beforeEach(async () => {
     _clearScopedRegistryForTests();
-    registerScopedService(LifecycleScope.App, ISessionIndex, FileSessionIndex, InstantiationType.Delayed, 'sessionIndex');
-    registerScopedService(LifecycleScope.App, IQueryStore, MiniDbQueryStore, InstantiationType.Delayed, 'storage');
+    registerScopedService(
+      LifecycleScope.App,
+      ISessionIndex,
+      FileSessionIndex,
+      InstantiationType.Delayed,
+      'sessionIndex',
+    );
+    registerScopedService(
+      LifecycleScope.App,
+      IQueryStore,
+      MiniDbQueryStore,
+      InstantiationType.Delayed,
+      'storage',
+    );
     homeDir = await fsp.mkdtemp(join(os.tmpdir(), 'ws-sessions-rm-'));
     sessionsDir = join(homeDir, 'sessions');
     workspaceId = encodeWorkDirKey(WORK_DIR);
@@ -176,7 +231,9 @@ describe('FileSessionIndex (read model)', () => {
       stubPair(ILogService, stubLog()),
       stubPair(IFlagService, stubFlag(true)),
     ]);
-    disposeHost = () => { host.dispose(); };
+    disposeHost = () => {
+      host.dispose();
+    };
     queryStore = host.app.accessor.get(IQueryStore);
     return host.app.accessor.get(ISessionIndex);
   }
@@ -213,7 +270,11 @@ describe('FileSessionIndex (read model)', () => {
 
     // A second list is served from the read model: mutate the read model to
     // prove the disk is not re-read.
-    await queryStore.put(SESSION_COLLECTION, 'active', summary('active', { title: 'renamed', updatedAt: 3 }));
+    await queryStore.put(
+      SESSION_COLLECTION,
+      'active',
+      summary('active', { title: 'renamed', updatedAt: 3 }),
+    );
     const second = await store.list({ workspaceId });
     expect(second.items[0]?.title).toBe('renamed');
   });
@@ -224,6 +285,34 @@ describe('FileSessionIndex (read model)', () => {
     await queryStore.put(SESSION_COLLECTION, 'warm', summary('warm', { title: 'cached' }));
     const got = await store.get('warm');
     expect(got?.title).toBe('cached');
+  });
+
+  it('list filters by childOf from the read model', async () => {
+    await seedSession('child-a', {
+      createdAt: 2,
+      updatedAt: 9,
+      custom: { parent_session_id: 'parent', child_session_kind: 'child' },
+    });
+    await seedSession('child-b', {
+      createdAt: 3,
+      updatedAt: 8,
+      custom: { parent_session_id: 'parent', child_session_kind: 'child' },
+    });
+    // Plain fork (no kind) and a grandchild (different parent) are excluded.
+    await seedSession('fork', {
+      createdAt: 4,
+      updatedAt: 7,
+      custom: { parent_session_id: 'parent' },
+    });
+    await seedSession('grandchild', {
+      createdAt: 5,
+      updatedAt: 6,
+      custom: { parent_session_id: 'child-a', child_session_kind: 'child' },
+    });
+
+    const store = build();
+    const page = await store.list({ childOf: 'parent' });
+    expect(page.items.map((s) => s.id).toSorted()).toEqual(['child-a', 'child-b']);
   });
 
   it('countActive reflects read-model updates', async () => {

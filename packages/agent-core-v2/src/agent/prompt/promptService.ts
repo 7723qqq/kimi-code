@@ -1,23 +1,20 @@
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { extractImageCompressionCaptions } from '#/_base/tools/support/image-compress';
-import type { ContentPart } from '#/app/llmProtocol/message';
-import { ErrorCodes, KimiError } from '#/errors';
-
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { formatUndoUnavailableMessage, precheckUndo } from '#/agent/contextMemory/contextOps';
 import { USER_PROMPT_ORIGIN, type ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentTurnService, type Turn, type TurnPromptInfo } from '#/agent/turn/turn';
 import type { ExecutableToolResult } from '#/agent/tool/toolContract';
 import type { ToolDidExecuteContext } from '#/agent/tool/toolHooks';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentTurnService, type Turn, type TurnPromptInfo } from '#/agent/turn/turn';
+import type { ContentPart } from '#/app/llmProtocol/message';
+import { ErrorCodes, KimiError } from '#/errors';
 import { OrderedHookSlot } from '#/hooks';
-import {
-  IAgentPromptService,
-  type PromptSubmitContext,
-  type PromptSteerHandle,
-} from './prompt';
+
+import { IAgentPromptService, type PromptSubmitContext, type PromptSteerHandle } from './prompt';
 
 interface QueuedSteer {
   readonly message: ContextMessage;
@@ -41,10 +38,13 @@ export class AgentPromptService implements IAgentPromptService {
     @IAgentLoopService loopService: IAgentLoopService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
   ) {
-    loopService.hooks.beforeStep.register('prompt-service-steer-before-step', async (_ctx, next) => {
-      this.flushSteerQueue();
-      await next();
-    });
+    loopService.hooks.beforeStep.register(
+      'prompt-service-steer-before-step',
+      async (_ctx, next) => {
+        this.flushSteerQueue();
+        await next();
+      },
+    );
     loopService.hooks.afterStep.register('prompt-service-steer', async (ctx, next) => {
       if (this.flushSteerQueue()) {
         ctx.continue = true;
@@ -120,22 +120,26 @@ export class AgentPromptService implements IAgentPromptService {
   undo(count: number): number {
     if (count <= 0) return 0;
 
-    const { removedCount, stoppedAtCompaction } = this.context.undo(count);
-    if (removedCount < count) {
+    // Precheck on the live history so a request that cannot be fully satisfied
+    // fails with `session.undo_unavailable` (and a structured reason) BEFORE any
+    // state is removed. `context.undo` is a no-op when the cut is short, but
+    // surfacing *why* (`empty` / `compaction_boundary` / `insufficient`) is the
+    // caller's signal — mirrors v1's `canUndoHistory` gate.
+    const precheck = precheckUndo(this.context.get(), count);
+    if (!precheck.ok) {
       throw new KimiError(
-        ErrorCodes.REQUEST_INVALID,
-        formatUndoUnavailableMessage(count, removedCount, stoppedAtCompaction),
+        ErrorCodes.SESSION_UNDO_UNAVAILABLE,
+        formatUndoUnavailableMessage(precheck),
         {
           details: {
-            reason: 'undo_limit',
+            reason: precheck.reason,
             requestedCount: count,
-            undoableCount: removedCount,
-            stoppedAtCompaction,
+            undoableCount: precheck.undoable,
           },
         },
       );
     }
-    return removedCount;
+    return this.context.undo(count).removedCount;
   }
 
   clear(): void {
@@ -292,19 +296,6 @@ function splitImageCompressionCaptions(content: readonly ContentPart[]): {
     }
   }
   return { captions, parts };
-}
-
-function formatUndoUnavailableMessage(
-  requestedCount: number,
-  undoableCount: number,
-  stoppedAtCompaction: boolean,
-): string {
-  const reason = stoppedAtCompaction ? ' after the last compaction' : '';
-  return `Cannot undo ${formatPromptCount(requestedCount)}; only ${formatPromptCount(undoableCount)} can be undone in the active context${reason}.`;
-}
-
-function formatPromptCount(count: number): string {
-  return `${String(count)} ${count === 1 ? 'prompt' : 'prompts'}`;
 }
 
 registerScopedService(

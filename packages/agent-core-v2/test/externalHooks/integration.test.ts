@@ -189,6 +189,9 @@ function stubSessionLifecycle(): ISessionLifecycleService {
     fork: async () => {
       throw new Error('not implemented');
     },
+    createChild: async () => {
+      throw new Error('not implemented');
+    },
   };
 }
 
