@@ -1,5 +1,5 @@
 /**
- * `runtime` domain (L5) — `IAgentRuntimeService` implementation and the Agent
+ * `runtime` domain (L4) — `IAgentRuntimeService` implementation and the Agent
  * activity projector.
  *
  * Folds the agent's live activity into a structured `AgentActivitySnapshot`

@@ -285,7 +285,7 @@ function project(history: readonly ContextMessage[], onAnomaly?: OnAnomaly): Mes
 
   const emit = (source: ContextMessage): void => {
     const content = projectedContent(source, onAnomaly);
-    if (content.length === 0 && source.toolCalls.length === 0) return;
+    if (content.length === 0 && source.toolCalls.length === 0 && !hasDeclaredTools(source)) return;
 
     if (openSlots.size > 0) markForeignBetween();
 
@@ -461,6 +461,10 @@ function canMergeUserMessage(message: ContextMessage): boolean {
   return message.role === 'user' && message.origin?.kind === 'user';
 }
 
+function hasDeclaredTools(message: ContextMessage): boolean {
+  return message.tools !== undefined && message.tools.length > 0;
+}
+
 function toWireMessage(message: ContextMessage, content: ContentPart[]): Message {
   return {
     role: message.role,
@@ -469,6 +473,7 @@ function toWireMessage(message: ContextMessage, content: ContentPart[]): Message
     toolCalls: message.toolCalls,
     toolCallId: message.toolCallId,
     partial: message.partial,
+    tools: message.tools,
   };
 }
 

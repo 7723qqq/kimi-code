@@ -1,5 +1,5 @@
 /**
- * `runtime` domain (L5) — wire Model (`RuntimeModel`) and the `runtime.set_phase`
+ * `runtime` domain (L4) — wire Model (`RuntimeModel`) and the `runtime.set_phase`
  * Op (`setRuntimePhase`) that holds the agent's whole live phase.
  *
  * Declares the phase as a single-field wire Model (`{ phase }`, initial

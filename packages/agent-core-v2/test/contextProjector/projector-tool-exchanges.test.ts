@@ -75,6 +75,25 @@ function toolResult(toolCallId: string, text: string): ContextMessage {
   return { role: 'tool', content: [{ type: 'text', text }], toolCalls: [], toolCallId };
 }
 
+function schemaMessage(name: string): ContextMessage {
+  return {
+    role: 'system',
+    content: [],
+    toolCalls: [],
+    tools: [
+      {
+        name,
+        description: `${name} desc`,
+        parameters: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+        },
+      },
+    ],
+    origin: { kind: 'injection', variant: 'dynamic_tool_schema' },
+  };
+}
+
 describe('projector tool-exchange normalization', () => {
   let disposables: DisposableStore;
   let projector: IAgentContextProjectorService;
@@ -246,6 +265,39 @@ describe('projector tool-exchange normalization', () => {
       toolCalls: [],
     };
     expect(project([message])).toHaveLength(1);
+  });
+
+  it('keeps a schema-only system message when it declares dynamic tools', () => {
+    const projected = project([user('load it'), schemaMessage('mcp__srv__query')]);
+
+    expect(projected).toEqual([
+      {
+        role: 'user',
+        name: undefined,
+        content: [{ type: 'text', text: 'load it' }],
+        toolCalls: [],
+        toolCallId: undefined,
+        partial: undefined,
+      },
+      {
+        role: 'system',
+        name: undefined,
+        content: [],
+        toolCalls: [],
+        toolCallId: undefined,
+        partial: undefined,
+        tools: [
+          {
+            name: 'mcp__srv__query',
+            description: 'mcp__srv__query desc',
+            parameters: {
+              type: 'object',
+              properties: { query: { type: 'string' } },
+            },
+          },
+        ],
+      },
+    ]);
   });
 
   it('renders structured tool-result notes only for the model projection', () => {

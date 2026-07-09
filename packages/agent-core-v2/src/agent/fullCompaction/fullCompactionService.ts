@@ -19,6 +19,8 @@ import { IAgentLoopService, type LoopErrorContext } from '#/agent/loop/loop';
 import { isAbortError, isContextOverflowError } from '#/agent/loop/errors';
 import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { stripDynamicToolContext } from '#/agent/toolSelect/dynamicTools';
+import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IAgentTurnService } from '#/agent/turn/turn';
 import { IAgentActivityService } from '#/activity/activity';
 import { ISessionTodoService } from '#/session/todo/sessionTodo';
@@ -131,6 +133,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
+    @IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService,
     @ISessionTodoService private readonly todo: ISessionTodoService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentWireService private readonly wire: IWireService,
@@ -203,13 +206,13 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   }
 
   private defaultTools(): readonly Tool[] {
-    return this.toolRegistry
-      .list()
-      .filter((tool) => this.profile.isToolActive(tool.name, tool.source))
+    return this.toolSelect
+      .shapeTools(this.toolRegistry.list())
       .map((tool) => ({
         name: tool.name,
         description: tool.description,
         parameters: tool.parameters ?? EMPTY_TOOL_PARAMETERS,
+        deferred: tool.deferred,
       }));
   }
 
@@ -674,39 +677,6 @@ function historySafeToCompact(
   if (current.length < original.length) return false;
   if (!original.every((message, index) => message === current[index])) return false;
   return current.slice(original.length).every(isRealUserInput);
-}
-
-const LOADABLE_TOOLS_TRIGGER = 'loadable-tools';
-
-function stripDynamicToolContext(
-  history: readonly ContextMessage[],
-): readonly ContextMessage[] {
-  if (!history.some((message) => hasDynamicToolSchema(message) || isLoadableToolsAnnouncement(message))) {
-    return history;
-  }
-  const out: ContextMessage[] = [];
-  for (const message of history) {
-    if (isLoadableToolsAnnouncement(message)) continue;
-    if (hasDynamicToolSchema(message)) {
-      const { tools: _tools, ...rest } = message;
-      void _tools;
-      if (rest.content.length === 0 && rest.toolCalls.length === 0) continue;
-      out.push(rest);
-      continue;
-    }
-    out.push(message);
-  }
-  return out;
-}
-
-function hasDynamicToolSchema(message: ContextMessage): boolean {
-  return message.tools !== undefined && message.tools.length > 0;
-}
-
-function isLoadableToolsAnnouncement(message: ContextMessage): boolean {
-  return (
-    message.origin?.kind === 'system_trigger' && message.origin.name === LOADABLE_TOOLS_TRIGGER
-  );
 }
 
 function shrinkCompactionHistoryAfterOverflow<T extends Message>(

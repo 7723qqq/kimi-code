@@ -1,3 +1,15 @@
+/**
+ * Scenario: full compaction refreshes, retries, and resumes agent context under
+ * context-window pressure.
+ *
+ * Responsibilities: assert manual and automatic compaction outcomes, overflow
+ * recovery, resume compatibility, dynamic tool context handling, and emitted
+ * wire/telemetry effects. Wiring: testAgent harness with fake providers,
+ * filesystem sandboxes, real compaction services, and stubs at external model /
+ * telemetry boundaries. Run:
+ * ../../node_modules/.bin/vitest run test/fullCompaction/full.test.ts
+ */
+
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
@@ -24,8 +36,12 @@ import {
   IAgentFullCompactionService,
   IOAuthService,
   IAgentProfileService,
+  IAgentToolRegistryService,
   ISessionTodoService,
+  DYNAMIC_TOOL_SCHEMA_VARIANT,
+  type ExecutableTool,
   type ResolvedAgentProfile,
+  type ToolExecution,
 } from '#/index';
 import { IAgentTurnService } from '#/agent/turn/turn';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
@@ -55,6 +71,7 @@ const SNAPSHOT_VISIBLE_TOOLS = [
   'EnterPlanMode',
   'ExitPlanMode',
 ] as const;
+const LARGE_MCP_TOOL = 'mcp__srv__large';
 const EXACT_COMPACTION_REFRESH_PROFILE: ResolvedAgentProfile = {
   name: 'exact-compaction-refresh',
   systemPrompt: (context) =>
@@ -1662,6 +1679,63 @@ describe('FullCompaction', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('does not trigger auto compaction from a deferred loaded MCP schema', async () => {
+    vi.stubEnv(MASTER_ENV, '1');
+    const ctx = testAgent({
+      initialConfig: {
+        providers: {},
+        loopControl: { reservedContextSize: 0 },
+      },
+    });
+    const parameters = {
+      type: 'object',
+      properties: {
+        payload: {
+          type: 'string',
+          description: 'x'.repeat(40_000),
+        },
+      },
+    };
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: {
+        ...CATALOGUED_MODEL_CAPABILITIES,
+        max_context_tokens: 2_000,
+        select_tools: true,
+      },
+      tools: [LARGE_MCP_TOOL],
+    });
+    const registration = ctx
+      .get(IAgentToolRegistryService)
+      .register(mcpTool(LARGE_MCP_TOOL, parameters), { source: 'mcp' });
+    try {
+      ctx.context.append({
+        role: 'system',
+        content: [],
+        toolCalls: [],
+        tools: [
+          {
+            name: LARGE_MCP_TOOL,
+            description: `${LARGE_MCP_TOOL} desc`,
+            parameters,
+          },
+        ],
+        origin: { kind: 'injection', variant: DYNAMIC_TOOL_SCHEMA_VARIANT },
+      });
+      ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+
+      ctx.mockNextResponse({ type: 'text', text: 'Answered without tool-schema compaction.' });
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'small prompt' }] });
+      const events = await ctx.untilTurnEnd();
+
+      expect(eventIndex(events, 'compaction.started')).toBe(-1);
+      expect(ctx.llmCalls).toHaveLength(1);
+      expect(messageText(ctx.llmCalls[0]?.history.at(-1))).toBe('small prompt');
+    } finally {
+      registration.dispose();
+    }
+  });
+
   it('triggers auto compaction when pending tokens cross the reserved threshold', async () => {
     const ctx = testAgent({
       initialConfig: {
@@ -2646,6 +2720,23 @@ function textMessage(role: 'user' | 'assistant', text: string): Message {
     role,
     content: [{ type: 'text', text }],
     toolCalls: [],
+  };
+}
+
+function mcpTool(
+  name: string,
+  parameters: Record<string, unknown>,
+): ExecutableTool<Record<string, unknown>> {
+  return {
+    name,
+    description: `${name} desc`,
+    parameters,
+    resolveExecution(): ToolExecution {
+      return {
+        approvalRule: name,
+        execute: async () => ({ output: 'mcp ok' }),
+      };
+    },
   };
 }
 

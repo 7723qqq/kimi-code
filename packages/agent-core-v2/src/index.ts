@@ -194,6 +194,13 @@ export * from '#/agent/runtime/runtimeOps';
 export * from '#/agent/runtime/runtimeService';
 export * from '#/agent/toolDedupe/toolDedupe';
 export * from '#/agent/toolDedupe/toolDedupeService';
+import '#/agent/toolSelect/flag';
+import '#/agent/toolSelect/tools/select-tools';
+export * from '#/agent/toolSelect/dynamicTools';
+export * from '#/agent/toolSelect/toolSelect';
+export * from '#/agent/toolSelect/toolSelectService';
+export * from '#/agent/toolSelect/toolSelectAnnouncements';
+export * from '#/agent/toolSelect/toolSelectAnnouncementsService';
 
 import '#/agent/task/configSection';
 import '#/agent/task/tools/task-list';

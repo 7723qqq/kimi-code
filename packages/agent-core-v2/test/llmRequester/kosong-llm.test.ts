@@ -1,4 +1,5 @@
 import { APIConnectionError, APIStatusError } from '#/app/llmProtocol/errors';
+import { TOOL_SELECT_FLAG_ENV } from '#/agent/toolSelect/flag';
 import { type StreamedMessagePart } from '#/app/llmProtocol/message';
 import type { Tool } from '#/app/llmProtocol/tool';
 import { emptyUsage } from '#/app/llmProtocol/usage';
@@ -71,11 +72,14 @@ describe('LLMRequester service migration coverage', () => {
     ];
 
     beforeEach(() => {
+      // Stubbed before createTestAgent snapshots the env into bootstrap.
+      vi.stubEnv(TOOL_SELECT_FLAG_ENV, '1');
       ctx = createTestAgent();
       llmRequester = ctx.get(IAgentLLMRequesterService);
     });
 
     afterEach(async () => {
+      vi.unstubAllEnvs();
       try {
         await ctx.expectResumeMatches();
       } finally {
@@ -84,6 +88,20 @@ describe('LLMRequester service migration coverage', () => {
     });
 
     it('records one tools snapshot per unique provider-visible tool table and one request per outbound call', async () => {
+      // Gate the scenario on like v1's recorder contract requires: `toolSelect`
+      // in the record is the disclosure gate (flag × capability), not the
+      // presence of deferred entries in this request's tool table.
+      ctx.configure({
+        modelCapabilities: {
+          image_in: false,
+          video_in: false,
+          audio_in: false,
+          thinking: false,
+          tool_use: true,
+          max_context_tokens: 128_000,
+          select_tools: true,
+        },
+      });
       ctx.mockNextResponse({ type: 'text', text: 'first response' });
       await llmRequester.request({
         messages: [userMessage('first direct request')],

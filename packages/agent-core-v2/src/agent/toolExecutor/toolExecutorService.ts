@@ -1,4 +1,14 @@
+/**
+ * `toolExecutor` domain (L3) — `IAgentToolExecutorService` implementation.
+ *
+ * Resolves executable tools through `toolRegistry`, runs ordered tool hooks,
+ * publishes tool lifecycle events through `event`, records telemetry through
+ * `telemetry`, truncates oversized outputs through `toolResultTruncation`,
+ * and logs parse diagnostics through `log`. Bound at Agent scope.
+ */
+
 import { InstantiationType } from '#/_base/di/extensions';
+import { toDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { ContentPart } from '#/app/llmProtocol/message';
 import type {
@@ -29,8 +39,10 @@ import { OrderedHookSlot } from '#/hooks';
 import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import {
   IAgentToolExecutorService,
+  type MissingToolDescriber,
   type ToolExecutionResult,
   type ToolExecutorExecuteOptions,
+  type UnavailableToolDescriber,
 } from './toolExecutor';
 import { ToolScheduler } from './toolScheduler';
 
@@ -85,6 +97,23 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     onDidExecuteTool: new OrderedHookSlot<ToolDidExecuteContext>(),
   };
 
+  private missingToolDescriber: MissingToolDescriber | undefined;
+  private unavailableToolDescriber: UnavailableToolDescriber | undefined;
+
+  registerUnavailableToolDescriber(describer: UnavailableToolDescriber) {
+    this.unavailableToolDescriber = describer;
+    return toDisposable(() => {
+      if (this.unavailableToolDescriber === describer) this.unavailableToolDescriber = undefined;
+    });
+  }
+
+  registerMissingToolDescriber(describer: MissingToolDescriber) {
+    this.missingToolDescriber = describer;
+    return toDisposable(() => {
+      if (this.missingToolDescriber === describer) this.missingToolDescriber = undefined;
+    });
+  }
+
   constructor(
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IEventBus private readonly eventBus: IEventBus,
@@ -100,7 +129,15 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
   ): AsyncIterable<ToolExecutionResult> {
     if (calls.length === 0) return;
 
-    const preflighted = calls.map((call) => preflightToolCall(this.toolRegistry, call, this.log));
+    const preflighted = calls.map((call) =>
+      preflightToolCall(
+        this.toolRegistry,
+        call,
+        this.unavailableToolDescriber,
+        this.missingToolDescriber,
+        this.log,
+      ),
+    );
     const preparedTasks: Array<{
       task: ToolExecutionTask;
       call: PreflightedToolCall;
@@ -597,6 +634,8 @@ function buildWillExecuteContext(
 function preflightToolCall(
   toolRegistry: IAgentToolRegistryService,
   toolCall: ToolCall,
+  describeUnavailableTool: UnavailableToolDescriber | undefined,
+  describeMissingTool: MissingToolDescriber | undefined,
   log?: ILogService,
 ): PreflightedToolCall {
   const toolName = toolCall.name;
@@ -609,6 +648,16 @@ function preflightToolCall(
       error: parsedArgs.error,
     });
   }
+  const unavailable = describeUnavailableTool?.(toolName);
+  if (unavailable !== undefined) {
+    return {
+      kind: 'rejected',
+      toolCall,
+      toolName,
+      args: parsedArgs.data,
+      output: unavailable,
+    };
+  }
   const tool = toolRegistry.resolve(toolName);
   if (tool === undefined) {
     return {
@@ -616,7 +665,7 @@ function preflightToolCall(
       toolCall,
       toolName,
       args: parsedArgs.data,
-      output: `Tool "${toolName}" not found`,
+      output: describeMissingTool?.(toolName) ?? `Tool "${toolName}" not found`,
     };
   }
   const validationError = validateExecutableToolArgs(tool, parsedArgs.data);

@@ -1,3 +1,14 @@
+/**
+ * Scenario: LLM requester retries once with strict projection after provider
+ * tool-use adjacency rejection.
+ *
+ * Responsibilities: assert retry eligibility, strict-history rebuilding,
+ * request recording, and usage accounting. Wiring: real
+ * AgentLLMRequesterService with stubbed context memory, projector, context
+ * sizing, profile, model, telemetry, and wire/log services. Run:
+ * ../../node_modules/.bin/vitest run test/llmRequester/strict-resend.test.ts
+ */
+
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
@@ -9,6 +20,7 @@ import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IAgentUsageService } from '#/agent/usage/usage';
 import { IConfigService } from '#/app/config/config';
 import { APIStatusError } from '#/app/llmProtocol/errors';
@@ -117,8 +129,14 @@ function createService(
   };
   const log = { info: () => undefined, warn: () => undefined };
   const telemetry = { track: () => undefined };
+  const toolSelect: Partial<IAgentToolSelectService> = {
+    enabled: () => false,
+    shapeTools: (entries) => entries,
+    shapeHistory: (messages) => messages,
+  };
 
   ix.stub(IAgentContextMemoryService, context);
+  ix.stub(IAgentToolSelectService, toolSelect);
   ix.stub(IAgentContextProjectorService, projector);
   ix.stub(IAgentContextSizeService, contextSize);
   ix.stub(IAgentToolRegistryService, tools);

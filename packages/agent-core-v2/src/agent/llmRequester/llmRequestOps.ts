@@ -52,6 +52,7 @@ export interface LlmRequestPayload {
   readonly topP?: number;
   readonly maxTokens?: number;
   readonly betaApi?: boolean;
+  /** Progressive tool disclosure in effect (env flag × model capability). */
   readonly toolSelect: boolean;
   readonly systemPromptHash: string;
   readonly systemPrompt?: string;

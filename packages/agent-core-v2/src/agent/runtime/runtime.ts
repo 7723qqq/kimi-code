@@ -1,5 +1,5 @@
 /**
- * `runtime` domain (L5) — Agent-scope live phase contract.
+ * `runtime` domain (L4) — Agent-scope live phase contract.
  *
  * Defines the public contract of the agent's whole live phase: the `AgentPhase`
  * discriminated union (each variant carries its own ancillary fields) and the

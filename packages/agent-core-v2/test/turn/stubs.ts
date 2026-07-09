@@ -149,5 +149,7 @@ export function stubToolExecutor(): IAgentToolExecutorService {
       'onWillExecuteTool',
       'onDidExecuteTool',
     ]) as IAgentToolExecutorService['hooks'],
+    registerUnavailableToolDescriber: () => ({ dispose: () => {} }),
+    registerMissingToolDescriber: () => ({ dispose: () => {} }),
   };
 }
