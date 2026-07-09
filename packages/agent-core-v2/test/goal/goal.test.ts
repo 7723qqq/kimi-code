@@ -8,16 +8,19 @@ import { IAgentLoopService, type AfterStepContext } from '#/agent/loop/loop';
 import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn/turn';
 import type { PersistedWireRecord, WireRecord } from '#/agent/wireRecord/wireRecord';
 import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
+import { APIConnectionError, APIStatusError } from '#/app/llmProtocol/errors';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
-import { ErrorCodes, errorInfo, toKimiErrorPayload } from '#/errors';
+import { ErrorCodes, KimiError, errorInfo, toKimiErrorPayload } from '#/errors';
 
 import {
   InMemoryWireRecordPersistence,
   agentService,
   createTestAgent,
   telemetryServices,
+  testAgent,
   wireRecordPersistenceServices,
   type TestAgentContext,
+  type TestAgentOptions,
 } from '../harness';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 import { stubLoopWithHooks, stubTurn, type StubTurn } from '../turn/stubs';
@@ -774,6 +777,94 @@ describe('goal error catalog metadata', () => {
       retryable: false,
       public: true,
       action: 'Only paused goals can be resumed.',
+    });
+  });
+});
+
+describe('goal pause classification on provider errors', () => {
+  type GenerateFn = NonNullable<TestAgentOptions['generate']>;
+
+  function singleAttemptAgentOptions(): Pick<TestAgentOptions, 'initialConfig'> {
+    return {
+      initialConfig: {
+        providers: {},
+        loopControl: { maxRetriesPerStep: 1 },
+      },
+    };
+  }
+
+  async function goalAfterFailedTurn(generate: GenerateFn) {
+    const ctx = testAgent({ generate, ...singleAttemptAgentOptions() });
+    ctx.configure();
+    const goals = ctx.get(IAgentGoalService);
+    await goals.createGoal({ objective: 'work' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'work' }] });
+    await ctx.untilTurnEnd();
+
+    return goals.getGoal().goal;
+  }
+
+  it('pauses the goal on provider rate limits', async () => {
+    const goal = await goalAfterFailedTurn(async () => {
+      throw new APIStatusError(429, 'Rate limited', 'req-429');
+    });
+
+    expect(goal).toMatchObject({
+      status: 'paused',
+      terminalReason: 'Paused after provider rate limit',
+    });
+  });
+
+  it('pauses the goal on provider connection errors', async () => {
+    const goal = await goalAfterFailedTurn(async () => {
+      throw new APIConnectionError('socket hang up');
+    });
+
+    expect(goal).toMatchObject({
+      status: 'paused',
+      terminalReason: 'Paused after provider connection error: socket hang up',
+    });
+  });
+
+  it('pauses the goal on provider authentication errors', async () => {
+    const goal = await goalAfterFailedTurn(async () => {
+      throw new APIStatusError(401, 'Unauthorized', 'req-401');
+    });
+
+    expect(goal).toMatchObject({
+      status: 'paused',
+      terminalReason: 'Paused after provider authentication error: Unauthorized',
+    });
+  });
+
+  it('pauses the goal on model configuration errors', async () => {
+    const goal = await goalAfterFailedTurn(async () => {
+      throw new KimiError(ErrorCodes.MODEL_NOT_CONFIGURED, 'Model not set');
+    });
+
+    expect(goal).toMatchObject({
+      status: 'paused',
+      terminalReason: 'Paused after model configuration error: LLM not set, send "/login" to login',
+    });
+  });
+
+  it('pauses the goal on provider safety policy blocks', async () => {
+    const goal = await goalAfterFailedTurn(async () => ({
+      id: 'mock-filtered',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'filtered' }],
+        toolCalls: [],
+      },
+      usage: { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 },
+      finishReason: 'filtered',
+      rawFinishReason: 'content_filter',
+    }));
+
+    expect(goal).toMatchObject({
+      status: 'paused',
+      terminalReason: 'Paused after provider safety policy block',
     });
   });
 });
