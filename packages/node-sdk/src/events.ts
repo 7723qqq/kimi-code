@@ -6,7 +6,7 @@ import type {
 } from '@moonshot-ai/agent-core';
 
 // Event union plus shared fields/payloads used across event families.
-export type { KimiErrorPayload, Event } from '@moonshot-ai/agent-core';
+export type { KimiErrorPayload, ProtocolEvent as Event } from '@moonshot-ai/agent-core';
 
 export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '@moonshot-ai/agent-core';
 

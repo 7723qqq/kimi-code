@@ -487,6 +487,9 @@ function runPromptTurn(
           return;
         case 'turn.step.retrying':
           outputWriter.discardAssistant();
+          outputWriter.writeStatus(
+            `Retrying (${event.nextAttempt}/${event.maxAttempts}) in ${Math.ceil(event.delayMs / 1000)}s — ${event.errorName}`,
+          );
           return;
         case 'assistant.delta':
           outputWriter.writeAssistantDelta(event.delta);
@@ -574,6 +577,7 @@ interface PromptTurnWriter {
     argumentsPart: string | undefined,
   ): void;
   writeToolResult(toolCallId: string, output: unknown): void;
+  writeStatus(message: string): void;
   flushAssistant(): void;
   discardAssistant(): void;
   finish(): void;
@@ -582,10 +586,12 @@ interface PromptTurnWriter {
 class PromptTranscriptWriter implements PromptTurnWriter {
   private readonly assistantWriter: PromptBlockWriter;
   private readonly thinkingWriter: PromptBlockWriter;
+  private readonly stderr: PromptOutput;
 
   constructor(stdout: PromptOutput, stderr: PromptOutput) {
     this.assistantWriter = new PromptBlockWriter(stdout);
     this.thinkingWriter = new PromptBlockWriter(stderr);
+    this.stderr = stderr;
   }
 
   writeAssistantDelta(delta: string): void {
@@ -609,6 +615,12 @@ class PromptTranscriptWriter implements PromptTurnWriter {
   writeToolCallDelta(): void {}
 
   writeToolResult(): void {}
+
+  writeStatus(message: string): void {
+    this.assistantWriter.finish();
+    this.thinkingWriter.finish();
+    this.stderr.write(`${message}\n`);
+  }
 
   flushAssistant(): void {}
 
@@ -646,6 +658,12 @@ interface PromptJsonResumeMetaMessage {
   type: 'session.resume_hint';
   session_id: string;
   command: string;
+  content: string;
+}
+
+interface PromptJsonMetaMessage {
+  role: 'meta';
+  type: string;
   content: string;
 }
 
@@ -731,6 +749,11 @@ class PromptJsonWriter implements PromptTurnWriter {
     });
   }
 
+  writeStatus(message: string): void {
+    this.flushAssistant();
+    this.writeJsonLine({ role: 'meta', type: 'status', content: message } as PromptJsonMetaMessage);
+  }
+
   flushAssistant(): void {
     if (this.assistantText.length === 0 && this.toolCalls.length === 0) return;
     const message: PromptJsonAssistantMessage = {
@@ -766,7 +789,7 @@ class PromptJsonWriter implements PromptTurnWriter {
     return toolCall;
   }
 
-  private writeJsonLine(message: PromptJsonAssistantMessage | PromptJsonToolMessage): void {
+  private writeJsonLine(message: PromptJsonAssistantMessage | PromptJsonToolMessage | PromptJsonMetaMessage): void {
     this.stdout.write(`${JSON.stringify(message)}\n`);
   }
 }

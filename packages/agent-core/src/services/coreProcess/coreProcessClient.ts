@@ -15,7 +15,7 @@
  * NOT here. The peer-service interfaces stay SDK-shaped.
  */
 
-import type { ApprovalRequest, ApprovalResponse, Event, QuestionRequest, QuestionResult, SDKAPI, ToolCallRequest, ToolCallResponse } from '../../rpc';
+import type { ApprovalRequest, ApprovalResponse, ProtocolEvent, QuestionRequest, QuestionResult, SDKAPI, ToolCallRequest, ToolCallResponse } from '../../rpc';
 
 import type { IApprovalService } from '../approval/approval';
 import type { IEventService } from '../event/event';
@@ -36,7 +36,7 @@ export class BridgeClientAPI implements SDKAPI {
     this.deps = deps;
   }
 
-  emitEvent(event: Event): void {
+  emitEvent(event: ProtocolEvent): void {
     const e = event as { type?: string; sessionId?: string; agentId?: string };
     this.deps.logService.debug(
       { type: e.type, sessionId: e.sessionId, agentId: e.agentId },

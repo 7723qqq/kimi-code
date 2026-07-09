@@ -53,7 +53,7 @@ import {
   readWireTranscript,
   toProtocolMessage,
   toProtocolSession,
-  type Event as ProtocolEvent,
+  type ProtocolEvent,
   type SessionMeta,
   type SessionSummary,
   type WireTranscript,

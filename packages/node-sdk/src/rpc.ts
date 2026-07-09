@@ -7,7 +7,7 @@ import {
   type ApprovalRequest,
   type ApprovalResponse,
   type CoreAPI,
-  type Event,
+  type ProtocolEvent,
   type ExperimentalFeatureState,
   type QuestionRequest,
   type QuestionResult,
@@ -115,7 +115,7 @@ type ResolvedCoreAPI = RPCMethods<CoreAPI>;
 
 export abstract class SDKRpcClientBase {
   private readonly interactiveAgentScope = new AsyncLocalStorage<string>();
-  private readonly eventListeners = new Set<(event: Event) => void>();
+  private readonly eventListeners = new Set<(event: ProtocolEvent) => void>();
   private readonly approvalHandlers = new Map<string, ApprovalHandler>();
   private readonly questionHandlers = new Map<string, QuestionHandler>();
 
@@ -661,14 +661,14 @@ export abstract class SDKRpcClientBase {
     });
   }
 
-  onEvent(listener: (event: Event) => void): Unsubscribe {
+  onEvent(listener: (event: ProtocolEvent) => void): Unsubscribe {
     this.eventListeners.add(listener);
     return () => {
       this.eventListeners.delete(listener);
     };
   }
 
-  receiveEvent(event: Event): void {
+  receiveEvent(event: ProtocolEvent): void {
     for (const listener of this.eventListeners) {
       listener(event);
     }
@@ -753,7 +753,7 @@ export abstract class SDKRpcClientBase {
 export class ClientAPI implements SDKAPI {
   constructor(readonly client: SDKRpcClientBase) {}
 
-  emitEvent(event: Event): void {
+  emitEvent(event: ProtocolEvent): void {
     this.client.receiveEvent(event);
   }
 
