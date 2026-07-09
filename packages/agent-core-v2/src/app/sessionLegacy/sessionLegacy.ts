@@ -1,25 +1,26 @@
 /**
  * `sessionLegacy` domain (L7 edge adapter) — v1-compatible session actions.
  *
- * Implements the legacy `/api/v1/sessions/{tail}` action contract (`fork` /
- * `compact` / `undo` / `abort` / `btw`), the `/sessions/{id}/children`
- * endpoints (`createChild` / `listChildren`), and `POST /sessions/{id}/profile`
+ * Implements the legacy `undo` action, the `/sessions/{id}/children` endpoints
+ * (`createChild` / `listChildren`), and `POST /sessions/{id}/profile`
  * (`updateProfile` — title rename, metadata merge, and the cross-domain
  * `agent_config` patch) on top of the native v2 services
- * (`ISessionLifecycleService`, `ISessionIndex`, `IAgentRPCService`,
- * `IAgentFullCompactionService`, `IAgentPromptService`, …). The native services keep serving
- * `/api/v2` and are left untouched; this adapter exists only so clients of the
- * v1 server keep working against server-v2. Bound at App scope — it is a
- * stateless dispatcher that resolves the target session/agent per call.
+ * (`ISessionLifecycleService`, `ISessionIndex`, `IAgentPromptService`, …).
+ *
+ * The thin pass-through actions (`fork` / `compact` / `abort` / `archive`) are
+ * deliberately NOT wrapped here: the edge route calls the native services
+ * (`ISessionLifecycleService.fork` / `archive`, `IAgentFullCompactionService.begin`,
+ * `IAgentRPCService.cancel`) directly, because none of them carries v1-only
+ * projection worth centralizing. Only the actions above hold real adaptation
+ * logic (wire projection, child tagging, undo precheck), so they stay in this
+ * adapter. The native services keep serving `/api/v2` and are left untouched;
+ * this adapter exists only so clients of the v1 server keep working against
+ * server-v2. Bound at App scope — it is a stateless dispatcher that resolves
+ * the target session/agent per call.
  */
 
 import type {
-  ArchiveSessionResponse,
-  CompactSessionRequest,
-  CompactSessionResponse,
   CreateSessionChildRequest,
-  ForkSessionRequest,
-  SessionAbortResponse,
   SessionStatus,
   SessionStatusResponse,
   UndoSessionRequest,
@@ -64,13 +65,9 @@ export interface ISessionLegacyService {
   readonly _serviceBrand: undefined;
 
   updateProfile(sessionId: string, body: UpdateSessionProfileRequest): Promise<SessionWireFields>;
-  fork(sessionId: string, body: ForkSessionRequest): Promise<SessionWireFields>;
   createChild(sessionId: string, body: CreateSessionChildRequest): Promise<SessionWireFields>;
   listChildren(sessionId: string, query: SessionChildrenQuery): Promise<SessionChildrenPage>;
-  compact(sessionId: string, body: CompactSessionRequest): Promise<CompactSessionResponse>;
   undo(sessionId: string, body: UndoSessionRequest): Promise<UndoSessionResponse>;
-  abort(sessionId: string): Promise<SessionAbortResponse>;
-  archive(sessionId: string): Promise<ArchiveSessionResponse>;
   status(sessionId: string): Promise<SessionStatusResponse>;
 }
 

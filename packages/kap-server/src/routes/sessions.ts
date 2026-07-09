@@ -15,10 +15,15 @@
  *   GET    /sessions/{session_id}/status       best-effort
  *   GET    /sessions/{session_id}/warnings     agents-md-oversized notice
  *
- * The `POST /sessions/{tail}` actions (`fork` / `compact` / `undo` / `abort` /
- * `btw` / `archive`) and the `/sessions/{id}/children` endpoints are dispatched
- * to `ISessionLegacyService` (a v1 edge adapter over the native v2 services);
- * the route forwards each adapter result verbatim, mirroring v1's thin handler.
+ * The `POST /sessions/{tail}` actions split into two groups. The thin
+ * pass-throughs — `fork` / `compact` / `abort` / `archive` — call the native v2
+ * services directly (`ISessionLifecycleService.fork` / `archive`,
+ * `IAgentFullCompactionService.begin`, `IAgentRPCService.cancel`); there is no
+ * v1-only projection to centralize, so no adapter is involved. The actions that
+ * DO carry v1 adaptation logic — `undo`, the `/sessions/{id}/children`
+ * endpoints, and `POST /sessions/{id}/profile` (`updateProfile`) — go through
+ * `ISessionLegacyService` (a v1 edge adapter over the native services); the
+ * route forwards each adapter result verbatim, mirroring v1's thin handler.
  * `create`, `fork`, and child creation publish `event.session.created` on the
  * core event bus, matching v1.
  *
@@ -58,9 +63,12 @@
 import {
   ErrorCodes,
   IAgentProfileService,
+  IAgentFullCompactionService,
+  IAgentRPCService,
   IAuthSummaryService,
   ISessionBtwService,
   ISessionActivity,
+  ISessionContext,
   ISessionIndex,
   ISessionLifecycleService,
   ISessionMetadata,
@@ -69,6 +77,7 @@ import {
   IWorkspaceRegistry,
   isKimiError,
   KimiError,
+  type IAgentScopeHandle,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
 import {
@@ -589,8 +598,20 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
 
         if (parsed.action === 'fork') {
           const body = forkSessionRequestSchema.parse(req.body);
-          const fields = await legacy.fork(parsed.id, body);
-          const session = toWireSession(fields, fields.root, resolveSessionStatus(core, fields.id));
+          // `lifecycle.fork` throws `session.not_found` for an unknown source,
+          // so no explicit existence check is needed here.
+          const handle = await core.accessor.get(ISessionLifecycleService).fork({
+            sourceSessionId: parsed.id,
+            title: body.title,
+            metadata: body.metadata,
+          });
+          const meta = await handle.accessor.get(ISessionMetadata).read();
+          const ctx = handle.accessor.get(ISessionContext);
+          const session = toWireSession(
+            { ...meta, workspaceId: ctx.workspaceId },
+            ctx.cwd,
+            resolveSessionStatus(core, meta.id),
+          );
           core.accessor.get(IEventService).publish({
             type: 'event.session.created',
             payload: { agentId: 'main', sessionId: session.id, session },
@@ -601,8 +622,14 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
 
         if (parsed.action === 'compact') {
           const body = compactSessionRequestSchema.parse(req.body);
-          const result = await legacy.compact(parsed.id, body);
-          reply.send(okEnvelope(result, req.id));
+          const agent = await resolveMainAgent(core, parsed.id);
+          // `begin` returns false when busy / over the per-turn limit — v1
+          // treats that as a silent success. It throws `compaction.unable`
+          // when there is no compactable prefix, which propagates.
+          agent.accessor
+            .get(IAgentFullCompactionService)
+            .begin({ source: 'manual', instruction: normalizeOptional(body.instruction) });
+          reply.send(okEnvelope({}, req.id));
           return;
         }
 
@@ -614,8 +641,11 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         }
 
         if (parsed.action === 'abort') {
-          const result = await legacy.abort(parsed.id);
-          reply.send(okEnvelope(result, req.id));
+          const agent = await resolveMainAgent(core, parsed.id);
+          // No turnId → cancel whatever turn is active; a safe no-op when idle.
+          // v1 always reports success once the session exists.
+          await agent.accessor.get(IAgentRPCService).cancel({});
+          reply.send(okEnvelope({ aborted: true }, req.id));
           return;
         }
 
@@ -635,9 +665,15 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           return;
         }
 
-        // archive
-        const result = await legacy.archive(parsed.id);
-        reply.send(okEnvelope(result, req.id));
+        // archive — `resume` (not `get`) so archiving a freshly-opened cold
+        // session still works; `resume` returns undefined only when the session
+        // is unknown or its workspace is gone, reported as `session.not_found`.
+        const archived = await core.accessor.get(ISessionLifecycleService).resume(parsed.id);
+        if (archived === undefined) {
+          throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `session ${parsed.id} does not exist`);
+        }
+        await core.accessor.get(ISessionLifecycleService).archive(parsed.id);
+        reply.send(okEnvelope({ archived: true }, req.id));
       } catch (error) {
         sendMappedError(reply, req.id, error);
       }
@@ -862,6 +898,28 @@ function resolveSessionStatus(core: Scope, sessionId: string): SessionStatus {
   const handle = core.accessor.get(ISessionLifecycleService).get(sessionId);
   if (handle === undefined) return 'idle';
   return handle.accessor.get(ISessionActivity).status();
+}
+
+/**
+ * Resume the session (cold-load if needed) and resolve its main agent, throwing
+ * `session.not_found` when the session is unknown or its workspace is gone.
+ * Shared by the `compact` / `abort` actions, which both operate on the main
+ * agent but carry no v1-specific projection worth keeping in
+ * `ISessionLegacyService`.
+ */
+async function resolveMainAgent(core: Scope, sessionId: string): Promise<IAgentScopeHandle> {
+  const session = await core.accessor.get(ISessionLifecycleService).resume(sessionId);
+  if (session === undefined) {
+    throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
+  }
+  return ensureMainAgent(session);
+}
+
+/** Trim a compaction instruction; treat an empty/blank value as absent. */
+function normalizeOptional(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? undefined : trimmed;
 }
 
 /**

@@ -18,7 +18,6 @@ import { toProtocolMessage } from '#/agent/contextMemory/messageProjection';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
 import { ErrorCodes, isKimiError, KimiError } from '#/errors';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentGoalService } from '#/agent/goal/goal';
 import { IModelResolver } from '#/app/model/modelResolver';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
@@ -26,7 +25,7 @@ import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentPlanService } from '#/agent/plan/plan';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
-import { IAgentRPCService } from '#/agent/rpc/rpc';
+import { IAgentWireRecordService } from '#/agent/wireRecord/wireRecord';
 import { ISessionActivity } from '#/session/sessionActivity/sessionActivity';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
@@ -35,12 +34,7 @@ import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { IAgentSwarmService } from '#/agent/swarm/swarm';
 import { IWorkspaceRegistry } from '#/app/workspaceRegistry/workspaceRegistry';
 import type {
-  ArchiveSessionResponse,
-  CompactSessionRequest,
-  CompactSessionResponse,
   CreateSessionChildRequest,
-  ForkSessionRequest,
-  SessionAbortResponse,
   SessionStatusResponse,
   UndoSessionRequest,
   UndoSessionResponse,
@@ -112,27 +106,6 @@ export class SessionLegacyService implements ISessionLegacyService {
     // unregistered workspace does not collapse `cwd` here — matches v1, which
     // stores `workDir` on the session itself.
     const ctx = session.accessor.get(ISessionContext);
-    return {
-      id: meta.id,
-      workspaceId: ctx.workspaceId,
-      root: ctx.cwd,
-      title: meta.title,
-      lastPrompt: meta.lastPrompt,
-      createdAt: meta.createdAt,
-      updatedAt: meta.updatedAt,
-      archived: meta.archived,
-      custom: meta.custom,
-    };
-  }
-
-  async fork(sessionId: string, body: ForkSessionRequest): Promise<SessionWireFields> {
-    const handle = await this.lifecycle.fork({
-      sourceSessionId: sessionId,
-      title: body.title,
-      metadata: body.metadata as Record<string, unknown> | undefined,
-    });
-    const meta = await handle.accessor.get(ISessionMetadata).read();
-    const ctx = handle.accessor.get(ISessionContext);
     return {
       id: meta.id,
       workspaceId: ctx.workspaceId,
@@ -219,25 +192,29 @@ export class SessionLegacyService implements ISessionLegacyService {
     return { items, has_more: slice.length > pageSize };
   }
 
-  async compact(sessionId: string, body: CompactSessionRequest): Promise<CompactSessionResponse> {
-    const agent = await this.resolveMainAgent(sessionId);
-    const instruction = normalizeOptional(body.instruction);
-    // `begin` returns false when busy / over the per-turn limit — v1 treats
-    // that as a silent success. It throws `compaction.unable` when there is no
-    // compactable prefix, which we let propagate.
-    agent.accessor.get(IAgentFullCompactionService).begin({ source: 'manual', instruction });
-    return {};
-  }
-
   async undo(sessionId: string, body: UndoSessionRequest): Promise<UndoSessionResponse> {
     const agent = await this.resolveMainAgent(sessionId);
     const context = agent.accessor.get(IAgentContextMemoryService);
     const before = context.get();
     const { count } = body;
-    if (!canUndoHistory(before, count)) {
+    const precheck = precheckUndo(before, count);
+    if (!precheck.ok) {
+      const wireRecord = agent.accessor.get(IAgentWireRecordService);
+      const records = wireRecord.getRecords();
+      const contextRecordTypes = records
+        .filter((r) => r.type.startsWith('context.'))
+        .map((r) => r.type);
       throw new KimiError(
         ErrorCodes.SESSION_UNDO_UNAVAILABLE,
-        `Nothing to undo in session ${sessionId}`,
+        undoUnavailableMessage(sessionId, precheck),
+        {
+          details: {
+            historyLength: before.length,
+            historyRoles: before.map((m) => `${m.role}:${m.origin?.kind ?? 'none'}`),
+            wireRecordCount: records.length,
+            contextRecordTypes,
+          },
+        },
       );
     }
     try {
@@ -260,28 +237,6 @@ export class SessionLegacyService implements ISessionLegacyService {
       messages: pageContextMessages(sessionId, summary?.createdAt ?? 0, history, body.page_size),
       status,
     };
-  }
-
-  async abort(sessionId: string): Promise<SessionAbortResponse> {
-    const agent = await this.resolveMainAgent(sessionId);
-    // No turnId → cancel whatever turn is active; a safe no-op when idle.
-    await agent.accessor.get(IAgentRPCService).cancel({});
-    // v1 always reports success once the session exists.
-    return { aborted: true };
-  }
-
-  async archive(sessionId: string): Promise<ArchiveSessionResponse> {
-    // Native `ISessionLifecycleService.archive` is a no-op for sessions that
-    // are not live, so gate on the live handle (matches the previous route
-    // behaviour): a missing live session is reported as `session.not_found`.
-    // `resume` (not `get`) so archiving a freshly-opened cold session still
-    // works; `resume` returns undefined only when the session is unknown or its
-    // workspace is gone, which is reported as `session.not_found`.
-    if ((await this.lifecycle.resume(sessionId)) === undefined) {
-      throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
-    }
-    await this.lifecycle.archive(sessionId);
-    return { archived: true };
   }
 
   // --- internals -------------------------------------------------------------
@@ -438,12 +393,6 @@ export class SessionLegacyService implements ISessionLegacyService {
   }
 }
 
-function normalizeOptional(value: string | undefined): string | undefined {
-  if (value === undefined) return undefined;
-  const trimmed = value.trim();
-  return trimmed.length === 0 ? undefined : trimmed;
-}
-
 /**
  * Resolve the configured default model's context window for the status line
  * when the main agent has no model bound yet (fresh session before the first
@@ -484,23 +433,56 @@ function pageContextMessages(
   };
 }
 
+type UndoPrecheck =
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly reason: 'empty' | 'compaction_boundary' | 'insufficient';
+      readonly requested: number;
+      readonly undoable: number;
+    };
+
 /**
- * v1 `canUndoHistory`: scan from the end, skipping injections, stopping at a
- * compaction summary, and counting real user prompts until `count` is met.
+ * v1 `canUndoHistory`, returning a structured reason instead of a bare boolean
+ * so the wire error can say *why* an undo is unavailable. Scan from the end,
+ * skipping injections, stopping at a compaction summary, and counting real user
+ * prompts until `count` is met. `reason` is `empty` when no real user prompt
+ * exists, `insufficient` when some exist but fewer than `count`, and
+ * `compaction_boundary` when the scan hits a compaction summary first.
  */
-function canUndoHistory(history: readonly ContextMessage[], count: number): boolean {
+export function precheckUndo(history: readonly ContextMessage[], count: number): UndoPrecheck {
   let remaining = count;
+  let undoable = 0;
   for (let i = history.length - 1; i >= 0; i--) {
     const message = history[i]!;
     const originKind = message.origin?.kind;
     if (originKind === 'injection') continue;
-    if (originKind === 'compaction_summary') return false;
+    if (originKind === 'compaction_summary') {
+      return { ok: false, reason: 'compaction_boundary', requested: count, undoable };
+    }
     if (isRealUserPrompt(message)) {
       remaining -= 1;
-      if (remaining === 0) return true;
+      undoable += 1;
+      if (remaining === 0) return { ok: true };
     }
   }
-  return false;
+  return undoable === 0
+    ? { ok: false, reason: 'empty', requested: count, undoable: 0 }
+    : { ok: false, reason: 'insufficient', requested: count, undoable };
+}
+
+function undoUnavailableMessage(
+  sessionId: string,
+  precheck: Extract<UndoPrecheck, { ok: false }>,
+): string {
+  switch (precheck.reason) {
+    case 'empty':
+      return `Nothing to undo: no user message to undo in session ${sessionId}`;
+    case 'compaction_boundary':
+      return `Nothing to undo: would cross a compaction boundary in session ${sessionId}`;
+    case 'insufficient':
+      return `Nothing to undo: only ${precheck.undoable} of ${precheck.requested} requested turn(s) available in session ${sessionId}`;
+  }
 }
 
 function isRealUserPrompt(message: ContextMessage): boolean {
