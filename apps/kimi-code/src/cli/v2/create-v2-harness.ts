@@ -160,7 +160,12 @@ class V2PromptHarness implements PromptHarness {
       await agent.accessor.get(IAgentProfileService).setModel(options.model);
     }
     agent.accessor.get(IAgentPermissionModeService).setMode(options.permission ?? 'auto');
-    return new V2Session({ core: this.core, session, agent });
+    return new V2Session({
+      core: this.core,
+      session,
+      agent,
+      drainAgentTasksOnStop: options.drainAgentTasksOnStop,
+    });
   }
 
   async resumeSession(input: ResumeSessionInput): Promise<PromptSession> {

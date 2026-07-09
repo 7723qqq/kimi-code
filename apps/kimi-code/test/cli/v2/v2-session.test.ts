@@ -1,5 +1,7 @@
 import {
   IAgentLifecycleService,
+  IAgentLoopService,
+  IAgentPromptService,
   IAgentTaskService,
   IConfigService,
   type AgentTaskInfo,
@@ -13,6 +15,7 @@ import { V2Session } from '../../../src/cli/v2/v2-session';
 
 interface FakeTask {
   readonly taskId: string;
+  readonly kind?: AgentTaskInfo['kind'];
   /** ms until this task completes once `wait` is called on it. */
   readonly completesInMs: number;
   /** Optional task to spawn (append to the active list) when this task completes. */
@@ -29,7 +32,14 @@ class FakeTaskService {
   list(activeOnly?: boolean): readonly AgentTaskInfo[] {
     return this.tasks
       .filter((task) => !activeOnly || task.active)
-      .map((task) => ({ taskId: task.taskId, status: 'running' }) as unknown as AgentTaskInfo);
+      .map(
+        (task) =>
+          ({
+            taskId: task.taskId,
+            kind: task.kind ?? 'process',
+            status: 'running',
+          }) as unknown as AgentTaskInfo,
+      );
   }
 
   suppressTerminalNotification(taskId: string): Promise<void> {
@@ -63,15 +73,58 @@ function fakeAccessor(map: Map<unknown, unknown>) {
   return { get: (token: unknown) => map.get(token) };
 }
 
-function buildSession(options: { ceilingS?: number; taskServices: FakeTaskService[] }): V2Session {
+class FakeAfterStepSlot {
+  registration:
+    | {
+        id: string;
+        handler: (ctx: Record<string, unknown>, next: () => Promise<void>) => Promise<void>;
+        options: unknown;
+      }
+    | undefined;
+
+  register(
+    id: string,
+    handler: (ctx: Record<string, unknown>, next: () => Promise<void>) => Promise<void>,
+    options?: unknown,
+  ) {
+    this.registration = { id, handler, options };
+    return { dispose: () => {} };
+  }
+
+  async run(ctx: Record<string, unknown>): Promise<void> {
+    if (this.registration === undefined) return;
+    await this.registration.handler(ctx, async () => {});
+  }
+}
+
+class FakeLoopService {
+  readonly afterStep = new FakeAfterStepSlot();
+  readonly hooks = {
+    beforeStep: { register: () => ({ dispose: () => {} }) },
+    afterStep: this.afterStep,
+    onError: { register: () => ({ dispose: () => {} }) },
+  };
+}
+
+function buildSession(options: {
+  ceilingS?: number;
+  keepAliveOnExit?: boolean;
+  taskServices: FakeTaskService[];
+  drainAgentTasksOnStop?: boolean;
+  loop?: FakeLoopService;
+}): V2Session {
+  const taskConfig =
+    options.ceilingS !== undefined || options.keepAliveOnExit !== undefined
+      ? {
+          keepAliveOnExit: options.keepAliveOnExit,
+          printWaitCeilingS: options.ceilingS,
+        }
+      : undefined;
   const coreMap = new Map<unknown, unknown>([
     [
       IConfigService,
       {
-        get: (section: string) =>
-          section === 'task' && options.ceilingS !== undefined
-            ? { printWaitCeilingS: options.ceilingS }
-            : undefined,
+        get: (section: string) => (section === 'task' ? taskConfig : undefined),
       },
     ],
   ]);
@@ -80,6 +133,15 @@ function buildSession(options: { ceilingS?: number; taskServices: FakeTaskServic
     const agentMap = new Map<unknown, unknown>([[IAgentTaskService, service]]);
     return { accessor: fakeAccessor(agentMap) } as unknown as IAgentScopeHandle;
   });
+
+  const mainAgentMap = new Map<unknown, unknown>();
+  if (options.taskServices[0] !== undefined) {
+    mainAgentMap.set(IAgentTaskService, options.taskServices[0]);
+  }
+  if (options.loop !== undefined) {
+    mainAgentMap.set(IAgentLoopService, options.loop);
+    mainAgentMap.set(IAgentPromptService, {});
+  }
 
   const sessionMap = new Map<unknown, unknown>([
     [
@@ -93,23 +155,34 @@ function buildSession(options: { ceilingS?: number; taskServices: FakeTaskServic
   return new V2Session({
     core: { accessor: fakeAccessor(coreMap) } as unknown as Scope,
     session: { id: 'sess-1', accessor: fakeAccessor(sessionMap) } as unknown as ISessionScopeHandle,
-    agent: { id: 'main', accessor: fakeAccessor(new Map()) } as unknown as IAgentScopeHandle,
+    agent: { id: 'main', accessor: fakeAccessor(mainAgentMap) } as unknown as IAgentScopeHandle,
+    drainAgentTasksOnStop: options.drainAgentTasksOnStop,
   });
 }
 
 describe('V2Session.waitForBackgroundTasksOnPrint', () => {
   it('returns immediately when there are no active background tasks', async () => {
     const service = new FakeTaskService([]);
-    const session = buildSession({ taskServices: [service] });
+    const session = buildSession({ keepAliveOnExit: true, taskServices: [service] });
 
     await session.waitForBackgroundTasksOnPrint();
 
     expect(service.waitCalls).toHaveLength(0);
   });
 
-  it('waits for a background task to complete and bounds the wait by the default ceiling, not 30s', async () => {
+  it('returns immediately when keepAliveOnExit is not enabled', async () => {
     const service = new FakeTaskService([{ taskId: 'a', completesInMs: 20, active: true }]);
     const session = buildSession({ taskServices: [service] });
+
+    await session.waitForBackgroundTasksOnPrint();
+
+    expect(service.waitCalls).toHaveLength(0);
+    expect(service.suppressed).toHaveLength(0);
+  });
+
+  it('waits for a background task to complete and bounds the wait by the default ceiling, not 30s', async () => {
+    const service = new FakeTaskService([{ taskId: 'a', completesInMs: 20, active: true }]);
+    const session = buildSession({ keepAliveOnExit: true, taskServices: [service] });
 
     await session.waitForBackgroundTasksOnPrint();
 
@@ -125,7 +198,7 @@ describe('V2Session.waitForBackgroundTasksOnPrint', () => {
     const service = new FakeTaskService([
       { taskId: 'stuck', completesInMs: Number.POSITIVE_INFINITY, active: true },
     ]);
-    const session = buildSession({ ceilingS: 1, taskServices: [service] });
+    const session = buildSession({ ceilingS: 1, keepAliveOnExit: true, taskServices: [service] });
 
     const startedAt = Date.now();
     await session.waitForBackgroundTasksOnPrint();
@@ -142,7 +215,7 @@ describe('V2Session.waitForBackgroundTasksOnPrint', () => {
     const service = new FakeTaskService([
       { taskId: 'a', completesInMs: 20, active: true, spawnsOnComplete: spawned },
     ]);
-    const session = buildSession({ taskServices: [service] });
+    const session = buildSession({ keepAliveOnExit: true, taskServices: [service] });
 
     await session.waitForBackgroundTasksOnPrint();
 
@@ -150,5 +223,66 @@ describe('V2Session.waitForBackgroundTasksOnPrint', () => {
     expect(waitedIds).toContain('a');
     expect(waitedIds).toContain('b');
     expect(service.suppressed).toEqual(expect.arrayContaining(['a', 'b']));
+  });
+});
+
+describe('V2Session print drain hook', () => {
+  it('waits for active background subagents before the print turn ends', async () => {
+    const loop = new FakeLoopService();
+    const spawned: FakeTask = {
+      taskId: 'agent-b',
+      kind: 'agent',
+      completesInMs: 20,
+      active: true,
+    };
+    const service = new FakeTaskService([
+      {
+        taskId: 'agent-a',
+        kind: 'agent',
+        completesInMs: 20,
+        active: true,
+        spawnsOnComplete: spawned,
+      },
+    ]);
+    buildSession({
+      taskServices: [service],
+      drainAgentTasksOnStop: true,
+      loop,
+    });
+
+    expect(loop.afterStep.registration?.id).toBe('print-drain-agent-tasks');
+    expect(loop.afterStep.registration?.options).toEqual({ after: 'prompt-service-steer' });
+    const ctx = {
+      signal: new AbortController().signal,
+      finishReason: 'completed',
+      continue: false,
+    };
+
+    await loop.afterStep.run(ctx);
+
+    expect(service.waitCalls.map((call) => call.taskId)).toEqual(['agent-a', 'agent-b']);
+    expect(ctx.continue).toBe(true);
+  });
+
+  it('does not hold the print turn for non-agent background tasks', async () => {
+    const loop = new FakeLoopService();
+    const service = new FakeTaskService([
+      { taskId: 'proc-a', kind: 'process', completesInMs: 20, active: true },
+    ]);
+    buildSession({
+      taskServices: [service],
+      drainAgentTasksOnStop: true,
+      loop,
+    });
+    const ctx = {
+      signal: new AbortController().signal,
+      finishReason: 'completed',
+      continue: false,
+    };
+
+    await loop.afterStep.run(ctx);
+
+    expect(service.waitCalls).toHaveLength(0);
+    expect(ctx.continue).toBe(false);
   });
 });

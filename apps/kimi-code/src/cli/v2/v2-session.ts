@@ -9,8 +9,10 @@
 import {
   IAgentGoalService,
   IAgentLifecycleService,
+  IAgentLoopService,
   IAgentPermissionModeService,
   IAgentProfileService,
+  IAgentPromptService,
   IAgentPromptLegacyService,
   IAgentTaskService,
   IConfigService,
@@ -41,6 +43,7 @@ const TASK_CONFIG_SECTION = 'task';
 const LEGACY_BACKGROUND_CONFIG_SECTION = 'background';
 
 interface TaskPrintWaitConfig {
+  readonly keepAliveOnExit?: boolean;
   readonly printWaitCeilingS?: number;
 }
 
@@ -48,6 +51,7 @@ export interface V2SessionContext {
   readonly core: Scope;
   readonly session: ISessionScopeHandle;
   readonly agent: IAgentScopeHandle;
+  readonly drainAgentTasksOnStop?: boolean;
 }
 
 export class V2Session implements PromptSession {
@@ -64,6 +68,7 @@ export class V2Session implements PromptSession {
     this.agent = context.agent;
     this.id = context.session.id;
     this.workDir = resolveWorkDir(context.session);
+    if (context.drainAgentTasksOnStop === true) this.installPrintDrainHook();
   }
 
   async getStatus(): Promise<SessionStatus> {
@@ -115,6 +120,8 @@ export class V2Session implements PromptSession {
   }
 
   async waitForBackgroundTasksOnPrint(): Promise<void> {
+    if (!this.readKeepAliveOnExit()) return;
+
     // Drain background tasks (background bash and background subagents) spawned
     // during the turn before a `kimi -p` run exits. `-p` must be able to run
     // long tasks to completion, so we wait until every active task across every
@@ -154,16 +161,41 @@ export class V2Session implements PromptSession {
     if (allWaiters.length > 0) await Promise.all(allWaiters);
   }
 
+  private installPrintDrainHook(): void {
+    this.agent.accessor.get(IAgentPromptService);
+    const loop = this.agent.accessor.get(IAgentLoopService);
+    const tasks = this.agent.accessor.get(IAgentTaskService);
+    loop.hooks.afterStep.register(
+      'print-drain-agent-tasks',
+      async (ctx, next) => {
+        await next();
+        if (ctx.continue || ctx.finishReason === 'tool_calls') return;
+        if (await waitForActiveAgentTasks(tasks, ctx.signal)) ctx.continue = true;
+      },
+      { after: 'prompt-service-steer' },
+    );
+  }
+
+  private readKeepAliveOnExit(): boolean {
+    const section = this.readTaskPrintWaitConfig();
+    return section?.keepAliveOnExit === true;
+  }
+
   private readPrintWaitCeilingMs(): number {
-    const config = this.core.accessor.get(IConfigService);
-    const section =
-      config.get<TaskPrintWaitConfig>(TASK_CONFIG_SECTION) ??
-      config.get<TaskPrintWaitConfig>(LEGACY_BACKGROUND_CONFIG_SECTION);
+    const section = this.readTaskPrintWaitConfig();
     const ceilingS = section?.printWaitCeilingS;
     if (typeof ceilingS === 'number' && Number.isFinite(ceilingS) && ceilingS > 0) {
       return ceilingS * 1000;
     }
     return DEFAULT_PRINT_WAIT_CEILING_S * 1000;
+  }
+
+  private readTaskPrintWaitConfig(): TaskPrintWaitConfig | undefined {
+    const config = this.core.accessor.get(IConfigService);
+    return (
+      config.get<TaskPrintWaitConfig>(TASK_CONFIG_SECTION) ??
+      config.get<TaskPrintWaitConfig>(LEGACY_BACKGROUND_CONFIG_SECTION)
+    );
   }
 
   async createGoal(input: CreateGoalInput): Promise<GoalSnapshot> {
@@ -175,6 +207,34 @@ export class V2Session implements PromptSession {
   async getGoal(): Promise<GoalToolResult> {
     return this.agent.accessor.get(IAgentGoalService).getGoal() as unknown as GoalToolResult;
   }
+}
+
+async function waitForActiveAgentTasks(
+  taskService: IAgentTaskService,
+  signal: AbortSignal,
+): Promise<boolean> {
+  let waited = false;
+  while (true) {
+    signal.throwIfAborted();
+    const active = taskService.list(true).filter((task) => task.kind === 'agent');
+    if (active.length === 0) return waited;
+    waited = true;
+    const batch = Promise.all(active.map((task) => taskService.wait(task.taskId)));
+    await Promise.race([batch, abortRejecter(signal)]);
+  }
+}
+
+function abortRejecter(signal: AbortSignal): Promise<never> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason ?? new Error('Aborted'));
+  }
+  return new Promise<never>((_, reject) => {
+    signal.addEventListener(
+      'abort',
+      () => reject(signal.reason ?? new Error('Aborted')),
+      { once: true },
+    );
+  });
 }
 
 function resolveWorkDir(session: ISessionScopeHandle): string {
