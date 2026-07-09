@@ -7,8 +7,9 @@
  * limits through `config`, records lifecycle and broadcasts through `wire`
  * (`task.started` / `task.terminated` Ops into `TaskModel`, plus the matching
  * signals), restores ghosts through a single `wire.onRestored` handler (wire
- * replay -> disk load -> reconcile, in that order), and delivers terminal
- * notifications through `contextMemory`. Bound at Agent scope.
+ * replay -> disk load -> reconcile, in that order), delivers terminal
+ * notifications through `contextMemory`, and re-surfaces active tasks through
+ * `contextInjector` after compaction. Bound at Agent scope.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -21,6 +22,7 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { escapeXml, escapeXmlAttr } from '#/_base/utils/xml-escape';
 import { IEventBus } from '#/app/event/eventBus';
 import type { TaskOrigin } from '#/agent/contextMemory/types';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task/task';
 import {
   TERMINAL_STATUSES,
@@ -55,7 +57,7 @@ import {
 import { LEGACY_BACKGROUND_SECTION, TASK_SECTION, type AgentTaskConfig } from './configSection';
 import { AgentTaskPersistence } from './persist';
 import { TaskModel, taskStarted, taskTerminated } from './taskOps';
-import '#/agent/task/tools/task-list';
+import { formatTaskList } from '#/agent/task/tools/task-list';
 import '#/agent/task/tools/task-output';
 import '#/agent/task/tools/task-stop';
 
@@ -147,6 +149,11 @@ const SIGTERM_GRACE_MS = 5_000;
 const TASK_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
 const USER_INTERRUPT_REASON = 'Interrupted by user';
 const NOTIFICATION_FALLBACK_PREVIEW_BYTES = 3_000;
+const ACTIVE_BACKGROUND_TASK_INJECTION_VARIANT = 'background_task_status';
+const ACTIVE_BACKGROUND_TASK_GUIDANCE = [
+  'The conversation was compacted, so the earlier messages that started these background tasks are gone - but the tasks are still running from before.',
+  'Do not start duplicates. Use TaskOutput to fetch a task result, TaskList to list them, and TaskStop to cancel one.',
+].join(' ');
 
 export function isAgentTaskTerminal(status: AgentTaskStatus): boolean {
   return TERMINAL_STATUSES.has(status);
@@ -184,6 +191,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   private readonly scheduledNotificationKeys = new Set<string>();
   private readonly deliveredNotificationKeys = new Set<string>();
   private readonly persistence: AgentTaskPersistence;
+  private activeTaskReminderPending = false;
 
   constructor(
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -197,6 +205,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     @IAgentWireRecordService wireRecord: IAgentWireRecordService,
     @IAgentWireService private readonly wire: IWireService,
     @IEventBus private readonly eventBus: IEventBus,
+    @IAgentContextInjectorService injector: IAgentContextInjectorService,
   ) {
     super();
     this.persistence = new AgentTaskPersistence(
@@ -208,12 +217,20 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     this._register(this.wire.onRestored(() => this.restoreAfterReplay()));
     this._register(
       this.eventBus.subscribe('context.spliced', (e) => {
+        if (isCompactionSplice(e)) {
+          this.activeTaskReminderPending = true;
+        }
         for (const message of e.messages) {
           if (isTaskOrigin(message.origin)) {
             this.markDeliveredNotification(message.origin);
           }
         }
       }),
+    );
+    this._register(
+      injector.register(ACTIVE_BACKGROUND_TASK_INJECTION_VARIANT, () =>
+        this.activeBackgroundTaskReminder(),
+      ),
     );
     this._register(
       wireRecord.hooks.onRestoredRecord.register(
@@ -237,6 +254,14 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     this.restoreGhostsFromWire();
     await this.loadFromDisk({ replace: false });
     await this.reconcile();
+  }
+
+  private activeBackgroundTaskReminder(): string | undefined {
+    if (!this.activeTaskReminderPending) return undefined;
+    this.activeTaskReminderPending = false;
+    const tasks = this.list(true);
+    if (tasks.length === 0) return undefined;
+    return `${ACTIVE_BACKGROUND_TASK_GUIDANCE}\n\n${formatTaskList(tasks, true)}`;
   }
 
   private restoreGhostsFromWire(): void {
@@ -1117,6 +1142,16 @@ function shouldListTask(info: AgentTaskInfo, activeOnly: boolean): boolean {
   if (!TERMINAL_STATUSES.has(info.status)) return true;
   if (activeOnly) return false;
   return info.detached !== false;
+}
+
+function isCompactionSplice(splice: {
+  readonly deleteCount: number;
+  readonly messages: readonly { readonly origin?: { readonly kind: string } | undefined }[];
+}): boolean {
+  return (
+    splice.deleteCount > 0 &&
+    splice.messages.some((message) => message.origin?.kind === 'compaction_summary')
+  );
 }
 
 function newerRestoredTask(

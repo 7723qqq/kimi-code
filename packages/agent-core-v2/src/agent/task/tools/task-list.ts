@@ -36,7 +36,7 @@ export type TaskListInput = z.infer<typeof TaskListInputSchema>;
 
 // ── Implementation ───────────────────────────────────────────────────
 
-function formatTaskList(tasks: readonly AgentTaskInfo[], activeOnly: boolean): string {
+export function formatTaskList(tasks: readonly AgentTaskInfo[], activeOnly: boolean): string {
   // `active_only=false` mixes in terminal/lost tasks, so the count is no
   // longer purely "active" — use a neutral label to avoid mislabeling them.
   const label = activeOnly ? 'active_background_tasks' : 'background_tasks';

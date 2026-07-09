@@ -285,6 +285,7 @@ task --> wireRecord #34495E
 task --> telemetry #34495E
 task --> prompt #34495E
 task --> contextMemory #34495E
+task --> contextInjector #34495E
 task --> config #34495E
 task --> storage #34495E
 task --> session_context #34495E

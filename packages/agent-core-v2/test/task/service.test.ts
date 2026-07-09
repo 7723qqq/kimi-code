@@ -6,6 +6,11 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import {
+  IAgentContextInjectorService,
+  type ContextInjectionContext,
+  type ContextInjectionProvider,
+} from '#/agent/contextInjector/contextInjector';
+import {
   IAgentTaskService,
   type AgentTask,
   type AgentTaskInfo,
@@ -16,6 +21,7 @@ import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
 import type { IProcess } from '#/session/process/processRunner';
 import { IConfigRegistry, IConfigService } from '#/app/config/config';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
@@ -26,6 +32,7 @@ import { IAgentWireRecordService } from '#/agent/wireRecord/wireRecord';
 import { IAgentWireService } from '#/wire/tokens';
 import type { IWireService } from '#/wire/wireService';
 import { IEventBus } from '#/app/event/eventBus';
+import { EventBusService } from '#/app/event/eventBusService';
 import { ITaskService } from '#/app/task/task';
 
 import { stubContextMemory, stubWireRecord } from '../contextMemory/stubs';
@@ -58,15 +65,24 @@ function stubWireService(): IWireService {
 describe('AgentTaskService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
+  let eventBus: EventBusService;
+  let injectionProviders: Map<string, ContextInjectionProvider>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
+    eventBus = disposables.add(new EventBusService());
+    injectionProviders = new Map();
     ix.stub(IAgentWireRecordService, stubWireRecord());
     ix.stub(IAgentWireService, stubWireService());
-    ix.stub(IEventBus, {
-      publish: () => {},
-      subscribe: () => toDisposable(() => {}),
+    ix.stub(IEventBus, eventBus);
+    ix.stub(IAgentContextInjectorService, {
+      register: (name, provider) => {
+        injectionProviders.set(name, provider);
+        return toDisposable(() => {
+          injectionProviders.delete(name);
+        });
+      },
     });
     ix.stub(ITaskService, {
       run: () => {
@@ -126,6 +142,69 @@ describe('AgentTaskService', () => {
     expect(listed[0]?.kind).toBe('process');
     expect(await svc.readOutput(id)).toBe('');
     await svc.stop(id);
+  });
+
+  function compactionSummary(text: string): ContextMessage {
+    return {
+      role: 'user',
+      content: [{ type: 'text', text }],
+      toolCalls: [],
+      origin: { kind: 'compaction_summary' },
+    };
+  }
+
+  function publishCompactionSplice(): void {
+    eventBus.publish({
+      type: 'context.spliced',
+      start: 0,
+      deleteCount: 2,
+      messages: [compactionSummary('Compacted summary.')],
+    });
+  }
+
+  async function backgroundTaskReminder(
+    context: ContextInjectionContext = {
+      injectedPositions: [],
+      lastInjectedAt: null,
+      isNewTurn: false,
+    },
+  ): Promise<string | undefined> {
+    const provider = injectionProviders.get('background_task_status');
+    expect(provider).toBeDefined();
+    const content = await provider!(context);
+    return typeof content === 'string' ? content : undefined;
+  }
+
+  it('injects active background task status when compaction dropped the original launch context', async () => {
+    const svc = ix.get(IAgentTaskService);
+    const taskId = svc.registerTask(fakeProcessTask());
+
+    expect(await backgroundTaskReminder()).toBeUndefined();
+
+    publishCompactionSplice();
+
+    const reminder = await backgroundTaskReminder();
+    expect(reminder).toContain('The conversation was compacted');
+    expect(reminder).toContain('active_background_tasks: 1');
+    expect(reminder).toContain(taskId);
+    expect(reminder).toContain('TaskOutput');
+    expect(reminder).toContain('TaskList');
+    expect(reminder).toContain('TaskStop');
+    expect(await backgroundTaskReminder()).toBeUndefined();
+
+    await svc.stop(taskId);
+  });
+
+  it('does not carry post-compaction task reminder eligibility forward when no task is active', async () => {
+    const svc = ix.get(IAgentTaskService);
+    publishCompactionSplice();
+
+    expect(await backgroundTaskReminder()).toBeUndefined();
+
+    const taskId = svc.registerTask(fakeProcessTask());
+    expect(await backgroundTaskReminder()).toBeUndefined();
+
+    await svc.stop(taskId);
   });
 
   // ── Output ceiling for shell (process) tasks ─────────────────────────

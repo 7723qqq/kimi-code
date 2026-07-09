@@ -64,11 +64,22 @@ export function estimateTokensForContentParts(parts: readonly ContentPart[]): nu
   return total;
 }
 
+export const MEDIA_TOKEN_ESTIMATE = 2000;
+
 export function estimateTokensForContentPart(part: ContentPart): number {
-  if (part.type === 'text') {
-    return estimateTokens(part.text);
-  } else if (part.type === 'think') {
-    return estimateTokens(part.think);
+  switch (part.type) {
+    case 'text':
+      return estimateTokens(part.text);
+    case 'think':
+      return estimateTokens(part.think);
+    case 'image_url':
+    case 'audio_url':
+    case 'video_url':
+      return MEDIA_TOKEN_ESTIMATE;
+    default: {
+      const exhaustive: never = part;
+      void exhaustive;
+      return 0;
+    }
   }
-  return 0;
 }
