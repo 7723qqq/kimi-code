@@ -120,10 +120,17 @@ interface SessionState {
 export const DEFAULT_MAX_BUFFER_SIZE = 1000;
 const GLOBAL_SESSION_ID = '__global__';
 
+async function disposeSessionState(state: SessionState): Promise<void> {
+  for (const d of state.lifecycleDisposables) d.dispose();
+  for (const d of state.agentDisposables.values()) d.dispose();
+  await state.journal.close();
+}
+
 export class SessionEventBroadcaster {
   private readonly sessions = new Map<string, SessionState>();
   private readonly maxBufferSize: number;
   private readonly coreEventSubscription: IDisposable;
+  private closed = false;
 
   constructor(
     private readonly opts: {
@@ -253,16 +260,17 @@ export class SessionEventBroadcaster {
   }
 
   async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
     this.coreEventSubscription.dispose();
     for (const state of this.sessions.values()) {
-      for (const d of state.lifecycleDisposables) d.dispose();
-      for (const d of state.agentDisposables.values()) d.dispose();
-      await state.journal.close();
+      await disposeSessionState(state);
     }
     this.sessions.clear();
   }
 
   private async ensureState(sessionId: string): Promise<SessionState | undefined> {
+    if (this.closed) return undefined;
     let state = this.sessions.get(sessionId);
     if (state !== undefined) return state;
 
@@ -273,6 +281,10 @@ export class SessionEventBroadcaster {
       sessionJournalPath(this.opts.eventsDir, sessionId),
       this.opts.logger,
     );
+    if (this.closed) {
+      await journal.close();
+      return undefined;
+    }
     state = {
       sessionId,
       journal,
@@ -285,8 +297,15 @@ export class SessionEventBroadcaster {
       knownInteractions: new Map(),
     };
     this.sessions.set(sessionId, state);
-    this.attachAgents(sessionId, session, state);
-    this.attachInteractions(sessionId, session, state);
+    try {
+      this.attachAgents(sessionId, session, state);
+      this.attachInteractions(sessionId, session, state);
+    } catch (error) {
+      this.sessions.delete(sessionId);
+      await disposeSessionState(state);
+      if (error instanceof Error && error.message === 'InstantiationService has been disposed') return undefined;
+      throw error;
+    }
     return state;
   }
 

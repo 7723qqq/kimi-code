@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -128,6 +128,40 @@ describe('server-v2 /api/v1 prompts', () => {
       expect(list.body.data.active.prompt_id).toBe(submitted.body.data.prompt_id);
     }
     expect(Array.isArray(list.body.data.queued)).toBe(true);
+  });
+
+  it('materializes uploaded video prompts into cache path tags', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+    const videoBytes = Buffer.from('tiny fake mp4 bytes');
+    const form = new FormData();
+    form.set('file', new Blob([videoBytes], { type: 'video/mp4' }), 'clip.mp4');
+    const uploadRes = await fetch(`${base}/api/v1/files`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer),
+      body: form,
+    } as never);
+    const uploaded = (await uploadRes.json()) as Envelope<{ id: string }>;
+    expect(uploaded.code).toBe(0);
+
+    const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
+      content: [
+        { type: 'text', text: 'what happens in this video?' },
+        { type: 'video', source: { kind: 'file', file_id: uploaded.data.id } },
+      ],
+    });
+    expect(submitted.body.code).toBe(0);
+
+    const content = submitted.body.data.content as Array<{ type: string; text?: string }>;
+    expect(content).toHaveLength(2);
+    expect(content[0]).toEqual({ type: 'text', text: 'what happens in this video?' });
+    expect(content[1]?.type).toBe('text');
+    const match = /<video path="([^"]+)"><\/video>/.exec(content[1]?.text ?? '');
+    expect(match).not.toBeNull();
+    const cachePath = match![1]!;
+    expect(cachePath.startsWith(join(home as string, 'cache'))).toBe(true);
+    expect(cachePath.endsWith('.mp4')).toBe(true);
+    expect(await readFile(cachePath)).toEqual(videoBytes);
   });
 
   it('returns 40402 when aborting a prompt that already settled', async () => {
