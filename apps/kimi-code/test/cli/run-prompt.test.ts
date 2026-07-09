@@ -1076,7 +1076,7 @@ describe('runPrompt', () => {
     expect(stdout.text()).toBe('• hello world\n\n');
   });
 
-  it('does not emit the version meta in stream-json mode even when the experimental flag is enabled', async () => {
+  it('emits the version first in stream-json mode when the experimental flag is enabled', async () => {
     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '1');
     const stdout = writer();
     const stderr = writer();
@@ -1088,10 +1088,11 @@ describe('runPrompt', () => {
 
     expect(mocks.createV2Harness).toHaveBeenCalled();
     expect(mocks.kimiHarnessConstructor).not.toHaveBeenCalled();
+    const lines = stdout.text().split('\n');
+    expect(lines[0]).toBe(
+      '{"role":"meta","type":"system.version","version":"1.2.3-test"}',
+    );
     expect(stderr.text()).toBe('');
-    // The version banner is intentionally omitted in stream-json mode so the
-    // role sequence stays clean for structured consumers.
-    expect(stdout.text()).not.toContain('system.version');
   });
 
   it('does not emit the version when the experimental flag is disabled', async () => {

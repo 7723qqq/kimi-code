@@ -14,7 +14,6 @@
 
 import { parseBooleanEnv } from '#/_base/utils/env';
 import type { ConfigEffectiveOverlay } from '#/app/config/config';
-import { registerConfigOverlay } from '#/app/config/configOverlayContributions';
 import { ErrorCodes, KimiError } from '#/errors';
 import { ENV_MODEL_PROVIDER_KEY } from '#/app/provider/provider';
 
@@ -220,8 +219,3 @@ function collectModelOverrides(input: {
   }
   return Object.keys(modelOverrides).length > 0 ? modelOverrides : undefined;
 }
-
-// Self-register at module load so the overlay takes effect even when
-// `ModelService` is never instantiated (the DI layer does not auto-instantiate
-// `Eager` services). Drained by `ConfigRegistry` on construction.
-registerConfigOverlay(kimiModelEnvOverlay);

@@ -26,7 +26,6 @@ import {
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { FileSkillDiscovery } from '#/app/skillCatalog/fileSkillDiscovery';
 import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
-import { ICliSkillDirs } from '#/app/skillCatalog/cliSkillDirs';
 
 export interface IBootstrapOptions {
   readonly homeDir: string;
@@ -165,9 +164,6 @@ function skillSeed(): ScopeSeed {
       ISkillDiscovery as ServiceIdentifier<unknown>,
       new SyncDescriptor(FileSkillDiscovery, [], true),
     ],
-    // Default empty so `ExplicitSkillSource` resolves cleanly when the host
-    // does not inject any `--skills-dir`. Hosts override via `extraSeeds`.
-    [ICliSkillDirs as ServiceIdentifier<unknown>, { dirs: [] }],
   ];
 }
 

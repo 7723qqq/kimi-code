@@ -12,7 +12,9 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
-import { IConfigService } from '#/app/config/config';
+import { IConfigRegistry, IConfigService } from '#/app/config/config';
+
+import { kimiModelEnvOverlay } from './envOverlay';
 import {
   type ModelAlias,
   type ModelsChangedEvent,
@@ -26,8 +28,12 @@ export class ModelService extends Disposable implements IModelService {
   private readonly _onDidChangeModels = this._register(new Emitter<ModelsChangedEvent>());
   readonly onDidChangeModels: Event<ModelsChangedEvent> = this._onDidChangeModels.event;
 
-  constructor(@IConfigService private readonly config: IConfigService) {
+  constructor(
+    @IConfigRegistry registry: IConfigRegistry,
+    @IConfigService private readonly config: IConfigService,
+  ) {
     super();
+    registry.registerEffectiveOverlay(kimiModelEnvOverlay);
     this._register(
       config.onDidChangeConfiguration((e) => {
         if (e.domain === MODELS_SECTION) {
