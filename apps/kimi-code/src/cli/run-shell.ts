@@ -112,7 +112,10 @@ export async function runShell(
   });
 
   initializeCliTelemetry({
-    harness,
+    homeDir: harness.homeDir,
+    auth: harness.auth,
+    track: (event, properties) =>
+      properties === undefined ? harness.track(event) : harness.track(event, properties),
     bootstrap: telemetryBootstrap,
     config,
     version,

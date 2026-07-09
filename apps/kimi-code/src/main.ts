@@ -105,7 +105,10 @@ export async function handleUpgradeCommand(version: string): Promise<void> {
     await harness.ensureConfigFile();
     const config = await harness.getConfig();
     initializeCliTelemetry({
-      harness,
+      homeDir: harness.homeDir,
+      auth: harness.auth,
+      track: (event, properties) =>
+        properties === undefined ? harness.track(event) : harness.track(event, properties),
       bootstrap: telemetryBootstrap,
       config,
       version,

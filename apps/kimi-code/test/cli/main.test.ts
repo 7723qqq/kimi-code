@@ -396,9 +396,8 @@ describe('main entry command handling', () => {
     }));
     expect(mocks.harness.ensureConfigFile).toHaveBeenCalledTimes(1);
     expect(mocks.initializeCliTelemetry).toHaveBeenCalledWith(expect.objectContaining({
-      harness: expect.objectContaining({
-        homeDir: '/tmp/kimi-home',
-      }),
+      homeDir: '/tmp/kimi-home',
+      track: expect.any(Function),
       bootstrap: {
         homeDir: '/tmp/kimi-home',
         deviceId: 'device-id',
