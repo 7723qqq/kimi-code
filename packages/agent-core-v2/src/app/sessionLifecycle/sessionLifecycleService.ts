@@ -228,18 +228,11 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       // Resolve context memory BEFORE restoring so its reducers are registered;
       // otherwise the wire replay applies context records into a void and the
       // restored transcript never lands in context memory.
-      const contextMemory = main.accessor.get(IAgentContextMemoryService);
+      main.accessor.get(IAgentContextMemoryService);
       const mainWireRecord = main.accessor.get(IAgentWireRecordService);
       await mainWireRecord.restore();
       const records = mainWireRecord.getRecords() as readonly PersistedRecord[];
       await main.accessor.get(IAgentWireService).replay(...records);
-      const contextAfter = contextMemory.get();
-      console.log(
-        `[doResume] session=${sessionId} wireRecords=${records.length}` +
-          ` contextRecordTypes=[${records.filter((r) => r.type.startsWith('context.')).map((r) => r.type).join(',')}]` +
-          ` contextAfterReplay=${contextAfter.length}` +
-          ` roles=[${contextAfter.map((m) => `${m.role}:${m.origin?.kind ?? 'none'}`).join(',')}]`,
-      );
     }
     await this.announceCreated({ sessionId, handle, source: 'resume' });
     return handle;
