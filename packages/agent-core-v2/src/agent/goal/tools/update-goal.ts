@@ -15,6 +15,10 @@ import type { BuiltinTool, ToolExecution } from '#/agent/tool/toolContract';
 import { registerTool } from '#/agent/toolRegistry/toolContribution';
 
 import { IAgentGoalService } from '#/agent/goal/goal';
+import {
+  buildGoalBlockedReasonPrompt,
+  buildGoalCompletionSummaryPrompt,
+} from './outcome-prompts';
 import DESCRIPTION from './update-goal.md?raw';
 
 export const UpdateGoalToolInputSchema = z
@@ -55,12 +59,18 @@ export class UpdateGoalTool implements BuiltinTool<UpdateGoalToolInput> {
           return { output: 'Goal resumed.' };
         }
         if (status === 'complete') {
-          await this.goal.markComplete({}, 'model');
-          return { output: 'Goal marked complete.', stopTurn: true };
+          const completed = await this.goal.markComplete({}, 'model');
+          if (completed === null) {
+            return { output: 'Goal marked complete.', stopTurn: true };
+          }
+          return { output: buildGoalCompletionSummaryPrompt(completed), stopTurn: true };
         }
         if (status === 'blocked') {
-          await this.goal.markBlocked({}, 'model');
-          return { output: 'Goal marked blocked.', stopTurn: true };
+          const blocked = await this.goal.markBlocked({}, 'model');
+          if (blocked === null) {
+            return { output: 'Goal marked blocked.', stopTurn: true };
+          }
+          return { output: buildGoalBlockedReasonPrompt(blocked), stopTurn: true };
         }
         return {
           isError: true,
