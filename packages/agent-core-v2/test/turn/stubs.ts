@@ -82,6 +82,13 @@ export function stubTurn(options: StubTurnOptions = {}): StubTurn {
       activeTurn = turn;
       return turn;
     },
+    launchWithLease(lease) {
+      const turn = makeTurn(lease.turnId);
+      nextId = lease.turnId + 1;
+      launches.push(turn.id);
+      activeTurn = turn;
+      return turn;
+    },
     getActiveTurn() {
       return options.hasActiveTurn ? activeTurn : undefined;
     },

@@ -17,6 +17,7 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { IDisposable } from '#/_base/di/lifecycle';
 import type { PromptOrigin } from '#/agent/contextMemory/types';
+import type { TurnEndReason } from '@moonshot-ai/protocol';
 
 export type AgentLane = 'initializing' | 'idle' | 'turn' | 'disposing' | 'disposed';
 
@@ -60,6 +61,14 @@ export interface IAgentActivityService {
 
   /** Non-throwing variant: returns `undefined` when admission fails. */
   tryBegin(kind: 'turn', opts?: BeginOptions): ActivityLease | undefined;
+
+  /**
+   * Drives the `initializing → idle` transition. Called by the agent bootstrap
+   * (`agentLifecycle.create`) once construction (and the eager tool / hook / MCP
+   * setup) has finished and the agent is ready to admit turns. Until then
+   * `begin` rejects with `activity.initializing`. No-op when not `initializing`.
+   */
+  markReady(): void;
 
   /** Unified cancel: `turn(active)` → `turn(ending)` and aborts the lease signal. Idempotent. */
   cancel(reason?: unknown): boolean;
@@ -115,7 +124,72 @@ export interface ISessionActivityKernel {
 
   beginClosing(): void;
   settled(): Promise<void>;
+
+  /**
+   * Drives the `restoring → active` transition. Called by the session lifecycle
+   * once materialization (and, for resume, replay) has finished and the session
+   * is ready to accept commands. No-op when not `restoring`.
+   */
+  markActive(): void;
 }
 
 export const ISessionActivityKernel: ServiceIdentifier<ISessionActivityKernel> =
   createDecorator<ISessionActivityKernel>('sessionActivityKernel');
+
+export type TurnPhase = 'running' | 'streaming' | 'tool_call' | 'retrying';
+
+export interface ApprovalRef {
+  readonly approvalId: string;
+  readonly toolCallId?: string;
+  readonly since: number;
+}
+
+export interface ToolCallRef {
+  readonly toolCallId: string;
+  readonly name: string;
+  readonly since: number;
+}
+
+export interface ActivityRetryState {
+  readonly failedAttempt: number;
+  readonly nextAttempt: number;
+  readonly maxAttempts: number;
+  readonly delayMs: number;
+  readonly errorName?: string;
+  readonly statusCode?: number;
+}
+
+export interface ActivityTurnState {
+  readonly turnId: number;
+  readonly origin: PromptOrigin;
+  readonly phase: TurnPhase;
+  readonly stream?: 'assistant' | 'thinking' | 'tool_call';
+  readonly step: number;
+  readonly ending: boolean;
+  readonly endingReason?: 'aborted' | 'max_steps' | 'error';
+  readonly retry?: ActivityRetryState;
+  readonly pendingApprovals: readonly ApprovalRef[];
+  readonly activeToolCalls: readonly ToolCallRef[];
+  readonly since: number;
+}
+
+export interface ActivityLastTurnState {
+  readonly turnId: number;
+  readonly reason: TurnEndReason;
+  readonly durationMs?: number;
+  readonly at: number;
+}
+
+/**
+ * Structured read model of "what the agent is doing". The observable state
+ * space is `lane × turn sub-phase × pending-approval set × active-tool-call set
+ * × background-activity set`; the authoritative machine itself stays the five
+ * `AgentLane` positions. Derived by the `runtime` projector from the kernel's
+ * `LaneModel` plus `IEventBus` facts; emitted as `agent.activity.updated`.
+ */
+export interface AgentActivitySnapshot {
+  readonly lane: AgentLane;
+  readonly turn?: ActivityTurnState;
+  readonly lastTurn?: ActivityLastTurnState;
+  readonly background: readonly BackgroundActivityRef[];
+}

@@ -115,6 +115,7 @@ import {
   type ScopeSeed,
   type ServiceIdentifier,
 } from '#/index';
+import { ISessionActivityKernel } from '#/activity/activity';
 import { IEventBus } from '#/app/event/eventBus';
 import { IAgentWireService } from '#/wire/tokens';
 import type { PersistedRecord } from '#/wire/wireService';
@@ -1033,6 +1034,10 @@ export class AgentTestContext {
         'session',
       ),
     });
+    // The harness builds scopes directly (bypassing SessionLifecycleService), so
+    // drive the Session activity kernel to `active` here — the lifecycle would
+    // do this in `announceCreated` after materialize / replay.
+    this.session.accessor.get(ISessionActivityKernel).markActive();
     const workspace = this.session.accessor.get(ISessionWorkspaceContext);
 
     this.agent = this.session.createChild(LifecycleScope.Agent, agentId, {

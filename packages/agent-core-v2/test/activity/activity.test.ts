@@ -12,12 +12,16 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
-import { createServices, TestInstantiationService } from '#/_base/di/test';
+import { LifecycleScope } from '#/_base/di/scope';
+import { createScopedTestHost, createServices, TestInstantiationService } from '#/_base/di/test';
 import { IAgentActivityService, ISessionActivityKernel } from '#/activity/activity';
+import type { ActivityLease } from '#/activity/activity';
 import { AgentActivityService } from '#/activity/agentActivityService';
+import { SessionActivityKernel } from '#/activity/sessionActivityKernel';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ErrorCodes } from '#/errors';
-import { IAgentWireService } from '#/wire/tokens';
+import { IAgentWireService, ISessionWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 import { WireService } from '#/wire/wireServiceImpl';
 
 import { stubSessionActivityKernel } from './stubs';
@@ -50,9 +54,15 @@ describe('AgentActivityService (turn lane)', () => {
     disposables.dispose();
   });
 
-  it('starts idle and admits a turn', () => {
+  it('starts initializing and admits a turn only after markReady', () => {
+    expect(activity.lane()).toBe('initializing');
+    // Admission is rejected while the bootstrap has not finished.
+    expect(() => activity.begin('turn')).toThrowError(
+      expect.objectContaining({ code: ErrorCodes.ACTIVITY_INITIALIZING }),
+    );
+    activity.markReady();
     expect(activity.lane()).toBe('idle');
-    const lease = activity.begin('turn');
+    const lease: ActivityLease = activity.begin('turn');
     expect(lease.kind).toBe('turn');
     expect(lease.signal.aborted).toBe(false);
     expect(activity.lane()).toBe('turn');
@@ -61,6 +71,7 @@ describe('AgentActivityService (turn lane)', () => {
   });
 
   it('rejects a concurrent begin with activity.agent_busy', () => {
+    activity.markReady();
     const lease = activity.begin('turn');
     expect(() => activity.begin('turn')).toThrowError(
       expect.objectContaining({ code: ErrorCodes.ACTIVITY_AGENT_BUSY }),
@@ -69,12 +80,14 @@ describe('AgentActivityService (turn lane)', () => {
   });
 
   it('tryBegin returns undefined when busy', () => {
+    activity.markReady();
     const lease = activity.begin('turn');
     expect(activity.tryBegin('turn')).toBeUndefined();
     lease.end('completed');
   });
 
   it('cancel aborts the lease signal and keeps the lane until end', () => {
+    activity.markReady();
     const lease = activity.begin('turn');
     expect(activity.cancel('stop')).toBe(true);
     expect(lease.signal.aborted).toBe(true);
@@ -86,10 +99,12 @@ describe('AgentActivityService (turn lane)', () => {
   });
 
   it('cancel is a no-op when idle', () => {
+    activity.markReady();
     expect(activity.cancel()).toBe(false);
   });
 
   it('lease.end is idempotent', () => {
+    activity.markReady();
     const lease = activity.begin('turn');
     lease.end('completed');
     expect(() => lease.end('completed')).not.toThrow();
@@ -97,6 +112,7 @@ describe('AgentActivityService (turn lane)', () => {
   });
 
   it('beginDisposal aborts the in-flight lease and settles after end', async () => {
+    activity.markReady();
     const lease = activity.begin('turn');
     activity.beginDisposal();
     expect(lease.signal.aborted).toBe(true);
@@ -105,5 +121,92 @@ describe('AgentActivityService (turn lane)', () => {
     lease.end('cancelled');
     await settled;
     expect(activity.lane()).toBe('disposed');
+  });
+});
+
+describe('SessionActivityKernel (session lane)', () => {
+  let host: ReturnType<typeof createScopedTestHost>;
+  let kernel: ISessionActivityKernel;
+
+  function stubWire(): IWireService {
+    return {
+      _serviceBrand: undefined,
+      dispatch: () => undefined,
+      replay: () => Promise.resolve(),
+      flush: () => Promise.resolve(),
+      attach: () => ({ dispose: () => undefined }),
+      getModel: (model: { initial: () => unknown }) => model.initial(),
+      subscribe: () => ({ dispose: () => undefined }),
+      onEmission: () => ({ dispose: () => undefined }),
+      onRestored: () => ({ dispose: () => undefined }),
+    } as unknown as IWireService;
+  }
+
+  beforeEach(() => {
+    host = createScopedTestHost();
+    const session = host.child(LifecycleScope.Session, 'session', [
+      [ISessionWireService, stubWire()],
+    ]);
+    kernel = session.accessor.get(ISessionActivityKernel);
+  });
+
+  afterEach(() => {
+    host.dispose();
+  });
+
+  function fakeLease(turnId: number): ActivityLease {
+    return {
+      kind: 'turn',
+      turnId,
+      origin: { kind: 'user' },
+      signal: new AbortController().signal,
+      ending: false,
+      end: () => undefined,
+    };
+  }
+
+  it('starts restoring and only admits agent.create until active', () => {
+    expect(kernel.lane()).toBe('restoring');
+    expect(kernel.canAccept('agent.create')).toBe(true);
+    expect(kernel.canAccept('turn.begin')).toBe(false);
+    expect(kernel.canAccept('session.fork')).toBe(false);
+    kernel.markActive();
+    expect(kernel.lane()).toBe('active');
+    expect(kernel.canAccept('turn.begin')).toBe(true);
+  });
+
+  it('admitTurn rejects while restoring and registers while active', () => {
+    expect(() => kernel.admitTurn('agent', fakeLease(1))).toThrowError(
+      expect.objectContaining({ code: ErrorCodes.ACTIVITY_SESSION_REJECTED }),
+    );
+    kernel.markActive();
+    const reg = kernel.admitTurn('agent', fakeLease(1));
+    reg.dispose();
+  });
+
+  it('quiesce flips to quiescing and restores to active on dispose', async () => {
+    kernel.markActive();
+    const lease = await kernel.quiesce('fork');
+    expect(kernel.lane()).toBe('quiescing');
+    expect(kernel.canAccept('turn.begin')).toBe(false);
+    lease.dispose();
+    expect(kernel.lane()).toBe('active');
+  });
+
+  it('quiesce waits for in-flight leases to drain', async () => {
+    kernel.markActive();
+    const reg = kernel.admitTurn('agent', fakeLease(1));
+    let resolved = false;
+    const pending = kernel.quiesce('fork').then((lease) => {
+      resolved = true;
+      return lease;
+    });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    reg.dispose();
+    const lease = await pending;
+    expect(resolved).toBe(true);
+    expect(kernel.lane()).toBe('quiescing');
+    lease.dispose();
   });
 });

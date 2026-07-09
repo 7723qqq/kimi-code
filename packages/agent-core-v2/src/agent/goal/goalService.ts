@@ -39,6 +39,8 @@ import {
 } from '#/agent/loop/loop';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IAgentTurnService, type TurnResult } from '#/agent/turn/turn';
+import { IAgentActivityService } from '#/activity/activity';
+import type { ActivityLease } from '#/activity/activity';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
 import type { TelemetryProperties } from '#/app/telemetry/telemetry';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -154,6 +156,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
+    @IAgentActivityService private readonly activity: IAgentActivityService,
     @IAgentLoopService loopService: IAgentLoopService,
   ) {
     super();
@@ -433,11 +436,16 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     const state = this.goalState;
     if (state === null || state.status !== 'active') return;
     if (this.blockIfBudgetReached(state) !== null) return;
-    if (this.turnService.getActiveTurn() !== undefined) return;
-    this.launchContinuationTurn();
+    // Atomically acquire the turn lane BEFORE appending the continuation message:
+    // if another activity holds the lane (race lost), `tryBegin` returns
+    // undefined and we skip — no orphan continuation message in context, and the
+    // busy outcome is no longer swallowed by a `.catch(() => undefined)`.
+    const lease = this.activity.tryBegin('turn', { origin: GOAL_CONTINUATION_ORIGIN });
+    if (lease === undefined) return;
+    this.launchContinuationTurn(lease);
   }
 
-  private launchContinuationTurn(): void {
+  private launchContinuationTurn(lease: ActivityLease): void {
     const message: ContextMessage = {
       role: 'user',
       content: [{ type: 'text', text: GOAL_CONTINUATION_PROMPT }],
@@ -445,7 +453,10 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       origin: GOAL_CONTINUATION_ORIGIN,
     };
     this.context.append(message);
-    this.turnService.launch({ input: message.content, origin: GOAL_CONTINUATION_ORIGIN });
+    this.turnService.launchWithLease(lease, {
+      input: message.content,
+      origin: GOAL_CONTINUATION_ORIGIN,
+    });
   }
 
   private normalizeAfterReplay(): void {

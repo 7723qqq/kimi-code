@@ -30,6 +30,7 @@
  */
 
 import type {
+  AgentActivitySnapshot,
   ApprovalResponse,
   DomainEvent,
   GlobalEvent,
@@ -62,7 +63,11 @@ import { isVolatileEventType } from '@moonshot-ai/protocol';
 
 import { toWireApproval } from '../../../routes/approvals';
 import { toWireQuestion } from '../../../routes/questions';
-import { LegacyStatusModel, readLegacyStatus } from '../../../services/legacyStatus/legacyStatus';
+import {
+  LegacyStatusModel,
+  readLegacyStatus,
+  toLegacyPhase,
+} from '../../../services/legacyStatus/legacyStatus';
 import { InFlightTurnTracker } from './inFlightTurnTracker';
 import {
   type EventEnvelope,
@@ -480,6 +485,35 @@ export class SessionEventBroadcaster {
   private onAgentEvent(sessionId: string, agentId: string, event: DomainEvent): void {
     const state = this.sessions.get(sessionId);
     if (state === undefined) return;
+
+    // Map the native v2 activity snapshot to the legacy v1 `agent.status.updated`
+    // phase slice at the edge, so the v1 channel picks up the corrected
+    // semantics (approval-set, idle-after-ended) without the core engine
+    // carrying v1 compatibility. The core's own `agent.status.updated` phase
+    // slice is dropped here to avoid duplicate phase events; other slices
+    // (usage / context / plan / swarm) flow through unchanged.
+    if (event.type === 'agent.activity.updated') {
+      const phase = toLegacyPhase(event as unknown as AgentActivitySnapshot);
+      if (phase !== undefined) {
+        const wireEvent = {
+          type: 'agent.status.updated',
+          phase,
+          agentId,
+          sessionId,
+        } as unknown as Event;
+        state.queue = state.queue
+          .then(() => this.dispatch(state, wireEvent, true))
+          .catch(() => {});
+      }
+      return;
+    }
+    if (
+      event.type === 'agent.status.updated' &&
+      (event as { phase?: unknown }).phase !== undefined
+    ) {
+      return;
+    }
+
     // The migrated agent events are AgentEvent-shaped by construction (they were
     // ported from the former `record.signal(agentEvent)` call sites); the declared
     // `DomainEventMap` payload types are deliberately wider than the protocol

@@ -1,18 +1,24 @@
 /**
- * `activity` domain (L4) — `ISessionActivityKernel` implementation (PR1 placeholder).
+ * `activity` domain (L4) — `ISessionActivityKernel` implementation.
  *
- * PR1 only needs the Session kernel to exist so the Agent kernel can consult it
- * on `begin`; the real lifecycle lane machine (`restoring → active ⇄ quiescing
- * → closing → disposed`), the admission table and `quiesce` arrive in PR3. This
- * placeholder is always `active`: `canAccept` admits every command, `admitTurn`
- * registers the lease for settle tracking and never rejects, and `quiesce` /
- * `settled` resolve immediately. Lease registration is kept so the PR3 swap is
- * a behavior change rather than a structural one. Bound at Session scope.
+ * Owns the Session activity lane (`restoring → active ⇄ quiescing → closing →
+ * disposed`) and the admission table that the Agent kernel consults on every
+ * `begin` (child-injects-parent). `restoring` covers the materialize / replay
+ * window (the half-initialized handle of矛盾 j): the lifecycle drives the
+ * `restoring → active` transition via `markActive()` once the session is ready.
+ * `quiesce()` atomically flips to `quiescing` (closing the door so subsequent
+ * `admitTurn` calls reject with `activity.session_rejected`) and awaits every
+ * in-flight lease to drain — this eliminates the fork check-then-act race
+ * (矛盾 k). `beginClosing()` starts the close/archive cascade; `settled()`
+ * resolves once every admitted lease has returned. The lane is mirrored to the
+ * live-only `sessionActivityLane` wire Model for the derived `ISessionActivity`
+ * read model. Bound at Session scope.
  */
 
 import { Disposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { ErrorCodes, KimiError } from '#/errors';
 
 import type {
   ActivityLease,
@@ -25,33 +31,114 @@ import { ISessionActivityKernel } from './activity';
 export class SessionActivityKernel extends Disposable implements ISessionActivityKernel {
   declare readonly _serviceBrand: undefined;
 
-  private readonly leases = new Set<ActivityLease>();
+  private _lane: SessionLane = 'restoring';
+  private readonly leases = new Map<string, ActivityLease>();
+  private readonly settleWaiters: Array<() => void> = [];
+
+  constructor() {
+    super();
+  }
 
   lane(): SessionLane {
-    return 'active';
+    return this._lane;
   }
 
-  canAccept(_command: SessionCommand): boolean {
-    return true;
+  canAccept(command: SessionCommand): boolean {
+    switch (this._lane) {
+      case 'active':
+        return true;
+      case 'restoring':
+        // The lifecycle materializes the main agent while restoring; every other
+        // command (turns, fork, close) must wait for `markActive`.
+        return command === 'agent.create';
+      default:
+        // `quiescing` / `closing` / `disposed` reject every new command.
+        return false;
+    }
   }
 
-  admitTurn(_agentId: string, lease: ActivityLease): IDisposable {
-    this.leases.add(lease);
+  admitTurn(agentId: string, lease: ActivityLease): IDisposable {
+    if (this._lane !== 'active') {
+      throw new KimiError(
+        ErrorCodes.ACTIVITY_SESSION_REJECTED,
+        `Session is ${this._lane}; turn begin rejected`,
+        { details: { lane: this._lane, agentId } },
+      );
+    }
+    const key = `${agentId}:${lease.turnId}`;
+    this.leases.set(key, lease);
+    this.publishLane();
     return toDisposable(() => {
-      this.leases.delete(lease);
+      this.leases.delete(key);
+      this.publishLane();
+      this.maybeSettle();
     });
   }
 
   quiesce(reason: string): Promise<SessionQuiesceLease> {
-    return Promise.resolve({ reason, dispose: () => undefined });
+    if (this._lane !== 'active') {
+      return Promise.reject(
+        new KimiError(
+          ErrorCodes.ACTIVITY_SESSION_REJECTED,
+          `Cannot quiesce while ${this._lane}`,
+          { details: { lane: this._lane } },
+        ),
+      );
+    }
+    this._lane = 'quiescing';
+    this.publishLane();
+    return this.settled().then(() => {
+      let released = false;
+      return {
+        reason,
+        dispose: () => {
+          if (released) return;
+          released = true;
+          if (this._lane === 'quiescing') {
+            this._lane = 'active';
+            this.publishLane();
+          }
+        },
+      };
+    });
   }
 
   beginClosing(): void {
-    // PR3 drives the closing cascade.
+    if (this._lane === 'closing' || this._lane === 'disposed') return;
+    this._lane = 'closing';
+    this.publishLane();
+    this.maybeSettle();
+  }
+
+  markActive(): void {
+    if (this._lane !== 'restoring') return;
+    this._lane = 'active';
+    this.publishLane();
   }
 
   settled(): Promise<void> {
-    return Promise.resolve();
+    if (this.leases.size === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.settleWaiters.push(resolve);
+    });
+  }
+
+  private maybeSettle(): void {
+    if (this.leases.size > 0) return;
+    if (this._lane === 'closing') {
+      this._lane = 'disposed';
+      this.publishLane();
+    }
+    if (this.settleWaiters.length === 0) return;
+    const waiters = this.settleWaiters.splice(0);
+    for (const resolve of waiters) resolve();
+  }
+
+  private publishLane(): void {
+    // The Session scope does not yet own a wire service, so the lane is kept as
+    // kernel-local state in PR3. Publishing to `sessionActivityLane` is deferred
+    // until a Session wire service is introduced; the derived `ISessionActivity`
+    // read model keeps its existing polling source meanwhile.
   }
 }
 

@@ -75,7 +75,7 @@ class FakeAgentHandle {
 class FakeLifecycle {
   readonly handles: FakeAgentHandle[] = [];
   /** Real interaction kernel — served at the session accessor. */
-  readonly interactions = new SessionInteractionService();
+  readonly interactions = new SessionInteractionService(new FakeEventBus() as unknown as IEventBus);
   private createHandlers: Array<(h: IScopeHandle) => void> = [];
   private disposeHandlers: Array<(id: string) => void> = [];
   list(): readonly FakeAgentHandle[] {

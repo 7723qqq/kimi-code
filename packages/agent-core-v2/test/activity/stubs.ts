@@ -20,18 +20,24 @@ import type {
 export function stubSessionActivityKernel(
   lane: SessionLane = 'active',
 ): ISessionActivityKernel {
+  let currentLane: SessionLane = lane;
   const leases = new Set<ActivityLease>();
   return {
     _serviceBrand: undefined,
-    lane: () => lane,
-    canAccept: (_command: SessionCommand) => lane === 'active',
+    lane: () => currentLane,
+    canAccept: (_command: SessionCommand) => currentLane === 'active',
     admitTurn(_agentId: string, lease: ActivityLease): IDisposable {
       leases.add(lease);
       return { dispose: () => leases.delete(lease) };
     },
     quiesce: (reason: string): Promise<SessionQuiesceLease> =>
       Promise.resolve({ reason, dispose: () => undefined }),
-    beginClosing: () => undefined,
+    beginClosing: () => {
+      currentLane = 'closing';
+    },
     settled: () => Promise.resolve(),
+    markActive: () => {
+      if (currentLane === 'restoring') currentLane = 'active';
+    },
   };
 }

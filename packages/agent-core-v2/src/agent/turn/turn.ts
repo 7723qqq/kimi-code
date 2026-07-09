@@ -2,6 +2,7 @@ import { createDecorator } from "#/_base/di/instantiation";
 import type { ContentPart } from '#/app/llmProtocol/message';
 import type { PromptOrigin } from '#/agent/contextMemory/types';
 import type { LoopRunResult } from '#/agent/loop/loop';
+import type { ActivityLease } from '#/activity/activity';
 
 export type { LoopRunResult as TurnResult } from '#/agent/loop/loop';
 
@@ -30,6 +31,13 @@ export interface IAgentTurnService {
   readonly _serviceBrand: undefined;
 
   launch(prompt?: TurnPromptInfo): Turn;
+  /**
+   * Launches a turn using an already-acquired `ActivityLease` (from
+   * `IAgentActivityService.tryBegin`). Callers that must prove they hold the
+   * lane before doing other work (e.g. goal continuation appending its prompt
+   * to context) use this instead of `launch`, which acquires the lease itself.
+   */
+  launchWithLease(lease: ActivityLease, prompt?: TurnPromptInfo): Turn;
   recordSteer(input: readonly ContentPart[], origin?: PromptOrigin): void;
   cancel(turnId?: number, reason?: unknown): boolean;
   getActiveTurn(): Turn | undefined;

@@ -9,9 +9,10 @@
  * `ActivityLease`; the lease's `AbortSignal` is the only cancellation channel,
  * and `lease.end()` is the only path back to `idle`. Background activities
  * (`registerBackground`) are tracked so disposal can abort and await them. The
- * lane starts at `idle` so fresh agents accept turns immediately; the
- * half-replay window is gated by the Session kernel (`restoring`), not here.
- * Bound at Agent scope.
+ * lane starts at `initializing` and is driven to `idle` by `markReady()` once
+ * the agent bootstrap (`agentLifecycle.create`) finishes; until then `begin`
+ * rejects with `activity.initializing`. The half-replay window on resume is
+ * gated by the Session kernel (`restoring`). Bound at Agent scope.
  */
 
 import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
@@ -95,7 +96,7 @@ class LeaseImpl implements ActivityLease {
 export class AgentActivityService extends Disposable implements IAgentActivityService {
   declare readonly _serviceBrand: undefined;
 
-  private _lane: AgentLane = 'idle';
+  private _lane: AgentLane = 'initializing';
   private activeLease: LeaseImpl | undefined;
   private lastTurn: LaneLastTurnState | undefined;
   private readonly background = new Map<string, BackgroundEntry>();
@@ -107,7 +108,6 @@ export class AgentActivityService extends Disposable implements IAgentActivitySe
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
   ) {
     super();
-    this._register(this.wire.onRestored(() => this.onRestored()));
   }
 
   lane(): AgentLane {
@@ -155,6 +155,12 @@ export class AgentActivityService extends Disposable implements IAgentActivitySe
       if (error instanceof KimiError) return undefined;
       throw error;
     }
+  }
+
+  markReady(): void {
+    if (this._lane !== 'initializing') return;
+    this._lane = 'idle';
+    this.publishLane();
   }
 
   cancel(reason?: unknown): boolean {
@@ -227,14 +233,6 @@ export class AgentActivityService extends Disposable implements IAgentActivitySe
     this._lane = 'idle';
     this.publishLane();
     this.maybeSettle();
-  }
-
-  private onRestored(): void {
-    // Resume returns the live-only lane to idle. No-op when already idle.
-    if (this._lane === 'idle') return;
-    if (this._lane === 'turn' || this._lane === 'disposing' || this._lane === 'disposed') return;
-    this._lane = 'idle';
-    this.publishLane();
   }
 
   private maybeSettle(): void {

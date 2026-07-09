@@ -1,14 +1,18 @@
 /**
- * `runtime` domain (L5) — `IAgentRuntimeService` implementation.
+ * `runtime` domain (L5) — `IAgentRuntimeService` implementation and the Agent
+ * activity projector.
  *
- * Derives the agent's live phase from the existing `IEventBus` facts and folds
- * it into the `wire` `RuntimeModel` (mutated only through the
- * `runtime.set_phase` Op, read through `wire.getModel`). Subscriptions are
- * edge-triggered: a handler builds the candidate phase and `setPhase` only
- * dispatches when `phaseEqual` says it changed, so high-frequency delta streams
- * collapse into a single `streaming` record. The current phase and the
- * approval-resume target are kept as live-only fields (never in the Model) so
- * `wire.replay` stays silent and resumes into `idle`. Bound at Agent scope.
+ * Folds the agent's live activity into a structured `AgentActivitySnapshot`
+ * (`ActivityModel`, mutated only through the `activity.set_snapshot` Op) and a
+ * legacy `AgentPhase` (`RuntimeModel`, through `runtime.set_phase`). Inputs:
+ * the `activity` kernel's `LaneModel` (authoritative lane / turn / lastTurn /
+ * background) plus the existing `IEventBus` facts (step / stream / retry /
+ * approval / tool-call). The snapshot adds a pending-approval SET and an
+ * active-tool-call SET (keyed by id), so a parallel approval resolve no longer
+ * drops the still-waiting ones (矛盾 d) and parallel tool calls are all
+ * visible. Subscriptions are edge-triggered: `publishSnapshot` only dispatches
+ * when `snapshotEqual` says it changed. Live-only — `wire.replay` stays silent
+ * and resumes into `idle`. Bound at Agent scope.
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
@@ -19,9 +23,22 @@ import type { PermissionApprovalRequestContext } from '#/agent/permissionGate/pe
 import type { TurnEndReason } from '@moonshot-ai/protocol';
 import { IAgentWireService } from '#/wire/tokens';
 import type { IWireService } from '#/wire/wireService';
+import type {
+  ActivityRetryState,
+  AgentActivitySnapshot,
+  ApprovalRef,
+  ToolCallRef,
+  TurnPhase,
+} from '#/activity/activity';
+import { LaneModel } from '#/activity/activityOps';
 
 import { type AgentPhase, IAgentRuntimeService } from './runtime';
-import { phaseEqual, RuntimeModel, setRuntimePhase } from './runtimeOps';
+import {
+  phaseEqual,
+  RuntimeModel,
+  setActivitySnapshot,
+  setRuntimePhase,
+} from './runtimeOps';
 
 interface TurnCursor {
   readonly turnId: number;
@@ -35,6 +52,11 @@ export class AgentRuntimeService extends Disposable implements IAgentRuntimeServ
   private cursor: TurnCursor = { turnId: -1, step: 0, stepId: '' };
   private current: AgentPhase = { kind: 'idle' };
   private priorForApproval: AgentPhase | undefined;
+  private subPhase: TurnPhase = 'running';
+  private subStream: 'assistant' | 'thinking' | 'tool_call' | undefined;
+  private subRetry: ActivityRetryState | undefined;
+  private readonly pendingApprovals = new Map<string, ApprovalRef>();
+  private readonly activeToolCalls = new Map<string, ToolCallRef>();
 
   constructor(
     @IAgentWireService private readonly wire: IWireService,
@@ -63,9 +85,21 @@ export class AgentRuntimeService extends Disposable implements IAgentRuntimeServ
         this.onToolCallStarted(e.toolCallId, e.name),
       ),
     );
-    this._register(this.eventBus.subscribe('tool.result', () => this.onToolResult()));
     this._register(
-      this.eventBus.subscribe('turn.step.retrying', (e) =>
+      this.eventBus.subscribe('tool.result', (e) => this.onToolResult(e.toolCallId)),
+    );
+    this._register(
+      this.eventBus.subscribe('turn.step.retrying', (e) => {
+        this.subPhase = 'retrying';
+        this.subStream = undefined;
+        this.subRetry = {
+          failedAttempt: e.failedAttempt,
+          nextAttempt: e.nextAttempt,
+          maxAttempts: e.maxAttempts,
+          delayMs: e.delayMs,
+          errorName: e.errorName,
+          statusCode: e.statusCode,
+        };
         this.setPhase({
           kind: 'retrying',
           turnId: e.turnId,
@@ -78,8 +112,9 @@ export class AgentRuntimeService extends Disposable implements IAgentRuntimeServ
           errorName: e.errorName,
           statusCode: e.statusCode,
           since: Date.now(),
-        }),
-      ),
+        });
+        this.publishSnapshot();
+      }),
     );
     this._register(
       this.eventBus.subscribe('turn.step.interrupted', (e) =>
@@ -94,7 +129,13 @@ export class AgentRuntimeService extends Disposable implements IAgentRuntimeServ
       ),
     );
     this._register(
-      this.eventBus.subscribe('turn.step.completed', () => this.setPhase(this.running())),
+      this.eventBus.subscribe('turn.step.completed', () => {
+        this.subPhase = 'running';
+        this.subStream = undefined;
+        this.subRetry = undefined;
+        this.setPhase(this.running());
+        this.publishSnapshot();
+      }),
     );
     this._register(
       this.eventBus.subscribe('turn.ended', (e) =>
@@ -107,8 +148,11 @@ export class AgentRuntimeService extends Disposable implements IAgentRuntimeServ
       ),
     );
     this._register(
-      this.eventBus.subscribe('permission.approval.resolved', () => this.onApprovalResolved()),
+      this.eventBus.subscribe('permission.approval.resolved', (e) =>
+        this.onApprovalResolved(e.toolCallId),
+      ),
     );
+    this._register(this.wire.subscribe(LaneModel, () => this.publishSnapshot()));
   }
 
   phase(): AgentPhase {
@@ -118,15 +162,28 @@ export class AgentRuntimeService extends Disposable implements IAgentRuntimeServ
   private onTurnStarted(turnId: number): void {
     this.cursor = { turnId, step: 0, stepId: '' };
     this.priorForApproval = undefined;
+    this.subPhase = 'running';
+    this.subStream = undefined;
+    this.subRetry = undefined;
+    this.pendingApprovals.clear();
+    this.activeToolCalls.clear();
     this.setPhase(this.running());
+    this.publishSnapshot();
   }
 
   private onStepStarted(turnId: number, step: number, stepId: string): void {
     this.cursor = { turnId, step, stepId };
+    this.subPhase = 'running';
+    this.subStream = undefined;
+    this.subRetry = undefined;
     this.setPhase(this.running());
+    this.publishSnapshot();
   }
 
   private onDelta(stream: 'assistant' | 'thinking'): void {
+    this.subPhase = 'streaming';
+    this.subStream = stream;
+    this.subRetry = undefined;
     this.setPhase({
       kind: 'streaming',
       turnId: this.cursor.turnId,
@@ -135,9 +192,13 @@ export class AgentRuntimeService extends Disposable implements IAgentRuntimeServ
       stream,
       since: Date.now(),
     });
+    this.publishSnapshot();
   }
 
   private onToolCallDelta(toolCallId: string, name: string | undefined): void {
+    this.subPhase = 'streaming';
+    this.subStream = 'tool_call';
+    this.subRetry = undefined;
     this.setPhase({
       kind: 'streaming',
       turnId: this.cursor.turnId,
@@ -148,9 +209,14 @@ export class AgentRuntimeService extends Disposable implements IAgentRuntimeServ
       toolName: name,
       since: Date.now(),
     });
+    this.publishSnapshot();
   }
 
   private onToolCallStarted(toolCallId: string, name: string): void {
+    this.subPhase = 'tool_call';
+    this.subStream = undefined;
+    this.subRetry = undefined;
+    this.activeToolCalls.set(toolCallId, { toolCallId, name, since: Date.now() });
     this.setPhase({
       kind: 'tool_call',
       turnId: this.cursor.turnId,
@@ -159,20 +225,37 @@ export class AgentRuntimeService extends Disposable implements IAgentRuntimeServ
       name,
       since: Date.now(),
     });
+    this.publishSnapshot();
   }
 
-  private onToolResult(): void {
+  private onToolResult(toolCallId: string): void {
+    this.activeToolCalls.delete(toolCallId);
+    this.subPhase = 'running';
+    this.subStream = undefined;
+    this.subRetry = undefined;
     this.setPhase(this.running());
+    this.publishSnapshot();
   }
 
   private onTurnEnded(turnId: number, reason: TurnEndReason, durationMs: number | undefined): void {
     this.setPhase({ kind: 'ended', turnId, reason, durationMs, at: Date.now() });
     this.cursor = { turnId: -1, step: 0, stepId: '' };
     this.priorForApproval = undefined;
+    this.subPhase = 'running';
+    this.subStream = undefined;
+    this.subRetry = undefined;
+    this.pendingApprovals.clear();
+    this.activeToolCalls.clear();
+    this.publishSnapshot();
   }
 
   private onApprovalRequested(approval: PermissionApprovalRequestContext): void {
     this.priorForApproval = this.current;
+    this.pendingApprovals.set(approval.toolCallId, {
+      approvalId: approval.toolCallId,
+      toolCallId: approval.toolCallId,
+      since: Date.now(),
+    });
     this.setPhase({
       kind: 'awaiting_approval',
       turnId: approval.turnId,
@@ -180,16 +263,28 @@ export class AgentRuntimeService extends Disposable implements IAgentRuntimeServ
       approval,
       since: Date.now(),
     });
+    this.publishSnapshot();
   }
 
-  private onApprovalResolved(): void {
+  private onApprovalResolved(toolCallId: string): void {
+    this.pendingApprovals.delete(toolCallId);
     const resume = this.priorForApproval;
     this.priorForApproval = undefined;
-    if (resume !== undefined && resume.kind !== 'idle' && resume.kind !== 'ended') {
+    if (this.pendingApprovals.size > 0) {
+      // Another approval is still pending — stay in `awaiting_approval` (矛盾 d).
+      this.setPhase({
+        kind: 'awaiting_approval',
+        turnId: this.cursor.turnId,
+        step: this.cursor.step || undefined,
+        approval: undefined,
+        since: Date.now(),
+      });
+    } else if (resume !== undefined && resume.kind !== 'idle' && resume.kind !== 'ended') {
       this.setPhase(resume);
     } else {
       this.setPhase(this.running());
     }
+    this.publishSnapshot();
   }
 
   private running(): AgentPhase {
@@ -206,6 +301,35 @@ export class AgentRuntimeService extends Disposable implements IAgentRuntimeServ
     if (phaseEqual(this.current, phase)) return;
     this.current = phase;
     this.wire.dispatch(setRuntimePhase({ phase }));
+  }
+
+  private publishSnapshot(): void {
+    const lane = this.wire.getModel(LaneModel);
+    const turn =
+      lane.turn === undefined
+        ? undefined
+        : {
+            turnId: lane.turn.turnId,
+            origin: lane.turn.origin,
+            phase: this.subPhase,
+            stream: this.subStream,
+            step: this.cursor.step,
+            ending: lane.turn.ending,
+            endingReason: lane.turn.endingReason,
+            retry: this.subRetry,
+            pendingApprovals: [...this.pendingApprovals.values()],
+            activeToolCalls: [...this.activeToolCalls.values()],
+            since: lane.turn.since,
+          };
+    const snapshot = {
+      lane: lane.lane,
+      turn,
+      lastTurn: lane.lastTurn,
+      background: lane.background,
+    };
+    this.wire.dispatch(
+      setActivitySnapshot({ next: snapshot as unknown as AgentActivitySnapshot }),
+    );
   }
 }
 

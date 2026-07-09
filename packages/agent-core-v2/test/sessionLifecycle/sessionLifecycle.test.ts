@@ -21,6 +21,8 @@ import {
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/mainAgent';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
 import { SessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycleService';
+import { ISessionActivityKernel } from '#/activity/activity';
+import { SessionActivityKernel } from '#/activity/sessionActivityKernel';
 import { ISessionExternalHooksService } from '#/session/externalHooks/externalHooks';
 import { createHooks } from '#/hooks';
 import { ISessionActivity } from '#/session/sessionActivity/sessionActivity';
@@ -311,6 +313,13 @@ describe('SessionLifecycleService', () => {
       NoopSessionExternalHooksService,
       InstantiationType.Eager,
       'externalHooks',
+    );
+    registerScopedService(
+      LifecycleScope.Session,
+      ISessionActivityKernel,
+      SessionActivityKernel,
+      InstantiationType.Delayed,
+      'activity',
     );
   });
 
