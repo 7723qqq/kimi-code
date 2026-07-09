@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { deflateSync } from 'node:zlib';
 
 import {
   IAgentContextMemoryService,
@@ -28,6 +29,13 @@ interface PromptItemWire {
   created_at: string;
 }
 
+type PromptContentPart =
+  | { type: 'text'; text: string }
+  | {
+      type: 'image';
+      source: { kind: 'base64'; media_type: string; data: string };
+    };
+
 const PROMPT_TOML = [
   'default_model = "stub"',
   '',
@@ -42,6 +50,79 @@ const PROMPT_TOML = [
   'max_context_size = 1000',
   '',
 ].join('\n');
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const CRC32_TABLE = makeCrc32Table();
+
+function makeCrc32Table(): Uint32Array {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) {
+      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    table[i] = c >>> 0;
+  }
+  return table;
+}
+
+function crc32(bytes: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc = CRC32_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const typeBytes = Buffer.from(type, 'ascii');
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length, 0);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([typeBytes, data])), 0);
+  return Buffer.concat([length, typeBytes, data, crc]);
+}
+
+function solidPng(width: number, height: number): Buffer {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 6; // RGBA
+
+  const row = Buffer.alloc(1 + width * 4);
+  for (let x = 0; x < width; x++) {
+    const offset = 1 + x * 4;
+    row[offset] = 0x33;
+    row[offset + 1] = 0x66;
+    row[offset + 2] = 0xcc;
+    row[offset + 3] = 0xff;
+  }
+  const raw = Buffer.alloc(row.length * height);
+  for (let y = 0; y < height; y++) {
+    row.copy(raw, y * row.length);
+  }
+
+  return Buffer.concat([
+    PNG_SIGNATURE,
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', deflateSync(raw)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+function pngDimensions(bytes: Buffer): { width: number; height: number } {
+  if (!bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+    throw new Error('expected PNG data');
+  }
+  if (bytes.subarray(12, 16).toString('ascii') !== 'IHDR') {
+    throw new Error('expected IHDR as first PNG chunk');
+  }
+  return {
+    width: bytes.readUInt32BE(16),
+    height: bytes.readUInt32BE(20),
+  };
+}
 
 describe('server-v2 /api/v1 prompts', () => {
   let server: RunningServer | undefined;
@@ -162,6 +243,87 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(cachePath.startsWith(join(home as string, 'cache'))).toBe(true);
     expect(cachePath.endsWith('.mp4')).toBe(true);
     expect(await readFile(cachePath)).toEqual(videoBytes);
+  });
+
+  it('compresses uploaded image prompts into base64 image parts with a readback caption', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+    const bigPng = solidPng(3600, 1800);
+    const form = new FormData();
+    form.set('file', new Blob([bigPng], { type: 'image/png' }), 'big.png');
+    const uploadRes = await fetch(`${base}/api/v1/files`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer),
+      body: form,
+    } as never);
+    const uploaded = (await uploadRes.json()) as Envelope<{ id: string; size: number }>;
+    expect(uploaded.code).toBe(0);
+    expect(uploaded.data.size).toBe(bigPng.length);
+
+    const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
+      content: [{ type: 'image', source: { kind: 'file', file_id: uploaded.data.id } }],
+    });
+    expect(submitted.body.code).toBe(0);
+
+    const content = submitted.body.data.content as PromptContentPart[];
+    expect(content).toHaveLength(2);
+    const caption = content[0];
+    if (caption?.type !== 'text') throw new Error('expected compression caption');
+    expect(caption.text).toContain('Image compressed');
+    expect(caption.text).toContain('3600x1800');
+    const pathMatch = /saved at "([^"]+)"/.exec(caption.text);
+    expect(pathMatch).not.toBeNull();
+    expect(pathMatch![1]!).toContain('/media-originals/');
+    expect(await readFile(pathMatch![1]!)).toEqual(bigPng);
+
+    const image = content[1];
+    if (image?.type !== 'image' || image.source.kind !== 'base64') {
+      throw new Error('expected resolved base64 image');
+    }
+    expect(image.source.media_type).toBe('image/png');
+    expect(pngDimensions(Buffer.from(image.source.data, 'base64'))).toEqual({
+      width: 3000,
+      height: 1500,
+    });
+  });
+
+  it('compresses inline base64 image prompts into session media-originals', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+    const bigPng = solidPng(3600, 1800);
+
+    const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
+      content: [
+        {
+          type: 'image',
+          source: {
+            kind: 'base64',
+            media_type: 'image/png',
+            data: bigPng.toString('base64'),
+          },
+        },
+      ],
+    });
+    expect(submitted.body.code).toBe(0);
+
+    const content = submitted.body.data.content as PromptContentPart[];
+    expect(content).toHaveLength(2);
+    const caption = content[0];
+    if (caption?.type !== 'text') throw new Error('expected compression caption');
+    const pathMatch = /saved at "([^"]+)"/.exec(caption.text);
+    expect(pathMatch).not.toBeNull();
+    expect(pathMatch![1]!).toContain('/media-originals/');
+    expect((await realpath(pathMatch![1]!)).startsWith(await realpath(home as string))).toBe(true);
+    expect(await readFile(pathMatch![1]!)).toEqual(bigPng);
+
+    const image = content[1];
+    if (image?.type !== 'image' || image.source.kind !== 'base64') {
+      throw new Error('expected resolved base64 image');
+    }
+    expect(pngDimensions(Buffer.from(image.source.data, 'base64'))).toEqual({
+      width: 3000,
+      height: 1500,
+    });
   });
 
   it('returns 40402 when aborting a prompt that already settled', async () => {

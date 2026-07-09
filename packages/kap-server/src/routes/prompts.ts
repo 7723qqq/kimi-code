@@ -15,10 +15,19 @@ import {
   IAgentLifecycleService,
   IAgentPromptLegacyService,
   IFileService,
+  ISessionContext,
   ISessionLifecycleService,
+  ITelemetryService,
+  buildImageCompressionCaption,
+  compressBase64ForModel,
+  compressImageForModel,
   isKimiError,
   KimiError,
+  persistOriginalImage,
+  sessionMediaOriginalsDir,
   type GetResult,
+  type ImageCompressionTelemetry,
+  type ISessionScopeHandle,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
 import {
@@ -73,11 +82,7 @@ const VIDEO_EXT_BY_MIME: Record<string, string> = {
   'video/mpeg': '.mpeg',
 };
 
-async function resolveLegacy(
-  core: Scope,
-  sessionId: string,
-  agentId?: string,
-): Promise<IAgentPromptLegacyService> {
+async function resolveSession(core: Scope, sessionId: string): Promise<ISessionScopeHandle> {
   // `resume` (not `get`) so a persisted-but-cold session — created by a previous
   // process, by v1, or closed in this one — is loaded from disk instead of
   // being reported as `session.not_found`. Mirrors the snapshot route. Returns
@@ -86,6 +91,21 @@ async function resolveLegacy(
   if (session === undefined) {
     throw new KimiError('session.not_found', `session ${sessionId} does not exist`);
   }
+  return session;
+}
+
+async function resolveLegacy(
+  core: Scope,
+  sessionId: string,
+  agentId?: string,
+): Promise<IAgentPromptLegacyService> {
+  return resolveLegacyFromSession(await resolveSession(core, sessionId), agentId);
+}
+
+async function resolveLegacyFromSession(
+  session: ISessionScopeHandle,
+  agentId?: string,
+): Promise<IAgentPromptLegacyService> {
   // A prompt may target a forked side-channel agent (e.g. `/btw`) via
   // `body.agent_id`. Default to `main` when absent; only `main` is
   // auto-created — any other id must already exist (forked beforehand), or it
@@ -152,6 +172,14 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
           req.body,
           core.accessor.get(IFileService),
           core.accessor.get(IBootstrapService).cacheDir,
+          {
+            telemetry: core.accessor.get(ITelemetryService).withContext({ sessionId: session_id }),
+            resolveOriginalsDir: async () => {
+              const session = await core.accessor.get(ISessionLifecycleService).resume(session_id);
+              if (session === undefined) return undefined;
+              return sessionMediaOriginalsDir(session.accessor.get(ISessionContext).sessionDir);
+            },
+          },
         );
         const legacy = await resolveLegacy(core, session_id, resolvedBody.agent_id);
         const result = await legacy.submit(resolvedBody);
@@ -234,29 +262,135 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
   app.post(actionRoute.path, actionRoute.options, actionRoute.handler as Parameters<PromptRouteHost['post']>[2]);
 }
 
+interface ResolvePromptMediaOptions {
+  /**
+   * Lazily resolve the session's media-originals dir for persisting the
+   * pre-compression bytes of inline base64 images. Only invoked when an image
+   * was actually compressed; a failure or undefined result falls back to the
+   * shared temp-dir cache.
+   */
+  readonly resolveOriginalsDir?: () => Promise<string | undefined>;
+  /** Report an `image_compress` event per compressed prompt image. */
+  readonly telemetry?: ITelemetryService;
+}
+
 async function resolvePromptMediaFiles(
   body: PromptSubmission,
   store: IFileService,
   cacheDir: string,
+  options: ResolvePromptMediaOptions = {},
 ): Promise<PromptSubmission> {
+  let changed = false;
+  let originalsDir: string | undefined;
+  let originalsDirResolved = false;
+  const resolveOriginalsDir = async (): Promise<string | undefined> => {
+    if (!originalsDirResolved) {
+      originalsDirResolved = true;
+      originalsDir = await options.resolveOriginalsDir?.().catch(() => undefined);
+    }
+    return originalsDir;
+  };
+  const telemetryFor = (source: string): ImageCompressionTelemetry | undefined =>
+    options.telemetry === undefined ? undefined : { client: options.telemetry, source };
   const content: PromptSubmission['content'] = [];
   for (const part of body.content) {
-    if (part.type !== 'video' || part.source.kind !== 'file') {
+    // Inline base64 image: compress the payload in place. This mirrors the v1
+    // server path for REST clients that submit an image without uploading it.
+    if (part.type === 'image' && part.source.kind === 'base64') {
+      const compressed = await compressBase64ForModel(part.source.data, part.source.media_type, {
+        telemetry: telemetryFor('prompt_inline'),
+      });
+      if (compressed.changed) {
+        const dir = await resolveOriginalsDir();
+        const originalPath = await persistOriginalImage(
+          Buffer.from(part.source.data, 'base64'),
+          part.source.media_type,
+          { dir },
+        );
+        content.push({
+          type: 'text',
+          text: buildImageCompressionCaption({
+            original: {
+              width: compressed.originalWidth,
+              height: compressed.originalHeight,
+              byteLength: compressed.originalByteLength,
+              mimeType: part.source.media_type,
+            },
+            final: {
+              width: compressed.width,
+              height: compressed.height,
+              byteLength: compressed.finalByteLength,
+              mimeType: compressed.mimeType,
+            },
+            originalPath,
+          }),
+        });
+        content.push({
+          type: 'image',
+          source: { kind: 'base64', media_type: compressed.mimeType, data: compressed.base64 },
+        });
+        changed = true;
+      } else {
+        content.push(part);
+      }
+      continue;
+    }
+
+    if ((part.type !== 'image' && part.type !== 'video') || part.source.kind !== 'file') {
       content.push(part);
       continue;
     }
 
     const file = await store.get(part.source.file_id);
-    if (!file.meta.media_type.toLowerCase().startsWith('video/')) {
-      throw new KimiError(
-        'validation.failed',
-        `file ${file.meta.id} is ${file.meta.media_type}, not a video`,
-      );
+    assertMediaFile(file, part.type);
+    if (part.type === 'image') {
+      const data = await readFileOrStream(file);
+      let mediaType = file.meta.media_type;
+      let bytes: Uint8Array = data;
+      const compressed = await compressImageForModel(data, mediaType, {
+        telemetry: telemetryFor('prompt_file'),
+      });
+      if (compressed.changed) {
+        const dir = await resolveOriginalsDir();
+        const originalPath = await persistOriginalImage(data, mediaType, { dir });
+        content.push({
+          type: 'text',
+          text: buildImageCompressionCaption({
+            original: {
+              width: compressed.originalWidth,
+              height: compressed.originalHeight,
+              byteLength: compressed.originalByteLength,
+              mimeType: mediaType,
+            },
+            final: {
+              width: compressed.width,
+              height: compressed.height,
+              byteLength: compressed.finalByteLength,
+              mimeType: compressed.mimeType,
+            },
+            originalPath,
+          }),
+        });
+      }
+      bytes = compressed.data;
+      mediaType = compressed.mimeType;
+      content.push({
+        type: 'image',
+        source: {
+          kind: 'base64',
+          media_type: mediaType,
+          data: Buffer.from(bytes).toString('base64'),
+        },
+      });
+      changed = true;
+      continue;
     }
+
     const cachePath = await materializeVideoToCache(file, cacheDir);
     content.push({ type: 'text', text: `<video path="${escapeAttribute(cachePath)}"></video>` });
+    changed = true;
   }
-  return { ...body, content };
+  return changed ? { ...body, content } : body;
 }
 
 async function materializeVideoToCache(file: GetResult, cacheDir: string): Promise<string> {
@@ -266,8 +400,25 @@ async function materializeVideoToCache(file: GetResult, cacheDir: string): Promi
   const info = await stat(target).catch(() => undefined);
   if (info?.size === file.meta.size) return target;
 
-  await pipeline(file.stream, createWriteStream(target));
+  await pipeline(file.stream(), createWriteStream(target));
   return target;
+}
+
+async function readFileOrStream(file: GetResult): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of file.stream()) {
+    chunks.push(Buffer.from(chunk as string | Uint8Array));
+  }
+  return Buffer.concat(chunks);
+}
+
+function assertMediaFile(file: GetResult, expected: 'image' | 'video'): void {
+  const prefix = expected === 'video' ? 'video/' : 'image/';
+  if (file.meta.media_type.toLowerCase().startsWith(prefix)) return;
+  throw new KimiError(
+    'validation.failed',
+    `file ${file.meta.id} is ${file.meta.media_type}, not ${expected === 'video' ? 'a video' : 'an image'}`,
+  );
 }
 
 function escapeAttribute(value: string): string {

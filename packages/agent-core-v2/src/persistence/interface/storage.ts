@@ -37,11 +37,16 @@ export interface StorageAppendOptions {
   readonly durable?: boolean;
 }
 
+export interface StorageReadRange {
+  readonly start: number;
+  readonly end: number;
+}
+
 export interface IFileSystemStorageService {
   readonly _serviceBrand: undefined;
 
   read(scope: string, key: string): Promise<Uint8Array | undefined>;
-  readStream(scope: string, key: string): AsyncIterable<Uint8Array>;
+  readStream(scope: string, key: string, range?: StorageReadRange): AsyncIterable<Uint8Array>;
   write(scope: string, key: string, data: Uint8Array, options?: StorageWriteOptions): Promise<void>;
   append(scope: string, key: string, data: Uint8Array, options?: StorageAppendOptions): Promise<void>;
   list(scope: string, prefix?: string): Promise<readonly string[]>;

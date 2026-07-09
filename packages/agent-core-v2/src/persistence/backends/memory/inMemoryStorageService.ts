@@ -24,6 +24,7 @@ import { Emitter, type Event } from '#/_base/event';
 import {
   IFileSystemStorageService,
   type StorageAppendOptions,
+  type StorageReadRange,
   type StorageWriteOptions,
 } from '#/persistence/interface/storage';
 
@@ -42,9 +43,20 @@ export class InMemoryStorageService implements IFileSystemStorageService {
     return this.scopes.get(scope)?.get(key);
   }
 
-  async *readStream(scope: string, key: string): AsyncIterable<Uint8Array> {
+  async *readStream(
+    scope: string,
+    key: string,
+    range?: StorageReadRange,
+  ): AsyncIterable<Uint8Array> {
     const data = this.scopes.get(scope)?.get(key);
-    if (data !== undefined) yield data;
+    if (data === undefined) return;
+    if (range === undefined) {
+      yield data;
+      return;
+    }
+    const start = Math.max(0, range.start);
+    const end = Math.min(data.byteLength, range.end + 1);
+    if (start < end) yield data.subarray(start, end);
   }
 
   async write(

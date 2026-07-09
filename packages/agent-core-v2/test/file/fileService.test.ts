@@ -4,6 +4,9 @@
  */
 
 import { Readable } from 'node:stream';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -14,6 +17,7 @@ import { DEFAULT_MAX_UPLOAD_BYTES, FileErrors, IFileService } from '#/app/file/f
 import { FileServiceImpl } from '#/app/file/fileServiceImpl';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 
@@ -66,7 +70,7 @@ describe('FileServiceImpl', () => {
 
     const { meta: got, stream } = await store().get(meta.id);
     expect(got).toEqual(meta);
-    expect((await readAll(stream)).toString()).toBe('hello world');
+    expect((await readAll(stream())).toString()).toBe('hello world');
   });
 
   it('honors the name override and records expires_at', async () => {
@@ -147,7 +151,29 @@ describe('FileServiceImpl', () => {
     const reloaded = ix2.get(IFileService);
     const { meta: got, stream } = await reloaded.get(meta.id);
     expect(got.id).toBe(meta.id);
-    expect((await readAll(stream)).toString()).toBe('durable');
+    expect((await readAll(stream())).toString()).toBe('durable');
+  });
+
+  it('opens ranged streams when the storage backend is file-backed', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kimi-file-service-'));
+    try {
+      const ix2 = createServices(disposables, {
+        additionalServices: (reg) => {
+          reg.defineInstance(IFileSystemStorageService, new FileStorageService(dir));
+          reg.define(IBlobStore, BlobStoreService);
+          reg.define(IFileService, FileServiceImpl);
+        },
+      });
+      const service = ix2.get(IFileService);
+
+      const meta = await service.save(readable('local bytes'), 'local.txt');
+      const got = await service.get(meta.id);
+
+      expect((await readAll(got.stream())).toString()).toBe('local bytes');
+      expect((await readAll(got.stream({ start: 6, end: 10 }))).toString()).toBe('bytes');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it('skips invalid persisted index entries when loading the index', async () => {
@@ -182,7 +208,7 @@ describe('FileServiceImpl', () => {
 
     const { meta, stream } = await store().get('f_valid');
     expect(meta.name).toBe('valid.txt');
-    expect((await readAll(stream)).toString()).toBe('ok');
+    expect((await readAll(stream())).toString()).toBe('ok');
     await expect(store().get('f_invalid')).rejects.toMatchObject({
       code: FileErrors.codes.FILE_NOT_FOUND,
     });

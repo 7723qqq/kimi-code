@@ -293,6 +293,16 @@ export * from '#/app/authLegacy/authLegacy';
 export * from '#/app/authLegacy/authLegacyService';
 export * from '#/app/file/fileService';
 export * from '#/app/file/fileServiceImpl';
+export {
+  buildImageCompressionCaption,
+  compressBase64ForModel,
+  compressImageForModel,
+  type ImageCompressionTelemetry,
+} from '#/_base/tools/support/image-compress';
+export {
+  persistOriginalImage,
+  sessionMediaOriginalsDir,
+} from '#/_base/tools/support/image-originals';
 export * from '#/app/edit/fileEdit';
 export * from '#/app/edit/fileEditService';
 export * from '#/app/edit/editService';

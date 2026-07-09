@@ -16,10 +16,15 @@ export interface IBlobStore {
 
   put(scope: string, key: string, data: Uint8Array): Promise<void>;
   get(scope: string, key: string): Promise<Uint8Array | undefined>;
-  getStream(scope: string, key: string): AsyncIterable<Uint8Array>;
+  getStream(scope: string, key: string, range?: BlobReadRange): AsyncIterable<Uint8Array>;
   has(scope: string, key: string): Promise<boolean>;
   delete(scope: string, key: string): Promise<void>;
   list(scope: string, prefix?: string): Promise<readonly string[]>;
+}
+
+export interface BlobReadRange {
+  readonly start: number;
+  readonly end: number;
 }
 
 export const IBlobStore: ServiceIdentifier<IBlobStore> =
