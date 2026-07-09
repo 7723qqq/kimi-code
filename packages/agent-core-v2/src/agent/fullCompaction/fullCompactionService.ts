@@ -105,6 +105,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   declare readonly _serviceBrand: undefined;
   readonly hooks: IAgentFullCompactionService['hooks'] = {
     onWillCompact: new OrderedHookSlot<FullCompactionTask>(),
+    onDidFinishCompaction: new OrderedHookSlot<FullCompactionTask>(),
   };
 
   private readonly strategy: CompactionStrategy;
@@ -453,6 +454,12 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         ...toKimiErrorPayload(error),
       });
       throw error;
+    } finally {
+      // Fires on completion, cancellation, AND failure so input deferred while
+      // the compaction held the context is never lost. `_compacting` is already
+      // null on every path, so a replayed launch starts a turn instead of
+      // re-buffering.
+      await this.hooks.onDidFinishCompaction.run(active);
     }
   }
 

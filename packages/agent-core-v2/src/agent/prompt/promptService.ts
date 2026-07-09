@@ -1,4 +1,5 @@
 import { InstantiationType } from '#/_base/di/extensions';
+import { IInstantiationService } from '#/_base/di/instantiation';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { extractImageCompressionCaptions } from '#/_base/tools/support/image-compress';
 import type { ContentPart } from '#/app/llmProtocol/message';
@@ -6,6 +7,7 @@ import { ErrorCodes, KimiError } from '#/errors';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { USER_PROMPT_ORIGIN, type ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
@@ -28,6 +30,8 @@ interface QueuedSteer {
 export class AgentPromptService implements IAgentPromptService {
   declare readonly _serviceBrand: undefined;
   private readonly steerQueue: QueuedSteer[] = [];
+  private readonly compactionDeferred: ContextMessage[] = [];
+  private fullCompactionService: IAgentFullCompactionService | undefined;
 
   readonly hooks = {
     onWillSubmitPrompt: new OrderedHookSlot<PromptSubmitContext>(),
@@ -37,6 +41,7 @@ export class AgentPromptService implements IAgentPromptService {
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
+    @IInstantiationService private readonly instantiation: IInstantiationService,
     @IAgentLoopService loopService: IAgentLoopService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
   ) {
@@ -57,6 +62,7 @@ export class AgentPromptService implements IAgentPromptService {
   }
 
   async prompt(message: ContextMessage): Promise<Turn | undefined> {
+    if (this.deferWhileCompacting(message)) return undefined;
     const { message: rerouted, captions } = this.extractCompressionCaptions(message);
     if (await this.blockedByHook(rerouted, false)) {
       this.appendPrompt(rerouted, captions);
@@ -113,6 +119,13 @@ export class AgentPromptService implements IAgentPromptService {
   }
 
   retry(): Turn | undefined {
+    const retryMessage: ContextMessage = {
+      role: 'user',
+      content: [],
+      toolCalls: [],
+      origin: { kind: 'retry' },
+    };
+    if (this.deferWhileCompacting(retryMessage)) return undefined;
     return this.turnService.launch({ input: [], origin: { kind: 'retry' } });
   }
 
@@ -154,6 +167,49 @@ export class AgentPromptService implements IAgentPromptService {
     };
     await this.hooks.onWillSubmitPrompt.run(hookContext);
     return hookContext.block;
+  }
+
+  /**
+   * While a full compaction holds the context and no turn is active, defer the
+   * input instead of launching: a turn started now would append assistant/tool
+   * output and force the in-flight compaction to cancel. The buffer replays
+   * from the compaction's `onDidFinishCompaction` hook — on completion,
+   * cancellation, and failure — so deferred input is never lost.
+   */
+  private deferWhileCompacting(message: ContextMessage): boolean {
+    if (this.fullCompaction.compacting === null) return false;
+    if (this.turnService.getActiveTurn() !== undefined) return false;
+    this.compactionDeferred.push(message);
+    return true;
+  }
+
+  /**
+   * Resolved lazily (not constructor-injected): materializing the compaction
+   * service from this constructor would reorder loop-hook registration and move
+   * the `full-compaction` beforeStep hook ahead of the hooks that let a freshly
+   * launched prompt land in context before the auto-compaction check runs.
+   */
+  private get fullCompaction(): IAgentFullCompactionService {
+    if (this.fullCompactionService === undefined) {
+      this.fullCompactionService = this.instantiation.invokeFunction((accessor) =>
+        accessor.get(IAgentFullCompactionService),
+      );
+      this.fullCompactionService.hooks.onDidFinishCompaction.register(
+        'prompt-service-compaction-replay',
+        async (_ctx, next) => {
+          await this.replayCompactionDeferred();
+          await next();
+        },
+      );
+    }
+    return this.fullCompactionService;
+  }
+
+  private async replayCompactionDeferred(): Promise<void> {
+    const deferred = this.compactionDeferred.splice(0);
+    for (const message of deferred) {
+      await this.steer(message).launched;
+    }
   }
 
   private flushSteerQueue(): boolean {
