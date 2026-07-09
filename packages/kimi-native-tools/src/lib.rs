@@ -10,6 +10,7 @@ mod image_compress;
 mod line_endings;
 mod list_directory;
 mod napi_bindings;
+mod output_truncate;
 mod read;
 mod tool_access;
 mod tokens;

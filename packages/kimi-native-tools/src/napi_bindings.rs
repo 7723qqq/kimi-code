@@ -9,6 +9,7 @@ use crate::glob::{self, GlobConfig, GlobResult, MAX_MATCHES};
 use crate::grep::{self, GrepConfig, GrepResult, GrepStructuredConfig, GrepStructuredResult, OutputMode, DEFAULT_HEAD_LIMIT};
 use crate::image_compress;
 use crate::list_directory::{self, ListDirectoryConfig, ListDirectoryResult};
+use crate::output_truncate;
 use crate::read::{self, ReadConfig, ReadResult, MAX_BYTES, MAX_LINE_LENGTH, MAX_LINES};
 use crate::tool_access::{self, ToolAccessMeta};
 use crate::write::{self, WriteMode, WriteResult};
@@ -706,4 +707,58 @@ pub async fn native_crop_image(
             }
         }
     })
+}
+
+// ============================================================================
+// Tool output truncation (ToolResultBuilder.write)
+// ============================================================================
+
+/// Result of `native_write_tool_output_chunk`. The caller appends `output`
+/// to its JS buffer, updates its `nChars` to `newNchars`, and sets
+/// `truncated` to the returned flag.
+#[napi(object)]
+pub struct NativeWriteChunkResult {
+    /// Processed text (truncated lines + optional marker) to append to the
+    /// caller's buffer.
+    pub output: String,
+    /// UTF-16 code units written this call.
+    pub chars_written: u32,
+    /// Updated total UTF-16 code units.
+    pub new_nchars: u32,
+    /// Whether truncation has occurred (cumulative).
+    pub truncated: bool,
+}
+
+/// Process one chunk of streaming tool output, applying line-length and
+/// total-character budgets. Mirrors `ToolResultBuilder.write()` in
+/// `result-builder.ts`. The TS caller holds the running state and calls
+/// this function for each incoming text chunk.
+///
+/// @param text - The raw text chunk to process.
+/// @param currentNchars - Total UTF-16 code units already in the buffer.
+/// @param maxChars - Maximum total UTF-16 code units allowed.
+/// @param maxLineLength - Per-line maximum, or `null` for no per-line limit.
+///   Caller guarantees > 14 (marker length) when non-null.
+/// @param alreadyTruncated - Whether truncation already occurred previously.
+#[napi]
+pub fn native_write_tool_output_chunk(
+    text: String,
+    current_nchars: u32,
+    max_chars: u32,
+    max_line_length: Option<u32>,
+    already_truncated: bool,
+) -> NativeWriteChunkResult {
+    let result = output_truncate::write_chunk(
+        &text,
+        current_nchars as usize,
+        max_chars as usize,
+        max_line_length.map(|v| v as usize),
+        already_truncated,
+    );
+    NativeWriteChunkResult {
+        output: result.output,
+        chars_written: result.chars_written as u32,
+        new_nchars: result.new_nchars as u32,
+        truncated: result.truncated,
+    }
 }

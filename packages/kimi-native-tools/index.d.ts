@@ -284,6 +284,23 @@ export function nativeGrepStructured(
   followGitignore: boolean,
 ): Promise<GrepStructuredResult>;
 
+// ── Tool output truncation ─────────────────────────────────────────────────
+
+export interface NativeWriteChunkResult {
+  readonly output: string;
+  readonly charsWritten: number;
+  readonly newNchars: number;
+  readonly truncated: boolean;
+}
+
+export function nativeWriteToolOutputChunk(
+  text: string,
+  currentNchars: number,
+  maxChars: number,
+  maxLineLength: number | null,
+  alreadyTruncated: boolean,
+): NativeWriteChunkResult;
+
 // ── Constants ──────────────────────────────────────────────────────────────
 
 export const READ_MAX_LINES: number;

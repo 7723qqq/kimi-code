@@ -3,6 +3,42 @@ import type {
   ExecutableToolSuccessResult,
 } from '../../loop/types';
 
+// ── Native module loading (lazy, with TS fallback) ──────────────────────────
+
+type NativeWriteChunkResult = {
+  readonly output: string;
+  readonly charsWritten: number;
+  readonly newNchars: number;
+  readonly truncated: boolean;
+};
+
+let nativeFn:
+  | ((
+      text: string,
+      currentNchars: number,
+      maxChars: number,
+      maxLineLength: number | null,
+      alreadyTruncated: boolean,
+    ) => NativeWriteChunkResult)
+  | null
+  | undefined;
+
+function getNative() {
+  if (nativeFn === null) return undefined;
+  if (nativeFn !== undefined) return nativeFn;
+  try {
+    const mod = require('@moonshot-ai/kimi-native-tools');
+    nativeFn =
+      typeof mod?.nativeWriteToolOutputChunk === 'function'
+        ? mod.nativeWriteToolOutputChunk
+        : null;
+    return nativeFn ?? undefined;
+  } catch {
+    nativeFn = null;
+    return undefined;
+  }
+}
+
 const DEFAULT_MAX_CHARS = 50_000;
 const DEFAULT_MAX_LINE_LENGTH = 2000;
 const TRUNCATION_MARKER = '[...truncated]';
@@ -50,6 +86,39 @@ export class ToolResultBuilder {
   }
 
   write(text: string): number {
+    const fn = getNative();
+    if (fn !== undefined) {
+      return this.writeNative(fn, text);
+    }
+    return this.writeTs(text);
+  }
+
+  private writeNative(
+    fn: ((
+      text: string,
+      currentNchars: number,
+      maxChars: number,
+      maxLineLength: number | null,
+      alreadyTruncated: boolean,
+    ) => NativeWriteChunkResult),
+    text: string,
+  ): number {
+    const result = fn(
+      text,
+      this.nCharsValue,
+      this.maxChars,
+      this.maxLineLength,
+      this.truncationHappened,
+    );
+    if (result.output.length > 0) {
+      this.buffer.push(result.output);
+    }
+    this.nCharsValue = result.newNchars;
+    this.truncationHappened = result.truncated;
+    return result.charsWritten;
+  }
+
+  private writeTs(text: string): number {
     if (this.nCharsValue >= this.maxChars) {
       if (text.length > 0 && !this.truncationHappened) {
         this.buffer.push(TRUNCATION_MARKER);
