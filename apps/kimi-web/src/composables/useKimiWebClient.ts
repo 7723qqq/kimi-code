@@ -1380,7 +1380,7 @@ function formatTime(iso: string, _status: string): string {
     const diffD = diffMs / 86400000;
     if (diffD < 7) return `${Math.round(diffD)}d`;
     if (diffD < 30) return `${Math.round(diffD / 7)}w`;
-    if (diffD < 365) return `${Math.round(diffD / 30)}m`;
+    if (diffD < 365) return `${Math.round(diffD / 30)}mo`;
     return `${Math.round(diffD / 365)}y`;
   } catch {
     return iso;
