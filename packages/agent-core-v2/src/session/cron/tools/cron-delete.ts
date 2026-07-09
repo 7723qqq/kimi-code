@@ -83,7 +83,7 @@ export class CronDeleteTool implements BuiltinTool<CronDeleteInput> {
         isError: true,
         output: `Invalid cron job id ${JSON.stringify(
           args.id,
-        )} — must be 8 lowercase hex characters or a ULID.`,
+        )} — must be a ULID or 8 lowercase hex characters.`,
       };
     }
 

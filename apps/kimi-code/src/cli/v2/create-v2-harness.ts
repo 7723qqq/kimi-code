@@ -10,7 +10,6 @@
 import {
   IAgentPermissionModeService,
   IAgentProfileService,
-  ICliSkillDirs,
   IConfigService,
   ISessionIndex,
   ISessionLifecycleService,
@@ -19,8 +18,6 @@ import {
   logSeed,
   resolveLoggingConfig,
   type Scope,
-  type ScopeSeed,
-  type ServiceIdentifier,
 } from '@moonshot-ai/agent-core-v2';
 import {
   KimiAuthFacade,
@@ -53,13 +50,7 @@ export async function createV2Harness(options: KimiHarnessOptions): Promise<Prom
   const homeDir = resolveKimiHome(options.homeDir);
   const configPath = resolveConfigPath({ homeDir, configPath: options.configPath });
   const logging = resolveLoggingConfig({ homeDir, env: process.env });
-  const cliSkillDirsSeed: ScopeSeed = [
-    [ICliSkillDirs as ServiceIdentifier<unknown>, { dirs: options.skillDirs ?? [] }],
-  ];
-  const { app: core } = bootstrap({ homeDir, configPath }, [
-    ...logSeed(logging),
-    ...cliSkillDirsSeed,
-  ]).app;
+  const { app: core } = bootstrap({ homeDir, configPath }, logSeed(logging));
   const auth = new KimiAuthFacade({
     homeDir,
     configPath,

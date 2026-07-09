@@ -1,10 +1,10 @@
 /**
  * `sessionSkillCatalog` domain (L3) — `ISessionSkillCatalog` sink implementation.
  *
- * Dumb ordered-merge table: pulls the eager `ISkillSource`s (builtin / user /
- * workspace / plugin / cli) and folds their contributions into an in-memory
+ * Dumb ordered-merge table: pulls the four eager `ISkillSource`s (builtin /
+ * user / workspace / plugin) and folds their contributions into an in-memory
  * catalog by priority, so higher-priority sources win name collisions. `ready`
- * resolves once all have completed their first `load()`+merge; a source's
+ * resolves once all four have completed their first `load()`+merge; a source's
  * `onDidChange` (e.g. plugin reload) re-pulls just that source and re-merges,
  * firing `onDidChange`. `set`/`remove` (`ISkillCatalogSink`) let ad-hoc sources
  * push contributions. Bound at Session scope; the same instance is the
@@ -24,7 +24,6 @@ import { IUserFileSkillSource } from '#/app/skillCatalog/userFileSkillSource';
 import { IPluginSkillSource } from './pluginSkillSource';
 import { ISessionSkillCatalog, type ISkillCatalogSink } from './skillCatalog';
 import { IWorkspaceFileSkillSource } from './workspaceFileSkillSource';
-import { IExplicitSkillSource } from './explicitSkillSource';
 
 export class SessionSkillCatalogService
   extends Disposable
@@ -47,12 +46,9 @@ export class SessionSkillCatalogService
     @IUserFileSkillSource user: IUserFileSkillSource,
     @IWorkspaceFileSkillSource workspace: IWorkspaceFileSkillSource,
     @IPluginSkillSource plugin: IPluginSkillSource,
-    @IExplicitSkillSource explicit: IExplicitSkillSource,
   ) {
     super();
-    this.sources = [builtin, user, workspace, plugin, explicit].toSorted(
-      (a, b) => a.priority - b.priority,
-    );
+    this.sources = [builtin, user, workspace, plugin].toSorted((a, b) => a.priority - b.priority);
     for (const s of this.sources) {
       if (s.onDidChange) this._register(s.onDidChange(() => { void this.reloadSource(s.id); }));
     }
