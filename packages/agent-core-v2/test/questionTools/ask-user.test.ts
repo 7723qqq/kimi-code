@@ -1,16 +1,14 @@
 /**
  * AskUserQuestionTool unit tests — ported from v1
  * `packages/agent-core/test/tools/ask-user.test.ts` and adapted to the v2 DI
- * constructor (`ISessionQuestionService` / `IAgentTaskService` /
- * `ITelemetryService` stubs instead of a fake `Agent`).
+ * constructor (`ISessionQuestionService` / `ITelemetryService` stubs instead
+ * of a fake `Agent`).
  */
 
 import { describe, expect, it, vi } from 'vitest';
 
 import { CoreErrors } from '#/_base/errors/codes';
 import { KimiError } from '#/_base/errors/errors';
-import { IAgentTaskService } from '#/agent/task/task';
-import type { AgentTask, AgentTaskInfoBase, AgentTaskSink, AgentTaskStatus } from '#/agent/task/types';
 import {
   AskUserQuestionInputSchema,
   AskUserQuestionTool,
@@ -45,85 +43,6 @@ function input(
   };
 }
 
-interface FakeTaskEntry {
-  readonly task: AgentTask;
-  readonly controller: AbortController;
-  output: string;
-  status: AgentTaskStatus;
-  stopReason?: string;
-  readonly settled: Promise<void>;
-}
-
-/**
- * Minimal in-memory stand-in for `IAgentTaskService`: runs a registered task
- * immediately with a real sink so the QuestionTask wiring (including the
- * task-signal passthrough) is exercised end to end.
- */
-function createFakeTaskService(): {
-  readonly tasks: IAgentTaskService;
-  readonly registerTask: ReturnType<typeof vi.fn>;
-  entry(taskId: string): FakeTaskEntry;
-  kill(taskId: string): void;
-  wait(taskId: string): Promise<void>;
-} {
-  const entries = new Map<string, FakeTaskEntry>();
-  let counter = 0;
-  const registerTask = vi.fn((task: AgentTask): string => {
-    counter += 1;
-    const taskId = `${task.idPrefix}-${String(counter).padStart(8, '0')}`;
-    const controller = new AbortController();
-    let settleResolve!: () => void;
-    const settled = new Promise<void>((resolve) => {
-      settleResolve = resolve;
-    });
-    const entry: FakeTaskEntry = { task, controller, output: '', status: 'running', settled };
-    const sink: AgentTaskSink = {
-      signal: controller.signal,
-      appendOutput: (chunk) => {
-        entry.output += chunk;
-      },
-      settle: (settlement) => {
-        entry.status = settlement.status;
-        entry.stopReason = settlement.stopReason;
-        settleResolve();
-        return Promise.resolve(true);
-      },
-    };
-    entries.set(taskId, entry);
-    void Promise.resolve(task.start(sink)).catch(() => {});
-    return taskId;
-  });
-  const tasks = {
-    registerTask,
-    getTask: (taskId: string) => {
-      const entry = entries.get(taskId);
-      if (entry === undefined) return undefined;
-      const base: AgentTaskInfoBase = {
-        taskId,
-        description: entry.task.description,
-        status: entry.status,
-        startedAt: 0,
-        endedAt: null,
-        stopReason: entry.stopReason,
-      };
-      return entry.task.toInfo(base);
-    },
-  } as unknown as IAgentTaskService;
-  return {
-    tasks,
-    registerTask,
-    entry: (taskId) => {
-      const entry = entries.get(taskId);
-      if (entry === undefined) throw new Error(`unknown task ${taskId}`);
-      return entry;
-    },
-    kill: (taskId) => {
-      entries.get(taskId)?.controller.abort();
-    },
-    wait: async (taskId) => entries.get(taskId)?.settled,
-  };
-}
-
 function makeTool(
   options: {
     readonly request?: (
@@ -135,15 +54,13 @@ function makeTool(
   readonly tool: AskUserQuestionTool;
   readonly request: ReturnType<typeof vi.fn>;
   readonly telemetryTrack: ReturnType<typeof vi.fn>;
-  readonly taskService: ReturnType<typeof createFakeTaskService>;
 } {
   const request = vi.fn(options.request ?? (async () => ({ Postgres: true }) as QuestionResult));
   const telemetryTrack = vi.fn();
-  const taskService = createFakeTaskService();
   const question = { request } as unknown as ISessionQuestionService;
   const telemetry = { track: telemetryTrack } as unknown as ITelemetryService;
-  const tool = new AskUserQuestionTool(question, taskService.tasks, telemetry);
-  return { tool, request, telemetryTrack, taskService };
+  const tool = new AskUserQuestionTool(question, telemetry);
+  return { tool, request, telemetryTrack };
 }
 
 describe('AskUserQuestionTool', () => {
@@ -174,12 +91,13 @@ describe('AskUserQuestionTool', () => {
     expect(tool.description).toContain('keyed by question text');
   });
 
-  it('tells the model not to poll a pending background question', () => {
+  it('does not expose background question controls', () => {
     const { tool } = makeTool();
     const paramsJson = JSON.stringify(tool.parameters);
 
-    expect(paramsJson).toContain('do not poll with TaskOutput');
-    expect(paramsJson).not.toContain('Use TaskOutput to read the answer later');
+    expect(tool.description).not.toContain('background=true');
+    expect(paramsJson).not.toContain('background');
+    expect(paramsJson).not.toContain('TaskOutput');
   });
 
   it('rejects empty question text and empty option labels at the schema layer', () => {
@@ -257,25 +175,6 @@ describe('AskUserQuestionTool', () => {
     expect(request).toHaveBeenCalledOnce();
   });
 
-  it('rejects duplicate questions on the background path before starting a task', async () => {
-    const { tool, request, taskService } = makeTool();
-
-    const result = await executeTool(tool, {
-      turnId: 0,
-      toolCallId: 'call_bg_dup',
-      args: {
-        questions: [input().questions[0]!, input().questions[0]!],
-        background: true,
-      },
-      signal,
-    });
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain('unique');
-    expect(result.output).not.toContain('task_id:');
-    expect(request).not.toHaveBeenCalled();
-    expect(taskService.registerTask).not.toHaveBeenCalled();
-  });
-
   it('describes the no-Other rule on options and the Recommended hint on label', () => {
     const { tool } = makeTool();
     const params = tool.parameters as {
@@ -301,11 +200,11 @@ describe('AskUserQuestionTool', () => {
     expect(labelSchema.description).toContain("append '(Recommended)'");
   });
 
-  it('always builds the background-question schema', () => {
+  it('builds the v1-aligned foreground-only schema', () => {
     const { tool } = makeTool();
 
-    expect(tool.description).toContain('Set background=true');
-    expect(JSON.stringify(tool.parameters)).toContain('background');
+    expect(tool.description).not.toContain('Set background=true');
+    expect(JSON.stringify(tool.parameters)).not.toContain('background');
   });
 
   it('dispatches questions through the session question service', async () => {
@@ -396,85 +295,6 @@ describe('AskUserQuestionTool', () => {
       answered: 1,
       method: 'number_key',
     });
-  });
-
-  it('starts a background question task and stores the eventual answer in task output', async () => {
-    let resolveQuestion!: (result: QuestionResult) => void;
-    const questionResult = new Promise<QuestionResult>((resolve) => {
-      resolveQuestion = resolve;
-    });
-    const { tool, taskService, telemetryTrack } = makeTool({
-      request: async () => questionResult,
-    });
-
-    const result = await executeTool(tool, {
-      turnId: 0,
-      toolCallId: 'call_background_question',
-      args: { ...input(), background: true },
-      signal,
-    });
-
-    expect(result.isError).toBe(false);
-    expect(result.output).toContain('task_id: question-');
-    const outputText = typeof result.output === 'string' ? result.output : '';
-    const taskId = /task_id: (?<taskId>question-[0-9a-z]{8})/.exec(outputText)?.groups?.['taskId'];
-    expect(taskId).toBeDefined();
-    expect(taskService.tasks.getTask(taskId!)).toMatchObject({
-      kind: 'question',
-      status: 'running',
-      questionCount: 1,
-      toolCallId: 'call_background_question',
-    });
-
-    resolveQuestion({ answers: { 'Which database?': 'SQLite' }, method: 'enter' });
-    await taskService.wait(taskId!);
-
-    expect(taskService.tasks.getTask(taskId!)).toMatchObject({ status: 'completed' });
-    expect(taskService.entry(taskId!).output).toBe(
-      JSON.stringify({ answers: { 'Which database?': 'SQLite' } }),
-    );
-    expect(telemetryTrack).toHaveBeenCalledWith('question_answered', {
-      answered: 1,
-      method: 'enter',
-    });
-  });
-
-  it('dismisses the underlying question when a background task is killed (v1 broker semantics)', async () => {
-    const { tool, request, taskService, telemetryTrack } = makeTool({
-      // Emulates the real question service: an abort dismisses the parked
-      // entry and resolves with `null` instead of rejecting.
-      request: async (_req, requestOptions) =>
-        new Promise<QuestionResult>((resolve) => {
-          requestOptions?.signal?.addEventListener('abort', () => resolve(null), {
-            once: true,
-          });
-        }),
-    });
-
-    const result = await executeTool(tool, {
-      turnId: 0,
-      toolCallId: 'call_bg_kill',
-      args: { ...input(), background: true },
-      signal,
-    });
-    const outputText = typeof result.output === 'string' ? result.output : '';
-    const taskId = /task_id: (?<taskId>question-[0-9a-z]{8})/.exec(outputText)?.groups?.['taskId'];
-    expect(taskId).toBeDefined();
-
-    // The task signal must reach the question service so a TaskStop actually
-    // cancels the pending question instead of leaking it.
-    const requestOptions = request.mock.calls[0]?.[1] as { signal?: AbortSignal } | undefined;
-    expect(requestOptions?.signal).toBeDefined();
-
-    taskService.kill(taskId!);
-    await taskService.wait(taskId!);
-    // The dismissal resolves the question thunk with the dismissed answers
-    // payload, so the task itself completes — matching the v1 runtime.
-    expect(taskService.entry(taskId!).status).toBe('completed');
-    expect(taskService.entry(taskId!).output).toBe(
-      JSON.stringify({ answers: {}, note: 'User dismissed the question without answering.' }),
-    );
-    expect(telemetryTrack).toHaveBeenCalledWith('question_dismissed');
   });
 
   it('returns a dismissed message when every question is dismissed', async () => {

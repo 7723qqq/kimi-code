@@ -246,7 +246,6 @@ export { ISessionApprovalService } from '#/session/approval/approval';
 export * from '#/session/question/question';
 export * from '#/session/question/questionService';
 import '#/agent/questionTools/tools/ask-user';
-export * from '#/agent/questionTools/tools/question-task';
 export * from '#/app/gateway/gateway';
 export * from '#/app/gateway/gatewayService';
 
