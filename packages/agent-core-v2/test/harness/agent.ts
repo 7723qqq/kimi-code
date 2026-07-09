@@ -121,6 +121,7 @@ import type { PersistedRecord } from '#/wire/wireService';
 import { WireService } from '#/wire/wireServiceImpl';
 import { IModelService } from '#/app/model/model';
 import { type Model } from '#/app/model/modelInstance';
+import { IHostRequestHeaders } from '#/app/model/hostRequestHeaders';
 import { IModelResolver } from '#/app/model/modelResolver';
 import { ModelResolverService } from '#/app/model/modelResolverService';
 import { IPlatformService } from '#/app/platform/platform';
@@ -827,8 +828,9 @@ class ConfigBackedModelResolver extends ModelResolverService {
     @IModelService models: IModelService,
     @IOAuthService oauth: IOAuthService,
     @IProtocolAdapterRegistry protocolRegistry: IProtocolAdapterRegistry,
+    @IHostRequestHeaders hostRequestHeaders: IHostRequestHeaders,
   ) {
-    super(config, providers, platforms, models, oauth, protocolRegistry);
+    super(config, providers, platforms, models, oauth, protocolRegistry, hostRequestHeaders);
   }
 
   override resolve(id: string): Model {

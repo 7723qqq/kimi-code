@@ -15,6 +15,7 @@
  *     the Model itself; no Platform is required.
  */
 
+import { parseKimiCodeCustomHeaders } from '@moonshot-ai/kimi-code-oauth';
 import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -31,6 +32,7 @@ import { IProviderService } from '#/app/provider/provider';
 import { IProtocolAdapterRegistry, type Protocol, type ProtocolProviderOptions } from '#/app/protocol/protocol';
 import { type ProtocolAdapterRegistry } from '#/app/protocol/protocolAdapterRegistry';
 
+import { IHostRequestHeaders } from './hostRequestHeaders';
 import type { ModelConfig } from './model';
 import { IModelService } from './model';
 import {
@@ -67,6 +69,7 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     @IOAuthService private readonly oauth: IOAuthService,
     @IProtocolAdapterRegistry
     private readonly protocolRegistry: IProtocolAdapterRegistry,
+    @IHostRequestHeaders private readonly hostRequestHeaders: IHostRequestHeaders,
   ) {
     super();
   }
@@ -132,7 +135,11 @@ export class ModelResolverService extends Disposable implements IModelResolver {
       aliases: model.aliases ?? [],
       protocol,
       baseUrl: resolvedBaseUrl,
-      headers: providerConfig?.customHeaders ?? {},
+      headers: resolveOutboundHeaders(
+        providerConfig?.type,
+        providerConfig?.customHeaders,
+        this.hostRequestHeaders.headers,
+      ),
       capabilities,
       maxContextSize: model.maxContextSize,
       maxOutputSize: model.maxOutputSize,
@@ -292,6 +299,32 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     }
     return new StaticAuthProvider(undefined);
   }
+}
+
+/**
+ * Resolve the outbound `defaultHeaders` for a Model, layering lowest to highest
+ * precedence (matches v1's `provider-manager`):
+ *
+ *   1. `KIMI_CODE_CUSTOM_HEADERS` env (re-read on every resolve so env changes
+ *      take effect without restarting the session);
+ *   2. host identity headers — the full set (`User-Agent` + `X-Msh-*`) for a
+ *      Kimi provider, only the `User-Agent` for every other provider so device
+ *      identity never leaks to third-party endpoints (a Kimi provider routed
+ *      through the Anthropic protocol still gets the full set, matching v1);
+ *   3. provider `customHeaders` (always win on conflict).
+ */
+export function resolveOutboundHeaders(
+  providerType: string | undefined,
+  customHeaders: Readonly<Record<string, string>> | undefined,
+  hostHeaders: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
+  const hostLayer = providerType === 'kimi' ? hostHeaders : userAgentOnly(hostHeaders);
+  return { ...parseKimiCodeCustomHeaders(), ...hostLayer, ...(customHeaders ?? {}) };
+}
+
+function userAgentOnly(headers: Readonly<Record<string, string>>): Record<string, string> {
+  const userAgent = headers['User-Agent'];
+  return userAgent === undefined ? {} : { 'User-Agent': userAgent };
 }
 
 function resolveModelCapabilities(

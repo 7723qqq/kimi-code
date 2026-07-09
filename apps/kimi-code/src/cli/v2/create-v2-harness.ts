@@ -15,10 +15,12 @@ import {
   ISessionLifecycleService,
   bootstrap,
   ensureMainAgent,
+  hostRequestHeadersSeed,
   logSeed,
   resolveLoggingConfig,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
+import { createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 import {
   KimiAuthFacade,
   resolveConfigPath,
@@ -49,7 +51,14 @@ export async function createV2Harness(options: KimiHarnessOptions): Promise<Prom
   const homeDir = resolveKimiHome(options.homeDir);
   const configPath = resolveConfigPath({ homeDir, configPath: options.configPath });
   const logging = resolveLoggingConfig({ homeDir, env: process.env });
-  const { app: core } = bootstrap({ homeDir, configPath }, logSeed(logging));
+  const hostHeaders =
+    options.identity === undefined
+      ? {}
+      : createKimiDefaultHeaders({ homeDir, ...options.identity });
+  const { app: core } = bootstrap({ homeDir, configPath }, [
+    ...logSeed(logging),
+    ...hostRequestHeadersSeed(hostHeaders),
+  ]);
   const auth = new KimiAuthFacade({
     homeDir,
     configPath,

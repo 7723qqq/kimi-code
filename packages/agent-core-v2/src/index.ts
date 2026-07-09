@@ -91,6 +91,7 @@ export * from '#/app/protocol/protocolAdapterRegistry';
 import '#/app/model/configSection';
 import '#/app/model/envOverlay';
 export * from '#/app/model/completionBudget';
+export * from '#/app/model/hostRequestHeaders';
 export * from '#/app/model/model';
 export type {
   AuthProvider,
