@@ -19,7 +19,7 @@ import { stubTurn } from '../turn/stubs';
 function makeTurn(id: number): Turn {
   return {
     id,
-    abortController: new AbortController(),
+    signal: new AbortController().signal,
     ready: Promise.resolve(),
     result: Promise.resolve({ reason: 'completed' }),
   };

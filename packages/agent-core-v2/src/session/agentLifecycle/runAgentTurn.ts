@@ -26,8 +26,8 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { IAgentTurnService, type Turn } from '#/agent/turn/turn';
 import { IAgentUsageService } from '#/agent/usage/usage';
-import type { Turn } from '#/agent/turn/turn';
 import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { IEventBus } from '#/app/event/eventBus';
 
@@ -102,9 +102,13 @@ async function awaitRun(
 ): Promise<{ summary: string; usage?: TokenUsage }> {
   const controller = new AbortController();
   const unlink = linkAbortSignal(options.signal, controller);
+  const turnService = target.accessor.get(IAgentTurnService);
+  const cancelTurn = (reason: unknown): void => {
+    turnService.cancel(undefined, reason);
+  };
   let turnRef: Turn = turn;
   try {
-    const result = await awaitTurn(turnRef, controller);
+    const result = await awaitTurn(turnRef, controller, cancelTurn);
     classifyTurnResult(result, finishObserver.finishReasonFor(turnRef.id));
     const summary = await distillSummary(
       target,
@@ -114,6 +118,7 @@ async function awaitRun(
         turnRef = t;
       },
       finishObserver,
+      cancelTurn,
     );
     const usage = target.accessor.get(IAgentUsageService)?.status().total;
     return { summary, usage };
@@ -121,7 +126,7 @@ async function awaitRun(
     finishObserver.dispose();
     unlink();
     if (controller.signal.aborted) {
-      turnRef.abortController.abort(controller.signal.reason);
+      cancelTurn(controller.signal.reason);
     }
   }
 }
@@ -129,9 +134,10 @@ async function awaitRun(
 async function awaitTurn(
   turn: Turn,
   controller: AbortController,
+  cancelTurn: (reason: unknown) => void,
 ): Promise<{ reason: string; error?: unknown }> {
   const onAbort = (): void => {
-    turn.abortController.abort(controller.signal.reason);
+    cancelTurn(controller.signal.reason);
   };
   controller.signal.addEventListener('abort', onAbort, { once: true });
   try {
@@ -147,6 +153,7 @@ async function distillSummary(
   policy: AgentProfileSummaryPolicy | undefined,
   setTurn: (turn: Turn) => void,
   finishObserver: TurnFinishObserver,
+  cancelTurn: (reason: unknown) => void,
 ): Promise<string> {
   const memory = target.accessor.get(IAgentContextMemoryService);
   let summary = latestAssistantText(memory.get());
@@ -163,7 +170,7 @@ async function distillSummary(
     });
     if (turn === undefined) break;
     setTurn(turn);
-    const result = await awaitTurn(turn, controller);
+    const result = await awaitTurn(turn, controller, cancelTurn);
     throwIfTruncatedSummary(result, finishObserver.finishReasonFor(turn.id));
     if (result.reason !== 'completed') break;
     const continued = latestAssistantText(memory.get());

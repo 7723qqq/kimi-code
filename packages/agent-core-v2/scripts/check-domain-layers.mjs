@@ -132,6 +132,7 @@ const DOMAIN_LAYER = new Map([
   ['modelCatalog', 3],
   ['agentProfileCatalog', 3],
   // L4 — agent behaviour
+  ['activity', 4],
   ['context', 4],
   ['message', 4],
   ['turn', 4],

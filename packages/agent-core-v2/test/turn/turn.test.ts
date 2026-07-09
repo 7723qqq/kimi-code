@@ -1128,7 +1128,7 @@ describe('Agent turn flow', () => {
     // A programmatic abort (e.g. a subagent deadline timeout) carries a plain
     // AbortError as its reason, not a UserCancellationError, so it must not be
     // reported as a user interrupt.
-    ctx.get(IAgentTurnService).getActiveTurn()?.abortController.abort(abortError());
+    ctx.get(IAgentTurnService).cancel(undefined, abortError());
     await ctx.untilTurnEnd();
 
     expect(triggered).toEqual([]);
@@ -2003,7 +2003,7 @@ describe('Agent turn flow', () => {
     await expect(
       ctx.rpc.prompt({ input: [{ type: 'text', text: 'This should not start a new turn' }] }),
     ).rejects.toMatchObject({
-      code: ErrorCodes.TURN_AGENT_BUSY,
+      code: ErrorCodes.ACTIVITY_AGENT_BUSY,
       details: { turnId: 0 },
     });
 

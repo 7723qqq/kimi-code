@@ -33,7 +33,7 @@ const FAR_FUTURE_MS = 10 * 366 * 24 * 60 * 60 * 1000;
 function fakeTurn(): Turn {
   return {
     id: 1,
-    abortController: new AbortController(),
+    signal: new AbortController().signal,
     ready: Promise.resolve(),
     result: Promise.resolve({ reason: 'completed' }),
   };

@@ -7,7 +7,12 @@ export type { LoopRunResult as TurnResult } from '#/agent/loop/loop';
 
 export interface Turn {
   readonly id: number;
-  readonly abortController: AbortController;
+  /**
+   * Cancellation signal owned by the `activity` kernel's turn lease. Abort it
+   * through `IAgentTurnService.cancel(...)` rather than holding a controller;
+   * the kernel is the single authority for turn cancellation.
+   */
+  readonly signal: AbortSignal;
   /**
    * Resolves on the first model response event for the first loop step, or at
    * step completion; rejects if the turn ends earlier.

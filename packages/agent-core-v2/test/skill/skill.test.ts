@@ -48,7 +48,7 @@ function stubSessionContext(sessionId = 'test-session'): ISessionContext {
 function fakeTurn(): Turn {
   return {
     id: 1,
-    abortController: new AbortController(),
+    signal: new AbortController().signal,
     ready: Promise.resolve(),
     result: Promise.resolve({ reason: 'completed' }),
   };

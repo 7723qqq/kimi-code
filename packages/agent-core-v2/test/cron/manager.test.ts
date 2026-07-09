@@ -54,7 +54,7 @@ function createSteerSpy(
 ) {
   const returnValue = args.length === 0 ? {
     id: 1,
-    abortController: new AbortController(),
+    signal: new AbortController().signal,
     ready: Promise.resolve(),
     result: Promise.resolve({ reason: 'completed' as const }),
   } : args[0];
@@ -150,7 +150,7 @@ describe('SessionCronService', () => {
       telemetryRecords = captureTelemetry(telemetry);
       steerCalls = createSteerSpy(prompt, {
         id: 7,
-        abortController: new AbortController(),
+        signal: new AbortController().signal,
         ready: Promise.resolve(),
         result: Promise.resolve({ reason: 'completed' as const }),
       });
@@ -466,7 +466,7 @@ describe('SessionCronService', () => {
         return hasActiveTurn
           ? {
             id: 1,
-            abortController: new AbortController(),
+            signal: new AbortController().signal,
             ready: Promise.resolve(),
             result: Promise.resolve({ reason: 'completed' as const }),
           }

@@ -60,7 +60,7 @@ async function flushSteers(loop: IAgentLoopService, turn: Turn): Promise<void> {
   await loop.hooks.beforeStep.run({
     turnId: turn.id,
     step: 1,
-    signal: turn.abortController.signal,
+    signal: turn.signal,
   });
 }
 
@@ -210,7 +210,7 @@ describe('AgentPromptService', () => {
     } as const;
     const didCtx: ToolDidExecuteContext = {
       turnId: activeTurn.id,
-      signal: activeTurn.abortController.signal,
+      signal: activeTurn.signal,
       toolCall: { type: 'function', id: 'call_skill', name: 'Skill', arguments: '{}' },
       toolCalls: [],
       args: {},

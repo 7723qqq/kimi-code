@@ -45,6 +45,7 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentActivityService } from '#/activity/activity';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -379,13 +380,19 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     return all.filter((handle) => handle.id.startsWith(prefix));
   }
 
-  remove(agentId: string): Promise<void> {
+  async remove(agentId: string): Promise<void> {
     const handle = this.handles.get(agentId);
-    if (handle === undefined) return Promise.resolve();
+    if (handle === undefined) return;
     this.handles.delete(agentId);
+    // Drive the agent activity kernel through disposal: reject new begins and
+    // abort any in-flight turn / background activity, then wait for it to drain
+    // (including the tool-execution grace window) before releasing the scope.
+    // This guarantees no async work keeps running on a disposed agent.
+    const activity = handle.accessor.get(IAgentActivityService);
+    activity.beginDisposal();
+    await activity.settled();
     handle.dispose();
     this.onDidDisposeEmitter.fire(agentId);
-    return Promise.resolve();
   }
 }
 

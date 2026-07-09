@@ -129,7 +129,7 @@ describe('RestGateway', () => {
     const turn = turnService.launch();
     await gw.cancel('s1', 'main', 'bye');
 
-    expect(turn.abortController.signal.aborted).toBe(true);
-    expect(turn.abortController.signal.reason).toBe('bye');
+    expect(turn.signal.aborted).toBe(true);
+    expect(turn.signal.reason).toBe('bye');
   });
 });

@@ -39,13 +39,18 @@ export type StubTurn = IAgentTurnService & {
   readonly launches: readonly number[];
 };
 
+const turnControllers = new WeakMap<Turn, AbortController>();
+
 function makeTurn(id: number): Turn {
-  return {
+  const controller = new AbortController();
+  const turn: Turn = {
     id,
-    abortController: new AbortController(),
+    signal: controller.signal,
     ready: Promise.resolve(),
     result: Promise.resolve({ reason: 'completed' }),
   };
+  turnControllers.set(turn, controller);
+  return turn;
 }
 
 function makeAgentLoopHookSlots(): IAgentLoopService['hooks'] {
@@ -88,7 +93,7 @@ export function stubTurn(options: StubTurnOptions = {}): StubTurn {
       const turn = this.getActiveTurn();
       if (turn === undefined) return false;
       if (turnId !== undefined && turn.id !== turnId) return false;
-      turn.abortController.abort(reason);
+      turnControllers.get(turn)?.abort(reason);
       return true;
     },
     prompts: [],
