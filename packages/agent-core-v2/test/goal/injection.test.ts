@@ -195,7 +195,7 @@ describe('GoalInjection content', () => {
       await goals.createGoal({ objective: 'fix the bugs' });
     }))!;
     expect(text).toContain('Goal mode is iterative');
-    expect(text).toContain('one coherent slice of work');
+    expect(text).toContain('one bounded, useful slice of work');
     expect(text).toContain('Do not mark complete after only producing a plan');
   });
 
