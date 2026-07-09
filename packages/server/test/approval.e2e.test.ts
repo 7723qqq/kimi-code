@@ -30,7 +30,7 @@ import {
   IEventService,
   type ApprovalRequest,
   type ApprovalResponse,
-  type Event,
+  type ProtocolEvent,
 } from '@moonshot-ai/agent-core';
 
 import { IRestGateway, startServer, type RunningServer } from '../src';
@@ -317,7 +317,7 @@ describe('Approval reverse-RPC: WS broadcast → REST resolve → Promise settle
       agentId: 'main',
       turnId: 21,
       reason: 'cancelled',
-    } as unknown as Event);
+    } as unknown as ProtocolEvent;
 
     const resolvedFrame = await waitFor(
       received,

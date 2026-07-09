@@ -19,7 +19,7 @@ const START_PKG = "@moonshot-ai/kimi-code";
 function getWorkspaceGlobs() {
   const yamlPath = join(ROOT, "pnpm-workspace.yaml");
   const content = readFileSync(yamlPath, "utf8");
-  const lines = content.split("\n");
+  const lines = content.split(/\r?\n/);
   const globs = [];
   let inPackages = false;
   for (const line of lines) {
@@ -51,7 +51,7 @@ function expandGlobsSafe(globs) {
       if (!existsSync(basePath)) continue;
       for (const entry of readdirSync(basePath, { withFileTypes: true })) {
         if (entry.isDirectory()) {
-          dirs.push(join(base, entry.name));
+          dirs.push(join(base, entry.name).replace(/\\/g, "/"));
         }
       }
     } else {

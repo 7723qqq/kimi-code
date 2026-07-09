@@ -13,7 +13,7 @@ export type {
   CompactionStartedEvent,
   CronFiredEvent,
   ErrorEvent,
-  Event,
+  Event as ProtocolEvent,
   GoalUpdatedEvent,
   HookResultEvent,
   McpOAuthAuthorizationUrlUpdateData,

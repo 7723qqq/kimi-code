@@ -67,6 +67,7 @@
         ./packages/server
         ./packages/server-e2e
         ./packages/kaos
+        ./packages/kimi-native-tools
         ./packages/kosong
         ./packages/migration-legacy
         ./packages/node-sdk
@@ -93,6 +94,7 @@
         "@moonshot-ai/migration-legacy"
         "@moonshot-ai/kimi-code-sdk"
         "@moonshot-ai/kimi-code-oauth"
+        "@moonshot-ai/kimi-native-tools"
         "@moonshot-ai/pi-tui"
         "@moonshot-ai/protocol"
         "@moonshot-ai/kimi-telemetry"

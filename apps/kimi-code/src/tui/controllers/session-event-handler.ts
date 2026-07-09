@@ -27,6 +27,7 @@ import type {
   TurnStartedEvent,
   TurnStepCompletedEvent,
   TurnStepInterruptedEvent,
+  TurnStepRetryingEvent,
   TurnStepStartedEvent,
   WarningEvent,
 } from '@moonshot-ai/kimi-code-sdk';
@@ -245,7 +246,7 @@ export class SessionEventHandler {
       case 'turn.step.started': this.handleStepBegin(event); break;
       case 'turn.step.interrupted': this.handleStepInterrupted(event); break;
       case 'turn.step.completed': this.handleStepCompleted(event); break;
-      case 'turn.step.retrying': break;
+      case 'turn.step.retrying': this.handleStepRetrying(event); break;
       case 'tool.progress': this.handleToolProgress(event); break;
       case 'shell.output': this.host.handleShellOutput(event); break;
       case 'shell.started': this.host.handleShellStarted(event); break;
@@ -346,6 +347,20 @@ export class SessionEventHandler {
     this.currentTurnHasAssistantText = false;
     this.goalCompletionTurnEnded = true;
     this.scheduleQueuedGoalPromotion();
+  }
+
+  private handleStepRetrying(event: TurnStepRetryingEvent): void {
+    this.host.streamingUI.flushNow();
+    this.host.streamingUI.finalizeLiveTextBuffers('waiting');
+    const delayS = Math.ceil(event.delayMs / 1000);
+    this.host.showStatus(
+      `Retrying (${event.nextAttempt}/${event.maxAttempts}) in ${delayS}s — ${event.errorName}`,
+      'warning',
+    );
+    this.host.setAppState({
+      streamingPhase: 'waiting',
+      streamingStartTime: Date.now(),
+    });
   }
 
   private handleStepBegin(event: TurnStepStartedEvent): void {

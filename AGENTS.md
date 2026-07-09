@@ -25,6 +25,10 @@ This is a TypeScript monorepo built for agent-assisted development. Keep the roo
 - `packages/telemetry`: shared client-side telemetry infrastructure.
 - `packages/server`: the Kimi Code server. Hosts `agent-core` sessions and exposes them over REST + WebSocket (`/api/v1`); bootstrapped from `src/start.ts` and consumed by `apps/kimi-code`. See `packages/server/AGENTS.md`.
 - `packages/server-e2e`: live e2e tests and scenarios against a running server (`KIMI_SERVER_URL`, default `http://127.0.0.1:58627`). See `packages/server-e2e/AGENTS.md`.
+- `packages/protocol`: shared REST + WebSocket protocol schemas (envelope, error codes, pagination, ws-control) consumed by `agent-core`, `server`, and `server-e2e`.
+- `packages/acp-adapter`: the Agent Client Protocol adapter, bridging kimi-code sessions to ACP clients; consumed by `apps/kimi-code`.
+- `packages/migration-legacy`: migrates legacy `~/.kimi/` data into `~/.kimi-code/`; consumed by `apps/kimi-code` at install time.
+- `packages/kimi-native-tools`: native Rust tools (via napi-rs) for bash, grep, glob, read, write, edit; consumed by `agent-core`.
 
 ## Environment Requirements
 
