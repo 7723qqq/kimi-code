@@ -2,7 +2,14 @@ import type { Logger } from '#/logging/types';
 import type { ProviderConfig as KosongProviderConfig, ModelCapability, ProviderRequestAuth } from '@moonshot-ai/kosong';
 import { APIStatusError, getModelCapability, UNKNOWN_CAPABILITY } from '@moonshot-ai/kosong';
 import { parseKimiCodeCustomHeaders } from '@moonshot-ai/kimi-code-oauth';
-import type { KimiConfig, ModelAlias, OAuthRef, ProviderConfig, ProviderType } from '../config';
+import {
+  effectiveModelAlias,
+  type KimiConfig,
+  type ModelAlias,
+  type OAuthRef,
+  type ProviderConfig,
+  type ProviderType,
+} from '../config';
 import { ErrorCodes, isKimiError, KimiError } from '../errors';
 
 export interface BearerTokenProvider {
@@ -32,8 +39,6 @@ interface ProviderManagerOptions {
   readonly kimiRequestHeaders?: Record<string, string>;
   readonly resolveOAuthTokenProvider?: OAuthTokenProviderResolver;
   readonly promptCacheKey?: string;
-  // remove before commit
-  readonly adaptiveThinkingOverride?: () => boolean | undefined;
 }
 
 type AuthorizedRequest = <T>(
@@ -90,6 +95,7 @@ export class ProviderManager implements ModelProvider {
       );
     }
 
+    const effectiveAlias = effectiveModelAlias(alias);
     const providerName = alias.provider ?? this.config.defaultProvider;
     if (providerName === undefined) {
       throw new KimiError(
@@ -106,36 +112,34 @@ export class ProviderManager implements ModelProvider {
       );
     }
 
-    if (!Number.isInteger(alias.maxContextSize) || alias.maxContextSize <= 0) {
+    if (!Number.isInteger(effectiveAlias.maxContextSize) || effectiveAlias.maxContextSize <= 0) {
       throw new KimiError(
         ErrorCodes.CONFIG_INVALID,
         `Model "${model}" must define a positive max_context_size in config.toml.`,
       );
     }
 
-    // remove before commit
-    const adaptiveThinkingOverride = this.options.adaptiveThinkingOverride?.();
-    const effectiveAdaptiveThinking = adaptiveThinkingOverride ?? alias.adaptiveThinking;
     const provider = toKosongProviderConfig(
       providerConfig,
       alias.model,
       alias.protocol,
       this.options.kimiRequestHeaders,
-      alias.maxOutputSize,
-      alias.reasoningKey,
+      effectiveAlias.maxOutputSize,
+      effectiveAlias.reasoningKey,
       this.options.promptCacheKey,
-      effectiveAdaptiveThinking,
+      effectiveAlias.adaptiveThinking,
       alias.betaApi,
+      effectiveAlias.supportEfforts,
     );
 
     return {
       providerName,
       provider,
-      modelCapabilities: resolveModelCapabilities(alias, provider),
-      alwaysThinking: (alias.capabilities ?? []).some(
+      modelCapabilities: resolveModelCapabilities(effectiveAlias, provider),
+      alwaysThinking: (effectiveAlias.capabilities ?? []).some(
         (c) => c.trim().toLowerCase() === 'always_thinking',
       ),
-      maxOutputSize: alias.maxOutputSize,
+      maxOutputSize: effectiveAlias.maxOutputSize,
       type: providerConfig.type,
       protocol: alias.protocol,
     };
@@ -199,9 +203,10 @@ export class ProviderManager implements ModelProvider {
         } catch (error) {
           if (!(error instanceof APIStatusError) || error.statusCode !== 401) throw error;
           if (refreshed) {
+            const reason = error.message.replaceAll('\r', '');
             throw new KimiError(
-              ErrorCodes.AUTH_LOGIN_REQUIRED,
-              'OAuth provider credentials were rejected. Send /login to login.',
+              ErrorCodes.PROVIDER_AUTH_ERROR,
+              reason.length > 0 ? reason : 'OAuth provider credentials were rejected.',
               {
                 cause: error,
                 details: { statusCode: error.statusCode, requestId: error.requestId },
@@ -229,6 +234,10 @@ function resolveModelCapabilities(
     thinking: declared.has('thinking') || declared.has('always_thinking') || detected.thinking,
     tool_use: declared.has('tool_use') || detected.tool_use,
     max_context_tokens: alias.maxContextSize,
+    // Message-level tool declarations (select_tools progressive disclosure).
+    // Every field here must be merged explicitly — a capability registered in
+    // kosong that is not forwarded here never reaches the agent.
+    select_tools: declared.has('select_tools') || detected.select_tools === true,
   };
 }
 
@@ -242,6 +251,7 @@ function toKosongProviderConfig(
   promptCacheKey: string | undefined,
   adaptiveThinking: boolean | undefined,
   betaApi: boolean | undefined,
+  supportEfforts: readonly string[] | undefined,
 ): KosongProviderConfig {
   const effectiveType = modelProtocol === 'anthropic' ? 'anthropic' : provider.type;
   const envCustomHeaders = parseKimiCodeCustomHeaders();
@@ -296,6 +306,7 @@ function toKosongProviderConfig(
         baseUrl: providerValue(provider.baseUrl, provider.env, 'KIMI_BASE_URL'),
         apiKey: providerApiKey(provider),
         generationKwargs: { prompt_cache_key: promptCacheKey },
+        supportEfforts,
         ...defaultHeadersField({
           ...envCustomHeaders,
           ...kimiRequestHeaders,
@@ -306,6 +317,7 @@ function toKosongProviderConfig(
       return {
         type: 'google-genai',
         model,
+        baseUrl: providerValue(provider.baseUrl, provider.env, 'GOOGLE_GEMINI_BASE_URL'),
         apiKey: providerApiKey(provider),
         ...defaultHeadersField({
           ...envCustomHeaders,
@@ -326,14 +338,21 @@ function toKosongProviderConfig(
         }),
       };
     case 'vertexai': {
-      const useServiceAccount = hasVertexAIServiceEnv(provider);
+      // Resolve the effective endpoint once (config `base_url` or the
+      // GOOGLE_VERTEX_BASE_URL env fallback) and use it for BOTH forwarding and
+      // location detection, so the env fallback behaves exactly like
+      // `base_url` — including deriving the region from an
+      // `*-aiplatform.googleapis.com` host for the service-account path.
+      const baseUrl = providerValue(provider.baseUrl, provider.env, 'GOOGLE_VERTEX_BASE_URL');
+      const useServiceAccount = hasVertexAIServiceEnv(provider, baseUrl);
       return {
         type: 'vertexai',
         model,
         vertexai: useServiceAccount,
+        baseUrl,
         apiKey: useServiceAccount ? undefined : providerApiKey(provider),
         project: vertexAIProject(provider),
-        location: vertexAILocation(provider),
+        location: vertexAILocation(provider, baseUrl),
         ...defaultHeadersField({
           ...envCustomHeaders,
           ...kimiUserAgentHeader(kimiRequestHeaders),
@@ -401,19 +420,19 @@ function providerApiKey(provider: ProviderConfig): string | undefined {
   }
 }
 
-function hasVertexAIServiceEnv(provider: ProviderConfig): boolean {
-  return vertexAIProject(provider) !== undefined && vertexAILocation(provider) !== undefined;
+function hasVertexAIServiceEnv(provider: ProviderConfig, baseUrl: string | undefined): boolean {
+  return vertexAIProject(provider) !== undefined && vertexAILocation(provider, baseUrl) !== undefined;
 }
 
 function vertexAIProject(provider: ProviderConfig): string | undefined {
   return envValue(provider.env, 'GOOGLE_CLOUD_PROJECT');
 }
 
-function vertexAILocation(provider: ProviderConfig): string | undefined {
-  return (
-    envValue(provider.env, 'GOOGLE_CLOUD_LOCATION') ??
-    locationFromVertexAIBaseUrl(provider.baseUrl)
-  );
+function vertexAILocation(
+  provider: ProviderConfig,
+  baseUrl: string | undefined,
+): string | undefined {
+  return envValue(provider.env, 'GOOGLE_CLOUD_LOCATION') ?? locationFromVertexAIBaseUrl(baseUrl);
 }
 
 function providerValue(

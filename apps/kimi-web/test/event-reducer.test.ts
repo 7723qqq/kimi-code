@@ -91,6 +91,52 @@ describe('reduceAppEvent messageCreated', () => {
     expect(next.sessions.find((s) => s.id === 's-a')?.updatedAt).toBe('2026-06-01T12:00:00.000Z');
     expect(next.sessions.find((s) => s.id === 's-b')?.updatedAt).toBe('2026-01-01T00:00:00.000Z');
   });
+
+  it('reconciles a resolved video echo into the optimistic user message', () => {
+    // The optimistic copy still carries the original `video` part (no promptId
+    // yet — the echo raced the submit response). The daemon echo carries the
+    // server-resolved `<video path=…></video>` text tag. They must collapse into
+    // one bubble, not render as a duplicate.
+    const optimistic: AppMessage = {
+      id: 'msg_opt_1',
+      sessionId: 's-vid',
+      role: 'user',
+      content: [
+        { type: 'text', text: 'look at this' },
+        { type: 'video', source: { kind: 'file', fileId: 'f_abc' } },
+      ],
+      createdAt: '2026-06-01T12:00:00.000Z',
+      metadata: { 'kimiWeb.optimisticUserMessage': true },
+    };
+    const echo: AppMessage = {
+      id: 'msg_real',
+      sessionId: 's-vid',
+      role: 'user',
+      content: [
+        { type: 'text', text: 'look at this' },
+        { type: 'text', text: '<video path="/Users/me/.kimi-code/cache/f_abc.mp4"></video>' },
+      ],
+      createdAt: '2026-06-01T12:00:00.000Z',
+      promptId: 'p1',
+    };
+    const state = {
+      ...createInitialState(),
+      sessions: [makeSession('s-vid', '2026-01-01T00:00:00.000Z')],
+      messagesBySession: { 's-vid': [optimistic] },
+    };
+    const next = reduceAppEvent(
+      state,
+      { type: 'messageCreated', message: echo },
+      { sessionId: 's-vid', seq: 1 },
+    );
+    const msgs = next.messagesBySession['s-vid'] ?? [];
+    expect(msgs).toHaveLength(1);
+    // Keeps the optimistic id so the bubble doesn't remount…
+    expect(msgs[0]?.id).toBe('msg_opt_1');
+    // …but takes the daemon's resolved content (the video text tag).
+    expect(msgs[0]?.content).toEqual(echo.content);
+    expect(msgs[0]?.promptId).toBe('p1');
+  });
 });
 
 describe('reduceAppEvent taskProgress', () => {
@@ -148,6 +194,77 @@ describe('reduceAppEvent taskProgress', () => {
     expect(lines?.[0]).toBe('line 20');
     expect(lines?.at(-1)).toBe('line 59');
   });
+
+  it('concatenates subagent text-kind chunks into a growing text block', () => {
+    const state = {
+      ...createInitialState(),
+      tasksBySession: { 's1': [makeSubagentTask('t1', 's1')] },
+    };
+    let next = state;
+    for (const chunk of ['Hello', ', ', 'world', '!']) {
+      next = reduceAppEvent(
+        next,
+        {
+          type: 'taskProgress',
+          sessionId: 's1',
+          taskId: 't1',
+          outputChunk: chunk,
+          stream: 'stdout',
+          kind: 'text',
+        },
+        { sessionId: 's1', seq: 1 },
+      );
+    }
+    const task = next.tasksBySession['s1']?.[0];
+    expect(task?.text).toBe('Hello, world!');
+    // Text chunks must not pollute the line-based progress output.
+    expect(task?.outputLines ?? []).toHaveLength(0);
+  });
+
+  it('preserves accumulated text across a taskCreated replacement', () => {
+    const state = {
+      ...createInitialState(),
+      tasksBySession: { 's1': [{ ...makeSubagentTask('t1', 's1'), text: 'partial' }] },
+    };
+    const next = reduceAppEvent(
+      state,
+      { type: 'taskCreated', sessionId: 's1', task: makeSubagentTask('t1', 's1') },
+      { sessionId: 's1', seq: 1 },
+    );
+    expect(next.tasksBySession['s1']?.[0]?.text).toBe('partial');
+  });
+
+  it('preserves subagent identity metadata across a taskCreated replacement with omitted fields', () => {
+    const state = {
+      ...createInitialState(),
+      tasksBySession: {
+        's1': [
+          {
+            ...makeSubagentTask('t1', 's1'),
+            parentToolCallId: 'call-1',
+            swarmIndex: 2,
+            subagentType: 'explore',
+            runInBackground: true,
+            outputLines: ['old line'],
+            text: 'partial',
+          },
+        ],
+      },
+    };
+    const next = reduceAppEvent(
+      state,
+      { type: 'taskCreated', sessionId: 's1', task: makeSubagentTask('t1', 's1') },
+      { sessionId: 's1', seq: 1 },
+    );
+    expect(next.tasksBySession['s1']?.[0]).toMatchObject({
+      parentToolCallId: 'call-1',
+      swarmIndex: 2,
+      subagentType: 'explore',
+      runInBackground: true,
+      outputLines: ['old line'],
+      text: 'partial',
+    });
+  });
 });
 
 describe('reduceAppEvent sessions reference stability', () => {
@@ -188,5 +305,51 @@ describe('reduceAppEvent sessions reference stability', () => {
     );
     expect(next.sessions).not.toBe(state.sessions);
     expect(next.sessions.map((s) => s.id)).toEqual(['s2', 's1']);
+  });
+});
+
+describe('reduceAppEvent messageCreated cron origin', () => {
+  it('appends a cron-origin user message instead of reconciling it into an optimistic echo', () => {
+    const sid = 's-cron';
+    const optimistic: AppMessage = {
+      id: 'opt_1',
+      sessionId: sid,
+      role: 'user',
+      content: [{ type: 'text', text: 'check the BTC price' }],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      promptId: 'pr_user',
+      metadata: { 'kimiWeb.optimisticUserMessage': true },
+    };
+    const state = {
+      ...createInitialState(),
+      sessions: [makeSession(sid, '2026-01-01T00:00:00.000Z')],
+      messagesBySession: { [sid]: [optimistic] },
+    };
+    const cronMessage: AppMessage = {
+      id: 'cron_1',
+      sessionId: sid,
+      role: 'user',
+      content: [{ type: 'text', text: 'check the BTC price' }],
+      createdAt: '2026-01-01T00:01:00.000Z',
+      promptId: 'cron_pr_x',
+      metadata: {
+        origin: {
+          kind: 'cron_job',
+          jobId: 'j',
+          cron: '* * * * *',
+          recurring: true,
+          coalescedCount: 1,
+          stale: false,
+        },
+      },
+    };
+    const next = reduceAppEvent(
+      state,
+      { type: 'messageCreated', message: cronMessage },
+      { sessionId: sid, seq: 2 },
+    );
+    const msgs = next.messagesBySession[sid]!;
+    expect(msgs).toHaveLength(2);
+    expect(msgs.map((m) => m.id)).toEqual(['opt_1', 'cron_1']);
   });
 });

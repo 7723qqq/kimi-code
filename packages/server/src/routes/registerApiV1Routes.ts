@@ -9,6 +9,7 @@ import { registerConnectionsRoutes } from './connections';
 import { registerDebugRoutes } from './debug';
 import { registerFilesRoutes } from './files';
 import { registerFsRoutes } from './fs';
+import { registerGuiStoreRoutes } from './guiStore';
 import { registerMessagesRoutes } from './messages';
 import { registerMetaRoute } from './meta';
 import { registerModelCatalogRoutes } from './modelCatalog';
@@ -57,6 +58,11 @@ export interface RegisterApiV1RoutesOptions {
    * `--allow-remote-terminals`.
    */
   readonly enableTerminals?: boolean;
+  /**
+   * Surface `dangerous_bypass_auth` in the `/meta` payload. Set by `start.ts`
+   * from the `--dangerous-bypass-auth` CLI flag.
+   */
+  readonly dangerousBypassAuth?: boolean;
 }
 
 export async function registerApiV1Routes(
@@ -73,6 +79,7 @@ export async function registerApiV1Routes(
       serverVersion: opts.serverVersion,
       serverId: ulid(),
       startedAt: new Date().toISOString(),
+      dangerousBypassAuth: opts.dangerousBypassAuth === true,
     });
 
     registerAuthRoute(apiV1 as unknown as Parameters<typeof registerAuthRoute>[0], ix);
@@ -114,6 +121,7 @@ export async function registerApiV1Routes(
       );
     }
     registerFsRoutes(apiV1 as unknown as Parameters<typeof registerFsRoutes>[0], ix);
+    registerGuiStoreRoutes(apiV1 as unknown as Parameters<typeof registerGuiStoreRoutes>[0], ix);
     registerFilesRoutes(apiV1 as unknown as Parameters<typeof registerFilesRoutes>[0], ix);
     registerWorkspacesRoutes(
       apiV1 as unknown as Parameters<typeof registerWorkspacesRoutes>[0],

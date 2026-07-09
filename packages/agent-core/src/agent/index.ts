@@ -1,4 +1,5 @@
 import { join } from 'pathe';
+import { randomUUID } from 'node:crypto';
 
 import { normalizeAdditionalDirs } from '../config';
 import { ErrorCodes, KimiError, makeErrorPayload } from '#/errors';
@@ -7,11 +8,17 @@ import type { Logger } from '#/logging/types';
 import type { AgentAPI, AgentEvent, KimiConfig, SDKAgentRPC, UsageStatus } from '#/rpc';
 import { generate } from '@moonshot-ai/kosong';
 
-import type { EnabledPluginSessionStart } from '#/plugin';
+import type { EnabledPluginSessionStart, PluginCommandDef } from '#/plugin';
+import { expandCommandArguments } from '../plugin/commands';
+import type { PluginCommandOrigin } from './context';
 
 import type { McpConnectionManager } from '../mcp';
 import { FlagResolver, type ExperimentalFlagResolver } from '../flags';
-import type { PreparedSystemPromptContext, ResolvedAgentProfile } from '../profile';
+import {
+  prepareSystemPromptContext,
+  type PreparedSystemPromptContext,
+  type ResolvedAgentProfile,
+} from '../profile';
 import type { ModelProvider } from '../session/provider-manager';
 import type { SessionSubagentHost } from '../session/subagent-host';
 import { noopTelemetryClient, type TelemetryClient } from '../telemetry';
@@ -48,6 +55,7 @@ import { TurnFlow } from './turn';
 import { KosongLLM } from './turn/kosong-llm';
 import { UsageRecorder } from './usage';
 import { LlmRequestLogger, splitGenerateOptions } from './llm-request-logger';
+import { LlmRequestRecorder } from './llm-request-recorder';
 import { resolveCompletionBudget } from '../utils/completion-budget';
 import type { Kaos } from '@moonshot-ai/kaos';
 import type { ToolServices } from '../tools/support/services';
@@ -63,6 +71,13 @@ export interface AgentOptions {
   readonly kaos: Kaos;
   readonly config?: KimiConfig;
   readonly homedir?: string;
+  /**
+   * Session-owned directory for pre-compression image originals
+   * (`sessionMediaOriginalsDir(sessionDir)`), threaded to media-producing
+   * paths (MCP tool results) so readback originals live with the session
+   * rather than in the shared temp-dir fallback.
+   */
+  readonly mediaOriginalsDir?: string;
   readonly rpc?: Partial<SDKAgentRPC>;
   readonly persistence?: AgentRecordPersistence;
   readonly type?: AgentType;
@@ -79,9 +94,11 @@ export interface AgentOptions {
   readonly log?: Logger;
   readonly telemetry?: TelemetryClient | undefined;
   readonly pluginSessionStarts?: readonly EnabledPluginSessionStart[];
+  readonly pluginCommands?: readonly PluginCommandDef[];
   readonly experimentalFlags?: ExperimentalFlagResolver;
   readonly replay?: ReplayBuilderOptions;
   readonly additionalDirs?: readonly string[];
+  readonly systemPromptContextProvider?: (() => Promise<PreparedSystemPromptContext>) | undefined;
 }
 
 export class Agent {
@@ -94,9 +111,11 @@ export class Agent {
 
   readonly kimiConfig?: KimiConfig;
   readonly homedir?: string;
+  readonly mediaOriginalsDir?: string;
   readonly rpc?: Partial<SDKAgentRPC>;
   readonly toolServices?: ToolServices;
   readonly pluginSessionStarts: readonly EnabledPluginSessionStart[];
+  readonly pluginCommands: readonly PluginCommandDef[];
   readonly rawGenerate: typeof generate;
   readonly modelProvider?: ModelProvider;
   readonly subagentHost?: SessionSubagentHost;
@@ -107,6 +126,7 @@ export class Agent {
   readonly experimentalFlags: ExperimentalFlagResolver;
 
   readonly llmRequestLogger: LlmRequestLogger;
+  readonly llmRequestRecorder: LlmRequestRecorder;
   readonly blobStore: BlobStore | undefined;
   readonly records: AgentRecords;
   readonly fullCompaction: FullCompaction;
@@ -126,16 +146,30 @@ export class Agent {
   readonly goal: GoalMode;
   readonly replayBuilder: ReplayBuilder;
 
+  /**
+   * Print-mode (`kimi -p`) only: when true and the agent ends a turn while
+   * background subagents (`kind === 'agent'`) are still running, the turn loop
+   * holds the turn open and idle-waits until they finish, flushing their
+   * completions into the turn so the model can react before the run exits. Set
+   * by the session for print runs; defaults to false everywhere else.
+   */
+  printDrainAgentTasksOnStop = false;
+
   private additionalDirs: readonly string[];
+  private activeProfile?: ResolvedAgentProfile;
+  private brandHome?: string;
+  private readonly systemPromptContextProvider?: (() => Promise<PreparedSystemPromptContext>) | undefined;
 
   constructor(options: AgentOptions) {
     this.type = options.type ?? 'main';
     this._kaos = options.kaos;
     this.kimiConfig = options.config;
     this.homedir = options.homedir;
+    this.mediaOriginalsDir = options.mediaOriginalsDir;
     this.rpc = options.rpc;
     this.toolServices = options.toolServices;
     this.pluginSessionStarts = options.pluginSessionStarts ?? [];
+    this.pluginCommands = options.pluginCommands ?? [];
     this.rawGenerate = options.generate ?? generate;
     this.modelProvider = options.modelProvider;
     this.subagentHost = options.subagentHost;
@@ -145,8 +179,10 @@ export class Agent {
     this.telemetry = options.telemetry ?? noopTelemetryClient;
     this.experimentalFlags = options.experimentalFlags ?? new FlagResolver();
     this.additionalDirs = normalizeAdditionalDirs(options.additionalDirs ?? []);
+    this.systemPromptContextProvider = options.systemPromptContextProvider;
 
     this.llmRequestLogger = new LlmRequestLogger(this.log);
+    this.llmRequestRecorder = new LlmRequestRecorder(this);
     this.blobStore = options.homedir
       ? new BlobStore({ blobsDir: join(options.homedir, 'blobs') })
       : undefined;
@@ -198,19 +234,51 @@ export class Agent {
     }
   }
 
+  /**
+   * Single decision point for select_tools progressive disclosure. All three
+   * gates must be open: the model declares the `select_tools` capability, the
+   * model declares `tool_use` (a model without tool use registering
+   * select_tools is a contradiction), and the `tool-select` experimental flag
+   * is on. Every consumer — top-level tools[] convergence, select_tools
+   * registration, manifest announcements, projection shaping — reads this
+   * instead of re-deriving the conditions, so degradation is lossless: any
+   * closed gate reproduces the inline behavior byte-for-byte.
+   */
+  get toolSelectEnabled(): boolean {
+    const capability = this.config.modelCapabilities;
+    return (
+      capability.select_tools === true &&
+      capability.tool_use &&
+      this.experimentalFlags.enabled('tool-select')
+    );
+  }
+
   get generate(): typeof generate {
     return async (provider, systemPrompt, tools, history, callbacks, options) => {
       const { requestLogFields, generateOptions } = splitGenerateOptions(options);
       const modelAlias = this.config.modelAlias;
       const run = (requestOptions: Parameters<typeof generate>[5]) => {
-        this.llmRequestLogger.logRequest({
-          provider,
-          modelAlias,
-          systemPrompt,
-          tools,
-          messages: history,
-          fields: requestLogFields,
-        });
+        // Mirror kosong generate()'s pre-flight abort check: a call whose
+        // signal is already aborted never reaches the wire (generate throws
+        // before dispatching), so it must not leave a request trace or a
+        // diagnostic log line claiming a request was sent.
+        if (requestOptions?.signal?.aborted !== true) {
+          this.llmRequestLogger.logRequest({
+            provider,
+            modelAlias,
+            systemPrompt,
+            tools,
+            messages: history,
+            fields: requestLogFields,
+          });
+          this.llmRequestRecorder.record({
+            provider,
+            systemPrompt,
+            tools,
+            messages: history,
+            fields: requestLogFields,
+          });
+        }
         return this.rawGenerate(provider, systemPrompt, tools, history, callbacks, requestOptions);
       };
       if (generateOptions?.auth !== undefined) {
@@ -248,7 +316,41 @@ export class Agent {
     });
   }
 
-  useProfile(profile: ResolvedAgentProfile, context?: PreparedSystemPromptContext): void {
+  useProfile(
+    profile: ResolvedAgentProfile,
+    context?: PreparedSystemPromptContext,
+    brandHome?: string,
+  ): void {
+    this.setActiveProfile(profile, brandHome);
+    this.updateSystemPromptFromProfile(profile, context);
+    this.tools.setActiveTools(profile.tools);
+  }
+
+  setActiveProfile(profile: ResolvedAgentProfile, brandHome?: string): void {
+    this.activeProfile = profile;
+    this.brandHome = brandHome;
+  }
+
+  /**
+   * Re-render the system prompt with freshly gathered runtime context (cwd
+   * listing, AGENTS.md, additional-dirs info, skill list). Called after
+   * compaction so the post-compaction turns do not keep a snapshot captured
+   * at session bootstrap. Invalidates the prompt-cache prefix by design.
+   */
+  async refreshSystemPrompt(): Promise<void> {
+    if (this.activeProfile === undefined) return;
+    const context = this.systemPromptContextProvider === undefined
+      ? await prepareSystemPromptContext(this.kaos, this.brandHome, {
+          additionalDirs: this.additionalDirs,
+        })
+      : await this.systemPromptContextProvider();
+    this.updateSystemPromptFromProfile(this.activeProfile, context);
+  }
+
+  private updateSystemPromptFromProfile(
+    profile: ResolvedAgentProfile,
+    context?: PreparedSystemPromptContext,
+  ): void {
     const systemPrompt = profile.systemPrompt({
       osEnv: this.kaos.osEnv,
       cwd: this.config.cwd,
@@ -258,7 +360,6 @@ export class Agent {
       additionalDirsInfo: context?.additionalDirsInfo,
     });
     this.config.update({ profileName: profile.name, systemPrompt });
-    this.tools.setActiveTools(profile.tools);
   }
 
   async resume(options?: AgentRecordsReplayOptions): Promise<{ warning?: string }> {
@@ -296,13 +397,18 @@ export class Agent {
       },
       undoHistory: (payload) => {
         this.context.undo(payload.count);
+        this.telemetry.track('conversation_undo', { count: payload.count });
       },
       setThinking: (payload) => {
-        const wasEnabled = this.config.thinkingLevel !== 'off';
-        this.config.update({ thinkingLevel: payload.level });
-        const enabled = this.config.thinkingLevel !== 'off';
-        if (enabled !== wasEnabled) {
-          this.telemetry.track('thinking_toggle', { enabled });
+        const previousEffort = this.config.thinkingEffort;
+        this.config.update({ thinkingEffort: payload.effort });
+        const effort = this.config.thinkingEffort;
+        if (effort !== previousEffort) {
+          this.telemetry.track('thinking_toggle', {
+            enabled: effort !== 'off',
+            effort,
+            from: previousEffort,
+          });
         }
       },
       setPermission: (payload) => {
@@ -381,6 +487,36 @@ export class Agent {
           throw new KimiError(ErrorCodes.SKILL_NOT_FOUND, `Skill "${payload.name}" was not found`);
         }
         this.skills.activate(payload);
+      },
+      activatePluginCommand: (payload) => {
+        const def = this.pluginCommands.find(
+          (d) => d.pluginId === payload.pluginId && d.name === payload.commandName,
+        );
+        if (def === undefined) {
+          throw new KimiError(
+            ErrorCodes.REQUEST_INVALID,
+            `Plugin command "${payload.pluginId}:${payload.commandName}" was not found`,
+          );
+        }
+        const commandArgs = payload.args ?? '';
+        const expanded = expandCommandArguments(def.body, commandArgs);
+        const origin: PluginCommandOrigin = {
+          kind: 'plugin_command',
+          activationId: randomUUID(),
+          pluginId: payload.pluginId,
+          commandName: payload.commandName,
+          commandArgs: payload.args,
+          trigger: 'user-slash',
+        };
+        this.emitEvent({
+          type: 'plugin_command.activated',
+          activationId: origin.activationId,
+          pluginId: origin.pluginId,
+          commandName: origin.commandName,
+          commandArgs: origin.commandArgs,
+          trigger: origin.trigger,
+        });
+        this.turn.prompt([{ type: 'text', text: expanded }], origin);
       },
       startBtw: () => this.subagentHost!.startBtw(),
       createGoal: (payload) => this.goal.createGoal(payload),

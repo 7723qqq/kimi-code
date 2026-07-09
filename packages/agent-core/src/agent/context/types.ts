@@ -20,6 +20,15 @@ export interface SkillActivationOrigin {
   readonly skillSource?: SkillSource | undefined;
 }
 
+export interface PluginCommandOrigin {
+  readonly kind: 'plugin_command';
+  readonly activationId: string;
+  readonly pluginId: string;
+  readonly commandName: string;
+  readonly commandArgs?: string | undefined;
+  readonly trigger: 'user-slash';
+}
+
 export interface InjectionOrigin {
   readonly kind: 'injection';
   readonly variant: string;
@@ -80,6 +89,7 @@ export interface RetryOrigin {
 export type PromptOrigin =
   | UserPromptOrigin
   | SkillActivationOrigin
+  | PluginCommandOrigin
   | InjectionOrigin
   | ShellCommandOrigin
   | CompactionSummaryOrigin
@@ -93,6 +103,12 @@ export type PromptOrigin =
 export type ContextMessage = Message & {
   readonly origin?: PromptOrigin | undefined;
   readonly isError?: boolean;
+  /**
+   * Tool-result side channel rendered to the model but never to UIs; see
+   * `ExecutableToolResult.note`. Appended to the projected tool message at
+   * the provider boundary and stripped from the wire message itself.
+   */
+  readonly note?: string;
 };
 
 export interface UserMessageRecord {

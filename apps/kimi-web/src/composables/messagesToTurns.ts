@@ -11,20 +11,51 @@
 
 import type { AppMessage, AppApprovalRequest, AppTask, CompactionMarkerMetadata } from '../api/types';
 import { COMPACTION_MARKER_METADATA_KEY } from '../api/types';
-import type { AgentMember, ApprovalBlock, ChatTurn, DiffLine, ToolCall, ToolMedia, TurnBlock } from '../types';
+import type { AgentMember, ApprovalBlock, ChatTurn, CronTurnData, DiffLine, ToolCall, ToolMedia, TurnBlock } from '../types';
 
 const READ_MEDIA_TOOL_RE = /^read[_-]?media(?:file)?$/i;
-// The builtin single-subagent spawn tool (collaboration/agent.ts). Detected by
-// name so a subagent renders as an AgentCard from the persisted transcript
-// alone — i.e. it survives a refresh even when the live task record (which only
-// background subagents persist) is gone. Swarms use 'AgentSwarm' and are handled
-// via buildSwarmGroups, so they are deliberately NOT matched here.
-const SUBAGENT_TOOL_RE = /^agent$/i;
 const DATA_URL_RE = /^data:([^;]+);base64,(.*)$/s;
 const MEDIA_PATH_TAG_RE = /^<(image|video|audio)\s+path="([^"]+)">$/;
+// A user-uploaded image/video reaches the transcript (after the server resolves
+// it) as a self-contained text tag: `<video path="/cache/<fileId>.mp4"></video>`.
+// The tag is its own content part, so anchoring keeps ordinary prose from
+// matching; the closing tag is optional because ReadMediaFile emits the bare
+// opening tag as a standalone part.
+const USER_MEDIA_PATH_TAG_RE = /^<(image|video|audio)\s+path="([^"]+)">(?:<\/\1>)?$/;
 const SYSTEM_MIME_RE = /Mime type:\s*([^.\s]+)/i;
 const SYSTEM_SIZE_RE = /Size:\s*(\d+)\s*bytes/i;
 const SYSTEM_DIMENSIONS_RE = /Original dimensions:\s*(\d+)x(\d+)\s*pixels/i;
+
+function unescapeAttr(value: string): string {
+  // &amp; last so a doubly-escaped value isn't decoded twice.
+  return value
+    .replaceAll('&quot;', '"')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&amp;', '&');
+}
+
+/** Parse a `<video|image|audio path="…"></video>` text part. */
+function mediaPathTag(text: string): { kind: 'image' | 'video' | 'audio'; path: string } | null {
+  const m = USER_MEDIA_PATH_TAG_RE.exec(text.trim());
+  if (!m) return null;
+  return { kind: m[1] as 'image' | 'video' | 'audio', path: unescapeAttr(m[2]!) };
+}
+
+/** The server materializes uploads into `<cacheDir>/<fileId>.<ext>` (see
+ *  materializeVideoToCache in the server prompts route). The browser can't play
+ *  a server-local path, but the same bytes are served at getFileUrl(fileId), so
+ *  recover the fileId from the cache filename to build a playable URL. Returns
+ *  undefined when the basename isn't shaped like a file-store id (`f_…`) — e.g.
+ *  TUI cache names (`<uuid>-<label>`) or legacy `/tmp/foo.mp4` paths — so the
+ *  caller leaves the raw tag as text instead of fabricating a broken /files url. */
+const FILE_STORE_ID_RE = /^f_[A-Za-z0-9]{10,}$/;
+function fileIdFromCachePath(p: string): string | undefined {
+  const base = p.split(/[\\/]/).at(-1) ?? '';
+  const dot = base.lastIndexOf('.');
+  const id = dot > 0 ? base.slice(0, dot) : base;
+  return FILE_STORE_ID_RE.test(id) ? id : undefined;
+}
 
 function bytesFromBase64(b64: string): number {
   if (b64.length === 0) return 0;
@@ -139,7 +170,7 @@ function normalizeToolOutput(output: unknown): string[] | undefined {
   return [JSON.stringify(output)];
 }
 
-function toAgentMember(task: AppTask): AgentMember {
+export function toAgentMember(task: AppTask): AgentMember {
   return {
     id: task.id,
     toolCallId: task.parentToolCallId,
@@ -151,72 +182,10 @@ function toAgentMember(task: AppTask): AgentMember {
     status: task.status,
     summary: task.outputPreview,
     outputLines: task.outputLines,
+    text: task.text,
     suspendedReason: task.suspendedReason,
     swarmIndex: task.swarmIndex,
   };
-}
-
-/** Parse the Agent tool's input (object or JSON string) into the fields an
-    AgentCard needs. Tolerant of missing/garbled input. */
-function parseAgentToolInput(input: unknown): {
-  description?: string;
-  subagentType?: string;
-  prompt?: string;
-} {
-  let obj: Record<string, unknown> | null = null;
-  if (typeof input === 'string') {
-    try {
-      const parsed = JSON.parse(input);
-      if (parsed && typeof parsed === 'object') obj = parsed as Record<string, unknown>;
-    } catch {
-      obj = null;
-    }
-  } else if (input && typeof input === 'object') {
-    obj = input as Record<string, unknown>;
-  }
-  if (!obj) return {};
-  return {
-    description: typeof obj['description'] === 'string' ? obj['description'] : undefined,
-    subagentType: typeof obj['subagent_type'] === 'string' ? obj['subagent_type'] : undefined,
-    prompt: typeof obj['prompt'] === 'string' ? obj['prompt'] : undefined,
-  };
-}
-
-/** Build an AgentMember from an `Agent` tool call + its result, used when no
-    live subagent task is available (e.g. after a refresh). The result text is
-    the subagent's full output — richer detail than a task's short preview. */
-function agentMemberFromToolUse(
-  toolCallId: string,
-  input: unknown,
-  result: { output: unknown; isError: boolean } | undefined,
-  sessionActive: boolean,
-): AgentMember {
-  const parsed = parseAgentToolInput(input);
-  const phase: AgentMember['phase'] = result
-    ? result.isError
-      ? 'failed'
-      : 'completed'
-    : sessionActive
-      ? 'working'
-      : 'completed';
-  const summaryLines = result ? normalizeToolOutput(result.output) : undefined;
-  return {
-    id: toolCallId,
-    toolCallId,
-    name: parsed.description && parsed.description.length > 0 ? parsed.description : 'Sub Agent',
-    subagentType: parsed.subagentType,
-    prompt: parsed.prompt,
-    phase,
-    status: result ? (result.isError ? 'failed' : 'completed') : sessionActive ? 'running' : 'completed',
-    summary: summaryLines && summaryLines.length > 0 ? summaryLines.join('\n') : undefined,
-  };
-}
-
-function sortAgentTasks(a: AppTask, b: AppTask): number {
-  const ai = a.swarmIndex ?? Number.MAX_SAFE_INTEGER;
-  const bi = b.swarmIndex ?? Number.MAX_SAFE_INTEGER;
-  if (ai !== bi) return ai - bi;
-  return a.createdAt.localeCompare(b.createdAt);
 }
 
 // ---------------------------------------------------------------------------
@@ -374,6 +343,80 @@ interface Group {
 // ---------------------------------------------------------------------------
 
 /**
+ * Pull the prompt body out of a cron-fire envelope. Server-side, a cron
+ * injection reaches the transcript as a user message whose text is wrapped in
+ * `<cron-fire …>\n<prompt>\n…\n</prompt>\n</cron-fire>` (see renderCronFireXml
+ * in agent-core). We surface only the inner prompt, mirroring the TUI's
+ * extractCronPrompt / stripCronEnvelope.
+ */
+function extractCronPrompt(text: string): string {
+  const open = '<prompt>\n';
+  const close = '\n</prompt>';
+  const start = text.indexOf(open);
+  const end = text.lastIndexOf(close);
+  if (start >= 0 && end >= start + open.length) {
+    return text.slice(start + open.length, end);
+  }
+  return stripCronEnvelope(text);
+}
+
+function stripCronEnvelope(text: string): string {
+  const lines = text.split('\n');
+  if (
+    lines.length >= 2 &&
+    lines[0]?.startsWith('<cron-fire ') &&
+    lines.at(-1) === '</cron-fire>'
+  ) {
+    return lines.slice(1, -1).join('\n');
+  }
+  return text;
+}
+
+function cronOriginKind(msg: AppMessage): 'cron_job' | 'cron_missed' | undefined {
+  const origin = msg.metadata?.['origin'] as { kind?: string } | undefined;
+  if (origin?.kind === 'cron_job' || origin?.kind === 'cron_missed') return origin.kind;
+  return undefined;
+}
+
+function cronPromptText(msg: AppMessage): string {
+  const raw = msg.content
+    .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+    .map((c) => c.text)
+    .join('\n');
+  return extractCronPrompt(raw);
+}
+
+function buildCronData(
+  msg: AppMessage,
+  kind: 'cron_job' | 'cron_missed',
+): { text: string; cron: CronTurnData } {
+  const origin = (msg.metadata?.['origin'] ?? {}) as Record<string, unknown>;
+  const text = cronPromptText(msg);
+  if (kind === 'cron_missed') {
+    return {
+      text,
+      cron: { missedCount: typeof origin['count'] === 'number' ? origin['count'] : undefined },
+    };
+  }
+  return {
+    text,
+    cron: {
+      jobId: typeof origin['jobId'] === 'string' ? origin['jobId'] : undefined,
+      cron: typeof origin['cron'] === 'string' ? origin['cron'] : undefined,
+      recurring: typeof origin['recurring'] === 'boolean' ? origin['recurring'] : undefined,
+      coalescedCount: typeof origin['coalescedCount'] === 'number' ? origin['coalescedCount'] : undefined,
+      stale: typeof origin['stale'] === 'boolean' ? origin['stale'] : undefined,
+    },
+  };
+}
+
+function buildCronTurn(msg: AppMessage, no: number, kind: 'cron_job' | 'cron_missed'): ChatTurn {
+  const { text, cron } = buildCronData(msg, kind);
+  return { id: msg.id, role: 'cron', no, text, createdAt: msg.createdAt, cron };
+}
+
+
+/**
  * Whether a USER-role message should be shown. Mirrors the TUI's
  * isReplayUserTurnRecord: only real user input (origin `user`/absent, or a
  * user-typed slash command) is displayed; system-injected user turns
@@ -386,6 +429,7 @@ function isDisplayableUserMessage(msg: AppMessage): boolean {
   const kind = origin?.kind;
   if (kind === undefined || kind === 'user') return true;
   if (kind === 'skill_activation') return origin?.trigger === 'user-slash';
+  if (kind === 'plugin_command') return origin?.trigger === 'user-slash';
   return false;
 }
 
@@ -408,6 +452,7 @@ function continuesAssistantGroup(group: Group | null, promptId: string | undefin
     group.promptId === promptId
   );
 }
+
 
 /** Extract the plan file path from an ExitPlanMode tool result. The approved
  *  output contains `Plan saved to: <path>`; this survives a page reload (unlike
@@ -434,7 +479,6 @@ export function messagesToTurns(
    * spinning forever after the turn already finished.
    */
   sessionActive = true,
-  subagentTasks: AppTask[] = [],
   /** Preserved `plan_review` displays keyed by toolCallId — used to link the
    *  ExitPlanMode tool card back to the plan file after the approval resolves. */
   planReviewByToolCallId: Record<string, { plan: string; path?: string }> = {},
@@ -446,33 +490,6 @@ export function messagesToTurns(
   const approvalByTool = new Map<string, AppApprovalRequest>();
   for (const a of approvals) {
     approvalByTool.set(a.toolCallId, a);
-  }
-
-  const subagentsByTool = new Map<string, AppTask[]>();
-  for (const task of subagentTasks) {
-    if (task.kind !== 'subagent') continue;
-    const keys = [task.parentToolCallId, task.id].filter((key): key is string => typeof key === 'string' && key.length > 0);
-    for (const key of keys) {
-      const list = subagentsByTool.get(key) ?? [];
-      list.push(task);
-      subagentsByTool.set(key, list);
-    }
-  }
-  for (const [key, list] of subagentsByTool.entries()) {
-    subagentsByTool.set(key, list.toSorted(sortAgentTasks));
-  }
-
-  // Index every tool result by its tool-call id. When an `Agent` tool call has
-  // no live subagent task (the common case after a refresh — foreground
-  // subagents are never persisted as background tasks), we rebuild its AgentCard
-  // straight from the transcript, and the result text comes from this map.
-  const toolResultByCallId = new Map<string, { output: unknown; isError: boolean }>();
-  for (const msg of messages) {
-    for (const c of msg.content) {
-      if (c.type === 'toolResult') {
-        toolResultByCallId.set(c.toolCallId, { output: c.output, isError: Boolean(c.isError) });
-      }
-    }
   }
 
   let pendingGroup: Group | null = null;
@@ -532,38 +549,10 @@ export function messagesToTurns(
           else g.blocks.push({ kind: 'thinking', thinking: c.thinking });
         }
       } else if (c.type === 'toolUse') {
-        const agentTasks = subagentsByTool.get(c.toolCallId);
-        if (agentTasks && agentTasks.length > 0) {
-          // A multi-member swarm (subagents sharing a parent tool-call, each with
-          // a swarmIndex) renders as its OWN SwarmCard in the chat flow — see
-          // buildSwarmGroups, same membership test. Don't ALSO render it inline
-          // here, or the swarm shows up twice ("two blocks").
-          const swarmMembers = agentTasks.filter((t) => t.swarmIndex !== undefined);
-          if (swarmMembers.length > 1) continue;
-          const members = agentTasks.map(toAgentMember);
-          if (members.length === 1) {
-            g.blocks.push({ kind: 'agent', member: members[0]! });
-          } else {
-            g.blocks.push({ kind: 'agentGroup', members });
-          }
-          continue;
-        }
-
-        // No live task, but this IS a single-subagent spawn (`Agent` tool):
-        // rebuild the AgentCard from the persisted tool call + result so the
-        // subagent keeps its rich card after a refresh instead of degrading to
-        // a plain tool card.
-        if (SUBAGENT_TOOL_RE.test(c.toolName)) {
-          const member = agentMemberFromToolUse(
-            c.toolCallId,
-            c.input,
-            toolResultByCallId.get(c.toolCallId),
-            sessionActive,
-          );
-          g.blocks.push({ kind: 'agent', member });
-          continue;
-        }
-
+        // Single `Agent` subagent spawns and all other tools render as a normal
+        // tool card: the card shows the fixed args (prompt / description) plus
+        // the final result when expanded, while a subagent's live progress
+        // streams in the right-side detail panel (sourced from the task).
         const pendingApproval = approvalByTool.get(c.toolCallId);
         const toolCall: ToolCall = {
           id: c.toolCallId,
@@ -609,17 +598,17 @@ export function messagesToTurns(
 
   function resolveMediaUrl(
     c: AppMessage['content'][number],
-  ): { url: string; kind: 'image' | 'video' } | undefined {
+  ): { url: string; kind: 'image' | 'video'; fileId?: string } | undefined {
     if (c.type === 'image' || c.type === 'video') {
       const kind = c.type;
       const src = c.source;
       if (src.kind === 'url') return { url: src.url, kind };
       if (src.kind === 'base64') return { url: `data:${src.mediaType};base64,${src.data}`, kind };
-      if (src.kind === 'file' && getFileUrl) return { url: getFileUrl(src.fileId), kind };
+      if (src.kind === 'file' && getFileUrl) return { url: getFileUrl(src.fileId), kind, fileId: src.fileId };
     }
     if (c.type === 'file' && getFileUrl) {
-      if (c.mediaType.startsWith('image/')) return { url: getFileUrl(c.fileId), kind: 'image' };
-      if (c.mediaType.startsWith('video/')) return { url: getFileUrl(c.fileId), kind: 'video' };
+      if (c.mediaType.startsWith('image/')) return { url: getFileUrl(c.fileId), kind: 'image', fileId: c.fileId };
+      if (c.mediaType.startsWith('video/')) return { url: getFileUrl(c.fileId), kind: 'video', fileId: c.fileId };
     }
     return undefined;
   }
@@ -653,31 +642,67 @@ export function messagesToTurns(
 
     // User messages flush the pending group and start a new user turn
     if (msg.role === 'user') {
+      const cronKind = cronOriginKind(msg);
+      // A cron injection always renders as its own standalone turn: agent-core
+      // buffers steer input while a turn is in flight and only injects it at the
+      // turn boundary, so the cron message does not land between a tool use and
+      // its result in practice.
       flushGroup();
+      if (cronKind !== undefined) {
+        turns.push(buildCronTurn(msg, no++, cronKind));
+        continue;
+      }
       // Hide system-injected user turns (TUI parity) — they end the previous
       // assistant turn but aren't rendered as a user bubble.
       if (!isDisplayableUserMessage(msg)) continue;
 
       const origin = msg.metadata?.['origin'] as
-        | { kind?: string; skillName?: string; skillArgs?: string; trigger?: string }
+        | {
+            kind?: string;
+            skillName?: string;
+            skillArgs?: string;
+            pluginId?: string;
+            commandName?: string;
+            commandArgs?: string;
+            trigger?: string;
+          }
         | undefined;
       const isSkillActivation =
         origin?.kind === 'skill_activation' && origin?.trigger === 'user-slash';
+      const isPluginCommand =
+        origin?.kind === 'plugin_command' && origin?.trigger === 'user-slash';
 
       const textParts: string[] = [];
-      const images: { url: string; alt?: string; kind: 'image' | 'video' }[] = [];
+      const images: { url: string; alt?: string; kind: 'image' | 'video'; fileId?: string }[] = [];
       for (const c of msg.content) {
         if (c.type === 'text') {
           if (isSkillActivation) {
             // Skill activation messages carry the raw XML block; we strip it and
             // surface only the user-provided args as the "user input" text.
             textParts.push(origin.skillArgs ?? '');
+          } else if (isPluginCommand) {
+            // Plugin command turns carry the expanded body; surface only the
+            // user-provided args, mirroring skill activations.
+            textParts.push(origin.commandArgs ?? '');
           } else {
+            // A video/image upload comes back from the server as a
+            // `<video path="…"></video>` text tag (see resolvePromptMediaFiles).
+            // Render it as an attachment instead of dumping the raw tag into the
+            // bubble — recover the fileId from the cache filename so the browser
+            // gets a playable URL via getFileUrl.
+            const tag = mediaPathTag(c.text);
+            if (tag && (tag.kind === 'video' || tag.kind === 'image') && getFileUrl) {
+              const fileId = fileIdFromCachePath(tag.path);
+              if (fileId) {
+                images.push({ url: getFileUrl(fileId), kind: tag.kind, alt: fileId, fileId });
+                continue;
+              }
+            }
             textParts.push(c.text);
           }
         }
         const media = resolveMediaUrl(c);
-        if (media) images.push({ url: media.url, kind: media.kind, alt: c.type === 'file' ? c.name : undefined });
+        if (media) images.push({ url: media.url, kind: media.kind, alt: c.type === 'file' ? c.name : undefined, fileId: media.fileId });
       }
       turns.push({
         id: msg.id,
@@ -687,6 +712,9 @@ export function messagesToTurns(
         images: images.length > 0 ? images : undefined,
         skillActivation: isSkillActivation
           ? { name: origin.skillName!, args: origin.skillArgs }
+          : undefined,
+        pluginCommand: isPluginCommand
+          ? { pluginId: origin.pluginId!, commandName: origin.commandName!, args: origin.commandArgs }
           : undefined,
         createdAt: msg.createdAt,
       });

@@ -21,9 +21,11 @@ import type { SessionMeta } from '#/session';
 import type { ContentPart } from '@moonshot-ai/kosong';
 import type { SessionWarning } from '@moonshot-ai/protocol';
 
-import type { PluginInfo, PluginSummary, ReloadSummary } from '#/plugin';
+import type { PluginCommandDef, PluginInfo, PluginSummary, ReloadSummary } from '#/plugin';
 import type { UsageStatus } from './events';
 import type { WithAgentId, WithSessionId } from './types';
+
+export type { PluginCommandDef } from '#/plugin';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -58,6 +60,7 @@ export interface CreateSessionPayload {
   readonly mcpServers?: Readonly<Record<string, McpServerConfig>>;
   readonly additionalDirs?: readonly string[];
   readonly client?: ClientTelemetryInfo | undefined;
+  readonly drainAgentTasksOnStop?: boolean;
 }
 
 export interface CloseSessionPayload {
@@ -199,7 +202,7 @@ export interface CancelPayload {
   readonly turnId?: number;
 }
 export interface SetThinkingPayload {
-  readonly level: string;
+  readonly effort: string;
 }
 export interface SetPermissionPayload {
   readonly mode: PermissionMode;
@@ -268,6 +271,16 @@ export interface SkillSummary {
 
 export interface ActivateSkillPayload {
   readonly name: string;
+  readonly args?: string | undefined;
+}
+
+export interface ListWorkspaceSkillsPayload {
+  readonly workDir: string;
+}
+
+export interface ActivatePluginCommandPayload {
+  readonly pluginId: string;
+  readonly commandName: string;
   readonly args?: string | undefined;
 }
 
@@ -393,6 +406,7 @@ export interface AgentAPI {
   detachBackground: (payload: DetachBackgroundPayload) => BackgroundTaskInfo | undefined;
   clearContext: (payload: EmptyPayload) => void;
   activateSkill: (payload: ActivateSkillPayload) => void;
+  activatePluginCommand: (payload: ActivatePluginCommandPayload) => void;
   startBtw: (payload: EmptyPayload) => string;
   createGoal: (payload: CreateGoalPayload) => GoalSnapshot;
   getGoal: (payload: EmptyPayload) => GoalToolResult;
@@ -416,11 +430,13 @@ export interface SessionAPI extends AgentAPIWithId {
   updateSessionMetadata: (payload: UpdateSessionMetadataPayload) => void;
   getSessionMetadata: (payload: EmptyPayload) => SessionMeta;
   listSkills: (payload: EmptyPayload) => readonly SkillSummary[];
+  listPluginCommands: (payload: EmptyPayload) => readonly PluginCommandDef[];
   listMcpServers: (payload: EmptyPayload) => readonly McpServerInfo[];
   getMcpStartupMetrics: (payload: EmptyPayload) => McpStartupMetrics;
   reconnectMcpServer: (payload: ReconnectMcpServerPayload) => void;
   generateAgentsMd: (payload: EmptyPayload) => void;
   getSessionWarnings: (payload: EmptyPayload) => readonly SessionWarning[];
+  waitForBackgroundTasksOnPrint: (payload: EmptyPayload) => void;
   addAdditionalDir: (payload: AddAdditionalDirPayload) => AddAdditionalDirResult;
 }
 
@@ -441,6 +457,7 @@ export interface CoreAPI extends SessionAPIWithId {
   forkSession: (payload: ForkSessionPayload) => ResumeSessionResult;
   listSessions: (payload: ListSessionsPayload) => readonly SessionSummary[];
   exportSession: (payload: ExportSessionPayload) => ExportSessionResult;
+  listWorkspaceSkills: (payload: ListWorkspaceSkillsPayload) => Promise<readonly SkillSummary[]>;
   listPlugins: (payload: EmptyPayload) => readonly PluginSummary[];
   installPlugin: (payload: InstallPluginPayload) => PluginSummary;
   setPluginEnabled: (payload: SetPluginEnabledPayload) => void;

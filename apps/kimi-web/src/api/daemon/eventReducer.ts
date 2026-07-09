@@ -119,6 +119,11 @@ function isOptimisticUserMessage(message: AppMessage): boolean {
   );
 }
 
+function isCronOriginMessage(message: AppMessage): boolean {
+  const origin = message.metadata?.['origin'] as { kind?: string } | undefined;
+  return origin?.kind === 'cron_job' || origin?.kind === 'cron_missed';
+}
+
 function sameMessageContent(a: AppMessage, b: AppMessage): boolean {
   return JSON.stringify(a.content) === JSON.stringify(b.content);
 }
@@ -127,12 +132,22 @@ function sameMessageContent(a: AppMessage, b: AppMessage): boolean {
     shape of a user message. The daemon's echo carries images as a resolved
     URL/base64 while our optimistic copy carries `{kind:'file',fileId}`, so the
     raw content never matches; comparing (text, image-count) does. */
+// Matches the self-contained media path tag the server substitutes for an
+// uploaded image/video/audio in a prompt (e.g. `<video path="/cache/f.mp4"></video>`).
+// A tag is its own text part, so anchoring keeps ordinary prose from matching.
+const MEDIA_PATH_TAG_SHAPE_RE = /^<(image|video|audio)\s+path="[^"]+"><\/\1>$/;
+
 function userMessageShape(m: AppMessage): { text: string; media: number } {
   let text = '';
   let media = 0;
   for (const c of m.content) {
-    if (c.type === 'text') text += c.text;
-    else if (c.type === 'image' || c.type === 'file') media += 1;
+    if (c.type === 'text') {
+      // A video/image upload reaches us (after the server resolves it) as a
+      // `<video path=…></video>` text tag, not a media part — count it as media
+      // and drop it from the text so the echo reconciles with our optimistic copy.
+      if (MEDIA_PATH_TAG_SHAPE_RE.test(c.text.trim())) media += 1;
+      else text += c.text;
+    } else if (c.type === 'image' || c.type === 'video' || c.type === 'file') media += 1;
   }
   return { text, media };
 }
@@ -378,7 +393,12 @@ export function reduceAppEvent(
       const msgs = next.messagesBySession[sid] ?? [];
       const exists = msgs.some((m) => m.id === event.message.id);
       if (!exists) {
-        if (event.message.role === 'user') {
+        // Cron-injected user messages (origin cron_job/cron_missed) carry the
+        // reminder's prompt as their text, which can coincide with a still-
+        // optimistic user message. They must append as their own turn rather
+        // than reconcile into (and replace) that optimistic echo — so skip the
+        // echo lookup entirely for them.
+        if (event.message.role === 'user' && !isCronOriginMessage(event.message)) {
           const optimisticIndex = findOptimisticUserEchoIndex(msgs, event.message);
           if (optimisticIndex !== -1) {
             const updated = [...msgs];
@@ -529,9 +549,20 @@ export function reduceAppEvent(
         next.tasksBySession[sid] = [...list, event.task];
       } else {
         const patched = [...list];
+        const previous = list[idx]!;
         // The projected task does not carry reducer-owned accumulated progress;
         // preserve it across the replacement so subagent output keeps growing.
-        patched[idx] = { ...event.task, outputLines: list[idx]!.outputLines };
+        // A resync also rebuilds skeleton tasks without their identity metadata,
+        // so keep the previous value when the projected task omits it.
+        patched[idx] = {
+          ...event.task,
+          outputLines: previous.outputLines,
+          text: previous.text,
+          swarmIndex: event.task.swarmIndex ?? previous.swarmIndex,
+          parentToolCallId: event.task.parentToolCallId ?? previous.parentToolCallId,
+          subagentType: event.task.subagentType ?? previous.subagentType,
+          runInBackground: event.task.runInBackground ?? previous.runInBackground,
+        };
         next.tasksBySession[sid] = patched;
       }
       break;
@@ -543,6 +574,12 @@ export function reduceAppEvent(
       const list = next.tasksBySession[sid] ?? [];
       next.tasksBySession[sid] = list.map((t) => {
         if (t.id !== event.taskId) return t;
+        // Subagent streamed output (assistant.delta) concatenates into a single
+        // growing text block rather than fragmenting each delta into its own
+        // line — the detail panel renders it like a thinking block.
+        if (t.kind === 'subagent' && event.kind === 'text') {
+          return { ...t, text: (t.text ?? '') + event.outputChunk };
+        }
         const outputLines = t.outputLines ?? [];
         if (outputLines.at(-1) === event.outputChunk) return t;
         const lines = [...outputLines, event.outputChunk];
@@ -589,6 +626,13 @@ export function reduceAppEvent(
       next.config = event.config;
       break;
     }
+
+    // -------------------------------------------------------------------------
+    // Provider-model catalog refresh result. The daemon already persisted the
+    // new catalog; the web picks it up on the next explicit model/provider load
+    // (model picker, session switch). Advance seq silently.
+    case 'modelCatalogChanged':
+      break;
 
     // -------------------------------------------------------------------------
     // Agent-scoped side-channel events (e.g. BTW side chat) are consumed by the

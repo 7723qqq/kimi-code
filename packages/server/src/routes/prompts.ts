@@ -1,6 +1,7 @@
 
 
-import { readFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, stat } from 'node:fs/promises';
+import { extname, join } from 'node:path';
 
 import {
   ErrorCode,
@@ -12,7 +13,7 @@ import {
   promptSteerResultSchema,
   type PromptSubmission,
 } from '@moonshot-ai/protocol';
-import { IPromptService, AuthModelNotResolvedError, AuthProvisioningRequiredError, AuthTokenMissingError, AuthTokenUnauthorizedError, PromptAlreadyCompletedError, PromptNotFoundError, SessionBusyError, SessionNotFoundError, FileNotFoundError, IFileStore, type IInstantiationService, type GetResult } from '@moonshot-ai/agent-core';
+import { IPromptService, AuthModelNotResolvedError, AuthProvisioningRequiredError, AuthTokenMissingError, AuthTokenUnauthorizedError, PromptAlreadyCompletedError, PromptNotFoundError, SessionBusyError, SessionNotFoundError, FileNotFoundError, ICoreProcessService, IEnvironmentService, IFileStore, buildImageCompressionCaption, compressImageForModel, compressBase64ForModel, persistOriginalImage, sessionMediaOriginalsDir, withTelemetryContext, type IInstantiationService, type GetResult, type ImageCompressionTelemetry, type TelemetryClient } from '@moonshot-ai/agent-core';
 import { z } from 'zod';
 
 
@@ -123,12 +124,32 @@ export function registerPromptsRoutes(
       try {
         const { session_id } = req.params;
         const body = req.body;
-        const result = await ix.invokeFunction(async (a) =>
-          a.get(IPromptService).submit(
-            session_id,
-            await resolvePromptMediaFiles(body, a.get(IFileStore)),
-          ),
-        );
+        const result = await ix.invokeFunction(async (a) => {
+          // Grab service references synchronously — the accessor is only
+          // valid until the first await inside invokeFunction.
+          const promptService = a.get(IPromptService);
+          const fileStore = a.get(IFileStore);
+          const core = a.get(ICoreProcessService);
+          const cacheDir = join(a.get(IEnvironmentService).homeDir, 'cache');
+          const resolved = await resolvePromptMediaFiles(body, fileStore, cacheDir, {
+            // Scoped to the session so prompt-ingestion image_compress events
+            // carry the same context as the per-session agent telemetry.
+            telemetry:
+              core.telemetry === undefined
+                ? undefined
+                : withTelemetryContext(core.telemetry, { sessionId: session_id }),
+            // Resolved lazily — only when an inline base64 image actually
+            // got compressed — so image-free prompts never pay the lookup.
+            resolveOriginalsDir: async () => {
+              const summaries = await core.rpc.listSessions({ sessionId: session_id });
+              const sessionDir = summaries[0]?.sessionDir;
+              return sessionDir === undefined
+                ? undefined
+                : sessionMediaOriginalsDir(sessionDir);
+            },
+          });
+          return promptService.submit(session_id, resolved);
+        });
         reply.send(okEnvelope(result, req.id));
       } catch (error) {
         sendMappedError(reply, req.id, error);
@@ -247,29 +268,188 @@ export function registerPromptsRoutes(
   );
 }
 
+interface ResolvePromptMediaOptions {
+  /**
+   * Lazily resolve the session's media-originals dir for persisting the
+   * pre-compression bytes of inline base64 images. Only invoked when an
+   * image was actually compressed; a failure or undefined result falls back
+   * to the shared temp-dir cache.
+   */
+  readonly resolveOriginalsDir?: () => Promise<string | undefined>;
+  /** Report an `image_compress` event per compressed prompt image. */
+  readonly telemetry?: TelemetryClient;
+}
+
 async function resolvePromptMediaFiles(
   body: PromptSubmission,
   store: IFileStore,
+  cacheDir: string,
+  options: ResolvePromptMediaOptions = {},
 ): Promise<PromptSubmission> {
   let changed = false;
+  let originalsDir: string | undefined;
+  let originalsDirResolved = false;
+  const resolveOriginalsDir = async (): Promise<string | undefined> => {
+    if (!originalsDirResolved) {
+      originalsDirResolved = true;
+      originalsDir = await options.resolveOriginalsDir?.().catch(() => undefined);
+    }
+    return originalsDir;
+  };
+  const telemetryFor = (source: string): ImageCompressionTelemetry | undefined =>
+    options.telemetry === undefined ? undefined : { client: options.telemetry, source };
   const content: PromptSubmission['content'] = [];
   for (const part of body.content) {
+    // Inline base64 image: compress the payload in place. This is the same
+    // input-stage step as the file path below, for REST clients that submit an
+    // image as `{ source: { kind: 'base64' } }` instead of uploading a file.
+    if (part.type === 'image' && part.source.kind === 'base64') {
+      const compressed = await compressBase64ForModel(part.source.data, part.source.media_type, {
+        telemetry: telemetryFor('prompt_inline'),
+      });
+      if (compressed.changed) {
+        // There is no stored file to point at, so persist the original into
+        // the session's media-originals dir (best effort, temp-dir fallback)
+        // and announce the compression next to the image — silent
+        // downsampling would leave the model unaware that detail is missing.
+        const dir = await resolveOriginalsDir();
+        const originalPath = await persistOriginalImage(
+          Buffer.from(part.source.data, 'base64'),
+          part.source.media_type,
+          dir === undefined ? {} : { dir },
+        );
+        content.push({
+          type: 'text',
+          text: buildImageCompressionCaption({
+            original: {
+              width: compressed.originalWidth,
+              height: compressed.originalHeight,
+              byteLength: compressed.originalByteLength,
+              mimeType: part.source.media_type,
+            },
+            final: {
+              width: compressed.width,
+              height: compressed.height,
+              byteLength: compressed.finalByteLength,
+              mimeType: compressed.mimeType,
+            },
+            originalPath,
+          }),
+        });
+        content.push({
+          type: 'image',
+          source: { kind: 'base64', media_type: compressed.mimeType, data: compressed.base64 },
+        });
+        changed = true;
+      } else {
+        content.push(part);
+      }
+      continue;
+    }
     if ((part.type !== 'image' && part.type !== 'video') || part.source.kind !== 'file') {
       content.push(part);
       continue;
     }
     const file = await store.get(part.source.file_id);
     assertMediaFile(file, part.type);
+    if (part.type === 'video') {
+      // Materialize the uploaded video into the shared cache and reference it by
+      // path, so the agent reads it via ReadMediaFile — letting the provider's
+      // VideoUploader handle it (no eager base64), exactly like the TUI.
+      const cachePath = await materializeVideoToCache(file, cacheDir);
+      content.push({ type: 'text', text: formatVideoTag(cachePath) });
+      changed = true;
+      continue;
+    }
     const data = await readFile(file.blobPath);
+    // Compress the image while inlining it into the prompt (an input-stage data
+    // step, before the prompt reaches the agent core). The stored file keeps its
+    // original bytes; only the model-facing copy is shrunk. Best effort: a
+    // failure leaves the original bytes. Video is never re-encoded here.
+    let mediaType = file.meta.media_type;
+    let bytes: Uint8Array = data;
+    if (part.type === 'image') {
+      const compressed = await compressImageForModel(data, mediaType, {
+        telemetry: telemetryFor('prompt_file'),
+      });
+      if (compressed.changed) {
+        // The stored file already holds the original bytes — the caption
+        // points straight at it, no extra copy needed.
+        content.push({
+          type: 'text',
+          text: buildImageCompressionCaption({
+            original: {
+              width: compressed.originalWidth,
+              height: compressed.originalHeight,
+              byteLength: compressed.originalByteLength,
+              mimeType: mediaType,
+            },
+            final: {
+              width: compressed.width,
+              height: compressed.height,
+              byteLength: compressed.finalByteLength,
+              mimeType: compressed.mimeType,
+            },
+            originalPath: file.blobPath,
+          }),
+        });
+      }
+      bytes = compressed.data;
+      mediaType = compressed.mimeType;
+    }
     const source = {
       kind: 'base64' as const,
-      media_type: file.meta.media_type,
-      data: data.toString('base64'),
+      media_type: mediaType,
+      data: Buffer.from(bytes).toString('base64'),
     };
-    content.push(part.type === 'video' ? { type: 'video', source } : { type: 'image', source });
+    content.push({ type: 'image', source });
     changed = true;
   }
   return changed ? { ...body, content } : body;
+}
+
+const VIDEO_EXT_BY_MIME: Record<string, string> = {
+  'video/mp4': '.mp4',
+  'video/quicktime': '.mov',
+  'video/webm': '.webm',
+  'video/x-msvideo': '.avi',
+  'video/x-matroska': '.mkv',
+  'video/mpeg': '.mpeg',
+};
+
+async function materializeVideoToCache(
+  file: GetResult,
+  cacheDir: string,
+): Promise<string> {
+  await mkdir(cacheDir, { recursive: true });
+  const target = join(cacheDir, `${file.meta.id}${videoExtension(file.meta)}`);
+  // Idempotent: a prior submit of the same upload already produced this file.
+  try {
+    const info = await stat(target);
+    if (info.size === file.meta.size) return target;
+  } catch {
+    // Missing — fall through to copy.
+  }
+  await copyFile(file.blobPath, target);
+  return target;
+}
+
+function videoExtension(meta: GetResult['meta']): string {
+  const fromName = extname(meta.name);
+  if (fromName.length > 0) return fromName;
+  return VIDEO_EXT_BY_MIME[meta.media_type.toLowerCase()] ?? '.bin';
+}
+
+function formatVideoTag(absPath: string): string {
+  return `<video path="${escapeAttribute(absPath)}"></video>`;
+}
+
+function escapeAttribute(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
 
 function assertMediaFile(file: GetResult, expected: 'image' | 'video'): void {

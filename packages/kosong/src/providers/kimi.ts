@@ -6,6 +6,7 @@ import type {
   GenerateOptions,
   MaxCompletionTokensOptions,
   ProviderRequestAuth,
+  ResponseFormat,
   StreamedMessage,
   ThinkingEffort,
   VideoUploadInput,
@@ -27,7 +28,6 @@ import {
   normalizeOpenAIFinishReason,
   type OpenAIContentPart,
   type OpenAIToolParam,
-  reasoningEffortToThinkingEffort,
   toolToOpenAI,
 } from './openai-common';
 import {
@@ -47,6 +47,10 @@ export interface KimiOptions {
   stream?: boolean | undefined;
   defaultHeaders?: Record<string, string> | undefined;
   generationKwargs?: GenerationKwargs | undefined;
+  /** Efforts the model advertises (e.g. ["low", "high", "max"]). When
+   * present and non-empty, withThinking sends the chosen effort on the wire;
+   * when absent/empty, only thinking.type is sent. */
+  supportEfforts?: readonly string[] | undefined;
   clientFactory?: (auth: ProviderRequestAuth) => OpenAI;
 }
 
@@ -67,13 +71,13 @@ export interface GenerationKwargs {
   presence_penalty?: number | undefined;
   frequency_penalty?: number | undefined;
   stop?: string | string[] | undefined;
-  reasoning_effort?: string | undefined;
   prompt_cache_key?: string | undefined;
   extra_body?: ExtraBody;
 }
 
 export interface ThinkingConfig {
   type?: 'enabled' | 'disabled';
+  effort?: string;
   keep?: unknown;
   [key: string]: unknown;
 }
@@ -93,6 +97,8 @@ interface OpenAIMessage {
   tool_call_id?: string | undefined;
   name?: string | undefined;
   reasoning_content?: string | undefined;
+  /** Message-level tool declarations (`messages[].tools`), see convertMessage. */
+  tools?: OpenAIToolParam[] | undefined;
 }
 
 interface OpenAIToolCallOut {
@@ -166,6 +172,16 @@ function convertMessage(message: Message): OpenAIMessage {
     result.reasoning_content = reasoningContent;
   }
 
+  // Message-level tool declarations: a system message carrying `tools` loads
+  // those definitions mid-conversation (`messages[].tools` in the Kimi
+  // contract; each entry is a full OpenAI-compatible tool param). Reusing
+  // convertTool keeps schema normalization and the `$` builtin_function
+  // branch identical to the top-level `tools[]` path. Such a message carries
+  // no `content` — the empty-content branch above already omits the field.
+  if (message.tools !== undefined && message.tools.length > 0) {
+    result.tools = message.tools.map((tool) => convertTool(tool));
+  }
+
   return result;
 }
 function convertTool(tool: Tool): OpenAIToolParam {
@@ -182,6 +198,21 @@ function convertTool(tool: Tool): OpenAIToolParam {
     function: {
       ...converted.function,
       parameters: normalizeKimiToolSchema(tool.parameters),
+    },
+  };
+}
+
+function responseFormatToOpenAI(format: ResponseFormat): Record<string, unknown> {
+  if (format.type === 'json_object') {
+    return { type: 'json_object' };
+  }
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: format.jsonSchema.name,
+      schema: format.jsonSchema.schema,
+      strict: format.jsonSchema.strict,
+      description: format.jsonSchema.description,
     },
   };
 }
@@ -359,12 +390,22 @@ class KimiStreamedMessage implements StreamedMessage {
 export class KimiChatProvider implements ChatProvider {
   readonly name: string = 'kimi';
 
+  /**
+   * See {@link ChatProvider.maxCompletionTokens}. Mirrors the request-time
+   * normalization: `max_completion_tokens` wins over the legacy `max_tokens`
+   * alias.
+   */
+  get maxCompletionTokens(): number | undefined {
+    return this._generationKwargs.max_completion_tokens ?? this._generationKwargs.max_tokens;
+  }
+
   private _model: string;
   private _stream: boolean;
   private _apiKey: string | undefined;
   private _baseUrl: string;
   private _defaultHeaders: Record<string, string> | undefined;
   private _generationKwargs: GenerationKwargs;
+  private readonly _supportEfforts: readonly string[];
   private _client: OpenAI | undefined;
   private _clientFactory: ((auth: ProviderRequestAuth) => OpenAI) | undefined;
   private _files: KimiFiles | undefined;
@@ -378,6 +419,7 @@ export class KimiChatProvider implements ChatProvider {
     this._model = options.model;
     this._stream = options.stream ?? true;
     this._generationKwargs = { ...options.generationKwargs };
+    this._supportEfforts = options.supportEfforts ?? [];
     this._client =
       this._apiKey === undefined
         ? undefined
@@ -414,7 +456,11 @@ export class KimiChatProvider implements ChatProvider {
   }
 
   get thinkingEffort(): ThinkingEffort | null {
-    return reasoningEffortToThinkingEffort(this._generationKwargs.reasoning_effort);
+    const thinking = this._generationKwargs.extra_body?.thinking;
+    if (thinking === undefined) return null;
+    if (thinking.type === 'disabled') return 'off';
+    // A model that enables thinking without an effort is treated as boolean ("on").
+    return thinking.effort ?? 'on';
   }
 
   get modelParameters(): Record<string, unknown> {
@@ -475,6 +521,9 @@ export class KimiChatProvider implements ChatProvider {
       ...requestKwargs,
       ...(extraBody as Record<string, unknown> | undefined),
     };
+    if (options?.responseFormat !== undefined) {
+      createParams['response_format'] = responseFormatToOpenAI(options.responseFormat);
+    }
 
     if (tools.length > 0) {
       createParams['tools'] = tools.map((t) => convertTool(t));
@@ -486,8 +535,9 @@ export class KimiChatProvider implements ChatProvider {
 
     try {
       const client = this._createClient(options?.auth);
-      // Use type assertion via unknown because we pass Moonshot-proprietary fields
-      // (reasoning_effort, thinking) that don't exist in the OpenAI type definitions.
+      // Use type assertion via unknown because we pass the Moonshot-proprietary
+      // `thinking` field (via extra_body) that doesn't exist in the OpenAI type definitions.
+      options?.onRequestSent?.();
       const response = (await client.chat.completions.create(
         createParams as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
         options?.signal ? { signal: options.signal } : undefined,
@@ -499,28 +549,29 @@ export class KimiChatProvider implements ChatProvider {
   }
 
   withThinking(effort: ThinkingEffort): KimiChatProvider {
-    const thinking: ThinkingConfig = {
-      type: effort === 'off' ? 'disabled' : 'enabled',
-    };
-    let reasoningEffort: string | undefined;
-    switch (effort) {
-      case 'off':
-        reasoningEffort = undefined;
-        break;
-      case 'low':
-        reasoningEffort = 'low';
-        break;
-      case 'medium':
-        reasoningEffort = 'medium';
-        break;
-      case 'high':
-      case 'xhigh':
-      case 'max':
-        reasoningEffort = 'high';
-        break;
+    let thinking: ThinkingConfig;
+    if (effort === 'off') {
+      thinking = { type: 'disabled' };
+    } else {
+      // Only efforts the model explicitly declares via `support_efforts` are
+      // sent on the wire. When `support_efforts` is absent/empty, or the
+      // requested effort is not declared, only thinking.type is sent.
+      thinking = this._supportEfforts.includes(effort)
+        ? { type: 'enabled', effort }
+        : { type: 'enabled' };
     }
-    return this._withGenerationKwargs({ reasoning_effort: reasoningEffort }).withExtraBody({
-      thinking,
+    // Replace extra_body.thinking wholesale so a stale `effort` from a previous
+    // withThinking call can never linger on a disabled or non-effort thinking
+    // object — but carry over a `keep` set earlier via withExtraBody (the
+    // KIMI_MODEL_THINKING_KEEP path applies keep after withThinking and merges
+    // on top, so it is unaffected either way).
+    const oldExtra = this._generationKwargs.extra_body ?? {};
+    const keep = oldExtra.thinking?.keep;
+    if (keep !== undefined) {
+      thinking = { ...thinking, keep };
+    }
+    return this._withGenerationKwargs({
+      extra_body: { ...oldExtra, thinking },
     });
   }
 

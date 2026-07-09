@@ -58,8 +58,19 @@ interface ManagedTask {
   readonly taskId: string;
   readonly task: BackgroundTask;
   readonly outputChunks: string[];
+  /**
+   * Running total of characters currently held in `outputChunks`, maintained
+   * incrementally so the ring-buffer cap stays O(1) per chunk instead of
+   * re-summing every chunk (which was O(n²) over a command's lifetime).
+   */
+  outputRingChars: number;
   /** Total UTF-8 bytes observed, including chunks dropped from the live ring buffer. */
   outputSizeBytes: number;
+  /**
+   * True once a command has crossed `MAX_TASK_OUTPUT_BYTES` and termination has
+   * been requested. One-shot guard so the ceiling fires exactly once.
+   */
+  outputLimitTripped: boolean;
   status: BackgroundTaskStatus;
   /** Normalized registration options. Current mutable state stays on ManagedTask. */
   readonly options: RegisterBackgroundTaskOptions;
@@ -109,6 +120,28 @@ interface ManagedTask {
  */
 const MAX_OUTPUT_BYTES = 1024 * 1024; // 1 MiB
 const NOTIFICATION_FALLBACK_PREVIEW_BYTES = 3_000;
+
+/**
+ * Hard ceiling on the combined output a single shell command may stream before
+ * it is force-terminated (SIGTERM → grace → SIGKILL). It guards both the
+ * live-forward path and the on-disk `output.log` write chain from a runaway
+ * command (e.g. `b3sum --length <huge>`) whose output would otherwise grow
+ * without bound — filling the disk, or retaining each pending-write chunk until
+ * Node aborts with an out-of-memory crash. Scoped to process tasks (foreground
+ * and background); subagent and user-question results are appended once and must
+ * always be persisted, so they are intentionally not capped here.
+ */
+const MAX_TASK_OUTPUT_BYTES = 16 * 1024 * 1024; // 16 MiB
+
+/** Terminal `stopReason` recorded when a command trips the output ceiling. */
+function outputLimitReason(): string {
+  const mib = Math.floor(MAX_TASK_OUTPUT_BYTES / (1024 * 1024));
+  return (
+    `Output limit exceeded: the command produced more than ${mib} MiB and was ` +
+    'terminated. Redirect large output to a file (e.g. `command > out.txt`) and ' +
+    'inspect it in slices instead.'
+  );
+}
 
 const SIGTERM_GRACE_MS = 5_000;
 const USER_INTERRUPT_REASON = 'Interrupted by user';
@@ -281,7 +314,9 @@ export class BackgroundManager {
       taskId,
       task,
       outputChunks: [],
+      outputRingChars: 0,
       outputSizeBytes: 0,
+      outputLimitTripped: false,
       status: 'running',
       options: entryOptions,
       startedAt: Date.now(),
@@ -499,6 +534,45 @@ export class BackgroundManager {
   }
 
   /**
+   * Wait until no active (non-terminal) task matching `predicate` remains.
+   *
+   * Used by print-mode (`kimi -p`) turn draining to hold a turn open while
+   * background subagents are still running. Re-enumerates after each batch
+   * settles so tasks registered during the wait (fan-out) are picked up.
+   * Resolves immediately when nothing matches. Bounded by `timeoutMs`; once
+   * the deadline passes the method returns without waiting for stragglers.
+   * Rejects with the abort reason when `signal` is aborted.
+   */
+  async waitForActiveTasks(
+    predicate: (info: BackgroundTaskInfo) => boolean,
+    options: { timeoutMs?: number; signal?: AbortSignal } = {},
+  ): Promise<void> {
+    const deadline =
+      options.timeoutMs !== undefined && options.timeoutMs > 0
+        ? Date.now() + options.timeoutMs
+        : undefined;
+    const signal = options.signal;
+    while (true) {
+      signal?.throwIfAborted();
+      const active = this.list(true).filter(predicate);
+      if (active.length === 0) return;
+      let perTaskTimeout: number | undefined;
+      if (deadline !== undefined) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) return;
+        perTaskTimeout = remaining;
+      }
+      const batch = Promise.all(active.map((t) => this.wait(t.taskId, perTaskTimeout)));
+      if (signal === undefined) {
+        await batch;
+      } else {
+        await Promise.race([batch, abortRejecter(signal)]);
+      }
+      // Re-enumerate: settled tasks (and any fan-out) show up in the next list().
+    }
+  }
+
+  /**
    * Wait until a foreground task either detaches from the current tool call or
    * reaches a terminal state. Detached tasks return immediately.
    */
@@ -594,13 +668,40 @@ export class BackgroundManager {
   private appendOutput(entry: ManagedTask, chunk: string): void {
     entry.outputSizeBytes += Buffer.byteLength(chunk, 'utf-8');
     entry.outputChunks.push(chunk);
-    // Enforce output cap: drop oldest chunks when over budget.
-    let total = entry.outputChunks.reduce((s, c) => s + c.length, 0);
-    while (total > MAX_OUTPUT_BYTES && entry.outputChunks.length > 1) {
+    entry.outputRingChars += chunk.length;
+    // Enforce the ring-buffer cap: drop oldest chunks when over budget. The
+    // running total keeps this O(1) amortized per chunk; re-summing the whole
+    // buffer on every chunk was O(n²) over a command's lifetime and could
+    // starve the event loop (and so the foreground timeout) under a high-rate
+    // output stream.
+    while (entry.outputRingChars > MAX_OUTPUT_BYTES && entry.outputChunks.length > 1) {
       const removed = entry.outputChunks.shift();
       if (removed === undefined) break;
-      total -= removed.length;
+      entry.outputRingChars -= removed.length;
     }
+
+    // Output ceiling: a single shell command must not grow the (unbounded)
+    // live-forward buffer or the on-disk write chain until the process runs out
+    // of memory or fills the disk. Trip once, then request graceful termination
+    // through the shared stop path (SIGTERM → grace → SIGKILL). Scoped to
+    // process tasks (foreground and background): subagent and user-question tasks
+    // append their bounded result in one shot and must always persist it, so they
+    // are intentionally not capped here.
+    if (
+      !entry.outputLimitTripped &&
+      entry.task.kind === 'process' &&
+      entry.outputSizeBytes > MAX_TASK_OUTPUT_BYTES
+    ) {
+      entry.outputLimitTripped = true;
+      void this.stop(entry.taskId, outputLimitReason());
+    }
+
+    // Once the cap has tripped the task is being terminated: keep only the
+    // bounded in-memory ring buffer above and stop feeding the (unbounded) disk
+    // write chain. A producer that ignores SIGTERM could otherwise keep the
+    // chain — and the chunk strings each pending write retains — growing through
+    // the grace window until SIGKILL, re-introducing the OOM this cap prevents.
+    if (entry.outputLimitTripped) return;
 
     if (this.persistence === undefined) return;
 
@@ -933,4 +1034,17 @@ function buildBackgroundTaskNotificationBody(info: BackgroundTaskInfo): string {
   ].join('\n');
 
   return `${baseLine}${recovery}`;
+}
+
+function abortRejecter(signal: AbortSignal): Promise<never> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason ?? new Error('Aborted'));
+  }
+  return new Promise<never>((_, reject) => {
+    signal.addEventListener(
+      'abort',
+      () => reject(signal.reason ?? new Error('Aborted')),
+      { once: true },
+    );
+  });
 }
