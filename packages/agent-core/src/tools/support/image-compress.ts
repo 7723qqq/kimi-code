@@ -281,9 +281,12 @@ export async function compressImageForModel(
   // Native path: the Rust `image` crate decodes/resizes/encodes 10–100× faster
   // than pure-JS jimp. The native function handles only the compute-heavy
   // quality-ladder path; all fast-path and guard checks above stay in TS.
-  // Falls back to jimp when the native module is unavailable.
+  // Falls back to jimp when the native module is unavailable or when the image
+  // has EXIF orientation (the Rust `image` crate does not apply EXIF rotation
+  // during decode, while jimp does — the decoded coordinate space must match
+  // for crop regions to work correctly).
   const native = getNative();
-  if (native?.nativeCompressImage) {
+  if (native?.nativeCompressImage && dims?.transposed !== true) {
     try {
       const result = await native.nativeCompressImage(bytes, normalizedMime, {
         maxEdge,
@@ -679,9 +682,10 @@ export async function cropImageForModel(
   // faster than pure-JS jimp. All pre-decode guards (empty, unsupported,
   // region finiteness, decode-bomb) stay in TS; the native function handles
   // out_of_bounds, budget, and decode failures with structured error kinds.
-  // Falls back to jimp when the native module is unavailable.
+  // Falls back to jimp when the native module is unavailable or when the image
+  // has EXIF orientation (crop regions are in decoded/EXIF-rotated space).
   const native = getNative();
-  if (native?.nativeCropImage) {
+  if (native?.nativeCropImage && dims?.transposed !== true) {
     try {
       const outcome = await native.nativeCropImage(
         bytes,

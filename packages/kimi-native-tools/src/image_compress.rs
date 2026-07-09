@@ -94,7 +94,8 @@ impl CropError {
                 encoded_bytes,
                 budget,
             } => format!(
-                "The cropped region encodes to {} bytes, over the {}-byte per-image limit.",
+                "The cropped region encodes to {} bytes, over the {}-byte per-image limit. \
+                 Choose a smaller region, or allow downscaling.",
                 encoded_bytes, budget
             ),
             CropError::DecodeFailed(msg) => format!("Failed to decode the image: {}", msg),
@@ -289,10 +290,54 @@ pub fn crop_image(
 
 // ── internals ────────────────────────────────────────────────────────────
 
+/// Pre-multiply alpha into the RGB channels so fully transparent pixels
+/// contribute zero color during resize. Without this, the Triangle filter
+/// blends the RGB values of transparent pixels into their visible neighbors,
+/// producing visible color fringes on edges with alpha.
+fn premultiply_alpha(img: &mut DynamicImage) {
+    if !img.color().has_alpha() {
+        return;
+    }
+    let rgba = img.to_rgba8();
+    let mut out = rgba.clone();
+    for pixel in out.pixels_mut() {
+        let a = pixel[3] as f32 / 255.0;
+        pixel[0] = (pixel[0] as f32 * a).round().clamp(0.0, 255.0) as u8;
+        pixel[1] = (pixel[1] as f32 * a).round().clamp(0.0, 255.0) as u8;
+        pixel[2] = (pixel[2] as f32 * a).round().clamp(0.0, 255.0) as u8;
+    }
+    *img = DynamicImage::ImageRgba8(out);
+}
+
+/// Reverse {@link premultiply_alpha} after resizing. Fully transparent
+/// pixels (alpha=0) get their RGB cleared to avoid stray color from
+/// rounding.
+fn unpremultiply_alpha(img: &mut DynamicImage) {
+    if !img.color().has_alpha() {
+        return;
+    }
+    let rgba = img.to_rgba8();
+    let mut out = rgba.clone();
+    for pixel in out.pixels_mut() {
+        if pixel[3] == 0 {
+            pixel[0] = 0;
+            pixel[1] = 0;
+            pixel[2] = 0;
+        } else if pixel[3] < 255 {
+            let a = 255.0 / pixel[3] as f32;
+            pixel[0] = ((pixel[0] as f32) * a).round().clamp(0.0, 255.0) as u8;
+            pixel[1] = ((pixel[1] as f32) * a).round().clamp(0.0, 255.0) as u8;
+            pixel[2] = ((pixel[2] as f32) * a).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+    *img = DynamicImage::ImageRgba8(out);
+}
+
 /// Scale `img` so its longest edge is at most `edge`, preserving aspect
 /// ratio. No-op (returns false) when the image already fits. Uses Triangle
 /// (bilinear) filtering which covers all source pixels during downscaling —
-/// no aliasing on text or fine patterns.
+/// no aliasing on text or fine patterns. Pre-multiplies alpha before
+/// resizing to prevent color bleed from transparent pixels.
 fn fit_within_edge(img: &mut DynamicImage, edge: u32) -> bool {
     let (w, h) = img.dimensions();
     let longest = w.max(h);
@@ -302,7 +347,14 @@ fn fit_within_edge(img: &mut DynamicImage, edge: u32) -> bool {
     let factor = edge as f64 / longest as f64;
     let new_w = ((w as f64) * factor).round().max(1.0) as u32;
     let new_h = ((h as f64) * factor).round().max(1.0) as u32;
+    let had_alpha = img.color().has_alpha();
+    if had_alpha {
+        premultiply_alpha(img);
+    }
     *img = img.resize_exact(new_w, new_h, image::imageops::FilterType::Triangle);
+    if had_alpha {
+        unpremultiply_alpha(img);
+    }
     true
 }
 

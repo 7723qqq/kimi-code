@@ -501,6 +501,32 @@ function nativeGrepStructured(
 }
 
 // ============================================================================
+// Tool output truncation (ToolResultBuilder.write)
+// ============================================================================
+
+/**
+ * Process one chunk of streaming tool output, applying line-length and
+ * total-character budgets. Mirrors `ToolResultBuilder.write()` in
+ * `result-builder.ts`.
+ *
+ * @param {string} text - The raw text chunk to process.
+ * @param {number} currentNchars - Total UTF-16 code units already in the buffer.
+ * @param {number} maxChars - Maximum total UTF-16 code units allowed.
+ * @param {number|null} maxLineLength - Per-line maximum, or null for no limit.
+ * @param {boolean} alreadyTruncated - Whether truncation already occurred.
+ * @returns {{output: string, charsWritten: number, newNchars: number, truncated: boolean}}
+ */
+function nativeWriteToolOutputChunk(text, currentNchars, maxChars, maxLineLength, alreadyTruncated) {
+  return binding.nativeWriteToolOutputChunk(
+    text,
+    currentNchars,
+    maxChars,
+    maxLineLength,
+    alreadyTruncated,
+  );
+}
+
+// ============================================================================
 // Exports
 // ============================================================================
 
@@ -532,6 +558,9 @@ module.exports = {
   // Image compression & cropping
   nativeCompressImage,
   nativeCropImage,
+
+  // Tool output truncation
+  nativeWriteToolOutputChunk,
 
   // Structured grep
   nativeGrepStructured,
