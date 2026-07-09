@@ -9,7 +9,7 @@ import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn/turn
 import type { PersistedWireRecord, WireRecord } from '#/agent/wireRecord/wireRecord';
 import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
-import { ErrorCodes, toKimiErrorPayload } from '#/errors';
+import { ErrorCodes, errorInfo, toKimiErrorPayload } from '#/errors';
 
 import {
   InMemoryWireRecordPersistence,
@@ -728,5 +728,52 @@ describe('AgentGoalService core workflow hooks', () => {
       terminalReason: 'Blocked by UserPromptSubmit hook',
     });
     expect(turnService.launches).toEqual([]);
+  });
+});
+
+describe('goal error catalog metadata', () => {
+  it('surfaces title and action hints for every goal error code', () => {
+    expect(errorInfo('goal.already_exists')).toEqual({
+      title: 'A goal is already active',
+      retryable: false,
+      public: true,
+      action: 'Use `/goal replace <objective>` to replace the current goal.',
+    });
+    expect(errorInfo('goal.not_found')).toEqual({
+      title: 'No goal found',
+      retryable: false,
+      public: true,
+      action: 'Start a goal with `/goal <objective>` first.',
+    });
+    expect(errorInfo('goal.objective_empty')).toEqual({
+      title: 'Goal objective is empty',
+      retryable: false,
+      public: true,
+      action: 'Provide a non-empty objective.',
+    });
+    expect(errorInfo('goal.objective_too_long')).toEqual({
+      title: 'Goal objective is too long',
+      retryable: false,
+      public: true,
+      action: 'Keep the objective under 4000 characters; reference long details by file path.',
+    });
+    expect(errorInfo('goal.status_invalid')).toEqual({
+      title: 'Invalid goal status transition',
+      retryable: false,
+      public: true,
+      action: 'Use a status allowed for this actor (complete, blocked, or impossible).',
+    });
+    expect(errorInfo('goal.metadata_reserved')).toEqual({
+      title: 'Goal metadata is reserved',
+      retryable: false,
+      public: true,
+      action: 'Do not write metadata.custom.goal directly; use the goal lifecycle methods.',
+    });
+    expect(errorInfo('goal.not_resumable')).toEqual({
+      title: 'Goal is not resumable',
+      retryable: false,
+      public: true,
+      action: 'Only paused goals can be resumed.',
+    });
   });
 });
