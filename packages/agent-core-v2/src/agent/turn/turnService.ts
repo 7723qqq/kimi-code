@@ -37,7 +37,7 @@ import { IAgentWireService } from '#/wire/tokens';
 import type { IWireService } from '#/wire/wireService';
 import type { Turn, TurnPromptInfo, TurnResult } from './turn';
 import { IAgentTurnService } from './turn';
-import { cancelTurn, promptTurn, steerTurn, TurnModel } from './turnOps';
+import { cancelTurn, promptTurn, steerTurn } from './turnOps';
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {

@@ -29,7 +29,7 @@ export const TurnModel = defineModel<TurnModelState>('turn', () => ({ nextTurnId
   reducers: {
     'context.append_loop_event': (s, p: { event?: { turnId?: unknown } }): TurnModelState => {
       const raw = p?.event?.turnId;
-      if (raw === undefined) return s;
+      if (typeof raw !== 'string' && typeof raw !== 'number') return s;
       const turnId = Number.parseInt(String(raw), 10);
       if (Number.isInteger(turnId) && turnId >= s.nextTurnId) {
         return { nextTurnId: turnId + 1 };

@@ -1013,7 +1013,7 @@ describe('SessionSwarmService metadata compatibility', () => {
         [IAgentUserToolService, parentUserTools],
       ])),
     );
-    createAgent.mockImplementationOnce(async (opts: CreateAgentOptions = {}) => {
+    createAgent.mockImplementationOnce((opts: CreateAgentOptions = {}) => {
       const id = opts.agentId ?? 'agent-new';
       const handle = agentHandle(
         id,

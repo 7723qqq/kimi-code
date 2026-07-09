@@ -319,7 +319,7 @@ export function resolveOutboundHeaders(
   hostHeaders: Readonly<Record<string, string>>,
 ): Readonly<Record<string, string>> {
   const hostLayer = providerType === 'kimi' ? hostHeaders : userAgentOnly(hostHeaders);
-  return { ...parseKimiCodeCustomHeaders(), ...hostLayer, ...(customHeaders ?? {}) };
+  return { ...parseKimiCodeCustomHeaders(), ...hostLayer, ...customHeaders };
 }
 
 function userAgentOnly(headers: Readonly<Record<string, string>>): Record<string, string> {
