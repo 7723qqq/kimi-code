@@ -13,7 +13,7 @@ import { IAgentSystemReminderService } from '#/agent/systemReminder/systemRemind
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
 import type { ToolDidExecuteContext } from '#/agent/tool/toolHooks';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentTurnService, type Turn } from '#/agent/turn/turn';
+import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn/turn';
 
 import { stubContextMemory } from '../contextMemory/stubs';
 import { stubLoopWithHooks, stubToolExecutor, stubTurn } from '../turn/stubs';
@@ -348,5 +348,55 @@ describe('AgentPromptService', () => {
         { type: 'image_url' },
       ]);
     });
+  });
+});
+
+describe('steer queue retention across non-completed turns', () => {
+  it('flushes a steer queued during a cancelled turn into the next turn', async () => {
+    const { context, loop, prompt, turn } = createHarness();
+
+    let endTurn!: (result: TurnResult) => void;
+    const cancelledTurn: Turn = {
+      id: 0,
+      abortController: new AbortController(),
+      ready: Promise.resolve(),
+      result: new Promise<TurnResult>((resolve) => {
+        endTurn = resolve;
+      }),
+    };
+    turn.getActiveTurn = () => cancelledTurn;
+
+    const steer = prompt.steer(userMessage('queued during cancel', { kind: 'user' }));
+    await expect(steer.launched).resolves.toBe(cancelledTurn);
+
+    endTurn({ reason: 'cancelled' });
+    await cancelledTurn.result;
+    turn.getActiveTurn = () => undefined;
+
+    const nextTurn = await prompt.prompt(userMessage('next prompt', { kind: 'user' }));
+    expect(nextTurn).toBeDefined();
+    await flushSteers(loop, nextTurn!);
+
+    expect(context.messages.map((message) => message.content[0])).toMatchObject([
+      { type: 'text', text: 'next prompt' },
+      { type: 'text', text: 'queued during cancel' },
+    ]);
+    expect(turn.steered).toMatchObject([
+      { input: [{ type: 'text', text: 'queued during cancel' }] },
+    ]);
+  });
+
+  it('clear() still discards queued steers', async () => {
+    const { context, loop, prompt, turn } = createHarness({ hasActiveTurn: true });
+    const activeTurn = turn.launch();
+
+    const steer = prompt.steer(userMessage('to be cleared', { kind: 'user' }));
+    await expect(steer.launched).resolves.toBe(activeTurn);
+
+    prompt.clear();
+    await flushSteers(loop, activeTurn);
+
+    expect(context.messages).toEqual([]);
+    expect(turn.steered).toEqual([]);
   });
 });

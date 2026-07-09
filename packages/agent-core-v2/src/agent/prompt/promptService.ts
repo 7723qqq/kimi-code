@@ -9,7 +9,7 @@ import { USER_PROMPT_ORIGIN, type ContextMessage } from '#/agent/contextMemory/t
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentTurnService, type Turn, type TurnPromptInfo } from '#/agent/turn/turn';
+import { IAgentTurnService, type Turn } from '#/agent/turn/turn';
 import type { ExecutableToolResult } from '#/agent/tool/toolContract';
 import type { ToolDidExecuteContext } from '#/agent/tool/toolHooks';
 import { OrderedHookSlot } from '#/hooks';
@@ -28,7 +28,6 @@ interface QueuedSteer {
 export class AgentPromptService implements IAgentPromptService {
   declare readonly _serviceBrand: undefined;
   private readonly steerQueue: QueuedSteer[] = [];
-  private observedTurn: Turn | undefined;
 
   readonly hooks = {
     onWillSubmitPrompt: new OrderedHookSlot<PromptSubmitContext>(),
@@ -63,7 +62,7 @@ export class AgentPromptService implements IAgentPromptService {
       this.appendPrompt(rerouted, captions);
       return undefined;
     }
-    const turn = this.launch({ input: rerouted.content, origin: rerouted.origin });
+    const turn = this.turnService.launch({ input: rerouted.content, origin: rerouted.origin });
     this.appendPrompt(rerouted, captions);
     return turn;
   }
@@ -114,7 +113,7 @@ export class AgentPromptService implements IAgentPromptService {
   }
 
   retry(): Turn | undefined {
-    return this.launch({ input: [], origin: { kind: 'retry' } });
+    return this.turnService.launch({ input: [], origin: { kind: 'retry' } });
   }
 
   undo(count: number): number {
@@ -147,12 +146,6 @@ export class AgentPromptService implements IAgentPromptService {
     this.context.append(...messages);
   }
 
-  private launch(prompt?: TurnPromptInfo): Turn {
-    const turn = this.turnService.launch(prompt);
-    this.observe(turn);
-    return turn;
-  }
-
   private async blockedByHook(promptMessage: ContextMessage, isSteer: boolean): Promise<boolean> {
     const hookContext: PromptSubmitContext = {
       promptMessage,
@@ -161,19 +154,6 @@ export class AgentPromptService implements IAgentPromptService {
     };
     await this.hooks.onWillSubmitPrompt.run(hookContext);
     return hookContext.block;
-  }
-
-  private observe(turn: Turn): void {
-    if (this.observedTurn === turn) return;
-    this.observedTurn = turn;
-    void turn.result.then((result) => {
-      if (this.observedTurn === turn) {
-        this.observedTurn = undefined;
-      }
-      if (result.reason !== 'completed') {
-        this.discardQueuedSteers();
-      }
-    });
   }
 
   private flushSteerQueue(): boolean {
@@ -235,7 +215,6 @@ export class AgentPromptService implements IAgentPromptService {
     if (entry.removed) return undefined;
 
     this.steerQueue.push(entry);
-    this.observe(activeTurn);
     return activeTurn;
   }
 
