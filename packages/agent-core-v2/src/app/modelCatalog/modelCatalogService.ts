@@ -53,6 +53,13 @@ const THINKING_SECTION = 'thinking';
 export class ModelCatalogService implements IModelCatalogService {
   declare readonly _serviceBrand: undefined;
 
+  /**
+   * Serializes refresh runs so a scheduled refresh and a manual one (or two
+   * manual ones with different options) never race on reading/patching the
+   * persisted config. Mirrors v1's `_refreshChain`.
+   */
+  private refreshChain: Promise<unknown> = Promise.resolve();
+
   constructor(
     @IModelService private readonly modelService: IModelService,
     @IProviderService private readonly providerService: IProviderService,
@@ -100,8 +107,19 @@ export class ModelCatalogService implements IModelCatalogService {
     };
   }
 
-  async refreshProviderModels(
+  refreshProviderModels(
     options: RefreshProviderModelsOptions = {},
+  ): Promise<RefreshProviderModelsResponse> {
+    const run = this.refreshChain.then(() => this.doRefreshProviderModels(options));
+    this.refreshChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async doRefreshProviderModels(
+    options: RefreshProviderModelsOptions,
   ): Promise<RefreshProviderModelsResponse> {
     await this.config.reload();
     if (options.providerId !== undefined) {

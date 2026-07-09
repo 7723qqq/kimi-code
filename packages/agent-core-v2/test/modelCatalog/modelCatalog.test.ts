@@ -8,6 +8,7 @@
  * refresh is covered in `auth/auth.test.ts`.
  */
 
+import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -69,6 +70,7 @@ describe('ModelCatalogService', () => {
   let configSet: ReturnType<typeof vi.fn>;
   let configReplace: ReturnType<typeof vi.fn>;
   let getCachedAccessToken: ReturnType<typeof vi.fn>;
+  let resolveTokenProvider: ReturnType<typeof vi.fn>;
   let publishEvent: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -82,6 +84,7 @@ describe('ModelCatalogService', () => {
           : patch;
     });
     getCachedAccessToken = vi.fn<IOAuthService['getCachedAccessToken']>().mockResolvedValue(undefined);
+    resolveTokenProvider = vi.fn<IOAuthService['resolveTokenProvider']>().mockReturnValue(undefined);
     configReplace = vi.fn().mockImplementation(async (domain: string, value: unknown) => {
       (backing as unknown as Record<string, unknown>)[domain] = value;
     });
@@ -106,9 +109,8 @@ describe('ModelCatalogService', () => {
         });
         reg.definePartialInstance(IOAuthService, {
           getCachedAccessToken: getCachedAccessToken as unknown as IOAuthService['getCachedAccessToken'],
-          resolveTokenProvider: vi
-            .fn()
-            .mockReturnValue(undefined) as unknown as IOAuthService['resolveTokenProvider'],
+          resolveTokenProvider:
+            resolveTokenProvider as unknown as IOAuthService['resolveTokenProvider'],
         });
         reg.definePartialInstance(IEventService, {
           publish: publishEvent as unknown as IEventService['publish'],
@@ -264,5 +266,52 @@ describe('ModelCatalogService', () => {
     const result = await catalog().refreshProviderModels({ scope: 'all' });
     expect(result).toEqual({ changed: [], unchanged: [], failed: [] });
     expect(publishEvent).not.toHaveBeenCalled();
+  });
+
+  it('serializes concurrent refreshProviderModels runs so they never overlap', async () => {
+    // Seed the managed OAuth provider so the orchestrator actually refreshes it
+    // (a plain api-key provider is a no-op and would not exercise the chain).
+    backing.providers = {
+      [KIMI_CODE_PROVIDER_NAME]: {
+        type: 'kimi',
+        baseUrl: 'https://api.example.test/v1',
+        oauth: { storage: 'file', key: 'oauth/kimi-code' },
+      },
+    };
+    backing.models = {};
+    resolveTokenProvider.mockReturnValue({ getAccessToken: async () => 'access-token' });
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      inFlight--;
+      return {
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              id: 'kimi-k2',
+              context_length: 131072,
+              supports_reasoning: true,
+              display_name: 'Kimi K2',
+            },
+          ],
+        }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await Promise.all([
+      catalog().refreshProviderModels({ scope: 'all' }),
+      catalog().refreshProviderModels({ scope: 'all' }),
+    ]);
+
+    // Without the refresh chain both remote fetches would overlap (peak 2); the
+    // chain holds the second run until the first finishes, so the peak stays 1.
+    expect(maxInFlight).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

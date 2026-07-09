@@ -588,6 +588,39 @@ describe('OAuthService', () => {
       },
     ]);
   });
+
+  it('serializes concurrent refreshOAuthProviderModels runs so they never overlap', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      inFlight--;
+      return {
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              id: 'kimi-k2',
+              context_length: 131072,
+              supports_reasoning: true,
+              display_name: 'Kimi K2',
+            },
+          ],
+        }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const svc = createService();
+
+    await Promise.all([svc.refreshOAuthProviderModels(), svc.refreshOAuthProviderModels()]);
+
+    // Without the refresh chain both remote fetches would overlap (peak 2); the
+    // chain holds the second run until the first finishes, so the peak stays 1.
+    expect(maxInFlight).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('WebSearchProviderService', () => {

@@ -97,6 +97,14 @@ export class OAuthService extends Disposable implements IOAuthService {
   declare readonly _serviceBrand: undefined;
   private readonly flows = new Map<string, FlowState>();
 
+  /**
+   * Serializes managed-provider model refreshes so a refresh triggered by
+   * login completion and a manual `:refresh_oauth` (or two overlapping manual
+   * ones) never race on reading/patching the persisted config. Mirrors v1's
+   * `_refreshChain`.
+   */
+  private refreshChain: Promise<unknown> = Promise.resolve();
+
   constructor(
     @IOAuthToolkit private readonly toolkit: IOAuthToolkit,
     @IProviderService private readonly providerService: IProviderService,
@@ -249,7 +257,16 @@ export class OAuthService extends Disposable implements IOAuthService {
     return this.toolkit.getCachedAccessToken(provider, this.resolveRuntimeOAuthRef(provider, oauthRef));
   }
 
-  async refreshOAuthProviderModels(): Promise<RefreshOAuthProviderModelsResponse> {
+  refreshOAuthProviderModels(): Promise<RefreshOAuthProviderModelsResponse> {
+    const run = this.refreshChain.then(() => this.doRefreshOAuthProviderModels());
+    this.refreshChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async doRefreshOAuthProviderModels(): Promise<RefreshOAuthProviderModelsResponse> {
     const changed: RefreshOAuthProviderModelsResponse['changed'] = [];
     const unchanged: string[] = [];
     const failed: RefreshOAuthProviderModelsResponse['failed'] = [];
