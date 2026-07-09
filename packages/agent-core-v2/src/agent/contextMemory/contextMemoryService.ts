@@ -45,6 +45,7 @@ import {
   contextApplyCompaction,
   contextClear,
   contextUndo,
+  isFullyUndoable,
   type UndoCut,
 } from './contextOps';
 import type { LoopRecordedEvent } from './loopEventFold';
@@ -79,11 +80,7 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
     if (messages.length === 0) return;
     const start = this.get().length;
     this.wire.dispatch(...messages.map((message) => contextAppendMessage({ message })));
-    this.eventBus.publish({ type: 'context.spliced',
-      start,
-      deleteCount: 0,
-      messages: [...messages],
-    });
+    this.publishSplice({ start, deleteCount: 0, messages: [...messages] });
   }
 
   appendLoopEvent(event: LoopRecordedEvent): void {
@@ -93,15 +90,15 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
     const deleteCount = this.get().length;
     if (deleteCount === 0) return;
     this.wire.dispatch(contextClear({}), contextSizeMeasured({ length: 0, tokens: 0 }));
-    this.eventBus.publish({ type: 'context.spliced', start: 0, deleteCount, messages: [] });
+    this.publishSplice({ start: 0, deleteCount, messages: [] });
   }
 
   undo(count: number): UndoCut {
     const history = this.get();
     const cut = computeUndoCut(history, count);
-    if (cut.cutIndex >= 0 && cut.removedCount >= count) {
+    if (isFullyUndoable(cut, count)) {
       this.wire.dispatch(contextUndo({ count }), ...this.sizeOpsForCut(cut.cutIndex, history));
-      this.eventBus.publish({ type: 'context.spliced',
+      this.publishSplice({
         start: cut.cutIndex,
         deleteCount: history.length - cut.cutIndex,
         messages: [],
@@ -126,7 +123,7 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
       }),
       contextSizeMeasured({ length: result.messages.length, tokens: result.tokensAfter }),
     );
-    this.eventBus.publish({ type: 'context.spliced',
+    this.publishSplice({
       start: 0,
       deleteCount: history.length,
       messages: [...result.messages],
@@ -135,6 +132,15 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
     const { messages: _messages, ...publicResult } = result;
     void _messages;
     return publicResult;
+  }
+
+  private publishSplice(input: {
+    start: number;
+    deleteCount: number;
+    messages: readonly ContextMessage[];
+    tokens?: number;
+  }): void {
+    this.eventBus.publish({ type: 'context.spliced', ...input });
   }
 
   /**

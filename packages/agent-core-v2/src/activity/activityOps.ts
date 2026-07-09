@@ -18,7 +18,7 @@ import { defineModel } from '#/wire/model';
 import { defineOp } from '#/wire/op';
 import type { PromptOrigin } from '#/agent/contextMemory/types';
 
-import type { AgentLane, BackgroundActivityRef } from './activity';
+import type { AgentLane, BackgroundActivityRef, SessionLane } from './activity';
 
 export interface LaneTurnState {
   readonly turnId: number;
@@ -73,3 +73,19 @@ export function laneEqual(a: LaneModelState, b: LaneModelState): boolean {
   }
   return true;
 }
+
+export interface SessionLaneModelState {
+  readonly lane: SessionLane;
+  readonly activeLeases: number;
+}
+
+export const SessionLaneModel = defineModel<SessionLaneModelState>('sessionActivityLane', () => ({
+  lane: 'restoring',
+  activeLeases: 0,
+}));
+
+export const setSessionLane = defineOp(SessionLaneModel, 'activity.set_session_lane', {
+  persist: false,
+  apply: (s, p: { next: SessionLaneModelState }): SessionLaneModelState =>
+    s.lane === p.next.lane && s.activeLeases === p.next.activeLeases ? s : p.next,
+});

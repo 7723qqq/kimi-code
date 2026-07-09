@@ -11,7 +11,6 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
-import { ISessionActivityKernel } from '#/activity/activity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IEventService } from '#/app/event/event';
@@ -22,6 +21,8 @@ import {
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/mainAgent';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
 import { SessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycleService';
+import { ISessionActivityKernel } from '#/activity/activity';
+import { SessionActivityKernel } from '#/activity/sessionActivityKernel';
 import { ISessionExternalHooksService } from '#/session/externalHooks/externalHooks';
 import { createHooks } from '#/hooks';
 import { ISessionActivity } from '#/session/sessionActivity/sessionActivity';
@@ -313,6 +314,13 @@ describe('SessionLifecycleService', () => {
       NoopSessionExternalHooksService,
       InstantiationType.Eager,
       'externalHooks',
+    );
+    registerScopedService(
+      LifecycleScope.Session,
+      ISessionActivityKernel,
+      SessionActivityKernel,
+      InstantiationType.Delayed,
+      'activity',
     );
   });
 

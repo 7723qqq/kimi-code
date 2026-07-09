@@ -1,4 +1,4 @@
-import { Disposable } from "#/_base/di/lifecycle";
+import { Disposable, type IDisposable } from "#/_base/di/lifecycle";
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
@@ -20,6 +20,7 @@ import { isAbortError, isContextOverflowError } from '#/agent/loop/errors';
 import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentTurnService } from '#/agent/turn/turn';
+import { IAgentActivityService } from '#/activity/activity';
 import { ISessionTodoService } from '#/session/todo/sessionTodo';
 import { renderTodoList, type TodoItem } from '#/session/todo/todoItem';
 import {
@@ -87,6 +88,8 @@ type CompactionTelemetryProperties = Record<string, string | number | boolean | 
 
 interface ActiveCompaction extends FullCompactionTask {
   blockedByTurn: boolean;
+  /** Background-activity registration with the activity kernel (I2 visibility). */
+  bgRegistration?: IDisposable;
 }
 
 interface CompactionAttemptResult {
@@ -133,6 +136,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     @IAgentWireService private readonly wire: IWireService,
     @IEventBus private readonly eventBus: IEventBus,
     @IAgentTurnService private readonly turn: IAgentTurnService,
+    @IAgentActivityService private readonly activity: IAgentActivityService,
     @ILogService private readonly log: ILogService,
     @IAgentLoopService loopService: IAgentLoopService,
   ) {
@@ -251,7 +255,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     if (history.length === 0) {
       throw new KimiError(ErrorCodes.COMPACTION_UNABLE, 'No messages to compact in current history.');
     }
-    if (data.source === 'manual' && this.turn.getActiveTurn() !== undefined) {
+    if (data.source === 'manual' && this.activity.lane() !== 'idle') {
       throw new KimiError(
         ErrorCodes.COMPACTION_UNABLE,
         'Cannot compact while a turn is active. Wait for it to finish, then retry.',
@@ -274,6 +278,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       trigger: data.source,
       tokenCount,
       blockedByTurn: false,
+      bgRegistration: this.activity.registerBackground('compaction', abortController),
     };
     this._compacting = active;
     abortController.signal.addEventListener('abort', () => {
@@ -292,6 +297,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     if (this._compacting !== active) return false;
     this.wire.dispatch(fullCompactionCancel({}));
     this._compacting = null;
+    active.bgRegistration?.dispose();
     if (!active.abortController.signal.aborted) {
       active.abortController.abort();
     }
@@ -303,6 +309,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     if (this._compacting !== active) return false;
     this.wire.dispatch(fullCompactionComplete({}));
     this._compacting = null;
+    active.bgRegistration?.dispose();
     return true;
   }
 

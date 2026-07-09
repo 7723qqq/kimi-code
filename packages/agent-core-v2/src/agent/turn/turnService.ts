@@ -63,6 +63,10 @@ export class AgentTurnService implements IAgentTurnService {
 
   launch(prompt?: TurnPromptInfo): Turn {
     const lease = this.activity.begin('turn', { origin: prompt?.origin ?? USER_PROMPT_ORIGIN });
+    return this.launchWithLease(lease, prompt);
+  }
+
+  launchWithLease(lease: ActivityLease, prompt?: TurnPromptInfo): Turn {
     this.wire.dispatch(
       promptTurn({
         input: prompt?.input ?? [],

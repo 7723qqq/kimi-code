@@ -85,3 +85,69 @@ export function phaseEqual(a: AgentPhase, b: AgentPhase): boolean {
     }
   }
 }
+
+import type { AgentActivitySnapshot } from '#/activity/activity';
+
+/**
+ * `runtime` domain (L5) — wire Model (`ActivityModel`) and the
+ * `activity.set_snapshot` Op that holds the agent's structured activity
+ * snapshot (`AgentActivitySnapshot`).
+ *
+ * Live-only (`persist: false`): nothing is persisted or replayed; a resumed
+ * agent starts back at `lane: idle`. The projector (`runtimeService`) is the
+ * sole dispatcher; `apply` returns the SAME reference when the snapshot is
+ * unchanged under `snapshotEqual` (ignoring timestamps) so high-frequency
+ * deltas collapse into one record. The Op's `toEvent` emits the native
+ * `agent.activity.updated` fact (published on `dispatch`, never on `replay`).
+ */
+export const ActivityModel = defineModel<AgentActivitySnapshot>('activity', () => ({
+  lane: 'idle',
+  background: [],
+}));
+
+export const setActivitySnapshot = defineOp(ActivityModel, 'activity.set_snapshot', {
+  persist: false,
+  apply: (s, p: { next: AgentActivitySnapshot }): AgentActivitySnapshot =>
+    snapshotEqual(s, p.next) ? s : p.next,
+  toEvent: (p) => ({ type: 'agent.activity.updated' as const, ...p.next }),
+});
+
+/**
+ * Structural equality for snapshots, ignoring the `since` / `at` timestamps so
+ * re-entering the same logical state does not flood subscribers.
+ */
+export function snapshotEqual(a: AgentActivitySnapshot, b: AgentActivitySnapshot): boolean {
+  if (a.lane !== b.lane) return false;
+  if (a.background.length !== b.background.length) return false;
+  if ((a.turn === undefined) !== (b.turn === undefined)) return false;
+  if (a.turn !== undefined && b.turn !== undefined) {
+    const ta = a.turn;
+    const tb = b.turn;
+    if (
+      ta.turnId !== tb.turnId ||
+      ta.phase !== tb.phase ||
+      ta.stream !== tb.stream ||
+      ta.step !== tb.step ||
+      ta.ending !== tb.ending ||
+      ta.endingReason !== tb.endingReason ||
+      ta.pendingApprovals.length !== tb.pendingApprovals.length ||
+      ta.activeToolCalls.length !== tb.activeToolCalls.length
+    ) {
+      return false;
+    }
+    if (ta.retry?.nextAttempt !== tb.retry?.nextAttempt) return false;
+  }
+  if ((a.lastTurn === undefined) !== (b.lastTurn === undefined)) return false;
+  if (a.lastTurn !== undefined && b.lastTurn !== undefined) {
+    if (a.lastTurn.turnId !== b.lastTurn.turnId || a.lastTurn.reason !== b.lastTurn.reason) {
+      return false;
+    }
+  }
+  return true;
+}
+
+declare module '#/app/event/eventBus' {
+  interface DomainEventMap {
+    'agent.activity.updated': AgentActivitySnapshot & { readonly type: 'agent.activity.updated' };
+  }
+}

@@ -181,18 +181,7 @@ export function reduceContextTranscript(records: Iterable<PersistedRecord>): Con
   for (const record of records) {
     switch (record.type) {
       case 'context.append_message': {
-        const message = record['message'] as ContextMessage;
-        const entry: MutableEntry = {
-          message: {
-            ...(message.id !== undefined ? { id: message.id } : {}),
-            role: message.role,
-            content: [...message.content],
-            toolCalls: [...message.toolCalls],
-            ...(message.toolCallId !== undefined ? { toolCallId: message.toolCallId } : {}),
-            ...(message.isError !== undefined ? { isError: message.isError } : {}),
-            ...(message.origin !== undefined ? { origin: message.origin } : {}),
-          },
-        };
+        const entry = toMutableEntry(record['message'] as ContextMessage);
         if (pendingToolResultIds.size > 0) deferred.push(entry);
         else push(entry);
         break;
@@ -211,26 +200,7 @@ export function reduceContextTranscript(records: Iterable<PersistedRecord>): Con
             origin: { kind: 'compaction_summary' },
           },
         });
-        const keptUserMessageCount = readNumber(record, 'keptUserMessageCount');
-        const keptHeadUserMessageCount = readNumber(record, 'keptHeadUserMessageCount');
-        const compactedCount = readNumber(record, 'compactedCount');
-        if (keptUserMessageCount !== undefined) {
-          // +1 for the summary message; +1 more when the selection split into
-          // head + tail (the live context then also holds an elision marker).
-          foldedLength = keptUserMessageCount + (keptHeadUserMessageCount === undefined ? 1 : 2);
-        } else if (compactedCount !== undefined && compactedCount < foldedLength) {
-          // Legacy record that kept `history.slice(compactedCount)` verbatim.
-          foldedLength = 1 + (foldedLength - compactedCount);
-        } else {
-          // Legacy record covering the whole live history: re-derive from the
-          // post-clear transcript only (the live context rebuilds from the
-          // post-`/clear` messages).
-          const keptUserMessages = selectRecentUserMessages(
-            collectCompactableUserMessages(transcript.slice(clearFloor).map((e) => e.message)),
-            COMPACT_USER_MESSAGE_MAX_TOKENS,
-          );
-          foldedLength = keptUserMessages.length + 1;
-        }
+        foldedLength = recoverFoldedLength(record, transcript, clearFloor, foldedLength);
         resetOpenState();
         break;
       }
@@ -262,6 +232,35 @@ function toMutableEntry(message: ContextMessage): MutableEntry {
       ...(message.origin !== undefined ? { origin: message.origin } : {}),
     },
   };
+}
+
+/** Recover the live `context.history.length` after a `context.apply_compaction` record. */
+function recoverFoldedLength(
+  record: PersistedRecord,
+  transcript: readonly MutableEntry[],
+  clearFloor: number,
+  foldedLength: number,
+): number {
+  const keptUserMessageCount = readNumber(record, 'keptUserMessageCount');
+  const keptHeadUserMessageCount = readNumber(record, 'keptHeadUserMessageCount');
+  const compactedCount = readNumber(record, 'compactedCount');
+  if (keptUserMessageCount !== undefined) {
+    // +1 for the summary message; +1 more when the selection split into
+    // head + tail (the live context then also holds an elision marker).
+    return keptUserMessageCount + (keptHeadUserMessageCount === undefined ? 1 : 2);
+  }
+  if (compactedCount !== undefined && compactedCount < foldedLength) {
+    // Legacy record that kept `history.slice(compactedCount)` verbatim.
+    return 1 + (foldedLength - compactedCount);
+  }
+  // Legacy record covering the whole live history: re-derive from the
+  // post-clear transcript only (the live context rebuilds from the
+  // post-`/clear` messages).
+  const keptUserMessages = selectRecentUserMessages(
+    collectCompactableUserMessages(transcript.slice(clearFloor).map((e) => e.message)),
+    COMPACT_USER_MESSAGE_MAX_TOKENS,
+  );
+  return keptUserMessages.length + 1;
 }
 
 function readCompactionSummaryText(record: PersistedRecord): string {

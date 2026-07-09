@@ -141,8 +141,8 @@ describe('clipboard image paste compression', () => {
     if (att?.kind !== 'image') throw new Error('expected image attachment');
 
     // Stored metadata reflects the compressed size.
-    expect(Math.max(att.width, att.height)).toBeLessThanOrEqual(3000);
-    expect(att.placeholder).toContain('3000×1500');
+    expect(Math.max(att.width, att.height)).toBeLessThanOrEqual(2000);
+    expect(att.placeholder).toContain('2000×1000');
 
     // The stored bytes decode to the compressed dimensions — the thumbnail and
     // the submitted image both read from these bytes, so they cannot diverge.

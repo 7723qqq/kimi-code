@@ -4,12 +4,19 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
+import { IEventBus } from '#/app/event/eventBus';
 import { type ApprovalRequest, ISessionApprovalService } from '#/session/approval/approval';
 import { SessionApprovalService } from '#/session/approval/approvalService';
 import { ISessionInteractionService } from '#/session/interaction/interaction';
 import { SessionInteractionService } from '#/session/interaction/interactionService';
 
 const display: ToolInputDisplay = { kind: 'command', command: 'bash' };
+
+const noopEventBus: IEventBus = {
+  _serviceBrand: undefined,
+  publish: () => undefined,
+  subscribe: () => ({ dispose: () => undefined }),
+};
 
 function makeRequest(id: string): ApprovalRequest {
   return { id, toolName: 'bash', action: 'run', display };
@@ -22,6 +29,7 @@ describe('SessionApprovalService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
+    ix.stub(IEventBus, noopEventBus);
     ix.set(ISessionInteractionService, new SyncDescriptor(SessionInteractionService));
     ix.set(ISessionApprovalService, new SyncDescriptor(SessionApprovalService));
   });

@@ -27,7 +27,7 @@ import {
 } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventBus } from '#/app/event/eventBus';
-import { ErrorCodes, makeErrorPayload } from '#/errors';
+import { ErrorCodes, KimiError, makeErrorPayload } from '#/errors';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ILogService } from '#/_base/log/log';
 import { IAgentProfileCatalogService } from '#/app/agentProfileCatalog/agentProfileCatalog';
@@ -45,7 +45,7 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentActivityService } from '#/activity/activity';
+import { IAgentActivityService, ISessionActivityKernel } from '#/activity/activity';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -116,12 +116,20 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     @IAgentProfileCatalogService private readonly catalog: IAgentProfileCatalogService,
     @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @ISessionActivityKernel private readonly activityKernel: ISessionActivityKernel,
     @IAppendLogStore private readonly appendLog?: IAppendLogStore,
   ) {
     super();
   }
 
   async create(opts: CreateAgentOptions = {}): Promise<IAgentScopeHandle> {
+    if (!this.activityKernel.canAccept('agent.create')) {
+      throw new KimiError(
+        ErrorCodes.ACTIVITY_SESSION_REJECTED,
+        `Session is ${this.activityKernel.lane()}; agent creation rejected`,
+        { details: { lane: this.activityKernel.lane() } },
+      );
+    }
     const agentId = opts.agentId ?? `agent-${nextAgentId++}`;
     const mcpManager = this.getMcpManager();
     const mcpReady = this.ensureMcpReady();
@@ -217,6 +225,10 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     if (opts.permissionMode !== undefined) {
       handle.accessor.get(IAgentPermissionModeService).setMode(opts.permissionMode);
     }
+    // Bootstrap (eager tool / hook / MCP setup, wire metadata, profile binding)
+    // is complete: drive the activity kernel `initializing → idle` so the agent
+    // can admit turns. Until this point `begin` rejects with `activity.initializing`.
+    handle.accessor.get(IAgentActivityService).markReady();
     return handle;
   }
 
