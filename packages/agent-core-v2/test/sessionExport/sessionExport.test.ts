@@ -328,6 +328,9 @@ function registerSessionExportServices(
     fork: async () => {
       throw new Error('fork should not be called by session export');
     },
+    createChild: async () => {
+      throw new Error('createChild should not be called by session export');
+    },
   });
   reg.defineInstance(IWorkspaceRegistry, {
     _serviceBrand: undefined,

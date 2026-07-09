@@ -167,6 +167,10 @@ export * from '#/app/multiServer/flag';
 
 import '#/agent/turn/turn';
 import '#/agent/turn/turnService';
+export * from '#/activity/activity';
+export * from '#/activity/activityOps';
+import '#/activity/agentActivityService';
+import '#/activity/sessionActivityKernel';
 import '#/agent/plan/profile/plan';
 import '#/agent/plan/tools/enter-plan-mode';
 import '#/agent/plan/tools/exit-plan-mode';

@@ -139,7 +139,8 @@ export const contextAppendLoopEvent = defineOp(ContextModel, 'context.append_loo
 });
 
 export const contextClear = defineOp(ContextModel, 'context.clear', {
-  apply: (state): ContextMessage[] => (state.length === 0 ? state : resetFold([]) as ContextMessage[]),
+  apply: (state): ContextMessage[] =>
+    state.length === 0 ? state : (resetFold([]) as ContextMessage[]),
 });
 
 interface ContextCompactionBasePayload {
@@ -318,12 +319,63 @@ export function computeUndoCut(state: readonly ContextMessage[], count: number):
   return { cutIndex, removedCount, stoppedAtCompaction };
 }
 
+/** Whether a {@link computeUndoCut} result satisfied the full requested `count`. */
+export function isFullyUndoable(cut: UndoCut, count: number): boolean {
+  return cut.cutIndex >= 0 && cut.removedCount >= count;
+}
+
+/** Structured reason an undo cannot proceed, derived from a {@link UndoCut}. */
+export type UndoUnavailableReason = 'empty' | 'compaction_boundary' | 'insufficient';
+
+/**
+ * Result of checking whether `count` real-user prompts can be undone. Returns
+ * `{ ok: true }` when the cut is fully undoable, otherwise a structured reason
+ * (`empty` when no real-user prompt exists, `compaction_boundary` when the scan
+ * hits a compaction summary first, `insufficient` when some exist but fewer
+ * than `count`) plus the number that *could* be undone. Shared by the live
+ * `IAgentPromptService.undo` (which throws on `!ok`) and tests.
+ */
+export type UndoPrecheck =
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly reason: UndoUnavailableReason;
+      readonly requested: number;
+      readonly undoable: number;
+    };
+
+/** Classify a history against an undo `count` (wraps {@link computeUndoCut}). */
+export function precheckUndo(history: readonly ContextMessage[], count: number): UndoPrecheck {
+  const cut = computeUndoCut(history, count);
+  if (isFullyUndoable(cut, count)) return { ok: true };
+  const reason: UndoUnavailableReason = cut.stoppedAtCompaction
+    ? 'compaction_boundary'
+    : cut.removedCount === 0
+      ? 'empty'
+      : 'insufficient';
+  return { ok: false, reason, requested: count, undoable: cut.removedCount };
+}
+
+/** Wire-facing message for a failed {@link precheckUndo} (`session.undo_unavailable`). */
+export function formatUndoUnavailableMessage(
+  precheck: Extract<UndoPrecheck, { ok: false }>,
+): string {
+  switch (precheck.reason) {
+    case 'empty':
+      return 'Nothing to undo: no user message to undo';
+    case 'compaction_boundary':
+      return 'Nothing to undo: would cross a compaction boundary';
+    case 'insufficient':
+      return `Nothing to undo: only ${precheck.undoable} of ${precheck.requested} requested turn(s) available`;
+  }
+}
+
 export const contextUndo = defineOp(ContextModel, 'context.undo', {
   apply: (state, p: ContextUndoPayload): ContextMessage[] => {
     if (p.count <= 0 || state.length === 0) return state;
-    const { cutIndex, removedCount } = computeUndoCut(state, p.count);
-    if (cutIndex < 0 || removedCount < p.count) return state;
-    return resetFold(state.slice(0, cutIndex)) as ContextMessage[];
+    const cut = computeUndoCut(state, p.count);
+    if (!isFullyUndoable(cut, p.count)) return state;
+    return resetFold(state.slice(0, cut.cutIndex)) as ContextMessage[];
   },
 });
 

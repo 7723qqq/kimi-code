@@ -35,7 +35,7 @@ function spySteer(prompt: IAgentPromptService) {
     removeFromQueue: () => {},
     launched: Promise.resolve({
       id: 1,
-      abortController: new AbortController(),
+      signal: new AbortController().signal,
       ready: Promise.resolve(),
       result: Promise.resolve({ reason: 'completed' as const }),
     }),

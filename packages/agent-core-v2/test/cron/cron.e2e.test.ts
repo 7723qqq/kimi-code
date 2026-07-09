@@ -86,7 +86,7 @@ describe('Cron — session E2E (P1.9)', () => {
         removeFromQueue: () => {},
         launched: Promise.resolve({
           id: 1,
-          abortController: new AbortController(),
+          signal: new AbortController().signal,
           ready: Promise.resolve(),
           result: Promise.resolve({ reason: 'completed' as const }),
         }),

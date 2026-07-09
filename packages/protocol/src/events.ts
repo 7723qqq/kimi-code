@@ -229,6 +229,12 @@ export type KimiErrorCode =
   | 'session.question_handler_error'
   | 'session.init_failed'
   | 'agent.not_found'
+  | 'activity.agent_busy'
+  | 'activity.cancelling'
+  | 'activity.disposing'
+  | 'activity.disposed'
+  | 'activity.initializing'
+  | 'activity.session_rejected'
   | 'turn.agent_busy'
   | 'goal.already_exists'
   | 'goal.not_found'
@@ -1079,6 +1085,12 @@ export const kimiErrorCodeSchema = z.enum([
   'session.question_handler_error',
   'session.init_failed',
   'agent.not_found',
+  'activity.agent_busy',
+  'activity.cancelling',
+  'activity.disposing',
+  'activity.disposed',
+  'activity.initializing',
+  'activity.session_rejected',
   'turn.agent_busy',
   'goal.already_exists',
   'goal.not_found',

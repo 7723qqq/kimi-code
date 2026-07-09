@@ -28,7 +28,7 @@ function controlledTurn(id: number): ControlledTurn {
   });
   const turn: Turn = {
     id,
-    abortController: new AbortController(),
+    signal: new AbortController().signal,
     ready: Promise.resolve(),
     result,
   };
@@ -94,6 +94,8 @@ function createHarness(options: { readonly blockPrompt?: boolean } = {}): Harnes
       throw new Error('not used');
     },
     getActiveTurn: () => activeTurn,
+    recordSteer: () => {},
+    cancel: () => activeTurn !== undefined,
     hooks: {
       onLaunched: { run: async () => {} },
       onEnded: { run: async () => {} },
@@ -238,5 +240,59 @@ describe('AgentPromptLegacyService', () => {
     await expect(service.steer(['prompt_x'])).rejects.toMatchObject({
       code: 'prompt.not_found',
     });
+  });
+
+  it('submitAndSettle resolves completion with the turn result', async () => {
+    const { service, settleActive } = createHarness();
+    const { submit, completion } = await service.submitAndSettle(textBody('hi'));
+    expect(submit.status).toBe('running');
+    settleActive({ reason: 'completed' });
+    await expect(completion).resolves.toMatchObject({
+      promptId: submit.prompt_id,
+      result: { reason: 'completed' },
+    });
+  });
+
+  it('submitAndSettle resolves a queued prompt after it launches and settles', async () => {
+    const { service, settleActive } = createHarness();
+    await service.submitAndSettle(textBody('first'));
+    const second = await service.submitAndSettle(textBody('second'));
+    expect(second.submit.status).toBe('queued');
+
+    // Settle the active (first) turn so the queued second prompt launches.
+    settleActive({ reason: 'completed' });
+    await vi.waitFor(() =>
+      expect(service.list().active?.prompt_id).toBe(second.submit.prompt_id),
+    );
+
+    // Settle the now-active second turn; its completion should resolve.
+    settleActive({ reason: 'completed' });
+    await expect(second.completion).resolves.toMatchObject({
+      promptId: second.submit.prompt_id,
+      result: { reason: 'completed' },
+    });
+  });
+
+  it('submitAndSettle rejects completion when the prompt is blocked', async () => {
+    const { service } = createHarness({ blockPrompt: true });
+    const { submit, completion } = await service.submitAndSettle(textBody('blocked'));
+    expect(submit.status).toBe('blocked');
+    const outcome = completion.then(
+      () => 'resolved' as const,
+      () => 'rejected' as const,
+    );
+    expect(await outcome).toBe('rejected');
+  });
+
+  it('submitAndSettle rejects completion when a queued prompt is aborted', async () => {
+    const { service } = createHarness();
+    await service.submitAndSettle(textBody('first'));
+    const second = await service.submitAndSettle(textBody('second'));
+    const outcome = second.completion.then(
+      () => 'resolved' as const,
+      () => 'rejected' as const,
+    );
+    await service.abort(second.submit.prompt_id);
+    expect(await outcome).toBe('rejected');
   });
 });

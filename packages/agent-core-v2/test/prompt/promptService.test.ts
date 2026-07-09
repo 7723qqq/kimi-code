@@ -3,12 +3,12 @@ import { describe, expect, it, onTestFinished } from 'vitest';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { buildImageCompressionCaption } from '#/_base/tools/support/image-compress';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
-import { AgentPromptService } from '#/agent/prompt/promptService';
-import type { PromptSubmitContext } from '#/agent/prompt/prompt';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import type { PromptSubmitContext } from '#/agent/prompt/prompt';
+import { AgentPromptService } from '#/agent/prompt/promptService';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
 import type { ToolDidExecuteContext } from '#/agent/tool/toolHooks';
@@ -60,23 +60,27 @@ async function flushSteers(loop: IAgentLoopService, turn: Turn): Promise<void> {
   await loop.hooks.beforeStep.run({
     turnId: turn.id,
     step: 1,
-    signal: turn.abortController.signal,
+    signal: turn.signal,
   });
 }
 
 describe('AgentPromptService', () => {
   it('delegates inactive steer to prompt', async () => {
     const { prompt, turn } = createHarness();
-    const seen: Array<Pick<PromptSubmitContext, 'isSteer'> & {
-      readonly originKind: string | undefined;
-    }> = [];
+    const seen: Array<
+      Pick<PromptSubmitContext, 'isSteer'> & {
+        readonly originKind: string | undefined;
+      }
+    > = [];
 
     prompt.hooks.onWillSubmitPrompt.register('capture', async (ctx, next) => {
       seen.push({ isSteer: ctx.isSteer, originKind: ctx.promptMessage.origin?.kind });
       await next();
     });
 
-    await prompt.prompt(userMessage('from prompt', { kind: 'system_trigger', name: 'test_prompt' }));
+    await prompt.prompt(
+      userMessage('from prompt', { kind: 'system_trigger', name: 'test_prompt' }),
+    );
     const steer = prompt.steer(
       userMessage('from steer', { kind: 'system_trigger', name: 'test_steer' }),
     );
@@ -87,9 +91,11 @@ describe('AgentPromptService', () => {
       { isSteer: false, originKind: 'system_trigger' },
     ]);
     expect(turn.launches).toHaveLength(2);
-    expect(() => steer.removeFromQueue()).toThrow(expect.objectContaining({
-      code: 'request.invalid',
-    }));
+    expect(() => steer.removeFromQueue()).toThrow(
+      expect.objectContaining({
+        code: 'request.invalid',
+      }),
+    );
   });
 
   it('launches the turn before appending the user message', async () => {
@@ -118,9 +124,11 @@ describe('AgentPromptService', () => {
   it('runs submit hooks before queuing active steers', async () => {
     const { context, loop, prompt, turn } = createHarness({ hasActiveTurn: true });
     const activeTurn = turn.launch();
-    const seen: Array<Pick<PromptSubmitContext, 'isSteer'> & {
-      readonly originKind: string | undefined;
-    }> = [];
+    const seen: Array<
+      Pick<PromptSubmitContext, 'isSteer'> & {
+        readonly originKind: string | undefined;
+      }
+    > = [];
 
     prompt.hooks.onWillSubmitPrompt.register('capture', async (ctx, next) => {
       seen.push({ isSteer: ctx.isSteer, originKind: ctx.promptMessage.origin?.kind });
@@ -155,9 +163,11 @@ describe('AgentPromptService', () => {
       kind: 'system_trigger',
       name: 'test_emitted',
     });
-    expect(() => emitted.removeFromQueue()).toThrow(expect.objectContaining({
-      code: 'request.invalid',
-    }));
+    expect(() => emitted.removeFromQueue()).toThrow(
+      expect.objectContaining({
+        code: 'request.invalid',
+      }),
+    );
   });
 
   it('does not queue active steers blocked by hooks', async () => {
@@ -210,7 +220,7 @@ describe('AgentPromptService', () => {
     } as const;
     const didCtx: ToolDidExecuteContext = {
       turnId: activeTurn.id,
-      signal: activeTurn.abortController.signal,
+      signal: activeTurn.signal,
       toolCall: { type: 'function', id: 'call_skill', name: 'Skill', arguments: '{}' },
       toolCalls: [],
       args: {},
@@ -240,6 +250,51 @@ describe('AgentPromptService', () => {
     expect(context.messages[0]?.origin).toMatchObject({
       kind: 'skill_activation',
       skillName: 'commit',
+    });
+  });
+
+  describe('undo', () => {
+    function assistantMessage(text: string): ContextMessage {
+      return { role: 'assistant', content: [{ type: 'text', text }], toolCalls: [] };
+    }
+
+    it('removes the trailing turn and returns the number of prompts removed', () => {
+      const { context, prompt } = createHarness();
+      context.append(userMessage('q', { kind: 'user' }));
+      context.append(assistantMessage('a'));
+
+      expect(prompt.undo(1)).toBe(1);
+      expect(context.messages).toEqual([]);
+    });
+
+    it('throws session.undo_unavailable (empty) when no real user prompt exists', () => {
+      const { prompt } = createHarness();
+
+      expect(() => prompt.undo(1)).toThrow(
+        expect.objectContaining({
+          code: 'session.undo_unavailable',
+          details: expect.objectContaining({ reason: 'empty' }),
+        }),
+      );
+    });
+
+    it('throws session.undo_unavailable (insufficient) and removes nothing when count exceeds the history', () => {
+      const { context, prompt } = createHarness();
+      context.append(userMessage('q', { kind: 'user' }));
+      context.append(assistantMessage('a'));
+
+      expect(() => prompt.undo(2)).toThrow(
+        expect.objectContaining({
+          code: 'session.undo_unavailable',
+          details: expect.objectContaining({
+            reason: 'insufficient',
+            requestedCount: 2,
+            undoableCount: 1,
+          }),
+        }),
+      );
+      // The precheck fails before any state is removed.
+      expect(context.messages).toHaveLength(2);
     });
   });
 

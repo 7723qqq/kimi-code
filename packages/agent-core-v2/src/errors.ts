@@ -9,6 +9,7 @@
 
 import { CoreErrors } from '#/_base/errors/codes';
 import { AgentLifecycleErrors } from '#/session/agentLifecycle/errors';
+import { ActivityErrors } from '#/activity/errors';
 import { AuthErrors } from '#/app/auth/errors';
 import { TaskErrors } from '#/agent/task/errors';
 import { ChatProviderErrors } from '#/app/protocol/errors';
@@ -39,6 +40,7 @@ export * from '#/_base/errors/errors';
 export * from '#/_base/errors/serialize';
 export * from '#/_base/errors/unexpectedError';
 export { AgentLifecycleErrors } from '#/session/agentLifecycle/errors';
+export { ActivityErrors } from '#/activity/errors';
 export { AuthErrors } from '#/app/auth/errors';
 export { TaskErrors } from '#/agent/task/errors';
 export { ChatProviderErrors } from '#/app/protocol/errors';
@@ -66,6 +68,7 @@ export { WireRecordErrors } from '#/agent/wireRecord/errors';
 export const ErrorCodes = {
   ...CoreErrors.codes,
   ...AgentLifecycleErrors.codes,
+  ...ActivityErrors.codes,
   ...AuthErrors.codes,
   ...TaskErrors.codes,
   ...ChatProviderErrors.codes,

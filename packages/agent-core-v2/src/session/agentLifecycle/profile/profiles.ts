@@ -74,6 +74,7 @@ const CODER_TOOLS = [
   'WebSearch',
   'FetchURL',
   'Write',
+  'mcp__*',
 ] as const;
 
 const EXPLORE_TOOLS = [

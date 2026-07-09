@@ -20,6 +20,13 @@ export interface IAgentPromptService {
   prompt(message: ContextMessage): Promise<Turn | undefined>;
   steer(message: ContextMessage): PromptSteerHandle;
   retry(): Turn | undefined;
+  /**
+   * Remove the trailing `count` real-user prompts and the exchange that follows
+   * them. Returns the number of prompts removed. Throws
+   * `session.undo_unavailable` (with a structured `reason` of `empty` /
+   * `compaction_boundary` / `insufficient`) when fewer than `count` prompts can
+   * be undone — no state is removed in that case.
+   */
   undo(count: number): number;
   clear(): void;
 

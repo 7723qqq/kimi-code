@@ -50,7 +50,7 @@ async function restoreGoalRecords(
 function makeTurn(id: number): Turn {
   return {
     id,
-    abortController: new AbortController(),
+    signal: new AbortController().signal,
     ready: Promise.resolve(),
     result: Promise.resolve({ reason: 'completed' }),
   };
@@ -60,12 +60,12 @@ async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<
   const step = {
     turnId: turn.id,
     step: 1,
-    signal: turn.abortController.signal,
+    signal: turn.signal,
   };
   const afterStep: AfterStepContext = {
     turnId: turn.id,
     step: 1,
-    signal: turn.abortController.signal,
+    signal: turn.signal,
     usage: zeroUsage,
     finishReason: 'completed' as const,
     continue: false,
@@ -84,7 +84,7 @@ async function runStepUsageHooks(
   const afterStep: AfterStepContext = {
     turnId: turn.id,
     step: 1,
-    signal: turn.abortController.signal,
+    signal: turn.signal,
     usage,
     finishReason: 'completed' as const,
     continue: false,
@@ -679,12 +679,12 @@ describe('AgentGoalService core workflow hooks', () => {
     const step = {
       turnId: turn.id,
       step: 1,
-      signal: turn.abortController.signal,
+      signal: turn.signal,
     };
     const afterStep: AfterStepContext = {
       turnId: turn.id,
       step: 1,
-      signal: turn.abortController.signal,
+      signal: turn.signal,
       usage: zeroUsage,
       finishReason: 'completed' as const,
       continue: false,

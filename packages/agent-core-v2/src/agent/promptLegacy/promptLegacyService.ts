@@ -39,7 +39,11 @@ import type {
   PromptSubmitResult,
 } from '@moonshot-ai/protocol';
 
-import { IAgentPromptLegacyService } from './promptLegacy';
+import {
+  IAgentPromptLegacyService,
+  type PromptCompletion,
+  type PromptSettleResult,
+} from './promptLegacy';
 
 interface PromptRecord {
   readonly promptId: string;
@@ -59,6 +63,12 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
   private readonly queued: PromptRecord[] = [];
   /** Prompts whose abort was requested; their turn settles asynchronously. */
   private readonly abortedPromptIds = new Set<string>();
+  /**
+   * Per-prompt completion deferreds created by {@link submitAndSettle}; resolved
+   * when the prompt's turn settles, rejected if the prompt is dropped before it
+   * launches. Only populated for in-process callers that asked for completion.
+   */
+  private readonly completions = new Map<string, Deferred<PromptCompletion>>();
 
   constructor(
     @IAgentPromptService private readonly prompt: IAgentPromptService,
@@ -79,15 +89,40 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
   }
 
   async submit(body: PromptSubmission): Promise<PromptSubmitResult> {
+    return this.submitInternal(body, undefined);
+  }
+
+  async submitAndSettle(body: PromptSubmission): Promise<PromptSettleResult> {
+    const deferred = makeDeferred<PromptCompletion>();
+    const submit = await this.submitInternal(body, deferred);
+    return { submit, completion: deferred.promise };
+  }
+
+  private async submitInternal(
+    body: PromptSubmission,
+    completion: Deferred<PromptCompletion> | undefined,
+  ): Promise<PromptSubmitResult> {
     await this.authSummary.ensureReady();
     await this.applyOverrides(body);
 
     const record = this.createRecord(body);
+    if (completion !== undefined) {
+      this.completions.set(record.promptId, completion);
+    }
     if (this.active !== undefined) {
       this.queued.push(record);
       return toItem(record, 'queued');
     }
     const status = await this.launch(record);
+    if (status === 'blocked') {
+      // `launch` drops the record (does not queue it) when it cannot start a
+      // turn, so it will never settle — reject the completion instead of
+      // leaving it pending forever.
+      this.rejectCompletion(
+        record.promptId,
+        new Error('Prompt submission was blocked and will not run'),
+      );
+    }
     return toItem(record, status);
   }
 
@@ -128,13 +163,16 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
       // Mark and cancel; the turn settles asynchronously and `onTurnSettled`
       // clears `active` and starts the next queued prompt.
       this.abortedPromptIds.add(promptId);
-      this.active.turn.abortController.abort(userCancellationReason());
+      this.turnService.cancel(this.active.turn.id, userCancellationReason());
       return { aborted: true };
     }
 
     const index = this.queued.findIndex((item) => item.promptId === promptId);
     if (index >= 0) {
       this.queued.splice(index, 1);
+      // The prompt never launched, so no turn will settle it — reject any
+      // completion waiter instead of leaving it pending.
+      this.rejectCompletion(promptId, userCancellationReason());
       return { aborted: true };
     }
 
@@ -198,8 +236,22 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
     if (this.active?.promptId !== promptId) return;
     this.active = undefined;
     this.abortedPromptIds.delete(promptId);
-    void result;
+    this.resolveCompletion(promptId, result);
     this.startNextQueued();
+  }
+
+  private resolveCompletion(promptId: string, result: TurnResult): void {
+    const deferred = this.completions.get(promptId);
+    if (deferred === undefined) return;
+    this.completions.delete(promptId);
+    deferred.resolve({ promptId, result });
+  }
+
+  private rejectCompletion(promptId: string, reason: unknown): void {
+    const deferred = this.completions.get(promptId);
+    if (deferred === undefined) return;
+    this.completions.delete(promptId);
+    deferred.reject(reason);
   }
 
   private startNextQueued(): void {
@@ -263,6 +315,22 @@ function contentToCoreParts(content: PromptSubmission['content']): ContentPart[]
     }
   }
   return parts;
+}
+
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  resolve(value: T): void;
+  reject(reason: unknown): void;
+}
+
+function makeDeferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 registerScopedService(

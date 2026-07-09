@@ -11,7 +11,6 @@ import {
   log,
   type Event,
   type GoalSnapshot,
-  type HookResultEvent,
   type SessionStatus,
   type TelemetryClient,
 } from '@moonshot-ai/kimi-code-sdk';
@@ -29,6 +28,7 @@ import {
   type HeadlessGoalCreate,
 } from './goal-prompt';
 import type { PromptHarness, PromptSession } from './prompt-session';
+import { PromptJsonWriter, PromptTranscriptWriter, writeResumeHint } from './prompt-render';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
 import { createKimiCodeHostIdentity } from './version';
 
@@ -50,7 +50,7 @@ import { createKimiCodeHostIdentity } from './version';
  * alive until it fires, then gives the rejection a chance to surface. A wedged
  * cleanup is still bounded by `timeoutMs`, so this can't hang the run forever.
  */
-async function raceWithTimeout(promise: Promise<void>, timeoutMs: number): Promise<void> {
+export async function raceWithTimeout(promise: Promise<void>, timeoutMs: number): Promise<void> {
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   // Attach the catch eagerly (synchronously) so `promise` is always consumed and
@@ -78,13 +78,13 @@ interface PromptOutput {
   write(chunk: string): boolean;
 }
 
-interface PromptRunIO {
+export interface PromptRunIO {
   readonly stdout?: PromptOutput;
   readonly stderr?: PromptOutput;
   readonly process?: PromptProcess;
 }
 
-interface PromptProcess {
+export interface PromptProcess {
   once(signal: NodeJS.Signals, listener: () => Promise<void>): unknown;
   off(signal: NodeJS.Signals, listener: () => Promise<void>): unknown;
   exit(code?: number): never | void;
@@ -92,26 +92,27 @@ interface PromptProcess {
 
 const PROMPT_UI_MODE = 'print';
 const PROMPT_MAIN_AGENT_ID = 'main';
-const PROMPT_BLOCK_BULLET = '• ';
-const PROMPT_BLOCK_INDENT = '  ';
 
 export async function runPrompt(
   opts: CLIOptions,
   version: string,
   io: PromptRunIO = {},
 ): Promise<void> {
+  if (isKimiV2Enabled()) {
+    // The experimental agent-core-v2 engine runs on its own native DI service
+    // runtime (see v2/run-v2-print.ts); it does not share the v1 PromptHarness
+    // path below. Loaded lazily so the v2 module graph stays off the default
+    // (v1) path.
+    const { runV2Print } = await import('./v2/run-v2-print');
+    await runV2Print(opts, version, io);
+    return;
+  }
+
   const startedAt = Date.now();
   const stdout = io.stdout ?? process.stdout;
   const stderr = io.stderr ?? process.stderr;
   const promptProcess = io.process ?? process;
   const outputFormat = opts.outputFormat ?? 'text';
-  // The experimental agent-core-v2 engine (selected by KIMI_CODE_EXPERIMENTAL_FLAG)
-  // announces the running version as the very first output so headless consumers
-  // can identify which build produced the stream, in both `text` and `stream-json`
-  // formats. The default v1 path keeps its established output unchanged.
-  if (isKimiV2Enabled()) {
-    writeExperimentalVersion(version, outputFormat, stdout, stderr);
-  }
   const workDir = process.cwd();
   const telemetryBootstrap = createCliTelemetryBootstrap();
   const telemetryClient: TelemetryClient = {
@@ -214,20 +215,11 @@ export async function runPrompt(
   }
 }
 
-/**
- * Select the engine that backs `kimi -p`.
- *
- * Default (flag off): the v1 engine via the SDK `createKimiHarness`. When
- * `KIMI_CODE_EXPERIMENTAL_FLAG` is set, the agent-core-v2 engine is loaded
- * through a lazy import so the v2 module graph stays off the default path.
- */
 async function createPromptHarness(
   options: Parameters<typeof createKimiHarness>[0],
 ): Promise<PromptHarness> {
-  if (isKimiV2Enabled()) {
-    const { createV2Harness } = await import('./v2/create-v2-harness');
-    return createV2Harness(options);
-  }
+  // The v2 engine is dispatched earlier in `runPrompt` (see the
+  // `isKimiV2Enabled()` branch) and never reaches here; this is the v1 path.
   return createKimiHarness(options);
 }
 
@@ -398,7 +390,7 @@ async function forcePromptPermission(
   return restorePermission;
 }
 
-function requireConfiguredModel(...models: readonly (string | undefined)[]): string {
+export function requireConfiguredModel(...models: readonly (string | undefined)[]): string {
   const model = configuredModel(...models);
   if (model === undefined) {
     throw new Error(
@@ -408,7 +400,7 @@ function requireConfiguredModel(...models: readonly (string | undefined)[]): str
   return model;
 }
 
-function configuredModel(...models: readonly (string | undefined)[]): string | undefined {
+export function configuredModel(...models: readonly (string | undefined)[]): string | undefined {
   return models.find((model) => model !== undefined && model.trim().length > 0);
 }
 
@@ -417,7 +409,7 @@ function installHeadlessHandlers(session: PromptSession): void {
   session.setQuestionHandler(() => null);
 }
 
-function installPromptTerminationCleanup(
+export function installPromptTerminationCleanup(
   promptProcess: PromptProcess,
   cleanup: () => Promise<void>,
 ): () => void {
@@ -444,7 +436,7 @@ function installPromptTerminationCleanup(
   };
 }
 
-function signalExitCode(signal: NodeJS.Signals): number {
+export function signalExitCode(signal: NodeJS.Signals): number {
   if (signal === 'SIGINT') return 130;
   if (signal === 'SIGHUP') return 129;
   return 143;
@@ -585,327 +577,6 @@ function runPromptTurn(
       finish(error instanceof Error ? error : new Error(String(error)));
     });
   });
-}
-
-interface PromptTurnWriter {
-  writeAssistantDelta(delta: string): void;
-  writeHookResult(event: HookResultEvent): void;
-  writeThinkingDelta(delta: string): void;
-  writeToolCall(toolCallId: string, name: string, args: unknown): void;
-  writeToolCallDelta(
-    toolCallId: string,
-    name: string | undefined,
-    argumentsPart: string | undefined,
-  ): void;
-  writeToolResult(toolCallId: string, output: unknown): void;
-  flushAssistant(): void;
-  discardAssistant(): void;
-  finish(): void;
-}
-
-class PromptTranscriptWriter implements PromptTurnWriter {
-  private readonly assistantWriter: PromptBlockWriter;
-  private readonly thinkingWriter: PromptBlockWriter;
-
-  constructor(stdout: PromptOutput, stderr: PromptOutput) {
-    this.assistantWriter = new PromptBlockWriter(stdout);
-    this.thinkingWriter = new PromptBlockWriter(stderr);
-  }
-
-  writeAssistantDelta(delta: string): void {
-    this.thinkingWriter.finish();
-    this.assistantWriter.write(delta);
-  }
-
-  writeHookResult(event: HookResultEvent): void {
-    this.thinkingWriter.finish();
-    this.assistantWriter.finish();
-    this.assistantWriter.write(formatHookResultPlain(event));
-    this.assistantWriter.finish();
-  }
-
-  writeThinkingDelta(delta: string): void {
-    this.thinkingWriter.write(delta);
-  }
-
-  writeToolCall(): void {}
-
-  writeToolCallDelta(): void {}
-
-  writeToolResult(): void {}
-
-  flushAssistant(): void {}
-
-  discardAssistant(): void {}
-
-  finish(): void {
-    this.thinkingWriter.finish();
-    this.assistantWriter.finish();
-  }
-}
-
-interface PromptJsonToolCall {
-  type: 'function';
-  id: string;
-  function: {
-    name: string;
-    arguments: string;
-  };
-}
-
-interface PromptJsonAssistantMessage {
-  role: 'assistant';
-  content?: string;
-  tool_calls?: PromptJsonToolCall[];
-}
-
-interface PromptJsonToolMessage {
-  role: 'tool';
-  tool_call_id: string;
-  content: string;
-}
-
-interface PromptJsonResumeMetaMessage {
-  role: 'meta';
-  type: 'session.resume_hint';
-  session_id: string;
-  command: string;
-  content: string;
-}
-
-interface PromptJsonVersionMetaMessage {
-  role: 'meta';
-  type: 'system.version';
-  version: string;
-}
-
-function writeExperimentalVersion(
-  version: string,
-  outputFormat: PromptOutputFormat,
-  stdout: PromptOutput,
-  stderr: PromptOutput,
-): void {
-  if (outputFormat === 'stream-json') {
-    const message: PromptJsonVersionMetaMessage = {
-      role: 'meta',
-      type: 'system.version',
-      version,
-    };
-    stdout.write(`${JSON.stringify(message)}\n`);
-    return;
-  }
-  stderr.write(`kimi version ${version}\n`);
-}
-
-function writeResumeHint(
-  sessionId: string,
-  outputFormat: PromptOutputFormat,
-  stdout: PromptOutput,
-  stderr: PromptOutput,
-): void {
-  const command = `kimi -r ${sessionId}`;
-  const content = `To resume this session: ${command}`;
-  if (outputFormat === 'stream-json') {
-    const message: PromptJsonResumeMetaMessage = {
-      role: 'meta',
-      type: 'session.resume_hint',
-      session_id: sessionId,
-      command,
-      content,
-    };
-    stdout.write(`${JSON.stringify(message)}\n`);
-    return;
-  }
-  stderr.write(`${content}\n`);
-}
-
-class PromptJsonWriter implements PromptTurnWriter {
-  private assistantText = '';
-  private readonly toolCalls: PromptJsonToolCall[] = [];
-
-  constructor(private readonly stdout: PromptOutput) {}
-
-  writeAssistantDelta(delta: string): void {
-    this.assistantText += delta;
-  }
-
-  writeHookResult(event: HookResultEvent): void {
-    this.flushAssistant();
-    this.writeJsonLine({
-      role: 'assistant',
-      content: formatHookResultPlain(event),
-    });
-  }
-
-  writeThinkingDelta(): void {}
-
-  writeToolCall(toolCallId: string, name: string, args: unknown): void {
-    const existing = this.toolCalls.find((toolCall) => toolCall.id === toolCallId);
-    if (existing !== undefined) {
-      existing.function.name = name;
-      existing.function.arguments = stringifyJsonValue(args);
-      return;
-    }
-    this.toolCalls.push({
-      type: 'function',
-      id: toolCallId,
-      function: {
-        name,
-        arguments: stringifyJsonValue(args),
-      },
-    });
-  }
-
-  writeToolCallDelta(
-    toolCallId: string,
-    name: string | undefined,
-    argumentsPart: string | undefined,
-  ): void {
-    const toolCall = this.findOrCreateToolCall(toolCallId, name ?? '');
-    if (name !== undefined) {
-      toolCall.function.name = name;
-    }
-    if (argumentsPart !== undefined) {
-      toolCall.function.arguments += argumentsPart;
-    }
-  }
-
-  writeToolResult(toolCallId: string, output: unknown): void {
-    this.flushAssistant();
-    this.writeJsonLine({
-      role: 'tool',
-      tool_call_id: toolCallId,
-      content: stringifyToolOutput(output),
-    });
-  }
-
-  flushAssistant(): void {
-    if (this.assistantText.length === 0 && this.toolCalls.length === 0) return;
-    const message: PromptJsonAssistantMessage = {
-      role: 'assistant',
-      content: this.assistantText.length > 0 ? this.assistantText : undefined,
-      tool_calls: this.toolCalls.length > 0 ? [...this.toolCalls] : undefined,
-    };
-    this.writeJsonLine(message);
-    this.discardAssistant();
-  }
-
-  discardAssistant(): void {
-    this.assistantText = '';
-    this.toolCalls.length = 0;
-  }
-
-  finish(): void {
-    this.flushAssistant();
-  }
-
-  private findOrCreateToolCall(toolCallId: string, name: string): PromptJsonToolCall {
-    const existing = this.toolCalls.find((toolCall) => toolCall.id === toolCallId);
-    if (existing !== undefined) return existing;
-    const toolCall: PromptJsonToolCall = {
-      type: 'function',
-      id: toolCallId,
-      function: {
-        name,
-        arguments: '',
-      },
-    };
-    this.toolCalls.push(toolCall);
-    return toolCall;
-  }
-
-  private writeJsonLine(message: PromptJsonAssistantMessage | PromptJsonToolMessage): void {
-    this.stdout.write(`${JSON.stringify(message)}\n`);
-  }
-}
-
-class PromptBlockWriter {
-  private started = false;
-  private atLineStart = false;
-  private lineWidth = 0;
-  private readonly wrapWidth: number | undefined;
-
-  constructor(private readonly output: PromptOutput) {
-    this.wrapWidth =
-      typeof output.columns === 'number' && output.columns > PROMPT_BLOCK_INDENT.length + 1
-        ? output.columns
-        : undefined;
-  }
-
-  write(chunk: string): void {
-    if (chunk.length === 0) return;
-    let rendered = this.start();
-    for (const char of chunk) {
-      if (this.atLineStart && char !== '\n') {
-        rendered += PROMPT_BLOCK_INDENT;
-        this.atLineStart = false;
-        this.lineWidth = PROMPT_BLOCK_INDENT.length;
-      }
-      const charWidth = visibleCharWidth(char);
-      if (
-        this.wrapWidth !== undefined &&
-        !this.atLineStart &&
-        char !== '\n' &&
-        this.lineWidth + charWidth > this.wrapWidth
-      ) {
-        rendered += `\n${PROMPT_BLOCK_INDENT}`;
-        this.lineWidth = PROMPT_BLOCK_INDENT.length;
-      }
-      rendered += char;
-      if (char === '\n') {
-        this.atLineStart = true;
-        this.lineWidth = 0;
-      } else {
-        this.lineWidth += charWidth;
-      }
-    }
-    this.output.write(rendered);
-  }
-
-  finish(): void {
-    if (!this.started) return;
-    this.output.write(this.atLineStart ? '\n' : '\n\n');
-    this.started = false;
-    this.atLineStart = false;
-    this.lineWidth = 0;
-  }
-
-  private start(): string {
-    if (this.started) return '';
-    this.started = true;
-    this.atLineStart = false;
-    this.lineWidth = PROMPT_BLOCK_BULLET.length;
-    return PROMPT_BLOCK_BULLET;
-  }
-}
-
-function visibleCharWidth(char: string): number {
-  return char === '\t' ? 4 : 1;
-}
-
-function formatHookResultPlain(event: HookResultEvent): string {
-  return `${formatHookResultTitle(event)}\n\n${formatHookResultBody(event)}`;
-}
-
-function formatHookResultTitle(event: HookResultEvent): string {
-  return `${event.hookEvent} hook${event.blocked === true ? ' blocked' : ''}`;
-}
-
-function formatHookResultBody(event: HookResultEvent): string {
-  const content = event.content.trim();
-  return content.length === 0 ? '(empty)' : content;
-}
-
-function stringifyJsonValue(value: unknown): string {
-  if (typeof value === 'string') return value;
-  const json = JSON.stringify(value);
-  return json ?? '';
-}
-
-function stringifyToolOutput(output: unknown): string {
-  if (typeof output === 'string') return output;
-  const json = JSON.stringify(output);
-  return json ?? String(output);
 }
 
 function hasTurnId(event: Event): event is Event & { readonly turnId: number } {

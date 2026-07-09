@@ -10,6 +10,8 @@ import { McpConnectionManager } from '#/agent/mcp/connection-manager';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { AgentLifecycleService } from '#/session/agentLifecycle/agentLifecycleService';
+import '#/activity/agentActivityService';
+import { ISessionActivityKernel } from '#/activity/activity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
@@ -27,6 +29,8 @@ import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentMediaToolsRegistrar } from '#/agent/media/mediaTools';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+
+import { stubSessionActivityKernel } from '../activity/stubs';
 
 const noopLog = {
   _serviceBrand: undefined,
@@ -126,6 +130,7 @@ describe('AgentLifecycleService', () => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     ix.stub(IAppendLogStore, recordingAppendLog().store);
+    ix.stub(ISessionActivityKernel, stubSessionActivityKernel());
     stubBlobPassThrough(ix);
     registerAgent = vi.fn(() => Promise.resolve());
     atomicDocs = new Map();

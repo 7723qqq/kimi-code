@@ -36,7 +36,14 @@ import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStor
 import { IQueryStore, type Page } from '#/persistence/interface/queryStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
-import { ISessionIndex, type SessionListQuery, type SessionSummary } from './sessionIndex';
+import {
+  CHILD_SESSION_KIND,
+  CHILD_SESSION_KIND_KEY,
+  ISessionIndex,
+  PARENT_SESSION_ID_KEY,
+  type SessionListQuery,
+  type SessionSummary,
+} from './sessionIndex';
 
 const META_SCOPE = 'session-meta';
 const META_KEY = 'state.json';
@@ -73,6 +80,21 @@ function recoverCwd(meta: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+/**
+ * Whether a summary is a direct child of `parentId` per the v1 child markers:
+ * `custom.parent_session_id === parentId` AND `custom.child_session_kind ===
+ * 'child'`. A missing/blank `parentId` (no `childOf` filter) matches every
+ * summary. A spoofed kind is ignored.
+ */
+function matchesChildOf(summary: SessionSummary, parentId: string | undefined): boolean {
+  if (parentId === undefined) return true;
+  const custom = summary.custom;
+  return (
+    custom?.[PARENT_SESSION_ID_KEY] === parentId &&
+    custom?.[CHILD_SESSION_KIND_KEY] === CHILD_SESSION_KIND
+  );
+}
+
 export class FileSessionIndex implements ISessionIndex {
   declare readonly _serviceBrand: undefined;
 
@@ -107,6 +129,7 @@ export class FileSessionIndex implements ISessionIndex {
         const summary = await this.getCachedSummary(workspaceId, sessionId);
         if (summary === undefined) continue;
         if (summary.archived && query.includeArchived !== true) continue;
+        if (!matchesChildOf(summary, query.childOf)) continue;
         items.push(summary);
       }
     }
@@ -193,6 +216,7 @@ export class FileSessionIndex implements ISessionIndex {
         const summary = await this.readSummary(workspaceId, sessionId);
         if (summary === undefined) continue;
         if (summary.archived && query.includeArchived !== true) continue;
+        if (!matchesChildOf(summary, query.childOf)) continue;
         items.push(summary);
       }
     }
@@ -252,8 +276,7 @@ export class FileSessionIndex implements ISessionIndex {
     // `version: 2`) and v1 (no version) both write here. Fall back to the
     // legacy v2 `session-meta/` subdir for sessions written before the layouts
     // were unified.
-    const meta =
-      (await this.readMeta(base)) ?? (await this.readMeta(`${base}/${META_SCOPE}`));
+    const meta = (await this.readMeta(base)) ?? (await this.readMeta(`${base}/${META_SCOPE}`));
     if (meta === undefined) return undefined;
     const rawCustom = meta['custom'];
     const custom =

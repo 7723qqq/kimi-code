@@ -64,19 +64,42 @@ const mocks = vi.hoisted(() => {
     harnessClose: vi.fn(),
     harnessTrack: vi.fn(),
     harnessGetCachedAccessToken: vi.fn(),
-    createV2Harness: vi.fn(async () => ({
-      homeDir: '/tmp/kimi-code-test-home',
-      auth: { getCachedAccessToken: mocks.harnessGetCachedAccessToken },
-      ensureConfigFile: mocks.harnessEnsureConfigFile,
-      getConfig: mocks.harnessGetConfig,
-      getConfigDiagnostics: mocks.harnessGetConfigDiagnostics,
-      getExperimentalFeatures: mocks.harnessGetExperimentalFeatures,
-      createSession: mocks.harnessCreateSession,
-      resumeSession: mocks.harnessResumeSession,
-      listSessions: mocks.harnessListSessions,
-      close: mocks.harnessClose,
-      track: mocks.harnessTrack,
-    })),
+    runV2Print: vi.fn(
+      async (
+        opts: { readonly outputFormat?: string },
+        version: string,
+        io?: {
+          readonly stdout?: { write(chunk: string): boolean };
+          readonly stderr?: { write(chunk: string): boolean };
+        },
+      ) => {
+        // Mirror the native runner's output protocol so the version-banner
+        // assertions stay meaningful: version first, then the assistant
+        // message, then the resume hint — in the active output format.
+        const stdout = io?.stdout ?? process.stdout;
+        const stderr = io?.stderr ?? process.stderr;
+        const outputFormat = opts?.outputFormat ?? 'text';
+        if (outputFormat === 'stream-json') {
+          stdout.write(
+            `${JSON.stringify({ role: 'meta', type: 'system.version', version })}\n`,
+          );
+          stdout.write(`${JSON.stringify({ role: 'assistant', content: 'hello world' })}\n`);
+          stdout.write(
+            `${JSON.stringify({
+              role: 'meta',
+              type: 'session.resume_hint',
+              session_id: 'ses_prompt',
+              command: 'kimi -r ses_prompt',
+              content: 'To resume this session: kimi -r ses_prompt',
+            })}\n`,
+          );
+          return;
+        }
+        stderr.write(`kimi version ${version}\n`);
+        stdout.write('• hello world\n\n');
+        stderr.write('To resume this session: kimi -r ses_prompt\n');
+      },
+    ),
     initializeTelemetry: vi.fn(),
     setCrashPhase: vi.fn(),
     shutdownTelemetry: vi.fn(),
@@ -140,11 +163,11 @@ vi.mock('@moonshot-ai/kimi-telemetry', () => ({
 }));
 
 // The experimental v2 engine is loaded via a dynamic import from run-prompt.ts
-// when KIMI_CODE_EXPERIMENTAL_FLAG is set. Mock it so tests that flip that flag
-// can exercise the experimental path without pulling in the real agent-core-v2
-// graph. The returned harness mirrors the v1 mock shape above.
-vi.mock('../../src/cli/v2/create-v2-harness', () => ({
-  createV2Harness: mocks.createV2Harness,
+// when KIMI_CODE_EXPERIMENTAL_FLAG is set. Mock the native v2 runner so tests
+// that flip that flag can exercise the dispatch without pulling in the real
+// agent-core-v2 graph.
+vi.mock('../../src/cli/v2/run-v2-print', () => ({
+  runV2Print: mocks.runV2Print,
 }));
 
 function opts(overrides: Partial<Parameters<typeof runPrompt>[0]> = {}) {
@@ -1069,7 +1092,7 @@ describe('runPrompt', () => {
 
     // The experimental engine is selected and the version banner is the very
     // first write, ahead of any assistant output or the resume hint.
-    expect(mocks.createV2Harness).toHaveBeenCalled();
+    expect(mocks.runV2Print).toHaveBeenCalled();
     expect(mocks.kimiHarnessConstructor).not.toHaveBeenCalled();
     expect(stderr.write).toHaveBeenNthCalledWith(1, 'kimi version 1.2.3-test\n');
     expect(stderr.text().startsWith('kimi version 1.2.3-test\n')).toBe(true);
@@ -1086,7 +1109,7 @@ describe('runPrompt', () => {
       stderr,
     });
 
-    expect(mocks.createV2Harness).toHaveBeenCalled();
+    expect(mocks.runV2Print).toHaveBeenCalled();
     expect(mocks.kimiHarnessConstructor).not.toHaveBeenCalled();
     const lines = stdout.text().split('\n');
     expect(lines[0]).toBe(
@@ -1102,7 +1125,7 @@ describe('runPrompt', () => {
 
     await runPrompt(opts(), '1.2.3-test', { stdout, stderr });
 
-    expect(mocks.createV2Harness).not.toHaveBeenCalled();
+    expect(mocks.runV2Print).not.toHaveBeenCalled();
     expect(mocks.kimiHarnessConstructor).toHaveBeenCalled();
     expect(stderr.text()).not.toContain('kimi version');
   });

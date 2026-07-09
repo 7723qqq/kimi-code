@@ -13,6 +13,9 @@ import { IAgentTurnService } from '#/agent/turn/turn';
 import { AgentTurnService } from '#/agent/turn/turnService';
 import { TurnModel } from '#/agent/turn/turnOps';
 import { IAgentUsageService } from '#/agent/usage/usage';
+import { IAgentActivityService, ISessionActivityKernel } from '#/activity/activity';
+import { AgentActivityService } from '#/activity/agentActivityService';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
 import { emptyUsage } from '#/app/llmProtocol/usage';
@@ -31,6 +34,7 @@ import { WireService } from '#/wire/wireServiceImpl';
 import { stubContextMemory } from '../contextMemory/stubs';
 import { stubLog } from '../log/stubs';
 import { recordingTelemetry } from '../telemetry/stubs';
+import { stubSessionActivityKernel } from '../activity/stubs';
 import { stubLoopWithHooks, stubToolExecutor } from './stubs';
 
 const noopEventBus: IEventBus = {
@@ -62,6 +66,12 @@ describe('AgentTurnService ready', () => {
           disposables.add(new WireService({ logScope: 'wire', logKey: 'turn-ready' })),
         );
         reg.defineInstance(IEventBus, noopEventBus);
+        reg.defineInstance(ISessionActivityKernel, stubSessionActivityKernel());
+        reg.defineInstance(
+          IAgentScopeContext,
+          makeAgentScopeContext({ agentId: 'turn-ready', agentScope: 'turn-ready' }),
+        );
+        reg.define(IAgentActivityService, AgentActivityService);
         reg.define(IAgentTurnService, AgentTurnService);
       },
     });
@@ -155,7 +165,7 @@ describe('AgentTurnService ready', () => {
 
     expect(error).toBeInstanceOf(KimiError);
     expect(error).toMatchObject({
-      code: ErrorCodes.TURN_AGENT_BUSY,
+      code: ErrorCodes.ACTIVITY_AGENT_BUSY,
       details: { turnId: turn.id },
     });
     await expect(turn.result).resolves.toMatchObject({ reason: 'completed', steps: 1 });
@@ -371,6 +381,9 @@ describe('AgentTurnService wire state', () => {
       set: () => {},
     });
     ix.stub(IEventBus, noopEventBus);
+    ix.stub(ISessionActivityKernel, stubSessionActivityKernel());
+    ix.stub(IAgentScopeContext, makeAgentScopeContext({ agentId: 'turn-ready', agentScope: 'turn-ready' }));
+    ix.set(IAgentActivityService, new SyncDescriptor(AgentActivityService));
     ix.set(IAgentTurnService, new SyncDescriptor(AgentTurnService));
     log = ix.get(IAppendLogStore);
     turnService = ix.get(IAgentTurnService);
