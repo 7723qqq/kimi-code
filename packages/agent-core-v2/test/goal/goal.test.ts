@@ -866,6 +866,50 @@ describe('AgentGoalService core workflow hooks', () => {
     });
     expect(turnService.launches).toEqual([]);
   });
+
+  it('pauses the goal when the continuation launch fails', async () => {
+    await goals.createGoal({ objective: 'finish the task' });
+    vi.spyOn(turnService, 'launch').mockImplementation(() => {
+      throw new Error('agent busy');
+    });
+    const updates: GoalUpdatedEvent[] = [];
+    eventBus.subscribe((event) => {
+      if (event.type === 'goal.updated') updates.push(event);
+    });
+
+    const turn = makeTurn(21);
+    eventBus.publish({ type: 'turn.started', turnId: turn.id, origin: USER_PROMPT_ORIGIN });
+    await runGoalStep(loopService, turn);
+    endTurn(eventBus, turn);
+
+    await vi.waitFor(() => expect(goals.getGoal().goal?.status).toBe('paused'));
+    expect(goals.getGoal().goal?.terminalReason).toBe(
+      'Paused after goal continuation failure: agent busy',
+    );
+    expect(updates.at(-1)?.snapshot).toMatchObject({ status: 'paused' });
+  });
+
+  it('defers the continuation while another turn is active and relaunches at its end', async () => {
+    await goals.createGoal({ objective: 'finish the task' });
+
+    const goalTurn = makeTurn(31);
+    eventBus.publish({ type: 'turn.started', turnId: goalTurn.id, origin: USER_PROMPT_ORIGIN });
+    await runGoalStep(loopService, goalTurn);
+
+    const busyTurn = makeTurn(32);
+    const activeTurnSpy = vi.spyOn(turnService, 'getActiveTurn').mockImplementation(() => busyTurn);
+    eventBus.publish({ type: 'turn.started', turnId: busyTurn.id, origin: USER_PROMPT_ORIGIN });
+    endTurn(eventBus, goalTurn);
+
+    expect(goals.getGoal().goal?.status).toBe('active');
+    expect(turnService.launches).toEqual([]);
+
+    activeTurnSpy.mockImplementation(() => undefined);
+    endTurn(eventBus, busyTurn);
+
+    await vi.waitFor(() => expect(turnService.launches).toHaveLength(1));
+    expect(goals.getGoal().goal?.status).toBe('active');
+  });
 });
 
 describe('goal error catalog metadata', () => {

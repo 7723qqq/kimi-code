@@ -104,6 +104,7 @@ const GOAL_PROVIDER_AUTH_PAUSE_PREFIX = 'Paused after provider authentication er
 const GOAL_PROVIDER_API_PAUSE_PREFIX = 'Paused after provider API error';
 const GOAL_MODEL_CONFIG_PAUSE_PREFIX = 'Paused after model configuration error';
 const GOAL_RUNTIME_PAUSE_PREFIX = 'Paused after runtime error';
+const GOAL_CONTINUATION_FAILURE_PAUSE_PREFIX = 'Paused after goal continuation failure';
 const GOAL_PROVIDER_FILTERED_PAUSE_REASON = 'Paused after provider safety policy block';
 const GOAL_BUDGET_BLOCK_PREFIX = 'Blocked after goal budget reached';
 const LLM_NOT_SET_MESSAGE = 'LLM not set, send "/login" to login';
@@ -198,8 +199,8 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     );
     this._register(
       this.eventBus.subscribe('turn.ended', (e) => {
-        void this.handleTurnEnded(e.turnId, { reason: e.reason, error: e.error }).catch(
-          () => undefined,
+        void this.handleTurnEnded(e.turnId, { reason: e.reason, error: e.error }).catch((error) =>
+          this.settleGoalAfterContinuationFailure(error),
         );
       }),
     );
@@ -461,8 +462,28 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     const state = this.goalState;
     if (state === null || state.status !== 'active') return;
     if (this.blockIfBudgetReached(state) !== null) return;
+    // Safe to skip while another turn is live: the turn service clears its
+    // active turn before publishing turn.ended, so that turn's own end re-runs
+    // this check and relaunches the continuation at the next boundary.
     if (this.turnService.getActiveTurn() !== undefined) return;
     this.launchContinuationTurn();
+  }
+
+  // A rejected turn-ended handler (e.g. a continuation launch losing a race
+  // to a queued prompt) must never strand an active goal with nothing driving
+  // it: settle deterministically by pausing. The settle itself is best-effort;
+  // the turn.ended subscriber must not throw into the event bus.
+  private async settleGoalAfterContinuationFailure(error: unknown): Promise<void> {
+    try {
+      const reason = pauseReasonWithMessage(
+        GOAL_CONTINUATION_FAILURE_PAUSE_PREFIX,
+        normalizeGoalErrorPayload(error).message,
+      );
+      await this.pauseActiveGoal({ reason }, 'system');
+    } catch {
+      // Swallowed on purpose: pausing failed too, and rethrowing would only
+      // crash the event bus subscriber.
+    }
   }
 
   private launchContinuationTurn(): void {
