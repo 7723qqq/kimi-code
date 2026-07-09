@@ -483,34 +483,34 @@ function sendMappedError(reply: Reply, requestId: string, err: unknown): void {
   if (isKimiError(err)) {
     switch (err.code) {
       case ErrorCodes.FS_PATH_ESCAPES:
-        reply.send(errEnvelope(ErrorCode.FS_PATH_ESCAPES_SESSION, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.FS_PATH_ESCAPES_SESSION, err.message, requestId, err.stack));
         return;
       case ErrorCodes.FS_PATH_NOT_FOUND:
-        reply.send(errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, err.message, requestId, err.stack));
         return;
       case ErrorCodes.FS_IS_DIRECTORY:
-        reply.send(errEnvelope(ErrorCode.FS_IS_DIRECTORY, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.FS_IS_DIRECTORY, err.message, requestId, err.stack));
         return;
       case ErrorCodes.FS_ALREADY_EXISTS:
-        reply.send(errEnvelope(ErrorCode.FS_ALREADY_EXISTS, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.FS_ALREADY_EXISTS, err.message, requestId, err.stack));
         return;
       case ErrorCodes.FS_IS_BINARY:
-        reply.send(errEnvelope(ErrorCode.FS_IS_BINARY, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.FS_IS_BINARY, err.message, requestId, err.stack));
         return;
       case ErrorCodes.FS_TOO_LARGE:
-        reply.send(errEnvelope(ErrorCode.FS_TOO_LARGE, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.FS_TOO_LARGE, err.message, requestId, err.stack));
         return;
       case ErrorCodes.FS_TOO_MANY_RESULTS:
-        reply.send(errEnvelope(ErrorCode.FS_TOO_MANY_RESULTS, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.FS_TOO_MANY_RESULTS, err.message, requestId, err.stack));
         return;
       case ErrorCodes.FS_GREP_TIMEOUT:
-        reply.send(errEnvelope(ErrorCode.FS_GREP_TIMEOUT, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.FS_GREP_TIMEOUT, err.message, requestId, err.stack));
         return;
       case ErrorCodes.FS_GIT_UNAVAILABLE:
-        reply.send(errEnvelope(ErrorCode.FS_GIT_UNAVAILABLE, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.FS_GIT_UNAVAILABLE, err.message, requestId, err.stack));
         return;
       case ErrorCodes.SESSION_NOT_FOUND:
-        reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId, err.stack));
         return;
     }
   }
@@ -519,6 +519,7 @@ function sendMappedError(reply: Reply, requestId: string, err: unknown): void {
       ErrorCode.INTERNAL_ERROR,
       err instanceof Error ? err.message : String(err),
       requestId,
+      err instanceof Error ? err.stack : undefined,
     ),
   );
 }

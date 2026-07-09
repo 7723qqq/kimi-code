@@ -375,10 +375,10 @@ function sendMappedError(
     switch (err.code) {
       case ErrorCodes.SKILL_NOT_FOUND:
       case ErrorCodes.SKILL_NAME_EMPTY:
-        reply.send(errEnvelope(ErrorCode.SKILL_NOT_FOUND, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.SKILL_NOT_FOUND, err.message, requestId, err.stack));
         return;
       case ErrorCodes.SKILL_TYPE_UNSUPPORTED:
-        reply.send(errEnvelope(ErrorCode.SKILL_NOT_ACTIVATABLE, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.SKILL_NOT_ACTIVATABLE, err.message, requestId, err.stack));
         return;
     }
   }

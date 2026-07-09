@@ -321,7 +321,7 @@ function sendMappedError(
   err: unknown,
 ): void {
   if (err instanceof KimiError && err.code === ErrorCodes.MCP_SERVER_NOT_FOUND) {
-    reply.send(errEnvelope(ErrorCode.MCP_SERVER_NOT_FOUND, err.message, requestId));
+    reply.send(errEnvelope(ErrorCode.MCP_SERVER_NOT_FOUND, err.message, requestId, err.stack));
     return;
   }
   throw err;

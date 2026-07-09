@@ -50,15 +50,16 @@ const KIMI_TO_PROTOCOL: Record<string, ErrorCode> = {
 export function mapError(err: unknown, requestId: string): ReturnType<typeof errEnvelope> {
   if (err instanceof KimiError) {
     const code = KIMI_TO_PROTOCOL[err.code] ?? ErrorCode.INTERNAL_ERROR;
-    return errEnvelope(code, err.message, requestId);
+    return errEnvelope(code, err.message, requestId, err.stack);
   }
   if (err instanceof TimeoutError) {
-    return errEnvelope(ErrorCode.INTERNAL_ERROR, err.message, requestId);
+    return errEnvelope(ErrorCode.INTERNAL_ERROR, err.message, requestId, err.stack);
   }
   return errEnvelope(
     ErrorCode.INTERNAL_ERROR,
     err instanceof Error ? err.message : String(err),
     requestId,
+    err instanceof Error ? err.stack : undefined,
   );
 }
 

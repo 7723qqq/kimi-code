@@ -913,38 +913,44 @@ function sendMappedError(
     switch (err.code) {
       case 'session.not_found':
       case 'agent.not_found':
-        reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId, err.stack));
         return;
       case 'session.fork_active_turn':
-        reply.send(errEnvelope(ErrorCode.SESSION_BUSY, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.SESSION_BUSY, err.message, requestId, err.stack));
         return;
       case 'compaction.unable':
-        reply.send(errEnvelope(ErrorCode.COMPACTION_UNABLE, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.COMPACTION_UNABLE, err.message, requestId, err.stack));
         return;
       case 'session.undo_unavailable':
-        reply.send(errEnvelope(ErrorCode.SESSION_UNDO_UNAVAILABLE, err.message, requestId));
+        reply.send({
+          code: ErrorCode.SESSION_UNDO_UNAVAILABLE,
+          msg: err.message,
+          data: (err as { details?: unknown }).details ?? null,
+          request_id: requestId,
+          stack: err.stack,
+        });
         return;
       case ErrorCodes.GOAL_ALREADY_EXISTS:
-        reply.send(errEnvelope(ErrorCode.GOAL_ALREADY_EXISTS, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.GOAL_ALREADY_EXISTS, err.message, requestId, err.stack));
         return;
       case ErrorCodes.GOAL_NOT_FOUND:
-        reply.send(errEnvelope(ErrorCode.GOAL_NOT_FOUND, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.GOAL_NOT_FOUND, err.message, requestId, err.stack));
         return;
       case ErrorCodes.GOAL_STATUS_INVALID:
-        reply.send(errEnvelope(ErrorCode.GOAL_STATUS_INVALID, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.GOAL_STATUS_INVALID, err.message, requestId, err.stack));
         return;
       case ErrorCodes.GOAL_NOT_RESUMABLE:
-        reply.send(errEnvelope(ErrorCode.GOAL_NOT_RESUMABLE, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.GOAL_NOT_RESUMABLE, err.message, requestId, err.stack));
         return;
       case ErrorCodes.GOAL_OBJECTIVE_EMPTY:
-        reply.send(errEnvelope(ErrorCode.GOAL_OBJECTIVE_EMPTY, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.GOAL_OBJECTIVE_EMPTY, err.message, requestId, err.stack));
         return;
       case ErrorCodes.GOAL_OBJECTIVE_TOO_LONG:
-        reply.send(errEnvelope(ErrorCode.GOAL_OBJECTIVE_TOO_LONG, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.GOAL_OBJECTIVE_TOO_LONG, err.message, requestId, err.stack));
         return;
       case 'request.invalid':
       case 'validation.failed':
-        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId));
+        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId, err.stack));
         return;
     }
   }
@@ -953,6 +959,7 @@ function sendMappedError(
       ErrorCode.INTERNAL_ERROR,
       err instanceof Error ? err.message : String(err),
       requestId,
+      err instanceof Error ? err.stack : undefined,
     ),
   );
 }

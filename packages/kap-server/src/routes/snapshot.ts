@@ -107,14 +107,14 @@ export function registerSnapshotRoutes(app: SnapshotRouteHost, deps: SnapshotRou
         reply.send(okEnvelope(data, req.id));
       } catch (err) {
         if (err instanceof SnapshotNotFoundError) {
-          reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, req.id));
+          reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, req.id, err.stack));
           return;
         }
         if (err instanceof SnapshotTimeoutError) {
           core.accessor
             .get(ILogService)
             .warn('snapshot.timeout', { sid: session_id, duration_ms: err.timeoutMs });
-          reply.send(errEnvelope(ErrorCode.INTERNAL_ERROR, err.message, req.id));
+          reply.send(errEnvelope(ErrorCode.INTERNAL_ERROR, err.message, req.id, err.stack));
           return;
         }
         throw err;
