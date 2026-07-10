@@ -47,7 +47,7 @@ export default defineConfig({
   // barrel, which imports `*.md?raw` prompt templates.
   plugins: [rawTextPlugin(), hashImportsPlugin()],
   test: {
-    name: 'server-v2',
+    name: 'kap-server',
     include: ['test/**/*.{test,e2e}.ts'],
   },
 });
