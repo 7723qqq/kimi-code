@@ -54,16 +54,11 @@ the last delivery. If the schedule is still wanted, call `CronCreate`
 again with the same `cron` and `prompt` — that resets `createdAt` and
 starts a fresh 7-day window. One-shot tasks are never marked stale.
 
-Bench / acceptance runs can set `KIMI_CRON_NO_STALE=1` to disable the
-judgment entirely.
-
 ## Jitter behavior
 
 Anti-herd jitter is applied deterministically per task id:
   - Recurring: ideal fire time is shifted **forward** by an offset ≤ min(10% of the cron period, 15 minutes). A `*/5 * * * *` task can drift up to 30s; a `0 9 * * *` task can drift up to 15 minutes.
   - One-shot: only when the ideal fire lands on `:00` or `:30` of the hour, the fire is pulled **earlier** by ≤ 90 seconds. Other minutes pass through unchanged.
-
-Bench / acceptance tests can set `KIMI_CRON_NO_JITTER=1` to disable jitter entirely.
 
 ## One-shot vs recurring — when to pick which
 

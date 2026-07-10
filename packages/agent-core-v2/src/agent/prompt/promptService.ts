@@ -11,7 +11,7 @@ import { IAgentSystemReminderService } from '#/agent/systemReminder/systemRemind
 import type { ExecutableToolResult } from '#/agent/tool/toolContract';
 import type { ToolDidExecuteContext } from '#/agent/tool/toolHooks';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentTurnService, type Turn, type TurnPromptInfo } from '#/agent/turn/turn';
+import { IAgentTurnService, type Turn } from '#/agent/turn/turn';
 import type { ContentPart } from '#/app/llmProtocol/message';
 import { ErrorCodes, KimiError } from '#/errors';
 import { OrderedHookSlot } from '#/hooks';

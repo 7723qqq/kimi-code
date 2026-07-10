@@ -22,6 +22,7 @@ import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentShellCommandService } from '#/agent/shellCommand/shellCommand';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionBtwService } from '#/session/btw/btw';
 import { IAgentSkillService } from '#/agent/skill/skill';
 import { IAgentSwarmService } from '#/agent/swarm/swarm';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -98,6 +99,7 @@ export class AgentRPCService implements IAgentRPCService {
     @IPluginService private readonly plugins: IPluginService,
     @ISessionMetadata private readonly metadata: ISessionMetadata,
     @ISessionContext private readonly sessionContext: ISessionContext,
+    @ISessionBtwService private readonly btw: ISessionBtwService,
   ) { }
 
   async prompt(payload: PromptPayload): Promise<PromptLaunchResult | undefined> {
@@ -194,6 +196,10 @@ export class AgentRPCService implements IAgentRPCService {
 
   getSwarmMode(_payload: EmptyPayload): boolean {
     return this.swarmMode.isActive;
+  }
+
+  startBtw(_payload: EmptyPayload): Promise<string> {
+    return this.btw.start();
   }
 
   beginCompaction(payload: BeginCompactionPayload): void {

@@ -58,8 +58,8 @@ export class UpdateGoalTool implements BuiltinTool<UpdateGoalToolInput> {
       approvalRule: this.name,
       execute: async () => {
         if (status === 'active') {
-          if (this.goal.getGoal().goal === null) {
-            return { isError: true, output: 'Goal not resumed: no current goal.' };
+          if (currentGoal === null) {
+            return { output: 'Goal not resumed: no current goal.' };
           }
           await this.goal.resumeGoal({}, 'model');
           return { output: 'Goal resumed.' };
@@ -67,14 +67,14 @@ export class UpdateGoalTool implements BuiltinTool<UpdateGoalToolInput> {
         if (status === 'complete') {
           const completed = await this.goal.markComplete({}, 'model');
           if (completed === null) {
-            return { isError: true, output: 'Goal not completed: no active goal.' };
+            return { output: 'Goal not completed: no active goal.' };
           }
           return { output: buildGoalCompletionSummaryPrompt(completed), stopTurn: true };
         }
         if (status === 'blocked') {
           const blocked = await this.goal.markBlocked({}, 'model');
           if (blocked === null) {
-            return { isError: true, output: 'Goal not blocked: no active goal.' };
+            return { output: 'Goal not blocked: no active goal.' };
           }
           return { output: buildGoalBlockedReasonPrompt(blocked), stopTurn: true };
         }

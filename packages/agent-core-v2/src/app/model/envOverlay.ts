@@ -28,6 +28,13 @@ const DEFAULT_MAX_CONTEXT_SIZE = 262144;
 /** Default capabilities when KIMI_MODEL_CAPABILITIES is unset. */
 const DEFAULT_CAPABILITIES = ['image_in', 'thinking'];
 
+/** Default base URL per provider type when KIMI_MODEL_BASE_URL is unset. */
+const DEFAULT_BASE_URL: Partial<Record<string, string>> = {
+  kimi: 'https://api.moonshot.ai/v1',
+  openai: 'https://api.openai.com/v1',
+  // anthropic: omitted -> let the Anthropic SDK pick its default
+};
+
 function trimmed(value: string | undefined): string | undefined {
   const t = value?.trim();
   return t === undefined || t.length === 0 ? undefined : t;
@@ -166,10 +173,21 @@ export const kimiModelEnvOverlay: ConfigEffectiveOverlay = {
 
     const providers = asRecord(effective['providers']);
     const envProvider = asRecord(providers[ENV_MODEL_PROVIDER_KEY]);
-    if (envProvider['type'] === undefined) {
+    const providerType =
+      typeof envProvider['type'] === 'string' ? envProvider['type'] : 'kimi';
+    const providerBaseUrl =
+      typeof envProvider['baseUrl'] === 'string' && envProvider['baseUrl'].length > 0
+        ? envProvider['baseUrl']
+        : DEFAULT_BASE_URL[providerType];
+    const providerPatch: Record<string, unknown> = {};
+    if (envProvider['type'] === undefined) providerPatch['type'] = 'kimi';
+    if (providerBaseUrl !== undefined && envProvider['baseUrl'] === undefined) {
+      providerPatch['baseUrl'] = providerBaseUrl;
+    }
+    if (Object.keys(providerPatch).length > 0) {
       effective['providers'] = validate('providers', {
         ...providers,
-        [ENV_MODEL_PROVIDER_KEY]: { ...envProvider, type: 'kimi' },
+        [ENV_MODEL_PROVIDER_KEY]: { ...envProvider, ...providerPatch },
       });
       changed.push('providers');
     }

@@ -9,7 +9,7 @@ task's age in days, and a stale indicator.
 
 Each record carries:
 
-- `id` — the task id (a ULID, or legacy 8-hex). Pass this to `CronDelete` to remove the
+- `id` — the task id (a ULID). Pass this to `CronDelete` to remove the
   task, or quote it in user-facing messages when asking for
   confirmation.
 - `cron` — the verbatim 5-field cron expression as scheduled.
@@ -36,8 +36,6 @@ Each record carries:
   again with the original `cron` and `prompt` (the `prompt` row above
   carries it for exactly this purpose). One-shots are never marked
   stale — they fire at most once by construction.
-  `KIMI_CRON_NO_STALE=1` disables the judgment entirely (bench /
-  acceptance runs).
 
 Guidelines:
 

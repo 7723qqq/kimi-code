@@ -21,6 +21,7 @@
 
 import { randomUUID } from 'node:crypto';
 
+import type { TurnEndedEvent } from '@moonshot-ai/protocol';
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -38,7 +39,7 @@ import { LOOP_CONTROL_SECTION, type LoopControl } from '#/agent/loop/configSecti
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import type { ExecutableToolResult } from '#/agent/tool/toolContract';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentTurnService, type TurnResult } from '#/agent/turn/turn';
+import { IAgentTurnService } from '#/agent/turn/turn';
 import { IAgentActivityService } from '#/activity/activity';
 import type { ActivityLease } from '#/activity/activity';
 import type { TelemetryProperties } from '#/app/telemetry/telemetry';
@@ -483,7 +484,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
 
   private async handleTurnEnded(
     turnId: number,
-    result: { reason: TurnResult['reason']; error?: TurnResult['error'] },
+    result: Pick<TurnEndedEvent, 'reason' | 'error'>,
   ): Promise<void> {
     if (this.liveTurnId === turnId) this.liveTurnId = undefined;
     const starterTurn = this.goalStarterTurns.delete(turnId);
