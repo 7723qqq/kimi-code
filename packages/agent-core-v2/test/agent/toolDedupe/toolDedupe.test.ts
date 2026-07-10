@@ -173,6 +173,7 @@ function afterStep(
     usage: ZERO_USAGE,
     finishReason: 'completed',
     continue: false,
+    stopTurn: false,
   });
 }
 

@@ -122,6 +122,18 @@ const GOAL_PROVIDER_FILTERED_PAUSE_REASON = 'Paused after provider safety policy
 const GOAL_BUDGET_BLOCK_PREFIX = 'Blocked after goal budget reached';
 const LLM_NOT_SET_MESSAGE = 'LLM not set, send "/login" to login';
 
+const GOAL_BUDGET_STOP_REMINDER_NAME = 'goal_budget_stop';
+
+const GOAL_BUDGET_STOP_REMINDER = [
+  "The goal's hard budget was reached and the goal is now blocked; the user can resume it with /goal resume.",
+  'Stop immediately.',
+  'Do not call any more tools: they will be rejected.',
+  'Write a brief final status message summarizing the progress so far.',
+].join(' ');
+
+const GOAL_BUDGET_TOOLS_REJECTED_MESSAGE =
+  'Goal budget exhausted; tool calls are rejected. Write your final message.';
+
 const GOAL_CONTINUATION_PROMPT = [
   'Continue working toward the active goal.',
   'Keep the self-audit brief. Do not explore unrelated interpretations once the goal can be',
@@ -197,6 +209,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   private readonly goalStarterTurns = new Set<number>();
   private readonly goalOutcomeToolResultTurns = new Set<number>();
   private readonly goalOutcomeContinuationTurns = new Set<number>();
+  private readonly budgetGraceTurns = new Set<number>();
 
   constructor(
     @IAgentWireService private readonly wire: IWireService,
@@ -244,6 +257,20 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this._register(
       loopService.hooks.afterStep.register('goal-outcome-continuation', async (ctx, next) => {
         this.handleAfterStep(ctx);
+        await next();
+      }),
+    );
+    this._register(
+      toolExecutor.hooks.onWillExecuteTool.register('goal-budget-reject', async (ctx, next) => {
+        // During a turn's budget-grace step the model was told to write a
+        // final message without tools: answer every tool call with a soft
+        // synthetic result instead of executing it.
+        if (this.budgetGraceTurns.has(ctx.turnId)) {
+          ctx.decision = {
+            syntheticResult: { output: GOAL_BUDGET_TOOLS_REJECTED_MESSAGE },
+          };
+          return;
+        }
         await next();
       }),
     );
@@ -443,7 +470,17 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
 
   private handleTurnLaunched(turnId: number): void {
     this.liveTurnId = turnId;
-    if (this.goalState?.status === 'active') this.goalDrivenTurns.add(turnId);
+    const state = this.goalState;
+    // A goal already past its budget must not drive a new turn: block it at
+    // the launch boundary (blockIfBudgetReached dispatches synchronously, so
+    // nothing async escapes this event subscriber) and leave the turn off
+    // goalDrivenTurns. The prompt then runs as a normal non-goal turn — no
+    // turn counting, no goal_continued telemetry, no continuation — while the
+    // blocked-goal note still reaches the model, because injection reads the
+    // goal status in the first beforeStep, after this subscriber ran.
+    if (state?.status === 'active' && this.blockIfBudgetReached(state) === null) {
+      this.goalDrivenTurns.add(turnId);
+    }
     this.goalOutcomeToolResultTurns.delete(turnId);
     this.goalOutcomeContinuationTurns.delete(turnId);
   }
@@ -480,6 +517,32 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       state !== null &&
       this.toSnapshot(state).budget.overBudget
     ) {
+      // A reached hard goal budget is a deterministic ceiling. Usage
+      // accounting already blocked the goal (so this accepts any remaining
+      // goal record, not just an active one); here the turn winds down. A
+      // step that requested tool calls gets exactly one grace step: a
+      // reminder appended after the tool results tells the model to write a
+      // brief final status message without tools (further tool calls are
+      // answered by the goal-budget-reject gate without executing). After
+      // the grace step — or when the step ended without tool calls — the
+      // backstop fires: stopTurn wins in the run loop over requested tool
+      // calls and other hooks' continuations (steer flushes, Stop-hook
+      // continuations), so the turn ends at this step boundary.
+      const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
+      if (
+        ctx.finishReason === 'tool_calls' &&
+        !this.budgetGraceTurns.has(ctx.turnId) &&
+        hasStepBudgetRemaining(maxSteps, ctx.step)
+      ) {
+        this.budgetGraceTurns.add(ctx.turnId);
+        this.reminders.appendSystemReminder(GOAL_BUDGET_STOP_REMINDER, {
+          kind: 'system_trigger',
+          name: GOAL_BUDGET_STOP_REMINDER_NAME,
+        });
+        ctx.continue = true;
+        return;
+      }
+      ctx.stopTurn = true;
       return;
     }
     // After UpdateGoal marks a goal terminal, its tool result carries the
@@ -504,6 +567,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this.countedGoalTurns.delete(turnId);
     this.goalOutcomeToolResultTurns.delete(turnId);
     this.goalOutcomeContinuationTurns.delete(turnId);
+    this.budgetGraceTurns.delete(turnId);
 
     if (result.reason === 'blocked') {
       await this.markBlocked({ reason: 'Blocked by UserPromptSubmit hook' });

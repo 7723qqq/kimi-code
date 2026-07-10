@@ -13,6 +13,13 @@ export interface AfterStepContext extends BeforeStepContext {
   readonly usage: TokenUsage;
   readonly finishReason: FinishReason;
   continue: boolean;
+  /**
+   * Set to true to end the turn at this step boundary. Takes precedence in
+   * the run loop over both requested tool calls and `continue`, so a hard
+   * stop (e.g. a reached goal budget) cannot be overridden by another hook's
+   * continuation.
+   */
+  stopTurn: boolean;
 }
 
 export interface LoopErrorContext {

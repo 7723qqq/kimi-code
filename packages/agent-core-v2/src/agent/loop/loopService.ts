@@ -105,7 +105,10 @@ export class AgentLoopService implements IAgentLoopService {
           );
         }
 
-        if (stepResult.stopReason === 'tool_calls' || stepResult.continue) {
+        // A hook-set stopTurn is a hard stop: it wins over both requested
+        // tool calls and any hook that set continue (steer flushes, Stop-hook
+        // continuations), so the turn always ends at this step boundary.
+        if (!stepResult.stopTurn && (stepResult.stopReason === 'tool_calls' || stepResult.continue)) {
           continue;
         }
 
@@ -142,6 +145,7 @@ export class AgentLoopService implements IAgentLoopService {
   ): Promise<{
     readonly stopReason: FinishReason;
     readonly continue: boolean;
+    readonly stopTurn: boolean;
   }> {
     await this.hooks.beforeStep.run({ turnId, step: currentStep, signal });
     signal.throwIfAborted();
@@ -274,6 +278,7 @@ export class AgentLoopService implements IAgentLoopService {
       usage,
       finishReason,
       continue: false,
+      stopTurn: false,
     };
     try {
       await this.hooks.afterStep.run(afterStepContext);
@@ -285,6 +290,7 @@ export class AgentLoopService implements IAgentLoopService {
     return {
       stopReason: finishReason,
       continue: afterStepContext.continue,
+      stopTurn: afterStepContext.stopTurn,
     };
   }
 

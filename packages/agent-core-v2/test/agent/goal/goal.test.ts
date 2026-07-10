@@ -83,6 +83,7 @@ async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<
     usage: zeroUsage,
     finishReason: 'completed' as const,
     continue: false,
+    stopTurn: false,
   };
   await loopService.hooks.beforeStep.run(step);
   await loopService.hooks.afterStep.run(afterStep);
@@ -775,6 +776,7 @@ describe('AgentGoalService core workflow hooks', () => {
       usage: zeroUsage,
       finishReason: 'completed' as const,
       continue: false,
+      stopTurn: false,
     };
     await loopService.hooks.beforeStep.run(step);
 
@@ -795,6 +797,7 @@ describe('AgentGoalService core workflow hooks', () => {
       usage: zeroUsage,
       finishReason: 'completed' as const,
       continue: false,
+      stopTurn: false,
     };
     await loopService.hooks.afterStep.run(secondAfterStep);
     endTurn(eventBus, turn);
@@ -1009,6 +1012,160 @@ describe('goal pause classification on provider errors', () => {
       status: 'paused',
       terminalReason: 'Paused after provider safety policy block',
     });
+  });
+});
+
+describe('AgentGoalService mid-turn budget stop', () => {
+  it('grants one tool-free grace step when a token budget is reached mid-turn', async () => {
+    const ctx = createTestAgent();
+    try {
+      ctx.configure({ tools: ['GetGoal'] });
+      await ctx.rpc.createGoal({ objective: 'work' });
+      const goals = ctx.get(IAgentGoalService);
+      await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 1 } }, 'model');
+
+      ctx.mockNextResponse({
+        type: 'function',
+        id: 'g1',
+        name: 'GetGoal',
+        arguments: JSON.stringify({}),
+      });
+      ctx.mockNextResponse({ type: 'text', text: 'Final status: budget exhausted.' });
+      ctx.mockNextResponse({ type: 'text', text: 'This step should never run.' });
+
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'work' }] });
+      const events = await ctx.untilTurnEnd();
+
+      expect(ctx.llmCalls).toHaveLength(2);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          event: 'turn.ended',
+          args: expect.objectContaining({ reason: 'completed' }),
+        }),
+      );
+      expect(events).not.toContainEqual(
+        expect.objectContaining({
+          event: 'turn.ended',
+          args: expect.objectContaining({ reason: 'failed' }),
+        }),
+      );
+
+      const history = ctx.get(IAgentContextMemoryService).get();
+      const toolResultIndex = history.findIndex((message) => message.role === 'tool');
+      const reminderIndex = history.findIndex(
+        (message) =>
+          message.origin?.kind === 'system_trigger' && message.origin.name === 'goal_budget_stop',
+      );
+      expect(toolResultIndex).toBeGreaterThanOrEqual(0);
+      expect(reminderIndex).toBeGreaterThan(toolResultIndex);
+      expect(JSON.stringify(history)).toContain('Final status: budget exhausted.');
+      expect(JSON.stringify(history)).not.toContain('This step should never run.');
+
+      const goal = (await ctx.rpc.getGoal({})).goal;
+      expect(goal?.status).toBe('blocked');
+      expect(goal?.terminalReason).toMatch(/^Blocked after goal budget reached/);
+      expect(goal?.tokensUsed).toBeGreaterThan(1);
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  it('rejects tool calls made during the budget grace step without executing them', async () => {
+    const ctx = createTestAgent();
+    try {
+      ctx.configure({ tools: ['GetGoal', 'SetGoalBudget'] });
+      await ctx.rpc.createGoal({ objective: 'work' });
+      const goals = ctx.get(IAgentGoalService);
+      await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 1 } }, 'model');
+
+      ctx.mockNextResponse({
+        type: 'function',
+        id: 'g1',
+        name: 'GetGoal',
+        arguments: JSON.stringify({}),
+      });
+      ctx.mockNextResponse({
+        type: 'function',
+        id: 'g2',
+        name: 'SetGoalBudget',
+        arguments: JSON.stringify({ value: 5, unit: 'turns' }),
+      });
+      ctx.mockNextResponse({ type: 'text', text: 'This step should never run.' });
+
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'work' }] });
+      const events = await ctx.untilTurnEnd();
+
+      expect(ctx.llmCalls).toHaveLength(2);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          event: 'turn.ended',
+          args: expect.objectContaining({ reason: 'completed' }),
+        }),
+      );
+
+      const history = ctx.get(IAgentContextMemoryService).get();
+      const toolResults = history.filter((message) => message.role === 'tool');
+      expect(toolResults).toHaveLength(2);
+      expect(JSON.stringify(toolResults.at(-1))).toContain(
+        'Goal budget exhausted; tool calls are rejected. Write your final message.',
+      );
+      expect(JSON.stringify(history)).not.toContain('This step should never run.');
+
+      const goal = (await ctx.rpc.getGoal({})).goal;
+      expect(goal?.status).toBe('blocked');
+      // The rejected SetGoalBudget never executed: the turn budget is unchanged.
+      expect(goal?.budget.turnBudget).toBeNull();
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  it('blocks an over-budget goal at turn launch and runs the prompt as a normal turn', async () => {
+    const telemetry: TelemetryRecord[] = [];
+    const ctx = createTestAgent(telemetryServices(recordingTelemetry(telemetry)));
+    try {
+      ctx.configure();
+      const goals = ctx.get(IAgentGoalService) as GoalServiceTestManager;
+      await goals.createGoal({ objective: 'work' });
+      await goals.setBudgetLimits({ budgetLimits: { turnBudget: 1 } }, 'model');
+      await goals.incrementTurn();
+      expect(goals.getGoal().goal?.status).toBe('blocked');
+
+      // Resume does not re-check the budget: the goal comes back active.
+      const resumed = await goals.resumeGoal();
+      expect(resumed.status).toBe('active');
+      const telemetryAfterResume = telemetry.length;
+
+      ctx.mockNextResponse({ type: 'text', text: 'Answering the prompt normally.' });
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'hello' }] });
+      const events = await ctx.untilTurnEnd();
+      // Let the turn.ended subscriber settle so a (wrongly) launched goal
+      // continuation would be observable below.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(ctx.llmCalls).toHaveLength(1);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          event: 'turn.ended',
+          args: expect.objectContaining({ reason: 'completed' }),
+        }),
+      );
+
+      const goal = goals.getGoal().goal;
+      expect(goal?.status).toBe('blocked');
+      expect(goal?.terminalReason).toBe('Blocked after goal budget reached: turn budget 1');
+      expect(goal?.turnsUsed).toBe(1);
+      expect(
+        telemetry.slice(telemetryAfterResume).map((record) => record.event),
+      ).not.toContain('goal_continued');
+      expect(
+        ctx.allEvents.filter(
+          (entry) => entry.type === '[rpc]' && entry.event === 'turn.started',
+        ),
+      ).toHaveLength(1);
+    } finally {
+      await ctx.dispose();
+    }
   });
 });
 

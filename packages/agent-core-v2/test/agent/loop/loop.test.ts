@@ -340,6 +340,80 @@ describe('Agent loop', () => {
       }),
     );
   });
+
+  it('ends the turn when an afterStep hook sets stopTurn even though the model requested tool calls', async () => {
+    const lookupCall: ToolCall = {
+      type: 'function',
+      id: 'call_lookup',
+      name: 'Lookup',
+      arguments: '{"query":"moon"}',
+    };
+    const lookupTool: ExecutableTool<{ query: string }> = {
+      name: 'Lookup',
+      description: 'Look up a short test value.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string' },
+        },
+        required: ['query'],
+        additionalProperties: false,
+      },
+      resolveExecution: () => ({
+        approvalRule: 'Lookup',
+        execute: async () => ({ output: 'lookup-result' }),
+      }),
+    };
+    profile.update({ activeToolNames: ['Lookup'] });
+    ctx.get(IAgentToolRegistryService).register(lookupTool);
+
+    loop.hooks.afterStep.register('test-stop-turn', async (hookCtx, next) => {
+      hookCtx.stopTurn = true;
+      await next();
+    });
+
+    ctx.mockNextResponse({ type: 'text', text: 'I will look it up.' }, lookupCall);
+    ctx.mockNextResponse({ type: 'text', text: 'This step should not run.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Look up moon' }] });
+    const turn = ctx.get(IAgentTurnService).getActiveTurn();
+    await ctx.untilApproval(true);
+    await ctx.untilTurnEnd();
+
+    expect(ctx.llmCalls).toHaveLength(1);
+    await expect(turn!.result).resolves.toEqual({
+      type: 'completed',
+      steps: 1,
+      truncated: false,
+    });
+  });
+
+  it('lets stopTurn take precedence over a hook-set continue', async () => {
+    profile.update({ activeToolNames: [] });
+
+    loop.hooks.afterStep.register('test-continue-like-stop-hook', async (hookCtx, next) => {
+      hookCtx.continue = true;
+      await next();
+    });
+    loop.hooks.afterStep.register('test-hard-stop', async (hookCtx, next) => {
+      hookCtx.stopTurn = true;
+      await next();
+    });
+
+    ctx.mockNextResponse({ type: 'text', text: 'First answer.' });
+    ctx.mockNextResponse({ type: 'text', text: 'This continuation should not run.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'hello' }] });
+    const turn = ctx.get(IAgentTurnService).getActiveTurn();
+    await ctx.untilTurnEnd();
+
+    expect(ctx.llmCalls).toHaveLength(1);
+    await expect(turn!.result).resolves.toEqual({
+      type: 'completed',
+      steps: 1,
+      truncated: false,
+    });
+  });
 });
 
 describe('step timing split propagation', () => {
