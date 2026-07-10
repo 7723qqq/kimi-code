@@ -19,6 +19,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { ContentPart } from '#/app/llmProtocol/message';
 
 import { Disposable } from '#/_base/di/lifecycle';
+import { abortable } from '#/_base/utils/abort';
 import { escapeXml, escapeXmlAttr } from '#/_base/utils/xml-escape';
 import { IEventBus } from '#/app/event/eventBus';
 import type { TaskOrigin } from '#/agent/contextMemory/types';
@@ -704,7 +705,11 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     return results.filter((info): info is AgentTaskInfo => info !== undefined);
   }
 
-  async wait(taskId: string, timeoutMs = 30_000): Promise<AgentTaskInfo | undefined> {
+  async wait(
+    taskId: string,
+    timeoutMs = 30_000,
+    signal?: AbortSignal,
+  ): Promise<AgentTaskInfo | undefined> {
     const entry = this.tasks.get(taskId);
     if (entry === undefined) return this.ghosts.get(taskId);
     if (TERMINAL_STATUSES.has(entry.status)) {
@@ -718,7 +723,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     let waiter: (() => void) | undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      await Promise.race([
+      const pending = Promise.race([
         new Promise<void>((resolve) => {
           waiter = resolve;
           entry.waiters.push(resolve);
@@ -728,6 +733,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
           timeout.unref?.();
         }),
       ]);
+      await (signal === undefined ? pending : abortable(pending, signal));
     } finally {
       if (timeout !== undefined) clearTimeout(timeout);
       if (waiter !== undefined) {

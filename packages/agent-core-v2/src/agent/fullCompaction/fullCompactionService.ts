@@ -525,7 +525,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       while (true) {
         const messagesToCompact = historyForModel;
         // Raw context slice — `llmRequester` projects every request once;
-        // projecting here too would run micro-compaction on shifted indices.
+        // projecting here too would double-project onto shifted indices.
         const messages: Message[] = [...messagesToCompact, createUserMessage(instruction)];
         const estimatedCompactionRequestTokens = this.estimateRequestTokens(messages);
 

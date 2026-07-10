@@ -429,7 +429,11 @@ export class SessionEventHandler {
     if (reason === 'error') return;
     if (reason === 'aborted' || reason === undefined || reason === '') {
       this.markActiveAgentSwarmsCancelled();
-      this.host.showStatus('Interrupted by user', 'error');
+      if (event.message === undefined || event.message === '') {
+        this.host.showStatus('Interrupted by user', 'error');
+      } else {
+        this.host.showError(event.message);
+      }
       return;
     }
     this.host.showError(

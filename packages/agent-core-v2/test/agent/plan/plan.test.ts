@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import type { ToolCall } from '#/app/llmProtocol/message';
-import { isAbsolute, join, resolve } from 'pathe';
+import { dirname, isAbsolute, join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
@@ -10,8 +10,9 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { IAgentPlanService, type PlanData } from '#/agent/plan/plan';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { ISessionProcessRunner } from '#/session/process/processRunner';
 import { createFakeHostFs, createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
 import {
@@ -163,6 +164,12 @@ describe('Plan service', () => {
     return (await expectActivePlan()).path;
   }
 
+  function expectedPlanPath(id: string): string {
+    const session = ctx.get(ISessionContext);
+    const agent = ctx.get(IAgentScopeContext);
+    return join(session.sessionDir, 'agents', agent.agentId, 'plans', `${id}.md`);
+  }
+
   async function expectPlanActive(active: boolean): Promise<void> {
     expect((await planStatus()) !== null).toBe(active);
   }
@@ -183,15 +190,15 @@ describe('Plan service', () => {
       await delay(10);
 
       const status = await expectActivePlan();
-      expect(status.path.startsWith(`${join(cwd, 'plan')}/`)).toBe(true);
-      expect(status.path.endsWith('.md')).toBe(true);
-      expect(mkdir).toHaveBeenCalledWith(join(cwd, 'plan'), { recursive: true });
+      const expectedPath = expectedPlanPath(status.id);
+      expect(status.path).toBe(expectedPath);
+      expect(mkdir).toHaveBeenCalledWith(dirname(expectedPath), { recursive: true });
       expect(writeText).not.toHaveBeenCalled();
       expect(ctx.allEvents.some((event) => event.event === 'turn.started')).toBe(false);
       expect(ctx.llmCalls).toHaveLength(0);
     });
 
-    it('derives the no-homedir plan path from cwd on enter and restore', async () => {
+    it('derives the plan path from the agent homedir on enter and restore', async () => {
       const cwd = await makeTempDir('kimi-plan-path-');
       useFakes(createPlanFakes({
         writeText: vi.fn(async (_path: string, _content: string): Promise<void> => {}),
@@ -200,7 +207,7 @@ describe('Plan service', () => {
       await plan.enter('stable-plan');
 
       const livePath = await expectActivePlanPath();
-      expect(livePath).toBe(join(cwd, 'plan', 'stable-plan.md'));
+      expect(livePath).toBe(expectedPlanPath('stable-plan'));
 
       const enterRecord = ctx.allEvents.find(
         (event) => event.type === '[wire]' && event.event === 'plan_mode.enter',
@@ -219,23 +226,17 @@ describe('Plan service', () => {
       expect(await expectActivePlanPath()).toBe(livePath);
     });
 
-    it('falls back to an absolute workDir-anchored plan path when the profile cwd is empty', async () => {
-      // Regression for server-v2: the agent is bound without a cwd, so the
-      // profile cwd is empty. The plan path must still be absolute and anchored
-      // to the session workDir, matching the path the Write tool resolves to —
-      // otherwise the plan-mode guard denies writes to the plan file, and the
-      // plan file lands in `process.cwd()` instead of the session workDir.
+    it('keeps the plan path under the agent homedir when the profile cwd is empty', async () => {
       useFakes(createPlanFakes({
         writeText: vi.fn(async (_path: string, _content: string): Promise<void> => {}),
       }));
       profile.update({ cwd: '' });
-      const workDir = ctx.get(ISessionWorkspaceContext).workDir;
 
-      await plan.enter('workdir-plan');
+      await plan.enter('homedir-plan');
 
       const planPath = await expectActivePlanPath();
       expect(isAbsolute(planPath)).toBe(true);
-      expect(planPath).toBe(resolve(workDir, 'plan', 'workdir-plan.md'));
+      expect(planPath).toBe(expectedPlanPath('homedir-plan'));
     });
 
     it('enters plan mode through the EnterPlanMode tool and reminds the next step', async () => {
@@ -600,27 +601,27 @@ describe('Plan service', () => {
         [wire] llm.request                 { "kind": "loop", "provider": "kimi", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "878fc967171856c1b535c0bc43b4b06aa8141d637871c13f40f965cdaaa45df9", "messageCount": 2, "turnStep": "0.1", "time": "<time>" }
         [emit] assistant.delta             { "turnId": 0, "delta": "I will inspect safely." }
         [emit] tool.call.delta             { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"printf plan-safe\\",\\"timeout\\":60}" }
-        [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 530, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-        [emit] agent.status.updated        { "usage": { "byModel": { "mock-model": { "inputOther": 530, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 530, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 530, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-        [emit] agent.status.updated        { "contextTokens": 553 }
+        [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 565, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+        [emit] agent.status.updated        { "usage": { "byModel": { "mock-model": { "inputOther": 565, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 565, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 565, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+        [emit] agent.status.updated        { "contextTokens": 588 }
         [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "I will inspect safely." } }, "time": "<time>" }
         [emit] tool.call.started           { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf plan-safe", "timeout": 60 }, "description": "Running: printf plan-safe", "display": { "kind": "command", "command": "printf plan-safe", "cwd": "<cwd>", "language": "bash" } }
         [wire] context.append_loop_event   { "event": { "type": "tool.call", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "toolCallId": "call_bash", "name": "Bash", "args": { "command": "printf plan-safe", "timeout": 60 } }, "time": "<time>" }
         [emit] tool.progress               { "turnId": 0, "toolCallId": "call_bash", "update": { "kind": "stdout", "text": "plan-safe" } }
         [emit] tool.result                 { "turnId": 0, "toolCallId": "call_bash", "output": "plan-safe" }
         [wire] context.append_loop_event   { "event": { "type": "tool.result", "parentUuid": "<uuid-3>", "toolCallId": "call_bash", "result": { "output": "plan-safe" } }, "time": "<time>" }
-        [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "finishReason": "tool_use", "usage": { "inputOther": 530, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-1" }, "time": "<time>" }
-        [emit] turn.step.completed         { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 530, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_calls" }
+        [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "finishReason": "tool_use", "usage": { "inputOther": 565, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-1", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }, "time": "<time>" }
+        [emit] turn.step.completed         { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 565, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }
         [emit] turn.step.started           { "turnId": 0, "step": 2, "stepId": "<uuid-4>" }
         [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-4>", "turnId": "0", "step": 2 }, "time": "<time>" }
-        [wire] llm.request                 { "kind": "loop", "provider": "kimi", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 999447, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "878fc967171856c1b535c0bc43b4b06aa8141d637871c13f40f965cdaaa45df9", "messageCount": 4, "turnStep": "0.2", "time": "<time>" }
+        [wire] llm.request                 { "kind": "loop", "provider": "kimi", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 999412, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "878fc967171856c1b535c0bc43b4b06aa8141d637871c13f40f965cdaaa45df9", "messageCount": 4, "turnStep": "0.2", "time": "<time>" }
         [emit] assistant.delta             { "turnId": 0, "delta": "The safe command printed plan-safe." }
-        [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 557, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-        [emit] agent.status.updated        { "usage": { "byModel": { "mock-model": { "inputOther": 1087, "output": 35, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 1087, "output": 35, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 1087, "output": 35, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-        [emit] agent.status.updated        { "contextTokens": 569 }
+        [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 592, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+        [emit] agent.status.updated        { "usage": { "byModel": { "mock-model": { "inputOther": 1157, "output": 35, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 1157, "output": 35, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 1157, "output": 35, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+        [emit] agent.status.updated        { "contextTokens": 604 }
         [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-5>", "turnId": "0", "step": 2, "stepUuid": "<uuid-4>", "part": { "type": "text", "text": "The safe command printed plan-safe." } }, "time": "<time>" }
-        [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-4>", "turnId": "0", "step": 2, "finishReason": "end_turn", "usage": { "inputOther": 557, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-2" }, "time": "<time>" }
-        [emit] turn.step.completed         { "turnId": 0, "step": 2, "stepId": "<uuid-4>", "usage": { "inputOther": 557, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "completed" }
+        [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-4>", "turnId": "0", "step": 2, "finishReason": "end_turn", "usage": { "inputOther": 592, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-2", "providerFinishReason": "completed", "rawFinishReason": "stop" }, "time": "<time>" }
+        [emit] turn.step.completed         { "turnId": 0, "step": 2, "stepId": "<uuid-4>", "usage": { "inputOther": 592, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn", "providerFinishReason": "completed", "rawFinishReason": "stop" }
         [emit] turn.ended                  { "turnId": 0, "reason": "completed" }
       `);
 
@@ -666,27 +667,27 @@ describe('Plan service', () => {
         [wire] llm.request                 { "kind": "loop", "provider": "kimi", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "878fc967171856c1b535c0bc43b4b06aa8141d637871c13f40f965cdaaa45df9", "messageCount": 2, "turnStep": "0.1", "time": "<time>" }
         [emit] assistant.delta             { "turnId": 0, "delta": "I will mutate a file." }
         [emit] tool.call.delta             { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "argumentsPart": "{\\"command\\":\\"rm forbidden.txt\\",\\"timeout\\":60}" }
-        [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 527, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-        [emit] agent.status.updated        { "usage": { "byModel": { "mock-model": { "inputOther": 527, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 527, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 527, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-        [emit] agent.status.updated        { "contextTokens": 550 }
+        [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 562, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+        [emit] agent.status.updated        { "usage": { "byModel": { "mock-model": { "inputOther": 562, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 562, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 562, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+        [emit] agent.status.updated        { "contextTokens": 585 }
         [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "I will mutate a file." } }, "time": "<time>" }
         [emit] tool.call.started           { "turnId": 0, "toolCallId": "call_bash", "name": "Bash", "args": { "command": "rm forbidden.txt", "timeout": 60 }, "description": "Running: rm forbidden.txt", "display": { "kind": "command", "command": "rm forbidden.txt", "cwd": "<cwd>", "language": "bash" } }
         [wire] context.append_loop_event   { "event": { "type": "tool.call", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "toolCallId": "call_bash", "name": "Bash", "args": { "command": "rm forbidden.txt", "timeout": 60 } }, "time": "<time>" }
         [emit] tool.progress               { "turnId": 0, "toolCallId": "call_bash", "update": { "kind": "stdout", "text": "removed" } }
         [emit] tool.result                 { "turnId": 0, "toolCallId": "call_bash", "output": "removed" }
         [wire] context.append_loop_event   { "event": { "type": "tool.result", "parentUuid": "<uuid-3>", "toolCallId": "call_bash", "result": { "output": "removed" } }, "time": "<time>" }
-        [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "finishReason": "tool_use", "usage": { "inputOther": 527, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-1" }, "time": "<time>" }
-        [emit] turn.step.completed         { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 527, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_calls" }
+        [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "finishReason": "tool_use", "usage": { "inputOther": 562, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-1", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }, "time": "<time>" }
+        [emit] turn.step.completed         { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 562, "output": 23, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }
         [emit] turn.step.started           { "turnId": 0, "step": 2, "stepId": "<uuid-4>" }
         [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-4>", "turnId": "0", "step": 2 }, "time": "<time>" }
-        [wire] llm.request                 { "kind": "loop", "provider": "kimi", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 999450, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "878fc967171856c1b535c0bc43b4b06aa8141d637871c13f40f965cdaaa45df9", "messageCount": 4, "turnStep": "0.2", "time": "<time>" }
+        [wire] llm.request                 { "kind": "loop", "provider": "kimi", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 999415, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "878fc967171856c1b535c0bc43b4b06aa8141d637871c13f40f965cdaaa45df9", "messageCount": 4, "turnStep": "0.2", "time": "<time>" }
         [emit] assistant.delta             { "turnId": 0, "delta": "The command completed." }
-        [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 553, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
-        [emit] agent.status.updated        { "usage": { "byModel": { "mock-model": { "inputOther": 1080, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 1080, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 1080, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-        [emit] agent.status.updated        { "contextTokens": 562 }
+        [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 588, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+        [emit] agent.status.updated        { "usage": { "byModel": { "mock-model": { "inputOther": 1150, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 1150, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 1150, "output": 32, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+        [emit] agent.status.updated        { "contextTokens": 597 }
         [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-5>", "turnId": "0", "step": 2, "stepUuid": "<uuid-4>", "part": { "type": "text", "text": "The command completed." } }, "time": "<time>" }
-        [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-4>", "turnId": "0", "step": 2, "finishReason": "end_turn", "usage": { "inputOther": 553, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-2" }, "time": "<time>" }
-        [emit] turn.step.completed         { "turnId": 0, "step": 2, "stepId": "<uuid-4>", "usage": { "inputOther": 553, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "completed" }
+        [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-4>", "turnId": "0", "step": 2, "finishReason": "end_turn", "usage": { "inputOther": 588, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-2", "providerFinishReason": "completed", "rawFinishReason": "stop" }, "time": "<time>" }
+        [emit] turn.step.completed         { "turnId": 0, "step": 2, "stepId": "<uuid-4>", "usage": { "inputOther": 588, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn", "providerFinishReason": "completed", "rawFinishReason": "stop" }
         [emit] turn.ended                  { "turnId": 0, "reason": "completed" }
       `);
       expect(toolResultText(context.get())).toContain('removed');

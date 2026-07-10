@@ -220,6 +220,7 @@ describe('AgentPlanService EnterPlanMode telemetry', () => {
           execEnvServices({
             hostFs: createFakeHostFs({
               mkdir: vi.fn().mockResolvedValue(undefined),
+              readText: vi.fn().mockResolvedValue(''),
             }),
           }),
           permissionModeServices(mode),
