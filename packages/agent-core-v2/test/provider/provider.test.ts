@@ -29,6 +29,7 @@ describe('ProviderService', () => {
   let ix: TestInstantiationService;
   let registry: ConfigRegistry;
   let providers: Record<string, ProviderConfig>;
+  let defaultProvider: string | undefined;
   let configSet: ReturnType<typeof vi.fn>;
   let configReplace: ReturnType<typeof vi.fn>;
 
@@ -36,14 +37,18 @@ describe('ProviderService', () => {
     disposables = new DisposableStore();
     registry = new ConfigRegistry();
     providers = {};
+    defaultProvider = undefined;
     configSet = vi.fn().mockResolvedValue(undefined);
     configReplace = vi.fn().mockResolvedValue(undefined);
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.defineInstance(IConfigRegistry, registry);
         reg.definePartialInstance(IConfigService, {
-          get: ((domain: string) =>
-            domain === PROVIDERS_SECTION ? providers : undefined) as IConfigService['get'],
+          get: ((domain: string) => {
+            if (domain === PROVIDERS_SECTION) return providers;
+            if (domain === 'defaultProvider') return defaultProvider;
+            return undefined;
+          }) as IConfigService['get'],
           set: configSet as unknown as IConfigService['set'],
           replace: configReplace as unknown as IConfigService['replace'],
           onDidChangeConfiguration: (() => ({ dispose: () => { } })) as IConfigService['onDidChangeConfiguration'],
@@ -102,6 +107,27 @@ describe('ProviderService', () => {
     const svc = ix.get(IProviderService);
     await svc.delete('missing');
     expect(configReplace).not.toHaveBeenCalled();
+  });
+
+  it('delete clears defaultProvider when removing the default provider', async () => {
+    providers['p1'] = { type: 'openai' };
+    providers['p2'] = { type: 'kimi' };
+    defaultProvider = 'p1';
+    const svc = ix.get(IProviderService);
+    await svc.delete('p1');
+    expect(configReplace).toHaveBeenCalledWith(PROVIDERS_SECTION, {
+      p2: { type: 'kimi' },
+    });
+    expect(configSet).toHaveBeenCalledWith('defaultProvider', undefined);
+  });
+
+  it('delete leaves defaultProvider when removing a different provider', async () => {
+    providers['p1'] = { type: 'openai' };
+    providers['p2'] = { type: 'kimi' };
+    defaultProvider = 'p2';
+    const svc = ix.get(IProviderService);
+    await svc.delete('p1');
+    expect(configSet).not.toHaveBeenCalled();
   });
 
   it('forwards providers section changes as onDidChangeProviders with a diff', () => {

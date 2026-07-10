@@ -82,6 +82,19 @@ describe('ModelResolver', () => {
     );
   });
 
+  it('falls back to defaultProvider when a model has no provider', () => {
+    const resolver = createResolver(
+      baseSections({
+        defaultProvider: 'kimi',
+        models: {
+          k1: { provider: 'kimi', model: 'kimi-model', maxContextSize: 128000 },
+          inherited: { model: 'm', maxContextSize: 1000 },
+        },
+      }),
+    );
+    expect(resolver.resolve('inherited').providerName).toBe('kimi');
+  });
+
   it('throws CONFIG_INVALID when model has no provider and no defaultProvider', () => {
     const resolver = createResolver(
       baseSections({

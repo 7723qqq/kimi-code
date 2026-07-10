@@ -115,6 +115,23 @@ describe('ModelResolverService', () => {
     expect(auth).toEqual({ apiKey: 'sk-test' });
   });
 
+  it('falls back to defaultProvider when the model pins no provider', () => {
+    providers['p'] = { type: 'kimi', baseUrl: 'https://example.test/v1', apiKey: 'sk-test' };
+    models['m'] = { model: 'wire-name', maxContextSize: 1000 };
+    configValues['defaultProvider'] = 'p';
+
+    expect(ix.get(IModelResolver).resolve('m').providerName).toBe('p');
+  });
+
+  it('prefers an explicit model provider over defaultProvider', () => {
+    providers['explicit'] = { type: 'kimi', baseUrl: 'https://example.test/v1', apiKey: 'sk' };
+    providers['default'] = { type: 'openai', baseUrl: 'https://example.test/v1', apiKey: 'sk' };
+    models['m'] = { provider: 'explicit', model: 'wire-name', maxContextSize: 1000 };
+    configValues['defaultProvider'] = 'default';
+
+    expect(ix.get(IModelResolver).resolve('m').providerName).toBe('explicit');
+  });
+
   it('prefers a model-inline apiKey override as ProviderRequestAuth.apiKey', async () => {
     providers['p'] = { type: 'kimi', baseUrl: 'https://example.test/v1', apiKey: 'sk-provider' };
     models['m'] = {

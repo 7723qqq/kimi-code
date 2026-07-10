@@ -212,8 +212,11 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     readonly resolvedBaseUrl: string;
   } {
     // Structured path — Model references a Provider (which may reference a
-    // Platform). Legacy configs still use `provider` in place of `providerId`.
-    const providerId = model.providerId ?? model.provider;
+    // Platform). Legacy configs still use `provider` in place of `providerId`,
+    // and the top-level `defaultProvider` config is the v1-compatible fallback
+    // when a Model pins neither.
+    const providerId =
+      model.providerId ?? model.provider ?? this.config.get<string>('defaultProvider');
     if (providerId !== undefined) {
       const providerConfig = this.providers.get(providerId);
       if (providerConfig === undefined) {
