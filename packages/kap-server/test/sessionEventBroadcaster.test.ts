@@ -581,6 +581,47 @@ describe('SessionEventBroadcaster', () => {
     expect(envelopes.map((e) => e.type)).toEqual(['event.question.answered']);
   });
 
+  it('fans out the legacy background.task.* alias alongside native task.* for v1 clients', async () => {
+    // v2 emits `task.started`/`task.terminated`; unchanged v1 consumers
+    // (kimi-code TUI / `kimi -p`, node-sdk) only understand
+    // `background.task.*`. The broadcaster must emit both spellings so web
+    // (handles `task.*`, ignores the alias) and TUI (handles the alias, ignores
+    // `task.*`) both work without consumer changes.
+    const lc = new FakeLifecycle();
+    const main = lc.addAgent('main');
+    sessions.set('s1', lc);
+    const { target, envelopes } = collectingTarget();
+    await bc.subscribe('s1', target);
+
+    const info = { taskId: 't1', status: 'running', description: 'ls' };
+    main.bus.emit(agentEvent('task.started', { info }));
+    main.bus.emit(agentEvent('task.terminated', { info: { ...info, status: 'completed' } }));
+    await bc.getCursor('s1');
+
+    expect(envelopes.map((e) => e.type)).toEqual([
+      'task.started',
+      'background.task.started',
+      'task.terminated',
+      'background.task.terminated',
+    ]);
+    // Alias carries the same payload, stamped with agentId/sessionId.
+    expect(envelopes[1]!.payload).toMatchObject({
+      type: 'background.task.started',
+      info,
+      agentId: 'main',
+      sessionId: 's1',
+    });
+    expect(envelopes[3]!.payload).toMatchObject({
+      type: 'background.task.terminated',
+      agentId: 'main',
+      sessionId: 's1',
+    });
+    // Native durability is preserved and the alias mirrors it (both journaled,
+    // monotonic seq), so reconnecting v1 clients rebuild task state from replay.
+    expect(envelopes.every((e) => e.volatile === undefined)).toBe(true);
+    expect(envelopes.map((e) => e.seq)).toEqual([1, 2, 3, 4]);
+  });
+
   // -------------------------------------------------------------------------
   // Per-agent subscription filter
   // -------------------------------------------------------------------------

@@ -538,9 +538,20 @@ export class SessionEventBroadcaster {
         sessionId,
       } as unknown as Event);
     }
+    const volatile = isVolatileSignal(event.type);
     state.queue = state.queue
-      .then(() => this.dispatch(state, wireEvent, isVolatileSignal(event.type)))
+      .then(() => this.dispatch(state, wireEvent, volatile))
       .catch(() => {});
+    // v1 wire compat: fan the legacy `background.task.*` spelling out next to
+    // the native `task.*` event (see `legacyTaskEvent`) so unchanged v1 clients
+    // keep working while v2-shaped clients ignore the alias. Same volatility as
+    // the native event so replay/journal/filter stay coherent between the two.
+    const legacy = legacyTaskEvent(event, agentId, sessionId);
+    if (legacy !== undefined) {
+      state.queue = state.queue
+        .then(() => this.dispatch(state, legacy, volatile))
+        .catch(() => {});
+    }
   }
 
   /**
@@ -672,6 +683,26 @@ const volatileSignalTypeSet: ReadonlySet<string> = new Set(VOLATILE_SIGNAL_TYPES
 
 function isVolatileSignal(type: string): boolean {
   return volatileSignalTypeSet.has(type);
+}
+
+/**
+ * v1 wire compatibility: map a native v2 background-task lifecycle event to its
+ * pre-v2 spelling, returning `undefined` for every other event. The pre-v2
+ * engine emitted `background.task.started`/`background.task.terminated`; v2
+ * emits `task.started`/`task.terminated`. The payload (`info`) is kept
+ * byte-identical and `agentId`/`sessionId` are re-stamped so the alias flows
+ * through the same dispatch / journal / agent-filter path as the native event.
+ *
+ * Exists so unchanged v1 consumers (kimi-code TUI / `kimi -p`, node-sdk) keep
+ * working while v2-shaped consumers (kimi-web) keep the native event and ignore
+ * the alias (registered as known, no handler). Remove once every consumer has
+ * migrated to `task.*`.
+ */
+function legacyTaskEvent(event: DomainEvent, agentId: string, sessionId: string): Event | undefined {
+  if (event.type !== 'task.started' && event.type !== 'task.terminated') return undefined;
+  const legacyType =
+    event.type === 'task.started' ? 'background.task.started' : 'background.task.terminated';
+  return { ...event, type: legacyType, agentId, sessionId } as unknown as Event;
 }
 
 /** Session/workspace/config/model-catalog events are broadcast to every connection. */
