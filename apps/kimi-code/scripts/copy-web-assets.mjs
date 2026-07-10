@@ -1,27 +1,24 @@
-import { cp, rm, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const repoRoot = resolve(appRoot, '../..');
-const source = resolve(repoRoot, 'apps/kimi-web/dist');
 const target = resolve(appRoot, 'dist-web');
 
-async function assertBuiltWeb() {
+async function assertWebSnapshot() {
   try {
-    const info = await stat(resolve(source, 'index.html'));
+    const info = await stat(resolve(target, 'index.html'));
     if (!info.isFile()) {
       throw new Error('index.html is not a file');
     }
   } catch {
     throw new Error(
-      `Kimi web build output was not found at ${source}. Run \`pnpm --filter @moonshot-ai/kimi-web run build\` first.`,
+      `Embedded web snapshot was not found at ${target}. ` +
+        `The web app now lives in the code-app repo. Run code-app's \`pnpm run sync:web\` ` +
+        `and commit the dist-web snapshot here first.`,
     );
   }
 }
 
-await assertBuiltWeb();
-await rm(target, { recursive: true, force: true });
-await cp(source, target, { recursive: true });
-
-console.log(`Copied Kimi web assets to ${target}`);
+await assertWebSnapshot();
+console.log(`Embedded web snapshot present at ${target}`);
