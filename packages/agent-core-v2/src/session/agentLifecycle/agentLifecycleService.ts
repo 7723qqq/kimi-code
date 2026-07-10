@@ -15,7 +15,7 @@
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { IInstantiationService } from '#/_base/di/instantiation';
-import { Disposable } from '#/_base/di/lifecycle';
+import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { Emitter } from '#/_base/event';
 import { sessionMediaOriginalsDir } from '#/_base/tools/support/image-originals';
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -24,6 +24,7 @@ import {
   type IAgentScopeHandle,
   LifecycleScope,
   registerScopedService,
+  type ScopeSeed,
 } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventBus } from '#/app/event/eventBus';
@@ -44,7 +45,7 @@ import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentActivityService, ISessionActivityKernel } from '#/activity/activity';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
@@ -68,6 +69,7 @@ import { WireService } from '#/wire/wireServiceImpl';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { AgentBlobServiceImpl } from '#/agent/blob/agentBlobServiceImpl';
 import { IAgentExternalHooksService } from '#/agent/externalHooks/externalHooks';
+import { ISessionInteractionService } from '#/session/interaction/interaction';
 
 import { createHooks } from '#/hooks';
 import {
@@ -96,6 +98,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   private readonly onDidDisposeEmitter = this._register(new Emitter<string>());
   private mcpManager: McpConnectionManager | undefined;
   private mcpInitialLoad: Promise<void> | undefined;
+  private readonly interactionBusDisposables = new Map<string, IDisposable>();
 
   get onDidCreate() {
     return this.onDidCreateEmitter.event;
@@ -119,19 +122,43 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     @IAtomicDocumentStore private readonly atomicDocs: IAtomicDocumentStore,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @ISessionActivityKernel private readonly activityKernel: ISessionActivityKernel,
+    @ISessionInteractionService private readonly interaction: ISessionInteractionService,
     @IAppendLogStore private readonly appendLog?: IAppendLogStore,
   ) {
     super();
+    // Bridge the per-agent `IEventBus` `turn.ended` into the Session-scope
+    // interaction kernel: the bus is Agent-scoped and cannot be injected into
+    // `SessionInteractionService` directly. Every agent (main + sub/forked) is
+    // created through `create()`, which fires `onDidCreate`, so subscribing here
+    // covers all of them; `onDidDispose` releases the per-agent subscription.
+    this._register(this.onDidCreate((handle) => this.subscribeInteractionBus(handle)));
+    this._register(
+      this.onDidDispose((agentId) => {
+        const d = this.interactionBusDisposables.get(agentId);
+        if (d !== undefined) {
+          d.dispose();
+          this.interactionBusDisposables.delete(agentId);
+        }
+      }),
+    );
+    this._register({
+      dispose: () => {
+        for (const d of this.interactionBusDisposables.values()) d.dispose();
+        this.interactionBusDisposables.clear();
+      },
+    });
+  }
+
+  private subscribeInteractionBus(handle: IAgentScopeHandle): void {
+    if (this.interactionBusDisposables.has(handle.id)) return;
+    const d = handle.accessor
+      .get(IEventBus)
+      .subscribe('turn.ended', (e) => this.interaction.cancelPendingForTurn(e.turnId));
+    this.interactionBusDisposables.set(handle.id, d);
   }
 
   async create(opts: CreateAgentOptions = {}): Promise<IAgentScopeHandle> {
-    if (!this.activityKernel.canAccept('agent.create')) {
-      throw new KimiError(
-        ErrorCodes.ACTIVITY_SESSION_REJECTED,
-        `Session is ${this.activityKernel.lane()}; agent creation rejected`,
-        { details: { lane: this.activityKernel.lane() } },
-      );
-    }
+    this.assertCanCreate();
     const agentId = opts.agentId ?? `agent-${nextAgentId++}`;
     const mcpManager = this.getMcpManager();
     const mcpReady = this.ensureMcpReady();
@@ -152,39 +179,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       this.instantiation,
       LifecycleScope.Agent,
       agentId,
-      {
-        extra: [
-          [
-            IAgentScopeContext,
-            {
-              _serviceBrand: undefined,
-              agentId,
-              scope: (subKey?: string): string =>
-                subKey === undefined || subKey === '' ? agentScope : `${agentScope}/${subKey}`,
-            } satisfies IAgentScopeContext,
-          ],
-          [IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{ homedir: agentHomedir }])],
-          [
-            IAgentWireService,
-            new SyncDescriptor(WireService, [
-              {
-                logScope: agentScope,
-                logKey: WIRE_RECORD_FILENAME,
-              },
-            ]),
-          ],
-          [IAgentBlobService, new SyncDescriptor(AgentBlobServiceImpl)],
-          [
-            IAgentMcpService,
-            new SyncDescriptor(AgentMcpService, [
-              {
-                manager: mcpManager,
-                originalsDir: sessionMediaOriginalsDir(this.ctx.sessionDir),
-              },
-            ]),
-          ],
-        ],
-      },
+      { extra: this.buildAgentScopeExtras({ agentId, agentHomedir, agentScope, mcpManager }) },
     ) as IAgentScopeHandle;
     this.handles.set(agentId, handle);
     // Record the agent in the session registry so a closed-session fork can
@@ -197,43 +192,99 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       labels: opts.labels,
     });
     this.onDidCreateEmitter.fire(handle);
-    // Force-instantiate the Eager builtin-tools registrar: its constructor
-    // consumes every module-level `registerTool(...)` contribution and
-    // registers each built-in tool (with `@IX` dependencies resolved against
-    // this scope) into the per-agent `IAgentToolRegistryService`. Must happen
-    // before the first turn — otherwise the LLM sees an empty tool list. The
-    // registrar is separate from the registry itself to avoid a construction
-    // cycle where tool ctors transitively depend on the registry.
-    handle.accessor.get(IAgentBuiltinToolsRegistrar);
-    // Force-instantiate the media-tools registrar next: media tools cannot use
-    // the contribution table (capabilities are unknown until a model binds), so
-    // this service re-registers ReadMediaFile on every `agent.status.updated`.
-    // It must exist before the `opts.binding` bind below publishes the first one.
-    handle.accessor.get(IAgentMediaToolsRegistrar);
-    // Force-instantiate the external hook adapter so it registers listeners on
-    // the agent's domain hooks before the first turn. No business service
-    // injects it directly; it observes their hooks instead.
-    handle.accessor.get(IAgentExternalHooksService);
-    // Force-instantiate the agent's MCP service so it attaches the (shared)
-    // manager's tools and registers the `wait-for-initial-load` hook before the
-    // first turn — otherwise plugin/session MCP servers would connect but their
-    // tools would never register until something explicitly requests the service.
-    handle.accessor.get(IAgentMcpService);
-    handle.accessor.get(IAgentToolSelectService);
-    handle.accessor.get(IAgentToolSelectAnnouncementsService);
+    this.igniteEagerServices(handle);
     await mcpReady;
     await this.ensureWireMetadata(handle, agentScope);
+    await this.bindBootstrap(handle, opts);
+    // Bootstrap (eager tool / hook / MCP setup, wire metadata, profile binding)
+    // is complete: drive the activity kernel `initializing → idle` so the agent
+    // can admit turns. Until this point `begin` rejects with `activity.initializing`.
+    handle.accessor.get(IAgentActivityService).markReady();
+    return handle;
+  }
+
+  private assertCanCreate(): void {
+    if (!this.activityKernel.canAccept('agent.create')) {
+      throw new KimiError(
+        ErrorCodes.ACTIVITY_SESSION_REJECTED,
+        `Session is ${this.activityKernel.lane()}; agent creation rejected`,
+        { details: { lane: this.activityKernel.lane() } },
+      );
+    }
+  }
+
+  private buildAgentScopeExtras(input: {
+    readonly agentId: string;
+    readonly agentHomedir: string;
+    readonly agentScope: string;
+    readonly mcpManager: McpConnectionManager;
+  }): ScopeSeed {
+    const { agentId, agentHomedir, agentScope, mcpManager } = input;
+    return [
+      [IAgentScopeContext, makeAgentScopeContext({ agentId, agentScope })],
+      [IAgentWireRecordService, new SyncDescriptor(AgentWireRecordService, [{ homedir: agentHomedir }])],
+      [
+        IAgentWireService,
+        new SyncDescriptor(WireService, [
+          {
+            logScope: agentScope,
+            logKey: WIRE_RECORD_FILENAME,
+          },
+        ]),
+      ],
+      [IAgentBlobService, new SyncDescriptor(AgentBlobServiceImpl)],
+      [
+        IAgentMcpService,
+        new SyncDescriptor(AgentMcpService, [
+          {
+            manager: mcpManager,
+            originalsDir: sessionMediaOriginalsDir(this.ctx.sessionDir),
+          },
+        ]),
+      ],
+    ];
+  }
+
+  // Force-instantiate the agent-scope eager registrars before the first turn,
+  // in dependency order: each consumes scope contributions or observes domain
+  // hooks and must exist before `bindBootstrap` publishes the first status.
+  private igniteEagerServices(handle: IAgentScopeHandle): void {
+    // Builtin-tools registrar: consumes every module-level `registerTool(...)`
+    // contribution and registers each built-in tool (with `@IX` deps resolved
+    // against this scope) into the per-agent `IAgentToolRegistryService`. Must
+    // happen before the first turn — otherwise the LLM sees an empty tool list.
+    // Separate from the registry itself to avoid a construction cycle where
+    // tool ctors transitively depend on the registry.
+    handle.accessor.get(IAgentBuiltinToolsRegistrar);
+    // Media-tools registrar: media tools cannot use the contribution table
+    // (capabilities are unknown until a model binds), so this service
+    // re-registers ReadMediaFile on every `agent.status.updated`.
+    handle.accessor.get(IAgentMediaToolsRegistrar);
+    // External hook adapter: registers listeners on the agent's domain hooks
+    // before the first turn. No business service injects it directly; it
+    // observes their hooks instead.
+    handle.accessor.get(IAgentExternalHooksService);
+    // Agent MCP service: attaches the (shared) manager's tools and registers
+    // the `wait-for-initial-load` hook before the first turn — otherwise
+    // plugin/session MCP servers would connect but their tools would never
+    // register until something explicitly requests the service.
+    handle.accessor.get(IAgentMcpService);
+    // Tool-select services: precompute tool selection and the announcements
+    // derived from it before the first turn.
+    handle.accessor.get(IAgentToolSelectService);
+    handle.accessor.get(IAgentToolSelectAnnouncementsService);
+  }
+
+  private async bindBootstrap(
+    handle: IAgentScopeHandle,
+    opts: CreateAgentOptions,
+  ): Promise<void> {
     if (opts.binding !== undefined) {
       await handle.accessor.get(IAgentProfileService).bind(opts.binding);
     }
     if (opts.permissionMode !== undefined) {
       handle.accessor.get(IAgentPermissionModeService).setMode(opts.permissionMode);
     }
-    // Bootstrap (eager tool / hook / MCP setup, wire metadata, profile binding)
-    // is complete: drive the activity kernel `initializing → idle` so the agent
-    // can admit turns. Until this point `begin` rejects with `activity.initializing`.
-    handle.accessor.get(IAgentActivityService).markReady();
-    return handle;
   }
 
   private async ensureWireMetadata(

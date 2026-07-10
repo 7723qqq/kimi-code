@@ -69,6 +69,14 @@ export interface ISessionInteractionService {
    * exists purely for idempotency signaling.
    */
   isRecentlyResolved(id: string): boolean;
+  /**
+   * Cancel every pending interaction whose {@link InteractionOrigin.turnId}
+   * matches `turnId`, resolving each as `{ cancelled: true, reason: 'turn_ended' }`.
+   * Driven from the per-agent `IEventBus` `turn.ended` via the Session-scope
+   * `IAgentLifecycleService` bridge — the bus is Agent-scoped and cannot be
+   * injected here directly. No-op when no pending interaction matches.
+   */
+  cancelPendingForTurn(turnId: number): void;
   readonly onDidChangePending: Event<InteractionPendingChangedEvent>;
   /** Fires when a pending request is responded to, carrying its id and response. */
   readonly onDidResolve: Event<InteractionResolution>;

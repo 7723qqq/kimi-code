@@ -13,6 +13,7 @@ import { IAgentPromptLegacyService } from '#/agent/promptLegacy/promptLegacy';
 import { AgentPromptLegacyService } from '#/agent/promptLegacy/promptLegacyService';
 import { IAuthSummaryService } from '#/app/auth/auth';
 import { IEventService } from '#/app/event/event';
+import { IEventBus, type DomainEvent } from '#/app/event/eventBus';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 
@@ -44,6 +45,7 @@ interface Harness {
   readonly turns: Turn[];
   readonly settleActive: (result: TurnResult) => void;
   readonly steered: string[];
+  readonly published: readonly DomainEvent[];
   readonly ensureReady: ReturnType<typeof vi.fn>;
 }
 
@@ -56,6 +58,14 @@ function createHarness(options: { readonly blockPrompt?: boolean } = {}): Harnes
   let activeSettle: ((result: TurnResult) => void) | undefined;
   const turns: Turn[] = [];
   const steered: string[] = [];
+  const published: DomainEvent[] = [];
+  const eventBus: IEventBus = {
+    _serviceBrand: undefined,
+    publish: (event) => {
+      published.push(event);
+    },
+    subscribe: () => ({ dispose: () => undefined }),
+  };
 
   const prompt: IAgentPromptService = {
     _serviceBrand: undefined,
@@ -139,6 +149,7 @@ function createHarness(options: { readonly blockPrompt?: boolean } = {}): Harnes
       reg.definePartialInstance(IEventService, {
         publish: vi.fn(),
       });
+      reg.defineInstance(IEventBus, eventBus);
       reg.define(IAgentPromptLegacyService, AgentPromptLegacyService);
     },
   });
@@ -147,6 +158,7 @@ function createHarness(options: { readonly blockPrompt?: boolean } = {}): Harnes
     service,
     turns,
     steered,
+    published,
     ensureReady,
     settleActive: (result) => activeSettle?.(result),
   };
@@ -294,5 +306,87 @@ describe('AgentPromptLegacyService', () => {
     );
     await service.abort(second.submit.prompt_id);
     expect(await outcome).toBe('rejected');
+  });
+
+  it('publishes prompt.completed when the active turn settles', async () => {
+    const { service, settleActive, published } = createHarness();
+    const first = await service.submit(textBody('hi'));
+    settleActive({ reason: 'completed' });
+    await vi.waitFor(() =>
+      expect(
+        published.some(
+          (e) =>
+            e.type === 'prompt.completed' &&
+            e.promptId === first.prompt_id &&
+            e.reason === 'completed' &&
+            typeof e.finishedAt === 'string',
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it('publishes prompt.completed with reason failed when the turn fails', async () => {
+    const { service, settleActive, published } = createHarness();
+    const first = await service.submit(textBody('hi'));
+    settleActive({ reason: 'failed', error: new Error('boom') });
+    await vi.waitFor(() =>
+      expect(
+        published.some(
+          (e) =>
+            e.type === 'prompt.completed' &&
+            e.promptId === first.prompt_id &&
+            e.reason === 'failed' &&
+            typeof e.finishedAt === 'string',
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it('publishes prompt.aborted when an active prompt is aborted and settles cancelled', async () => {
+    const { service, settleActive, published } = createHarness();
+    const first = await service.submit(textBody('hi'));
+    await service.abort(first.prompt_id);
+    settleActive({ reason: 'cancelled' });
+    await vi.waitFor(() =>
+      expect(
+        published.some(
+          (e) =>
+            e.type === 'prompt.aborted' &&
+            e.promptId === first.prompt_id &&
+            typeof e.abortedAt === 'string',
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it('publishes prompt.aborted when a queued prompt is aborted', async () => {
+    const { service, published } = createHarness();
+    await service.submit(textBody('first'));
+    const second = await service.submit(textBody('second'));
+    await service.abort(second.prompt_id);
+    expect(
+      published.some(
+        (e) =>
+          e.type === 'prompt.aborted' &&
+          e.promptId === second.prompt_id &&
+          typeof e.abortedAt === 'string',
+      ),
+    ).toBe(true);
+  });
+
+  it('publishes prompt.steered when queued prompts are steered', async () => {
+    const { service, published } = createHarness();
+    await service.submit(textBody('first'));
+    const second = await service.submit(textBody('second'));
+    await service.steer([second.prompt_id]);
+    expect(
+      published.some(
+        (e) =>
+          e.type === 'prompt.steered' &&
+          e.promptIds.includes(second.prompt_id) &&
+          e.content.length === 1 &&
+          typeof e.steeredAt === 'string',
+      ),
+    ).toBe(true);
   });
 });

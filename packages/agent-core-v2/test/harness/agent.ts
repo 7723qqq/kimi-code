@@ -1709,6 +1709,11 @@ export class AgentTestContext {
           : interactions.filter((interaction) => interaction.kind === kind);
       },
       isRecentlyResolved: () => false,
+      cancelPendingForTurn: (turnId: number) => {
+        for (const [id, interaction] of pending) {
+          if (interaction.origin?.turnId === turnId) pending.delete(id);
+        }
+      },
       onDidChangePending: Event.None as Event<InteractionPendingChangedEvent>,
       onDidResolve: Event.None as Event<InteractionResolution>,
     };

@@ -3,15 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IEventBus } from '#/app/event/eventBus';
 import { ISessionInteractionService } from '#/session/interaction/interaction';
 import { SessionInteractionService } from '#/session/interaction/interactionService';
-
-const noopEventBus: IEventBus = {
-  _serviceBrand: undefined,
-  publish: () => undefined,
-  subscribe: () => ({ dispose: () => undefined }),
-};
 
 describe('SessionInteractionService', () => {
   let disposables: DisposableStore;
@@ -20,7 +13,6 @@ describe('SessionInteractionService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    ix.stub(IEventBus, noopEventBus);
     ix.set(ISessionInteractionService, new SyncDescriptor(SessionInteractionService));
   });
   afterEach(() => disposables.dispose());
@@ -119,28 +111,35 @@ describe('SessionInteractionService', () => {
     expect(count).toBe(0);
   });
 
-  it('clears pending interactions whose turn has ended (矛盾 c)', () => {
-    const handlers = new Map<string, (e: { turnId: number }) => void>();
-    const capturingBus = {
-      _serviceBrand: undefined,
-      publish: () => undefined,
-      subscribe: (type: string, handler: (e: { turnId: number }) => void) => {
-        handlers.set(type, handler);
-        return { dispose: () => undefined };
-      },
-    } as unknown as IEventBus;
-    const local = disposables.add(new TestInstantiationService());
-    local.stub(IEventBus, capturingBus);
-    local.set(ISessionInteractionService, new SyncDescriptor(SessionInteractionService));
-    const svc = local.get(ISessionInteractionService);
+  it('cancelPendingForTurn clears pending interactions whose turn has ended (矛盾 c)', () => {
+    const svc = ix.get(ISessionInteractionService);
 
     svc.enqueue({ id: 'a1', kind: 'approval', payload: {}, origin: { agentId: 'main', turnId: 3 } });
     svc.enqueue({ id: 'a2', kind: 'approval', payload: {}, origin: { agentId: 'main', turnId: 7 } });
     expect(svc.listPending()).toHaveLength(2);
 
-    handlers.get('turn.ended')?.({ turnId: 3 });
+    svc.cancelPendingForTurn(3);
 
     expect(svc.listPending().map((i) => i.id)).toEqual(['a2']);
     expect(svc.isRecentlyResolved('a1')).toBe(true);
+  });
+
+  it('cancelPendingForTurn resolves cancelled interactions through onDidResolve', () => {
+    const svc = ix.get(ISessionInteractionService);
+    const seen: { id: string; response: unknown }[] = [];
+    disposables.add(svc.onDidResolve((r) => seen.push(r)));
+
+    svc.enqueue({ id: 'a1', kind: 'approval', payload: {}, origin: { turnId: 5 } });
+    svc.cancelPendingForTurn(5);
+
+    expect(seen).toEqual([{ id: 'a1', response: { cancelled: true, reason: 'turn_ended' } }]);
+    expect(svc.listPending()).toHaveLength(0);
+  });
+
+  it('cancelPendingForTurn is a no-op when no interaction matches', () => {
+    const svc = ix.get(ISessionInteractionService);
+    svc.enqueue({ id: 'a1', kind: 'approval', payload: {}, origin: { turnId: 1 } });
+    expect(() => svc.cancelPendingForTurn(99)).not.toThrow();
+    expect(svc.listPending()).toHaveLength(1);
   });
 });

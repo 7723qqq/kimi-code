@@ -158,7 +158,7 @@ async function distillSummary(
   const memory = target.accessor.get(IAgentContextMemoryService);
   let summary = latestAssistantText(memory.get());
   if (policy === undefined) return summary;
-  if (summary.trim().length >= policy.minChars) return summary;
+  if (isSummaryAdequate(summary, policy)) return summary;
 
   const promptService = target.accessor.get(IAgentPromptService);
   for (let attempt = 0; attempt < policy.retries; attempt++) {
@@ -175,9 +175,13 @@ async function distillSummary(
     if (result.reason !== 'completed') break;
     const continued = latestAssistantText(memory.get());
     if (continued.trim().length > 0) summary = continued;
-    if (summary.trim().length >= policy.minChars) break;
+    if (isSummaryAdequate(summary, policy)) break;
   }
   return summary;
+}
+
+function isSummaryAdequate(summary: string, policy: AgentProfileSummaryPolicy): boolean {
+  return summary.trim().length >= policy.minChars;
 }
 
 function classifyTurnResult(

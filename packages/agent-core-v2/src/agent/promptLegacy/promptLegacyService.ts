@@ -6,9 +6,10 @@
  * observes active turns through `turn`, applies request overrides through
  * `profile` / `permissionMode`, persists prompt metadata through
  * `sessionMetadata`, publishes updates through `event`, and reads the
- * session identity from `sessionContext`. Legacy `prompt.*` lifecycle events
- * are not emitted (they are not part of the v2 `AgentEvent` union); the HTTP
- * responses carry the same information. Bound at Agent scope.
+ * session identity from `sessionContext`. Also synthesizes the legacy
+ * `prompt.completed` / `prompt.aborted` / `prompt.steered` lifecycle events
+ * onto the per-agent `IEventBus` so the v1-compatible WS edge can forward
+ * them (the v2 core engine emits only `turn.ended`). Bound at Agent scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -27,13 +28,17 @@ import {
 import type { ContentPart } from '#/app/llmProtocol/message';
 import { IAuthSummaryService } from '#/app/auth/auth';
 import { IEventService } from '#/app/event/event';
+import { IEventBus } from '#/app/event/eventBus';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import type {
   PromptAbortResponse,
+  PromptAbortedEvent,
+  PromptCompletedEvent,
   PromptItem,
   PromptListResponse,
   PromptStatus,
+  PromptSteeredEvent,
   PromptSteerResult,
   PromptSubmission,
   PromptSubmitResult,
@@ -44,6 +49,14 @@ import {
   type PromptCompletion,
   type PromptSettleResult,
 } from './promptLegacy';
+
+declare module '#/app/event/eventBus' {
+  interface DomainEventMap {
+    'prompt.completed': PromptCompletedEvent;
+    'prompt.aborted': PromptAbortedEvent;
+    'prompt.steered': PromptSteeredEvent;
+  }
+}
 
 interface PromptRecord {
   readonly promptId: string;
@@ -77,6 +90,7 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
     @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
     @ISessionMetadata private readonly metadata: ISessionMetadata,
     @IEventService private readonly eventService: IEventService,
+    @IEventBus private readonly eventBus: IEventBus,
     @ISessionContext private readonly sessionContext: ISessionContext,
     @IAuthSummaryService private readonly authSummary: IAuthSummaryService,
   ) {}
@@ -149,19 +163,23 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
     selected.reverse();
 
     const content = selected.flatMap((record) => contentToCoreParts(record.body.content));
+    const steeredContent = selected.flatMap((record) => record.body.content);
+    const activePromptId = this.active.promptId;
     await this.prompt.steer({
       role: 'user',
       content,
       toolCalls: [],
       origin: { kind: 'user' },
     }).launched;
+    this.publishSteered(activePromptId, promptIds, steeredContent);
     return { steered: true, prompt_ids: [...promptIds] };
   }
 
   async abort(promptId: string): Promise<PromptAbortResponse> {
     if (this.active?.promptId === promptId) {
       // Mark and cancel; the turn settles asynchronously and `onTurnSettled`
-      // clears `active` and starts the next queued prompt.
+      // clears `active`, starts the next queued prompt, and emits the
+      // `prompt.aborted` lifecycle event (so we do not double-emit here).
       this.abortedPromptIds.add(promptId);
       this.turnService.cancel(this.active.turn.id, userCancellationReason());
       return { aborted: true };
@@ -171,8 +189,10 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
     if (index >= 0) {
       this.queued.splice(index, 1);
       // The prompt never launched, so no turn will settle it — reject any
-      // completion waiter instead of leaving it pending.
+      // completion waiter instead of leaving it pending, and emit the
+      // `prompt.aborted` lifecycle event here since no `turn.ended` will.
       this.rejectCompletion(promptId, userCancellationReason());
+      this.publishAborted(promptId);
       return { aborted: true };
     }
 
@@ -232,11 +252,47 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
     return 'running';
   }
 
+  private publishCompleted(promptId: string, reason: 'completed' | 'failed'): void {
+    this.eventBus.publish({
+      type: 'prompt.completed',
+      promptId,
+      finishedAt: new Date().toISOString(),
+      reason,
+    });
+  }
+
+  private publishAborted(promptId: string): void {
+    this.eventBus.publish({
+      type: 'prompt.aborted',
+      promptId,
+      abortedAt: new Date().toISOString(),
+    });
+  }
+
+  private publishSteered(
+    activePromptId: string,
+    promptIds: readonly string[],
+    content: PromptSubmission['content'],
+  ): void {
+    this.eventBus.publish({
+      type: 'prompt.steered',
+      activePromptId,
+      promptIds: [...promptIds],
+      content,
+      steeredAt: new Date().toISOString(),
+    });
+  }
+
   private onTurnSettled(promptId: string, result: TurnResult): void {
     if (this.active?.promptId !== promptId) return;
     this.active = undefined;
     this.abortedPromptIds.delete(promptId);
     this.resolveCompletion(promptId, result);
+    if (result.reason === 'cancelled') {
+      this.publishAborted(promptId);
+    } else {
+      this.publishCompleted(promptId, result.reason === 'failed' ? 'failed' : 'completed');
+    }
     this.startNextQueued();
   }
 

@@ -99,7 +99,9 @@ export class PromptTranscriptWriter implements PromptTurnWriter {
 
   writeToolResult(): void {}
 
-  flushAssistant(): void {}
+  flushAssistant(): void {
+    this.assistantWriter.finish();
+  }
 
   discardAssistant(): void {}
 

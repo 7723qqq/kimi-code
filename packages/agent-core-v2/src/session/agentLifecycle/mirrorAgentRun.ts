@@ -116,6 +116,11 @@ export async function mirrorAgentRun(
   const agentLifecycle = requester.accessor.get(IAgentLifecycleService);
   eventBus?.publish({ type: 'subagent.started', subagentId: run.agentId });
   if (options.prompt !== undefined) {
+    const cancelAndRethrow = (reason: unknown): never => {
+      options.cancel?.(reason);
+      void run.completion.catch(() => {});
+      throw reason;
+    };
     try {
       await agentLifecycle?.hooks.onWillStartAgentTask.run({
         agentName: options.profileName,
@@ -123,15 +128,10 @@ export async function mirrorAgentRun(
         signal: options.signal,
       });
     } catch (error) {
-      options.cancel?.(error);
-      void run.completion.catch(() => {});
-      throw error;
+      cancelAndRethrow(error);
     }
     if (options.signal.aborted) {
-      const reason: unknown = options.signal.reason ?? userCancellationReason();
-      options.cancel?.(reason);
-      void run.completion.catch(() => {});
-      throw reason;
+      cancelAndRethrow(options.signal.reason ?? userCancellationReason());
     }
   }
   try {

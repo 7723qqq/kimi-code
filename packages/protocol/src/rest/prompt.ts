@@ -99,6 +99,7 @@ export interface PromptCompletedEventPayload {
   readonly sessionId: string;
   readonly promptId: string;
   readonly finishedAt: string;
+  readonly reason?: 'completed' | 'failed' | 'blocked';
 }
 
 export interface PromptAbortedEventPayload {
