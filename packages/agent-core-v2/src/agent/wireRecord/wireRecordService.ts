@@ -54,7 +54,7 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
     @IBootstrapService bootstrap: IBootstrapService,
     @IAgentBlobService private readonly blobStore?: IAgentBlobService,
     @IAppendLogStore private readonly log?: IAppendLogStore,
-    @IAgentWireService wire?: IWireService,
+    @IAgentWireService private readonly wire?: IWireService,
   ) {
     super();
     // Each agent scope seeds its own `homedir` (`<homeDir>/sessions/<ws>/<sid>/
@@ -205,6 +205,11 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
   }
 
   async flush(): Promise<void> {
+    // Drain the wire service's async persist pipeline first: with a blob
+    // service registered, appends are queued on a microtask chain and only
+    // reach the log store once that queue settles. Flushing the log alone
+    // would miss records still in flight.
+    await this.wire?.flush();
     await this.log?.flush();
   }
 
