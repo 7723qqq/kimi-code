@@ -228,7 +228,46 @@ describe('kimiModelEnvOverlay', () => {
       },
     });
     expect(effective['providers']).toEqual({
-      [ENV_MODEL_PROVIDER_KEY]: { type: 'kimi' },
+      [ENV_MODEL_PROVIDER_KEY]: { type: 'kimi', baseUrl: 'https://api.moonshot.ai/v1' },
+    });
+  });
+
+  it('synthesizes the openai default baseUrl when KIMI_MODEL_BASE_URL is unset', () => {
+    const { effective } = applyKimiModelEnvOverlay(
+      { KIMI_MODEL_NAME: 'env-model' },
+      { providers: { [ENV_MODEL_PROVIDER_KEY]: { type: 'openai' } } },
+    );
+
+    expect(effective['providers']).toEqual({
+      [ENV_MODEL_PROVIDER_KEY]: { type: 'openai', baseUrl: 'https://api.openai.com/v1' },
+    });
+  });
+
+  it('omits baseUrl for anthropic so the SDK picks its default', () => {
+    const { effective } = applyKimiModelEnvOverlay(
+      { KIMI_MODEL_NAME: 'env-model' },
+      { providers: { [ENV_MODEL_PROVIDER_KEY]: { type: 'anthropic' } } },
+    );
+
+    expect(effective['providers']).toEqual({
+      [ENV_MODEL_PROVIDER_KEY]: { type: 'anthropic' },
+    });
+  });
+
+  it('honors an explicit baseUrl over the type default', () => {
+    // The KIMI_MODEL_BASE_URL binding is applied by the provider config section;
+    // emulate its effect by seeding the resolved provider with the bound baseUrl.
+    const { effective } = applyKimiModelEnvOverlay(
+      { KIMI_MODEL_NAME: 'env-model' },
+      {
+        providers: {
+          [ENV_MODEL_PROVIDER_KEY]: { type: 'openai', baseUrl: 'https://api.example.com/v1' },
+        },
+      },
+    );
+
+    expect(effective['providers']).toEqual({
+      [ENV_MODEL_PROVIDER_KEY]: { type: 'openai', baseUrl: 'https://api.example.com/v1' },
     });
   });
 
