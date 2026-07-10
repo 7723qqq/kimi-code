@@ -33,7 +33,7 @@
  */
 
 import { Jimp, ResizeStrategy } from 'jimp';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   buildImageCompressionCaption,
@@ -44,6 +44,11 @@ import {
   extractImageCompressionCaptions,
   IMAGE_BYTE_BUDGET,
   MAX_IMAGE_EDGE_PX,
+  READ_IMAGE_BYTE_BUDGET,
+  resolveMaxImageEdgePx,
+  resolveReadImageByteBudget,
+  setConfiguredMaxImageEdgePx,
+  setConfiguredReadImageByteBudget,
   type ImageCompressionTelemetryClient,
 } from '../../../src/_base/tools/support/image-compress';
 import { sniffImageDimensions } from '../../../src/_base/tools/support/file-type';
@@ -1240,5 +1245,40 @@ describe('cropImageForModel — telemetry', () => {
       { skipResize: true, byteBudget: 8 * 1024, telemetry: { client: budget.client, source: 'read_media' } },
     );
     expect(budget.events[0]!.props['error_kind']).toBe('budget');
+  });
+});
+
+describe('image-compress config resolver seam', () => {
+  // The resolvers read process-global "configured" overrides pushed by the
+  // media-domain image-config bridge. Clear them after every test so this
+  // module-global state never leaks into the compression cases above.
+  afterEach(() => {
+    setConfiguredMaxImageEdgePx(undefined);
+    setConfiguredReadImageByteBudget(undefined);
+  });
+
+  it('resolves the longest-edge ceiling from config, falling back to the built-in', () => {
+    expect(resolveMaxImageEdgePx()).toBe(MAX_IMAGE_EDGE_PX);
+    setConfiguredMaxImageEdgePx(1500);
+    expect(resolveMaxImageEdgePx()).toBe(1500);
+    setConfiguredMaxImageEdgePx(undefined);
+    expect(resolveMaxImageEdgePx()).toBe(MAX_IMAGE_EDGE_PX);
+  });
+
+  it('ignores non-positive-int configured ceilings', () => {
+    setConfiguredMaxImageEdgePx(0);
+    expect(resolveMaxImageEdgePx()).toBe(MAX_IMAGE_EDGE_PX);
+    setConfiguredMaxImageEdgePx(-5);
+    expect(resolveMaxImageEdgePx()).toBe(MAX_IMAGE_EDGE_PX);
+    setConfiguredMaxImageEdgePx(1.5);
+    expect(resolveMaxImageEdgePx()).toBe(MAX_IMAGE_EDGE_PX);
+  });
+
+  it('resolves the read-image byte budget from config, falling back to the built-in', () => {
+    expect(resolveReadImageByteBudget()).toBe(READ_IMAGE_BYTE_BUDGET);
+    setConfiguredReadImageByteBudget(128 * 1024);
+    expect(resolveReadImageByteBudget()).toBe(128 * 1024);
+    setConfiguredReadImageByteBudget(undefined);
+    expect(resolveReadImageByteBudget()).toBe(READ_IMAGE_BYTE_BUDGET);
   });
 });

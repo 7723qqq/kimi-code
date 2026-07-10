@@ -54,6 +54,7 @@ import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMo
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentBuiltinToolsRegistrar } from '#/agent/toolRegistry/builtinToolsRegistrar';
 import { IAgentMediaToolsRegistrar } from '#/agent/media/mediaTools';
+import { IImageConfigBridge } from '#/agent/media/imageConfigBridge';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
   IAgentWireRecordService,
@@ -260,6 +261,11 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     // (capabilities are unknown until a model binds), so this service
     // re-registers ReadMediaFile on every `agent.status.updated`.
     handle.accessor.get(IAgentMediaToolsRegistrar);
+    // Image-config bridge: pushes the env-resolved `[image]` section into the
+    // compression support module's resolver seam before the first turn, so
+    // ReadMediaFile / MCP / prompt ingestion honor `[image] max_edge_px` and
+    // `read_byte_budget` (and their env overrides) through the implicit default.
+    handle.accessor.get(IImageConfigBridge);
     // External hook adapter: registers listeners on the agent's domain hooks
     // before the first turn. No business service injects it directly; it
     // observes their hooks instead.

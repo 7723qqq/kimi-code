@@ -308,6 +308,11 @@ export {
   buildImageCompressionCaption,
   compressBase64ForModel,
   compressImageForModel,
+  IMAGE_BYTE_BUDGET,
+  MAX_IMAGE_EDGE_PX,
+  READ_IMAGE_BYTE_BUDGET,
+  resolveMaxImageEdgePx,
+  resolveReadImageByteBudget,
   type ImageCompressionTelemetry,
 } from '#/_base/tools/support/image-compress';
 export {
@@ -372,6 +377,8 @@ export * from '#/agent/mcp/config-schema';
 export * from '#/agent/media/mediaTools';
 export * from '#/agent/media/mediaToolsRegistrar';
 export * from '#/agent/media/registerMediaTools';
+import '#/agent/media/configSection';
+export * from '#/agent/media/imageConfigBridge';
 import '#/agent/permissionMode/configSection';
 export * from '#/agent/permissionMode/permissionMode';
 export * from '#/agent/permissionMode/permissionModeService';
