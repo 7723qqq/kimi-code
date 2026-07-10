@@ -75,8 +75,6 @@
         ./packages/protocol
         ./packages/telemetry
         ./apps/kimi-code
-        ./apps/kimi-desktop
-        ./apps/kimi-web
         ./apps/vis
         ./apps/vis/server
         ./apps/vis/web
@@ -97,8 +95,6 @@
         "@moonshot-ai/protocol"
         "@moonshot-ai/kimi-telemetry"
         "@moonshot-ai/kimi-code"
-        "@moonshot-ai/kimi-desktop"
-        "@moonshot-ai/kimi-web"
         "@moonshot-ai/vis"
         "@moonshot-ai/vis-server"
         "@moonshot-ai/vis-web"
@@ -191,9 +187,9 @@
               ''}
               # The SEA blob step (scripts/native/02-sea-blob.mjs) embeds the
               # Kimi web assets from apps/kimi-code/dist-web and fails if that
-              # directory is missing. Build the web app and stage its assets
-              # before producing the native executable.
-              pnpm --filter=@moonshot-ai/kimi-web run build
+              # directory is missing. The web app now lives in the code-app repo
+              # and its built snapshot is vendored into dist-web; assert it is
+              # present before producing the native executable.
               node apps/kimi-code/scripts/copy-web-assets.mjs
               pnpm --filter=@moonshot-ai/kimi-code run build:native:sea
               runHook postBuild
