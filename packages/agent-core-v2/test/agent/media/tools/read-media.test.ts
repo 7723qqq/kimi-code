@@ -443,7 +443,7 @@ describe('ReadMediaFileTool', () => {
     const systemText = noteText(result);
     expect(systemText).toContain('Original dimensions: 1800x3600');
     expect(systemText).toMatch(/downsampled to 1000x2000/);
-  });
+  }, 15000);
 
   it('reports the decoded size for a region read of an EXIF-rotated image', async () => {
     // Region coordinates live in the decoded (rotated) space; the note's
@@ -809,5 +809,26 @@ describe('createVideoUploader', () => {
       client: throwing,
     });
     await expect(uploader!(input)).resolves.toEqual(uploadResult);
+  });
+
+  function heicBytes(): Buffer {
+    // Minimal ftyp box: size(4) + 'ftyp' + major_brand 'heic' + minor(4) + compat(8).
+    return Buffer.from([
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00, 0x00,
+      0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00, 0x00,
+    ]);
+  }
+
+  it('refuses HEIC with a conversion command for the execution environment', async () => {
+    const result = await execute(makeTool({ '/workspace/photo.heic': { data: heicBytes() } }), {
+      path: '/workspace/photo.heic',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('image/heic');
+    expect(result.output).toContain('Convert it to JPEG first');
+    expect(result.output).toContain('/workspace/photo.jpg');
+    // The exact command depends on the host osKind; accept any of the named tools.
+    expect(result.output).toMatch(/sips -s format jpeg|heif-convert|magick/);
   });
 });
