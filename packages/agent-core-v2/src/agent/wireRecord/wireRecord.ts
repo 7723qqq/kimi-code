@@ -72,10 +72,12 @@ export interface IAgentWireRecordService {
   readonly restoring: WireRecordRestoringContext | null;
   readonly postRestoring: boolean;
   /**
-   * Snapshot of every restored record currently held in memory, in order,
-   * excluding the leading `metadata` envelope record. Intended for callers that
-   * need to replay the same history into another agent via {@link restore}
-   * (e.g. session fork).
+   * Snapshot of every record held in memory, in order, excluding the leading
+   * `metadata` envelope: the records seeded by {@link restore} plus every record
+   * persisted by live dispatch afterwards (appended in dispatch order). Intended
+   * for callers that need to replay or reduce the same history without
+   * re-reading `wire.jsonl` (e.g. session fork, the messages/snapshot
+   * transcript).
    */
   getRecords(): readonly PersistedWireRecord[];
   register<T extends keyof WireRecordMap>(

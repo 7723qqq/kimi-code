@@ -94,9 +94,12 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     'onDidCreateSession',
     'onWillCloseSession',
   ]);
-  /** In-flight `resume` promises, keyed by session id — de-dupes concurrent
-   *  cold loads so a hot read path (e.g. snapshot retry) cannot materialize
-   *  the same session twice and leak a handle. */
+  /** In-flight `resume` promises, keyed by session id. De-dupes concurrent cold
+   *  loads so a hot read path (e.g. snapshot retry) cannot materialize the same
+   *  session twice and leak a handle — and doubles as the visibility gate for
+   *  `get` / `list`: while an id is present here its materialized handle is
+   *  half-initialized (main agent not yet restored + replayed) and must not be
+   *  observable. */
   private readonly resuming = new Map<string, Promise<ISessionScopeHandle | undefined>>();
 
   constructor(
@@ -193,6 +196,12 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
   }
 
   get(sessionId: string): ISessionScopeHandle | undefined {
+    // A session mid-resume is already materialized in `this.sessions` (so
+    // close/archive can still find it) but its main agent has not finished
+    // restore + replay — exposing it would hand callers a half-initialized
+    // handle. Hide it until `resume` settles; callers that need the handle
+    // should `await resume(sessionId)`.
+    if (this.resuming.has(sessionId)) return undefined;
     return this.sessions.get(sessionId);
   }
 
@@ -247,7 +256,13 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
   }
 
   list(): readonly ISessionScopeHandle[] {
-    return [...this.sessions.values()];
+    // Exclude sessions still mid-resume for the same reason as `get`: the handle
+    // exists but is not yet restored, so it must not be observable.
+    const ready: ISessionScopeHandle[] = [];
+    for (const [id, handle] of this.sessions) {
+      if (!this.resuming.has(id)) ready.push(handle);
+    }
+    return ready;
   }
 
   async close(sessionId: string): Promise<void> {
