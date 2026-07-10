@@ -20,6 +20,7 @@ export * from './session';
 export * from './types';
 export {
   buildImageCompressionCaption,
+  COMPACTION_SUMMARY_PREFIX,
   compressImageForModel,
   persistOriginalImage,
   sessionMediaOriginalsDir,
