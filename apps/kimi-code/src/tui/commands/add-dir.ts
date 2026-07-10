@@ -76,7 +76,7 @@ async function handleAddDirChoice(
   }
 
   try {
-    const result = await session.addAdditionalDir(path, { persist: choice === 'remember' });
+    const result = await session.addAdditionalDir({ path, persist: choice === 'remember' });
     host.setAppState({ additionalDirs: result.additionalDirs });
     host.refreshSlashCommandAutocomplete();
     host.showStatus(

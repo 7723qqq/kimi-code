@@ -80,7 +80,7 @@ describe('handleSwarmCommand', () => {
     await handleSwarmCommand(host, 'Ship feature X');
 
     expect(session.setPermission).not.toHaveBeenCalled();
-    expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
+    expect(session.setSwarmMode).toHaveBeenCalledWith(true, { trigger: 'task' });
     expect(host.state.swarmModeEntry).toBe('task');
     expectSwarmMarker(host, 'Swarm activated');
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
@@ -103,7 +103,7 @@ describe('handleSwarmCommand', () => {
 
     await handleSwarmCommand(host, 'on');
 
-    expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'manual');
+    expect(session.setSwarmMode).toHaveBeenCalledWith(true, { trigger: 'manual' });
     expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
     expect(host.state.swarmModeEntry).toBe('manual');
     expectSwarmMarker(host, 'Swarm activated');
@@ -126,7 +126,7 @@ describe('handleSwarmCommand', () => {
     mountedPicker(host).handleInput(ENTER);
 
     await vi.waitFor(() => {
-      expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'manual');
+      expect(session.setSwarmMode).toHaveBeenCalledWith(true, { trigger: 'manual' });
     });
     expect(session.setPermission).toHaveBeenCalledWith('auto');
     expect(session.setSwarmMode).toHaveBeenCalledTimes(1);
@@ -142,7 +142,7 @@ describe('handleSwarmCommand', () => {
 
     await handleSwarmCommand(host, '');
 
-    expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'manual');
+    expect(session.setSwarmMode).toHaveBeenCalledWith(true, { trigger: 'manual' });
     expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
     expect(host.state.swarmModeEntry).toBe('manual');
     expectSwarmMarker(host, 'Swarm activated');
@@ -168,7 +168,7 @@ describe('handleSwarmCommand', () => {
 
     await handleSwarmCommand(host, 'off');
 
-    expect(session.setSwarmMode).toHaveBeenCalledWith(false, 'manual');
+    expect(session.setSwarmMode).toHaveBeenCalledWith(false, { trigger: 'manual' });
     expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: false });
     expect(host.state.swarmModeEntry).toBeUndefined();
     expectSwarmMarker(host, 'Swarm deactivated');
@@ -181,7 +181,7 @@ describe('handleSwarmCommand', () => {
 
     await handleSwarmCommand(host, '');
 
-    expect(session.setSwarmMode).toHaveBeenCalledWith(false, 'manual');
+    expect(session.setSwarmMode).toHaveBeenCalledWith(false, { trigger: 'manual' });
     expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: false });
     expect(host.state.swarmModeEntry).toBeUndefined();
     expectSwarmMarker(host, 'Swarm deactivated');
@@ -228,7 +228,7 @@ describe('handleSwarmCommand', () => {
       expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
     });
     expect(session.setPermission).toHaveBeenCalledWith('auto');
-    expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
+    expect(session.setSwarmMode).toHaveBeenCalledWith(true, { trigger: 'task' });
     expect(session.setSwarmMode).toHaveBeenCalledTimes(1);
     expect(host.setAppState).toHaveBeenCalledWith({ permissionMode: 'auto' });
     expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
@@ -249,7 +249,7 @@ describe('handleSwarmCommand', () => {
       expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
     });
     expect(session.setPermission).not.toHaveBeenCalled();
-    expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
+    expect(session.setSwarmMode).toHaveBeenCalledWith(true, { trigger: 'task' });
     expect(session.setSwarmMode).toHaveBeenCalledTimes(1);
     expect(host.state.swarmModeEntry).toBe('task');
     expectSwarmMarker(host, 'Swarm activated');
@@ -267,7 +267,7 @@ describe('handleSwarmCommand', () => {
       expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
     });
     expect(session.setPermission).toHaveBeenCalledWith('yolo');
-    expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
+    expect(session.setSwarmMode).toHaveBeenCalledWith(true, { trigger: 'task' });
     expect(session.setSwarmMode).toHaveBeenCalledTimes(1);
     expect(host.setAppState).toHaveBeenCalledWith({ permissionMode: 'yolo' });
     expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
@@ -319,7 +319,7 @@ describe('handleSwarmCommand', () => {
       );
     });
     expect(session.setPermission).toHaveBeenCalledWith('auto');
-    expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
+    expect(session.setSwarmMode).toHaveBeenCalledWith(true, { trigger: 'task' });
     expect(markerAddChild(host)).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });

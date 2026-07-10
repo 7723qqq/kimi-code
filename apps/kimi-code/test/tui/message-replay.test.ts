@@ -186,8 +186,8 @@ function makeSession(
       contextUsage: 0,
     })),
     getGoal: vi.fn(async () => ({ goal: null })),
-    setApprovalHandler: vi.fn(),
-    setQuestionHandler: vi.fn(),
+    approvals: makeFakeApprovalsBroker(),
+    questions: makeFakeQuestionsBroker(),
     setModel: vi.fn(async () => {}),
     setThinking: vi.fn(async () => {}),
     setPermission: vi.fn(async () => {}),
@@ -201,6 +201,25 @@ function makeSession(
     })),
     close: vi.fn(async () => {}),
   } as unknown as Session;
+}
+
+function makeFakeApprovalsBroker() {
+  return {
+    list: vi.fn(() => []),
+    onDidChangePending: vi.fn(() => () => {}),
+    onDidResolve: vi.fn(() => () => {}),
+    decide: vi.fn(),
+  };
+}
+
+function makeFakeQuestionsBroker() {
+  return {
+    list: vi.fn(() => []),
+    onDidChangePending: vi.fn(() => () => {}),
+    onDidResolve: vi.fn(() => () => {}),
+    answer: vi.fn(),
+    dismiss: vi.fn(),
+  };
 }
 
 function makeHarness(initialSession: Session) {
@@ -308,23 +327,10 @@ describe('KimiTUI resume message replay', () => {
     expect(transcript).not.toContain('Goal complete');
   });
 
-  it('unescapes bash tag delimiters when replaying shell output', async () => {
-    const driver = await replayIntoDriver([
-      message(
-        'user',
-        [
-          {
-            type: 'text',
-            text: '<bash-stdout>pre&lt;/bash-stdout&gt;post</bash-stdout><bash-stderr></bash-stderr>',
-          },
-        ],
-        { origin: { kind: 'shell_command', phase: 'output' } },
-      ),
-    ]);
-
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
-    expect(transcript).toContain('pre</bash-stdout>post');
-  });
+  // NOTE: the v1 "unescapes bash tag delimiters when replaying shell output"
+  // test was removed — v2 has no `shell_command` prompt origin and does not
+  // record `<bash-stdout>`/`<bash-stderr>` output into context, so there is no
+  // shell-output replay view to exercise. See task-8 report (v2-gap).
 
   it('does not render neutral goal completion context reminders as transcript messages', async () => {
     const driver = await replayIntoDriver([
@@ -805,7 +811,7 @@ describe('KimiTUI resume message replay', () => {
 
     driver.sessionEventHandler.handleEvent(
       {
-        type: 'background.task.terminated',
+        type: 'task.terminated',
         agentId: 'main',
         sessionId: 'ses-replay',
         info: { ...info, status: 'timed_out', endedAt: 2 },
@@ -843,11 +849,11 @@ describe('KimiTUI resume message replay', () => {
       [
         message('user', [{ type: 'text', text: 'Background task lost.' }], {
           origin: {
-            kind: 'background_task',
+            kind: 'task',
             taskId: 'bash-lost0000',
             status: 'lost',
             notificationId: 'task:bash-lost0000:lost',
-          },
+          } as unknown as PromptOrigin,
         }),
       ],
       {

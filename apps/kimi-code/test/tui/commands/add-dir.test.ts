@@ -28,11 +28,11 @@ function makeHost(additionalDirs: readonly string[] = []) {
     summary: {
       additionalDirs,
     },
-    addAdditionalDir: vi.fn(async (path: string, options: { persist: boolean }) => ({
+    addAdditionalDir: vi.fn(async ({ path, persist }: { path: string; persist?: boolean }) => ({
       additionalDirs: [...additionalDirs, path],
       projectRoot: '/repo',
       configPath: '/repo/.kimi-code/local.toml',
-      persisted: options.persist,
+      persisted: persist === true,
     })),
   };
   const host = {
@@ -120,7 +120,7 @@ describe('handleAddDirCommand', () => {
     getMountedPanel()?.handleInput(' ');
 
     await vi.waitFor(() => {
-      expect(session.addAdditionalDir).toHaveBeenCalledWith('../shared', { persist: false });
+      expect(session.addAdditionalDir).toHaveBeenCalledWith({ path: '../shared', persist: false });
     });
     expect(host.restoreEditor).toHaveBeenCalledOnce();
     expect(host.setAppState).toHaveBeenCalledWith({
@@ -144,7 +144,7 @@ describe('handleAddDirCommand', () => {
     getMountedPanel()?.handleInput(' ');
 
     await vi.waitFor(() => {
-      expect(session.addAdditionalDir).toHaveBeenCalledWith('../shared', { persist: true });
+      expect(session.addAdditionalDir).toHaveBeenCalledWith({ path: '../shared', persist: true });
     });
     await vi.waitFor(() => {
       expect(host.showStatus).toHaveBeenCalledWith(

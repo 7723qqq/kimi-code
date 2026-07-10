@@ -1,7 +1,7 @@
 import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
-import type { KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
 
+import type { CoreHarness, CoreSession } from '#/core/index';
 import type { ColorToken, ThemeName } from '#/tui/theme';
 
 import { LLM_NOT_SET_MESSAGE } from '../constant/kimi-tui';
@@ -97,8 +97,8 @@ export { handleWebCommand } from './web';
 
 export interface SlashCommandHost {
   state: TUIState;
-  session: Session | undefined;
-  readonly harness: KimiHarness;
+  session: CoreSession | undefined;
+  readonly harness: CoreHarness;
   cancelInFlight: (() => void) | undefined;
   deferUserMessages: boolean;
 
@@ -115,12 +115,17 @@ export interface SlashCommandHost {
   refreshSlashCommandAutocomplete(): void;
 
   // Session
-  requireSession(): Session;
-  switchToSession(session: Session, message: string): Promise<void>;
-  reloadCurrentSessionView(session: Session, message: string): Promise<void>;
+  requireSession(): CoreSession;
+  switchToSession(session: CoreSession, message: string): Promise<void>;
+  reloadCurrentSessionView(session: CoreSession, message: string): Promise<void>;
   beginSessionRequest(): void;
   failSessionRequest(message: string): void;
-  sendQueuedMessage(session: Session, item: QueuedMessage): void;
+  sendQueuedMessage(session: CoreSession, item: QueuedMessage): void;
+  sendQueuedGoalMessage(
+    session: CoreSession,
+    item: QueuedMessage,
+    confirmation: Component,
+  ): Promise<void>;
   requestQueuedGoalPromotion?(): void;
 
   // UI
@@ -139,9 +144,9 @@ export interface SlashCommandHost {
   createNewSession(): Promise<void>;
   showSessionPicker(): Promise<void>;
   sendNormalUserInput(text: string): void;
-  sendSkillActivation(session: Session, skillName: string, skillArgs: string): void;
+  sendSkillActivation(session: CoreSession, skillName: string, skillArgs: string): void;
   activatePluginCommand(
-    session: Session,
+    session: CoreSession,
     pluginId: string,
     commandName: string,
     args: string,

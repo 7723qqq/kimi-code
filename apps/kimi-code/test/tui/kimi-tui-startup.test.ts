@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { log, type GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
+import type { GoalSnapshot } from '#/core/index';
 import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -113,8 +113,8 @@ function makeSession(overrides: Record<string, unknown> = {}) {
       maxContextTokens: 100,
       contextUsage: 0.1,
     })),
-    setApprovalHandler: vi.fn(),
-    setQuestionHandler: vi.fn(),
+    approvals: makeApprovalsBroker(),
+    questions: makeQuestionsBroker(),
     setModel: vi.fn(async () => {}),
     setThinking: vi.fn(async () => {}),
     setPermission: vi.fn(async () => {}),
@@ -125,6 +125,25 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     listSkills: vi.fn(async () => []),
     close: vi.fn(async () => {}),
     ...overrides,
+  };
+}
+
+function makeApprovalsBroker() {
+  return {
+    list: vi.fn(() => []),
+    onDidChangePending: vi.fn(() => () => {}),
+    onDidResolve: vi.fn(() => () => {}),
+    decide: vi.fn(),
+  };
+}
+
+function makeQuestionsBroker() {
+  return {
+    list: vi.fn(() => []),
+    onDidChangePending: vi.fn(() => () => {}),
+    onDidResolve: vi.fn(() => () => {}),
+    answer: vi.fn(),
+    dismiss: vi.fn(),
   };
 }
 
@@ -260,8 +279,10 @@ describe('KimiTUI startup', () => {
       permission: 'yolo',
       planMode: true,
     });
-    expect(session.setApprovalHandler).toHaveBeenCalledOnce();
-    expect(session.setQuestionHandler).toHaveBeenCalledOnce();
+    expect(session.approvals.onDidChangePending).toHaveBeenCalledOnce();
+    expect(session.approvals.onDidResolve).toHaveBeenCalledOnce();
+    expect(session.questions.onDidChangePending).toHaveBeenCalledOnce();
+    expect(session.questions.onDidResolve).toHaveBeenCalledOnce();
     expect(harness.setTelemetryContext).toHaveBeenCalledWith({ sessionId: null });
     expect(harness.setTelemetryContext).toHaveBeenLastCalledWith({ sessionId: 'ses-1' });
     expect(driver.state.startupState).toBe('ready');
@@ -1311,8 +1332,7 @@ describe('KimiTUI startup', () => {
     });
   });
 
-  it('logs login failures with session context', async () => {
-    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+  it('surfaces login failures to the user', async () => {
     const session = makeSession();
     const loginError = new Error('Failed to list Kimi Code models (HTTP 402).');
     const harness = makeHarness(session, {
@@ -1327,33 +1347,18 @@ describe('KimiTUI startup', () => {
     });
     const driver = makeDriver(harness, makeStartupInput());
 
-    try {
-      await expect(driver.init()).resolves.toBe(false);
+    await expect(driver.init()).resolves.toBe(false);
 
-      vi.mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
-      await handleLoginCommand(driver as any);
+    vi.mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
+    await handleLoginCommand(driver as any);
 
-      expect(harness.auth.login).toHaveBeenCalledWith(
-        'managed:kimi-code',
-        expect.objectContaining({
-          signal: expect.any(AbortSignal),
-          onDeviceCode: expect.any(Function),
-        }),
-      );
-      expect(warn).toHaveBeenCalledWith(
-        'login failed',
-        expect.objectContaining({
-          providerName: 'managed:kimi-code',
-          alreadyLoggedIn: false,
-          sessionId: 'ses-1',
-          error: expect.objectContaining({
-            message: 'Failed to list Kimi Code models (HTTP 402).',
-          }),
-        }),
-      );
-    } finally {
-      warn.mockRestore();
-    }
+    expect(harness.auth.login).toHaveBeenCalledWith(
+      'managed:kimi-code',
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        onDeviceCode: expect.any(Function),
+      }),
+    );
   });
 
   it('tracks logout after managed credentials and session state are cleared', async () => {

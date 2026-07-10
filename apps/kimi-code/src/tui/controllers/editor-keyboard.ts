@@ -1,6 +1,10 @@
-import type { Session } from '@moonshot-ai/kimi-code-sdk';
-import { compressImageForModel, persistOriginalImage, sessionMediaOriginalsDir } from '@moonshot-ai/kimi-code-sdk';
+import {
+  compressImageForModel,
+  persistOriginalImage,
+  sessionMediaOriginalsDir,
+} from '#/utils/image-model';
 
+import type { CoreSession } from '#/core/index';
 import { ClipboardMediaError, readClipboardMedia } from '#/utils/clipboard/clipboard-image';
 import { parseImageMeta } from '#/utils/image/image-mime';
 import { editInExternalEditor, resolveEditorCommand } from '#/utils/process/external-editor';
@@ -21,12 +25,12 @@ import type { BtwPanelController } from './btw-panel';
 
 export interface EditorKeyboardHost {
   state: TUIState;
-  session: Session | undefined;
+  session: CoreSession | undefined;
   cancelInFlight: (() => void) | undefined;
 
   handleUserInput(text: string): void;
   readonly btwPanelController: BtwPanelController;
-  steerMessage(session: Session, input: string[]): void;
+  steerMessage(session: CoreSession, input: string[]): void;
   recallLastQueued(): QueuedMessage | undefined;
   showError(msg: string): void;
   track(event: string, props?: Record<string, unknown>): void;

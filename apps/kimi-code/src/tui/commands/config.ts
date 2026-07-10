@@ -1,11 +1,11 @@
 import {
   effectiveModelAlias,
+  type CoreSession,
   type ExperimentalFeatureState,
   type ModelAlias,
   type PermissionMode,
-  type Session,
   type ThinkingEffort,
-} from '@moonshot-ai/kimi-code-sdk';
+} from '#/core/index';
 
 import { EditorSelectorComponent } from '../components/dialogs/editor-selector';
 import { EffortSelectorComponent } from '../components/dialogs/effort-selector';
@@ -24,6 +24,7 @@ import type { ThemeName } from '#/tui/theme';
 import { currentTheme, isBuiltInTheme, lightColors, loadCustomThemeMerged } from '#/tui/theme';
 import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
+import { defaultModelView, thinkingView } from '../utils/core-config-view';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import { showUsage } from './info';
 import { setExperimentalFeatures } from './experimental-flags';
@@ -59,19 +60,36 @@ export async function handlePlanCommand(host: SlashCommandHost, args: string): P
     return;
   }
 
-  let enabled: boolean;
-  if (subcmd.length === 0) enabled = !host.state.appState.planMode;
-  else if (subcmd === 'on') enabled = true;
-  else if (subcmd === 'off') enabled = false;
-  else {
+  const currentPlanMode = host.state.appState.planMode;
+
+  if (subcmd === 'on') {
+    if (currentPlanMode) {
+      host.showNotice('Plan mode is already on');
+      return;
+    }
+    await applyPlanMode(host, session, true);
+    return;
+  }
+
+  if (subcmd === 'off') {
+    if (!currentPlanMode) {
+      host.showNotice('Plan mode is already off');
+      return;
+    }
+    await applyPlanMode(host, session, false);
+    return;
+  }
+
+  if (subcmd.length > 0) {
     host.showError(`Unknown plan subcommand: ${subcmd}`);
     return;
   }
 
-  await applyPlanMode(host, session, enabled);
+  // no-arg toggle
+  await applyPlanMode(host, session, !currentPlanMode);
 }
 
-async function applyPlanMode(host: SlashCommandHost, session: Session, enabled: boolean): Promise<void> {
+async function applyPlanMode(host: SlashCommandHost, session: CoreSession, enabled: boolean): Promise<void> {
   try {
     await session.setPlanMode(enabled);
     host.setAppState({ planMode: enabled });
@@ -185,7 +203,7 @@ export async function handleCompactCommand(host: SlashCommandHost, args: string)
     return;
   }
   const customInstruction = args.trim() || undefined;
-  await session.compact({ instruction: customInstruction });
+  await session.compact(customInstruction);
 }
 
 export async function handleEditorCommand(host: SlashCommandHost, args: string): Promise<void> {
@@ -472,10 +490,11 @@ async function persistModelSelection(
 ): Promise<boolean> {
   const config = await host.harness.getConfig({ reload: true });
   const patch = thinkingEffortToConfig(effort);
+  const thinking = thinkingView(config);
   if (
-    config.defaultModel === alias &&
-    config.thinking?.enabled === patch.enabled &&
-    config.thinking?.effort === patch.effort
+    defaultModelView(config) === alias &&
+    thinking?.enabled === patch.enabled &&
+    thinking?.effort === patch.effort
   ) {
     return false;
   }
@@ -607,9 +626,11 @@ export async function applyExperimentalFeatureChanges(
     host.refreshSlashCommandAutocomplete();
     host.restoreEditor();
     if (host.session !== undefined) {
-      await host.session.reloadSession();
+      // `reloadSession` returns a fresh `CoreSession`; swap the TUI's held
+      // reference via `reloadCurrentSessionView`.
+      const reloaded = await host.harness.reloadSession({ id: host.session.id });
       await host.reloadCurrentSessionView(
-        host.session,
+        reloaded,
         'Experimental features updated. Session reloaded.',
       );
     } else {

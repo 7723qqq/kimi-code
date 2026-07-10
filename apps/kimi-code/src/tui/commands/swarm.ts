@@ -1,4 +1,4 @@
-import type { PermissionMode } from '@moonshot-ai/kimi-code-sdk';
+import type { PermissionMode } from '#/core/index';
 
 import {
   SwarmStartPermissionPromptComponent,
@@ -129,7 +129,7 @@ async function setSwarmMode(
   trigger: 'manual' | 'task',
 ): Promise<boolean> {
   try {
-    await host.requireSession().setSwarmMode(enabled, trigger);
+    await host.requireSession().setSwarmMode(enabled, { trigger });
   } catch (error) {
     host.showError(
       `Failed to ${enabled ? 'enable' : 'disable'} swarm mode: ${formatErrorMessage(error)}`,
