@@ -1,8 +1,8 @@
 /**
  * `/api/v2` dispatcher — resolves the scope + Service + method from a request
  * and calls it. No facade: Services are reached directly through the scope
- * tree, and the `actionMap` is the only thing binding a public action to an
- * internal Service.
+ * tree, the channel registry decides which Services are exposed at all, and the
+ * method is invoked by reflection (VS Code's `ProxyChannel.fromService` model).
  */
 
 import {
@@ -14,8 +14,8 @@ import {
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
 
-import { resolveAction } from './actionMap';
-import type { ActionTarget, ScopeKind, ServiceAction } from './channel';
+import type { ScopeKind } from './channel';
+import { resolveChannel } from './channelRegistry';
 import { assertSerializable } from './errors';
 import { MAIN_AGENT_ID, ensureMainAgent } from './mainAgent';
 
@@ -47,7 +47,7 @@ export async function resolveScope(
 }
 
 /**
- * Dispatch one call. Throws `KimiError` for expected failures (unknown action,
+ * Dispatch one call. Throws `KimiError` for expected failures (unknown service,
  * scope not found, service not in scope, method missing); the route maps them
  * to the envelope. Unexpected errors propagate and become `50001`.
  */
@@ -55,7 +55,8 @@ export async function dispatch(
   core: Scope,
   scopeKind: ScopeKind,
   params: Record<string, string>,
-  sa: ServiceAction,
+  serviceName: string,
+  method: string,
   arg: unknown,
 ): Promise<unknown> {
   const scope = await resolveScope(core, scopeKind, params);
@@ -66,27 +67,24 @@ export async function dispatch(
     );
   }
 
-  const target: ActionTarget | undefined = resolveAction(scopeKind, sa);
-  if (target === undefined) {
-    throw new KimiError(ErrorCodes.REQUEST_INVALID, `unknown action: ${sa.resource}:${sa.action}`);
+  const id = resolveChannel(serviceName);
+  if (id === undefined) {
+    throw new KimiError(ErrorCodes.REQUEST_INVALID, `unknown service: ${serviceName}`);
   }
 
   let service: unknown;
   try {
-    service = scope.accessor.get(target.service);
+    service = scope.accessor.get(id);
   } catch {
     throw new KimiError(
       ErrorCodes.REQUEST_INVALID,
-      `service not available in ${scopeKind} scope: ${sa.resource}`,
+      `service not available in ${scopeKind} scope: ${serviceName}`,
     );
   }
 
-  const member = (service as Record<string, unknown>)[target.method];
+  const member = (service as Record<string, unknown>)[method];
   if (member === undefined) {
-    throw new KimiError(
-      ErrorCodes.REQUEST_INVALID,
-      `method not found: ${sa.resource}:${sa.action}`,
-    );
+    throw new KimiError(ErrorCodes.REQUEST_INVALID, `method not found: ${serviceName}.${method}`);
   }
 
   // Property read (e.g. `mode`, `rules`, `isActive`) — return as-is.

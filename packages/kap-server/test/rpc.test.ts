@@ -3,15 +3,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  IAgentGoalService,
   IAgentLifecycleService,
+  IAgentRPCService,
   IEventService,
+  IPluginService,
+  ISessionActivity,
+  ISessionIndex,
   ISessionLifecycleService,
+  ISessionMetadata,
+  IWorkspaceRegistry,
 } from '@moonshot-ai/agent-core-v2';
-import type { ISessionIndex, ISessionMetadata } from '@moonshot-ai/agent-core-v2';
+import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { RpcClient, RpcError } from '../src/transport/rpcClient';
 import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
@@ -45,6 +51,20 @@ interface GoalSnapshotWire {
 
 interface GoalToolResultWire {
   goal: GoalSnapshotWire | null;
+}
+
+// Build an `/api/v2` path from a Service token (channel = decorator id) + method
+// name — exactly how the typed client composes URLs, so the test never hardcodes
+// a channel name that could drift from the token.
+function rpc(
+  scope: 'core' | 'session' | 'agent',
+  service: ServiceIdentifier<unknown>,
+  method: string,
+  ids: { sid?: string; aid?: string } = {},
+): string {
+  if (scope === 'core') return `/api/v2/${String(service)}/${method}`;
+  if (scope === 'session') return `/api/v2/session/${ids.sid}/${String(service)}/${method}`;
+  return `/api/v2/session/${ids.sid}/agent/${ids.aid}/${String(service)}/${method}`;
 }
 
 describe('server-v2 /api/v2 RPC', () => {
@@ -116,10 +136,10 @@ describe('server-v2 /api/v2 RPC', () => {
 
   // --- Core scope -----------------------------------------------------------
 
-  it('lists sessions via GET (readonly)', async () => {
+  it('lists sessions via GET', async () => {
     const { body } = await call<{ items: unknown[]; has_more: boolean }>(
       'GET',
-      '/api/v2/sessions:list',
+      rpc('core', ISessionIndex, 'list'),
       {},
     );
     expect(body.code).toBe(0);
@@ -130,7 +150,7 @@ describe('server-v2 /api/v2 RPC', () => {
     const cwd = home as string;
     const created = await call<{ id: string; root: string }>(
       'POST',
-      '/api/v2/workspaces:createOrTouch',
+      rpc('core', IWorkspaceRegistry, 'createOrTouch'),
       cwd,
     );
     expect(created.body.code).toBe(0);
@@ -138,7 +158,7 @@ describe('server-v2 /api/v2 RPC', () => {
 
     const got = await call<{ id: string; root: string }>(
       'GET',
-      '/api/v2/workspaces:get',
+      rpc('core', IWorkspaceRegistry, 'get'),
       created.body.data.id,
     );
     expect(got.body.code).toBe(0);
@@ -149,14 +169,14 @@ describe('server-v2 /api/v2 RPC', () => {
     const cwd = home as string;
     const created = await call<{ id: string; name: string }>(
       'POST',
-      '/api/v2/workspaces:createOrTouch',
+      rpc('core', IWorkspaceRegistry, 'createOrTouch'),
       cwd,
     );
     const id = created.body.data.id;
 
     const updated = await call<{ id: string; name: string }>(
       'POST',
-      '/api/v2/workspaces:update',
+      rpc('core', IWorkspaceRegistry, 'update'),
       [id, { name: 'renamed' }],
     );
     expect(updated.body.code).toBe(0);
@@ -164,7 +184,7 @@ describe('server-v2 /api/v2 RPC', () => {
 
     const got = await call<{ id: string; name: string }>(
       'GET',
-      '/api/v2/workspaces:get',
+      rpc('core', IWorkspaceRegistry, 'get'),
       id,
     );
     expect(got.body.data.name).toBe('renamed');
@@ -172,11 +192,11 @@ describe('server-v2 /api/v2 RPC', () => {
 
   it('counts active sessions', async () => {
     const cwd = home as string;
-    const created = await call<{ id: string }>('POST', '/api/v2/workspaces:createOrTouch', cwd);
+    const created = await call<{ id: string }>('POST', rpc('core', IWorkspaceRegistry, 'createOrTouch'), cwd);
     await createSession(cwd);
     const { body } = await call<number>(
       'POST',
-      '/api/v2/sessions:countActive',
+      rpc('core', ISessionIndex, 'countActive'),
       created.body.data.id,
     );
     expect(body.code).toBe(0);
@@ -188,27 +208,27 @@ describe('server-v2 /api/v2 RPC', () => {
   it('reads and updates session metadata', async () => {
     const id = await createSession(home as string);
 
-    const read = await call<SessionMetaWire>('POST', `/api/v2/session/${id}/session:read`);
+    const read = await call<SessionMetaWire>('POST', rpc('session', ISessionMetadata, 'read', { sid: id }));
     expect(read.body.code).toBe(0);
     expect(read.body.data.id).toBe(id);
 
-    const set = await call<null>('POST', `/api/v2/session/${id}/session:setTitle`, 'renamed');
+    const set = await call<null>('POST', rpc('session', ISessionMetadata, 'setTitle', { sid: id }), 'renamed');
     expect(set.body.code).toBe(0);
 
-    const read2 = await call<SessionMetaWire>('POST', `/api/v2/session/${id}/session:read`);
+    const read2 = await call<SessionMetaWire>('POST', rpc('session', ISessionMetadata, 'read', { sid: id }));
     expect(read2.body.data.title).toBe('renamed');
   });
 
   it('returns session status', async () => {
     const id = await createSession(home as string);
-    const { body } = await call<string>('POST', `/api/v2/session/${id}/session:status`);
+    const { body } = await call<string>('POST', rpc('session', ISessionActivity, 'status', { sid: id }));
     expect(body.code).toBe(0);
     expect(['idle', 'running', 'awaiting_approval', 'awaiting_question']).toContain(body.data);
   });
 
   it('archives a session', async () => {
     const id = await createSession(home as string);
-    const { body } = await call<null>('POST', `/api/v2/session/${id}/session:archive`, id);
+    const { body } = await call<null>('POST', rpc('session', ISessionLifecycleService, 'archive', { sid: id }), id);
     expect(body.code).toBe(0);
   });
 
@@ -220,7 +240,7 @@ describe('server-v2 /api/v2 RPC', () => {
 
     const { body } = await call<{ turn_id: number }>(
       'POST',
-      `/api/v2/session/${id}/agent/main/prompts:submit`,
+      rpc('agent', IAgentRPCService, 'prompt', { sid: id, aid: 'main' }),
       { input: [{ type: 'text', text: 'hello' }] },
     );
     expect(body.code).toBe(0);
@@ -238,13 +258,13 @@ describe('server-v2 /api/v2 RPC', () => {
 
     const { body } = await call<{ turn_id: number }>(
       'POST',
-      `/api/v2/session/${id}/agent/main/prompts:submit`,
+      rpc('agent', IAgentRPCService, 'prompt', { sid: id, aid: 'main' }),
       { input: [{ type: 'text', text: 'hello title' }] },
     );
     expect(body.code).toBe(0);
     sub.dispose();
 
-    const meta = await call<SessionMetaWire>('POST', `/api/v2/session/${id}/session:read`);
+    const meta = await call<SessionMetaWire>('POST', rpc('session', ISessionMetadata, 'read', { sid: id }));
     expect(meta.body.code).toBe(0);
     expect(meta.body.data.title).toBe('hello title');
     expect(meta.body.data.lastPrompt).toBe('hello title');
@@ -262,29 +282,29 @@ describe('server-v2 /api/v2 RPC', () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
 
-    const renamed = await call<null>('POST', `/api/v2/session/${id}/session:setTitle`, 'keep-me');
+    const renamed = await call<null>('POST', rpc('session', ISessionMetadata, 'setTitle', { sid: id }), 'keep-me');
     expect(renamed.body.code).toBe(0);
 
     const { body } = await call<{ turn_id: number }>(
       'POST',
-      `/api/v2/session/${id}/agent/main/prompts:submit`,
+      rpc('agent', IAgentRPCService, 'prompt', { sid: id, aid: 'main' }),
       { input: [{ type: 'text', text: 'should not become the title' }] },
     );
     expect(body.code).toBe(0);
 
-    const meta = await call<SessionMetaWire>('POST', `/api/v2/session/${id}/session:read`);
+    const meta = await call<SessionMetaWire>('POST', rpc('session', ISessionMetadata, 'read', { sid: id }));
     expect(meta.body.code).toBe(0);
     expect(meta.body.data.title).toBe('keep-me');
     expect(meta.body.data.lastPrompt).toBe('should not become the title');
   });
 
-  it('runs a shell command through shell:run', async () => {
+  it('runs a shell command through the RPC facade', async () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
 
     const { body } = await call<{ stdout: string; stderr: string; isError?: boolean }>(
       'POST',
-      `/api/v2/session/${id}/agent/main/shell:run`,
+      rpc('agent', IAgentRPCService, 'runShellCommand', { sid: id, aid: 'main' }),
       { command: 'printf hello' },
     );
     expect(body.code).toBe(0);
@@ -293,13 +313,13 @@ describe('server-v2 /api/v2 RPC', () => {
     expect(body.data.isError).not.toBe(true);
   });
 
-  it('controls goals through goal:* RPC', async () => {
+  it('controls goals through RPC', async () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
 
     const created = await call<GoalSnapshotWire>(
       'POST',
-      `/api/v2/session/${id}/agent/main/goal:create`,
+      rpc('agent', IAgentGoalService, 'createGoal', { sid: id, aid: 'main' }),
       { objective: 'finish the migration' },
     );
     expect(created.body.code).toBe(0);
@@ -310,7 +330,7 @@ describe('server-v2 /api/v2 RPC', () => {
 
     const read = await call<GoalToolResultWire>(
       'GET',
-      `/api/v2/session/${id}/agent/main/goal:get`,
+      rpc('agent', IAgentGoalService, 'getGoal', { sid: id, aid: 'main' }),
     );
     expect(read.body.code).toBe(0);
     expect(read.body.data.goal).toMatchObject({
@@ -320,21 +340,21 @@ describe('server-v2 /api/v2 RPC', () => {
 
     const paused = await call<GoalSnapshotWire>(
       'POST',
-      `/api/v2/session/${id}/agent/main/goal:pause`,
+      rpc('agent', IAgentGoalService, 'pauseGoal', { sid: id, aid: 'main' }),
       {},
     );
     expect(paused.body.data.status).toBe('paused');
 
     const resumed = await call<GoalSnapshotWire>(
       'POST',
-      `/api/v2/session/${id}/agent/main/goal:resume`,
+      rpc('agent', IAgentGoalService, 'resumeGoal', { sid: id, aid: 'main' }),
       {},
     );
     expect(resumed.body.data.status).toBe('active');
 
     const cancelled = await call<GoalSnapshotWire>(
       'POST',
-      `/api/v2/session/${id}/agent/main/goal:cancel`,
+      rpc('agent', IAgentGoalService, 'cancelGoal', { sid: id, aid: 'main' }),
       {},
     );
     expect(cancelled.body.code).toBe(0);
@@ -342,7 +362,7 @@ describe('server-v2 /api/v2 RPC', () => {
 
     const afterCancel = await call<GoalToolResultWire>(
       'GET',
-      `/api/v2/session/${id}/agent/main/goal:get`,
+      rpc('agent', IAgentGoalService, 'getGoal', { sid: id, aid: 'main' }),
     );
     expect(afterCancel.body.data.goal).toBeNull();
   });
@@ -353,18 +373,18 @@ describe('server-v2 /api/v2 RPC', () => {
 
     await call<GoalSnapshotWire>(
       'POST',
-      `/api/v2/session/${id}/agent/main/goal:create`,
+      rpc('agent', IAgentGoalService, 'createGoal', { sid: id, aid: 'main' }),
       { objective: 'first' },
     );
     const duplicate = await call<null>(
       'POST',
-      `/api/v2/session/${id}/agent/main/goal:create`,
+      rpc('agent', IAgentGoalService, 'createGoal', { sid: id, aid: 'main' }),
       { objective: 'second' },
     );
     expect(duplicate.body.code).toBe(40913);
   });
 
-  it('lists and installs plugins through plugins:* RPC', async () => {
+  it('lists and installs plugins through RPC', async () => {
     const pluginRoot = await mkdtemp(join(tmpdir(), 'server-v2-plugin-source-'));
     try {
       await writeFile(join(pluginRoot, 'deploy.md'), '---\ndescription: Deploy\n---\n\nDeploy body', 'utf8');
@@ -374,23 +394,23 @@ describe('server-v2 /api/v2 RPC', () => {
         'utf8',
       );
 
-      const installed = await call<{ id: string }>('POST', '/api/v2/plugins:install', { source: pluginRoot });
+      const installed = await call<{ id: string }>('POST', rpc('core', IPluginService, 'installPlugin'), { source: pluginRoot });
       expect(installed.body.code).toBe(0);
       expect(installed.body.data.id).toBe('rpc-plugin');
 
-      const listed = await call<readonly { id: string; state: string }[]>('GET', '/api/v2/plugins:list');
+      const listed = await call<readonly { id: string; state: string }[]>('GET', rpc('core', IPluginService, 'listPlugins'));
       expect(listed.body.code).toBe(0);
       expect(listed.body.data).toEqual([
         expect.objectContaining({ id: 'rpc-plugin', state: 'ok' }),
       ]);
 
-      const info = await call<{ id: string }>('POST', '/api/v2/plugins:getInfo', { id: 'rpc-plugin' });
+      const info = await call<{ id: string }>('POST', rpc('core', IPluginService, 'getPluginInfo'), { id: 'rpc-plugin' });
       expect(info.body.code).toBe(0);
       expect(info.body.data.id).toBe('rpc-plugin');
 
       const commands = await call<readonly { pluginId: string; name: string }[]>(
         'GET',
-        '/api/v2/plugins:listCommands',
+        rpc('core', IPluginService, 'listPluginCommands'),
       );
       expect(commands.body.code).toBe(0);
       expect(commands.body.data).toEqual([
@@ -401,7 +421,7 @@ describe('server-v2 /api/v2 RPC', () => {
       await createMainAgent(sessionId);
       const activated = await call<null>(
         'POST',
-        `/api/v2/session/${sessionId}/agent/main/plugins:activateCommand`,
+        rpc('agent', IAgentRPCService, 'activatePluginCommand', { sid: sessionId, aid: 'main' }),
         { pluginId: 'rpc-plugin', commandName: 'deploy', args: 'prod' },
       );
       expect(activated.body.code).toBe(0);
@@ -414,63 +434,48 @@ describe('server-v2 /api/v2 RPC', () => {
     const id = await createSession(home as string);
     const { body } = await call<null>(
       'POST',
-      `/api/v2/session/${id}/agent/does-not-exist/prompts:submit`,
+      rpc('agent', IAgentRPCService, 'prompt', { sid: id, aid: 'does-not-exist' }),
       { input: [{ type: 'text', text: 'hello' }] },
     );
     expect(body.code).toBe(40401);
   });
 
-  // --- typed client ---------------------------------------------------------
+  // --- cross-scope channel routing -----------------------------------------
 
-  it('works through the typed RpcClient', async () => {
+  it('routes core / session / agent scopes by channel name', async () => {
     const cwd = home as string;
     await createSession(cwd);
-    const client = new RpcClient({
-      url: base,
-      token: (server as RunningServer).authTokenService.getToken(),
-    });
 
-    const sessions = client.core<ISessionIndex>('sessions');
-    const page = await sessions.list({});
-    expect(page.items.length).toBeGreaterThanOrEqual(1);
+    const listed = await call<{ items: { id: string }[] }>('POST', rpc('core', ISessionIndex, 'list'), {});
+    expect(listed.body.code).toBe(0);
+    expect(listed.body.data.items.length).toBeGreaterThanOrEqual(1);
 
-    const id = page.items[0]!.id;
-    const meta = client.session(id).service<ISessionMetadata>('session');
-    const read = await meta.read();
-    expect(read.id).toBe(id);
-  });
-
-  it('throws RpcError on unknown action', async () => {
-    const client = new RpcClient({
-      url: base,
-      token: (server as RunningServer).authTokenService.getToken(),
-    });
-    const sessions = client.core<ISessionIndex>('sessions');
-    // @ts-expect-error — intentionally calling a non-existent method
-    await expect(sessions.nope()).rejects.toBeInstanceOf(RpcError);
+    const id = listed.body.data.items[0]!.id;
+    const read = await call<SessionMetaWire>('POST', rpc('session', ISessionMetadata, 'read', { sid: id }));
+    expect(read.body.code).toBe(0);
+    expect(read.body.data.id).toBe(id);
   });
 
   // --- NFR ------------------------------------------------------------------
 
-  it('rejects unknown action (40001)', async () => {
-    const { body } = await call<null>('POST', '/api/v2/sessions:nope');
+  it('rejects unknown method (40001)', async () => {
+    const { body } = await call<null>('POST', rpc('core', ISessionIndex, 'nope'));
     expect(body.code).toBe(40001);
   });
 
-  it('rejects malformed segment without colon (40001)', async () => {
-    const { body } = await call<null>('POST', '/api/v2/sessions');
+  it('rejects unknown service (40001)', async () => {
+    const { body } = await call<null>('POST', '/api/v2/does-not-exist/list');
     expect(body.code).toBe(40001);
+  });
+
+  it('does not serve a missing method segment', async () => {
+    const { status, body } = await call<null>('POST', '/api/v2/sessionIndex');
+    expect(status === 404 || body.code !== 0).toBe(true);
   });
 
   it('rejects unknown session (40401)', async () => {
-    const { body } = await call<null>('POST', '/api/v2/session/nope/session:read');
+    const { body } = await call<null>('POST', rpc('session', ISessionMetadata, 'read', { sid: 'nope' }));
     expect(body.code).toBe(40401);
-  });
-
-  it('rejects GET on a write action (40001)', async () => {
-    const id = await createSession(home as string);
-    const { body } = await call<null>('GET', `/api/v2/session/${id}/session:archive`);
-    expect(body.code).toBe(40001);
   });
 
   it('rejects oversized body', async () => {
@@ -484,7 +489,7 @@ describe('server-v2 /api/v2 RPC', () => {
     let rejected = false;
     let code: number | undefined;
     try {
-      const res = await fetch(`${base}/api/v2/sessions:list`, {
+      const res = await fetch(`${base}${rpc('core', ISessionIndex, 'list')}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
         body: JSON.stringify({ big: huge }),
@@ -500,7 +505,7 @@ describe('server-v2 /api/v2 RPC', () => {
   });
 
   it('surfaces the originating stack trace on error', async () => {
-    const { body } = await call<null>('POST', '/api/v2/session/nope/session:read');
+    const { body } = await call<null>('POST', rpc('session', ISessionMetadata, 'read', { sid: 'nope' }));
     // Contract: error envelopes carry the thrown error's stack so operators can
     // locate the source (the 40401 below originates in `dispatch`).
     const json = JSON.stringify(body);
@@ -539,14 +544,14 @@ describe('server-v2 /api/v2 RPC auth', () => {
   });
 
   it('rejects calls without a token (40101)', async () => {
-    const res = await fetch(`${base}/api/v2/sessions:list`, { method: 'POST' });
+    const res = await fetch(`${base}${rpc('core', ISessionIndex, 'list')}`, { method: 'POST' });
     expect(res.status).toBe(401);
     const body = (await res.json()) as Envelope<null>;
     expect(body.code).toBe(40101);
   });
 
   it('accepts calls with the correct rpcToken', async () => {
-    const res = await fetch(`${base}/api/v2/sessions:list`, {
+    const res = await fetch(`${base}${rpc('core', ISessionIndex, 'list')}`, {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: JSON.stringify({}),
@@ -557,7 +562,7 @@ describe('server-v2 /api/v2 RPC auth', () => {
 
   it('accepts the persistent token on /api/v2', async () => {
     const persistent = (server as RunningServer).authTokenService.getToken();
-    const res = await fetch(`${base}/api/v2/sessions:list`, {
+    const res = await fetch(`${base}${rpc('core', ISessionIndex, 'list')}`, {
       method: 'POST',
       headers: { authorization: `Bearer ${persistent}`, 'content-type': 'application/json' },
       body: JSON.stringify({}),
@@ -567,7 +572,7 @@ describe('server-v2 /api/v2 RPC auth', () => {
   });
 
   it('rejects a wrong token (40101)', async () => {
-    const res = await fetch(`${base}/api/v2/sessions:list`, {
+    const res = await fetch(`${base}${rpc('core', ISessionIndex, 'list')}`, {
       method: 'POST',
       headers: { authorization: 'Bearer wrong' },
     });

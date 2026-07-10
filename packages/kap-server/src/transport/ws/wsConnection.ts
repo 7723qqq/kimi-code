@@ -20,7 +20,6 @@ import { ulid } from 'ulid';
 import type { RawData, WebSocket } from 'ws';
 
 import type { ScopeKind } from '../channel';
-import { parseServiceAction } from '../channel';
 import { dispatch, resolveScope } from '../dispatcher';
 import { assertSerializable, mapError } from '../errors';
 import type { CredentialValidator } from '../../services/auth/credentials';
@@ -182,17 +181,6 @@ export class WsConnection {
       return;
     }
 
-    const parsed = parseServiceAction(msg.sa);
-    if (parsed === undefined) {
-      this.send({
-        type: 'error',
-        id: msg.id,
-        code: 40001,
-        msg: `expected <resource>:<action>, got '${msg.sa}'`,
-      });
-      return;
-    }
-
     // Track so `cancel` can drop the result.
     let settled = false;
     const entry: PendingEntry = {
@@ -205,7 +193,14 @@ export class WsConnection {
 
     try {
       const data = await withTimeoutWs(
-        dispatch(this.core, msg.scope as ScopeKind, scopeParams(msg), parsed, msg.arg),
+        dispatch(
+          this.core,
+          msg.scope as ScopeKind,
+          scopeParams(msg),
+          msg.service,
+          msg.method,
+          msg.arg,
+        ),
         this.callTimeoutMs,
       );
       if (settled || this.closed) return;

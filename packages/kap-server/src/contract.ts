@@ -1,15 +1,21 @@
 /**
  * `@moonshot-ai/kap-server/contract` — the public `/api/v2` wire contract.
  *
- * Re-exports the server-side allowlists that bind public `resource:action`
- * segments and event names to internal Services. Client SDKs import this
- * module to stay in lockstep with the server surface (e.g. drift tests that
- * assert every exposed action has a typed client method).
+ * Re-exports the channel registry: the set of Services exposed over the wire,
+ * keyed by decorator id (the channel name). In the VS Code model there is no
+ * per-method allowlist — a registered Service exposes all of its methods by
+ * reflection — so the registry is the whole surface. Client SDKs import this to
+ * stay in lockstep (e.g. drift tests that assert every registered channel has a
+ * typed client binding).
  *
  * Note: this module intentionally pulls in `@moonshot-ai/agent-core-v2` types
- * (the `ServiceIdentifier`s inside `actionMap`/`eventMap`). It is meant for
- * tooling and tests, not for runtime import by a wire-only client.
+ * (the registered `ServiceIdentifier`s). It is meant for tooling and tests, not
+ * for runtime import by a wire-only client.
  */
-export { actionMap, resolveAction } from './transport/actionMap';
-export type { ActionTarget, ScopeKind, ServiceAction } from './transport/channel';
-export { formatServiceAction, parseServiceAction } from './transport/channel';
+export {
+  hasChannel,
+  registerChannel,
+  registeredChannelNames,
+  resolveChannel,
+} from './transport/channelRegistry';
+export type { IChannel, ScopeKind } from './transport/channel';
