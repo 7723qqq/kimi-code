@@ -252,6 +252,11 @@ export class AgentLoopService implements IAgentLoopService {
       } else {
         finishReason = 'tool_calls';
       }
+    } else if (finishReason === 'tool_calls') {
+      // The provider signaled a tool step but emitted no tool call structure.
+      // Treat it as a terminal, non-tool step (v1 'unknown') instead of looping
+      // on the bare signal, which would re-issue the model call until maxSteps.
+      finishReason = 'other';
     }
 
     signal.throwIfAborted();
