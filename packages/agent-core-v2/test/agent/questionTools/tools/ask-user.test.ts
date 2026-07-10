@@ -15,11 +15,13 @@ import {
   type AskUserQuestionInput,
 } from '#/agent/questionTools/tools/ask-user';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IAgentTaskService } from '#/agent/task/task';
 import type {
   ISessionQuestionService,
   QuestionRequest,
   QuestionResult,
 } from '#/session/question/question';
+import type { QuestionBackgroundTask } from '#/agent/questionTools/tools/question-background-task';
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -54,13 +56,25 @@ function makeTool(
   readonly tool: AskUserQuestionTool;
   readonly request: ReturnType<typeof vi.fn>;
   readonly telemetryTrack: ReturnType<typeof vi.fn>;
+  readonly registerTask: ReturnType<typeof vi.fn>;
+  readonly getTask: ReturnType<typeof vi.fn>;
+  readonly lastRegisteredTask: () => QuestionBackgroundTask | undefined;
 } {
   const request = vi.fn(options.request ?? (async () => ({ Postgres: true }) as QuestionResult));
   const telemetryTrack = vi.fn();
   const question = { request } as unknown as ISessionQuestionService;
   const telemetry = { track: telemetryTrack } as unknown as ITelemetryService;
-  const tool = new AskUserQuestionTool(question, telemetry);
-  return { tool, request, telemetryTrack };
+  let lastTask: QuestionBackgroundTask | undefined;
+  const registerTask = vi.fn((task: QuestionBackgroundTask) => {
+    lastTask = task;
+    return 'q_test_task_id';
+  });
+  const getTask = vi.fn((id: string) =>
+    id === 'q_test_task_id' ? { status: 'running' } : undefined,
+  );
+  const tasks = { registerTask, getTask } as unknown as IAgentTaskService;
+  const tool = new AskUserQuestionTool(question, telemetry, tasks);
+  return { tool, request, telemetryTrack, registerTask, getTask, lastRegisteredTask: () => lastTask };
 }
 
 describe('AskUserQuestionTool', () => {
@@ -91,13 +105,14 @@ describe('AskUserQuestionTool', () => {
     expect(tool.description).toContain('keyed by question text');
   });
 
-  it('does not expose background question controls', () => {
+  it('exposes background question controls (v1-aligned)', () => {
     const { tool } = makeTool();
     const paramsJson = JSON.stringify(tool.parameters);
 
-    expect(tool.description).not.toContain('background=true');
-    expect(paramsJson).not.toContain('background');
-    expect(paramsJson).not.toContain('TaskOutput');
+    expect(tool.description).toContain('Set background=true');
+    expect(tool.description).toContain('task_id');
+    expect(paramsJson).toContain('background');
+    expect(paramsJson).toContain('TaskOutput');
   });
 
   it('rejects empty question text and empty option labels at the schema layer', () => {
@@ -200,11 +215,16 @@ describe('AskUserQuestionTool', () => {
     expect(labelSchema.description).toContain("append '(Recommended)'");
   });
 
-  it('builds the v1-aligned foreground-only schema', () => {
+  it('builds the v1-aligned schema including an optional background flag', () => {
     const { tool } = makeTool();
+    const params = tool.parameters as {
+      properties: { background?: { type?: string; default?: boolean; description?: string } };
+    };
 
-    expect(tool.description).not.toContain('Set background=true');
-    expect(JSON.stringify(tool.parameters)).not.toContain('background');
+    expect(tool.description).toContain('Set background=true');
+    expect(params.properties.background?.type).toBe('boolean');
+    expect(params.properties.background?.default).toBe(false);
+    expect(params.properties.background?.description).toContain('task_id');
   });
 
   it('dispatches questions through the session question service', async () => {
@@ -390,5 +410,94 @@ describe('AskUserQuestionTool', () => {
     expect(result.output).toContain('does not support interactive questions');
     expect(result.output).toContain('Do NOT call this tool again');
     expect(result.output).toContain('Ask the user directly in your text response instead');
+  });
+
+  describe('background mode', () => {
+    function makeSink(abortSignal?: AbortSignal) {
+      const outputs: string[] = [];
+      const settlements: Array<{ status: string; stopReason?: string }> = [];
+      const sink = {
+        signal: abortSignal ?? new AbortController().signal,
+        appendOutput: (chunk: string) => {
+          outputs.push(chunk);
+        },
+        settle: async (settlement: { status: string; stopReason?: string }) => {
+          settlements.push(settlement);
+          return true;
+        },
+      };
+      return { sink, outputs, settlements };
+    }
+
+    it('returns a task_id immediately without awaiting the answer', async () => {
+      const { tool, request, registerTask, getTask } = makeTool();
+      const result = await executeTool(tool, {
+        turnId: 0,
+        toolCallId: 'call_bg',
+        args: { ...input(), background: true },
+        signal,
+      });
+
+      expect(result.isError).toBe(false);
+      expect(result.output).toContain('task_id: q_test_task_id');
+      expect(result.output).toContain('automatic_notification: true');
+      expect(result.output).toContain('/tasks');
+      expect(result.message).toBe('Started q_test_task_id');
+      expect(registerTask).toHaveBeenCalledOnce();
+      expect(registerTask.mock.calls[0]![1]).toMatchObject({ detached: true });
+      expect(getTask).toHaveBeenCalledWith('q_test_task_id');
+      // Non-blocking: the question service is not awaited inside the tool call.
+      expect(request).not.toHaveBeenCalled();
+    });
+
+    it('runs the question in the background task and settles completed with the answer', async () => {
+      const { tool, lastRegisteredTask } = makeTool();
+      await executeTool(tool, {
+        turnId: 0,
+        toolCallId: 'call_bg_run',
+        args: { ...input(), background: true },
+        signal,
+      });
+
+      const task = lastRegisteredTask();
+      expect(task).toBeDefined();
+      const { sink, outputs, settlements } = makeSink();
+      await task!.start(sink);
+
+      expect(outputs).toEqual([JSON.stringify({ answers: { Postgres: true } })]);
+      expect(settlements).toEqual([{ status: 'completed' }]);
+    });
+
+    it('settles killed when the background task is aborted', async () => {
+      const controller = new AbortController();
+      const { tool, lastRegisteredTask } = makeTool({
+        request: async (_req, requestOptions) =>
+          new Promise<QuestionResult>((_resolve, reject) => {
+            requestOptions?.signal?.addEventListener(
+              'abort',
+              () => {
+                const error = new Error('Aborted');
+                error.name = 'AbortError';
+                reject(error);
+              },
+              { once: true },
+            );
+          }),
+      });
+      await executeTool(tool, {
+        turnId: 0,
+        toolCallId: 'call_bg_abort',
+        args: { ...input(), background: true },
+        signal,
+      });
+
+      const task = lastRegisteredTask();
+      const { sink, settlements } = makeSink(controller.signal);
+      const run = task!.start(sink);
+      controller.abort();
+      await run;
+
+      expect(settlements).toEqual([{ status: 'killed' }]);
+    });
   });
 });
