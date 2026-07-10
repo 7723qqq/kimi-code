@@ -18,6 +18,7 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { setRuntimePhase } from '#/agent/runtime/runtimeOps';
+import { contextAppendMessage } from '#/agent/contextMemory/contextOps';
 import { wireMetadata } from '#/agent/wireRecord/metadataOps';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
@@ -445,6 +446,24 @@ describe('IAgentWireRecordService.records()', () => {
     const lengthBefore = records.getRecords().length;
     (snapshot as unknown as PersistedWireRecord[]).pop();
     expect(records.getRecords()).toHaveLength(lengthBefore);
+  });
+
+  it('appends live-dispatched records after the restored journal', async () => {
+    const persistence = new InMemoryWireRecordPersistence([
+      { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
+      { type: 'context.append_message', message: userMessage('restored') },
+    ]);
+    const ctx = createTestAgent({ persistence, autoConfigure: false });
+    await ctx.wireRecord.restore();
+    const restoredLength = ctx.wireRecord.getRecords().length;
+
+    ctx.get(IAgentWireService).dispatch(contextAppendMessage({ message: userMessage('live') }));
+
+    const after = ctx.wireRecord.getRecords();
+    expect(after).toHaveLength(restoredLength + 1);
+    const last = after[after.length - 1] as { type: string; message?: ContextMessage };
+    expect(last.type).toBe('context.append_message');
+    expect(last.message?.content[0]).toEqual({ type: 'text', text: 'live' });
   });
 });
 

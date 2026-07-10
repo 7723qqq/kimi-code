@@ -7,6 +7,8 @@ import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { OrderedHookSlot } from '#/hooks';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 import type { WireRecord, WireRecordMap } from './wireRecord';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
@@ -52,6 +54,7 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
     @IBootstrapService bootstrap: IBootstrapService,
     @IAgentBlobService private readonly blobStore?: IAgentBlobService,
     @IAppendLogStore private readonly log?: IAppendLogStore,
+    @IAgentWireService wire?: IWireService,
   ) {
     super();
     // Each agent scope seeds its own `homedir` (`<homeDir>/sessions/<ws>/<sid>/
@@ -62,6 +65,22 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
     this.wireScope = relative(bootstrap.homeDir, options.homedir ?? bootstrap.homeDir);
     if (this.log !== undefined) {
       this._register(this.log.acquire(this.wireScope, WIRE_RECORD_FILENAME));
+    }
+    // Keep the in-memory journal current with live dispatch: `restore()` seeds
+    // it from disk and every persisted record afterwards is appended here in
+    // dispatch order, so transcript readers reduce memory instead of re-reading
+    // `wire.jsonl`. Metadata envelopes are excluded to honor `getRecords()`.
+    // `wire` is optional so direct construction (tests, migration round-trips)
+    // keeps the restore-only journal; live tracking is active whenever DI
+    // supplies the agent wire service.
+    if (wire !== undefined) {
+      this._register(
+        wire.onEmission((emission) => {
+          if (emission.type === 'record' && emission.record.type !== 'metadata') {
+            this.records.push(emission.record as WireRecord);
+          }
+        }),
+      );
     }
   }
 
