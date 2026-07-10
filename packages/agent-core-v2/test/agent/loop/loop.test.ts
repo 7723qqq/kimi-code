@@ -149,6 +149,37 @@ describe('Agent loop', () => {
     expect(turnEnded?.args).toMatchObject({ reason: 'completed' });
   });
 
+  it('stops the turn when provider reports tool_calls without any tool call structure', async () => {
+    // Mirrors v1 turn-lifecycle "treats provider tool_calls without tool call
+    // structure as unknown": a bare 'tool_calls' signal with no tool calls must
+    // end the turn instead of looping on the bare signal until maxSteps.
+    profile.update({ activeToolNames: [] });
+    ctx.mockNextProviderResponse({
+      parts: [{ type: 'text', text: 'done' }],
+      finishReason: 'tool_calls',
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    const turn = ctx.get(IAgentTurnService).getActiveTurn();
+    expect(turn).toBeDefined();
+
+    await ctx.untilTurnEnd();
+    await expect(turn!.result).resolves.toEqual({
+      type: 'completed',
+      steps: 1,
+      truncated: false,
+    });
+
+    const stepCompleted = ctx.allEvents.find(
+      (event) => event.type === '[rpc]' && event.event === 'turn.step.completed',
+    );
+    expect(stepCompleted?.args).toMatchObject({
+      finishReason: 'other',
+      providerFinishReason: 'tool_calls',
+      rawFinishReason: 'tool_calls',
+    });
+  });
+
   it('lets onError recover a non-context loop error by retrying', async () => {
     profile.update({ activeToolNames: [] });
     const seenErrors: Array<{ readonly step: number | undefined; readonly message: string }> = [];
