@@ -54,7 +54,7 @@ declare module '#/app/event/eventBus' {
   }
 }
 
-const GRACE_TIMEOUT_MS = 2_000;
+const ABORT_GRACE_MS = 2_000;
 const TOOL_OUTPUT_EMPTY = 'Tool output is empty.';
 const TOOL_OUTPUT_NON_TEXT = 'Tool returned non-text content.';
 
@@ -447,7 +447,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
           this.dispatchToolProgress(call, update, options);
         },
       });
-      rawResult = await raceWithGraceTimeout(executePromise, signal, call.toolName);
+      rawResult = await raceWithAbortGrace(executePromise, signal, call.toolName);
     } catch (error) {
       const aborted = isAbortError(error) || signal.aborted;
       const output = aborted
@@ -838,7 +838,7 @@ function abortedToolOutput(toolName: string, signal: AbortSignal): string {
   return `Tool "${toolName}" was aborted`;
 }
 
-async function raceWithGraceTimeout<Result>(
+async function raceWithAbortGrace<Result>(
   executePromise: Promise<Result>,
   signal: AbortSignal,
   toolName: string,
@@ -850,10 +850,10 @@ async function raceWithGraceTimeout<Result>(
     const armTimer = (): void => {
       graceTimer = setTimeout(() => {
         resolve({
-          output: `Tool "${toolName}" aborted by grace timeout (${String(GRACE_TIMEOUT_MS)}ms)`,
+          output: abortedToolOutput(toolName, signal),
           isError: true,
         } as unknown as Result);
-      }, GRACE_TIMEOUT_MS);
+      }, ABORT_GRACE_MS);
     };
     if (signal.aborted) {
       armTimer();

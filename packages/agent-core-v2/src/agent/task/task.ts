@@ -113,7 +113,11 @@ export interface IAgentTaskService {
   detach(taskId: string): AgentTaskInfo | undefined;
   stop(taskId: string, reason?: string): Promise<AgentTaskInfo | undefined>;
   stopAll(reason?: string): Promise<readonly AgentTaskInfo[]>;
-  wait(taskId: string, timeoutMs?: number): Promise<AgentTaskInfo | undefined>;
+  wait(
+    taskId: string,
+    timeoutMs?: number,
+    signal?: AbortSignal,
+  ): Promise<AgentTaskInfo | undefined>;
   waitForForegroundRelease(
     taskId: string,
   ): Promise<ForegroundTaskReleaseReason | undefined>;

@@ -106,18 +106,21 @@ export class TaskOutputTool implements BuiltinTool<TaskOutputInput> {
       description: `Reading output of task ${args.task_id}`,
       approvalRule: this.name,
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.task_id),
-      execute: () => this.execute(args),
+      execute: ({ signal }) => this.execute(args, signal),
     };
   }
 
-  private async execute(args: TaskOutputInput): Promise<ExecutableToolResult> {
+  private async execute(
+    args: TaskOutputInput,
+    signal: AbortSignal,
+  ): Promise<ExecutableToolResult> {
     const info = this.tasks.getTask(args.task_id);
     if (!info) {
       return { isError: true, output: `Task not found: ${args.task_id}` };
     }
 
     if (args.block && !TERMINAL_STATUSES.has(info.status)) {
-      await this.tasks.wait(args.task_id, (args.timeout ?? 30) * 1000);
+      await this.tasks.wait(args.task_id, (args.timeout ?? 30) * 1000, signal);
     }
 
     // Re-fetch after potential wait.

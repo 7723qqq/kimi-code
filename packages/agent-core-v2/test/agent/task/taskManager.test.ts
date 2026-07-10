@@ -1160,6 +1160,26 @@ describe('AgentTaskService', () => {
     expect(await manager.wait(runningId, 0)).toMatchObject({ status: 'running' });
   });
 
+  it('rejects a cancelled wait without stopping the running task', async () => {
+    const { ctx, manager } = createAgentTaskService();
+    const taskId = registerProcess(
+      manager,
+      pendingProcess().proc,
+      'sleep 60',
+      'cancelled wait',
+    );
+    const controller = new AbortController();
+    const waiting = manager.wait(taskId, 60_000, controller.signal);
+    const reason = userCancellationReason();
+
+    controller.abort(reason);
+
+    await expect(waiting).rejects.toBe(reason);
+    expect(manager.getTask(taskId)).toMatchObject({ status: 'running' });
+    await manager.stop(taskId, 'test cleanup');
+    await ctx.dispose();
+  });
+
   it('wait with a zero timeout returns the immediate snapshot before next-tick completion', async () => {
     const { manager } = createAgentTaskService();
     const proc = manuallyResolvedProcess();

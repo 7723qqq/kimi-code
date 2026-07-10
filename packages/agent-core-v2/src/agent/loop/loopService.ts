@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { isUserCancellation } from '#/_base/utils/abort';
 import type {
   AssistantDeltaEvent,
   ThinkingDeltaEvent,
@@ -112,8 +113,14 @@ export class AgentLoopService implements IAgentLoopService {
         return { type: 'completed', steps, truncated: stepResult.stopReason === 'truncated' };
       } catch (error) {
         if (isAbortError(error) || signal.aborted) {
-          this.emitStepInterrupted(turnId, activeStep, 'aborted');
-          return { type: 'cancelled', reason: signal.reason ?? error, steps };
+          const abortReason = signal.reason ?? error;
+          this.emitStepInterrupted(
+            turnId,
+            activeStep,
+            'aborted',
+            isUserCancellation(abortReason) ? undefined : errorMessage(abortReason),
+          );
+          return { type: 'cancelled', reason: abortReason, steps };
         }
 
         const reason: LoopInterruptReason = isMaxStepsExceededError(error) ? 'max_steps' : 'error';

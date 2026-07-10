@@ -368,43 +368,14 @@ describe('step timing split propagation', () => {
   });
 });
 
-describe('aborted step usage accounting', () => {
+describe('aborted step tool execution', () => {
   it('accounts model usage when the step is aborted during tool execution', async () => {
-    const slowToolStarted = deferred();
     const ctx = createTestAgent(
       { generate: createAbortedStepGenerate() },
       permissionModeServices('yolo'),
     );
     try {
-      let executions = 0;
-      const tool: ExecutableTool = {
-        name: 'Work',
-        description: 'Run one fast operation and one cancellable operation.',
-        parameters: { type: 'object', properties: {}, additionalProperties: false },
-        resolveExecution: () => ({
-          approvalRule: 'Work',
-          accesses: [],
-          execute: async ({ signal }) => {
-            executions += 1;
-            if (executions === 1) return { output: 'first step complete' };
-            slowToolStarted.resolve();
-            if (!signal.aborted) {
-              await new Promise<void>((resolve) => {
-                signal.addEventListener(
-                  'abort',
-                  () => {
-                    resolve();
-                  },
-                  { once: true },
-                );
-              });
-            }
-            return { output: 'second step cancelled' };
-          },
-        }),
-      };
-      ctx.get(IAgentProfileService).update({ activeToolNames: ['Work'] });
-      ctx.get(IAgentToolRegistryService).register(tool);
+      const slowToolStarted = registerAbortableWorkTool(ctx);
       const goals = ctx.get(IAgentGoalService);
       await goals.createGoal({ objective: 'finish the task' });
       await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 60 } });
@@ -439,6 +410,39 @@ describe('aborted step usage accounting', () => {
         budget: { tokenBudgetReached: true },
       });
     } finally {
+      await ctx.dispose();
+    }
+  });
+
+  it('includes the programmatic abort reason when a tool execution is interrupted', async () => {
+    const ctx = createTestAgent(
+      { generate: createAbortedStepGenerate() },
+      permissionModeServices('yolo'),
+    );
+    let interrupted: { readonly reason: string; readonly message?: string } | undefined;
+    const subscription = ctx
+      .get(IEventBus)
+      .subscribe('turn.step.interrupted', (event) => {
+        interrupted = event;
+      });
+
+    try {
+      const slowToolStarted = registerAbortableWorkTool(ctx);
+      const controller = new AbortController();
+      const result = ctx.get(IAgentLoopService).run({
+        turnId: 1,
+        signal: controller.signal,
+      });
+      await slowToolStarted.promise;
+      controller.abort(new Error('Tool execution timed out'));
+
+      await expect(result).resolves.toMatchObject({ type: 'cancelled', steps: 2 });
+      expect(interrupted).toMatchObject({
+        reason: 'aborted',
+        message: 'Tool execution timed out',
+      });
+    } finally {
+      subscription.dispose();
       await ctx.dispose();
     }
   });
@@ -502,6 +506,40 @@ function createAbortedStepGenerate(): GenerateFn {
       rawFinishReason: 'tool_calls',
     };
   };
+}
+
+function registerAbortableWorkTool(ctx: TestAgentContext): ReturnType<typeof deferred> {
+  const slowToolStarted = deferred();
+  let executions = 0;
+  const tool: ExecutableTool = {
+    name: 'Work',
+    description: 'Run one fast operation and one cancellable operation.',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+    resolveExecution: () => ({
+      approvalRule: 'Work',
+      accesses: [],
+      execute: async ({ signal }) => {
+        executions += 1;
+        if (executions === 1) return { output: 'first step complete' };
+        slowToolStarted.resolve();
+        if (!signal.aborted) {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener(
+              'abort',
+              () => {
+                resolve();
+              },
+              { once: true },
+            );
+          });
+        }
+        return { output: 'second step cancelled' };
+      },
+    }),
+  };
+  ctx.get(IAgentProfileService).update({ activeToolNames: ['Work'] });
+  ctx.get(IAgentToolRegistryService).register(tool);
+  return slowToolStarted;
 }
 
 function deferred(): { readonly promise: Promise<void>; readonly resolve: () => void } {
