@@ -4,7 +4,7 @@ How to write a Service in `packages/agent-core-v2`: file layout, naming, what go
 
 ## File layout
 
-One folder per domain, **camelCase**: `session/`, `sessionActivity/`, `contextMemory/`, `toolDedup/`. Inside, six kinds of files, all flat (no subdirectories):
+One folder per domain, **camelCase**: `session/`, `sessionActivity/`, `contextMemory/`, `toolDedup/`. Inside, six kinds of files:
 
 ```text
 <domain>/
