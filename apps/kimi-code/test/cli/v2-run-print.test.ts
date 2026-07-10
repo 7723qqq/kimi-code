@@ -114,6 +114,7 @@ function opts(overrides: Record<string, unknown> = {}) {
 describe('runV2Print', () => {
   beforeEach(() => {
     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '1');
+    vi.stubEnv('KIMI_MODEL_OUTPUT_FORMAT', '');
   });
 
   afterEach(() => {

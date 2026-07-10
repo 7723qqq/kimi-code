@@ -67,6 +67,7 @@ import {
 } from '../run-prompt';
 import { createKimiCodeHostIdentity } from '../version';
 
+import { resolveOutputFormat } from '../options';
 import type { CLIOptions, PromptOutputFormat } from '../options';
 import {
   type PromptOutput,
@@ -95,7 +96,7 @@ export async function runV2Print(
   const stdout = io.stdout ?? process.stdout;
   const stderr = io.stderr ?? process.stderr;
   const promptProcess = io.process ?? process;
-  const outputFormat = opts.outputFormat ?? 'text';
+  const outputFormat = resolveOutputFormat(opts);
   const workDir = process.cwd();
 
   writeExperimentalVersion(version, outputFormat, stdout, stderr);

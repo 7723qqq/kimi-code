@@ -19,6 +19,7 @@ import { resolve } from 'pathe';
 import { CLI_SHUTDOWN_TIMEOUT_MS, PROMPT_CLEANUP_TIMEOUT_MS } from '#/constant/app';
 
 import { isPrintV2Enabled } from './experimental-v2';
+import { resolveOutputFormat } from './options';
 import type { CLIOptions, PromptOutputFormat } from './options';
 import {
   formatGoalSummaryText,
@@ -112,7 +113,7 @@ export async function runPrompt(
   const stdout = io.stdout ?? process.stdout;
   const stderr = io.stderr ?? process.stderr;
   const promptProcess = io.process ?? process;
-  const outputFormat = opts.outputFormat ?? 'text';
+  const outputFormat = resolveOutputFormat(opts);
   const workDir = process.cwd();
   const telemetryBootstrap = createCliTelemetryBootstrap();
   const telemetryClient: TelemetryClient = {
