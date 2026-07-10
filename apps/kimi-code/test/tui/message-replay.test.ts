@@ -383,6 +383,57 @@ describe('KimiTUI resume message replay', () => {
     expect(transcript).toContain('pre</bash-stdout>post');
   });
 
+  it('renders a compaction record as a collapsible card with token counts', async () => {
+    const driver = await replayIntoDriver([
+      {
+        time: REPLAY_TIME,
+        type: 'compaction',
+        result: {
+          summary: 'Compacted summary.',
+          compactedCount: 5,
+          tokensBefore: 1000,
+          tokensAfter: 250,
+        },
+        instruction: undefined,
+      },
+    ]);
+
+    const entries = driver.state.transcriptEntries;
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.compactionData).toMatchObject({
+      summary: 'Compacted summary.',
+      tokensBefore: 1000,
+      tokensAfter: 250,
+    });
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+    expect(transcript).toContain('Compaction complete');
+    expect(transcript).toContain('1000 → 250 tokens');
+    // Collapsed by default: the summary body is not dumped into the transcript.
+    expect(transcript).not.toContain('Compacted summary.');
+  });
+
+  it('renders pre-compaction assistant and tool messages from the replay', async () => {
+    const driver = await replayIntoDriver([
+      message('user', [{ type: 'text', text: 'before compaction' }]),
+      {
+        time: REPLAY_TIME,
+        type: 'compaction',
+        result: { summary: 's', compactedCount: 1, tokensBefore: 10, tokensAfter: 5 },
+        instruction: undefined,
+      },
+      message('user', [{ type: 'text', text: 'run ls' }]),
+      message('assistant', [{ type: 'text', text: 'Running it now.' }], {
+        toolCalls: [toolCall('tc1', 'Bash', { command: 'ls' })],
+      }),
+      message('tool', [{ type: 'text', text: 'file.ts' }], { toolCallId: 'tc1' }),
+    ]);
+
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+    expect(transcript).toContain('before compaction');
+    expect(transcript).toContain('Running it now.');
+    expect(transcript).toContain('file.ts');
+  });
+
   it('renders a compaction summary message as a collapsible compaction card', async () => {
     const driver = await replayIntoDriver([
       message(

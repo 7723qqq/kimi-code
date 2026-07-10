@@ -43,6 +43,7 @@ run-shell.ts ── createCoreHarness(...) ──> CoreHarness ── createSess
 | `session.ts` | `CoreSession`：对话流、模式、查询、goal/task、skills、事件、交互子对象 |
 | `events.ts` | 多 agent `IEventBus` + App 级 `IEventService` 合流成 session 单一事件流 |
 | `replay.ts` | resume 回放数据组装（`getResumeState()` 数据源） |
+| `transcript.ts` | wire records → 渲染 transcript 的 fold（`defineDerivedModel` 形态、facade 手动 fold）；条目类型 `TranscriptMessage` 与喂模型的 `ContextMessage` 隔离 |
 | `errors.ts` | `CoreError` / `CoreErrorCodes` / `isCoreError`（错误码值与 v1 wire 一致） |
 | `types.ts` | core 自有类型（`SessionEvent` / `SessionStatus` / `ResumedSessionState` / 投影类型等） |
 | `auth.ts` | re-export SDK 的 `KimiAuthFacade`（`TODO(migrate)`，见 §7） |
@@ -141,7 +142,6 @@ v2 一行不改，缺失能力降级 + 标记。完整清单与设计文档 §7 
 
 | 编号 | 缺口 | 降级行为 |
 |---|---|---|
-| G-1 | 无 timeline 条目级回放 | resume 只回 message 记录（`replay.ts:9`） |
 | G-3 | bootstrap 无 `skillDirs` 输入 | 参数接受并忽略（`harness.ts:94,160`） |
 | G-4 | 无退出 drain API | close 时 best-effort（`harness.ts:477`） |
 | G-5 | `forcePluginSessionStartReminder` 无 API | reload 接受并忽略（`harness.ts:131,268`） |
@@ -238,7 +238,7 @@ grep -rn "@moonshot-ai/kimi-code-sdk" apps/kimi-code/src/tui
 2. **流式渲染**：长文本 + thinking + 工具调用的 prompt，确认 live 文本、工具卡片、thinking 实时更新。
 3. **resume 回放保真**：含工具调用 + thinking + `!` shell + subagent + goal 的会话 `kimi -r` resume，确认回放渲染消息且不崩。
 4. **`/btw`**：开 /btw 提问，确认子 agent 响应渲染在 btw 面板；关闭后 agentId 回 main。
-5. **`!` shell**：`!ls` 看实时输出；`!sleep 30` 取消；resume 确认 shell 输出缺席（预期 G-1 gap）。
+5. **`!` shell + compaction 回放**：`!ls` 看实时输出；`!sleep 30` 取消；压缩后 resume 确认压缩前的 user/assistant/tool 消息全量在、shell 输出渲染为 `$ cmd` + 输出块、compaction 显示为带 token 数的折叠卡片。
 6. **后台任务面板**：spawn 长任务，开 tasks browser，stop/detach。
 7. **图片粘贴**：向 image-capable 模型粘贴图片，确认模型看到；测压缩 caption。
 8. **坏 config fail-fast**：写坏 TOML 到 config.toml，启动应打印 `Config error [domain]: …` 并 `exit 1`；warning-only config 应启动并带 startupNotice。

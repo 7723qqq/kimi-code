@@ -4,6 +4,7 @@
 // tokens it documents.
 import { describe, expect, it } from 'vitest';
 import {
+  IAgentBlobService,
   IAgentContextMemoryService,
   IAgentContextSizeService,
   IAgentPermissionModeService,
@@ -14,6 +15,7 @@ import {
   IAgentTaskService,
   IAgentToolRegistryService,
   IAgentUsageService,
+  IAgentWireRecordService,
   ISessionMetadata,
   ISessionTodoService,
 } from '@moonshot-ai/agent-core-v2';
@@ -35,6 +37,44 @@ function makeFixture(metaOverrides?: Record<string, unknown>) {
   const history = [
     { role: 'user', content: [{ type: 'text', text: 'hello' }] },
     { role: 'assistant', content: [{ type: 'text', text: 'hi there' }] },
+  ];
+  // Wire log: the two live messages plus one pre-compaction exchange that the
+  // folded context no longer carries. The transcript fold must recover all
+  // of it, with a compaction card in between.
+  const wireRecords = [
+    {
+      type: 'context.append_message',
+      message: { role: 'user', content: [{ type: 'text', text: 'before compaction' }], toolCalls: [] },
+      time: 1,
+    },
+    {
+      type: 'context.apply_compaction',
+      summary: 'Compacted summary.',
+      compactedCount: 1,
+      tokensBefore: 500,
+      tokensAfter: 120,
+      time: 2,
+    },
+    {
+      type: 'context.append_message',
+      message: { role: 'user', content: [{ type: 'text', text: 'hello' }], toolCalls: [] },
+      time: 3,
+    },
+    {
+      type: 'context.append_loop_event',
+      event: { type: 'step.begin', uuid: 's1' },
+      time: 4,
+    },
+    {
+      type: 'context.append_loop_event',
+      event: { type: 'content.part', stepUuid: 's1', part: { type: 'text', text: 'hi there' } },
+      time: 5,
+    },
+    {
+      type: 'context.append_loop_event',
+      event: { type: 'step.end', uuid: 's1' },
+      time: 6,
+    },
   ];
   const profileData = {
     cwd: '/work/dir',
@@ -101,6 +141,8 @@ function makeFixture(metaOverrides?: Record<string, unknown>) {
       [IAgentSwarmService, { isActive: true }],
       [IAgentUsageService, { status: () => usage }],
       [IAgentToolRegistryService, { list: () => toolInfos }],
+      [IAgentWireRecordService, { getRecords: () => wireRecords }],
+      [IAgentBlobService, { loadParts: async (parts: readonly unknown[]) => parts }],
       [
         IAgentTaskService,
         {
@@ -121,6 +163,7 @@ function makeFixture(metaOverrides?: Record<string, unknown>) {
   };
   return {
     history,
+    wireRecords,
     profileData,
     rules,
     plan,
@@ -137,15 +180,66 @@ function makeFixture(metaOverrides?: Record<string, unknown>) {
 }
 
 describe('buildResumedAgents', () => {
-  it('returns a single main entry whose replay is all zero-time message records', async () => {
+  it('returns a single main entry whose replay folds the full wire log', async () => {
     const fx = makeFixture();
     const agents = await buildResumedAgents(fx.session as never, fx.mainAgent as never);
 
     expect(Object.keys(agents)).toEqual(['main']);
     const main = agents['main']!;
     expect(main.type).toBe('main');
-    // G-1: v2 keeps no per-entry replay timeline, only message records survive.
-    expect(main.replay).toEqual(fx.history.map((message) => ({ time: 0, type: 'message', message })));
+    // The replay recovers the pre-compaction message and the compaction card
+    // from the wire log; `time` stays 0 (records carry no readable envelope
+    // timestamp) and the TUI renders by position.
+    expect(main.replay).toEqual([
+      {
+        time: 0,
+        type: 'message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'before compaction' }],
+          toolCalls: [],
+          toolCallId: undefined,
+          isError: undefined,
+          origin: undefined,
+        },
+      },
+      {
+        time: 0,
+        type: 'compaction',
+        result: {
+          summary: 'Compacted summary.',
+          compactedCount: 1,
+          tokensBefore: 500,
+          tokensAfter: 120,
+        },
+        instruction: undefined,
+      },
+      {
+        time: 0,
+        type: 'message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'hello' }],
+          toolCalls: [],
+          toolCallId: undefined,
+          isError: undefined,
+          origin: undefined,
+        },
+      },
+      {
+        time: 0,
+        type: 'message',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'hi there' }],
+          toolCalls: [],
+          toolCallId: undefined,
+          isError: undefined,
+          origin: undefined,
+        },
+      },
+    ]);
+    // The model-facing context view is unaffected: still the folded history.
     expect(main.context).toEqual({ history: fx.history, tokenCount: 1234 });
   });
 

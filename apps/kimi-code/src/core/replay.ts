@@ -6,13 +6,14 @@
  * through the scope handles' accessors; nothing here touches the engine
  * internals directly.
  *
- * TODO(v2-gap): G-1 — v2 keeps no per-entry replay timeline; only the context
- * history survives a resume, so `replay` is rebuilt as plain `message` records
- * with `time: 0`. The TUI renders records by position, not timestamp, so the
- * zero time is safe.
+ * `replay` is folded from the agent's persisted wire records through
+ * `#/core/transcript` (full history, compaction cards included); records
+ * carry no envelope timestamps on the read path, so `time` stays `0` — the
+ * TUI renders records by position, not timestamp, so the zero time is safe.
  */
 
 import {
+  IAgentBlobService,
   IAgentContextMemoryService,
   IAgentContextSizeService,
   IAgentPermissionModeService,
@@ -23,6 +24,7 @@ import {
   IAgentTaskService,
   IAgentToolRegistryService,
   IAgentUsageService,
+  IAgentWireRecordService,
   ISessionMetadata,
   ISessionTodoService,
   MAIN_AGENT_ID,
@@ -33,6 +35,12 @@ import {
   type ToolInfo,
 } from '@moonshot-ai/agent-core-v2';
 
+import {
+  reduceTranscript,
+  rehydrateTranscript,
+  type TranscriptEntry,
+  type TranscriptMessage,
+} from './transcript';
 import type {
   AgentReplayRecord,
   ResumedAgentMeta,
@@ -54,7 +62,7 @@ export async function buildResumedAgents(
   const profile = accessor.get(IAgentProfileService);
   const data = profile.data();
   const history = accessor.get(IAgentContextMemoryService).get();
-  const replay: AgentReplayRecord[] = history.map((message) => ({ time: 0, type: 'message', message }));
+  const replay = await buildReplayFromWireRecords(accessor);
   const tools: Array<ToolInfo & { active: boolean }> = accessor
     .get(IAgentToolRegistryService)
     .list()
@@ -88,6 +96,62 @@ export async function buildResumedAgents(
     background: accessor.get(IAgentTaskService).list(false),
   };
   return { [MAIN_AGENT_ID]: state };
+}
+
+/**
+ * Fold the agent's persisted wire records into v1 replay records. The wire
+ * log is the full event-sourced history (compaction included), so unlike the
+ * context view this survives a resume intact. Blob references in message
+ * content are rehydrated back to inline parts for display.
+ */
+async function buildReplayFromWireRecords(
+  accessor: IAgentScopeHandle['accessor'],
+): Promise<AgentReplayRecord[]> {
+  const records = accessor.get(IAgentWireRecordService).getRecords();
+  const { entries } = reduceTranscript(records);
+  const rehydrated = await rehydrateTranscript(entries, accessor.get(IAgentBlobService));
+  return rehydrated.map(projectTranscriptEntry);
+}
+
+function projectTranscriptEntry(entry: TranscriptEntry): AgentReplayRecord {
+  switch (entry.type) {
+    case 'message':
+      return { time: 0, type: 'message', message: toReplayMessage(entry.message) };
+    case 'compaction':
+      return {
+        time: 0,
+        type: 'compaction',
+        result: {
+          summary: entry.summary,
+          compactedCount: entry.compactedCount ?? 0,
+          tokensBefore: entry.tokensBefore ?? 0,
+          tokensAfter: entry.tokensAfter ?? 0,
+        },
+        instruction: undefined,
+      };
+    case 'goal_updated':
+      return { time: 0, type: 'goal_updated', snapshot: entry.snapshot, change: entry.change };
+    case 'plan_updated':
+      return { time: 0, type: 'plan_updated', enabled: entry.enabled };
+    case 'config_updated':
+      return { time: 0, type: 'config_updated', config: entry.config };
+    case 'permission_updated':
+      return { time: 0, type: 'permission_updated', mode: entry.mode };
+    case 'approval_result':
+      return { time: 0, type: 'approval_result', record: entry.record };
+  }
+}
+
+/** Display message → the v2 `ContextMessage` the replay record carries. */
+function toReplayMessage(message: TranscriptMessage) {
+  return {
+    role: message.role,
+    content: [...message.content],
+    toolCalls: [...message.toolCalls],
+    toolCallId: message.toolCallId,
+    isError: message.isError,
+    origin: message.origin,
+  };
 }
 
 /** Full resume snapshot: agents plus the projected session metadata. */

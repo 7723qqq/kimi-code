@@ -11,6 +11,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  IAgentBlobService,
   IAgentContextMemoryService,
   IAgentContextSizeService,
   IAgentLifecycleService,
@@ -22,6 +23,7 @@ import {
   IAgentTaskService,
   IAgentToolRegistryService,
   IAgentUsageService,
+  IAgentWireRecordService,
   IBootstrapService,
   IConfigService,
   IEventBus,
@@ -171,6 +173,8 @@ function makeFixture(options?: {
         [IAgentUsageService, { status: () => usage }],
         [IAgentToolRegistryService, { list: () => [] }],
         [IAgentTaskService, { list: () => [] }],
+        [IAgentWireRecordService, { getRecords: () => [] }],
+        [IAgentBlobService, { loadParts: async (parts: readonly unknown[]) => parts }],
       ] as ReadonlyArray<readonly [unknown, unknown]>,
     };
   };

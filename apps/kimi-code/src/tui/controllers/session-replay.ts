@@ -295,11 +295,11 @@ export class SessionReplayRenderer {
       return;
     }
     if (message.origin?.kind === 'compaction_summary') {
-      // The summary message is the replay stand-in for a compaction record:
-      // render the same collapsible card the live `compaction.completed` path
-      // produces instead of dumping the summary as a plain user message. Token
-      // counts are not carried by the message (only by the wire op), so the
-      // card shows no "X → Y tokens" detail until replay reads wire records.
+      // Defensive fallback: the summary normally arrives as a `compaction`
+      // replay record (rendered by renderCompaction with token counts) since
+      // the facade folds wire records. Only a summary that shows up as a bare
+      // context message lands here; render the same collapsible card instead
+      // of dumping the text as a plain user message.
       this.flushAssistant(context);
       const text = contentPartsToText(message.content);
       const summary = text.startsWith(COMPACTION_SUMMARY_PREFIX)
