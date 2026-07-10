@@ -291,8 +291,11 @@ describe('GoalInjection integration', () => {
 
     it('injects one goal reminder per turn boundary, not per step', async () => {
       await registerLookupTool(ctx, profile);
+      profile.update({ activeToolNames: ['Lookup', 'UpdateGoal'] });
       await goals.createGoal({ objective: 'Ship feature X' });
 
+      // Turn 1 (user prompt) spans two steps: a Lookup tool call, then a
+      // final text step.
       ctx.mockNextResponse({ type: 'text', text: 'I will look it up.' }, lookupCall());
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Look up moon' }] });
       await ctx.untilApproval(true);
@@ -301,15 +304,35 @@ describe('GoalInjection integration', () => {
         output: 'lookup-result',
       });
       ctx.mockNextResponse({ type: 'text', text: 'The lookup result is lookup-result.' });
+      // The goal is still active when turn 1 ends, so the goal driver holds
+      // the turn lane and immediately launches a continuation turn — that
+      // continuation IS the second turn boundary (a second explicit prompt
+      // would throw ACTIVITY_AGENT_BUSY). Script its two steps up front: a
+      // terminal UpdateGoal, then the forced outcome step, which ends the
+      // continuation loop.
+      ctx.mockNextResponse(
+        { type: 'text', text: 'Wrapping up.' },
+        {
+          type: 'function',
+          id: 'call_update_goal',
+          name: 'UpdateGoal',
+          arguments: JSON.stringify({ status: 'complete' }),
+        },
+      );
+      ctx.mockNextResponse({ type: 'text', text: 'Goal complete.' });
       await toolCallEvents;
       await ctx.untilTurnEnd();
 
-      await expect(flushedGoalReminderRecords(ctx, persistence)).resolves.toHaveLength(1);
+      // Two turn boundaries have injected a reminder by now — turn 1's plus
+      // the already-launched continuation turn's — even though turn 1 alone
+      // ran two steps.
+      await expect(flushedGoalReminderRecords(ctx, persistence)).resolves.toHaveLength(2);
 
-      ctx.mockNextResponse({ type: 'text', text: 'Next turn.' });
-      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue' }] });
       await ctx.untilTurnEnd();
 
+      // The continuation turn also ran two steps (UpdateGoal + outcome
+      // message) but added no further reminders: one per turn boundary,
+      // never per step.
       await expect(flushedGoalReminderRecords(ctx, persistence)).resolves.toHaveLength(2);
     });
 
