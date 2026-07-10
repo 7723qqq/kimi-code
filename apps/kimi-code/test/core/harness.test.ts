@@ -27,6 +27,7 @@ import {
   IEventBus,
   IEventService,
   IFlagService,
+  IModelResolver,
   IPluginService,
   IProviderService,
   ISessionActivity,
@@ -89,6 +90,7 @@ function makeFixture(options?: {
   planEnterError?: Error;
   closeSessionError?: Error;
   disposeError?: Error;
+  resolverError?: Error;
 }) {
   const calls: Record<string, unknown[]> = {};
   const order: string[] = [];
@@ -254,6 +256,18 @@ function makeFixture(options?: {
   };
 
   const configAll = { defaultModel: 'kimi-latest', providers: { kimi: {} } };
+  const configValues: Record<string, unknown> = {
+    defaultModel: 'kimi-latest',
+    defaultPermissionMode: 'auto',
+    defaultPlanMode: true,
+    thinking: { enabled: true, effort: 'high' },
+  };
+  const resolverModel = {
+    capabilities: { max_context_tokens: 200_000 },
+    alwaysThinking: false,
+    supportEfforts: ['low', 'medium', 'high'],
+    defaultEffort: 'medium',
+  };
   const diagnostics = [{ severity: 'warning' as const, message: 'unknown key' }];
   const flags = [{ id: 'my-flag', enabled: true }];
   const pluginInfo = { id: 'known', name: 'Known Plugin', enabled: true };
@@ -307,8 +321,19 @@ function makeFixture(options?: {
           ready: Promise.resolve(),
           reload: recordReturning('config.reload', Promise.resolve()),
           getAll: recordReturning('config.getAll', configAll),
+          get: (domain: string) => configValues[domain],
           set: recordReturning('config.set', Promise.resolve()),
           diagnostics: () => diagnostics,
+        },
+      ],
+      [
+        IModelResolver,
+        {
+          resolve: (...args: unknown[]) => {
+            (calls['resolver.resolve'] ??= []).push(args);
+            if (options?.resolverError !== undefined) throw options.resolverError;
+            return resolverModel;
+          },
         },
       ],
       [IProviderService, { delete: recordReturning('provider.delete', Promise.resolve()) }],
@@ -356,6 +381,7 @@ function makeFixture(options?: {
     telemetryEvents,
     contextPatches,
     configAll,
+    configValues,
     diagnostics,
     flags,
     pluginInfo,
@@ -690,6 +716,51 @@ describe('CoreHarness listSessions and exportSession', () => {
     expect(fx.telemetryEvents).toEqual([
       { event: 'export', context: { sessionId: 'sess-1' }, properties: undefined },
     ]);
+  });
+});
+
+describe('CoreHarness getStartupState', () => {
+  it('resolves config defaults and the default model without creating a session', async () => {
+    const fx = makeFixture();
+    const state = await fx.harness.getStartupState();
+    expect(state).toEqual({
+      model: 'kimi-latest',
+      maxContextTokens: 200_000,
+      permissionMode: 'auto',
+      planMode: true,
+      thinkingEffort: 'high',
+    });
+    expect(fx.calls['resolver.resolve']).toEqual([['kimi-latest']]);
+    expect(fx.calls['lifecycle.create']).toBeUndefined();
+  });
+
+  it('keeps the alias but degrades to a zero context window when resolution fails', async () => {
+    const fx = makeFixture({ resolverError: new Error('auth not ready') });
+    const state = await fx.harness.getStartupState();
+    expect(state.model).toBe('kimi-latest');
+    expect(state.maxContextTokens).toBe(0);
+    // The thinking default comes from config and survives a failed resolve.
+    expect(state.thinkingEffort).toBe('high');
+  });
+
+  it('reports empty defaults when nothing is configured', async () => {
+    const fx = makeFixture();
+    for (const key of Object.keys(fx.configValues)) delete fx.configValues[key];
+    const state = await fx.harness.getStartupState();
+    expect(state).toEqual({
+      model: '',
+      maxContextTokens: 0,
+      permissionMode: 'manual',
+      planMode: false,
+      thinkingEffort: 'off',
+    });
+    expect(fx.calls['resolver.resolve']).toBeUndefined();
+  });
+
+  it('falls back to manual for an invalid permission mode', async () => {
+    const fx = makeFixture();
+    fx.configValues['defaultPermissionMode'] = 'bogus';
+    expect((await fx.harness.getStartupState()).permissionMode).toBe('manual');
   });
 });
 

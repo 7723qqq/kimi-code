@@ -54,6 +54,10 @@ run-shell.ts ── createCoreHarness(...) ──> CoreHarness ── createSess
 import { createCoreHarness, type CoreHarness, type CoreSession, type SessionEvent } from '#/core/index';
 
 const harness = createCoreHarness({ homeDir, identity, telemetry, onOAuthRefresh, ... });
+
+// 启动时可以不建 session：先拿 config 级默认（模型 / 上下文窗口 / 模式）渲染首屏，
+// 第一条用户消息再 lazy 创建 session（TUI 的 sendNormalUserInput 路径）。
+const startup = await harness.getStartupState();
 const session = await harness.createSession({ workDir, model, permission, planMode });
 
 // 对话流

@@ -155,6 +155,32 @@ export interface SessionStatus {
   readonly usage?: UsageStatus;
 }
 
+/**
+ * Pre-session startup snapshot consumed by the TUI's initial render when no
+ * session is created at startup. Every field comes from App-scope services
+ * (config + model resolver), so `CoreHarness.getStartupState()` never has to
+ * create a session to produce it. Semantics mirror `SessionStatus`: the first
+ * lazily-created session reports the same values these defaults imply, unless
+ * the user changed them in between.
+ */
+export interface CoreStartupState {
+  /** Configured `defaultModel` alias; '' when none is set. */
+  readonly model: string;
+  /** Context window of `model`; 0 when unset or unresolvable (e.g. auth not ready). */
+  readonly maxContextTokens: number;
+  /** Configured `defaultPermissionMode`; 'manual' when unset or invalid. */
+  readonly permissionMode: PermissionMode;
+  /** Configured `defaultPlanMode`; false when unset. */
+  readonly planMode: boolean;
+  /**
+   * Thinking level the first session would start at: the `thinking` config
+   * default resolved through `resolveThinkingEffortForModel` with no requested
+   * effort, clamped by the resolved model's metadata. 'off' when disabled or
+   * no model resolves.
+   */
+  readonly thinkingEffort: ThinkingEffort;
+}
+
 /** Session list/summary projection consumed by the picker and `/export`. */
 export interface CoreSessionSummary {
   readonly id: string;

@@ -754,7 +754,17 @@ export class KimiTUI {
           }
         }
       } else {
-        session = await this.harness.createSession(createSessionOptions);
+        // Session-less startup: the first user message creates the session
+        // lazily (sendNormalUserInput). Until then, the initial render reads
+        // config-level defaults from the harness instead of a session status.
+        const startupState = await this.harness.getStartupState();
+        this.setAppState({
+          model: startup.model ?? startupState.model,
+          thinkingEffort: startupState.thinkingEffort,
+          permissionMode: startupState.permissionMode,
+          planMode: startupState.planMode,
+          maxContextTokens: startupState.maxContextTokens,
+        });
       }
       if (session !== undefined && shouldReplayHistory) {
         await this.applyStartupModesToResumedSession(session);
@@ -768,11 +778,10 @@ export class KimiTUI {
       return false;
     }
 
-    if (session === undefined) {
-      throw new Error('Startup session was not initialized.');
+    if (session !== undefined) {
+      await this.setSession(session);
+      await this.syncRuntimeState(session);
     }
-    await this.setSession(session);
-    await this.syncRuntimeState(session);
     this.applyStartupPermissionAndPlanToAppState();
     this.state.startupState = 'ready';
     return shouldReplayHistory;
@@ -1088,7 +1097,9 @@ export class KimiTUI {
     if (!this.validateMediaCapabilities(extraction)) return;
     const session = this.session;
     if (session === undefined) {
-      this.showError(LLM_NOT_SET_MESSAGE);
+      // Session-less startup: create the session lazily, then deliver this
+      // input as its first turn.
+      void this.sendAfterLazySessionStart(text, extraction);
       return;
     }
     if (extraction.hasMedia) {
@@ -1097,6 +1108,62 @@ export class KimiTUI {
         // `extractMediaAttachments` now emits protocol `image` parts (base64
         // `source`) directly, so the parts flow straight into the v2 prompt
         // surface without a shape cast.
+        parts: extraction.parts,
+        imageAttachmentIds: extraction.imageAttachmentIds,
+      });
+    } else {
+      this.sendMessage(session, text);
+    }
+    this.updateQueueDisplay();
+    this.state.ui.requestRender();
+  }
+
+  /**
+   * First user message after a session-less startup: create the session from
+   * the current appState (model / permission / plan / additionalDirs), wire
+   * the runtime like `createNewSession` does, then deliver the pending input
+   * as the session's first turn.
+   */
+  private async sendAfterLazySessionStart(
+    text: string,
+    extraction: ReturnType<typeof extractMediaAttachments>,
+  ): Promise<void> {
+    let session: CoreSession;
+    try {
+      session = await this.createSessionFromCurrentState();
+    } catch (error) {
+      if (isOAuthLoginRequiredError(error)) {
+        this.authFlow.enterLoginRequiredStartupState();
+        return;
+      }
+      this.showError(`Failed to start a session: ${formatErrorMessage(error)}`);
+      return;
+    }
+
+    this.resetSessionRuntime();
+    await this.setSession(session);
+    this.setAppState({ sessionId: session.id });
+    try {
+      await this.activateRuntime();
+      await this.syncRuntimeState(session);
+    } catch (error) {
+      // The session is live; keep it so the user can retry the message.
+      this.sessionEventHandler.startSubscription();
+      this.showError(`Post-create setup failed: ${formatErrorMessage(error)}`);
+      return;
+    }
+    try {
+      await this.refreshSkillCommands(this.session);
+      await this.refreshPluginCommands(this.session);
+    } catch {
+      /* keep the new session usable even if dynamic skills fail */
+    }
+    this.sessionEventHandler.startSubscription();
+    void this.showSessionWarnings(session);
+
+    if (extraction.hasMedia) {
+      this.sendMessage(session, text, {
+        hasMedia: true,
         parts: extraction.parts,
         imageAttachmentIds: extraction.imageAttachmentIds,
       });
@@ -1497,10 +1564,14 @@ export class KimiTUI {
     if (model.length === 0) {
       throw new Error(LLM_NOT_SET_MESSAGE);
     }
+    // `thinkingEffort` mirrors the config default from the first render
+    // (getStartupState resolves it exactly like the profile service), so it is
+    // safe to pass on the first creation too — and it preserves session-only
+    // effort changes made before the session existed.
     const options: MutableCreateSessionOptions = {
       workDir: this.state.appState.workDir,
       model,
-      thinking: this.session === undefined ? undefined : this.state.appState.thinkingEffort,
+      thinking: this.state.appState.thinkingEffort,
       permission: this.state.appState.permissionMode,
       planMode: this.state.appState.planMode ? true : undefined,
     };

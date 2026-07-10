@@ -1,10 +1,6 @@
 import type { SkillListSession } from '../commands';
 
-import type {
-  CoreHarness,
-  CoreSession,
-  CreateSessionOptions,
-} from '#/core/index';
+import type { CoreHarness, CoreSession } from '#/core/index';
 import { OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE } from '../constant/kimi-tui';
 import {
   defaultModelView,
@@ -22,10 +18,6 @@ import { thinkingEffortFromConfig } from '../utils/thinking-config';
 import type { SessionEventHandler } from './session-event-handler';
 import type { AppState, KimiTUIOptions } from '../types';
 import type { TUIState } from '../tui-state';
-
-type MutableCreateSessionOptions = {
-  -readonly [P in keyof CreateSessionOptions]: CreateSessionOptions[P];
-};
 
 export interface AuthFlowHost {
   state: TUIState;
@@ -73,7 +65,13 @@ export class AuthFlowController {
     this.host.setStartupReady();
   }
 
-  async activateModelAfterLogin(model: string, effort?: string): Promise<void> {
+  /**
+   * Apply a model choice. With a live session this switches the session's
+   * model; without one (session-less startup, or login completing before the
+   * first message) it only records the choice in appState — the lazy session
+   * creation on the first message picks it up.
+   */
+  async activateModelSelection(model: string, effort?: string): Promise<void> {
     const { host } = this;
     if (host.session !== undefined) {
       await host.session.setModel(model);
@@ -83,32 +81,15 @@ export class AuthFlowController {
       return;
     }
 
-    const options: MutableCreateSessionOptions = {
-      workDir: host.state.appState.workDir,
-      model,
-      thinking: effort,
-      permission: host.options.startup.auto
-        ? 'auto'
-        : host.options.startup.yolo
-          ? 'yolo'
-          : undefined,
-      planMode: host.state.appState.planMode ? true : undefined,
-    };
-    if (host.state.appState.additionalDirs.length > 0) {
-      options.additionalDirs = [...host.state.appState.additionalDirs];
+    const patch: Partial<AppState> = { model };
+    if (effort !== undefined) {
+      patch.thinkingEffort = effort;
     }
-    const session = await host.harness.createSession(options);
-    await host.setSession(session);
-    host.setAppState({
-      sessionId: session.id,
-      sessionTitle: session.summary?.title ?? null,
-    });
-    await host.syncRuntimeState(session);
-    host.sessionEventHandler.startSubscription();
-    void host.fetchSessions();
-    host.updateTerminalTitle();
-    void host.refreshSkillCommands(host.session);
-    void host.refreshPluginCommands(host.session);
+    const selected = host.state.appState.availableModels[model];
+    if (selected !== undefined) {
+      patch.maxContextTokens = selected.maxContextSize;
+    }
+    host.setAppState(patch);
   }
 
   async clearActiveSessionAfterLogout(): Promise<void> {
@@ -136,7 +117,7 @@ export class AuthFlowController {
       return;
     }
 
-    await this.activateModelAfterLogin(defaultModel, thinkingEffortFromConfig(thinkingView(config)));
+    await this.activateModelSelection(defaultModel, thinkingEffortFromConfig(thinkingView(config)));
     const appStatePatch: Partial<AppState> = {
       availableModels,
       availableProviders,

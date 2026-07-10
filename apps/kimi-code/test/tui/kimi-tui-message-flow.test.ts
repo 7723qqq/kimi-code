@@ -288,6 +288,13 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
       },
     })),
     setConfig: vi.fn(async () => ({ providers: {} })),
+    getStartupState: vi.fn(async () => ({
+      model: 'k2',
+      maxContextTokens: 100,
+      permissionMode: 'manual',
+      planMode: false,
+      thinkingEffort: 'off',
+    })),
     createSession: vi.fn(async () => session),
     resumeSession: vi.fn(async () => session),
     forkSession: vi.fn(async () => session),
@@ -360,9 +367,15 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
   };
 }
 
+/** Flush the async lazy-session-creation chain triggered by the first input. */
+async function flushLazySessionStart(times = 50): Promise<void> {
+  for (let i = 0; i < times; i++) await Promise.resolve();
+}
+
 async function makeDriver(
   session = makeSession(),
   harnessOverrides: Record<string, unknown> = {},
+  options?: { sessionless?: boolean },
 ): Promise<{
   driver: MessageDriver;
   session: ReturnType<typeof makeSession>;
@@ -374,6 +387,19 @@ async function makeDriver(
   vi.spyOn(driver.state.terminal, 'setProgress').mockImplementation(() => {});
   driver.persistInputHistory = vi.fn(async () => {});
   await driver.init();
+  if (options?.sessionless !== true) {
+    // Startup no longer creates a session. Most tests here exercise behavior
+    // with a live session, so enter that state through the real /new path;
+    // tests for the session-less startup itself pass `sessionless: true`.
+    await driver.createNewSession();
+  }
+  // When the driver is session-less, the first user input creates the session
+  // lazily and asynchronously, so input submission must be awaited.
+  const rawHandleUserInput = driver.handleUserInput.bind(driver);
+  driver.handleUserInput = ((text: string) => {
+    rawHandleUserInput(text);
+    return flushLazySessionStart();
+  }) as MessageDriver['handleUserInput'];
   return { driver, session, harness };
 }
 
@@ -409,7 +435,7 @@ async function openBtwPanel(
   session: ReturnType<typeof makeSession>,
   prompt = 'side question',
 ): Promise<void> {
-  driver.handleUserInput(`/btw ${prompt}`);
+  await driver.handleUserInput(`/btw ${prompt}`);
   await vi.waitFor(() => {
     expect(session.startBtw).toHaveBeenCalled();
     expect(driver.state.btwPanelContainer.children).toHaveLength(2);
@@ -505,7 +531,7 @@ describe('KimiTUI message flow', () => {
     harness.createSession.mockResolvedValueOnce(nextSession);
     harness.track.mockClear();
 
-    driver.handleUserInput('/clear');
+    await driver.handleUserInput('/clear');
 
     await vi.waitFor(() => {
       expect(driver.getCurrentSessionId()).toBe('ses-2');
@@ -519,7 +545,7 @@ describe('KimiTUI message flow', () => {
     const { driver, harness } = await makeDriver();
     harness.track.mockClear();
 
-    driver.handleUserInput('/theme light');
+    await driver.handleUserInput('/theme light');
 
     await vi.waitFor(() => {
       expect(driver.state.appState.theme).toBe('light');
@@ -545,7 +571,7 @@ command = "vim"
     harness.track.mockClear();
     harness.reloadSession.mockClear();
 
-    driver.handleUserInput('/reload-tui');
+    await driver.handleUserInput('/reload-tui');
 
     await vi.waitFor(() => {
       expect(driver.state.appState.theme).toBe('light');
@@ -562,10 +588,10 @@ command = "vim"
     const { driver, session, harness } = await makeDriver();
     harness.track.mockClear();
     harness.reloadSession.mockClear();
-    driver.handleUserInput('hello before reload');
+    await driver.handleUserInput('hello before reload');
     driver.state.appState.streamingPhase = 'idle';
 
-    driver.handleUserInput('/reload');
+    await driver.handleUserInput('/reload');
 
     await vi.waitFor(() => {
       expect(harness.reloadSession).toHaveBeenCalledOnce();
@@ -980,7 +1006,7 @@ command = "vim"
     for (const command of ['/new', '/sessions']) {
       harness.track.mockClear();
 
-      driver.handleUserInput(command);
+      await driver.handleUserInput(command);
       await Promise.resolve();
 
       expect(harness.track).toHaveBeenCalledWith('input_command_invalid', {
@@ -1013,7 +1039,7 @@ command = "vim"
     session.setPlanMode.mockClear();
     driver.state.appState.planMode = true;
 
-    driver.handleUserInput('/new');
+    await driver.handleUserInput('/new');
 
     await vi.waitFor(() => {
       expect(harness.createSession).toHaveBeenCalledWith({
@@ -1043,7 +1069,7 @@ command = "vim"
     const { driver } = await makeDriver(initialSession, { createSession });
     vi.mocked(failedSession.onEvent).mockClear();
 
-    driver.handleUserInput('/new');
+    await driver.handleUserInput('/new');
 
     await vi.waitFor(() => {
       expect(stripSgr(renderTranscript(driver))).toContain(
@@ -1070,7 +1096,7 @@ command = "vim"
     const { driver, session, harness } = await makeDriver();
     harness.track.mockClear();
 
-    driver.handleUserInput('/yolo on');
+    await driver.handleUserInput('/yolo on');
 
     await vi.waitFor(() => {
       expect(session.setPermission).toHaveBeenCalledWith('yolo');
@@ -1102,6 +1128,10 @@ command = "vim"
     });
     const { driver } = await makeDriver(session);
 
+    // makeDriver's session setup already subscribed once; reset the spies so
+    // the assertions cover only this explicit (re)subscription.
+    session.onEvent.mockClear();
+    session.listMcpServers.mockClear();
     driver.sessionEventHandler.startSubscription();
     await Promise.resolve();
 
@@ -1225,7 +1255,7 @@ command = "vim"
   it('sends normal editor input to the active session and marks the turn as waiting', async () => {
     const { driver, session } = await makeDriver();
 
-    driver.handleUserInput('hello');
+    await driver.handleUserInput('hello');
 
     expect(session.prompt).toHaveBeenCalledWith(
       [{ type: 'text', text: 'hello' }],
@@ -1250,10 +1280,10 @@ command = "vim"
     });
     const { driver } = await makeDriver(session);
 
-    driver.handleUserInput('hello');
+    await driver.handleUserInput('hello');
     driver.state.appState.streamingPhase = 'idle';
 
-    driver.handleUserInput('/undo');
+    await driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
     await vi.waitFor(() => {
@@ -1278,10 +1308,10 @@ command = "vim"
   it('does not duplicate welcome after undoing the only turn', async () => {
     const { driver } = await makeDriver();
 
-    driver.handleUserInput('hello');
+    await driver.handleUserInput('hello');
     driver.state.appState.streamingPhase = 'idle';
 
-    driver.handleUserInput('/undo');
+    await driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
     await vi.waitFor(() => {
@@ -1298,22 +1328,22 @@ command = "vim"
   it('keeps command notices that are not part of the undone context', async () => {
     const { driver, session } = await makeDriver();
 
-    driver.handleUserInput('hello');
+    await driver.handleUserInput('hello');
     driver.state.appState.streamingPhase = 'idle';
-    driver.handleUserInput('/auto on');
+    await driver.handleUserInput('/auto on');
 
     await vi.waitFor(() => {
       expect(stripSgr(renderTranscript(driver))).toContain('Auto mode: ON');
     });
 
-    driver.handleUserInput('/undo 10');
+    await driver.handleUserInput('/undo 10');
     await vi.waitFor(() => {
       expect(stripSgr(renderTranscript(driver))).toContain(
         'Cannot undo 10 prompts; only 1 prompt can be undone in the active context.',
       );
     });
 
-    driver.handleUserInput('/undo');
+    await driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
     await vi.waitFor(() => {
@@ -1540,7 +1570,7 @@ command = "vim"
   it('removes turn-scoped background status entries and restores welcome', async () => {
     const { driver, session } = await makeDriver();
 
-    driver.handleUserInput('hello');
+    await driver.handleUserInput('hello');
     driver.state.appState.streamingPhase = 'idle';
     driver.sessionEventHandler.handleEvent(
       {
@@ -1569,7 +1599,7 @@ command = "vim"
       expect(transcript).toContain('Run tests in background');
     });
 
-    driver.handleUserInput('/undo');
+    await driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
     await vi.waitFor(() => {
@@ -1592,7 +1622,7 @@ command = "vim"
     const { driver, session } = await makeDriver();
     const sendQueued = vi.fn();
 
-    driver.handleUserInput('launch swarm');
+    await driver.handleUserInput('launch swarm');
     driver.sessionEventHandler.handleEvent(
       {
         type: 'tool.call.started',
@@ -1616,7 +1646,7 @@ command = "vim"
     expect(transcript).toContain('Review changed files');
 
     driver.state.appState.streamingPhase = 'idle';
-    driver.handleUserInput('/undo');
+    await driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
     await vi.waitFor(() => {
@@ -1632,7 +1662,7 @@ command = "vim"
   it('removes approval notices from undone turns', async () => {
     const { driver, session } = await makeDriver();
 
-    driver.handleUserInput('hello');
+    await driver.handleUserInput('hello');
     driver.state.appState.streamingPhase = 'idle';
 
     session.approvals.add({
@@ -1667,7 +1697,7 @@ command = "vim"
       expect(stripSgr(renderTranscript(driver))).toContain('Approved: Run shell command');
     });
 
-    driver.handleUserInput('/undo');
+    await driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
     await vi.waitFor(() => {
@@ -1720,7 +1750,7 @@ command = "vim"
   it('restores the editor when session runtime resets a goal permission prompt', async () => {
     const { driver } = await makeDriver();
     driver.state.appState.permissionMode = 'manual';
-    driver.handleUserInput('/goal Ship the feature');
+    await driver.handleUserInput('/goal Ship the feature');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
@@ -1739,7 +1769,7 @@ command = "vim"
     const previousDebug = process.env['KIMI_CODE_DEBUG'];
     process.env['KIMI_CODE_DEBUG'] = '1';
     try {
-      driver.handleUserInput('hello');
+      await driver.handleUserInput('hello');
       driver.sessionEventHandler.handleEvent(
         {
           type: 'turn.step.completed',
@@ -1758,7 +1788,7 @@ command = "vim"
       });
 
       driver.state.appState.streamingPhase = 'idle';
-      driver.handleUserInput('/undo');
+      await driver.handleUserInput('/undo');
       await confirmUndoSelection(driver);
 
       await vi.waitFor(() => {
@@ -1780,14 +1810,14 @@ command = "vim"
   it('undoes multiple turns when a count is provided', async () => {
     const { driver, session } = await makeDriver();
 
-    driver.handleUserInput('first');
+    await driver.handleUserInput('first');
     driver.state.appState.streamingPhase = 'idle';
-    driver.handleUserInput('second');
+    await driver.handleUserInput('second');
     driver.state.appState.streamingPhase = 'idle';
-    driver.handleUserInput('third');
+    await driver.handleUserInput('third');
     driver.state.appState.streamingPhase = 'idle';
 
-    driver.handleUserInput('/undo 2');
+    await driver.handleUserInput('/undo 2');
 
     await vi.waitFor(() => {
       expect(session.undoHistory).toHaveBeenCalledWith(2);
@@ -1808,10 +1838,10 @@ command = "vim"
   it('rejects invalid undo counts without changing context', async () => {
     const { driver, session } = await makeDriver();
 
-    driver.handleUserInput('hello');
+    await driver.handleUserInput('hello');
     driver.state.appState.streamingPhase = 'idle';
 
-    driver.handleUserInput('/undo 0');
+    await driver.handleUserInput('/undo 0');
 
     await vi.waitFor(() => {
       expect(stripSgr(renderTranscript(driver))).toContain(
@@ -1831,7 +1861,7 @@ command = "vim"
   it('undoes from the real user turn when the last skill activation came from the model', async () => {
     const { driver } = await makeDriver();
 
-    driver.handleUserInput('hello');
+    await driver.handleUserInput('hello');
     driver.sessionEventHandler.handleEvent(
       {
         type: 'skill.activated',
@@ -1844,7 +1874,7 @@ command = "vim"
     );
     driver.state.appState.streamingPhase = 'idle';
 
-    driver.handleUserInput('/undo');
+    await driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
     await vi.waitFor(() => {
@@ -1860,7 +1890,7 @@ command = "vim"
   it('keeps user-slash skill activations as undo anchors', async () => {
     const { driver } = await makeDriver();
 
-    driver.handleUserInput('hello');
+    await driver.handleUserInput('hello');
     driver.sessionEventHandler.handleEvent(
       {
         type: 'skill.activated',
@@ -1873,7 +1903,7 @@ command = "vim"
     );
     driver.state.appState.streamingPhase = 'idle';
 
-    driver.handleUserInput('/undo');
+    await driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
     await vi.waitFor(() => {
@@ -1901,7 +1931,7 @@ command = "vim"
     const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
     const attachment = imageStore.addImage(new Uint8Array([0xaa, 0xbb]), 'image/png', 1, 1);
 
-    driver.handleUserInput(`describe ${attachment.placeholder}`);
+    await driver.handleUserInput(`describe ${attachment.placeholder}`);
 
     expect(session.prompt).toHaveBeenCalledWith(
       [
@@ -1924,7 +1954,7 @@ command = "vim"
     driver.state.appState.streamingPhase = 'waiting';
     harness.track.mockClear();
 
-    driver.handleUserInput('queued message');
+    await driver.handleUserInput('queued message');
 
     expect(session.prompt).not.toHaveBeenCalled();
     expect(driver.state.queuedMessages).toEqual([{ text: 'queued message', agentId: 'main' }]);
@@ -2179,7 +2209,7 @@ command = "vim"
     driver.state.appState.inputMode = 'bash';
     driver.state.editor.inputMode = 'bash';
 
-    driver.handleUserInput('ls');
+    await driver.handleUserInput('ls');
 
     expect(session.prompt).not.toHaveBeenCalled();
     expect(driver.state.queuedMessages).toEqual([
@@ -2325,7 +2355,7 @@ command = "vim"
     driver.state.appState.inputMode = 'bash';
     driver.state.editor.inputMode = 'bash';
 
-    driver.handleUserInput('ls');
+    await driver.handleUserInput('ls');
 
     expect(driver.persistInputHistory).toHaveBeenCalledWith('!ls');
   });
@@ -2333,7 +2363,7 @@ command = "vim"
   it('persists normal input to input history', async () => {
     const { driver } = await makeDriver();
 
-    driver.handleUserInput('hello');
+    await driver.handleUserInput('hello');
 
     expect(driver.persistInputHistory).toHaveBeenCalledWith('hello');
   });
@@ -2425,7 +2455,7 @@ command = "vim"
     driver.state.appState.inputMode = 'bash';
     driver.state.editor.inputMode = 'bash';
 
-    driver.handleUserInput('ls');
+    await driver.handleUserInput('ls');
     await Promise.resolve();
 
     expect(harness.track).toHaveBeenCalledWith('shell_command', undefined);
@@ -2760,7 +2790,7 @@ command = "vim"
     const { driver, session } = await makeDriver();
     driver.state.appState.model = '';
 
-    driver.handleUserInput('hello');
+    await driver.handleUserInput('hello');
 
     expect(session.prompt).not.toHaveBeenCalled();
     expect(driver.state.transcriptContainer.render(120).join('\n')).toContain('LLM not set');
@@ -2779,7 +2809,7 @@ command = "vim"
     const { driver, harness } = await makeDriver(session);
     harness.track.mockClear();
 
-    driver.handleUserInput('/init');
+    await driver.handleUserInput('/init');
 
     await vi.waitFor(() => {
       expect(session.generateAgentsMd).toHaveBeenCalledTimes(1);
@@ -2804,7 +2834,7 @@ command = "vim"
     driver.state.appState.streamingPhase = 'composing';
     driver.state.livePane.mode = 'thinking';
 
-    driver.handleUserInput('/btw What are you working on right now?');
+    await driver.handleUserInput('/btw What are you working on right now?');
 
     await vi.waitFor(() => {
       expect(session.startBtw).toHaveBeenCalledWith();
@@ -2825,7 +2855,7 @@ command = "vim"
     const session = makeSession();
     const { driver } = await makeDriver(session);
 
-    driver.handleUserInput('/btw');
+    await driver.handleUserInput('/btw');
 
     await vi.waitFor(() => {
       expect(session.startBtw).toHaveBeenCalledWith();
@@ -2833,7 +2863,7 @@ command = "vim"
     expect(session.prompt).not.toHaveBeenCalled();
     expect(stripSgr(renderBtwPanel(driver))).toContain('Ready for a side question...');
 
-    driver.handleUserInput('What are you working on right now?');
+    await driver.handleUserInput('What are you working on right now?');
 
     await vi.waitFor(() => {
       expect(session.prompt).toHaveBeenCalledWith(
@@ -2849,7 +2879,7 @@ command = "vim"
     const session = makeSession();
     const { driver } = await makeDriver(session);
 
-    driver.handleUserInput('/btw');
+    await driver.handleUserInput('/btw');
 
     await vi.waitFor(() => {
       expect(session.startBtw).toHaveBeenCalledWith();
@@ -3219,7 +3249,7 @@ command = "vim"
     });
     await openBtwPanel(driver, initialSession);
 
-    driver.handleUserInput('/new');
+    await driver.handleUserInput('/new');
 
     await vi.waitFor(() => {
       expect(driver.getCurrentSessionId()).toBe('ses-next');
@@ -3304,7 +3334,7 @@ command = "vim"
 
     const panel = getMountedBtwPanel(driver);
     expect(panel.isRunning()).toBe(false);
-    driver.handleUserInput('follow up');
+    await driver.handleUserInput('follow up');
 
     await vi.waitFor(() => {
       expect(session.prompt).toHaveBeenCalledWith(
@@ -3332,8 +3362,8 @@ command = "vim"
     await openBtwPanel(driver, session, 'slow side question');
 
     expect(harness.interactiveAgentId).toBe('main');
-    driver.handleUserInput('follow-up while btw prompt is pending');
-    driver.handleUserInput('another follow-up while btw prompt is pending');
+    await driver.handleUserInput('follow-up while btw prompt is pending');
+    await driver.handleUserInput('another follow-up while btw prompt is pending');
 
     expect(session.prompt).toHaveBeenCalledTimes(1);
     expect(driver.state.queuedMessages).toEqual([]);
@@ -3378,7 +3408,7 @@ command = "vim"
     const firstPanel = getMountedBtwPanel(driver);
     expect(firstPanel.isRunning()).toBe(true);
 
-    driver.handleUserInput('/btw second question');
+    await driver.handleUserInput('/btw second question');
 
     await vi.waitFor(() => {
       expect(session.startBtw).toHaveBeenCalledTimes(2);
@@ -3425,12 +3455,12 @@ command = "vim"
     const { driver, session } = await makeDriver();
 
     driver.state.appState.model = '';
-    driver.handleUserInput('/btw');
+    await driver.handleUserInput('/btw');
     expect(session.startBtw).not.toHaveBeenCalled();
     expect(driver.state.btwPanelContainer.children).toHaveLength(0);
     expect(stripSgr(renderTranscript(driver))).toContain('LLM not set');
 
-    driver.handleUserInput('/btw What are you doing now?');
+    await driver.handleUserInput('/btw What are you doing now?');
 
     expect(session.startBtw).not.toHaveBeenCalled();
     expect(stripSgr(renderTranscript(driver))).toContain('LLM not set');
@@ -3479,7 +3509,7 @@ command = "vim"
     const { driver, session } = await makeDriver(undefined);
     driver.state.appState.permissionMode = 'auto';
 
-    driver.handleUserInput('/swarm Ship feature X');
+    await driver.handleUserInput('/swarm Ship feature X');
 
     await vi.waitFor(() => {
       expect(session.setSwarmMode).toHaveBeenCalledWith(true, { trigger: 'task' });
@@ -3520,7 +3550,7 @@ command = "vim"
     });
     const { driver } = await makeDriver(session);
 
-    driver.handleUserInput('/init');
+    await driver.handleUserInput('/init');
     await vi.waitFor(() => {
       expect(session.generateAgentsMd).toHaveBeenCalledTimes(1);
     });
@@ -3557,7 +3587,7 @@ command = "vim"
     });
     const { driver } = await makeDriver(session);
 
-    driver.handleUserInput('/init');
+    await driver.handleUserInput('/init');
     await vi.waitFor(() => {
       expect(session.generateAgentsMd).toHaveBeenCalledTimes(1);
     });
@@ -3575,7 +3605,7 @@ command = "vim"
     const { driver, session } = await makeDriver();
     driver.state.appState.model = '';
 
-    driver.handleUserInput('/init');
+    await driver.handleUserInput('/init');
 
     expect(session.generateAgentsMd).not.toHaveBeenCalled();
     expect(driver.state.transcriptContainer.render(120).join('\n')).toContain('LLM not set');
@@ -4251,7 +4281,7 @@ command = "vim"
     const getStatus = vi.mocked(session.getStatus);
     const previousStatusCalls = getStatus.mock.calls.length;
 
-    driver.handleUserInput('/status');
+    await driver.handleUserInput('/status');
 
     await vi.waitFor(() => {
       expect(getStatus).toHaveBeenCalledTimes(previousStatusCalls + 1);
@@ -4301,7 +4331,7 @@ command = "vim"
     const listMcpServers = vi.mocked(session.listMcpServers);
     const previousCalls = listMcpServers.mock.calls.length;
 
-    driver.handleUserInput('/mcp');
+    await driver.handleUserInput('/mcp');
 
     await vi.waitFor(() => {
       expect(listMcpServers).toHaveBeenCalledTimes(previousCalls + 1);
@@ -4330,7 +4360,7 @@ command = "vim"
     });
     const { driver } = await makeDriver(session);
 
-    driver.handleUserInput('/mcp');
+    await driver.handleUserInput('/mcp');
 
     await vi.waitFor(() => {
       const output = stripSgr(driver.state.transcriptContainer.render(120).join('\n'));
@@ -4346,7 +4376,7 @@ command = "vim"
     });
     const { driver } = await makeDriver(session);
 
-    driver.handleUserInput('/mcp');
+    await driver.handleUserInput('/mcp');
 
     await vi.waitFor(() => {
       const output = stripSgr(driver.state.transcriptContainer.render(120).join('\n'));
@@ -4358,7 +4388,7 @@ command = "vim"
     const session = makeSession();
     const { driver, harness } = await makeDriver(session);
 
-    driver.handleUserInput('/plugins mcp enable kimi-datasource data');
+    await driver.handleUserInput('/plugins mcp enable kimi-datasource data');
 
     await vi.waitFor(() => {
       expect(harness.setPluginMcpServerEnabled).toHaveBeenCalledWith({
@@ -4373,7 +4403,7 @@ command = "vim"
     const session = makeSession();
     const { driver, harness } = await makeDriver(session);
 
-    driver.handleUserInput('/plugins install');
+    await driver.handleUserInput('/plugins install');
 
     await vi.waitFor(() => {
       expect(stripSgr(renderTranscript(driver))).toContain(
@@ -4387,7 +4417,7 @@ command = "vim"
     const session = makeSession();
     const { driver, harness } = await makeDriver(session);
 
-    driver.handleUserInput('/plugins install ./plugins/kimi-datasource');
+    await driver.handleUserInput('/plugins install ./plugins/kimi-datasource');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
@@ -4409,7 +4439,7 @@ command = "vim"
     const session = makeSession();
     const { driver, harness } = await makeDriver(session);
 
-    driver.handleUserInput('/plugins install ./plugins/kimi-datasource');
+    await driver.handleUserInput('/plugins install ./plugins/kimi-datasource');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
@@ -4447,7 +4477,7 @@ command = "vim"
     const session = makeSession();
     const { driver, harness } = await makeDriver(session);
 
-    driver.handleUserInput('/plugins marketplace');
+    await driver.handleUserInput('/plugins marketplace');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
@@ -4502,7 +4532,7 @@ command = "vim"
     const session = makeSession();
     const { driver } = await makeDriver(session, { installPlugin });
 
-    driver.handleUserInput('/plugins marketplace');
+    await driver.handleUserInput('/plugins marketplace');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
@@ -4544,7 +4574,7 @@ command = "vim"
     const { driver, harness } = await makeDriver(session);
 
     // Passing the marketplace path opens the panel directly on the Third-party tab.
-    driver.handleUserInput(`/plugins marketplace ${marketplacePath}`);
+    await driver.handleUserInput(`/plugins marketplace ${marketplacePath}`);
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
@@ -4594,7 +4624,7 @@ command = "vim"
     const session = makeSession();
     const { driver } = await makeDriver(session, { installPlugin });
 
-    driver.handleUserInput(`/plugins marketplace ${marketplacePath}`);
+    await driver.handleUserInput(`/plugins marketplace ${marketplacePath}`);
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
@@ -4625,7 +4655,7 @@ command = "vim"
     const session = makeSession();
     const { driver, harness } = await makeDriver(session);
 
-    driver.handleUserInput('/plugins remove kimi-webbridge');
+    await driver.handleUserInput('/plugins remove kimi-webbridge');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
@@ -4659,7 +4689,7 @@ command = "vim"
     const { driver, harness } = await makeDriver(session);
 
     try {
-      driver.handleUserInput('/plugins marketplace');
+      await driver.handleUserInput('/plugins marketplace');
 
       await vi.waitFor(() => {
         expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
@@ -4697,7 +4727,7 @@ command = "vim"
     const { driver } = await makeDriver(session);
 
     try {
-      driver.handleUserInput('/plugins');
+      await driver.handleUserInput('/plugins');
 
       // The panel opens immediately on the Installed tab — no marketplace fetch.
       await vi.waitFor(() => {
@@ -4742,7 +4772,7 @@ command = "vim"
       setPluginEnabled,
     });
 
-    driver.handleUserInput('/plugins');
+    await driver.handleUserInput('/plugins');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
@@ -4827,7 +4857,7 @@ command = "vim"
       setPluginMcpServerEnabled,
     });
 
-    driver.handleUserInput('/plugins');
+    await driver.handleUserInput('/plugins');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
@@ -4865,7 +4895,7 @@ command = "vim"
     const session = makeSession();
     const { driver, harness } = await makeDriver(session);
 
-    driver.handleUserInput('/plugins remove demo');
+    await driver.handleUserInput('/plugins remove demo');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
@@ -4902,7 +4932,7 @@ command = "vim"
       ]),
     });
 
-    driver.handleUserInput('/plugins demo');
+    await driver.handleUserInput('/plugins demo');
 
     await vi.waitFor(() => {
       expect(harness.getPluginInfo).toHaveBeenCalledWith({ id: 'demo' });
@@ -4936,7 +4966,7 @@ command = "vim"
       setConfig,
     });
 
-    driver.handleUserInput('/model turbo');
+    await driver.handleUserInput('/model turbo');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(TabbedModelSelectorComponent);
@@ -4994,7 +5024,7 @@ command = "vim"
       setConfig,
     });
 
-    driver.handleUserInput('/model turbo');
+    await driver.handleUserInput('/model turbo');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(TabbedModelSelectorComponent);
@@ -5032,7 +5062,7 @@ command = "vim"
       setConfig,
     });
 
-    driver.handleUserInput('/model k2');
+    await driver.handleUserInput('/model k2');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(TabbedModelSelectorComponent);
@@ -5089,7 +5119,7 @@ command = "vim"
       }
     ).refreshOAuthProviderModels = refreshOAuthProviderModels;
 
-    driver.handleUserInput('/model');
+    await driver.handleUserInput('/model');
 
     await vi.waitFor(() => {
       const picker = driver.state.editorContainer.children[0];
@@ -5126,7 +5156,7 @@ command = "vim"
 
     vi.useFakeTimers();
     try {
-      driver.handleUserInput('/model');
+      await driver.handleUserInput('/model');
       await Promise.resolve();
 
       expect(refreshOAuthProviderModels).toHaveBeenCalledOnce();
@@ -5186,7 +5216,7 @@ command = "vim"
     harness.createSession.mockResolvedValueOnce(nextSession);
     const write = vi.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
 
-    driver.handleUserInput('/new');
+    await driver.handleUserInput('/new');
 
     await vi.waitFor(() => {
       expect(harness.createSession).toHaveBeenCalledTimes(2);
@@ -5235,7 +5265,7 @@ command = "vim"
 
     try {
       process.title = 'kimi-test-runner';
-      driver.handleUserInput('/fork ignored args');
+      await driver.handleUserInput('/fork ignored args');
 
       await vi.waitFor(() => {
         expect(forkSession).toHaveBeenCalledWith({
@@ -5263,7 +5293,7 @@ command = "vim"
     });
     const { driver } = await makeDriver(makeSession({ id: 'ses-source' }), { forkSession });
 
-    driver.handleUserInput('/fork');
+    await driver.handleUserInput('/fork');
 
     await vi.waitFor(() => {
       expect(forkSession).toHaveBeenCalledWith({
@@ -5480,7 +5510,7 @@ describe('/model status displayName override', () => {
       setConfig,
     });
 
-    driver.handleUserInput('/model turbo');
+    await driver.handleUserInput('/model turbo');
 
     await vi.waitFor(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(TabbedModelSelectorComponent);
@@ -5520,7 +5550,7 @@ describe('/effort support_efforts override', () => {
       })),
     });
 
-    driver.handleUserInput('/effort max');
+    await driver.handleUserInput('/effort max');
 
     await vi.waitFor(() => {
       expect(renderTranscript(driver)).toContain('Unsupported thinking effort "max" for k2. Available: off, low, high');
