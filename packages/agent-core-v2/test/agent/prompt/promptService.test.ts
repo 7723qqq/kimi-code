@@ -1,0 +1,533 @@
+import { describe, expect, it, onTestFinished } from 'vitest';
+
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { createServices } from '#/_base/di/test';
+import { buildImageCompressionCaption } from '#/_base/tools/support/image-compress';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import {
+  IAgentFullCompactionService,
+  type FullCompactionTask,
+} from '#/agent/fullCompaction/fullCompaction';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import type { PromptSubmitContext } from '#/agent/prompt/prompt';
+import { AgentPromptService } from '#/agent/prompt/promptService';
+import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
+import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
+import type { ToolDidExecuteContext } from '#/agent/tool/toolHooks';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn/turn';
+import { createHooks } from '#/hooks';
+
+import { stubContextMemory } from '../contextMemory/stubs';
+import { stubLoopWithHooks, stubToolExecutor, stubTurn } from '../turn/stubs';
+
+interface StubFullCompaction extends IAgentFullCompactionService {
+  compacting: FullCompactionTask | null;
+}
+
+function stubFullCompaction(): StubFullCompaction {
+  return {
+    _serviceBrand: undefined,
+    compacting: null,
+    begin: () => false,
+    hooks: createHooks([
+      'onWillCompact',
+      'onDidFinishCompaction',
+    ]) as IAgentFullCompactionService['hooks'],
+  };
+}
+
+function fakeCompactionTask(): FullCompactionTask {
+  return {
+    abortController: new AbortController(),
+    promise: new Promise<never>(() => {}),
+    trigger: 'manual',
+    tokenCount: 0,
+  };
+}
+
+function userMessage(text: string, origin: ContextMessage['origin']): ContextMessage {
+  return {
+    role: 'user',
+    content: [{ type: 'text', text }],
+    toolCalls: [],
+    origin,
+  };
+}
+
+function createHarness(options: { readonly hasActiveTurn?: boolean } = {}) {
+  const disposables = new DisposableStore();
+  onTestFinished(() => disposables.dispose());
+
+  const context = stubContextMemory();
+  const loop = stubLoopWithHooks();
+  const turn = stubTurn({ hasActiveTurn: options.hasActiveTurn });
+  const toolExecutor = stubToolExecutor();
+  const fullCompaction = stubFullCompaction();
+  const ix = createServices(disposables, {
+    strict: true,
+    additionalServices: (reg) => {
+      reg.defineInstance(IAgentContextMemoryService, context);
+      reg.defineInstance(IAgentTurnService, turn);
+      reg.defineInstance(IAgentLoopService, loop);
+      reg.defineInstance(IAgentToolExecutorService, toolExecutor);
+      reg.defineInstance(IAgentFullCompactionService, fullCompaction);
+      reg.define(IAgentSystemReminderService, AgentSystemReminderService);
+      reg.define(IAgentPromptService, AgentPromptService);
+    },
+  });
+
+  return {
+    context,
+    fullCompaction,
+    loop,
+    prompt: ix.get(IAgentPromptService),
+    toolExecutor,
+    turn,
+  };
+}
+
+async function flushSteers(loop: IAgentLoopService, turn: Turn): Promise<void> {
+  await loop.hooks.beforeStep.run({
+    turnId: turn.id,
+    step: 1,
+    signal: turn.signal,
+  });
+}
+
+describe('AgentPromptService', () => {
+  it('delegates inactive steer to prompt', async () => {
+    const { prompt, turn } = createHarness();
+    const seen: Array<
+      Pick<PromptSubmitContext, 'isSteer'> & {
+        readonly originKind: string | undefined;
+      }
+    > = [];
+
+    prompt.hooks.onWillSubmitPrompt.register('capture', async (ctx, next) => {
+      seen.push({ isSteer: ctx.isSteer, originKind: ctx.promptMessage.origin?.kind });
+      await next();
+    });
+
+    await prompt.prompt(
+      userMessage('from prompt', { kind: 'system_trigger', name: 'test_prompt' }),
+    );
+    const steer = prompt.steer(
+      userMessage('from steer', { kind: 'system_trigger', name: 'test_steer' }),
+    );
+    await steer.launched;
+
+    expect(seen).toEqual([
+      { isSteer: false, originKind: 'system_trigger' },
+      { isSteer: false, originKind: 'system_trigger' },
+    ]);
+    expect(turn.launches).toHaveLength(2);
+    expect(() => steer.removeFromQueue()).toThrow(
+      expect.objectContaining({
+        code: 'request.invalid',
+      }),
+    );
+  });
+
+  it('launches the turn before appending the user message', async () => {
+    const { context, prompt, turn } = createHarness();
+    const events: string[] = [];
+    const originalLaunch = turn.launch.bind(turn);
+    turn.launch = (...args) => {
+      events.push('turn.launch');
+      return originalLaunch(...args);
+    };
+    const originalAppend = context.append.bind(context);
+    context.append = (...messages) => {
+      events.push('context.append');
+      originalAppend(...messages);
+    };
+
+    await prompt.prompt(userMessage('ordered', { kind: 'user' }));
+
+    expect(events).toEqual(['turn.launch', 'context.append']);
+    expect(turn.launches).toEqual([0]);
+    expect(context.messages.map((message) => message.content[0])).toMatchObject([
+      { type: 'text', text: 'ordered' },
+    ]);
+  });
+
+  it('runs submit hooks before queuing active steers', async () => {
+    const { context, loop, prompt, turn } = createHarness({ hasActiveTurn: true });
+    const activeTurn = turn.launch();
+    const seen: Array<
+      Pick<PromptSubmitContext, 'isSteer'> & {
+        readonly originKind: string | undefined;
+      }
+    > = [];
+
+    prompt.hooks.onWillSubmitPrompt.register('capture', async (ctx, next) => {
+      seen.push({ isSteer: ctx.isSteer, originKind: ctx.promptMessage.origin?.kind });
+      await next();
+    });
+
+    const removed = prompt.steer(
+      userMessage('removed', { kind: 'system_trigger', name: 'test_removed' }),
+    );
+    await expect(removed.launched).resolves.toBe(activeTurn);
+    removed.removeFromQueue();
+    await flushSteers(loop, activeTurn);
+    expect(context.messages).toEqual([]);
+    expect(turn.steered).toEqual([]);
+
+    const emitted = prompt.steer(
+      userMessage('emitted', { kind: 'system_trigger', name: 'test_emitted' }),
+    );
+    await expect(emitted.launched).resolves.toBe(activeTurn);
+    await flushSteers(loop, activeTurn);
+
+    expect(seen).toEqual([
+      { isSteer: true, originKind: 'system_trigger' },
+      { isSteer: true, originKind: 'system_trigger' },
+    ]);
+    expect(context.messages.map((message) => message.content[0])).toMatchObject([
+      { type: 'text', text: 'emitted' },
+    ]);
+    expect(turn.steered).toHaveLength(1);
+    expect(turn.steered[0]?.input).toMatchObject([{ type: 'text', text: 'emitted' }]);
+    expect(turn.steered[0]?.origin).toMatchObject({
+      kind: 'system_trigger',
+      name: 'test_emitted',
+    });
+    expect(() => emitted.removeFromQueue()).toThrow(
+      expect.objectContaining({
+        code: 'request.invalid',
+      }),
+    );
+  });
+
+  it('does not queue active steers blocked by hooks', async () => {
+    const { context, loop, prompt, turn } = createHarness({ hasActiveTurn: true });
+    const activeTurn = turn.launch();
+
+    prompt.hooks.onWillSubmitPrompt.register('block', async (ctx) => {
+      ctx.block = true;
+    });
+
+    const steer = prompt.steer(
+      userMessage('blocked steer', { kind: 'system_trigger', name: 'test_block_steer' }),
+    );
+
+    await expect(steer.launched).resolves.toBeUndefined();
+    await flushSteers(loop, activeTurn);
+    expect(context.messages).toEqual([]);
+  });
+
+  it('blocks launch when the hook sets block', async () => {
+    const { context, prompt, turn } = createHarness();
+
+    prompt.hooks.onWillSubmitPrompt.register('block', async (ctx) => {
+      ctx.block = true;
+    });
+
+    const result = await prompt.prompt(
+      userMessage('blocked', { kind: 'system_trigger', name: 'test_block' }),
+    );
+
+    expect(result).toBeUndefined();
+    expect(turn.launches).toEqual([]);
+    expect(context.messages).toMatchObject([
+      {
+        content: [{ type: 'text', text: 'blocked' }],
+        origin: { kind: 'system_trigger', name: 'test_block' },
+      },
+    ]);
+  });
+
+  it('delivers a declared steer through onDidExecuteTool and strips delivery', async () => {
+    const { context, loop, turn, toolExecutor } = createHarness({ hasActiveTurn: true });
+    const activeTurn = turn.launch();
+
+    const origin = {
+      kind: 'skill_activation',
+      activationId: 'a1',
+      skillName: 'commit',
+      trigger: 'model-tool',
+    } as const;
+    const didCtx: ToolDidExecuteContext = {
+      turnId: activeTurn.id,
+      signal: activeTurn.signal,
+      toolCall: { type: 'function', id: 'call_skill', name: 'Skill', arguments: '{}' },
+      toolCalls: [],
+      args: {},
+      result: {
+        output: 'ack',
+        delivery: {
+          kind: 'steer',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'injected skill body' }],
+            toolCalls: [],
+            origin,
+          },
+        },
+      },
+    };
+
+    await toolExecutor.hooks.onDidExecuteTool.run(didCtx);
+
+    // The hook consumes the side channel so it never reaches the loop/persistence.
+    expect(didCtx.result.delivery).toBeUndefined();
+
+    await flushSteers(loop, activeTurn);
+    expect(context.messages.map((message) => message.content[0])).toMatchObject([
+      { type: 'text', text: 'injected skill body' },
+    ]);
+    expect(context.messages[0]?.origin).toMatchObject({
+      kind: 'skill_activation',
+      skillName: 'commit',
+    });
+  });
+
+  describe('undo', () => {
+    function assistantMessage(text: string): ContextMessage {
+      return { role: 'assistant', content: [{ type: 'text', text }], toolCalls: [] };
+    }
+
+    it('removes the trailing turn and returns the number of prompts removed', () => {
+      const { context, prompt } = createHarness();
+      context.append(userMessage('q', { kind: 'user' }));
+      context.append(assistantMessage('a'));
+
+      expect(prompt.undo(1)).toBe(1);
+      expect(context.messages).toEqual([]);
+    });
+
+    it('throws session.undo_unavailable (empty) when no real user prompt exists', () => {
+      const { prompt } = createHarness();
+
+      expect(() => prompt.undo(1)).toThrow(
+        expect.objectContaining({
+          code: 'session.undo_unavailable',
+          details: expect.objectContaining({ reason: 'empty' }),
+        }),
+      );
+    });
+
+    it('throws session.undo_unavailable (insufficient) and removes nothing when count exceeds the history', () => {
+      const { context, prompt } = createHarness();
+      context.append(userMessage('q', { kind: 'user' }));
+      context.append(assistantMessage('a'));
+
+      expect(() => prompt.undo(2)).toThrow(
+        expect.objectContaining({
+          code: 'session.undo_unavailable',
+          details: expect.objectContaining({
+            reason: 'insufficient',
+            requestedCount: 2,
+            undoableCount: 1,
+          }),
+        }),
+      );
+      // The precheck fails before any state is removed.
+      expect(context.messages).toHaveLength(2);
+    });
+  });
+
+  describe('image-compression caption rerouting', () => {
+    const CAPTION = buildImageCompressionCaption({
+      original: { width: 3264, height: 666, byteLength: 344 * 1024, mimeType: 'image/png' },
+      final: { width: 2000, height: 408, byteLength: 282 * 1024, mimeType: 'image/png' },
+      originalPath: '/tmp/originals/shot.png',
+    });
+
+    const textOf = (message: ContextMessage): string =>
+      message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
+
+    it('reroutes an inline caption into a hidden system reminder', async () => {
+      const { context, prompt } = createHarness();
+
+      // The TUI merges the caption into the preceding text segment; the server
+      // route emits it as a standalone part. Cover the merged (harder) shape.
+      await prompt.prompt({
+        role: 'user',
+        content: [
+          { type: 'text', text: `能展示但是没有快捷键提示${CAPTION}` },
+          { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
+        ],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      });
+
+      expect(context.messages.map(({ role, origin }) => ({ role, origin }))).toEqual([
+        { role: 'user', origin: { kind: 'injection', variant: 'image_compression' } },
+        { role: 'user', origin: { kind: 'user' } },
+      ]);
+      const [reminder, userMsg] = context.messages;
+      expect(textOf(reminder!)).toContain('<system-reminder>');
+      expect(textOf(reminder!)).toContain('Image compressed to fit model limits');
+      expect(textOf(reminder!)).toContain('/tmp/originals/shot.png');
+      expect(textOf(reminder!)).not.toContain('<system>');
+      expect(textOf(userMsg!)).toBe('能展示但是没有快捷键提示');
+      expect(userMsg!.content.some((part) => part.type === 'image_url')).toBe(true);
+    });
+
+    it('drops a caption-only text part instead of leaving an empty user text part', async () => {
+      const { context, prompt } = createHarness();
+
+      await prompt.prompt({
+        role: 'user',
+        content: [
+          { type: 'text', text: CAPTION },
+          { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
+        ],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      });
+
+      const [, userMsg] = context.messages;
+      expect(userMsg!.content).toEqual([
+        { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
+      ]);
+    });
+
+    it('leaves caption-shaped text alone on non-user origins', async () => {
+      const { context, prompt } = createHarness();
+
+      await prompt.prompt({
+        role: 'user',
+        content: [{ type: 'text', text: CAPTION }],
+        toolCalls: [],
+        origin: { kind: 'hook_result', event: 'PostToolUse' },
+      });
+
+      expect(context.messages).toHaveLength(1);
+      expect(context.messages[0]!.origin).toEqual({
+        kind: 'hook_result',
+        event: 'PostToolUse',
+      });
+      expect(textOf(context.messages[0]!)).toBe(CAPTION);
+    });
+
+    it('reroutes captions in steered user messages at flush time', async () => {
+      const { context, loop, prompt, turn } = createHarness({ hasActiveTurn: true });
+      const activeTurn = turn.launch();
+
+      const steer = prompt.steer({
+        role: 'user',
+        content: [
+          { type: 'text', text: `看这张图${CAPTION}` },
+          { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
+        ],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      });
+      await steer.launched;
+      // Nothing lands in context until the steer flushes at the step boundary.
+      expect(context.messages).toEqual([]);
+
+      await flushSteers(loop, activeTurn);
+
+      expect(context.messages.map(({ role, origin }) => ({ role, origin }))).toEqual([
+        { role: 'user', origin: { kind: 'injection', variant: 'image_compression' } },
+        { role: 'user', origin: { kind: 'user' } },
+      ]);
+      expect(textOf(context.messages[1]!)).toBe('看这张图');
+      expect(turn.steered).toHaveLength(1);
+      expect(turn.steered[0]?.input).toMatchObject([
+        { type: 'text', text: '看这张图' },
+        { type: 'image_url' },
+      ]);
+    });
+  });
+});
+
+describe('steer queue retention across non-completed turns', () => {
+  it('flushes a steer queued during a cancelled turn into the next turn', async () => {
+    const { context, loop, prompt, turn } = createHarness();
+
+    let endTurn!: (result: TurnResult) => void;
+    const cancelledTurn: Turn = {
+      id: 0,
+      signal: new AbortController().signal,
+      ready: Promise.resolve(),
+      result: new Promise<TurnResult>((resolve) => {
+        endTurn = resolve;
+      }),
+    };
+    turn.getActiveTurn = () => cancelledTurn;
+
+    const steer = prompt.steer(userMessage('queued during cancel', { kind: 'user' }));
+    await expect(steer.launched).resolves.toBe(cancelledTurn);
+
+    endTurn({ type: 'cancelled', steps: 0, reason: 'cancelled' });
+    await cancelledTurn.result;
+    turn.getActiveTurn = () => undefined;
+
+    const nextTurn = await prompt.prompt(userMessage('next prompt', { kind: 'user' }));
+    expect(nextTurn).toBeDefined();
+    await flushSteers(loop, nextTurn!);
+
+    expect(context.messages.map((message) => message.content[0])).toMatchObject([
+      { type: 'text', text: 'next prompt' },
+      { type: 'text', text: 'queued during cancel' },
+    ]);
+    expect(turn.steered).toMatchObject([
+      { input: [{ type: 'text', text: 'queued during cancel' }] },
+    ]);
+  });
+
+  it('clear() still discards queued steers', async () => {
+    const { context, loop, prompt, turn } = createHarness({ hasActiveTurn: true });
+    const activeTurn = turn.launch();
+
+    const steer = prompt.steer(userMessage('to be cleared', { kind: 'user' }));
+    await expect(steer.launched).resolves.toBe(activeTurn);
+
+    prompt.clear();
+    await flushSteers(loop, activeTurn);
+
+    expect(context.messages).toEqual([]);
+    expect(turn.steered).toEqual([]);
+  });
+});
+
+describe('prompt deferral during full compaction', () => {
+  it('defers prompts while compacting and replays them once compaction finishes', async () => {
+    const { context, fullCompaction, loop, prompt, turn } = createHarness({ hasActiveTurn: true });
+    fullCompaction.compacting = fakeCompactionTask();
+
+    await expect(
+      prompt.prompt(userMessage('deferred one', { kind: 'user' })),
+    ).resolves.toBeUndefined();
+    const steer = prompt.steer(userMessage('deferred two', { kind: 'user' }));
+    await expect(steer.launched).resolves.toBeUndefined();
+    expect(turn.launches).toEqual([]);
+    expect(context.messages).toEqual([]);
+
+    fullCompaction.compacting = null;
+    await fullCompaction.hooks.onDidFinishCompaction.run(fakeCompactionTask());
+
+    expect(turn.launches).toEqual([0]);
+    const launched = turn.getActiveTurn();
+    expect(launched).toBeDefined();
+    await flushSteers(loop, launched!);
+    expect(context.messages.map((message) => message.content[0])).toMatchObject([
+      { type: 'text', text: 'deferred one' },
+      { type: 'text', text: 'deferred two' },
+    ]);
+    expect(turn.steered).toMatchObject([
+      { input: [{ type: 'text', text: 'deferred two' }] },
+    ]);
+  });
+
+  it('does not defer while a turn is active', async () => {
+    const { fullCompaction, prompt, turn } = createHarness({ hasActiveTurn: true });
+    const activeTurn = turn.launch();
+    fullCompaction.compacting = fakeCompactionTask();
+
+    const steer = prompt.steer(userMessage('mid-turn steer', { kind: 'user' }));
+    await expect(steer.launched).resolves.toBe(activeTurn);
+
+    fullCompaction.compacting = null;
+    await fullCompaction.hooks.onDidFinishCompaction.run(fakeCompactionTask());
+    expect(turn.launches).toEqual([activeTurn.id]);
+  });
+});

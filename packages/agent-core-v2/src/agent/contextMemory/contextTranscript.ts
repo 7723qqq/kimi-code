@@ -26,7 +26,6 @@
  *                                   at compaction summaries / clear floor)
  *   - `context.clear`             → keep prior transcript entries but reset the
  *                                   folded view
- *   - `context.splice`            → array splice (legacy 1.5 / internal)
  */
 
 import { type ContentPart, type ToolCall } from '#/app/llmProtocol/message';
@@ -182,18 +181,7 @@ export function reduceContextTranscript(records: Iterable<PersistedRecord>): Con
   for (const record of records) {
     switch (record.type) {
       case 'context.append_message': {
-        const message = record['message'] as ContextMessage;
-        const entry: MutableEntry = {
-          message: {
-            ...(message.id !== undefined ? { id: message.id } : {}),
-            role: message.role,
-            content: [...message.content],
-            toolCalls: [...message.toolCalls],
-            ...(message.toolCallId !== undefined ? { toolCallId: message.toolCallId } : {}),
-            ...(message.isError !== undefined ? { isError: message.isError } : {}),
-            ...(message.origin !== undefined ? { origin: message.origin } : {}),
-          },
-        };
+        const entry = toMutableEntry(record['message'] as ContextMessage);
         if (pendingToolResultIds.size > 0) deferred.push(entry);
         else push(entry);
         break;
@@ -201,23 +189,6 @@ export function reduceContextTranscript(records: Iterable<PersistedRecord>): Con
       case 'context.append_loop_event':
         applyLoopEvent(record['event'] as LoopRecordedEvent);
         break;
-      case 'context.splice': {
-        const start = record['start'] as number;
-        const deleteCount = record['deleteCount'] as number;
-        const messages = record['messages'] as readonly ContextMessage[];
-        if (deleteCount === 0 && messages.length === 0) break;
-        // The transcript is append-only (matches the TUI / replay-builder
-        // transcript): a splice's inserted messages land at the tail and the
-        // deleted messages stay for display, so legacy compaction-via-splice
-        // keeps the pre-compaction prefix. `foldedLength` tracks the literal
-        // live-context length after the splice.
-        for (const message of messages) transcript.push(toMutableEntry(message));
-        const clampedStart = Math.min(Math.max(start, 0), foldedLength);
-        const removed = Math.min(deleteCount, foldedLength - clampedStart);
-        foldedLength = foldedLength - removed + messages.length;
-        resetOpenState();
-        break;
-      }
       case 'context.apply_compaction': {
         // The live context folds into `[...keptUserMessages, summary]`; the
         // transcript keeps the full history and appends the summary marker.
@@ -229,26 +200,7 @@ export function reduceContextTranscript(records: Iterable<PersistedRecord>): Con
             origin: { kind: 'compaction_summary' },
           },
         });
-        const keptUserMessageCount = readNumber(record, 'keptUserMessageCount');
-        const keptHeadUserMessageCount = readNumber(record, 'keptHeadUserMessageCount');
-        const compactedCount = readNumber(record, 'compactedCount');
-        if (keptUserMessageCount !== undefined) {
-          // +1 for the summary message; +1 more when the selection split into
-          // head + tail (the live context then also holds an elision marker).
-          foldedLength = keptUserMessageCount + (keptHeadUserMessageCount === undefined ? 1 : 2);
-        } else if (compactedCount !== undefined && compactedCount < foldedLength) {
-          // Legacy record that kept `history.slice(compactedCount)` verbatim.
-          foldedLength = 1 + (foldedLength - compactedCount);
-        } else {
-          // Legacy record covering the whole live history: re-derive from the
-          // post-clear transcript only (the live context rebuilds from the
-          // post-`/clear` messages).
-          const keptUserMessages = selectRecentUserMessages(
-            collectCompactableUserMessages(transcript.slice(clearFloor).map((e) => e.message)),
-            COMPACT_USER_MESSAGE_MAX_TOKENS,
-          );
-          foldedLength = keptUserMessages.length + 1;
-        }
+        foldedLength = recoverFoldedLength(record, transcript, clearFloor, foldedLength);
         resetOpenState();
         break;
       }
@@ -280,6 +232,35 @@ function toMutableEntry(message: ContextMessage): MutableEntry {
       ...(message.origin !== undefined ? { origin: message.origin } : {}),
     },
   };
+}
+
+/** Recover the live `context.history.length` after a `context.apply_compaction` record. */
+function recoverFoldedLength(
+  record: PersistedRecord,
+  transcript: readonly MutableEntry[],
+  clearFloor: number,
+  foldedLength: number,
+): number {
+  const keptUserMessageCount = readNumber(record, 'keptUserMessageCount');
+  const keptHeadUserMessageCount = readNumber(record, 'keptHeadUserMessageCount');
+  const compactedCount = readNumber(record, 'compactedCount');
+  if (keptUserMessageCount !== undefined) {
+    // +1 for the summary message; +1 more when the selection split into
+    // head + tail (the live context then also holds an elision marker).
+    return keptUserMessageCount + (keptHeadUserMessageCount === undefined ? 1 : 2);
+  }
+  if (compactedCount !== undefined && compactedCount < foldedLength) {
+    // Legacy record that kept `history.slice(compactedCount)` verbatim.
+    return 1 + (foldedLength - compactedCount);
+  }
+  // Legacy record covering the whole live history: re-derive from the
+  // post-clear transcript only (the live context rebuilds from the
+  // post-`/clear` messages).
+  const keptUserMessages = selectRecentUserMessages(
+    collectCompactableUserMessages(transcript.slice(clearFloor).map((e) => e.message)),
+    COMPACT_USER_MESSAGE_MAX_TOKENS,
+  );
+  return keptUserMessages.length + 1;
 }
 
 function readCompactionSummaryText(record: PersistedRecord): string {

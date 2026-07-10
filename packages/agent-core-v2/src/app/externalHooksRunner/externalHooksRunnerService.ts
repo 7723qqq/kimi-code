@@ -4,9 +4,12 @@
  * Owns the configured-hook lifecycle: builds the event→hooks index from
  * `IConfigService` (`[[hooks]]`) + `IPluginService.enabledHooks()`, reloads it
  * on `plugin.onDidReload`, and dispatches each trigger through the pure
- * `runMatchedHooks`. Per-call caller facts (`cwd` defaulting to bootstrap cwd,
- * `sessionId`, `signal`, payload) flow in through the args, so this service
- * keeps no per-scope state. Bound at App scope.
+ * `runMatchedHooks`. The App-scope `IHostProcessService` is injected here and
+ * threaded down to `runHook`, so hook commands spawn through the shared host
+ * process service (cross-platform kill, hidden console on Windows) rather than
+ * `node:child_process` directly. Per-call caller facts (`cwd` defaulting to
+ * bootstrap cwd, `sessionId`, `signal`, payload) flow in through the args, so
+ * this service keeps no per-scope state. Bound at App scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -17,6 +20,7 @@ import { IConfigService } from '#/app/config/config';
 import { IPluginService } from '#/app/plugin/plugin';
 import { HOOKS_SECTION, type HookDefConfig } from '#/agent/externalHooks/configSection';
 import type { HookBlockDecision, HookDef, HookResult } from '#/agent/externalHooks/types';
+import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import {
   IExternalHooksRunnerService,
@@ -35,6 +39,7 @@ export class ExternalHooksRunnerService extends Disposable implements IExternalH
     @IConfigService private readonly config: IConfigService,
     @IPluginService private readonly plugins: IPluginService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @IHostProcessService private readonly hostProcess: IHostProcessService,
     private readonly callbacks: HookRunCallbacks = {},
   ) {
     super();
@@ -86,6 +91,7 @@ export class ExternalHooksRunnerService extends Disposable implements IExternalH
   ): Promise<HookResult[]> {
     await this.ready;
     return runMatchedHooks(
+      this.hostProcess,
       this.byEvent,
       event,
       {

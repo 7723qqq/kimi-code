@@ -48,6 +48,7 @@ import {
 import { registerWs, WS_PATH as WS_PATH_V2 } from './transport/ws/registerWs';
 import { extractWsBearerToken } from './transport/ws/bearerProtocol';
 import { SessionEventBroadcaster } from './transport/ws/v1/sessionEventBroadcaster';
+import { FsWatchBridge } from './transport/ws/v1/fsWatchBridge';
 import { registerWsV1, WS_PATH as WS_PATH_V1 } from './transport/ws/v1/registerWsV1';
 import { getServerVersion } from './version';
 import { classify } from './security/bindClassify';
@@ -297,6 +298,7 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     core,
     logger,
   });
+  const fsWatchBridge = new FsWatchBridge({ core, logger });
 
   const snapshotReader = new SnapshotReader({
     homeDir,
@@ -370,6 +372,7 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     validateCredential,
     registry: connectionRegistry,
     broadcaster,
+    fsWatchBridge,
     logger,
   });
 

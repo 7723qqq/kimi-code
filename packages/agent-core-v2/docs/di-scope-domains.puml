@@ -89,7 +89,10 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>llmRequester</b>\n<size:9><i>Agent</i></size>\n  IAgentLLMRequesterService" as llmRequester #FDEBD0
   rectangle "<b>toolRegistry</b>\n<size:9><i>Agent</i></size>\n  IAgentToolRegistryService" as toolRegistry #FDEBD0
   rectangle "<b>toolExecutor</b>\n<size:9><i>Agent</i></size>\n  IAgentToolExecutorService" as toolExecutor #FDEBD0
+  rectangle "<b>toolResultTruncation</b>\n<size:9><i>Agent</i></size>\n  IAgentToolResultTruncationService" as toolResultTruncation #FDEBD0
   rectangle "<b>toolDedupe</b>\n<size:9><i>Agent</i></size>\n  IAgentToolDedupeService" as toolDedupe #FDEBD0
+  rectangle "<b>toolSelect</b>\n<size:9><i>Agent</i></size>\n  IAgentToolSelectService" as toolSelect #FDEBD0
+  rectangle "<b>toolSelectAnnouncements</b>\n<size:9><i>Agent</i></size>\n  IAgentToolSelectAnnouncementsService" as toolSelectAnnouncements #FDEBD0
   rectangle "<b>permissionGate</b>\n<size:9><i>Agent</i></size>\n  IAgentPermissionGate" as permissionGate #FDEBD0
   rectangle "<b>permissionMode</b>\n<size:9><i>Agent</i></size>\n  IAgentPermissionModeService" as permissionMode #FDEBD0
   rectangle "<b>permissionPolicy</b>\n<size:9><i>Agent</i></size>\n  IAgentPermissionPolicyService" as permissionPolicy #FDEBD0
@@ -104,7 +107,6 @@ package "Agent scope (per agent)" #FDF5E6 {
   rectangle "<b>swarm</b>\n<size:9><i>Agent</i></size>\n  IAgentSwarmService" as swarm #FDEBD0
   rectangle "<b>mcp</b>\n<size:9><i>Agent</i></size>\n  IAgentMcpService" as mcp #FDEBD0
   rectangle "<b>fullCompaction</b>\n<size:9><i>Agent</i></size>\n  IAgentFullCompactionService" as fullCompaction #FDEBD0
-  rectangle "<b>microCompaction</b>\n<size:9><i>Agent</i></size>\n  IAgentMicroCompactionService" as microCompaction #FDEBD0
   rectangle "<b>externalHooks</b>\n<size:9><i>Agent</i></size>\n  IAgentExternalHooksService" as externalHooks #FDEBD0
   rectangle "<b>usage</b>\n<size:9><i>Agent</i></size>\n  IAgentUsageService" as usage #FDEBD0
   rectangle "<b>rpc</b>\n<size:9><i>Agent</i></size>\n  IAgentRPCService" as rpc #FDEBD0
@@ -225,18 +227,34 @@ loop --> config #34495E
 llmRequester --> contextMemory #34495E
 llmRequester --> contextProjector #34495E
 llmRequester --> toolRegistry #34495E
+llmRequester --> toolSelect #34495E
 llmRequester --> profile #34495E
 llmRequester --> log #34495E
 llmRequester --> telemetry #34495E
 llmRequester --> usage #34495E
 llmRequester --> modelProvider #34495E
 llmRequester --> config #34495E
+llmRequester --> wire #34495E
 toolExecutor --> toolRegistry #34495E
 toolExecutor --> wire #34495E
 toolExecutor --> telemetry #34495E
+toolExecutor --> toolResultTruncation #34495E
+toolResultTruncation --> bootstrap #34495E
+toolResultTruncation --> scopeContext #34495E
+toolResultTruncation --> storage #34495E
 toolDedupe --> telemetry #34495E
 toolDedupe --> loop #34495E
 toolDedupe --> toolExecutor #34495E
+toolSelect --> toolRegistry #34495E
+toolSelect --> profile #34495E
+toolSelect --> contextMemory #34495E
+toolSelect --> toolExecutor #34495E
+toolSelect --> flag #34495E
+toolSelect --> event #34495E
+toolSelectAnnouncements --> loop #34495E
+toolSelectAnnouncements --> systemReminder #34495E
+toolSelectAnnouncements --> event #34495E
+toolSelectAnnouncements --> toolSelect #34495E
 permissionGate --> permissionMode #34495E
 permissionGate --> permissionRules #34495E
 permissionGate --> permissionPolicy #34495E
@@ -280,6 +298,7 @@ task --> wireRecord #34495E
 task --> telemetry #34495E
 task --> prompt #34495E
 task --> contextMemory #34495E
+task --> contextInjector #34495E
 task --> config #34495E
 task --> storage #34495E
 task --> session_context #34495E
@@ -295,26 +314,23 @@ swarm --> systemReminder #34495E
 mcp --> toolRegistry #34495E
 mcp --> wire #34495E
 mcp --> toolExecutor #34495E
+mcp --> telemetry #34495E
 fullCompaction --> contextMemory #34495E
 fullCompaction --> contextSize #34495E
 fullCompaction --> llmRequester #34495E
 fullCompaction --> profile #34495E
+fullCompaction --> toolRegistry #34495E
+fullCompaction --> toolSelect #34495E
 fullCompaction --> telemetry #34495E
+fullCompaction --> log #34495E
 fullCompaction --> wireRecord #34495E
 fullCompaction --> turn #34495E
 fullCompaction --> loop #34495E
-microCompaction --> contextMemory #34495E
-microCompaction --> contextSize #34495E
-microCompaction --> wire #34495E
-microCompaction --> flag #34495E
-microCompaction --> profile #34495E
-microCompaction --> telemetry #34495E
-microCompaction --> loop #34495E
-microCompaction --> config #34495E
 externalHooks --> config #34495E
 externalHooks --> bootstrap #34495E
 externalHooks --> plugin #34495E
 externalHooks --> contextMemory #34495E
+externalHooks --> session_context #34495E
 sessionExternalHooks --> session_lifecycle #34495E
 sessionExternalHooks --> agent_lifecycle #34495E
 sessionExternalHooks --> config #34495E
@@ -379,11 +395,11 @@ goal ..> wireRecord #16A085 : goal.create/update/clear
 goal ..> turn #16A085 : turn lifecycle hooks
 goal ..> loop #16A085 : step/usage hooks
 goal ..> eventSink #16A085 : hook.result / goal.updated
-microCompaction ..> wire #16A085 : micro_compaction.apply
 swarm ..> wire #16A085 : swarm_mode.enter/exit
 swarm ..> turn #16A085 : hooks.onEnded
 task ..> wire #16A085 : task.started/terminated
 task ..> contextMemory #16A085 : hooks.onSpliced
+toolSelect ..> toolExecutor #16A085 : unavailable / missingToolDescriber
 externalHooks ..> toolExecutor #16A085 : onWillExecuteTool / onDidExecuteTool
 externalHooks ..> permissionGate #16A085 : approval hooks
 externalHooks ..> turn #16A085 : prompt/end hooks
@@ -395,6 +411,7 @@ sessionExternalHooks ..> agent_lifecycle #16A085 : SubagentStart/Stop (observes 
 usage ..> wire #16A085 : usage.record
 turn ..> wire #16A085 : turn.launch
 contextSize ..> wire #16A085 : context_size.measured
+llmRequester ..> wire #16A085 : llm.tools_snapshot / request
 loop ..> contextMemory #16A085 : hooks.onSpliced
 loop ..> wireRecord #16A085 : hooks.onResumeEnded
 plan ..> wire #16A085 : plan_mode.enter/cancel/exit

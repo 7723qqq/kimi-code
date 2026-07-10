@@ -26,6 +26,10 @@
  * this file stays free of `app/llmProtocol` imports (L2 → L3 boundary); the
  * cast happens once inside `WireService`.
  *
+ * A primary Model may register cross-model reducers keyed by foreign op types:
+ * `WireService.execute` runs them on both dispatch and replay, so v1-derived
+ * restore effects can stay replayable without persisting extra records.
+ *
  * `DeepReadonly<T>` recursively maps a state type to its deeply-readonly view
  * for the references returned by `getModel` / `subscribe`: functions pass
  * through, `Map` / `Set` widen to `ReadonlyMap` / `ReadonlySet`, arrays and
@@ -49,20 +53,44 @@ export interface ModelDef<S> {
   readonly blobs?: ModelBlobCodec<S>;
 }
 
+export interface ModelCrossReducerEntry {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly model: ModelDef<any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly reducer: (state: any, payload: any) => any;
+}
+
+export const MODEL_CROSS_REDUCERS = new Map<string, ModelCrossReducerEntry[]>();
+
+export function defineModel<S>(
+  name: string,
+  initial: () => S,
+  opts?: {
+    blobs?: ModelBlobCodec<S>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    reducers?: Record<string, (state: S, payload: any) => S>;
+  },
+): ModelDef<S> {
+  const def: ModelDef<S> = { name, initial, blobs: opts?.blobs };
+  if (opts?.reducers !== undefined) {
+    for (const [opType, reducer] of Object.entries(opts.reducers)) {
+      let list = MODEL_CROSS_REDUCERS.get(opType);
+      if (list === undefined) {
+        list = [];
+        MODEL_CROSS_REDUCERS.set(opType, list);
+      }
+      list.push({ model: def, reducer });
+    }
+  }
+  return def;
+}
+
 export interface DerivedModelDef<S> {
   readonly name: string;
   readonly initial: () => S;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly reducers: Readonly<Record<string, (state: S, payload: any) => S>>;
   readonly blobs?: ModelBlobCodec<S>;
-}
-
-export function defineModel<S>(
-  name: string,
-  initial: () => S,
-  opts?: { blobs?: ModelBlobCodec<S> },
-): ModelDef<S> {
-  return { name, initial, blobs: opts?.blobs };
 }
 
 export function defineDerivedModel<S>(

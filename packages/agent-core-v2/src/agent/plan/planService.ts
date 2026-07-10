@@ -60,7 +60,7 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
   private currentPlanFilePath(): PlanFilePath {
     const state = this.wire.getModel(PlanModel);
     if (!state.active || state.id === undefined) return null;
-    return state.planFilePath ?? this.planFilePathFor(state.id);
+    return this.planFilePathFor(state.id);
   }
 
   private restoreTelemetryMode(): void {
@@ -82,7 +82,7 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
     let enterRecorded = false;
     try {
       await this.ensurePlanDirectory(planFilePath);
-      this.wire.dispatch(planModeEnter({ id, planFilePath }));
+      this.wire.dispatch(planModeEnter({ id }));
       this.telemetryContext.set({ mode: 'plan' });
       enterRecorded = true;
       if (createFile) {
@@ -115,7 +115,7 @@ export class AgentPlanService extends Disposable implements IAgentPlanService {
   async status(): Promise<PlanData> {
     const state = this.wire.getModel(PlanModel);
     if (!state.active || state.id === undefined) return null;
-    const path = state.planFilePath ?? this.planFilePathFor(state.id);
+    const path = this.planFilePathFor(state.id);
     let content = '';
     try {
       content = await this.hostFs.readText(path);

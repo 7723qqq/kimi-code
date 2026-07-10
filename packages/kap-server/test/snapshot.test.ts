@@ -422,10 +422,10 @@ describe('server-v2 GET /api/v1/sessions/:id/snapshot', () => {
     const resumed = await server!.core.accessor.get(ISessionLifecycleService).resume(sid);
     if (resumed === undefined) throw new Error(`session ${sid} failed to resume`);
     const main = await resumed.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
-    main.accessor.get(IAgentContextMemoryService).splice(0, 0, [
+    main.accessor.get(IAgentContextMemoryService).append(
       { role: 'user', content: [{ type: 'text', text: 'hello' }], toolCalls: [] },
       { role: 'assistant', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
-    ]);
+    );
 
     const snap = await snapshot(sid);
     expect(snap.session.id).toBe(sid);

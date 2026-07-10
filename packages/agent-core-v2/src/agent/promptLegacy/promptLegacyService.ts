@@ -6,9 +6,10 @@
  * observes active turns through `turn`, applies request overrides through
  * `profile` / `permissionMode`, persists prompt metadata through
  * `sessionMetadata`, publishes updates through `event`, and reads the
- * session identity from `sessionContext`. Legacy `prompt.*` lifecycle events
- * are not emitted (they are not part of the v2 `AgentEvent` union); the HTTP
- * responses carry the same information. Bound at Agent scope.
+ * session identity from `sessionContext`. Also synthesizes the legacy
+ * `prompt.completed` / `prompt.aborted` / `prompt.steered` lifecycle events
+ * onto the per-agent `IEventBus` so the v1-compatible WS edge can forward
+ * them (the v2 core engine emits only `turn.ended`). Bound at Agent scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -27,19 +28,35 @@ import {
 import type { ContentPart } from '#/app/llmProtocol/message';
 import { IAuthSummaryService } from '#/app/auth/auth';
 import { IEventService } from '#/app/event/event';
+import { IEventBus } from '#/app/event/eventBus';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import type {
   PromptAbortResponse,
+  PromptAbortedEvent,
+  PromptCompletedEvent,
   PromptItem,
   PromptListResponse,
   PromptStatus,
+  PromptSteeredEvent,
   PromptSteerResult,
   PromptSubmission,
   PromptSubmitResult,
 } from '@moonshot-ai/protocol';
 
-import { IAgentPromptLegacyService } from './promptLegacy';
+import {
+  IAgentPromptLegacyService,
+  type PromptCompletion,
+  type PromptSettleResult,
+} from './promptLegacy';
+
+declare module '#/app/event/eventBus' {
+  interface DomainEventMap {
+    'prompt.completed': PromptCompletedEvent;
+    'prompt.aborted': PromptAbortedEvent;
+    'prompt.steered': PromptSteeredEvent;
+  }
+}
 
 interface PromptRecord {
   readonly promptId: string;
@@ -59,6 +76,12 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
   private readonly queued: PromptRecord[] = [];
   /** Prompts whose abort was requested; their turn settles asynchronously. */
   private readonly abortedPromptIds = new Set<string>();
+  /**
+   * Per-prompt completion deferreds created by {@link submitAndSettle}; resolved
+   * when the prompt's turn settles, rejected if the prompt is dropped before it
+   * launches. Only populated for in-process callers that asked for completion.
+   */
+  private readonly completions = new Map<string, Deferred<PromptCompletion>>();
 
   constructor(
     @IAgentPromptService private readonly prompt: IAgentPromptService,
@@ -67,6 +90,7 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
     @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
     @ISessionMetadata private readonly metadata: ISessionMetadata,
     @IEventService private readonly eventService: IEventService,
+    @IEventBus private readonly eventBus: IEventBus,
     @ISessionContext private readonly sessionContext: ISessionContext,
     @IAuthSummaryService private readonly authSummary: IAuthSummaryService,
   ) {}
@@ -79,15 +103,40 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
   }
 
   async submit(body: PromptSubmission): Promise<PromptSubmitResult> {
+    return this.submitInternal(body, undefined);
+  }
+
+  async submitAndSettle(body: PromptSubmission): Promise<PromptSettleResult> {
+    const deferred = makeDeferred<PromptCompletion>();
+    const submit = await this.submitInternal(body, deferred);
+    return { submit, completion: deferred.promise };
+  }
+
+  private async submitInternal(
+    body: PromptSubmission,
+    completion: Deferred<PromptCompletion> | undefined,
+  ): Promise<PromptSubmitResult> {
     await this.authSummary.ensureReady();
     await this.applyOverrides(body);
 
     const record = this.createRecord(body);
+    if (completion !== undefined) {
+      this.completions.set(record.promptId, completion);
+    }
     if (this.active !== undefined) {
       this.queued.push(record);
       return toItem(record, 'queued');
     }
     const status = await this.launch(record);
+    if (status === 'blocked') {
+      // `launch` drops the record (does not queue it) when it cannot start a
+      // turn, so it will never settle — reject the completion instead of
+      // leaving it pending forever.
+      this.rejectCompletion(
+        record.promptId,
+        new Error('Prompt submission was blocked and will not run'),
+      );
+    }
     return toItem(record, status);
   }
 
@@ -114,27 +163,36 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
     selected.reverse();
 
     const content = selected.flatMap((record) => contentToCoreParts(record.body.content));
+    const steeredContent = selected.flatMap((record) => record.body.content);
+    const activePromptId = this.active.promptId;
     await this.prompt.steer({
       role: 'user',
       content,
       toolCalls: [],
       origin: { kind: 'user' },
     }).launched;
+    this.publishSteered(activePromptId, promptIds, steeredContent);
     return { steered: true, prompt_ids: [...promptIds] };
   }
 
   async abort(promptId: string): Promise<PromptAbortResponse> {
     if (this.active?.promptId === promptId) {
       // Mark and cancel; the turn settles asynchronously and `onTurnSettled`
-      // clears `active` and starts the next queued prompt.
+      // clears `active`, starts the next queued prompt, and emits the
+      // `prompt.aborted` lifecycle event (so we do not double-emit here).
       this.abortedPromptIds.add(promptId);
-      this.active.turn.abortController.abort(userCancellationReason());
+      this.turnService.cancel(this.active.turn.id, userCancellationReason());
       return { aborted: true };
     }
 
     const index = this.queued.findIndex((item) => item.promptId === promptId);
     if (index >= 0) {
       this.queued.splice(index, 1);
+      // The prompt never launched, so no turn will settle it — reject any
+      // completion waiter instead of leaving it pending, and emit the
+      // `prompt.aborted` lifecycle event here since no `turn.ended` will.
+      this.rejectCompletion(promptId, userCancellationReason());
+      this.publishAborted(promptId);
       return { aborted: true };
     }
 
@@ -194,12 +252,62 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
     return 'running';
   }
 
+  private publishCompleted(promptId: string, reason: 'completed' | 'failed'): void {
+    this.eventBus.publish({
+      type: 'prompt.completed',
+      promptId,
+      finishedAt: new Date().toISOString(),
+      reason,
+    });
+  }
+
+  private publishAborted(promptId: string): void {
+    this.eventBus.publish({
+      type: 'prompt.aborted',
+      promptId,
+      abortedAt: new Date().toISOString(),
+    });
+  }
+
+  private publishSteered(
+    activePromptId: string,
+    promptIds: readonly string[],
+    content: PromptSubmission['content'],
+  ): void {
+    this.eventBus.publish({
+      type: 'prompt.steered',
+      activePromptId,
+      promptIds: [...promptIds],
+      content,
+      steeredAt: new Date().toISOString(),
+    });
+  }
+
   private onTurnSettled(promptId: string, result: TurnResult): void {
     if (this.active?.promptId !== promptId) return;
     this.active = undefined;
     this.abortedPromptIds.delete(promptId);
-    void result;
+    this.resolveCompletion(promptId, result);
+    if (result.type === 'cancelled') {
+      this.publishAborted(promptId);
+    } else {
+      this.publishCompleted(promptId, result.type === 'failed' ? 'failed' : 'completed');
+    }
     this.startNextQueued();
+  }
+
+  private resolveCompletion(promptId: string, result: TurnResult): void {
+    const deferred = this.completions.get(promptId);
+    if (deferred === undefined) return;
+    this.completions.delete(promptId);
+    deferred.resolve({ promptId, result });
+  }
+
+  private rejectCompletion(promptId: string, reason: unknown): void {
+    const deferred = this.completions.get(promptId);
+    if (deferred === undefined) return;
+    this.completions.delete(promptId);
+    deferred.reject(reason);
   }
 
   private startNextQueued(): void {
@@ -263,6 +371,22 @@ function contentToCoreParts(content: PromptSubmission['content']): ContentPart[]
     }
   }
   return parts;
+}
+
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  resolve(value: T): void;
+  reject(reason: unknown): void;
+}
+
+function makeDeferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 registerScopedService(

@@ -9,7 +9,7 @@
  *
  * What each record carries:
  *
- *   - `id`            — the 8-hex task id (also accepted by CronDelete).
+ *   - `id`            — the task id (a ULID) (also accepted by CronDelete).
  *   - `cron`          — verbatim 5-field expression as scheduled.
  *   - `humanSchedule` — best-effort plain-English rendering via
  *                       `cronToHuman`; falls back to the raw `cron`

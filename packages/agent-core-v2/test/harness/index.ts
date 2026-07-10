@@ -17,7 +17,6 @@ export {
   llmGenerateServices,
   logServices,
   mcpServices,
-  microCompactionServices,
   modelProviderOptionServices,
   modelProviderServices,
   permissionModeServices,

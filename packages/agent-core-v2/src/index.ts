@@ -33,11 +33,13 @@ export * from '#/app/bootstrap/bootstrap';
 export * from '#/app/bootstrap/bootstrapService';
 export * from '#/os/interface/hostEnvironment';
 export * from '#/os/interface/hostFileSystem';
+export * from '#/os/interface/hostFsWatch';
 export * from '#/os/interface/hostProcess';
 export * from '#/os/interface/terminal';
 export * from '#/os/interface/terminalErrors';
 export * from '#/os/backends/node-local/hostEnvironmentService';
 export * from '#/os/backends/node-local/hostFsService';
+export * from '#/os/backends/node-local/hostFsWatchService';
 export * from '#/os/backends/node-local/hostProcessService';
 export * from '#/os/backends/node-local/hostTerminalService';
 export * from '#/os/backends/node-local/tools/bash';
@@ -79,6 +81,7 @@ export * from '#/app/provider/providerService';
 import '#/app/platform/configSection';
 export * from '#/app/platform/platform';
 export * from '#/app/platform/platformService';
+import '#/app/skillCatalog/configSection';
 import '#/app/protocol/errors';
 export type { ChatProvider } from '#/app/llmProtocol/provider';
 export type { GenerateResult } from '#/app/llmProtocol/generate';
@@ -87,7 +90,9 @@ export * from '#/app/protocol/errors';
 export * from '#/app/protocol/protocol';
 export * from '#/app/protocol/protocolAdapterRegistry';
 import '#/app/model/configSection';
+import '#/app/model/envOverlay';
 export * from '#/app/model/completionBudget';
+export * from '#/app/model/hostRequestHeaders';
 export * from '#/app/model/model';
 export type {
   AuthProvider,
@@ -128,6 +133,8 @@ import '#/agent/skill/tools/skill';
 export * from '#/agent/skill/skill';
 export * from '#/agent/skill/skillService';
 export * from '#/app/skillCatalog/types';
+export * from '#/app/skillCatalog/configSection';
+export * from '#/app/skillCatalog/skillCatalogRuntimeOptions';
 export * from '#/app/skillCatalog/parser';
 export * from '#/app/skillCatalog/registry';
 export * from '#/app/skillCatalog/errors';
@@ -140,6 +147,8 @@ export * from '#/app/skillCatalog/builtinSkillSource';
 export * from '#/app/skillCatalog/userFileSkillSource';
 export * from '#/session/sessionSkillCatalog/skillCatalog';
 export * from '#/session/sessionSkillCatalog/skillCatalogService';
+export * from '#/session/sessionSkillCatalog/extraFileSkillSource';
+export * from '#/session/sessionSkillCatalog/explicitFileSkillSource';
 export * from '#/session/sessionSkillCatalog/workspaceFileSkillSource';
 export * from '#/session/sessionSkillCatalog/pluginSkillSource';
 export * from '#/agent/permissionGate/permissionGate';
@@ -158,9 +167,14 @@ export * from '#/app/multiServer/flag';
 
 import '#/agent/turn/turn';
 import '#/agent/turn/turnService';
+export * from '#/activity/activity';
+export * from '#/activity/activityOps';
+import '#/activity/agentActivityService';
+import '#/activity/sessionActivityKernel';
 import '#/agent/plan/profile/plan';
 import '#/agent/plan/tools/enter-plan-mode';
 import '#/agent/plan/tools/exit-plan-mode';
+import '#/agent/plan/configSection';
 export * from '#/agent/plan/plan';
 export * from '#/agent/plan/planOps';
 export * from '#/agent/plan/planService';
@@ -181,6 +195,13 @@ export * from '#/agent/runtime/runtimeOps';
 export * from '#/agent/runtime/runtimeService';
 export * from '#/agent/toolDedupe/toolDedupe';
 export * from '#/agent/toolDedupe/toolDedupeService';
+import '#/agent/toolSelect/flag';
+import '#/agent/toolSelect/tools/select-tools';
+export * from '#/agent/toolSelect/dynamicTools';
+export * from '#/agent/toolSelect/toolSelect';
+export * from '#/agent/toolSelect/toolSelectService';
+export * from '#/agent/toolSelect/toolSelectAnnouncements';
+export * from '#/agent/toolSelect/toolSelectAnnouncementsService';
 
 import '#/agent/task/configSection';
 import '#/agent/task/tools/task-list';
@@ -234,7 +255,6 @@ export type { ApprovalRequest as SessionApprovalRequest, ApprovalResponse as Ses
 export * from '#/session/question/question';
 export * from '#/session/question/questionService';
 import '#/agent/questionTools/tools/ask-user';
-export * from '#/agent/questionTools/tools/question-task';
 export * from '#/app/gateway/gateway';
 export * from '#/app/gateway/gatewayService';
 
@@ -255,6 +275,8 @@ export * from '#/session/process/processRunnerService';
 export * from '#/session/sessionFs/errors';
 export * from '#/session/sessionFs/fs';
 export * from '#/session/sessionFs/fsService';
+export * from '#/session/sessionFs/fsWatch';
+export * from '#/session/sessionFs/fsWatchService';
 export * from '#/session/sessionFs/gitContext';
 export * from '#/session/sessionFs/rgLocator';
 export * from '#/session/sessionFs/runRg';
@@ -283,6 +305,21 @@ export * from '#/app/authLegacy/authLegacy';
 export * from '#/app/authLegacy/authLegacyService';
 export * from '#/app/file/fileService';
 export * from '#/app/file/fileServiceImpl';
+export {
+  buildImageCompressionCaption,
+  compressBase64ForModel,
+  compressImageForModel,
+  IMAGE_BYTE_BUDGET,
+  MAX_IMAGE_EDGE_PX,
+  READ_IMAGE_BYTE_BUDGET,
+  resolveMaxImageEdgePx,
+  resolveReadImageByteBudget,
+  type ImageCompressionTelemetry,
+} from '#/_base/tools/support/image-compress';
+export {
+  persistOriginalImage,
+  sessionMediaOriginalsDir,
+} from '#/_base/tools/support/image-originals';
 export * from '#/app/edit/fileEdit';
 export * from '#/app/edit/fileEditService';
 export * from '#/app/edit/editService';
@@ -329,20 +366,22 @@ export * from '#/agent/fullCompaction/compactionOps';
 export * from '#/agent/fullCompaction/types';
 export * from '#/agent/llmRequester/llmRequester';
 export * from '#/agent/llmRequester/llmRequesterService';
+export * from '#/agent/llmRequester/llmRequestOps';
 export * from '#/agent/llmRequester/retry';
 import '#/agent/loop/configSection';
 export * from '#/agent/loop/loop';
 export * from '#/agent/loop/loopService';
 export * from '#/agent/mcp/mcp';
 export * from '#/agent/mcp/mcpService';
+export * from '#/agent/mcp/mcpDiscoveryOps';
 export * from '#/agent/mcp/config-schema';
 export type { McpServerEntry } from '#/agent/mcp/connection-manager';
-import '#/agent/microCompaction/flag';
-export * from '#/agent/microCompaction/configSection';
-export * from '#/agent/microCompaction/microCompaction';
-export * from '#/agent/microCompaction/microCompactionOps';
-export * from '#/agent/microCompaction/flag';
-export * from '#/agent/microCompaction/microCompactionService';
+export * from '#/agent/media/mediaTools';
+export * from '#/agent/media/mediaToolsRegistrar';
+export * from '#/agent/media/registerMediaTools';
+import '#/agent/media/configSection';
+export * from '#/agent/media/imageConfigBridge';
+import '#/agent/permissionMode/configSection';
 export * from '#/agent/permissionMode/permissionMode';
 export * from '#/agent/permissionMode/permissionModeService';
 export * from '#/agent/permissionPolicy/permissionPolicy';
@@ -367,6 +406,8 @@ export * from '#/app/messageLegacy/messageLegacy';
 export * from '#/app/messageLegacy/messageLegacyService';
 export * from '#/agent/replayBuilder/replayTimelineModel';
 export * from '#/agent/replayBuilder/types';
+export * from '#/agent/shellCommand/shellCommand';
+export * from '#/agent/shellCommand/shellCommandService';
 export * from '#/agent/rpc/rpc';
 export * from '#/agent/rpc/rpcService';
 export type { McpServerInfo } from '#/agent/rpc/core-api';
@@ -386,6 +427,8 @@ export * from '#/agent/tool/toolHooks';
 export * from '#/agent/tool/toolName';
 export * from '#/agent/toolExecutor/toolExecutor';
 export * from '#/agent/toolExecutor/toolExecutorService';
+export * from '#/agent/toolResultTruncation/toolResultTruncation';
+import '#/agent/toolResultTruncation/toolResultTruncationService';
 import '#/agent/toolRegistry/builtinToolsRegistrar';
 import '#/agent/toolRegistry/toolContribution';
 import '#/agent/toolRegistry/toolRegistry';

@@ -28,8 +28,16 @@ export interface SaveOptions {
 
 export interface GetResult {
   readonly meta: FileMeta;
-  /** Bytes of the stored blob, streamed from the backend. */
-  readonly stream: Readable;
+  /**
+   * Open a fresh stream over the stored blob. `range` is inclusive and lets
+   * callers serve byte ranges without first buffering the whole file.
+   */
+  readonly stream: (range?: FileReadRange) => Readable;
+}
+
+export interface FileReadRange {
+  readonly start: number;
+  readonly end: number;
 }
 
 export interface IFileService {

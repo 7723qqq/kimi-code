@@ -2,30 +2,31 @@
  * `contextMemory` domain (L4) — wire Model (`ContextModel`) and the wire-protocol
  * 1.4 Ops `context.append_message` (`contextAppendMessage`) / `context.clear`
  * (`contextClear`) / `context.apply_compaction` (`contextApplyCompaction`) /
- * `context.undo` (`contextUndo`) for the per-agent conversation history, plus the
- * legacy `context.splice` (`contextSplice`) Op.
+ * `context.undo` (`contextUndo`) / `context.append_loop_event`
+ * (`contextAppendLoopEvent`) for the per-agent conversation history.
  *
  * Declares the history as `ContextMessage[]` (initial `[]`); every Op's `apply`
  * is a pure array transform that returns a NEW reference on change and the SAME
  * reference on a no-op (so the wire's reference-equality gate stays quiet), and
- * carries no non-determinism — message ids are stamped at the dispatch call site
- * (`AgentContextMemoryService.append`), never inside `apply`.
+ * carries no non-determinism.
  *
- * The live write path emits the 1.4 Ops (`append_message` / `clear` /
- * `apply_compaction` / `undo`); assistant and tool messages are persisted already
- * folded (the loop appends whole messages, not raw loop events), so on-disk
- * records use the 1.4 type names. Sessions written by the v1 loop stream a turn
- * as `context.append_loop_event` records instead; `contextAppendLoopEvent` folds
- * them back into assistant / tool messages at restore time (see
- * `loopEventFold.ts`) so those sessions replay identically. `context.splice` (the
- * pre-1.4 primitive) stays registered so sessions written at wire protocol 1.5
- * still replay (newer-version passthrough, no migration) and for the few internal
- * single-delete mutations that have no 1.4 spelling.
+ * The live write path emits the v1 Ops: non-loop appends (user prompts,
+ * injections, hook/task notices) go on the wire as `append_message` (persisted
+ * without local ids — the on-disk record matches v1's field set), while the
+ * agent loop streams each turn as `context.append_loop_event` records — the
+ * same on-disk shape the v1 loop writes — and `contextAppendLoopEvent` folds
+ * them into assistant / tool messages (see `loopEventFold.ts`) both at live
+ * dispatch time and on replay, so v1- and v2-written sessions reduce
+ * identically. The swarm-mode exit reminder removal is a cross-model fold:
+ * `ContextModel` registers a reducer on `swarm_mode.exit` (see
+ * `popSwarmModeReminder`) so the pop replays from the `swarm_mode.exit` record
+ * itself, exactly like v1's restore-time `popMatchedMessage`.
  *
  * Blob handling is declared as a `ModelBlobCodec` on `ContextModel.blobs`:
  * - `dehydrate(record, transform)`: at dispatch time, traverses message content
- *   in `context.splice` and `context.append_message` records, passing each
- *   `ContentPart[]` through `transform` to offload oversized data URIs.
+ *   in `context.append_message` and `context.append_loop_event` records,
+ *   passing each `ContentPart[]` through `transform` to offload oversized data
+ *   URIs.
  * - `rehydrate(state, transform)`: after replay, traverses the surviving final
  *   state and loads `blobref:` URLs back to inline data — skipping I/O for
  *   data that was compacted away during the session.
@@ -71,12 +72,6 @@ async function dehydrateRecord(
   record: PersistedRecord,
   transform: PartsTransformer,
 ): Promise<PersistedRecord> {
-  if (record.type === 'context.splice') {
-    const messages = record['messages'];
-    if (!Array.isArray(messages)) return record;
-    const { changed, result } = await dehydrateMessages(messages as ContextMessage[], transform);
-    return changed ? { ...record, messages: result } : record;
-  }
   if (record.type === 'context.append_message') {
     const message = record['message'] as ContextMessage | undefined;
     if (message === undefined) return record;
@@ -112,24 +107,18 @@ export const ContextModel = defineModel<ContextMessage[]>('contextMemory', () =>
       return changed ? result : state;
     },
   },
-});
-
-export interface ContextSplicePayload {
-  readonly start: number;
-  readonly deleteCount: number;
-  readonly messages: readonly ContextMessage[];
-  readonly tokens?: number;
-}
-
-/** @deprecated Legacy 1.5 record type; kept for replay of old sessions and rare internal single-deletes. */
-export const contextSplice = defineOp(ContextModel, 'context.splice', {
-  apply: (state, p: ContextSplicePayload): ContextMessage[] => {
-    if (p.deleteCount === 0 && p.messages.length === 0) return state;
-    const next = state.slice();
-    next.splice(p.start, p.deleteCount, ...p.messages);
-    return resetFold(next) as ContextMessage[];
+  reducers: {
+    'swarm_mode.exit': popSwarmModeReminder,
   },
 });
+
+function popSwarmModeReminder(state: ContextMessage[], _payload: unknown): ContextMessage[] {
+  const last = state[state.length - 1];
+  if (last === undefined) return state;
+  const origin = last.origin;
+  if (origin?.kind !== 'injection' || origin.variant !== 'swarm_mode') return state;
+  return resetFold(state.slice(0, -1)) as ContextMessage[];
+}
 
 export interface ContextMessagePayload {
   readonly message: ContextMessage;
@@ -144,19 +133,14 @@ export interface ContextLoopEventPayload {
   readonly event: LoopRecordedEvent;
 }
 
-/**
- * Restore-only Op: folds a v1 `context.append_loop_event` record into the
- * history (see `loopEventFold.ts`). Never dispatched by the v2 live loop, so it
- * is never persisted by v2 — registering it lets `WireService.replay` reduce
- * v1-loop sessions instead of skipping the record.
- */
 export const contextAppendLoopEvent = defineOp(ContextModel, 'context.append_loop_event', {
   apply: (state, p: ContextLoopEventPayload): ContextMessage[] =>
     foldLoopEvent(state, p.event) as ContextMessage[],
 });
 
 export const contextClear = defineOp(ContextModel, 'context.clear', {
-  apply: (state): ContextMessage[] => (state.length === 0 ? state : resetFold([]) as ContextMessage[]),
+  apply: (state): ContextMessage[] =>
+    state.length === 0 ? state : (resetFold([]) as ContextMessage[]),
 });
 
 interface ContextCompactionBasePayload {
@@ -165,6 +149,7 @@ interface ContextCompactionBasePayload {
   readonly keptUserMessageCount?: number;
   readonly keptHeadUserMessageCount?: number;
   readonly droppedCount?: number;
+  readonly legacyTail?: boolean;
 }
 
 export interface TextSummaryCompactionPayload extends ContextCompactionBasePayload {
@@ -226,7 +211,7 @@ export function readContextCompactionShapeInput(
     keptUserMessageCount,
     keptHeadUserMessageCount: readOptionalNumber(fields, 'keptHeadUserMessageCount'),
     droppedCount: readOptionalNumber(fields, 'droppedCount'),
-    legacyTail: keptUserMessageCount === undefined,
+    legacyTail: readOptionalBoolean(fields, 'legacyTail') ?? keptUserMessageCount === undefined,
   };
 }
 
@@ -273,6 +258,11 @@ function readOptionalNumber(record: UnknownRecord, key: string): number | undefi
 function readOptionalString(record: UnknownRecord, key: string): string | undefined {
   const value = record[key];
   return typeof value === 'string' ? value : undefined;
+}
+
+function readOptionalBoolean(record: UnknownRecord, key: string): boolean | undefined {
+  const value = record[key];
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 function textOf(message: ContextMessage): string {
@@ -329,12 +319,63 @@ export function computeUndoCut(state: readonly ContextMessage[], count: number):
   return { cutIndex, removedCount, stoppedAtCompaction };
 }
 
+/** Whether a {@link computeUndoCut} result satisfied the full requested `count`. */
+export function isFullyUndoable(cut: UndoCut, count: number): boolean {
+  return cut.cutIndex >= 0 && cut.removedCount >= count;
+}
+
+/** Structured reason an undo cannot proceed, derived from a {@link UndoCut}. */
+export type UndoUnavailableReason = 'empty' | 'compaction_boundary' | 'insufficient';
+
+/**
+ * Result of checking whether `count` real-user prompts can be undone. Returns
+ * `{ ok: true }` when the cut is fully undoable, otherwise a structured reason
+ * (`empty` when no real-user prompt exists, `compaction_boundary` when the scan
+ * hits a compaction summary first, `insufficient` when some exist but fewer
+ * than `count`) plus the number that *could* be undone. Shared by the live
+ * `IAgentPromptService.undo` (which throws on `!ok`) and tests.
+ */
+export type UndoPrecheck =
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly reason: UndoUnavailableReason;
+      readonly requested: number;
+      readonly undoable: number;
+    };
+
+/** Classify a history against an undo `count` (wraps {@link computeUndoCut}). */
+export function precheckUndo(history: readonly ContextMessage[], count: number): UndoPrecheck {
+  const cut = computeUndoCut(history, count);
+  if (isFullyUndoable(cut, count)) return { ok: true };
+  const reason: UndoUnavailableReason = cut.stoppedAtCompaction
+    ? 'compaction_boundary'
+    : cut.removedCount === 0
+      ? 'empty'
+      : 'insufficient';
+  return { ok: false, reason, requested: count, undoable: cut.removedCount };
+}
+
+/** Wire-facing message for a failed {@link precheckUndo} (`session.undo_unavailable`). */
+export function formatUndoUnavailableMessage(
+  precheck: Extract<UndoPrecheck, { ok: false }>,
+): string {
+  switch (precheck.reason) {
+    case 'empty':
+      return 'Nothing to undo: no user message to undo';
+    case 'compaction_boundary':
+      return 'Nothing to undo: would cross a compaction boundary';
+    case 'insufficient':
+      return `Nothing to undo: only ${precheck.undoable} of ${precheck.requested} requested turn(s) available`;
+  }
+}
+
 export const contextUndo = defineOp(ContextModel, 'context.undo', {
   apply: (state, p: ContextUndoPayload): ContextMessage[] => {
     if (p.count <= 0 || state.length === 0) return state;
-    const { cutIndex, removedCount } = computeUndoCut(state, p.count);
-    if (cutIndex < 0 || removedCount < p.count) return state;
-    return resetFold(state.slice(0, cutIndex)) as ContextMessage[];
+    const cut = computeUndoCut(state, p.count);
+    if (!isFullyUndoable(cut, p.count)) return state;
+    return resetFold(state.slice(0, cut.cutIndex)) as ContextMessage[];
   },
 });
 

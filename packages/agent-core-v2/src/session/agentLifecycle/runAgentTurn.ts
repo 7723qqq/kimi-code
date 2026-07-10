@@ -3,11 +3,12 @@
  * an agent and distills a summary from its context once the turn ends.
  *
  * Not a Service: `runAgentTurn` is a pure function that borrows
- * `IAgentPromptService`, `IAgentContextMemoryService`, `IAgentUsageService`
- * from the target agent's scope. It has no notion of a caller: it emits no
- * record signals, runs no hooks, and tracks no telemetry. Callers that want to
- * surface the run on their own record stream (the `Agent` tool, the swarm
- * scheduler) compose this with `mirrorAgentRun` from the `agentTool` domain.
+ * `IAgentPromptService`, `IAgentContextMemoryService`, `IAgentUsageService`,
+ * and `IEventBus` from the target agent's scope. It has no notion of a caller:
+ * it emits no record signals, runs no hooks, and tracks no telemetry. Callers
+ * that want to surface the run on their own record stream (the `Agent` tool,
+ * the swarm scheduler) compose this with `mirrorAgentRun` from the `agentTool`
+ * domain.
  *
  * The lifecycle is imperative — the caller awaits the returned `completion`
  * promise. Turn hooks are not used because there is exactly one observer (the
@@ -24,8 +25,8 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn/turn';
 import { IAgentUsageService } from '#/agent/usage/usage';
-import type { Turn } from '#/agent/turn/turn';
 import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
 
 import type { AgentRunHandle, AgentRunRequest } from './agentLifecycle';
@@ -41,6 +42,9 @@ export const AGENT_RUN_PROMPT_ORIGIN: PromptOrigin = {
   kind: 'system_trigger',
   name: 'subagent',
 };
+
+const SUBAGENT_MAX_TOKENS_ERROR =
+  'Subagent turn failed before completing its final summary: reason=max_tokens';
 
 export interface RunAgentTurnOptions {
   /** When set, drives a continuation-prompt loop when the agent's summary is too short. */
@@ -89,19 +93,29 @@ async function awaitRun(
 ): Promise<{ summary: string; usage?: TokenUsage }> {
   const controller = new AbortController();
   const unlink = linkAbortSignal(options.signal, controller);
+  const turnService = target.accessor.get(IAgentTurnService);
+  const cancelTurn = (reason: unknown): void => {
+    turnService.cancel(undefined, reason);
+  };
   let turnRef: Turn = turn;
   try {
-    const result = await awaitTurn(turnRef, controller);
+    const result = await awaitTurn(turnRef, controller, cancelTurn);
     classifyTurnResult(result);
-    const summary = await distillSummary(target, controller, options.summaryPolicy, (t) => {
-      turnRef = t;
-    });
+    const summary = await distillSummary(
+      target,
+      controller,
+      options.summaryPolicy,
+      (t) => {
+        turnRef = t;
+      },
+      cancelTurn,
+    );
     const usage = target.accessor.get(IAgentUsageService)?.status().total;
     return { summary, usage };
   } finally {
     unlink();
     if (controller.signal.aborted) {
-      turnRef.abortController.abort(controller.signal.reason);
+      cancelTurn(controller.signal.reason);
     }
   }
 }
@@ -109,9 +123,10 @@ async function awaitRun(
 async function awaitTurn(
   turn: Turn,
   controller: AbortController,
-): Promise<{ reason: string; error?: unknown }> {
+  cancelTurn: (reason: unknown) => void,
+): Promise<TurnResult> {
   const onAbort = (): void => {
-    turn.abortController.abort(controller.signal.reason);
+    cancelTurn(controller.signal.reason);
   };
   controller.signal.addEventListener('abort', onAbort, { once: true });
   try {
@@ -126,11 +141,12 @@ async function distillSummary(
   controller: AbortController,
   policy: AgentProfileSummaryPolicy | undefined,
   setTurn: (turn: Turn) => void,
+  cancelTurn: (reason: unknown) => void,
 ): Promise<string> {
   const memory = target.accessor.get(IAgentContextMemoryService);
   let summary = latestAssistantText(memory.get());
   if (policy === undefined) return summary;
-  if (summary.trim().length >= policy.minChars) return summary;
+  if (isSummaryAdequate(summary, policy)) return summary;
 
   const promptService = target.accessor.get(IAgentPromptService);
   for (let attempt = 0; attempt < policy.retries; attempt++) {
@@ -142,30 +158,37 @@ async function distillSummary(
     });
     if (turn === undefined) break;
     setTurn(turn);
-    const result = await awaitTurn(turn, controller);
-    if (result.reason !== 'completed') break;
+    const result = await awaitTurn(turn, controller, cancelTurn);
+    classifyTurnResult(result);
     const continued = latestAssistantText(memory.get());
     if (continued.trim().length > 0) summary = continued;
-    if (summary.trim().length >= policy.minChars) break;
+    if (isSummaryAdequate(summary, policy)) break;
   }
   return summary;
 }
 
-function classifyTurnResult(result: { reason: string; error?: unknown }): void {
-  if (result.reason === 'filtered') {
-    throw new Error('Agent turn blocked by provider safety policy');
-  }
-  if (result.reason === 'failed') {
-    const error = result.error;
-    if (isProviderRateLimitError(error)) throw error;
-    const payload = toKimiErrorPayload(error);
-    if (payload.code === ErrorCodes.PROVIDER_RATE_LIMIT) {
-      throw providerRateLimitErrorFromPayload(payload);
+function isSummaryAdequate(summary: string, policy: AgentProfileSummaryPolicy): boolean {
+  return summary.trim().length >= policy.minChars;
+}
+
+function classifyTurnResult(result: TurnResult): void {
+  switch (result.type) {
+    case 'completed':
+      if (result.truncated) {
+        throw new Error(SUBAGENT_MAX_TOKENS_ERROR);
+      }
+      return;
+    case 'failed': {
+      const error = result.error;
+      if (isProviderRateLimitError(error)) throw error;
+      const payload = toKimiErrorPayload(error);
+      if (payload.code === ErrorCodes.PROVIDER_RATE_LIMIT) {
+        throw providerRateLimitErrorFromPayload(payload);
+      }
+      throw toRunError(error);
     }
-    throw toRunError(error);
-  }
-  if (result.reason === 'cancelled') {
-    throw userCancellationReason();
+    case 'cancelled':
+      throw toRunError(result.reason ?? userCancellationReason());
   }
 }
 

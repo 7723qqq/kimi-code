@@ -229,6 +229,12 @@ export type KimiErrorCode =
   | 'session.question_handler_error'
   | 'session.init_failed'
   | 'agent.not_found'
+  | 'activity.agent_busy'
+  | 'activity.cancelling'
+  | 'activity.disposing'
+  | 'activity.disposed'
+  | 'activity.initializing'
+  | 'activity.session_rejected'
   | 'turn.agent_busy'
   | 'goal.already_exists'
   | 'goal.not_found'
@@ -239,6 +245,7 @@ export type KimiErrorCode =
   | 'goal.not_resumable'
   | 'model.not_configured'
   | 'model.config_invalid'
+  | 'profile.thinking_alias_conflict'
   | 'model.not_found'
   | 'auth.login_required'
   | 'auth.provisioning_required'
@@ -260,6 +267,7 @@ export type KimiErrorCode =
   | 'compaction.failed'
   | 'compaction.unable'
   | 'task.task_id_empty'
+  | 'usage.turn_id_conflict'
   | 'mcp.server_not_found'
   | 'mcp.server_disabled'
   | 'mcp.startup_failed'
@@ -794,6 +802,27 @@ export interface PromptSubmittedEvent {
   readonly createdAt: string;
 }
 
+export interface PromptCompletedEvent {
+  readonly type: 'prompt.completed';
+  readonly promptId: string;
+  readonly finishedAt: string;
+  readonly reason?: 'completed' | 'failed' | 'blocked';
+}
+
+export interface PromptAbortedEvent {
+  readonly type: 'prompt.aborted';
+  readonly promptId: string;
+  readonly abortedAt: string;
+}
+
+export interface PromptSteeredEvent {
+  readonly type: 'prompt.steered';
+  readonly activePromptId: string;
+  readonly promptIds: readonly string[];
+  readonly content: readonly MessageContent[];
+  readonly steeredAt: string;
+}
+
 export type ToolListUpdatedReason = 'mcp.connected' | 'mcp.disconnected' | 'mcp.failed';
 
 export interface ToolListUpdatedEvent {
@@ -861,7 +890,10 @@ export type AgentEvent =
   | BackgroundTaskStartedEvent
   | BackgroundTaskTerminatedEvent
   | CronFiredEvent
-  | PromptSubmittedEvent;
+  | PromptSubmittedEvent
+  | PromptCompletedEvent
+  | PromptAbortedEvent
+  | PromptSteeredEvent;
 
 export type Event = AgentEvent & { agentId: string; sessionId: string };
 
@@ -1077,6 +1109,12 @@ export const kimiErrorCodeSchema = z.enum([
   'session.question_handler_error',
   'session.init_failed',
   'agent.not_found',
+  'activity.agent_busy',
+  'activity.cancelling',
+  'activity.disposing',
+  'activity.disposed',
+  'activity.initializing',
+  'activity.session_rejected',
   'turn.agent_busy',
   'goal.already_exists',
   'goal.not_found',
@@ -1087,6 +1125,7 @@ export const kimiErrorCodeSchema = z.enum([
   'goal.not_resumable',
   'model.not_configured',
   'model.config_invalid',
+  'profile.thinking_alias_conflict',
   'model.not_found',
   'auth.login_required',
   'auth.provisioning_required',
@@ -1108,6 +1147,7 @@ export const kimiErrorCodeSchema = z.enum([
   'compaction.failed',
   'compaction.unable',
   'task.task_id_empty',
+  'usage.turn_id_conflict',
   'mcp.server_not_found',
   'mcp.server_disabled',
   'mcp.startup_failed',
@@ -1590,6 +1630,27 @@ export const promptSubmittedEventSchema = z.object({
   createdAt: isoDateTimeSchema,
 }) satisfies z.ZodType<PromptSubmittedEvent>;
 
+export const promptCompletedEventSchema = z.object({
+  type: z.literal('prompt.completed'),
+  promptId: z.string(),
+  finishedAt: isoDateTimeSchema,
+  reason: z.enum(['completed', 'failed', 'blocked']).optional(),
+}) satisfies z.ZodType<PromptCompletedEvent>;
+
+export const promptAbortedEventSchema = z.object({
+  type: z.literal('prompt.aborted'),
+  promptId: z.string(),
+  abortedAt: isoDateTimeSchema,
+}) satisfies z.ZodType<PromptAbortedEvent>;
+
+export const promptSteeredEventSchema = z.object({
+  type: z.literal('prompt.steered'),
+  activePromptId: z.string(),
+  promptIds: z.array(z.string()),
+  content: z.array(messageContentSchema),
+  steeredAt: isoDateTimeSchema,
+}) satisfies z.ZodType<PromptSteeredEvent>;
+
 export const toolListUpdatedReasonSchema = z.enum([
   'mcp.connected',
   'mcp.disconnected',
@@ -1661,6 +1722,9 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   backgroundTaskTerminatedEventSchema,
   cronFiredEventSchema,
   promptSubmittedEventSchema,
+  promptCompletedEventSchema,
+  promptAbortedEventSchema,
+  promptSteeredEventSchema,
 ]) satisfies z.ZodType<AgentEvent>;
 
 export const eventSchema = agentEventSchema.and(

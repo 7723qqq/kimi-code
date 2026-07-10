@@ -48,10 +48,17 @@ import {
 } from './modelCatalog';
 
 const DEFAULT_MODEL_SECTION = 'defaultModel';
-const DEFAULT_THINKING_SECTION = 'defaultThinking';
+const THINKING_SECTION = 'thinking';
 
 export class ModelCatalogService implements IModelCatalogService {
   declare readonly _serviceBrand: undefined;
+
+  /**
+   * Serializes refresh runs so a scheduled refresh and a manual one (or two
+   * manual ones with different options) never race on reading/patching the
+   * persisted config. Mirrors v1's `_refreshChain`.
+   */
+  private refreshChain: Promise<unknown> = Promise.resolve();
 
   constructor(
     @IModelService private readonly modelService: IModelService,
@@ -100,8 +107,19 @@ export class ModelCatalogService implements IModelCatalogService {
     };
   }
 
-  async refreshProviderModels(
+  refreshProviderModels(
     options: RefreshProviderModelsOptions = {},
+  ): Promise<RefreshProviderModelsResponse> {
+    const run = this.refreshChain.then(() => this.doRefreshProviderModels(options));
+    this.refreshChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async doRefreshProviderModels(
+    options: RefreshProviderModelsOptions,
   ): Promise<RefreshProviderModelsResponse> {
     await this.config.reload();
     if (options.providerId !== undefined) {
@@ -147,12 +165,13 @@ export class ModelCatalogService implements IModelCatalogService {
     const models =
       this.config.inspect<Record<string, ModelAlias>>(MODELS_SECTION).userValue ?? {};
     const defaultModel = this.config.inspect<string>(DEFAULT_MODEL_SECTION).userValue;
-    const defaultThinking = this.config.inspect<boolean>(DEFAULT_THINKING_SECTION).userValue;
+    const thinking =
+      this.config.inspect<ManagedKimiConfigShape['thinking']>(THINKING_SECTION).userValue;
     return {
       providers: { ...providers } as ManagedKimiConfigShape['providers'],
       models: { ...models } as ManagedKimiConfigShape['models'],
       defaultModel,
-      defaultThinking,
+      thinking: thinking === undefined ? undefined : { ...thinking },
     };
   }
 
@@ -185,8 +204,8 @@ export class ModelCatalogService implements IModelCatalogService {
     if (patch.defaultModel !== undefined) {
       await this.config.set(DEFAULT_MODEL_SECTION, patch.defaultModel);
     }
-    if (patch['defaultThinking'] !== undefined) {
-      await this.config.set(DEFAULT_THINKING_SECTION, patch['defaultThinking']);
+    if (patch.thinking !== undefined) {
+      await this.config.set(THINKING_SECTION, patch.thinking);
     }
     return this.readUserConfigShape();
   }

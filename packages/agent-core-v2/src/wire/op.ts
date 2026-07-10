@@ -15,6 +15,9 @@
  * `dispatch(...ops: Op[])` rest parameter, while the precise payload type
  * survives on `Op.payload` for the Op's own caller. Registering a duplicate
  * `type` throws `DuplicateOpError` so the global Op-type namespace stays unique.
+ * Descriptors may opt out of persistence (`persist: false`) for live-only
+ * state, or opt out of timestamp stamping (`stamp: false`) for the metadata
+ * envelope. Both default to the v1-compatible persisted, stamped path.
  * Scope-agnostic.
  */
 
@@ -45,6 +48,8 @@ export interface OpDescriptor<K extends string, S, P> {
    * derive no event.
    */
   readonly toEvent?: (payload: P, state: S) => unknown;
+  readonly persist?: boolean;
+  readonly stamp?: boolean;
 }
 
 export interface Op<K extends string = string, P = unknown> {
@@ -63,6 +68,8 @@ export function defineOp<K extends string, S, P>(
   opts: {
     apply: (state: S, payload: P) => S;
     toEvent?: (payload: P, state: S) => unknown;
+    persist?: boolean;
+    stamp?: boolean;
   },
 ): OpDescriptor<K, S, P> & ((payload: P) => Op<K, P>) {
   if (OP_REGISTRY.has(type)) {
@@ -73,6 +80,8 @@ export function defineOp<K extends string, S, P>(
     model,
     apply: opts.apply,
     toEvent: opts.toEvent,
+    persist: opts.persist,
+    stamp: opts.stamp,
   };
   OP_REGISTRY.set(type, descriptor);
   const factory = (payload: P): Op<K, P> => ({ type, payload, descriptor });

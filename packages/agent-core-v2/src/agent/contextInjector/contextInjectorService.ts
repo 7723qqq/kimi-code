@@ -61,6 +61,11 @@ export class AgentContextInjectorService extends Disposable implements IAgentCon
     });
   }
 
+  async injectAfterCompaction(): Promise<void> {
+    this.isNewTurn = true;
+    await this.inject();
+  }
+
   private async inject(): Promise<void> {
     const isNewTurn = this.isNewTurn;
     this.isNewTurn = false;

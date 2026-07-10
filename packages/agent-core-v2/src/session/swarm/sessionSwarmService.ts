@@ -21,6 +21,8 @@ import { linkAbortSignal } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentTurnService } from '#/agent/turn/turn';
+import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import type { SubagentSuspendedEvent } from '@moonshot-ai/protocol';
 import { IEventBus } from '#/app/event/eventBus';
 import { IAgentProfileCatalogService } from '#/app/agentProfileCatalog/agentProfileCatalog';
@@ -151,6 +153,9 @@ export class SessionSwarmService implements ISessionSwarmService {
       permissionMode: caller.accessor.get(IAgentPermissionModeService).mode,
       labels: subagentLabels(callerAgentId, { swarmItem: options.swarmItem }),
     });
+    child.accessor
+      .get(IAgentUserToolService)
+      .inheritUserTools(caller.accessor.get(IAgentUserToolService));
     emitAgentRunSpawned(caller, child.id, {
       profileName: options.profileName,
       parentToolCallId: options.parentToolCallId,
@@ -180,6 +185,8 @@ export class SessionSwarmService implements ISessionSwarmService {
     await this.requireOwnedSubagent(callerAgentId, agentId);
     const caller = this.requireHandle(callerAgentId, 'Caller agent');
     const child = this.requireHandle(agentId, 'Agent instance');
+    this.requireIdleSubagent(agentId, child);
+    this.realignChildModel(caller, child);
     const profileName =
       child.accessor.get(IAgentProfileService).data().profileName ?? RESUMED_PROFILE_FALLBACK;
     emitAgentRunSpawned(caller, agentId, {
@@ -224,6 +231,20 @@ export class SessionSwarmService implements ISessionSwarmService {
     const handle = this.lifecycle.getHandle(agentId);
     if (handle === undefined) throw new Error(`${label} "${agentId}" does not exist`);
     return handle;
+  }
+
+  private realignChildModel(caller: IAgentScopeHandle, child: IAgentScopeHandle): void {
+    const modelAlias = caller.accessor.get(IAgentProfileService).data().modelAlias;
+    if (modelAlias === undefined) {
+      throw new Error('Caller agent has no model bound');
+    }
+    child.accessor.get(IAgentProfileService).update({ modelAlias });
+  }
+
+  private requireIdleSubagent(agentId: string, child: IAgentScopeHandle): void {
+    if (child.accessor.get(IAgentTurnService).getActiveTurn() !== undefined) {
+      throw new Error(`Agent instance "${agentId}" is already running and cannot run concurrently`);
+    }
   }
 
   private async requireOwnedSubagent(callerAgentId: string, agentId: string): Promise<void> {

@@ -15,6 +15,7 @@
  *     the Model itself; no Platform is required.
  */
 
+import { parseKimiCodeCustomHeaders } from '@moonshot-ai/kimi-code-oauth';
 import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -31,6 +32,7 @@ import { IProviderService } from '#/app/provider/provider';
 import { IProtocolAdapterRegistry, type Protocol, type ProtocolProviderOptions } from '#/app/protocol/protocol';
 import { type ProtocolAdapterRegistry } from '#/app/protocol/protocolAdapterRegistry';
 
+import { IHostRequestHeaders } from './hostRequestHeaders';
 import type { ModelConfig } from './model';
 import { IModelService } from './model';
 import {
@@ -48,7 +50,7 @@ import { resolveThinkingEffortForModel } from './thinking';
 /** Shape of the `thinking` config section (owned by `profile`); only the
  *  fields the resolver needs to mirror the production default are read here. */
 interface ThinkingSection {
-  readonly mode?: string;
+  readonly enabled?: boolean;
   readonly effort?: string;
 }
 
@@ -67,6 +69,7 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     @IOAuthService private readonly oauth: IOAuthService,
     @IProtocolAdapterRegistry
     private readonly protocolRegistry: IProtocolAdapterRegistry,
+    @IHostRequestHeaders private readonly hostRequestHeaders: IHostRequestHeaders,
   ) {
     super();
   }
@@ -132,7 +135,11 @@ export class ModelResolverService extends Disposable implements IModelResolver {
       aliases: model.aliases ?? [],
       protocol,
       baseUrl: resolvedBaseUrl,
-      headers: providerConfig?.customHeaders ?? {},
+      headers: resolveOutboundHeaders(
+        providerConfig?.type,
+        providerConfig?.customHeaders,
+        this.hostRequestHeaders.headers,
+      ),
       capabilities,
       maxContextSize: model.maxContextSize,
       maxOutputSize: model.maxOutputSize,
@@ -149,7 +156,7 @@ export class ModelResolverService extends Disposable implements IModelResolver {
 
     // Apply the production default thinking effort so a plain `model.request()`
     // behaves like the agent path (which routes through `profile` and reads the
-    // same `thinking` / `defaultThinking` config). Required for models whose
+    // same `thinking` config). Required for models whose
     // endpoint rejects a request that omits thinking (e.g. kimi-k2.7 over the
     // Anthropic protocol returns 400 unless `thinking.type === 'enabled'`).
     const effort = this.resolveDefaultThinking(model, alwaysThinking);
@@ -157,10 +164,9 @@ export class ModelResolverService extends Disposable implements IModelResolver {
   }
 
   /**
-   * Mirror `profile`'s `resolveThinkingLevel` / `resolveThinkingEffort` so the
-   * god-object's default matches the production agent path:
-   *   - an explicit `defaultThinking === false` or `thinking.mode === 'off'`
-   *     turns thinking off;
+   * Mirror `profile`'s `resolveThinkingEffort` so the god-object's default
+   * matches the production agent path:
+   *   - `thinking.enabled === false` turns thinking off;
    *   - otherwise the configured `thinking.effort` is used, falling back to the
    *     model's declared default effort / middle supported effort / boolean `on`;
    *   - an `always_thinking` model clamps an explicit "off" back to on.
@@ -169,13 +175,11 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     model: ModelConfig,
     alwaysThinking: boolean,
   ): ThinkingEffort {
-    const defaultThinking = this.config.get<boolean | undefined>('defaultThinking');
     const thinking = this.config.get<ThinkingSection | undefined>('thinking');
     return resolveThinkingEffortForModel(
       undefined,
       {
-        defaultThinking,
-        mode: thinking?.mode,
+        enabled: thinking?.enabled,
         effort: thinking?.effort,
       },
       { ...model, alwaysThinking },
@@ -208,8 +212,11 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     readonly resolvedBaseUrl: string;
   } {
     // Structured path — Model references a Provider (which may reference a
-    // Platform). Legacy configs still use `provider` in place of `providerId`.
-    const providerId = model.providerId ?? model.provider;
+    // Platform). Legacy configs still use `provider` in place of `providerId`,
+    // and the top-level `defaultProvider` config is the v1-compatible fallback
+    // when a Model pins neither.
+    const providerId =
+      model.providerId ?? model.provider ?? this.config.get<string>('defaultProvider');
     if (providerId !== undefined) {
       const providerConfig = this.providers.get(providerId);
       if (providerConfig === undefined) {
@@ -285,7 +292,9 @@ export class ModelResolverService extends Disposable implements IModelResolver {
         async getAuth(options): Promise<ProviderRequestAuth | undefined> {
           const tokenProvider = oauthService.resolveTokenProvider(providerKey, oauthRef);
           if (tokenProvider === undefined) throw loginRequired();
-          const apiKey = await tokenProvider.getAccessToken({ force: options?.force ?? false });
+          const apiKey = await tokenProvider.getAccessToken(
+            options?.force === true ? { force: true } : undefined,
+          );
           if (apiKey.trim().length === 0) throw loginRequired();
           return { apiKey };
         },
@@ -293,6 +302,32 @@ export class ModelResolverService extends Disposable implements IModelResolver {
     }
     return new StaticAuthProvider(undefined);
   }
+}
+
+/**
+ * Resolve the outbound `defaultHeaders` for a Model, layering lowest to highest
+ * precedence (matches v1's `provider-manager`):
+ *
+ *   1. `KIMI_CODE_CUSTOM_HEADERS` env (re-read on every resolve so env changes
+ *      take effect without restarting the session);
+ *   2. host identity headers — the full set (`User-Agent` + `X-Msh-*`) for a
+ *      Kimi provider, only the `User-Agent` for every other provider so device
+ *      identity never leaks to third-party endpoints (a Kimi provider routed
+ *      through the Anthropic protocol still gets the full set, matching v1);
+ *   3. provider `customHeaders` (always win on conflict).
+ */
+export function resolveOutboundHeaders(
+  providerType: string | undefined,
+  customHeaders: Readonly<Record<string, string>> | undefined,
+  hostHeaders: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
+  const hostLayer = providerType === 'kimi' ? hostHeaders : userAgentOnly(hostHeaders);
+  return { ...parseKimiCodeCustomHeaders(), ...hostLayer, ...customHeaders };
+}
+
+function userAgentOnly(headers: Readonly<Record<string, string>>): Record<string, string> {
+  const userAgent = headers['User-Agent'];
+  return userAgent === undefined ? {} : { 'User-Agent': userAgent };
 }
 
 function resolveModelCapabilities(

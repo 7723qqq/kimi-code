@@ -22,7 +22,6 @@ import { CronTaskPersistenceService } from '#/app/cron/cronTaskPersistenceServic
 import { IAgentGoalService } from '#/agent/goal/goal';
 import { AgentGoalService } from '#/agent/goal/goalService';
 import type { McpServiceOptions } from '#/agent/mcp/mcp';
-import { MICRO_COMPACTION_SECTION, type MicroCompactionConfig } from '#/agent/microCompaction/configSection';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import type { PermissionRule } from '#/agent/permissionRules/permissionRules';
 import { IAgentPlanService } from '#/agent/plan/plan';
@@ -80,7 +79,6 @@ import {
   IAgentLLMRequesterService,
   ILogService,
   IAgentMcpService,
-  IAgentMicroCompactionService,
   IAgentPermissionGate,
   IAgentPermissionModeService,
   IAgentPermissionRulesService,
@@ -101,7 +99,6 @@ import {
   AgentLLMRequesterService,
   LifecycleScope,
   AgentMcpService,
-  AgentMicroCompactionService,
   AgentPermissionGate,
   AgentPermissionRulesService,
   AgentProfileService,
@@ -118,12 +115,14 @@ import {
   type ScopeSeed,
   type ServiceIdentifier,
 } from '#/index';
+import { IAgentActivityService, ISessionActivityKernel } from '#/activity/activity';
 import { IEventBus } from '#/app/event/eventBus';
 import { IAgentWireService } from '#/wire/tokens';
 import type { PersistedRecord } from '#/wire/wireService';
 import { WireService } from '#/wire/wireServiceImpl';
 import { IModelService } from '#/app/model/model';
 import { type Model } from '#/app/model/modelInstance';
+import { IHostRequestHeaders } from '#/app/model/hostRequestHeaders';
 import { IModelResolver } from '#/app/model/modelResolver';
 import { ModelResolverService } from '#/app/model/modelResolverService';
 import { IPlatformService } from '#/app/platform/platform';
@@ -262,7 +261,6 @@ interface UserToolInteractionPayload {
 }
 
 interface ResumeStateSnapshot {
-  readonly tasks: ReturnType<IAgentTaskService['list']>;
   readonly config: {
     readonly cwd: string;
     readonly activeToolNames: readonly string[] | undefined;
@@ -273,10 +271,9 @@ interface ResumeStateSnapshot {
   };
   readonly context: {
     readonly history: readonly ContextMessage[];
-    readonly tokenCount: number;
   };
-  readonly permission: ReturnType<IAgentPermissionGate['data']>;
-  readonly usage: ReturnType<IAgentUsageService['status']>;
+  readonly permission: Omit<ReturnType<IAgentPermissionGate['data']>, 'rules'>;
+  readonly usage: Omit<ReturnType<IAgentUsageService['status']>, 'currentTurn'>;
 }
 
 interface ConfigureOptions {
@@ -291,11 +288,6 @@ export interface TestAgentOptions {
   readonly generate?: GenerateFn | undefined;
   readonly telemetry?: ITelemetryService | undefined;
   readonly persistence?: WireRecordPersistence | undefined;
-  readonly microCompaction?:
-  | {
-    readonly config?: Partial<MicroCompactionConfig> | undefined;
-  }
-  | undefined;
   readonly hookEngine?:
   | Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>
   | undefined;
@@ -432,6 +424,7 @@ function isFullHostFs(input: unknown): boolean {
   const keys: readonly (keyof IHostFileSystem)[] = [
     'readText',
     'writeText',
+    'appendText',
     'readBytes',
     'writeBytes',
     'readLines',
@@ -539,7 +532,10 @@ export function wireRecordPersistenceServices(
 }
 
 export function logServices(logger: Logger): TestAgentServiceOverride {
-  return appService(ILogService, createLogService(logger));
+  return [
+    appService(ILogService, createLogService(logger)),
+    sessionService(ILogService, createLogService(logger)),
+  ];
 }
 
 export function llmGenerateServices(generate: GenerateFn): TestAgentServiceOverride {
@@ -557,22 +553,30 @@ export function questionServices(service: ISessionQuestionService): TestAgentSer
 export function externalHookServices(
   hookRunner: Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'> | undefined,
 ): TestAgentServiceOverride {
-  const runner: IExternalHooksRunnerService =
-    hookRunner === undefined
-      ? noopHookRunner
-      : isRunnerLike(hookRunner)
-        ? hookRunner
-        : { ...noopHookRunner, ...hookRunner };
   return [
-    appService(IExternalHooksRunnerService, runner),
+    appService(IExternalHooksRunnerService, resolveExternalHooksRunner(hookRunner)),
     agentService(IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService)),
   ];
+}
+
+function resolveExternalHooksRunner(
+  hookRunner: Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'> | undefined,
+): IExternalHooksRunnerService {
+  return hookRunner === undefined
+    ? noopHookRunner
+    : isRunnerLike(hookRunner)
+      ? hookRunner
+      : { ...noopHookRunner, ...hookRunner };
 }
 
 function isRunnerLike(
   value: Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>,
 ): value is IExternalHooksRunnerService {
-  return '_serviceBrand' in value;
+  return (
+    typeof value.trigger === 'function' &&
+    typeof value.triggerBlock === 'function' &&
+    typeof value.fireAndForgetTrigger === 'function'
+  );
 }
 
 const noopHookRunner: IExternalHooksRunnerService = {
@@ -581,15 +585,6 @@ const noopHookRunner: IExternalHooksRunnerService = {
   triggerBlock: async () => undefined,
   fireAndForgetTrigger: async () => [],
 };
-
-export function microCompactionServices(options: {
-  readonly config?: Partial<MicroCompactionConfig>;
-}): TestAgentServiceOverride {
-  return configServices(() => ({
-    ...emptyConfig(),
-    [MICRO_COMPACTION_SECTION]: options.config,
-  }));
-}
 
 export function permissionModeServices(mode: PermissionMode): TestAgentServiceOverride {
   return agentService(IAgentPermissionModeService, createPermissionModeService(mode));
@@ -713,17 +708,6 @@ function mergeTestAgentOptions(base: TestAgentOptions, next: TestAgentOptions): 
   return {
     ...base,
     ...next,
-    microCompaction:
-      base.microCompaction === undefined && next.microCompaction === undefined
-        ? undefined
-        : {
-          ...base.microCompaction,
-          ...next.microCompaction,
-          config: {
-            ...base.microCompaction?.config,
-            ...next.microCompaction?.config,
-          },
-        },
     initialConfig: {
       ...base.initialConfig,
       ...next.initialConfig,
@@ -845,8 +829,9 @@ class ConfigBackedModelResolver extends ModelResolverService {
     @IModelService models: IModelService,
     @IOAuthService oauth: IOAuthService,
     @IProtocolAdapterRegistry protocolRegistry: IProtocolAdapterRegistry,
+    @IHostRequestHeaders hostRequestHeaders: IHostRequestHeaders,
   ) {
-    super(config, providers, platforms, models, oauth, protocolRegistry);
+    super(config, providers, platforms, models, oauth, protocolRegistry, hostRequestHeaders);
   }
 
   override resolve(id: string): Model {
@@ -979,6 +964,12 @@ export class AgentTestContext {
           if (options.telemetry !== undefined) {
             reg.defineInstance(ITelemetryService, options.telemetry);
           }
+          if (options.hookEngine !== undefined) {
+            reg.defineInstance(
+              IExternalHooksRunnerService,
+              resolveExternalHooksRunner(options.hookEngine),
+            );
+          }
           reg.defineInstance(IHostTerminalService, createHostTerminalService());
           // The real `HostEnvironmentService` probes the host asynchronously (`ready`);
           // builtin tools (e.g. `BashTool`) read `osKind`/`shellName` synchronously at
@@ -1043,6 +1034,10 @@ export class AgentTestContext {
         'session',
       ),
     });
+    // The harness builds scopes directly (bypassing SessionLifecycleService), so
+    // drive the Session activity kernel to `active` here — the lifecycle would
+    // do this in `announceCreated` after materialize / replay.
+    this.session.accessor.get(ISessionActivityKernel).markActive();
     const workspace = this.session.accessor.get(ISessionWorkspaceContext);
 
     this.agent = this.session.createChild(LifecycleScope.Agent, agentId, {
@@ -1065,13 +1060,7 @@ export class AgentTestContext {
             );
             reg.defineDescriptor(
               IAgentExternalHooksService,
-              new SyncDescriptor(AgentExternalHooksService, [
-                options.hookEngine === undefined ? {} : { hookEngine: options.hookEngine },
-              ]),
-            );
-            reg.defineDescriptor(
-              IAgentMicroCompactionService,
-              new SyncDescriptor(AgentMicroCompactionService),
+              new SyncDescriptor(AgentExternalHooksService),
             );
             reg.defineDescriptor(
               IAgentFullCompactionService,
@@ -1116,6 +1105,7 @@ export class AgentTestContext {
     });
 
     this.initializeRestorableServices();
+    this.get(IAgentActivityService).markReady();
 
     const wire = this.get(IAgentWireService);
     this.disposables.push(
@@ -1181,7 +1171,6 @@ export class AgentTestContext {
 
   private async replayRestoredRecordsSince(restoredStart: number): Promise<void> {
     const restored = this.wireRecord.getRecords().slice(restoredStart);
-    if (restored.length === 0) return;
     await this.get(IAgentWireService).replay(...(restored as readonly PersistedRecord[]));
   }
 
@@ -1209,8 +1198,6 @@ export class AgentTestContext {
     const swarm = this.get(IAgentSwarmService);
 
     context.get();
-    const microCompaction = this.get(IAgentMicroCompactionService);
-    void microCompaction;
     void swarm.isActive;
     contextSize.get();
     usage.status();
@@ -1545,6 +1532,7 @@ export class AgentTestContext {
     await this.drainWirePersistence();
     const profile = this.get(IAgentProfileService);
     const configSnapshot = structuredClone(this.get(IConfigService).getAll() as KimiConfig);
+    let resumedThroughRecord = this.recordHistory.length;
     const resumed = createTestAgent(
       { autoConfigure: false, cwd: profile.data().cwd },
       ...this.serviceOverrides,
@@ -1558,6 +1546,13 @@ export class AgentTestContext {
     try {
       await resumed.restorePersisted();
       await resumed.waitForSessionMetadata();
+      for (let i = 0; i < 5; i += 1) {
+        await this.drainWirePersistence();
+        if (this.recordHistory.length === resumedThroughRecord) break;
+        const nextRecords = this.recordHistory.slice(resumedThroughRecord).map(cloneRecord);
+        resumedThroughRecord = this.recordHistory.length;
+        await resumed.restore(nextRecords);
+      }
 
       // oxlint-disable-next-line jest/no-standalone-expect
       expect(resumeStateSnapshot(resumed)).toEqual(resumeStateSnapshot(this));
@@ -1572,11 +1567,22 @@ export class AgentTestContext {
   }
 
   private async drainWirePersistence(): Promise<void> {
-    for (let i = 0; i < 5; i += 1) {
-      await Promise.resolve();
-    }
     const wireRecord = this.get(IAgentWireRecordService);
-    await wireRecord.flush();
+    let lastRecordCount = -1;
+    for (let i = 0; i < 25; i += 1) {
+      for (let j = 0; j < 5; j += 1) {
+        await Promise.resolve();
+      }
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await wireRecord.flush();
+      if (
+        this.recordHistory.length === lastRecordCount &&
+        pendingTaskNotificationKeys(this.recordHistory).length === 0
+      ) {
+        return;
+      }
+      lastRecordCount = this.recordHistory.length;
+    }
   }
 
   async close(_reason = 'Agent runtime test closed'): Promise<void> {
@@ -1703,6 +1709,11 @@ export class AgentTestContext {
           : interactions.filter((interaction) => interaction.kind === kind);
       },
       isRecentlyResolved: () => false,
+      cancelPendingForTurn: (turnId: number) => {
+        for (const [id, interaction] of pending) {
+          if (interaction.origin?.turnId === turnId) pending.delete(id);
+        }
+      },
       onDidChangePending: Event.None as Event<InteractionPendingChangedEvent>,
       onDidResolve: Event.None as Event<InteractionResolution>,
     };
@@ -1804,7 +1815,7 @@ export class AgentTestContext {
   private appendMessage(...messages: ContextMessage[]): void {
     if (messages.length === 0) return;
     const context = this.get(IAgentContextMemoryService);
-    context.splice(context.get().length, 0, messages);
+    context.append(...messages);
   }
 
   private coverUsage(tokenTotal: number | undefined): void {
@@ -1936,26 +1947,22 @@ const failOnResumeGenerate: GenerateFn = async () => {
 };
 
 function resumeStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot {
-  const tasks = ctx.get(IAgentTaskService);
   const usage = ctx.get(IAgentUsageService);
   const permission = ctx.get(IAgentPermissionGate);
+  // Live-only state is excluded from the resume comparison: the measured
+  // context token count, the per-turn usage accumulator, runtime-added
+  // permission rules (`permission.rules.add` is persist: false), and the task
+  // list (`task.started` / `task.terminated` are persist: false — tasks
+  // restore from their own persistence, not the wire log) are intentionally
+  // not persisted (v1 parity) and reset on resume.
+  const { currentTurn: _currentTurn, ...usageStatus } = usage.status();
+  const { rules: _rules, ...permissionData } = permission.data();
   return {
-    tasks: normalizeTaskSnapshot(tasks.list(false)),
     config: configStateSnapshot(ctx),
     context: resumeContextSnapshot(ctx),
-    permission: permission.data(),
-    usage: usage.status(),
+    permission: permissionData,
+    usage: usageStatus,
   };
-}
-
-function normalizeTaskSnapshot(
-  tasks: readonly AgentTaskInfo[],
-): readonly AgentTaskInfo[] {
-  return tasks
-    .map((task) => stripUndefinedFields(task) as AgentTaskInfo)
-    .toSorted(
-      (left, right) => left.startedAt - right.startedAt || left.taskId.localeCompare(right.taskId),
-    );
 }
 
 function stripUndefinedFields<T extends object>(value: T): T {
@@ -1967,7 +1974,8 @@ function stripUndefinedFields<T extends object>(value: T): T {
 function resumeContextSnapshot(ctx: AgentTestContext) {
   const context = ctx.contextData();
   return {
-    ...context,
+    // `tokenCount` (the measured prefix) is live-only and resets on resume;
+    // compare the history only.
     history: context.history
       .filter((message) => !isSystemReminderMessage(message))
       .map(stripMessageId),
@@ -1987,6 +1995,67 @@ function isSystemReminderMessage(message: ContextMessage): boolean {
     .join('')
     .trimStart();
   return text.startsWith('<system-reminder>');
+}
+
+function pendingTaskNotificationKeys(records: readonly PersistedWireRecord[]): readonly string[] {
+  const terminal = new Set<string>();
+  const delivered = new Set<string>();
+  for (const record of records) {
+    if (record.type === 'task.terminated') {
+      const info = record['info'];
+      if (isTaskInfoLike(info) && info.detached !== false && info.terminalNotificationSuppressed !== true) {
+        terminal.add(taskNotificationKey(info.taskId, info.status));
+      }
+      continue;
+    }
+    for (const message of contextMessagesFromRecord(record)) {
+      const origin = message.origin;
+      if (isTaskOriginLike(origin)) {
+        delivered.add(`${origin.taskId}\0${origin.status}\0${origin.notificationId}`);
+      }
+    }
+  }
+  return [...terminal].filter((key) => !delivered.has(key));
+}
+
+function contextMessagesFromRecord(record: PersistedWireRecord): readonly ContextMessage[] {
+  if (record.type === 'context.append_message') {
+    const message = record['message'];
+    return isContextMessageLike(message) ? [message] : [];
+  }
+  return [];
+}
+
+function isContextMessageLike(value: unknown): value is ContextMessage {
+  return typeof value === 'object' && value !== null && 'role' in value;
+}
+
+function isTaskInfoLike(value: unknown): value is {
+  readonly taskId: string;
+  readonly status: string;
+  readonly detached?: boolean;
+  readonly terminalNotificationSuppressed?: boolean;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  const info = value as Record<string, unknown>;
+  return typeof info['taskId'] === 'string' && typeof info['status'] === 'string';
+}
+
+function isTaskOriginLike(value: unknown): value is {
+  readonly taskId: string;
+  readonly status: string;
+  readonly notificationId: string;
+} {
+  if (typeof value !== 'object' || value === null) return false;
+  const origin = value as Record<string, unknown>;
+  return origin['kind'] === 'task' &&
+    typeof origin['taskId'] === 'string' &&
+    typeof origin['status'] === 'string' &&
+    typeof origin['notificationId'] === 'string';
+}
+
+function taskNotificationKey(taskId: string, status: string): string {
+  return `${taskId}\0${status}\0task:${taskId}:${status}`;
 }
 
 function configStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot['config'] {
@@ -2022,10 +2091,6 @@ function applyTestAgentOptionsToConfig(config: KimiConfig, options: TestAgentOpt
       ...config.models,
       ...initialConfig.models,
     },
-    [MICRO_COMPACTION_SECTION]:
-      options.microCompaction?.config ??
-      initialConfig[MICRO_COMPACTION_SECTION] ??
-      config[MICRO_COMPACTION_SECTION],
   };
 }
 
@@ -2192,6 +2257,7 @@ function capabilityNames(capabilities: ModelCapability | undefined): string[] {
     capabilities.audio_in ? 'audio_in' : undefined,
     capabilities.thinking ? 'thinking' : undefined,
     capabilities.tool_use ? 'tool_use' : undefined,
+    capabilities.select_tools ? 'select_tools' : undefined,
   ].filter((capability): capability is string => capability !== undefined);
 }
 
@@ -2294,6 +2360,11 @@ class GenerateBackedChatProvider implements ChatProvider {
   ) {
     this.name = config.type;
     this.modelName = modelNameFromConfig(config);
+  }
+
+  get maxCompletionTokens(): number | undefined {
+    const value = this.modelParameters[completionBudgetParamName(this.config.type)];
+    return typeof value === 'number' ? value : undefined;
   }
 
   async generate(

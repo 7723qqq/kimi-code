@@ -1,4 +1,14 @@
+/**
+ * `toolExecutor` domain (L3) — `IAgentToolExecutorService` implementation.
+ *
+ * Resolves executable tools through `toolRegistry`, runs ordered tool hooks,
+ * publishes tool lifecycle events through `event`, records telemetry through
+ * `telemetry`, truncates oversized outputs through `toolResultTruncation`,
+ * and logs parse diagnostics through `log`. Bound at Agent scope.
+ */
+
 import { InstantiationType } from '#/_base/di/extensions';
+import { toDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import type { ContentPart } from '#/app/llmProtocol/message';
 import type {
@@ -26,10 +36,13 @@ import type { ToolCall } from '#/app/llmProtocol/message';
 import { ILogService } from '#/_base/log/log';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { OrderedHookSlot } from '#/hooks';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import {
   IAgentToolExecutorService,
+  type MissingToolDescriber,
   type ToolExecutionResult,
   type ToolExecutorExecuteOptions,
+  type UnavailableToolDescriber,
 } from './toolExecutor';
 import { ToolScheduler } from './toolScheduler';
 
@@ -84,10 +97,29 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     onDidExecuteTool: new OrderedHookSlot<ToolDidExecuteContext>(),
   };
 
+  private missingToolDescriber: MissingToolDescriber | undefined;
+  private unavailableToolDescriber: UnavailableToolDescriber | undefined;
+
+  registerUnavailableToolDescriber(describer: UnavailableToolDescriber) {
+    this.unavailableToolDescriber = describer;
+    return toDisposable(() => {
+      if (this.unavailableToolDescriber === describer) this.unavailableToolDescriber = undefined;
+    });
+  }
+
+  registerMissingToolDescriber(describer: MissingToolDescriber) {
+    this.missingToolDescriber = describer;
+    return toDisposable(() => {
+      if (this.missingToolDescriber === describer) this.missingToolDescriber = undefined;
+    });
+  }
+
   constructor(
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IEventBus private readonly eventBus: IEventBus,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IAgentToolResultTruncationService
+    private readonly resultTruncation: IAgentToolResultTruncationService,
     @ILogService private readonly log?: ILogService,
   ) {}
 
@@ -97,7 +129,15 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
   ): AsyncIterable<ToolExecutionResult> {
     if (calls.length === 0) return;
 
-    const preflighted = calls.map((call) => preflightToolCall(this.toolRegistry, call, this.log));
+    const preflighted = calls.map((call) =>
+      preflightToolCall(
+        this.toolRegistry,
+        call,
+        this.unavailableToolDescriber,
+        this.missingToolDescriber,
+        this.log,
+      ),
+    );
     const preparedTasks: Array<{
       task: ToolExecutionTask;
       call: PreflightedToolCall;
@@ -522,7 +562,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
 
     const coercedResult = coerceToolResult(didCtx.result, call.toolName);
     const effectiveResult = normalizeToolResult(coercedResult);
-    return {
+    const finalResult: ToolResult = {
       ...effectiveResult,
       message: coercedResult.message ?? result.message,
       description: result.description,
@@ -538,6 +578,11 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       // it by stripping it from `didCtx.result`; in that case this is undefined.
       delivery: coercedResult.delivery,
     };
+    return this.resultTruncation.truncateForModel({
+      toolName: call.toolName,
+      toolCallId: call.toolCall.id,
+      result: finalResult,
+    });
   }
 }
 
@@ -589,6 +634,8 @@ function buildWillExecuteContext(
 function preflightToolCall(
   toolRegistry: IAgentToolRegistryService,
   toolCall: ToolCall,
+  describeUnavailableTool: UnavailableToolDescriber | undefined,
+  describeMissingTool: MissingToolDescriber | undefined,
   log?: ILogService,
 ): PreflightedToolCall {
   const toolName = toolCall.name;
@@ -601,6 +648,16 @@ function preflightToolCall(
       error: parsedArgs.error,
     });
   }
+  const unavailable = describeUnavailableTool?.(toolName);
+  if (unavailable !== undefined) {
+    return {
+      kind: 'rejected',
+      toolCall,
+      toolName,
+      args: parsedArgs.data,
+      output: unavailable,
+    };
+  }
   const tool = toolRegistry.resolve(toolName);
   if (tool === undefined) {
     return {
@@ -608,7 +665,7 @@ function preflightToolCall(
       toolCall,
       toolName,
       args: parsedArgs.data,
-      output: `Tool "${toolName}" not found`,
+      output: describeMissingTool?.(toolName) ?? `Tool "${toolName}" not found`,
     };
   }
   const validationError = validateExecutableToolArgs(tool, parsedArgs.data);
@@ -730,10 +787,21 @@ function normalizeToolResult(result: ExecutableToolResult): ToolResult {
       output = textJoined.length > 0 ? textJoined : TOOL_OUTPUT_EMPTY;
     }
   }
+  const base: {
+    output: ToolResult['output'];
+    stopTurn?: boolean;
+    truncated?: true;
+    note?: string;
+  } = { output, stopTurn: result.stopTurn };
+  if (result.truncated === true) base.truncated = true;
+  if (typeof result.note === 'string' && result.note.length > 0) base.note = result.note;
   if (result.isError === true) {
-    return { output, isError: true, stopTurn: result.stopTurn };
+    return {
+      ...base,
+      isError: true,
+    };
   }
-  return { output, stopTurn: result.stopTurn };
+  return base;
 }
 
 function toolTelemetryOutcome(result: ToolResult): 'success' | 'error' | 'cancelled' {

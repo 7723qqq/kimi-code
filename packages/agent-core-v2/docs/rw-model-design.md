@@ -7,6 +7,12 @@
 >
 > 阅读顺序：§1 问题 → §2 概念模型（核心） → §3–§6 各原语规范 → §7 订阅协议 →
 > §8 回环控制 → §9 迁移路径。附录 A 是"现有机制 → 新模型"的逐条映射。
+>
+> **更新注**：本文档撰写时，`todo.set` / `turn.launch` / `context.splice` 仍是
+> agent-core-v2 的 wire record 类型。后续的重构（v1 vocabulary 对齐）已删除这三个
+> replay-only / pre-alignment 类型，统一改用 v1 的 `tools.update_store`
+> （`key: 'todo'`）、`turn.prompt`、`context.append_message` 等。本文档中涉及这些
+> 类型的示例与映射，按上述替换理解。
 
 ---
 
@@ -281,7 +287,7 @@ setTodos(todos: TodoItem[]): void {
 - **Command 不持有可折叠状态**。所有"resume 后必须还在"的状态在 view 里。
   service 私有字段只允许装真正的运行时资源（进程句柄、定时器、连接）。
 - **Command 不在 replay 中运行**（相位机保证）。resume 复用 live 命令的 hack
-  （microCompaction）消失：replay 只折叠 fact。
+  消失：replay 只折叠 fact。
 - 需要"先答应再补偿"的命令（plan.enter 失败后 cancel）就是两次 commit——
   补偿也是事实，天然可回放。
 - `define()` 的 facet 机制退役：`resume` → view fold；`toLive` → 定义处

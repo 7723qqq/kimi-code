@@ -14,6 +14,50 @@ export const GoalErrors = {
     GOAL_METADATA_RESERVED: 'goal.metadata_reserved',
     GOAL_NOT_RESUMABLE: 'goal.not_resumable',
   },
+  info: {
+    'goal.already_exists': {
+      title: 'A goal is already active',
+      retryable: false,
+      public: true,
+      action: 'Use `/goal replace <objective>` to replace the current goal.',
+    },
+    'goal.not_found': {
+      title: 'No goal found',
+      retryable: false,
+      public: true,
+      action: 'Start a goal with `/goal <objective>` first.',
+    },
+    'goal.objective_empty': {
+      title: 'Goal objective is empty',
+      retryable: false,
+      public: true,
+      action: 'Provide a non-empty objective.',
+    },
+    'goal.objective_too_long': {
+      title: 'Goal objective is too long',
+      retryable: false,
+      public: true,
+      action: 'Keep the objective under 4000 characters; reference long details by file path.',
+    },
+    'goal.status_invalid': {
+      title: 'Invalid goal status transition',
+      retryable: false,
+      public: true,
+      action: 'Use a status allowed for this actor (complete, blocked, or impossible).',
+    },
+    'goal.metadata_reserved': {
+      title: 'Goal metadata is reserved',
+      retryable: false,
+      public: true,
+      action: 'Do not write metadata.custom.goal directly; use the goal lifecycle methods.',
+    },
+    'goal.not_resumable': {
+      title: 'Goal is not resumable',
+      retryable: false,
+      public: true,
+      action: 'Only paused goals can be resumed.',
+    },
+  },
 } as const satisfies ErrorDomain;
 
 registerErrorDomain(GoalErrors);

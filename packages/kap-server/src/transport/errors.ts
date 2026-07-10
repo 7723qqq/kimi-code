@@ -29,6 +29,7 @@ export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 const KIMI_TO_PROTOCOL: Record<string, ErrorCode> = {
   [ErrorCodes.SESSION_NOT_FOUND]: ErrorCode.SESSION_NOT_FOUND,
+  [ErrorCodes.SESSION_UNDO_UNAVAILABLE]: ErrorCode.SESSION_UNDO_UNAVAILABLE,
   [ErrorCodes.REQUEST_INVALID]: ErrorCode.VALIDATION_FAILED,
   [ErrorCodes.NOT_IMPLEMENTED]: ErrorCode.INTERNAL_ERROR,
   [ErrorCodes.PROMPT_NOT_FOUND]: ErrorCode.PROMPT_NOT_FOUND,
@@ -50,15 +51,16 @@ const KIMI_TO_PROTOCOL: Record<string, ErrorCode> = {
 export function mapError(err: unknown, requestId: string): ReturnType<typeof errEnvelope> {
   if (err instanceof KimiError) {
     const code = KIMI_TO_PROTOCOL[err.code] ?? ErrorCode.INTERNAL_ERROR;
-    return errEnvelope(code, err.message, requestId);
+    return errEnvelope(code, err.message, requestId, err.stack);
   }
   if (err instanceof TimeoutError) {
-    return errEnvelope(ErrorCode.INTERNAL_ERROR, err.message, requestId);
+    return errEnvelope(ErrorCode.INTERNAL_ERROR, err.message, requestId, err.stack);
   }
   return errEnvelope(
     ErrorCode.INTERNAL_ERROR,
     err instanceof Error ? err.message : String(err),
     requestId,
+    err instanceof Error ? err.stack : undefined,
   );
 }
 

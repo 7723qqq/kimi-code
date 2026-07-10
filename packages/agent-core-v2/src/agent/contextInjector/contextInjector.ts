@@ -33,6 +33,14 @@ export interface IAgentContextInjectorService {
     name: string,
     provider: ContextInjectionProvider,
   ): IDisposable;
+
+  /**
+   * Re-arm the per-turn injectors and run them immediately. Called by full
+   * compaction after the summary is applied so the first post-compaction
+   * request already carries the per-turn reminders (goal, plan, ...) that the
+   * compaction folded away.
+   */
+  injectAfterCompaction(): Promise<void>;
 }
 
 export const IAgentContextInjectorService = createDecorator<IAgentContextInjectorService>(

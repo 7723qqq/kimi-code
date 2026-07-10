@@ -21,6 +21,9 @@ import {
   PROVIDERS_SECTION,
 } from './provider';
 
+/** Top-level scalar config section naming the fallback provider (v1 `default_provider`). */
+const DEFAULT_PROVIDER_SECTION = 'defaultProvider';
+
 export class ProviderService extends Disposable implements IProviderService {
   declare readonly _serviceBrand: undefined;
   private readonly _onDidChangeProviders = this._register(new Emitter<ProvidersChangedEvent>());
@@ -59,6 +62,10 @@ export class ProviderService extends Disposable implements IProviderService {
     if (!(name in current)) return;
     const { [name]: _removed, ...rest } = current;
     await this.config.replace(PROVIDERS_SECTION, rest);
+    // v1 parity: a removed provider must not stay pinned as the default.
+    if (this.config.get<string>(DEFAULT_PROVIDER_SECTION) === name) {
+      await this.config.set(DEFAULT_PROVIDER_SECTION, undefined);
+    }
   }
 }
 

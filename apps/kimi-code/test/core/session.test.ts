@@ -28,6 +28,7 @@ import {
   ISessionApprovalService,
   ISessionBtwService,
   ISessionContext,
+  ISessionCronService,
   ISessionInteractionService,
   ISessionMetadata,
   ISessionQuestionService,
@@ -234,6 +235,7 @@ function makeFixture(options?: {
     kind: 'session',
     accessor: makeAccessor([
       [IAgentLifecycleService, lifecycle],
+      [ISessionCronService, { _serviceBrand: undefined }],
       [ISessionInteractionService, kernel],
       [ISessionApprovalService, { decide: record('approvals.decide') }],
       [ISessionQuestionService, { answer: record('questions.answer'), dismiss: record('questions.dismiss') }],

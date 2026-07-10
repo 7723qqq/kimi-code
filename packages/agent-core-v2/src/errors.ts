@@ -9,6 +9,7 @@
 
 import { CoreErrors } from '#/_base/errors/codes';
 import { AgentLifecycleErrors } from '#/session/agentLifecycle/errors';
+import { ActivityErrors } from '#/activity/errors';
 import { AuthErrors } from '#/app/auth/errors';
 import { TaskErrors } from '#/agent/task/errors';
 import { ChatProviderErrors } from '#/app/protocol/errors';
@@ -30,6 +31,7 @@ import { SessionErrors } from '#/session/errors';
 import { SkillErrors } from '#/app/skillCatalog/errors';
 import { TerminalErrors } from '#/os/interface/terminalErrors';
 import { TurnErrors } from '#/agent/turn/errors';
+import { UsageErrors } from '#/agent/usage/errors';
 import { WireRecordErrors } from '#/agent/wireRecord/errors';
 
 export * from '#/_base/errors/codes';
@@ -38,6 +40,7 @@ export * from '#/_base/errors/errors';
 export * from '#/_base/errors/serialize';
 export * from '#/_base/errors/unexpectedError';
 export { AgentLifecycleErrors } from '#/session/agentLifecycle/errors';
+export { ActivityErrors } from '#/activity/errors';
 export { AuthErrors } from '#/app/auth/errors';
 export { TaskErrors } from '#/agent/task/errors';
 export { ChatProviderErrors } from '#/app/protocol/errors';
@@ -59,11 +62,13 @@ export { SessionErrors } from '#/session/errors';
 export { SkillErrors } from '#/app/skillCatalog/errors';
 export { TerminalErrors } from '#/os/interface/terminalErrors';
 export { TurnErrors } from '#/agent/turn/errors';
+export { UsageErrors } from '#/agent/usage/errors';
 export { WireRecordErrors } from '#/agent/wireRecord/errors';
 
 export const ErrorCodes = {
   ...CoreErrors.codes,
   ...AgentLifecycleErrors.codes,
+  ...ActivityErrors.codes,
   ...AuthErrors.codes,
   ...TaskErrors.codes,
   ...ChatProviderErrors.codes,
@@ -85,5 +90,6 @@ export const ErrorCodes = {
   ...SkillErrors.codes,
   ...TerminalErrors.codes,
   ...TurnErrors.codes,
+  ...UsageErrors.codes,
   ...WireRecordErrors.codes,
 } as const;

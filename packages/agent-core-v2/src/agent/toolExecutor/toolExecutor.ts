@@ -1,4 +1,13 @@
+/**
+ * `toolExecutor` domain (L3) — Agent-scope tool execution contract.
+ *
+ * Defines the public execution surface for provider tool calls, will/did
+ * execution hooks, tool-call result settlement, and preflight description
+ * extension points. Bound at Agent scope.
+ */
+
 import { createDecorator } from '#/_base/di/instantiation';
+import type { IDisposable } from '#/_base/di/lifecycle';
 import type { ToolResult } from '#/agent/tool/toolContract';
 import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/agent/tool/toolHooks';
 import type { ToolCall } from '#/app/llmProtocol/message';
@@ -22,6 +31,9 @@ export interface ToolExecutionResult {
   readonly result: ToolResult;
 }
 
+export type MissingToolDescriber = (toolName: string) => string | undefined;
+export type UnavailableToolDescriber = (toolName: string) => string | undefined;
+
 export interface IAgentToolExecutorService {
   readonly _serviceBrand: undefined;
 
@@ -31,6 +43,18 @@ export interface IAgentToolExecutorService {
     readonly onWillExecuteTool: OrderedHookSlot<ToolWillExecuteContext>;
     readonly onDidExecuteTool: OrderedHookSlot<ToolDidExecuteContext>;
   };
+
+  /**
+   * Single-slot hook for the "registered but currently unavailable" preflight
+   * message. A second registration overwrites the first; disposing the returned
+   * handle clears the slot only when the same describer still occupies it.
+   */
+  registerUnavailableToolDescriber(describer: UnavailableToolDescriber): IDisposable;
+  /**
+   * Single-slot hook for the tool-miss preflight message (e.g. a loaded tool
+   * whose server dropped). Same single-slot semantics as above.
+   */
+  registerMissingToolDescriber(describer: MissingToolDescriber): IDisposable;
 }
 
 export const IAgentToolExecutorService =

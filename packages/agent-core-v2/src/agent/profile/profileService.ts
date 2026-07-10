@@ -35,7 +35,7 @@ import picomatch from 'picomatch';
 import { ErrorCodes, KimiError } from "#/errors";
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { resolveThinkingEffort } from './thinking';
+import { resolveThinkingEffort, resolveThinkingKeep } from './thinking';
 import type { LoopControl } from '#/agent/loop/configSection';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -110,6 +110,8 @@ export class AgentProfileService implements IAgentProfileService {
     );
   }
 
+  private activeProfile: ResolvedAgentProfile | undefined;
+
   constructor(
     @IAgentWireService private readonly wire: IWireService,
     @IEventBus private readonly eventBus: IEventBus,
@@ -137,6 +139,12 @@ export class AgentProfileService implements IAgentProfileService {
 
   update(changed: ProfileUpdateData): void {
     const { activeToolNames, ...configChanged } = changed;
+    if (
+      changed.profileName !== undefined &&
+      this.activeProfile?.name !== changed.profileName
+    ) {
+      this.activeProfile = undefined;
+    }
     if (Object.keys(configChanged).length > 0) {
       this.wire.dispatch(configUpdate(this.resolveConfigPayload(configChanged)));
       this.afterConfigDispatch(configChanged);
@@ -153,30 +161,29 @@ export class AgentProfileService implements IAgentProfileService {
     }
     // Resolve eagerly so an unknown model id fails the bind here rather than on
     // the first turn.
-    this.modelFactory.resolve(input.model);
+    const model = this.modelFactory.resolve(input.model);
 
     const context = await this.buildSystemPromptContext(input.cwd);
     const systemPrompt = profile.systemPrompt(context);
-    const { agentsMdWarning } = context;
-    this.agentsMdWarning = agentsMdWarning;
+    this.activeProfile = profile;
+    this.cacheAgentsMdWarning(context);
+
+    const thinkingLevel = resolveThinkingEffort(
+      input.thinking,
+      this.config.get<ThinkingConfig>(THINKING_SECTION),
+      model,
+    );
 
     this.update({
       cwd: input.cwd,
       profileName: profile.name,
-      modelAlias: input.model,
-      thinkingLevel: input.thinking,
       systemPrompt,
-      activeToolNames: profile.tools,
     });
-    this.wire.dispatch(configUpdate({}));
+    this.setActiveTools(profile.tools);
+    this.wire.dispatch(configUpdate({ modelAlias: input.model, thinkingEffort: thinkingLevel }));
+    this.afterConfigDispatch({ modelAlias: input.model, thinkingLevel });
 
-    if (agentsMdWarning !== undefined) {
-      this.eventBus.publish({
-        type: 'warning',
-        message: agentsMdWarning,
-        code: 'agents-md-oversized',
-      });
-    }
+    this.publishAgentsMdWarning();
   }
 
   async setModel(alias: string): Promise<ProfileSetModelResult> {
@@ -195,11 +202,15 @@ export class AgentProfileService implements IAgentProfileService {
   }
 
   setThinking(level: string): void {
-    const wasEnabled = this.thinkingLevel !== 'off';
+    const previousEffort = this.thinkingLevel;
     this.update({ thinkingLevel: level });
-    const enabled = this.thinkingLevel !== 'off';
-    if (enabled !== wasEnabled) {
-      this.telemetry.track('thinking_toggle', { enabled });
+    const effort = this.thinkingLevel;
+    if (effort !== previousEffort) {
+      this.telemetry.track('thinking_toggle', {
+        enabled: effort !== 'off',
+        effort,
+        from: previousEffort,
+      });
     }
   }
 
@@ -208,6 +219,7 @@ export class AgentProfileService implements IAgentProfileService {
   }
 
   useProfile(profile: ResolvedAgentProfile, context: SystemPromptContext): void {
+    this.activeProfile = profile;
     this.update({
       profileName: profile.name,
       systemPrompt: profile.systemPrompt(context),
@@ -216,24 +228,24 @@ export class AgentProfileService implements IAgentProfileService {
   }
 
   async applyProfile(profile: ResolvedAgentProfile, options?: ApplyProfileOptions): Promise<void> {
-    const context = await prepareSystemPromptContext(
-      { fs: this.fs, homeDir: this.env.homeDir },
-      this.sessionContext.cwd,
-      this.bootstrap.homeDir,
-      {
-        additionalDirs: options?.additionalDirs ?? this.workspace.additionalDirs,
-      },
-    );
+    const context = await this.buildSystemPromptContext(undefined, options);
     this.useProfile(profile, context);
-    const { agentsMdWarning } = context;
-    this.agentsMdWarning = agentsMdWarning;
-    if (agentsMdWarning !== undefined) {
-      this.eventBus.publish({
-        type: 'warning',
-        message: agentsMdWarning,
-        code: 'agents-md-oversized',
-      });
-    }
+    this.cacheAgentsMdWarning(context);
+    this.publishAgentsMdWarning();
+  }
+
+  async refreshSystemPrompt(): Promise<void> {
+    const profile = this.resolveActiveProfile();
+    if (profile === undefined) return;
+
+    const context = await this.buildSystemPromptContext(this.cwd);
+    this.activeProfile = profile;
+    this.update({
+      profileName: profile.name,
+      systemPrompt: profile.systemPrompt(context),
+    });
+    this.cacheAgentsMdWarning(context);
+    this.publishAgentsMdWarning();
   }
 
   getAgentsMdWarning(): string | undefined {
@@ -387,7 +399,7 @@ export class AgentProfileService implements IAgentProfileService {
     if (changed.profileName !== undefined) payload.profileName = changed.profileName;
     if (changed.thinkingLevel !== undefined) {
       const model = this.resolveModelForThinking(changed.modelAlias);
-      payload.thinkingLevel = resolveThinkingEffort(
+      payload.thinkingEffort = resolveThinkingEffort(
         changed.thinkingLevel,
         this.config.get<ThinkingConfig>(THINKING_SECTION),
         model,
@@ -456,8 +468,10 @@ export class AgentProfileService implements IAgentProfileService {
   private get thinkingLevel(): ThinkingEffort {
     const stored = this.profileState.thinkingLevel;
     if (stored === 'off' && this.alwaysThinkingModel) {
+      // Re-run the resolver so the always_thinking clamp restores the
+      // configured effort (or the model default) instead of a stale 'off'.
       return resolveThinkingEffort(
-        'on',
+        stored,
         this.config.get<ThinkingConfig>(THINKING_SECTION),
         this.tryResolveRawModel(),
       );
@@ -483,13 +497,37 @@ export class AgentProfileService implements IAgentProfileService {
     }
   }
 
-  private async buildSystemPromptContext(cwd?: string): Promise<SystemPromptContext> {
+  private resolveActiveProfile(): ResolvedAgentProfile | undefined {
+    if (this.activeProfile !== undefined) return this.activeProfile;
+    const profileName = this.profileName;
+    if (profileName === undefined) return undefined;
+    return this.catalog.get(profileName);
+  }
+
+  private cacheAgentsMdWarning(context: Pick<SystemPromptContext, 'agentsMdWarning'>): void {
+    this.agentsMdWarning = context.agentsMdWarning;
+  }
+
+  private publishAgentsMdWarning(): void {
+    const warning = this.agentsMdWarning;
+    if (warning === undefined) return;
+    this.eventBus.publish({
+      type: 'warning',
+      message: warning,
+      code: 'agents-md-oversized',
+    });
+  }
+
+  private async buildSystemPromptContext(
+    cwd?: string,
+    options?: ApplyProfileOptions,
+  ): Promise<SystemPromptContext> {
     const effectiveCwd = cwd ?? this.sessionContext.cwd;
     const base = await prepareSystemPromptContext(
       { fs: this.fs, homeDir: this.env.homeDir },
       effectiveCwd,
       this.bootstrap.homeDir,
-      { additionalDirs: this.workspace.additionalDirs },
+      { additionalDirs: options?.additionalDirs ?? this.workspace.additionalDirs },
     );
     const skills = await this.resolveSkillListing();
     return {
@@ -518,35 +556,9 @@ export class AgentProfileService implements IAgentProfileService {
   }
 }
 
-const KEEP_OFF_VALUES = new Set(['0', 'false', 'no', 'off', 'none', 'null']);
-
-type KeepResolution =
-  | { readonly specified: false }
-  | { readonly specified: true; readonly value: string | undefined };
-
-function parseKeepValue(raw: string | undefined): KeepResolution {
-  const trimmed = raw?.trim();
-  if (trimmed === undefined || trimmed.length === 0) return { specified: false };
-  if (KEEP_OFF_VALUES.has(trimmed.toLowerCase())) return { specified: true, value: undefined };
-  return { specified: true, value: trimmed };
-}
-
 function normalizeKimiThinkingEffort(raw: string | undefined): ThinkingEffort | undefined {
   const trimmed = raw?.trim();
   return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
-}
-
-function resolveThinkingKeep(
-  envKeep: string | undefined,
-  configKeep: string | undefined,
-  thinkingEffort: ThinkingEffort,
-): string | undefined {
-  if (thinkingEffort === 'off') return undefined;
-  const fromEnv = parseKeepValue(envKeep);
-  if (fromEnv.specified) return fromEnv.value;
-  const fromConfig = parseKeepValue(configKeep);
-  if (fromConfig.specified) return fromConfig.value;
-  return 'all';
 }
 
 registerScopedService(

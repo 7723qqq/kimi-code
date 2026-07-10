@@ -43,6 +43,34 @@ export class SessionInteractionService extends Disposable implements ISessionInt
   readonly onDidResolve: Event<InteractionResolution> = this._onDidResolve.event;
   private nextId = 0;
 
+  constructor() {
+    super();
+  }
+
+  // When a turn ends (cancelled or otherwise), any pending interaction that
+  // originated from it must not strand in the pending set — otherwise
+  // `sessionActivity` keeps reporting `awaiting_approval` forever (矛盾 c).
+  // The pending origin carries `{ agentId, turnId }`; match by turnId (the
+  // field carried by `turn.ended`), which is unambiguous in practice because
+  // a parent turn waits for its sub-agents before ending. Wired from the
+  // per-agent `IEventBus` by `AgentLifecycleService` (the bus is Agent-scoped,
+  // so it cannot be injected into this Session-scope service directly).
+  cancelPendingForTurn(turnId: number): void {
+    let changed = false;
+    for (const [id, entry] of this.pending) {
+      if (entry.interaction.origin?.turnId !== turnId) continue;
+      this.pending.delete(id);
+      this.rememberResolved(id);
+      const response = { cancelled: true, reason: 'turn_ended' };
+      entry.resolve(response);
+      this._onDidResolve.fire({ id, response });
+      changed = true;
+    }
+    if (changed) {
+      this._onDidChangePending.fire({ pending: [...this.pending.keys()] });
+    }
+  }
+
   request<TPayload, TResponse>(req: InteractionRequest<TPayload>): Promise<TResponse> {
     return new Promise<TResponse>((resolve) => {
       this.park(req, resolve as (response: unknown) => void);

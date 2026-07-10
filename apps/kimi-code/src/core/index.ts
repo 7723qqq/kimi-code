@@ -18,3 +18,9 @@ export * from './harness';
 export * from './replay';
 export * from './session';
 export * from './types';
+export {
+  buildImageCompressionCaption,
+  compressImageForModel,
+  persistOriginalImage,
+  sessionMediaOriginalsDir,
+} from '@moonshot-ai/agent-core-v2';

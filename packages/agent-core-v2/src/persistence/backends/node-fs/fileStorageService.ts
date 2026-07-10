@@ -38,6 +38,7 @@ import { atomicWrite, syncDir } from '#/_base/utils/fs';
 import type {
   IFileSystemStorageService,
   StorageAppendOptions,
+  StorageReadRange,
   StorageWriteOptions,
 } from '#/persistence/interface/storage';
 
@@ -57,6 +58,7 @@ export class FileStorageService implements IFileSystemStorageService {
   constructor(
     private readonly baseDir: string,
     private readonly dirMode?: number,
+    private readonly fileMode?: number,
   ) {}
 
   async read(scope: string, key: string): Promise<Uint8Array | undefined> {
@@ -68,8 +70,15 @@ export class FileStorageService implements IFileSystemStorageService {
     }
   }
 
-  async *readStream(scope: string, key: string): AsyncIterable<Uint8Array> {
-    const stream = createReadStream(this.path(scope, key));
+  async *readStream(
+    scope: string,
+    key: string,
+    range?: StorageReadRange,
+  ): AsyncIterable<Uint8Array> {
+    const stream = createReadStream(
+      this.path(scope, key),
+      range === undefined ? undefined : { start: range.start, end: range.end },
+    );
     try {
       for await (const chunk of stream) {
         yield chunk as Uint8Array;
@@ -88,7 +97,7 @@ export class FileStorageService implements IFileSystemStorageService {
   ): Promise<void> {
     const filePath = this.path(scope, key);
     await mkdir(dirname(filePath), { recursive: true, mode: this.dirMode });
-    await atomicWrite(filePath, data);
+    await atomicWrite(filePath, data, undefined, this.fileMode);
     await this.syncDirOnce(dirname(filePath));
   }
 
@@ -102,7 +111,7 @@ export class FileStorageService implements IFileSystemStorageService {
     const dir = dirname(filePath);
     await mkdir(dir, { recursive: true, mode: this.dirMode });
 
-    const fh = await open(filePath, 'a');
+    const fh = await open(filePath, 'a', this.fileMode);
     try {
       if (data.byteLength > 0) {
         await fh.writeFile(data);

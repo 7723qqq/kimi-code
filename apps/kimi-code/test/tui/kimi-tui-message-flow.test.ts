@@ -2153,7 +2153,6 @@ command = "vim"
         type: 'compaction.completed',
         agentId: 'main',
         sessionId: 'ses-1',
-        trigger: 'manual',
         result: {
           summary: 'Compacted old session.',
           compactedCount: 1,
@@ -4458,6 +4457,9 @@ command = "vim"
     await vi.waitFor(() => {
       expect(stripSgr(panel.render(120).join('\n'))).toContain('Kimi Datasource');
     });
+    // The pinned Kimi WebBridge row leads the Official tab, so move down to
+    // the Kimi Datasource entry before installing.
+    panel.handleInput('\u001B[B');
     panel.handleInput('\r');
 
     await vi.waitFor(() => {
@@ -4666,6 +4668,9 @@ command = "vim"
       await vi.waitFor(() => {
         expect(stripSgr(panel.render(120).join('\n'))).toContain('Kimi Datasource');
       });
+      // The pinned Kimi WebBridge row leads the Official tab, so move down to
+      // the Kimi Datasource entry before installing.
+      panel.handleInput('\u001B[B');
       panel.handleInput('\r');
 
       await vi.waitFor(() => {

@@ -7,8 +7,9 @@
  * limits through `config`, records lifecycle and broadcasts through `wire`
  * (`task.started` / `task.terminated` Ops into `TaskModel`, plus the matching
  * signals), restores ghosts through a single `wire.onRestored` handler (wire
- * replay -> disk load -> reconcile, in that order), and delivers terminal
- * notifications through `contextMemory`. Bound at Agent scope.
+ * replay -> disk load -> reconcile, in that order), delivers terminal
+ * notifications through `contextMemory`, and re-surfaces active tasks through
+ * `contextInjector` after compaction. Bound at Agent scope.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -21,6 +22,7 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { escapeXml, escapeXmlAttr } from '#/_base/utils/xml-escape';
 import { IEventBus } from '#/app/event/eventBus';
 import type { TaskOrigin } from '#/agent/contextMemory/types';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task/task';
 import {
   TERMINAL_STATUSES,
@@ -36,6 +38,7 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IAgentWireRecordService, type WireRecord } from '#/agent/wireRecord/wireRecord';
 import { IAgentWireService } from '#/wire/tokens';
 import type { IWireService } from '#/wire/wireService';
 import {
@@ -54,7 +57,7 @@ import {
 import { LEGACY_BACKGROUND_SECTION, TASK_SECTION, type AgentTaskConfig } from './configSection';
 import { AgentTaskPersistence } from './persist';
 import { TaskModel, taskStarted, taskTerminated } from './taskOps';
-import '#/agent/task/tools/task-list';
+import { formatTaskList } from '#/agent/task/tools/task-list';
 import '#/agent/task/tools/task-output';
 import '#/agent/task/tools/task-stop';
 
@@ -67,7 +70,7 @@ type AgentTaskNotification = Record<string, unknown> & {
   readonly id: string;
   readonly category: 'task';
   readonly type: string;
-  readonly source_kind: 'task';
+  readonly source_kind: 'background_task';
   readonly source_id: string;
   readonly agent_id?: string | undefined;
   readonly title: string;
@@ -92,6 +95,11 @@ interface ManagedTask {
   readonly outputChunks: string[];
   outputSizeBytes: number;
   retainedOutputBytes: number;
+  /**
+   * True once a command has crossed `MAX_TASK_OUTPUT_BYTES` and termination has
+   * been requested. One-shot guard so the ceiling fires exactly once.
+   */
+  outputLimitTripped: boolean;
   status: AgentTaskStatus;
   options: RegisterAgentTaskOptions & { description?: string };
   readonly startedAt: number;
@@ -114,14 +122,60 @@ interface ManagedTask {
   handleSubscription?: { dispose(): void };
 }
 
-const MAX_OUTPUT_BYTES = 1024 * 1024;
+const MAX_OUTPUT_BYTES = 1024 * 1024; // 1 MiB
+
+/**
+ * Hard ceiling on the combined output a single shell command may stream before
+ * it is force-terminated (SIGTERM → grace → SIGKILL). It guards both the
+ * live-forward path and the on-disk `output.log` write chain from a runaway
+ * command (e.g. `b3sum --length <huge>`) whose output would otherwise grow
+ * without bound, filling the disk or retaining each pending-write chunk until
+ * Node aborts with an out-of-memory crash. Scoped to process tasks (foreground
+ * and background); subagent and user-question results are appended once and must
+ * always be persisted, so they are intentionally not capped here.
+ */
+const MAX_TASK_OUTPUT_BYTES = 16 * 1024 * 1024; // 16 MiB
+
+/** Terminal `stopReason` recorded when a command trips the output ceiling. */
+function outputLimitReason(): string {
+  const mib = Math.floor(MAX_TASK_OUTPUT_BYTES / (1024 * 1024));
+  return (
+    `Output limit exceeded: the command produced more than ${mib} MiB and was ` +
+    'terminated. Redirect large output to a file (e.g. `command > out.txt`) and ' +
+    'inspect it in slices instead.'
+  );
+}
+
 const SIGTERM_GRACE_MS = 5_000;
 const TASK_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
 const USER_INTERRUPT_REASON = 'Interrupted by user';
 const NOTIFICATION_FALLBACK_PREVIEW_BYTES = 3_000;
+const ACTIVE_BACKGROUND_TASK_INJECTION_VARIANT = 'background_task_status';
+const ACTIVE_BACKGROUND_TASK_GUIDANCE = [
+  'The conversation was compacted, so the earlier messages that started these background tasks are gone - but the tasks are still running from before.',
+  'Do not start duplicates. Use TaskOutput to fetch a task result, TaskList to list them, and TaskStop to cancel one.',
+].join(' ');
 
 export function isAgentTaskTerminal(status: AgentTaskStatus): boolean {
   return TERMINAL_STATUSES.has(status);
+}
+
+/**
+ * A manager-driven deadline (`timeoutMs` / `detachTimeoutMs`) sets
+ * `entry.timedOut` before aborting. A process task that self-settles on that
+ * abort reports `killed` (its signal was aborted); rewrite it to `timed_out`
+ * so the terminal status always reflects the deadline, matching v1's
+ * `settlementForOutcome` where a timeout outcome is forced to `timed_out`
+ * regardless of how the worker responded to SIGTERM.
+ */
+function coerceTimeoutSettlement(
+  entry: ManagedTask,
+  settlement: AgentTaskSettlement,
+): AgentTaskSettlement {
+  if (entry.timedOut && settlement.status === 'killed') {
+    return { ...settlement, status: 'timed_out' };
+  }
+  return settlement;
 }
 
 declare module '#/app/event/eventBus' {
@@ -138,6 +192,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   private readonly scheduledNotificationKeys = new Set<string>();
   private readonly deliveredNotificationKeys = new Set<string>();
   private readonly persistence: AgentTaskPersistence;
+  private activeTaskReminderPending = false;
 
   constructor(
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -148,8 +203,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     @IFileSystemStorageService byteStore: IFileSystemStorageService,
     @ISessionContext session: ISessionContext,
     @ITaskService private readonly taskService: ITaskService,
+    @IAgentWireRecordService wireRecord: IAgentWireRecordService,
     @IAgentWireService private readonly wire: IWireService,
     @IEventBus private readonly eventBus: IEventBus,
+    @IAgentContextInjectorService injector: IAgentContextInjectorService,
   ) {
     super();
     this.persistence = new AgentTaskPersistence(
@@ -161,6 +218,9 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     this._register(this.wire.onRestored(() => this.restoreAfterReplay()));
     this._register(
       this.eventBus.subscribe('context.spliced', (e) => {
+        if (isCompactionSplice(e)) {
+          this.activeTaskReminderPending = true;
+        }
         for (const message of e.messages) {
           if (isTaskOrigin(message.origin)) {
             this.markDeliveredNotification(message.origin);
@@ -168,26 +228,53 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
         }
       }),
     );
+    this._register(
+      injector.register(ACTIVE_BACKGROUND_TASK_INJECTION_VARIANT, () =>
+        this.activeBackgroundTaskReminder(),
+      ),
+    );
+    this._register(
+      wireRecord.hooks.onRestoredRecord.register(
+        'task-delivered-notifications',
+        async (ctx, next) => {
+          this.markDeliveredNotificationsFromRecord(ctx.record);
+          await next();
+        },
+      ),
+    );
   }
 
-  private restoreAfterReplay(): void {
+  private async restoreAfterReplay(): Promise<void> {
     // `wire.replay` has rebuilt `TaskModel` from the persisted task.started /
     // task.terminated records. Seed the restored "ghosts" from it first (the
     // wire-replay contribution), THEN load from disk and reconcile — all inside
     // this single onRestored handler so the ordering (wire ghosts -> disk
     // ghosts -> reconcile) holds. loadFromDisk / reconcile are async (disk
-    // I/O); they chain here and are never split across two hooks (splitting
-    // would lose or duplicate tasks). They run fire-and-forget relative to the
-    // synchronous `wire.replay`: there is no auto-started turn on resume, so
-    // the local-disk reconciliation completes before the first RPC turn.
+    // I/O); awaiting them keeps restore observable only after task state has
+    // reached the same shape as v1's resumed background-task manager.
     this.restoreGhostsFromWire();
-    void this.loadFromDisk({ replace: false }).then(() => this.reconcile());
+    await this.loadFromDisk({ replace: false });
+    await this.reconcile();
+  }
+
+  private activeBackgroundTaskReminder(): string | undefined {
+    if (!this.activeTaskReminderPending) return undefined;
+    this.activeTaskReminderPending = false;
+    const tasks = this.list(true);
+    if (tasks.length === 0) return undefined;
+    return `${ACTIVE_BACKGROUND_TASK_GUIDANCE}\n\n${formatTaskList(tasks, true)}`;
   }
 
   private restoreGhostsFromWire(): void {
     for (const [taskId, info] of this.wire.getModel(TaskModel)) {
       if (this.tasks.has(taskId)) continue;
       this.ghosts.set(taskId, info);
+    }
+  }
+
+  private markDeliveredNotificationsFromRecord(record: WireRecord): void {
+    for (const origin of taskOriginsFromRecord(record)) {
+      this.markDeliveredNotification(origin);
     }
   }
 
@@ -208,6 +295,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       outputChunks: [],
       outputSizeBytes: 0,
       retainedOutputBytes: 0,
+      outputLimitTripped: false,
       status: 'running',
       options: entryOptions,
       startedAt: Date.now(),
@@ -229,8 +317,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
 
     if (timeoutMs !== undefined && timeoutMs > 0) {
       entry.timeoutHandle = setTimeout(() => {
-        entry.abortController.abort('Timed out');
-        void this.settleTask(entry, { status: 'timed_out' });
+        void this.terminateWithGrace(entry, {
+          abortReason: 'Timed out',
+          finalStatus: 'timed_out',
+        });
       }, timeoutMs);
       entry.timeoutHandle.unref?.();
     }
@@ -242,11 +332,20 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
           appendOutput: (chunk) => {
             this.appendOutput(entry, chunk);
           },
-          settle: (settlement) => this.settleTask(entry, settlement),
+          settle: (settlement) =>
+            this.settleTask(entry, coerceTimeoutSettlement(entry, settlement)),
         }),
       )
       .catch(async (error: unknown) => {
-        const status = entry.abortController.signal.aborted ? 'killed' : 'failed';
+        const aborted = entry.abortController.signal.aborted;
+        let status: AgentTaskStatus;
+        if (entry.timedOut) {
+          status = 'timed_out';
+        } else if (aborted) {
+          status = 'killed';
+        } else {
+          status = 'failed';
+        }
         await this.settleTask(entry, {
           status,
           stopReason: status === 'failed' ? errorMessage(error) : undefined,
@@ -278,6 +377,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       outputChunks: [],
       outputSizeBytes: 0,
       retainedOutputBytes: 0,
+      outputLimitTripped: false,
       status: 'running',
       options: { detached, timeoutMs, detachTimeoutMs: options.detachTimeoutMs, signal: detached ? undefined : options.signal, description: options.description },
       startedAt: Date.now(),
@@ -299,8 +399,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
 
     if (timeoutMs !== undefined && timeoutMs > 0) {
       entry.timeoutHandle = setTimeout(() => {
-        entry.timedOut = true;
-        handle.cancel();
+        void this.terminateWithGrace(entry, {
+          abortReason: 'Timed out',
+          finalStatus: 'timed_out',
+        });
       }, timeoutMs);
       entry.timeoutHandle.unref?.();
     }
@@ -491,13 +593,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     }
     if (timeoutMs > 0) {
       entry.timeoutHandle = setTimeout(() => {
-        entry.timedOut = true;
-        if (entry.handle) {
-          entry.handle.cancel();
-        } else {
-          entry.abortController.abort('Timed out');
-          void this.settleTask(entry, { status: 'timed_out' });
-        }
+        void this.terminateWithGrace(entry, {
+          abortReason: 'Timed out',
+          finalStatus: 'timed_out',
+        });
       }, timeoutMs);
       entry.timeoutHandle.unref?.();
     }
@@ -506,24 +605,52 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   async stop(taskId: string, reason?: string): Promise<AgentTaskInfo | undefined> {
     const entry = this.tasks.get(taskId);
     if (entry === undefined) return undefined;
-    return this.stopEntry(entry, normalizeReason(reason), normalizeReason(reason));
+    const normalized = normalizeReason(reason);
+    return this.terminateWithGrace(entry, {
+      stopReason: normalized,
+      abortReason: normalized,
+      finalStatus: 'killed',
+    });
   }
 
-  private async stopEntry(
+  /**
+   * Manager-driven teardown shared by every termination path: explicit `stop`,
+   * the wall-clock `timeoutMs` deadline, and the post-detach `detachTimeoutMs`
+   * deadline. It sends SIGTERM (or `handle.cancel()`), gives the task up to
+   * `SIGTERM_GRACE_MS` to settle, escalates to `forceStop` (SIGKILL) when it is
+   * still alive, and records `finalStatus`.
+   *
+   * This mirrors v1's `settlementForOutcome`, where timeout and stop always
+   * shared the same grace + force-stop sequence. Routing the deadline paths
+   * through here is what keeps a runaway process that ignores SIGTERM from
+   * leaking when its deadline fires.
+   */
+  private async terminateWithGrace(
     entry: ManagedTask,
-    stopReason: string | undefined,
-    abortReason: unknown,
+    options: {
+      readonly stopReason?: string;
+      readonly abortReason: unknown;
+      readonly finalStatus: 'killed' | 'timed_out';
+    },
   ): Promise<AgentTaskInfo | undefined> {
     if (TERMINAL_STATUSES.has(entry.status)) {
       await entry.persistWriteQueue;
       return this.toInfo(entry);
     }
 
-    entry.stopReason = stopReason;
+    // Disarm a pending wall-clock deadline so it cannot re-enter teardown.
+    if (entry.timeoutHandle !== undefined) {
+      clearTimeout(entry.timeoutHandle);
+      entry.timeoutHandle = undefined;
+    }
+    if (options.finalStatus === 'timed_out') {
+      entry.timedOut = true;
+    }
+    entry.stopReason = options.stopReason;
     if (entry.handle) {
       entry.handle.cancel();
     } else {
-      entry.abortController.abort(abortReason);
+      entry.abortController.abort(options.abortReason);
     }
 
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -562,7 +689,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       return this.toInfo(entry);
     }
 
-    await this.settleTask(entry, { status: 'killed', stopReason });
+    await this.settleTask(entry, {
+      status: options.finalStatus,
+      stopReason: options.stopReason,
+    });
     await entry.persistWriteQueue;
     return this.toInfo(entry);
   }
@@ -579,6 +709,9 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     if (entry === undefined) return this.ghosts.get(taskId);
     if (TERMINAL_STATUSES.has(entry.status)) {
       await entry.persistWriteQueue;
+      return this.toInfo(entry);
+    }
+    if (timeoutMs <= 0) {
       return this.toInfo(entry);
     }
 
@@ -638,7 +771,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     if (maxRunningTasks === undefined) return;
     if (!detached) return;
     if (this.activeTaskCount() < maxRunningTasks) return;
-    throw new Error('Too many detached tasks are already running.');
+    throw new Error('Too many background tasks are already running.');
   }
 
   private taskConfig(): AgentTaskConfig | undefined {
@@ -694,6 +827,29 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const chunkBytes = Buffer.byteLength(chunk, 'utf-8');
     entry.outputSizeBytes += chunkBytes;
     this.appendRetainedOutput(entry, chunk, chunkBytes);
+
+    // Output ceiling: a single shell command must not grow the unbounded
+    // live-forward buffer or the on-disk write chain until the process runs out
+    // of memory or fills the disk. Trip once, then request graceful termination
+    // through the shared stop path (SIGTERM → grace → SIGKILL). Scoped to
+    // process tasks (foreground and background): subagent and user-question tasks
+    // append their bounded result in one shot and must always persist it, so they
+    // are intentionally not capped here.
+    if (
+      !entry.outputLimitTripped &&
+      entry.task?.kind === 'process' &&
+      entry.outputSizeBytes > MAX_TASK_OUTPUT_BYTES
+    ) {
+      entry.outputLimitTripped = true;
+      void this.stop(entry.taskId, outputLimitReason());
+    }
+
+    // Once the cap has tripped the task is being terminated: keep only the
+    // bounded in-memory ring buffer above and stop feeding the (unbounded) disk
+    // write chain. A producer that ignores SIGTERM could otherwise keep the
+    // chain — and the chunk strings each pending write retains — growing through
+    // the grace window until SIGKILL, re-introducing the OOM this cap prevents.
+    if (entry.outputLimitTripped) return;
 
     if (!entry.outputPersistStarted) {
       entry.pendingOutput.push(chunk);
@@ -784,16 +940,16 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
 
   private recordTaskStarted(info: AgentTaskInfo): void {
     this.wire.dispatch(taskStarted({ info }));
-    this.telemetry.track('task_created', {
+    this.telemetry.track('background_task_created', {
       kind: info.kind === 'process' ? 'bash' : info.kind,
     });
   }
 
   private recordTaskTerminated(info: AgentTaskInfo): void {
     this.wire.dispatch(taskTerminated({ info }));
-    this.telemetry.track('task_completed', {
+    this.telemetry.track('background_task_completed', {
       kind: info.kind,
-      duration: info.endedAt !== null ? info.endedAt - info.startedAt : null,
+      duration_ms: info.endedAt !== null ? info.endedAt - info.startedAt : null,
       status: info.status,
     });
   }
@@ -855,10 +1011,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       id: origin.notificationId,
       category: 'task',
       type: `task.${info.status}`,
-      source_kind: 'task',
+      source_kind: 'background_task',
       source_id: info.taskId,
       agent_id: info.kind === 'agent' ? info.agentId : undefined,
-      title: `Task ${info.kind} ${info.status}`,
+      title: `Background ${info.kind} ${info.status}`,
       severity: info.status === 'completed' ? 'info' : 'warning',
       body: buildAgentTaskNotificationBody(info),
       children: agentTaskNotificationChildren(output),
@@ -891,7 +1047,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     );
   }
 
-  private markDeliveredNotification(origin: TaskOrigin): void {
+  private markDeliveredNotification(origin: TaskNotificationOrigin): void {
     this.deliveredNotificationKeys.add(notificationKey(origin));
   }
 
@@ -912,7 +1068,11 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
 
     const abortFromSignal = (): void => {
       if (this.isDetached(entry)) return;
-      void this.stopEntry(entry, USER_INTERRUPT_REASON, signal.reason);
+      void this.terminateWithGrace(entry, {
+        stopReason: USER_INTERRUPT_REASON,
+        abortReason: signal.reason,
+        finalStatus: 'killed',
+      });
     };
     if (signal.aborted) {
       abortFromSignal();
@@ -986,6 +1146,16 @@ function shouldListTask(info: AgentTaskInfo, activeOnly: boolean): boolean {
   return info.detached !== false;
 }
 
+function isCompactionSplice(splice: {
+  readonly deleteCount: number;
+  readonly messages: readonly { readonly origin?: { readonly kind: string } | undefined }[];
+}): boolean {
+  return (
+    splice.deleteCount > 0 &&
+    splice.messages.some((message) => message.origin?.kind === 'compaction_summary')
+  );
+}
+
 function newerRestoredTask(
   existing: AgentTaskInfo,
   loaded: AgentTaskInfo,
@@ -1002,14 +1172,38 @@ function newerRestoredTask(
   return loaded;
 }
 
-function isTaskOrigin(origin: unknown): origin is TaskOrigin {
+type TaskNotificationOrigin = Pick<TaskOrigin, 'taskId' | 'status' | 'notificationId'>;
+
+function isTaskOrigin(origin: unknown): origin is TaskNotificationOrigin {
   if (typeof origin !== 'object' || origin === null) return false;
-  const kind = (origin as { kind?: unknown }).kind;
-  return kind === 'task';
+  const value = origin as Record<string, unknown>;
+  return (
+    (value['kind'] === 'background_task' || value['kind'] === 'task') &&
+    typeof value['taskId'] === 'string' &&
+    typeof value['status'] === 'string' &&
+    typeof value['notificationId'] === 'string'
+  );
 }
 
-function notificationKey(origin: TaskOrigin): string {
+function notificationKey(origin: TaskNotificationOrigin): string {
   return `${origin.taskId}\0${origin.status}\0${origin.notificationId}`;
+}
+
+function taskOriginsFromRecord(record: WireRecord): readonly TaskNotificationOrigin[] {
+  const raw = record as {
+    readonly type: string;
+    readonly message?: unknown;
+  };
+  if (raw.type === 'context.append_message') {
+    return taskOriginFromMessage(raw.message);
+  }
+  return [];
+}
+
+function taskOriginFromMessage(message: unknown): readonly TaskNotificationOrigin[] {
+  if (typeof message !== 'object' || message === null) return [];
+  const origin = (message as { readonly origin?: unknown }).origin;
+  return isTaskOrigin(origin) ? [origin] : [];
 }
 
 function buildAgentTaskNotificationBody(info: AgentTaskInfo): string {
@@ -1028,7 +1222,7 @@ function buildAgentTaskNotificationBody(info: AgentTaskInfo): string {
   const recovery = [
     '',
     `To recover or continue this subagent, call Agent(resume="${agentId}", prompt="Pick up where you left off; redo the last tool call if its result was never observed.").`,
-    `Use agent_id ("${agentId}"), NOT source_id / task_id ("${info.taskId}") because the two look alike but only agent_id is accepted by the resume parameter.`,
+    `Use agent_id ("${agentId}"), NOT source_id / task_id ("${info.taskId}") — the two look alike but only agent_id is accepted by the resume parameter.`,
     'Add run_in_background=true to keep it backgrounded, or omit it to take the result inline in the current turn.',
     'The subagent retains its full prior context across the restart, but any in-flight tool call lost its result and may need to be redone.',
   ].join('\n');

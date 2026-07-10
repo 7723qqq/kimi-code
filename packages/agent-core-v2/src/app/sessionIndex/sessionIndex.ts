@@ -13,6 +13,23 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { Page } from '#/persistence/interface/queryStore';
 
+/**
+ * v1 `custom` metadata key linking a forked session back to its parent
+ * (`packages/agent-core/.../sessionService.ts`). Written by
+ * `ISessionLifecycleService.createChild`; read here to answer child queries.
+ */
+export const PARENT_SESSION_ID_KEY = 'parent_session_id';
+
+/**
+ * v1 `custom` metadata key tagging a fork as a direct "child" (as opposed to a
+ * plain fork). Only sessions carrying both {@link PARENT_SESSION_ID_KEY} and
+ * `child_session_kind === CHILD_SESSION_KIND` count as children.
+ */
+export const CHILD_SESSION_KIND_KEY = 'child_session_kind';
+
+/** The `child_session_kind` value that marks a direct child session. */
+export const CHILD_SESSION_KIND = 'child';
+
 export interface SessionSummary {
   readonly id: string;
   readonly workspaceId: string;
@@ -46,6 +63,13 @@ export interface SessionListQuery {
   readonly includeArchived?: boolean;
   readonly cursor?: string;
   readonly limit?: number;
+  /**
+   * Restrict to direct child sessions of this parent id: summaries whose
+   * `custom` carries both `parent_session_id === childOf` and
+   * `child_session_kind === 'child'` (the v1 child markers). A plain fork
+   * (no `child_session_kind`) is excluded.
+   */
+  readonly childOf?: string;
 }
 
 export interface ISessionIndex {

@@ -10,8 +10,9 @@
  * of its own). The requester-side `SubagentStart` / `SubagentStop` hooks are
  * translated by the Session-scope `SessionExternalHooksService`, which observes
  * the `agentLifecycle` run slots hosted on `IAgentLifecycleService`. Appends
- * UserPromptSubmit hook results
- * and Stop hook continuation prompts through `contextMemory`.
+ * UserPromptSubmit hook results and Stop hook continuation prompts through
+ * `contextMemory`, and passes the current session id from `sessionContext`
+ * into hook runner payloads.
  */
 
 import { IInstantiationService } from '#/_base/di/instantiation';
@@ -26,7 +27,7 @@ import {
   IAgentFullCompactionService,
   type FullCompactionTask,
 } from '#/agent/fullCompaction/fullCompaction';
-import type { CompactionResult, CompactionSource } from '#/agent/fullCompaction/types';
+import type { CompactionResult } from '#/agent/fullCompaction/types';
 import { IAgentLoopService, type AfterStepContext } from '#/agent/loop/loop';
 import {
   IAgentPermissionGate,
@@ -35,13 +36,14 @@ import {
   IAgentPromptService,
   type PromptSubmitContext,
 } from '#/agent/prompt/prompt';
-import type { HookResultEvent, TurnEndReason } from '@moonshot-ai/protocol';
+import type { HookResultEvent, TurnEndedEvent } from '@moonshot-ai/protocol';
 import { IEventBus } from '#/app/event/eventBus';
 import type { ExecutableToolResult } from '#/agent/tool/toolContract';
 import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/agent/tool/toolHooks';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentTurnService } from '#/agent/turn/turn';
 import { toKimiErrorPayload } from '#/errors';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 
 import { IAgentExternalHooksService } from './externalHooks';
 import { IExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunner';
@@ -66,6 +68,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IEventBus private readonly eventBus: IEventBus,
     @IInstantiationService private readonly instantiation: IInstantiationService,
+    @ISessionContext private readonly sessionContext: ISessionContext,
   ) {
     super();
     this.registerListeners();
@@ -82,7 +85,12 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     // output), and throwing here would clobber that with a finalize-abort error.
     // The runner mirrors the legacy fire-and-forget behavior.
     try {
-      void this.runner.fireAndForgetTrigger(event, { matcherValue, signal, inputData });
+      void this.runner.fireAndForgetTrigger(event, {
+        matcherValue,
+        signal,
+        sessionId: this.sessionContext.sessionId,
+        inputData,
+      });
     } catch {}
   }
 
@@ -199,11 +207,11 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     this._register(
       fullCompaction.hooks.onWillCompact.register('externalHooks', async (ctx, next) => {
         await this.runPreCompact(ctx);
+        void ctx.promise
+          .then((result) => this.notifyPostCompact(ctx, result))
+          .catch(() => undefined);
         await next();
       }),
-    );
-    this._register(
-      this.eventBus.subscribe('compaction.completed', (e) => this.notifyPostCompact(e)),
     );
   }
 
@@ -222,6 +230,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     const block = await this.runner.triggerBlock('PreToolUse', {
       matcherValue: ctx.toolCall.name,
       signal: ctx.signal,
+      sessionId: this.sessionContext.sessionId,
       inputData: {
         toolName: ctx.toolCall.name,
         toolInput,
@@ -260,6 +269,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     const results = await this.runner.trigger('UserPromptSubmit', {
       matcherValue: input,
       signal,
+      sessionId: this.sessionContext.sessionId,
       inputData: { prompt: input, isSteer: ctx.isSteer },
     });
     signal.throwIfAborted();
@@ -298,11 +308,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     return false;
   }
 
-  private notifyTurnEnded(event: {
-    turnId: number;
-    reason: TurnEndReason;
-    error?: unknown;
-  }): void {
+  private notifyTurnEnded(event: Pick<TurnEndedEvent, 'turnId' | 'reason' | 'error'>): void {
     this.stopHookContinuationUsed = false;
     if (event.reason === 'failed' && event.error !== undefined) {
       this.notifyStopFailure(event.error, new AbortController().signal);
@@ -331,6 +337,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
 
     const block = await this.runner.triggerBlock('Stop', {
       signal: ctx.signal,
+      sessionId: this.sessionContext.sessionId,
       inputData: { stopHookActive: false },
     });
     ctx.signal.throwIfAborted();
@@ -343,6 +350,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     await this.runner.trigger('PreCompact', {
       matcherValue: ctx.trigger,
       signal,
+      sessionId: this.sessionContext.sessionId,
       inputData: {
         trigger: ctx.trigger,
         tokenCount: ctx.tokenCount,
@@ -351,14 +359,14 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     signal.throwIfAborted();
   }
 
-  private notifyPostCompact(event: { trigger: CompactionSource; result: CompactionResult }): void {
+  private notifyPostCompact(ctx: FullCompactionTask, result: CompactionResult): void {
     this.fireAndForget(
       'PostCompact',
       {
-        trigger: event.trigger,
-        estimatedTokenCount: event.result.tokensAfter,
+        trigger: ctx.trigger,
+        estimatedTokenCount: result.tokensAfter,
       },
-      event.trigger,
+      ctx.trigger,
     );
   }
 

@@ -1,5 +1,9 @@
 /**
  * `turn` domain error codes.
+ *
+ * `TURN_AGENT_BUSY` is deprecated: busy admission now throws
+ * `activity.agent_busy` from the `activity` kernel. It stays registered until
+ * the remaining `turn.*` callers (e.g. `skill`) move to the new code.
  */
 
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';

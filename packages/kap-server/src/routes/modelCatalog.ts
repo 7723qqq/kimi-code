@@ -290,11 +290,11 @@ function sendMappedError(
 ): boolean {
   if (!isKimiError(err)) return false;
   if (err.code === 'provider.not_found') {
-    reply.send(errEnvelope(ErrorCode.PROVIDER_NOT_FOUND, err.message, requestId));
+    reply.send(errEnvelope(ErrorCode.PROVIDER_NOT_FOUND, err.message, requestId, err.stack));
     return true;
   }
   if (err.code === 'model.not_found') {
-    reply.send(errEnvelope(ErrorCode.MODEL_NOT_FOUND, err.message, requestId));
+    reply.send(errEnvelope(ErrorCode.MODEL_NOT_FOUND, err.message, requestId, err.stack));
     return true;
   }
   return false;

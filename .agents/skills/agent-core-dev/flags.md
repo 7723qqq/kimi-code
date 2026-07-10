@@ -11,7 +11,7 @@ Gate not-yet-public features behind `IFlagService.enabled(id)`, per the reposito
 - `src/flag/flag.ts` — `IFlagService` token + resolver types (`ExperimentalFlagMap`, `ExperimentalFlagConfig`, `ExperimentalFlagSource`, `ExperimentalFeatureState`) + `ExperimentalConfigSchema` / `ExperimentalConfig` (zod).
 - `src/flag/flagService.ts` — `FlagService` impl + `MASTER_ENV` (`KIMI_CODE_EXPERIMENTAL_FLAG`) + `EXPERIMENTAL_SECTION` (`experimental`); reads definitions from `IFlagRegistry`; self-registers at App scope.
 - `src/flag/index.ts` — **removed (no barrel)**; `src/index.ts` imports the `flag` leafs precisely instead (e.g. `import './flag/flagService'`).
-- `src/<domain>/flag.ts` — each domain that owns a flag declares it here and calls `registerFlagDefinition` at the module top level (e.g. `src/microCompaction/flag.ts`). The directory already names the domain, so the file is just `flag.ts`.
+- `src/<domain>/flag.ts` — each domain that owns a flag declares it here and calls `registerFlagDefinition` at the module top level (e.g. `src/multiServer/flag.ts`). The directory already names the domain, so the file is just `flag.ts`.
 
 ## Public surface
 
@@ -25,7 +25,7 @@ Gate not-yet-public features behind `IFlagService.enabled(id)`, per the reposito
 Highest wins; env is read live on every call (nothing cached):
 
 1. Master env `KIMI_CODE_EXPERIMENTAL_FLAG` truthy → every flag on.
-2. Per-feature `def.env` (e.g. `KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION`) → forces on/off.
+2. Per-feature `def.env` (e.g. `KIMI_CODE_EXPERIMENTAL_MY_FEATURE`) → forces on/off.
 3. `[experimental]` config section per-flag override.
 4. Registry `default`.
 
@@ -42,7 +42,7 @@ Config shape:
 
 ```toml
 [experimental]
-micro_compaction = false
+my_feature = false
 ```
 
 Keys are intentionally loose (`z.record(z.string(), z.boolean())`), so obsolete flags stay inert config.
@@ -89,7 +89,7 @@ Inject `IFlagService` and gate on it. It is resolvable from any scope (App ances
 ```ts
 constructor(@IFlagService private readonly flags: IFlagService) {}
 // ...
-if (!this.flags.enabled('micro_compaction')) return;
+if (!this.flags.enabled('my_feature')) return;
 ```
 
 ## Layering & scope

@@ -1,16 +1,18 @@
 /**
- * `contextMemory` loop-event fold — restore-time reduction of v1
- * `context.append_loop_event` records into folded `ContextMessage`s.
+ * `contextMemory` loop-event fold — reduction of `context.append_loop_event`
+ * records into folded `ContextMessage`s.
  *
- * v2's agent loop persists assistant / tool messages already folded
- * (`context.append_message`); it never emits loop events. Sessions written by
- * the v1 loop (`packages/agent-core`), however, stream a turn as
- * `context.append_loop_event` records (`step.begin` / `content.part` /
- * `tool.call` / `tool.result` / `step.end`) and never write a folded assistant
- * message. Without this fold, `WireService.replay` skips those records (no Op
- * is registered for the type) and the restored `ContextModel` — and every
- * consumer built on it (`/messages`, `/snapshot`, live resume) — shows only the
- * user prompts.
+ * Both loops stream a turn as `context.append_loop_event` records
+ * (`step.begin` / `content.part` / `tool.call` / `tool.result` / `step.end`)
+ * and never write a folded assistant message: the v1 loop
+ * (`packages/agent-core`) always has, and since the v1.4 wire-parity alignment
+ * the v2 live loop emits the same records (`LoopService` →
+ * `ContextMemory.appendLoopEvent`), keeping the on-disk shape byte-compatible.
+ * This fold turns them into assistant / tool messages — at live dispatch time
+ * and again when `WireService.replay` restores a session. Without it, replay
+ * would skip those records (no Op is registered for the type) and the restored
+ * `ContextModel` — and every consumer built on it (`/messages`, `/snapshot`,
+ * live resume) — would show only the user prompts.
  *
  * Semantics mirror v1's `ContextMemory.appendLoopEvent`
  * (`packages/agent-core/src/agent/context/index.ts`) and the transcript
@@ -32,18 +34,12 @@
  * concurrent replays of different agent scopes never share fold state.
  */
 
+import type { FinishReason } from '#/app/llmProtocol/finishReason';
 import { createToolMessage, type ContentPart, type ToolCall } from '#/app/llmProtocol/message';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
 
 import type { ContextMessage } from './types';
 
-// Status strings must match v1 / `loopService.ts` so folded tool results render
-// byte-identically to a v2-native turn.
-const TOOL_ERROR_STATUS = '<system>ERROR: Tool execution failed.</system>';
-const TOOL_EMPTY_STATUS = '<system>Tool output is empty.</system>';
-const TOOL_EMPTY_ERROR_STATUS =
-  '<system>ERROR: Tool execution failed. Tool output is empty.</system>';
-const TOOL_OUTPUT_EMPTY_TEXT = 'Tool output is empty.';
 const TOOL_INTERRUPTED_ON_RESUME_OUTPUT =
   'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.';
 
@@ -68,7 +64,7 @@ export type LoopRecordedEvent =
       readonly llmServerDecodeMs?: number;
       readonly llmClientConsumeMs?: number;
       readonly messageId?: string;
-      readonly providerFinishReason?: string;
+      readonly providerFinishReason?: FinishReason;
       readonly rawFinishReason?: string;
     }
   | {
@@ -93,7 +89,11 @@ export type LoopRecordedEvent =
   | {
       readonly type: 'tool.result';
       readonly toolCallId: string;
-      readonly result: { readonly output: string | readonly ContentPart[]; readonly isError?: boolean };
+      readonly result: {
+        readonly output: string | readonly ContentPart[];
+        readonly isError?: boolean;
+        readonly note?: string;
+      };
       readonly parentUuid?: string;
     };
 
@@ -171,9 +171,11 @@ export function foldLoopEvent(
     }
     case 'tool.result': {
       if (!ctx.pending.has(event.toolCallId)) return state;
+      const output = event.result.output;
       const toolMessage: ContextMessage = {
-        ...createToolMessage(event.toolCallId, toolResultOutputForModel(event.result)),
+        ...createToolMessage(event.toolCallId, typeof output === 'string' ? output : [...output]),
         isError: event.result.isError,
+        note: event.result.note,
       };
       ctx.pending.delete(event.toolCallId);
       return bind(flushDeferred([...state, toolMessage], ctx), ctx);
@@ -185,8 +187,8 @@ export function foldLoopEvent(
 
 /**
  * Clear fold bookkeeping after an op that invalidates any open exchange
- * (`context.undo` / `context.clear` / `context.apply_compaction` /
- * `context.splice`). Returns the same state reference with a fresh fold ctx.
+ * (`context.undo` / `context.clear` / `context.apply_compaction`). Returns
+ * the same state reference with a fresh fold ctx.
  */
 export function resetFold(state: readonly ContextMessage[]): readonly ContextMessage[] {
   foldCtxMap.set(state, { openStepUuid: undefined, pending: new Set(), deferred: [] });
@@ -238,36 +240,7 @@ function flushDeferred(state: readonly ContextMessage[], ctx: FoldCtx): readonly
 
 function interruptedToolMessage(toolCallId: string): ContextMessage {
   return {
-    ...createToolMessage(
-      toolCallId,
-      toolResultOutputForModel({ output: TOOL_INTERRUPTED_ON_RESUME_OUTPUT, isError: true }),
-    ),
+    ...createToolMessage(toolCallId, TOOL_INTERRUPTED_ON_RESUME_OUTPUT),
     isError: true,
   };
-}
-
-/** Mirrors v1 / `loopService.ts` `toolResultOutputForModel`. */
-function toolResultOutputForModel(result: {
-  readonly output: string | readonly ContentPart[];
-  readonly isError?: boolean;
-}): string | ContentPart[] {
-  const { output, isError } = result;
-  if (typeof output === 'string') {
-    if (isError === true) {
-      if (output.length === 0) return TOOL_EMPTY_ERROR_STATUS;
-      if (output.trimStart().startsWith('<system>ERROR:')) return output;
-      return `${TOOL_ERROR_STATUS}\n${output}`;
-    }
-    if (output.length === 0 || output.trim() === TOOL_OUTPUT_EMPTY_TEXT) {
-      return TOOL_EMPTY_STATUS;
-    }
-    return output;
-  }
-  if (output.length === 0) {
-    return [{ type: 'text', text: isError === true ? TOOL_EMPTY_ERROR_STATUS : TOOL_EMPTY_STATUS }];
-  }
-  if (isError === true) {
-    return [{ type: 'text', text: TOOL_ERROR_STATUS }, ...output];
-  }
-  return [...output];
 }

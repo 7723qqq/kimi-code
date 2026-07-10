@@ -3,19 +3,20 @@
  *
  * Owns the per-agent conversation history in the wire `ContextModel`
  * (`ContextMessage[]`): reads through `wire.getModel`, writes through the
- * wire-protocol 1.4 Ops (`append` / `clear` / `undo` / `applyCompaction`), with
- * `splice` retained for protocol 1.5 replay and the rare internal single-delete.
+ * v1 wire Ops (`append` / `appendLoopEvent` / `clear` / `undo` /
+ * `applyCompaction`).
  * As the sole live mutation gateway for the history, it also cascades a
- * `context_size.measured` Op alongside every mutation that changes the measured
- * prefix — `clear` resets it, `applyCompaction` adopts `tokensAfter`, and
- * `undo` / `splice` rebase it (to an estimate when the measured aggregate is
- * truncated); `append` leaves the measured prefix untouched since new messages
- * are the unmeasured tail (see `contextSizeService`). Every mutation still fires
- * `onSpliced` from the live path only (replay rebuilds
+ * (non-persisted) `context_size.measured` Op alongside every mutation that
+ * changes the measured prefix — `clear` resets it, `applyCompaction` adopts
+ * `tokensAfter`, and `undo` rebases it (to an estimate when the measured
+ * aggregate is truncated); `append` leaves the measured prefix untouched since
+ * new messages are the unmeasured tail (see `contextSizeService`). Every
+ * mutation still fires `onSpliced` from the live path only (replay rebuilds
  * the Model silently and never invokes these methods), so existing subscribers
- * (micro-compaction, context-injector, task-notification) observe the same
- * splice-shaped change events regardless of which 1.4 Op was persisted. Message
- * ids are stamped at the dispatch call site so `apply` stays pure. Blob
+ * (context-injector, task-notification) observe the same
+ * splice-shaped change events regardless of which Op was persisted. Messages
+ * are persisted without local ids — the on-disk record matches v1's field set
+ * and public message ids are derived from the transcript index. Blob
  * dehydrate/rehydrate is declared on `ContextModel.blobs`. Bound at
  * Agent scope.
  */
@@ -43,24 +44,12 @@ import {
   contextAppendMessage,
   contextApplyCompaction,
   contextClear,
-  contextSplice,
   contextUndo,
+  isFullyUndoable,
   type UndoCut,
 } from './contextOps';
 import type { LoopRecordedEvent } from './loopEventFold';
-import { ensureMessageId } from './messageId';
 import type { ContextMessage } from './types';
-
-declare module '#/agent/wireRecord/wireRecord' {
-  interface WireRecordMap {
-    'context.splice': {
-      start: number;
-      deleteCount: number;
-      messages: readonly ContextMessage[];
-      tokens?: number;
-    };
-  }
-}
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
@@ -89,14 +78,9 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
 
   append(...messages: readonly ContextMessage[]): void {
     if (messages.length === 0) return;
-    const stamped = messages.map(ensureMessageId);
     const start = this.get().length;
-    this.wire.dispatch(...stamped.map((message) => contextAppendMessage({ message })));
-    this.eventBus.publish({ type: 'context.spliced',
-      start,
-      deleteCount: 0,
-      messages: [...stamped],
-    });
+    this.wire.dispatch(...messages.map((message) => contextAppendMessage({ message })));
+    this.publishSplice({ start, deleteCount: 0, messages: [...messages] });
   }
 
   appendLoopEvent(event: LoopRecordedEvent): void {
@@ -106,15 +90,15 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
     const deleteCount = this.get().length;
     if (deleteCount === 0) return;
     this.wire.dispatch(contextClear({}), contextSizeMeasured({ length: 0, tokens: 0 }));
-    this.eventBus.publish({ type: 'context.spliced', start: 0, deleteCount, messages: [] });
+    this.publishSplice({ start: 0, deleteCount, messages: [] });
   }
 
   undo(count: number): UndoCut {
     const history = this.get();
     const cut = computeUndoCut(history, count);
-    if (cut.cutIndex >= 0 && cut.removedCount >= count) {
+    if (isFullyUndoable(cut, count)) {
       this.wire.dispatch(contextUndo({ count }), ...this.sizeOpsForCut(cut.cutIndex, history));
-      this.eventBus.publish({ type: 'context.spliced',
+      this.publishSplice({
         start: cut.cutIndex,
         deleteCount: history.length - cut.cutIndex,
         messages: [],
@@ -139,7 +123,7 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
       }),
       contextSizeMeasured({ length: result.messages.length, tokens: result.tokensAfter }),
     );
-    this.eventBus.publish({ type: 'context.spliced',
+    this.publishSplice({
       start: 0,
       deleteCount: history.length,
       messages: [...result.messages],
@@ -150,23 +134,13 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
     return publicResult;
   }
 
-  splice(
-    start: number,
-    deleteCount: number,
-    messages: readonly ContextMessage[],
-    tokens?: number,
-  ): void {
-    const stamped = messages.map(ensureMessageId);
-    this.wire.dispatch(
-      contextSplice({ start, deleteCount, messages: stamped, tokens }),
-      ...this.sizeOpsForSplice(start, deleteCount, stamped, tokens),
-    );
-    this.eventBus.publish({ type: 'context.spliced',
-      start,
-      deleteCount,
-      messages: [...stamped],
-      tokens,
-    });
+  private publishSplice(input: {
+    start: number;
+    deleteCount: number;
+    messages: readonly ContextMessage[];
+    tokens?: number;
+  }): void {
+    this.eventBus.publish({ type: 'context.spliced', ...input });
   }
 
   /**
@@ -183,53 +157,6 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
       contextSizeMeasured({
         length: cutIndex,
         tokens: estimateTokensForMessages(history.slice(0, cutIndex)),
-      }),
-    ];
-  }
-
-  /**
-   * Cascade a `context_size.measured` Op when a splice touches the measured
-   * prefix. A splice confined to the unmeasured tail leaves the prefix intact
-   * and emits nothing. A splice that reaches into the prefix invalidates the
-   * measured aggregate, so the whole surviving context is rebased to an
-   * estimate (caller-provided `tokens` win when present), unless the splice is
-   * a 1-for-1 replacement inside the prefix whose token-countable shape is
-   * unchanged (e.g. patching `providerMessageId` or other metadata that
-   * `estimateTokensForMessages` ignores). In that case the existing measured
-   * aggregate is preserved.
-   */
-  private sizeOpsForSplice(
-    start: number,
-    deleteCount: number,
-    inserted: readonly ContextMessage[],
-    tokens?: number,
-  ): Op[] {
-    const model = this.wire.getModel(ContextSizeModel);
-    if (start >= model.length) return [];
-
-    const history = this.get();
-    const deletedEnd = Math.min(start + deleteCount, model.length);
-    const deleted = history.slice(start, deletedEnd);
-
-    // Preserve the measured aggregate for a same-length replacement that is
-    // confined to the measured prefix and whose estimated token count is
-    // unchanged. The estimate only looks at role/content/toolCalls, so this
-    // covers metadata-only edits (id, providerMessageId, origin, isError).
-    if (
-      tokens === undefined &&
-      inserted.length === deleteCount &&
-      start + deleteCount <= model.length &&
-      estimateTokensForMessages(deleted) === estimateTokensForMessages(inserted)
-    ) {
-      return [];
-    }
-
-    const next = history.slice();
-    next.splice(start, deleteCount, ...inserted);
-    return [
-      contextSizeMeasured({
-        length: next.length,
-        tokens: tokens ?? estimateTokensForMessages(next),
       }),
     ];
   }

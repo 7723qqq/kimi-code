@@ -7,13 +7,15 @@
  * `effective` config: the reserved model entry, `defaultModel`, and the request
  * `modelOverrides`. The overlay is applied ONLY to the in-memory `effective`
  * view; its `strip` removes the synthesized values on the write path so they
- * never reach `config.toml`. Registered into `IConfigRegistry` by `ModelService`
- * on construction, so the `config` domain never imports this domain's model
- * semantics.
+ * never reach `config.toml`. Self-registered into `IConfigRegistry` at module
+ * load (see `configOverlayContributions.ts`), so the `config` domain never
+ * imports this domain's model semantics, and so the overlay takes effect even
+ * when `ModelService` is never instantiated.
  */
 
 import { parseBooleanEnv } from '#/_base/utils/env';
 import type { ConfigEffectiveOverlay } from '#/app/config/config';
+import { registerConfigOverlay } from '#/app/config/configOverlayContributions';
 import { ErrorCodes, KimiError } from '#/errors';
 import { ENV_MODEL_PROVIDER_KEY } from '#/app/provider/provider';
 
@@ -25,6 +27,13 @@ const DEFAULT_MAX_CONTEXT_SIZE = 262144;
 
 /** Default capabilities when KIMI_MODEL_CAPABILITIES is unset. */
 const DEFAULT_CAPABILITIES = ['image_in', 'thinking'];
+
+/** Default base URL per provider type when KIMI_MODEL_BASE_URL is unset. */
+const DEFAULT_BASE_URL: Partial<Record<string, string>> = {
+  kimi: 'https://api.moonshot.ai/v1',
+  openai: 'https://api.openai.com/v1',
+  // anthropic: omitted -> let the Anthropic SDK pick its default
+};
 
 function trimmed(value: string | undefined): string | undefined {
   const t = value?.trim();
@@ -164,10 +173,21 @@ export const kimiModelEnvOverlay: ConfigEffectiveOverlay = {
 
     const providers = asRecord(effective['providers']);
     const envProvider = asRecord(providers[ENV_MODEL_PROVIDER_KEY]);
-    if (envProvider['type'] === undefined) {
+    const providerType =
+      typeof envProvider['type'] === 'string' ? envProvider['type'] : 'kimi';
+    const providerBaseUrl =
+      typeof envProvider['baseUrl'] === 'string' && envProvider['baseUrl'].length > 0
+        ? envProvider['baseUrl']
+        : DEFAULT_BASE_URL[providerType];
+    const providerPatch: Record<string, unknown> = {};
+    if (envProvider['type'] === undefined) providerPatch['type'] = 'kimi';
+    if (providerBaseUrl !== undefined && envProvider['baseUrl'] === undefined) {
+      providerPatch['baseUrl'] = providerBaseUrl;
+    }
+    if (Object.keys(providerPatch).length > 0) {
       effective['providers'] = validate('providers', {
         ...providers,
-        [ENV_MODEL_PROVIDER_KEY]: { ...envProvider, type: 'kimi' },
+        [ENV_MODEL_PROVIDER_KEY]: { ...envProvider, ...providerPatch },
       });
       changed.push('providers');
     }
@@ -219,3 +239,8 @@ function collectModelOverrides(input: {
   }
   return Object.keys(modelOverrides).length > 0 ? modelOverrides : undefined;
 }
+
+// Self-register at module load so the overlay takes effect even when
+// `ModelService` is never instantiated (the DI layer does not auto-instantiate
+// `Eager` services). Drained by `ConfigRegistry` on construction.
+registerConfigOverlay(kimiModelEnvOverlay);

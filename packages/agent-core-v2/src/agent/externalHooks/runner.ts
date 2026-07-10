@@ -1,6 +1,8 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { type SpawnOptionsWithoutStdio } from 'node:child_process';
 
 import { z } from 'zod';
+
+import { type IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 
 import type { HookResult } from './types';
 
@@ -9,6 +11,25 @@ export interface RunHookOptions {
   readonly cwd?: string;
   readonly env?: Record<string, string>;
   readonly signal?: AbortSignal;
+}
+
+export function buildHookSpawnOptions(options: {
+  cwd?: string;
+  env?: Record<string, string>;
+}): SpawnOptionsWithoutStdio {
+  return {
+    shell: true,
+    cwd: options.cwd,
+    stdio: 'pipe',
+    detached: process.platform !== 'win32',
+    // Hide the console Windows would otherwise allocate for the shell child.
+    // Without `windowsHide:true`, each hook flashes a visible console window —
+    // the same regression the node-local process host already guards against
+    // (see `buildSpawnOptions` in os/backends/node-local/hostProcessService.ts)
+    // and the runner's own taskkill spawn. Unconditional: it is a no-op on POSIX.
+    windowsHide: true,
+    env: options.env === undefined ? undefined : { ...process.env, ...options.env },
+  };
 }
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
@@ -30,7 +51,7 @@ const HookSpecificOutputSchema = z.preprocess(
     .looseObject({
       message: OptionalStringSchema,
       permissionDecision: z.unknown().optional(),
-      permissionDecisionReason: OptionalStringSchema,
+      permissionDecisionReason: z.unknown().optional(),
     })
     .optional(),
 );
@@ -40,18 +61,17 @@ const HookJsonOutputSchema = z.looseObject({
 });
 
 export async function runHook(
+  hostProcess: IHostProcessService,
   command: string,
   input: Record<string, unknown>,
   options: RunHookOptions,
 ): Promise<HookResult> {
-  let child: ChildProcessWithoutNullStreams;
+  let proc: IHostProcess;
   try {
-    child = spawn(command, {
+    proc = await hostProcess.spawn(command, [], {
       shell: true,
       cwd: options.cwd,
-      env: options.env === undefined ? undefined : { ...process.env, ...options.env },
-      stdio: 'pipe',
-      detached: process.platform !== 'win32',
+      env: options.env,
     });
   } catch (error) {
     return allowResult({ stderr: errorMessage(error) });
@@ -63,7 +83,7 @@ export async function runHook(
     let settled = false;
     const timeoutMs = timeoutSeconds(options.timeout) * 1000;
 
-    const cleanup = () => {
+    const cleanup = (): void => {
       clearTimeout(timeout);
       options.signal?.removeEventListener('abort', onAbort);
     };
@@ -75,13 +95,40 @@ export async function runHook(
       resolve(result);
     };
 
+    proc.stdout.setEncoding('utf8');
+    proc.stderr.setEncoding('utf8');
+    proc.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+    proc.stderr.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+
+    // Settle on the exit code AND drained stdio, not on `wait()` alone:
+    // `wait()` resolves at the child's 'exit', which can precede the
+    // stdout/stderr 'end', so a fast-exiting hook would otherwise lose its
+    // trailing output. `proc.dispose()` runs here for every path (clean exit,
+    // timeout, abort) once the process has exited and the streams have closed.
+    const stdoutDone = new Promise<void>((done) => proc.stdout.once('end', done));
+    const stderrDone = new Promise<void>((done) => proc.stderr.once('end', done));
+    void Promise.all([proc.wait(), stdoutDone, stderrDone]).then(
+      ([code]) => {
+        proc.dispose();
+        settle(resultFromExitCode(code, stdout, stderr));
+      },
+      (error) => {
+        proc.dispose();
+        settle(allowResult({ stdout, stderr: stderr + errorMessage(error) }));
+      },
+    );
+
     const timeout = setTimeout(() => {
-      killProcess(child);
+      killProcess(proc);
       settle(allowResult({ stdout, stderr, timedOut: true }));
     }, timeoutMs);
 
     const onAbort = (): void => {
-      killProcess(child);
+      killProcess(proc);
       settle(allowResult({ stdout, stderr }));
     };
 
@@ -91,23 +138,8 @@ export async function runHook(
       return;
     }
 
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
-      stdout += chunk;
-    });
-    child.stderr.on('data', (chunk: string) => {
-      stderr += chunk;
-    });
-    child.on('error', (error) => {
-      settle(allowResult({ stdout, stderr: stderr + errorMessage(error) }));
-    });
-    child.on('close', (code) => {
-      settle(resultFromExitCode(code ?? 0, stdout, stderr));
-    });
-
-    child.stdin.on('error', () => {});
-    child.stdin.end(JSON.stringify(input));
+    proc.stdin.on('error', () => {});
+    proc.stdin.end(JSON.stringify(input));
   });
 }
 
@@ -172,8 +204,11 @@ function structuredOutput(
     return {
       action: 'block',
       message: result.message,
-      reason: hookSpecificOutput.permissionDecisionReason,
-      structuredOutput: true,
+      reason:
+        typeof hookSpecificOutput.permissionDecisionReason === 'string'
+          ? hookSpecificOutput.permissionDecisionReason
+          : undefined,
+      structuredOutput: true as const,
     };
   } catch {
     return undefined;
@@ -199,45 +234,12 @@ function allowResult(input: {
   };
 }
 
-function killProcess(child: ChildProcessWithoutNullStreams): void {
-  tryKillProcess(child, 'SIGTERM');
+function killProcess(proc: IHostProcess): void {
+  void proc.kill('SIGTERM');
   const killTimer = setTimeout(() => {
-    tryKillProcess(child, 'SIGKILL');
+    void proc.kill('SIGKILL');
   }, KILL_GRACE_MS);
   killTimer.unref();
-}
-
-function tryKillProcess(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): void {
-  if (process.platform === 'win32') {
-    killProcessTreeWindows(child, signal === 'SIGKILL');
-    return;
-  }
-  try {
-    if (child.pid !== undefined) {
-      process.kill(-child.pid, signal);
-    } else {
-      child.kill(signal);
-    }
-  } catch {
-    try {
-      child.kill(signal);
-    } catch {}
-  }
-}
-
-function killProcessTreeWindows(child: ChildProcessWithoutNullStreams, force: boolean): void {
-  if (child.pid === undefined) return;
-  const args = force
-    ? ['/T', '/F', '/PID', String(child.pid)]
-    : ['/T', '/PID', String(child.pid)];
-  try {
-    const killer = spawn('taskkill', args, { stdio: 'ignore', windowsHide: true });
-    killer.once('error', () => {});
-  } catch {
-    try {
-      child.kill('SIGTERM');
-    } catch {}
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

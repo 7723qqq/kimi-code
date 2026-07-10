@@ -11,9 +11,12 @@
  * `applyAddRules` / `applyApprovalResult` and their `record.define(...resume...)`
  * facets (their common transition). Each returns the same reference when nothing
  * changes (empty rules / duplicate or non-session approval) so the wire's
- * reference-equality gate stays quiet. The legacy `toReplay: approval_result`
- * projection is dropped — only `message` records feed the transcript. Consumed by
- * the Agent-scope `permissionRulesService`.
+ * reference-equality gate stays quiet. `permission.rules.add` is live-only
+ * because v1 does not persist permission rules; hosts re-supply them on resume,
+ * while only `permission.record_approval_result` rides the wire log. The
+ * legacy `toReplay: approval_result` projection is dropped — only `message`
+ * records feed the transcript. Consumed by the Agent-scope
+ * `permissionRulesService`.
  */
 
 import { defineModel } from '#/wire/model';
@@ -32,6 +35,7 @@ export const PermissionRulesModel = defineModel<PermissionRulesModelState>('perm
 }));
 
 export const addPermissionRules = defineOp(PermissionRulesModel, 'permission.rules.add', {
+  persist: false,
   apply: (s, p: { rules: readonly PermissionRule[] }): PermissionRulesModelState => {
     if (p.rules.length === 0) return s;
     return { ...s, rules: [...s.rules, ...p.rules] };

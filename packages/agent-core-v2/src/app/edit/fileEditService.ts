@@ -27,7 +27,10 @@ export class FileEditService implements IFileEditService {
 
   async edit(input: FileEditInput): Promise<FileEditResult> {
     try {
-      const raw = await this.fs.readText(input.path);
+      // Strict decoding matches v1 (kaos): a non-UTF-8 file must fail here
+      // instead of being silently decoded with U+FFFD and rewritten, which
+      // would corrupt every invalid byte in the file — even far from the edit.
+      const raw = await this.fs.readText(input.path, { errors: 'strict' });
       const model = new TextModel(raw);
       const result = this.editor.apply(model, {
         path: input.displayPath,
