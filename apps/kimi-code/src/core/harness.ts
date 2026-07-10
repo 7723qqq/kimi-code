@@ -23,6 +23,7 @@ import {
   IBootstrapService,
   IConfigService,
   IFlagService,
+  IModelResolver,
   IPluginService,
   IProviderService,
   ISessionActivity,
@@ -38,6 +39,7 @@ import {
   resolveConfigPath,
   resolveKimiHome,
   resolveLoggingConfig,
+  resolveThinkingEffortForModel,
   type GetPluginInfoInput,
   type InstallPluginInput,
   type ISessionScopeHandle,
@@ -49,6 +51,8 @@ import {
   type Scope,
   type SetPluginEnabledInput,
   type SetPluginMcpServerEnabledInput,
+  type Model,
+  type ThinkingDefaults,
 } from '@moonshot-ai/agent-core-v2';
 import { assertKimiHostIdentity, type KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
 
@@ -61,6 +65,7 @@ import type {
   CoreConfig,
   CoreConfigPatch,
   CoreSessionSummary,
+  CoreStartupState,
   ExportSessionInput,
   ExportSessionResult,
   FlagExplanation,
@@ -197,6 +202,43 @@ export class CoreHarness {
   }
 
   // -- Session lifecycle ------------------------------------------------------
+
+  /**
+   * Pre-session defaults for the TUI's initial render. Resolved from
+   * App-scope services only — never creates a session. The context-window
+   * fallback mirrors `CoreSession.getStatus()` and the thinking resolution
+   * reuses the profile service's own helper, so the footer shows the same
+   * values before and after the first session is created lazily.
+   */
+  async getStartupState(): Promise<CoreStartupState> {
+    const app = this.deps.app.accessor;
+    const config = app.get(IConfigService);
+    await config.ready;
+    const rawModel = config.get<unknown>('defaultModel');
+    const model = typeof rawModel === 'string' ? rawModel : '';
+    let resolved: Model | undefined;
+    if (model.length > 0) {
+      try {
+        resolved = app.get(IModelResolver).resolve(model);
+      } catch {
+        // Provider/auth not ready (e.g. logged out): degrade like getStatus.
+        resolved = undefined;
+      }
+    }
+    const rawPermission = config.get<unknown>('defaultPermissionMode');
+    const rawPlanMode = config.get<unknown>('defaultPlanMode');
+    const thinking = config.get<ThinkingDefaults>('thinking');
+    return {
+      model,
+      maxContextTokens: resolved?.capabilities.max_context_tokens ?? 0,
+      permissionMode:
+        rawPermission === 'manual' || rawPermission === 'auto' || rawPermission === 'yolo'
+          ? rawPermission
+          : 'manual',
+      planMode: typeof rawPlanMode === 'boolean' ? rawPlanMode : false,
+      thinkingEffort: resolveThinkingEffortForModel(undefined, thinking, resolved),
+    };
+  }
 
   async createSession(options: CreateSessionOptions): Promise<CoreSession> {
     const id = options.id ?? randomUUID();

@@ -426,7 +426,7 @@ async function performModelSwitch(
   const session = host.session;
   try {
     if (session === undefined && runtimeChanged) {
-      await host.authFlow.activateModelAfterLogin(alias, effort);
+      await host.authFlow.activateModelSelection(alias, effort);
     } else if (session !== undefined) {
       if (alias !== prevModel) {
         await session.setModel(alias);

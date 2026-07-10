@@ -231,6 +231,13 @@ function makeHarness(initialSession: Session) {
       },
     })),
     setConfig: vi.fn(async () => ({ providers: {} })),
+    getStartupState: vi.fn(async () => ({
+      model: 'k2',
+      maxContextTokens: 100,
+      permissionMode: 'manual',
+      planMode: false,
+      thinkingEffort: 'off',
+    })),
     createSession: vi.fn(async () => initialSession),
     resumeSession: vi.fn(async () => initialSession),
     forkSession: vi.fn(async () => initialSession),
