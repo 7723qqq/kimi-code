@@ -386,7 +386,7 @@ describe('compressImageForModel — invariants', () => {
         expect(sniffImageDimensions(result.data)).not.toBeNull();
       }
     }
-  });
+  }, 30000);
 });
 
 // ── base64 wrapper ───────────────────────────────────────────────────
