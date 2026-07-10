@@ -5,6 +5,10 @@ import { createServices } from '#/_base/di/test';
 import { buildImageCompressionCaption } from '#/_base/tools/support/image-compress';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import {
+  IAgentFullCompactionService,
+  type FullCompactionTask,
+} from '#/agent/fullCompaction/fullCompaction';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import type { PromptSubmitContext } from '#/agent/prompt/prompt';
@@ -13,10 +17,36 @@ import { IAgentSystemReminderService } from '#/agent/systemReminder/systemRemind
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
 import type { ToolDidExecuteContext } from '#/agent/tool/toolHooks';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentTurnService, type Turn } from '#/agent/turn/turn';
+import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn/turn';
+import { createHooks } from '#/hooks';
 
 import { stubContextMemory } from '../contextMemory/stubs';
 import { stubLoopWithHooks, stubToolExecutor, stubTurn } from '../turn/stubs';
+
+interface StubFullCompaction extends IAgentFullCompactionService {
+  compacting: FullCompactionTask | null;
+}
+
+function stubFullCompaction(): StubFullCompaction {
+  return {
+    _serviceBrand: undefined,
+    compacting: null,
+    begin: () => false,
+    hooks: createHooks([
+      'onWillCompact',
+      'onDidFinishCompaction',
+    ]) as IAgentFullCompactionService['hooks'],
+  };
+}
+
+function fakeCompactionTask(): FullCompactionTask {
+  return {
+    abortController: new AbortController(),
+    promise: new Promise<never>(() => {}),
+    trigger: 'manual',
+    tokenCount: 0,
+  };
+}
 
 function userMessage(text: string, origin: ContextMessage['origin']): ContextMessage {
   return {
@@ -35,6 +65,7 @@ function createHarness(options: { readonly hasActiveTurn?: boolean } = {}) {
   const loop = stubLoopWithHooks();
   const turn = stubTurn({ hasActiveTurn: options.hasActiveTurn });
   const toolExecutor = stubToolExecutor();
+  const fullCompaction = stubFullCompaction();
   const ix = createServices(disposables, {
     strict: true,
     additionalServices: (reg) => {
@@ -42,6 +73,7 @@ function createHarness(options: { readonly hasActiveTurn?: boolean } = {}) {
       reg.defineInstance(IAgentTurnService, turn);
       reg.defineInstance(IAgentLoopService, loop);
       reg.defineInstance(IAgentToolExecutorService, toolExecutor);
+      reg.defineInstance(IAgentFullCompactionService, fullCompaction);
       reg.define(IAgentSystemReminderService, AgentSystemReminderService);
       reg.define(IAgentPromptService, AgentPromptService);
     },
@@ -49,6 +81,7 @@ function createHarness(options: { readonly hasActiveTurn?: boolean } = {}) {
 
   return {
     context,
+    fullCompaction,
     loop,
     prompt: ix.get(IAgentPromptService),
     toolExecutor,
@@ -403,5 +436,98 @@ describe('AgentPromptService', () => {
         { type: 'image_url' },
       ]);
     });
+  });
+});
+
+describe('steer queue retention across non-completed turns', () => {
+  it('flushes a steer queued during a cancelled turn into the next turn', async () => {
+    const { context, loop, prompt, turn } = createHarness();
+
+    let endTurn!: (result: TurnResult) => void;
+    const cancelledTurn: Turn = {
+      id: 0,
+      signal: new AbortController().signal,
+      ready: Promise.resolve(),
+      result: new Promise<TurnResult>((resolve) => {
+        endTurn = resolve;
+      }),
+    };
+    turn.getActiveTurn = () => cancelledTurn;
+
+    const steer = prompt.steer(userMessage('queued during cancel', { kind: 'user' }));
+    await expect(steer.launched).resolves.toBe(cancelledTurn);
+
+    endTurn({ type: 'cancelled', steps: 0, reason: 'cancelled' });
+    await cancelledTurn.result;
+    turn.getActiveTurn = () => undefined;
+
+    const nextTurn = await prompt.prompt(userMessage('next prompt', { kind: 'user' }));
+    expect(nextTurn).toBeDefined();
+    await flushSteers(loop, nextTurn!);
+
+    expect(context.messages.map((message) => message.content[0])).toMatchObject([
+      { type: 'text', text: 'next prompt' },
+      { type: 'text', text: 'queued during cancel' },
+    ]);
+    expect(turn.steered).toMatchObject([
+      { input: [{ type: 'text', text: 'queued during cancel' }] },
+    ]);
+  });
+
+  it('clear() still discards queued steers', async () => {
+    const { context, loop, prompt, turn } = createHarness({ hasActiveTurn: true });
+    const activeTurn = turn.launch();
+
+    const steer = prompt.steer(userMessage('to be cleared', { kind: 'user' }));
+    await expect(steer.launched).resolves.toBe(activeTurn);
+
+    prompt.clear();
+    await flushSteers(loop, activeTurn);
+
+    expect(context.messages).toEqual([]);
+    expect(turn.steered).toEqual([]);
+  });
+});
+
+describe('prompt deferral during full compaction', () => {
+  it('defers prompts while compacting and replays them once compaction finishes', async () => {
+    const { context, fullCompaction, loop, prompt, turn } = createHarness({ hasActiveTurn: true });
+    fullCompaction.compacting = fakeCompactionTask();
+
+    await expect(
+      prompt.prompt(userMessage('deferred one', { kind: 'user' })),
+    ).resolves.toBeUndefined();
+    const steer = prompt.steer(userMessage('deferred two', { kind: 'user' }));
+    await expect(steer.launched).resolves.toBeUndefined();
+    expect(turn.launches).toEqual([]);
+    expect(context.messages).toEqual([]);
+
+    fullCompaction.compacting = null;
+    await fullCompaction.hooks.onDidFinishCompaction.run(fakeCompactionTask());
+
+    expect(turn.launches).toEqual([0]);
+    const launched = turn.getActiveTurn();
+    expect(launched).toBeDefined();
+    await flushSteers(loop, launched!);
+    expect(context.messages.map((message) => message.content[0])).toMatchObject([
+      { type: 'text', text: 'deferred one' },
+      { type: 'text', text: 'deferred two' },
+    ]);
+    expect(turn.steered).toMatchObject([
+      { input: [{ type: 'text', text: 'deferred two' }] },
+    ]);
+  });
+
+  it('does not defer while a turn is active', async () => {
+    const { fullCompaction, prompt, turn } = createHarness({ hasActiveTurn: true });
+    const activeTurn = turn.launch();
+    fullCompaction.compacting = fakeCompactionTask();
+
+    const steer = prompt.steer(userMessage('mid-turn steer', { kind: 'user' }));
+    await expect(steer.launched).resolves.toBe(activeTurn);
+
+    fullCompaction.compacting = null;
+    await fullCompaction.hooks.onDidFinishCompaction.run(fakeCompactionTask());
+    expect(turn.launches).toEqual([activeTurn.id]);
   });
 });

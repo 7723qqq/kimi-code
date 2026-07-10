@@ -5,6 +5,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
+import { IConfigService } from '#/app/config/config';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentGoalService } from '#/agent/goal/goal';
@@ -12,6 +13,7 @@ import { AgentGoalService } from '#/agent/goal/goalService';
 import { GoalModel } from '#/agent/goal/goalOps';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentTurnService } from '#/agent/turn/turn';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
@@ -80,6 +82,20 @@ function createTelemetryStub(): ITelemetryService {
   } as unknown as ITelemetryService;
 }
 
+function createToolExecutorStub(): IAgentToolExecutorService {
+  return {
+    _serviceBrand: undefined,
+    hooks: { onWillExecuteTool: hookSlot(), onDidExecuteTool: hookSlot() },
+  } as unknown as IAgentToolExecutorService;
+}
+
+function createConfigStub(): IConfigService {
+  return {
+    _serviceBrand: undefined,
+    get: () => undefined,
+  } as unknown as IConfigService;
+}
+
 let disposables: DisposableStore;
 let wire: IWireService;
 let svc: IAgentGoalService;
@@ -103,6 +119,8 @@ function buildHost(key: string): {
   ix.stub(IAgentContextInjectorService, createInjectorStub());
   ix.stub(IAgentSystemReminderService, createRemindersStub());
   ix.stub(ITelemetryService, createTelemetryStub());
+  ix.stub(IAgentToolExecutorService, createToolExecutorStub());
+  ix.stub(IConfigService, createConfigStub());
   ix.set(IAgentGoalService, new SyncDescriptor(AgentGoalService, [{}]));
   return {
     wire: ix.get(IAgentWireService),

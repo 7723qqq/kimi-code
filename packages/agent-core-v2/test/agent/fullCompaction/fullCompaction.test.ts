@@ -44,6 +44,8 @@ import {
   type ToolExecution,
 } from '#/index';
 import { IAgentTurnService } from '#/agent/turn/turn';
+import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
+import { IAgentGoalService } from '#/agent/goal/goal';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 
 type GenerateFn = NonNullable<TestAgentOptions['generate']>;
@@ -2789,3 +2791,222 @@ function inputHistorySnapshot(history: readonly Message[]): string[] {
 function normalizeInputText(text: string): string {
   return text.includes('first-person handoff note') ? '<compaction-instruction>' : text;
 }
+
+describe('prompt deferral during full compaction', () => {
+  it('defers a prompt submitted mid-compaction and replays it after completion', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    let llmCallCount = 0;
+    const llmInputs: string[][] = [];
+    const generate: GenerateFn = async (_provider, _system, _tools, history) => {
+      llmCallCount += 1;
+      llmInputs.push(history.map(messageText));
+      if (llmCallCount === 1) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted summary.');
+      }
+      return textResult('Deferred turn reply.');
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    const completed = ctx.once('compaction.completed');
+
+    await ctx.rpc.beginCompaction({});
+    await compactionRequested.promise;
+    const launch = await ctx.rpc.prompt({
+      input: [{ type: 'text', text: 'deferred prompt' }],
+    });
+    expect(launch).toBeUndefined();
+
+    releaseCompaction.resolve();
+    await completed;
+    const events = await ctx.untilTurnEnd();
+
+    expect(countEvents(events, 'compaction.cancelled')).toBe(0);
+    expect(countEvents(events, 'compaction.completed')).toBe(1);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'turn.ended',
+        args: expect.objectContaining({ reason: 'completed' }),
+      }),
+    );
+    expect(llmCallCount).toBe(2);
+    const turnHistory = llmInputs.at(-1) ?? [];
+    expect(turnHistory.some((text) => text.includes('Compacted summary.'))).toBe(true);
+    expect(turnHistory).toContain('deferred prompt');
+    await ctx.expectResumeMatches();
+  });
+
+  it('replays a prompt deferred during compaction after the compaction fails', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    let llmCallCount = 0;
+    const llmInputs: string[][] = [];
+    const generate: GenerateFn = async (_provider, _system, _tools, history) => {
+      llmCallCount += 1;
+      llmInputs.push(history.map(messageText));
+      if (llmCallCount === 1) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        throw new Error('compaction exploded');
+      }
+      return textResult('Recovered turn reply.');
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    const cancelled = ctx.once('compaction.cancelled');
+
+    await ctx.rpc.beginCompaction({});
+    await compactionRequested.promise;
+    const launch = await ctx.rpc.prompt({
+      input: [{ type: 'text', text: 'deferred prompt' }],
+    });
+    expect(launch).toBeUndefined();
+
+    releaseCompaction.resolve();
+    await cancelled;
+    const events = await ctx.untilTurnEnd();
+
+    expect(countEvents(events, 'compaction.completed')).toBe(0);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'turn.ended',
+        args: expect.objectContaining({ reason: 'completed' }),
+      }),
+    );
+    expect(llmCallCount).toBe(2);
+    const turnHistory = llmInputs.at(-1) ?? [];
+    expect(turnHistory).toContain('deferred prompt');
+    expect(turnHistory.some((text) => text.includes('Compacted'))).toBe(false);
+    await ctx.expectResumeMatches();
+  });
+});
+
+describe('goal reminder re-injection after full compaction', () => {
+  const GOAL_OBJECTIVE = 'ship the goal parity fixes';
+
+  function goalReminderCount(history: readonly Message[] | readonly string[]): number {
+    const texts =
+      typeof history[0] === 'string'
+        ? (history as readonly string[])
+        : (history as readonly Message[]).map(messageText);
+    return texts.filter((text) => text.includes(GOAL_OBJECTIVE) && text.includes('active goal'))
+      .length;
+  }
+
+  it('re-injects the goal reminder before the first post-compaction request', async () => {
+    const ctx = testAgent();
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    await ctx.get(IAgentGoalService).createGoal({ objective: GOAL_OBJECTIVE });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 100);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 950_000);
+
+    ctx.mockNextResponse({ type: 'text', text: 'Auto compacted summary.' });
+    ctx.mockNextResponse({ type: 'text', text: 'I can answer after compaction.' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Answer after compacting' }] });
+    await ctx.untilTurnEnd();
+
+    expect(ctx.llmCalls.length).toBeGreaterThanOrEqual(2);
+    expect(goalReminderCount(ctx.llmCalls[0]!.history)).toBe(0);
+    expect(goalReminderCount(ctx.llmCalls[1]!.history)).toBe(1);
+  });
+
+  it('counts the re-injected goal reminder into the post-compaction token floor', async () => {
+    const records: TelemetryRecord[] = [];
+    const ctx = testAgent({ telemetry: recordingTelemetry(records) });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    await ctx.get(IAgentGoalService).createGoal({ objective: GOAL_OBJECTIVE });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    const completed = ctx.once('compaction.completed');
+
+    ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
+    await ctx.rpc.beginCompaction({});
+    await completed;
+
+    const reminderMessages = ctx.context
+      .get()
+      .filter(
+        (message) => message.origin?.kind === 'injection' && message.origin.variant === 'goal',
+      );
+    expect(reminderMessages).toHaveLength(1);
+
+    const tokensAfter = records.find((record) => record.event === 'compaction_finished')
+      ?.properties?.['tokens_after'];
+    expect(typeof tokensAfter).toBe('number');
+    const floor = (
+      ctx.get(IAgentFullCompactionService) as unknown as {
+        lastCompactedTokenCount: number | null;
+      }
+    ).lastCompactedTokenCount;
+    expect(floor).toBe(ctx.get(IAgentContextSizeService).get().size);
+    expect(floor!).toBeGreaterThan(tokensAfter as number);
+
+    // V1-parity quirk (reproduced deliberately): after an idle manual compact,
+    // the next turn's per-turn injection adds a second copy of the reminder.
+    ctx.mockNextResponse({ type: 'text', text: 'Reply after compaction.' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'next prompt' }] });
+    await ctx.untilTurnEnd();
+    expect(goalReminderCount(ctx.llmCalls.at(-1)!.history)).toBe(2);
+  });
+
+  it('replays a deferred prompt whose first request carries the re-injected goal reminder', async () => {
+    const compactionRequested = deferred<void>();
+    const releaseCompaction = deferred<void>();
+    let llmCallCount = 0;
+    const llmInputs: string[][] = [];
+    const generate: GenerateFn = async (_provider, _system, _tools, history) => {
+      llmCallCount += 1;
+      llmInputs.push(history.map(messageText));
+      if (llmCallCount === 1) {
+        compactionRequested.resolve();
+        await releaseCompaction.promise;
+        return textResult('Compacted summary.');
+      }
+      if (llmCallCount === 2) return textResult('Deferred turn reply.');
+      throw new Error(`Unexpected generate call #${String(llmCallCount)}`);
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    await ctx.get(IAgentGoalService).createGoal({ objective: GOAL_OBJECTIVE });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    const completed = ctx.once('compaction.completed');
+
+    await ctx.rpc.beginCompaction({});
+    await compactionRequested.promise;
+    const launch = await ctx.rpc.prompt({
+      input: [{ type: 'text', text: 'deferred prompt' }],
+    });
+    expect(launch).toBeUndefined();
+
+    releaseCompaction.resolve();
+    await completed;
+    await ctx.untilTurnEnd();
+
+    const turnRequest = llmInputs[1] ?? [];
+    expect(turnRequest).toContain('deferred prompt');
+    expect(goalReminderCount(turnRequest)).toBeGreaterThanOrEqual(1);
+    expect(turnRequest.some((text) => text.includes('Compacted summary.'))).toBe(true);
+  });
+});

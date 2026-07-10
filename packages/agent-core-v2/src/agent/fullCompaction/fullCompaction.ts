@@ -25,6 +25,7 @@ export interface IAgentFullCompactionService {
 
   readonly hooks: Hooks<{
     onWillCompact: FullCompactionTask;
+    onDidFinishCompaction: FullCompactionTask;
   }>;
 }
 

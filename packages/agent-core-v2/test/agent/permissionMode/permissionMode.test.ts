@@ -39,6 +39,7 @@ const injectorStub: IAgentContextInjectorService = {
       },
     };
   },
+  injectAfterCompaction: async () => {},
 };
 
 let disposables: DisposableStore;
