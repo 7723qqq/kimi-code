@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentUsageService, type UsageStatus } from '#/agent/usage/usage';
+import {
+  IAgentUsageService,
+  type UsageRecordedContext,
+  type UsageStatus,
+} from '#/agent/usage/usage';
 import { AgentUsageService } from '#/agent/usage/usageService';
 import { UsageModel } from '#/agent/usage/usageOps';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
@@ -127,6 +131,26 @@ describe('AgentUsageService (wire-backed)', () => {
           total: a1,
           currentTurn: undefined,
         } satisfies UsageStatus,
+      },
+    ]);
+  });
+
+  it('runs the post-record hook with the live usage context', () => {
+    const contexts: UsageRecordedContext[] = [];
+    disposables.add(
+      svc.hooks.onDidRecord.register('usage-test', (ctx, next) => {
+        contexts.push(ctx);
+        return next();
+      }),
+    );
+
+    svc.record('model-a', a1, { type: 'turn', turnId: 7, step: 2 });
+
+    expect(contexts).toEqual([
+      {
+        model: 'model-a',
+        usage: a1,
+        source: { type: 'turn', turnId: 7, step: 2 },
       },
     ]);
   });

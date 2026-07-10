@@ -12,7 +12,6 @@ import type {
   TurnStepStartedEvent,
 } from '@moonshot-ai/protocol';
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester/llmRequester';
-import { IAgentUsageService } from '#/agent/usage/usage';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
@@ -63,7 +62,6 @@ export class AgentLoopService implements IAgentLoopService {
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
-    @IAgentUsageService private readonly usage: IAgentUsageService,
     @IEventBus private readonly eventBus: IEventBus,
     @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
     @IConfigService private readonly config: IConfigService,
@@ -267,9 +265,6 @@ export class AgentLoopService implements IAgentLoopService {
       providerFinishReason,
       rawFinishReason: response.rawFinishReason,
     });
-    if (response.model !== undefined) {
-      this.usage.record(response.model, usage, { type: 'turn', turnId, step: currentStep });
-    }
     this.emitStepCompleted(turnId, currentStep, stepUuid, usage, stepFinishReason, response);
 
     const afterStepContext: AfterStepContext = {

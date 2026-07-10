@@ -13,10 +13,10 @@
  * `WireRecordMap` because they still ride the shared wire log read by
  * `getRecords()` and replayed into the Model. Injects reminders through
  * `contextInjector`, drives continuation turns through `turn`, participates in
- * steps through `loop`, updates context through `contextMemory`, writes system
- * reminders through `systemReminder`, registers model tools through
- * `toolRegistry`, and reports telemetry through `telemetry`. Bound at Agent
- * scope.
+ * steps through `loop`, accounts live turn usage through `usage`, updates
+ * context through `contextMemory`, writes system reminders through
+ * `systemReminder`, registers model tools through `toolRegistry`, and reports
+ * telemetry through `telemetry`. Bound at Agent scope.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -40,6 +40,7 @@ import { IAgentSystemReminderService } from '#/agent/systemReminder/systemRemind
 import type { ExecutableToolResult } from '#/agent/tool/toolContract';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentTurnService } from '#/agent/turn/turn';
+import { IAgentUsageService, type UsageRecordedContext } from '#/agent/usage/usage';
 import { IAgentActivityService } from '#/activity/activity';
 import type { ActivityLease } from '#/activity/activity';
 import type { TelemetryProperties } from '#/app/telemetry/telemetry';
@@ -208,6 +209,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     @IAgentActivityService private readonly activity: IAgentActivityService,
     @IAgentLoopService loopService: IAgentLoopService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
+    @IAgentUsageService usageService: IAgentUsageService,
     @IConfigService private readonly config: IConfigService,
   ) {
     super();
@@ -226,6 +228,12 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this._register(this.wire.onRestored(() => this.normalizeAfterReplay()));
     this._register(
       this.eventBus.subscribe('turn.started', (e) => this.handleTurnLaunched(e.turnId)),
+    );
+    this._register(
+      usageService.hooks.onDidRecord.register('goal-account-usage', async (ctx, next) => {
+        this.handleUsageRecorded(ctx);
+        await next();
+      }),
     );
     this._register(
       loopService.hooks.beforeStep.register('goal-count-turn', async (ctx, next) => {
@@ -459,16 +467,20 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     await this.incrementTurn();
   }
 
+  private handleUsageRecorded(ctx: UsageRecordedContext): void {
+    const source = ctx.source;
+    if (source?.type !== 'turn' || !this.goalDrivenTurns.has(source.turnId)) return;
+    this.accountTokenUsage(ctx.usage.output);
+  }
+
   private handleAfterStep(ctx: AfterStepContext): void {
-    if (this.goalDrivenTurns.has(ctx.turnId)) {
-      const snapshot = this.accountTokenUsage(ctx.usage.output);
-      if (snapshot?.budget.overBudget === true) {
-        // Over budget: account the usage but do not continue this turn. Note this
-        // runs after the step's tools have already executed (the old
-        // `onStepUsage` hook could stop before tools): it now only suppresses
-        // further continuation.
-        return;
-      }
+    const state = this.goalState;
+    if (
+      this.goalDrivenTurns.has(ctx.turnId) &&
+      state !== null &&
+      this.toSnapshot(state).budget.overBudget
+    ) {
+      return;
     }
     // After UpdateGoal marks a goal terminal, its tool result carries the
     // final-message reminder. Let the model read that result and produce one

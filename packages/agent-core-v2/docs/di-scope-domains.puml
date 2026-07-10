@@ -220,7 +220,6 @@ turn --> contextMemory #34495E
 turn --> telemetry #34495E
 loop --> contextMemory #34495E
 loop --> llmRequester #34495E
-loop --> usage #34495E
 loop --> event #34495E
 loop --> toolExecutor #34495E
 loop --> config #34495E
@@ -281,6 +280,7 @@ goal --> contextInjector #34495E
 goal --> contextMemory #34495E
 goal --> turn #34495E
 goal --> loop #34495E
+goal --> usage #34495E
 goal --> toolRegistry #34495E
 goal --> permissionMode #34495E
 skill --> prompt #34495E
@@ -393,7 +393,8 @@ permissionRules ..> wire #16A085 : permission.rules.add / record_approval_result
 skill ..> wire #16A085 : skill.activate
 goal ..> wireRecord #16A085 : goal.create/update/clear
 goal ..> turn #16A085 : turn lifecycle hooks
-goal ..> loop #16A085 : step/usage hooks
+goal ..> loop #16A085 : step hooks
+goal ..> usage #16A085 : hooks.onDidRecord
 goal ..> eventSink #16A085 : hook.result / goal.updated
 swarm ..> wire #16A085 : swarm_mode.enter/exit
 swarm ..> turn #16A085 : hooks.onEnded

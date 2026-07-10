@@ -7,7 +7,8 @@
  * (`currentTurn`) is live-only service state — it is not persisted and resets
  * on resume, matching v1. The usage slice of `agent.status.updated` is
  * published here after each live record (replay stays silent, like v1's
- * restore). Bound at Agent scope.
+ * restore), and the `onDidRecord` hook notifies agent-scoped consumers of the
+ * live record. Bound at Agent scope.
  */
 
 import { addUsage, type TokenUsage } from '#/app/llmProtocol/usage';
@@ -17,9 +18,10 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 
 import type { LLMRequestSource } from '#/agent/llmRequester/llmRequester';
 import { IEventBus } from '#/app/event/eventBus';
+import { OrderedHookSlot } from '#/hooks';
 import { IAgentWireService } from '#/wire/tokens';
 import type { IWireService } from '#/wire/wireService';
-import type { UsageStatus } from './usage';
+import type { UsageRecordedContext, UsageStatus } from './usage';
 import { IAgentUsageService } from './usage';
 import {
   copyUsage,
@@ -31,6 +33,10 @@ import {
 
 export class AgentUsageService extends Disposable implements IAgentUsageService {
   declare readonly _serviceBrand: undefined;
+
+  readonly hooks: IAgentUsageService['hooks'] = {
+    onDidRecord: new OrderedHookSlot<UsageRecordedContext>(),
+  };
 
   private currentTurnId: number | undefined;
   private currentTurn: TokenUsage | undefined;
@@ -58,6 +64,7 @@ export class AgentUsageService extends Disposable implements IAgentUsageService 
     }
 
     this.eventBus?.publish({ type: 'agent.status.updated', usage: this.status() });
+    void this.hooks.onDidRecord.run({ model, usage: copyUsage(usage), source });
   }
 
   status(): UsageStatus {

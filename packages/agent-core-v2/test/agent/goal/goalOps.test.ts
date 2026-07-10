@@ -15,6 +15,7 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentTurnService } from '#/agent/turn/turn';
+import { IAgentUsageService } from '#/agent/usage/usage';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
@@ -115,6 +116,7 @@ function buildHost(key: string): {
   ix.set(IEventBus, new SyncDescriptor(EventBusService));
   ix.stub(IAgentTurnService, createTurnStub());
   ix.stub(IAgentLoopService, createLoopStub());
+  ix.stub(IAgentUsageService, { hooks: { onDidRecord: hookSlot() } });
   ix.stub(IAgentContextMemoryService, createContextStub());
   ix.stub(IAgentContextInjectorService, createInjectorStub());
   ix.stub(IAgentSystemReminderService, createRemindersStub());

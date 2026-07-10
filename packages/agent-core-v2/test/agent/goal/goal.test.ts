@@ -11,6 +11,7 @@ import { UpdateGoalTool, UpdateGoalToolInputSchema } from '#/agent/goal/tools/up
 import { IAgentLoopService, type AfterStepContext } from '#/agent/loop/loop';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentTurnService, type Turn } from '#/agent/turn/turn';
+import { IAgentUsageService } from '#/agent/usage/usage';
 import type { PersistedWireRecord, WireRecord } from '#/agent/wireRecord/wireRecord';
 import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
 import { APIConnectionError, APIStatusError } from '#/app/llmProtocol/errors';
@@ -88,21 +89,13 @@ async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<
   return afterStep.continue;
 }
 
-async function runStepUsageHooks(
-  loopService: IAgentLoopService,
+function recordStepUsage(
+  usageService: IAgentUsageService,
   goals: IAgentGoalService,
   turn: Turn,
   usage: TokenUsage,
-): Promise<boolean> {
-  const afterStep: AfterStepContext = {
-    turnId: turn.id,
-    step: 1,
-    signal: turn.signal,
-    usage,
-    finishReason: 'completed' as const,
-    continue: false,
-  };
-  await loopService.hooks.afterStep.run(afterStep);
+): boolean {
+  usageService.record('mock-model', usage, { type: 'turn', turnId: turn.id, step: 1 });
   return goals.getGoal().goal?.budget.overBudget === true;
 }
 
@@ -604,6 +597,7 @@ describe('AgentGoalService core workflow hooks', () => {
   let turnService: StubTurn;
   let loopService: IAgentLoopService;
   let toolExecutor: IAgentToolExecutorService;
+  let usageService: IAgentUsageService;
   let eventBus: IEventBus;
 
   beforeEach(() => {
@@ -616,6 +610,7 @@ describe('AgentGoalService core workflow hooks', () => {
     context = ctx.get(IAgentContextMemoryService);
     goals = ctx.get(IAgentGoalService);
     toolExecutor = ctx.get(IAgentToolExecutorService);
+    usageService = ctx.get(IAgentUsageService);
     eventBus = ctx.get(IEventBus);
   });
 
@@ -660,7 +655,7 @@ describe('AgentGoalService core workflow hooks', () => {
     expect(turnService.launches).toEqual([]);
   });
 
-  it('accounts step usage through the loop usage hook for active goal turns', async () => {
+  it('accounts recorded turn usage for active goal turns', async () => {
     await goals.createGoal({ objective: 'finish the task' });
     await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 7 } }, 'model');
 
@@ -668,7 +663,7 @@ describe('AgentGoalService core workflow hooks', () => {
     eventBus.publish({ type: 'turn.started', turnId: turn.id, origin: USER_PROMPT_ORIGIN });
 
     expect(
-      await runStepUsageHooks(loopService, goals, turn, {
+      recordStepUsage(usageService, goals, turn, {
         inputCacheRead: 100_000,
         inputCacheCreation: 50_000,
         inputOther: 40_000,
@@ -677,7 +672,7 @@ describe('AgentGoalService core workflow hooks', () => {
     ).toBe(false);
     expect(goals.getGoal().goal).toMatchObject({ status: 'active', tokensUsed: 4 });
     expect(
-      await runStepUsageHooks(loopService, goals, turn, {
+      recordStepUsage(usageService, goals, turn, {
         inputCacheRead: 0,
         inputCacheCreation: 0,
         inputOther: 90_000,
@@ -692,12 +687,12 @@ describe('AgentGoalService core workflow hooks', () => {
     });
   });
 
-  it('ignores step usage for non-goal turns', async () => {
+  it('ignores recorded turn usage for non-goal turns', async () => {
     await goals.createGoal({ objective: 'finish the task' });
 
     const turn = makeTurn(99);
     expect(
-      await runStepUsageHooks(loopService, goals, turn, {
+      recordStepUsage(usageService, goals, turn, {
         inputCacheRead: 0,
         inputCacheCreation: 0,
         inputOther: 10,
@@ -749,7 +744,7 @@ describe('AgentGoalService core workflow hooks', () => {
 
     await goals.createGoal({ objective: 'finish the task' }, 'model');
     expect(
-      await runStepUsageHooks(loopService, goals, turn, {
+      recordStepUsage(usageService, goals, turn, {
         inputCacheRead: 100,
         inputCacheCreation: 0,
         inputOther: 50,

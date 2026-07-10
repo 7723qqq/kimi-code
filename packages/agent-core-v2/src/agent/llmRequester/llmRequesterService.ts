@@ -287,17 +287,14 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         throw new Error('LLM request stream ended without a finish event.');
       }
 
-      const usageModel = request.modelAlias;
-      if (request.source?.type !== 'turn') {
-        this.usage.record(usageModel, usage, request.source);
-      }
+      this.usage.record(request.modelAlias, usage, request.source);
       this.contextSize.measured(request.messages, [message], usage);
       this.logResponse(request.logFields, usage, timing);
 
       return {
         message,
         usage,
-        model: usageModel,
+        model: request.modelAlias,
         providerFinishReason: finish.providerFinishReason,
         rawFinishReason: finish.rawFinishReason,
         providerMessageId: finish.id,
