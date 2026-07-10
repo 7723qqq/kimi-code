@@ -23,7 +23,8 @@ const callMessageSchema = z.object({
   scope: scopeKindSchema,
   sessionId: z.string().min(1).optional(),
   agentId: z.string().min(1).optional(),
-  sa: z.string().min(1),
+  service: z.string().min(1),
+  method: z.string().min(1),
   arg: z.unknown().optional(),
 });
 

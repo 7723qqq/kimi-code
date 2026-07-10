@@ -1,7 +1,7 @@
 /**
  * `/api/v2` WebSocket client — test/consumer-side counterpart of
  * {@link WsConnection}. Speaks the same JSON protocol:
- *   - `call(scope, sa, arg)` → Promise<data> (rejects on `error`)
+ *   - `call(scope, service, method, arg)` → Promise<data> (rejects on `error`)
  *   - `listen(scope, event)` → AsyncIterable<data> + `cancel()`
  *   - answers `ping` with `pong` (heartbeat)
  */
@@ -79,13 +79,14 @@ export class WsClient {
 
   async call<T>(
     scope: ScopeKind,
-    sa: string,
+    service: string,
+    method: string,
     arg?: unknown,
     scopeIds?: { sessionId?: string; agentId?: string },
   ): Promise<T> {
     await this.ready;
     const id = ulid();
-    this.ws.send(JSON.stringify({ type: 'call', id, scope, sa, arg, ...scopeIds }));
+    this.ws.send(JSON.stringify({ type: 'call', id, scope, service, method, arg, ...scopeIds }));
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (d: unknown) => void, reject });
     });

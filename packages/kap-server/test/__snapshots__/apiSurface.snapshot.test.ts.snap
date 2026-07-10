@@ -174,15 +174,19 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "GET",
-      "/api/v2/{sa}",
+      "/api/v1/workspaces/{workspace_id}/skills",
     ],
     [
       "GET",
-      "/api/v2/session/{session_id}/{sa}",
+      "/api/v2/{service}/{method}",
     ],
     [
       "GET",
-      "/api/v2/session/{session_id}/agent/{agent_id}/{sa}",
+      "/api/v2/session/{session_id}/{service}/{method}",
+    ],
+    [
+      "GET",
+      "/api/v2/session/{session_id}/agent/{agent_id}/{service}/{method}",
     ],
     [
       "GET",
@@ -306,15 +310,15 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "POST",
-      "/api/v2/{sa}",
+      "/api/v2/{service}/{method}",
     ],
     [
       "POST",
-      "/api/v2/session/{session_id}/{sa}",
+      "/api/v2/session/{session_id}/{service}/{method}",
     ],
     [
       "POST",
-      "/api/v2/session/{session_id}/agent/{agent_id}/{sa}",
+      "/api/v2/session/{session_id}/agent/{agent_id}/{service}/{method}",
     ],
   ],
 }

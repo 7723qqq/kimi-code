@@ -1,24 +1,23 @@
 /**
  * `/api/v2` route registration — mounts the channel dispatcher on Fastify.
  *
- * Three routes mirror the scope tree; all share one handler. `:sa` is the
- * `resource:action` segment. Reads use `GET`, writes use `POST`.
+ * Three routes mirror the scope tree; all share one handler. `:service` is a
+ * decorator id (channel name) resolved by the registry; `:method` is invoked by
+ * reflection. Reads use `GET`, writes use `POST`.
  *
- *   GET|POST /api/v2/:sa
- *   GET|POST /api/v2/session/:session_id/:sa
- *   GET|POST /api/v2/session/:session_id/agent/:agent_id/:sa
+ *   GET|POST /api/v2/:service/:method
+ *   GET|POST /api/v2/session/:session_id/:service/:method
+ *   GET|POST /api/v2/session/:session_id/agent/:agent_id/:service/:method
  *
- * Body (POST) or `?arg=<json>` (GET) is the method's single argument.
- * Responses are always the project envelope (HTTP 200; business outcome in
- * `code`). Body size, connection timeout, and graceful close are Fastify's.
+ * Body (POST) or `?arg=<json>` (GET) is the method's single argument. Responses
+ * are always the project envelope (HTTP 200; business outcome in `code`). Body
+ * size, connection timeout, and graceful close are Fastify's.
  */
 
 import type { Scope } from '@moonshot-ai/agent-core-v2';
 import { okEnvelope } from '@moonshot-ai/protocol';
 
-import { actionMap } from './actionMap';
 import type { ScopeKind } from './channel';
-import { parseServiceAction } from './channel';
 import { dispatch } from './dispatcher';
 import { mapError, validationEnvelope, withTimeout } from './errors';
 
@@ -54,9 +53,9 @@ export interface RegisterRpcRoutesOptions {
 }
 
 const SCOPE_ROUTES: { path: string; scopeKind: ScopeKind }[] = [
-  { path: '/api/v2/:sa', scopeKind: 'core' },
-  { path: '/api/v2/session/:session_id/:sa', scopeKind: 'session' },
-  { path: '/api/v2/session/:session_id/agent/:agent_id/:sa', scopeKind: 'agent' },
+  { path: '/api/v2/:service/:method', scopeKind: 'core' },
+  { path: '/api/v2/session/:session_id/:service/:method', scopeKind: 'session' },
+  { path: '/api/v2/session/:session_id/agent/:agent_id/:service/:method', scopeKind: 'agent' },
 ];
 
 export function registerRpcRoutes(
@@ -83,34 +82,12 @@ function makeHandler(
     // `middleware/auth.ts`); the handler runs only after a valid credential
     // has been verified.
 
-    // Parse `resource:action`.
-    const { sa } = req.params as { sa: string };
-    const parsed = parseServiceAction(sa);
-    if (parsed === undefined) {
-      return reply.send(
-        validationEnvelope(
-          [{ path: 'action', message: `expected <resource>:<action>, got '${sa}'` }],
-          requestId,
-        ),
-      );
-    }
-
-    // Read vs write gate.
-    const target = actionMap[scopeKind][`${parsed.resource}:${parsed.action}`];
-    const isGet = req.method.toUpperCase() === 'GET';
-    if (isGet && target !== undefined && target.readonly !== true) {
-      return reply.send(
-        validationEnvelope(
-          [{ path: 'action', message: `'${sa}' is not a read action` }],
-          requestId,
-        ),
-      );
-    }
+    const { service, method } = req.params as { service: string; method: string };
 
     // Parse argument.
     let arg: unknown;
     try {
-      arg = isGet ? parseArgFromQuery(req.query) : req.body;
+      arg = req.method.toUpperCase() === 'GET' ? parseArgFromQuery(req.query) : req.body;
     } catch {
       return reply.send(
         validationEnvelope([{ path: 'arg', message: 'invalid JSON in ?arg=' }], requestId),
@@ -120,7 +97,14 @@ function makeHandler(
     // Dispatch + timeout + envelope.
     try {
       const result = await withTimeout(
-        dispatch(core, scopeKind, req.params as Record<string, string>, parsed, arg),
+        dispatch(
+          core,
+          scopeKind,
+          req.params as Record<string, string>,
+          service,
+          method,
+          arg,
+        ),
         opts.callTimeoutMs ?? 30_000,
       );
       return reply.send(okEnvelope(result, requestId));

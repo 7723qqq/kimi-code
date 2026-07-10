@@ -69,6 +69,7 @@
         ./packages/kap-server
         ./packages/server-e2e
         ./packages/kaos
+        ./packages/klient
         ./packages/kosong
         ./packages/migration-legacy
         ./packages/minidb
@@ -99,6 +100,7 @@
         "@moonshot-ai/minidb"
         "@moonshot-ai/kimi-code-sdk"
         "@moonshot-ai/kimi-code-oauth"
+        "@moonshot-ai/klient"
         "@moonshot-ai/pi-tui"
         "@moonshot-ai/protocol"
         "@moonshot-ai/kimi-telemetry"
