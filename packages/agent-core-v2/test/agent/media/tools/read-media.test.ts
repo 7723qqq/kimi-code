@@ -326,7 +326,7 @@ describe('ReadMediaFileTool', () => {
     // Wording must not depend on serialization order: some providers keep
     // the note inline after the media, others flatten tool text and
     // re-attach the image after it — so no "above"/"below".
-    expect(systemText).toMatch(/The attached image was downsampled to 3000x3000/);
+    expect(systemText).toMatch(/The attached image was downsampled to 2000x2000/);
     expect(systemText).toMatch(/fine detail/i);
     expect(systemText).toContain('region');
 
@@ -336,7 +336,7 @@ describe('ReadMediaFileTool', () => {
     const match = /^data:(image\/[a-z]+);base64,(.+)$/.exec(url);
     expect(match).not.toBeNull();
     const dims = sniffImageDimensions(Buffer.from(match![2]!, 'base64'));
-    expect(Math.max(dims!.width, dims!.height)).toBeLessThanOrEqual(3000);
+    expect(Math.max(dims!.width, dims!.height)).toBeLessThanOrEqual(2000);
   });
 
   it('does not claim downsampling for an image sent untouched', async () => {
@@ -442,7 +442,7 @@ describe('ReadMediaFileTool', () => {
 
     const systemText = noteText(result);
     expect(systemText).toContain('Original dimensions: 1800x3600');
-    expect(systemText).toMatch(/downsampled to 1500x3000/);
+    expect(systemText).toMatch(/downsampled to 1000x2000/);
   });
 
   it('reports the decoded size for a region read of an EXIF-rotated image', async () => {

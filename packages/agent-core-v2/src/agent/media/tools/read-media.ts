@@ -46,6 +46,7 @@ import {
 } from '#/_base/tools/support/file-type';
 import {
   IMAGE_BYTE_BUDGET,
+  resolveReadImageByteBudget,
   compressImageForModel,
   cropImageForModel,
   formatByteSize,
@@ -399,6 +400,7 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
           // on any failure compressImageForModel returns the original bytes, so
           // the read still succeeds with the uncompressed image.
           const compressed = await compressImageForModel(data, fileType.mimeType, {
+            byteBudget: resolveReadImageByteBudget(),
             telemetry: this.compressTelemetry,
           });
           const base64 = Buffer.from(compressed.data).toString('base64');
