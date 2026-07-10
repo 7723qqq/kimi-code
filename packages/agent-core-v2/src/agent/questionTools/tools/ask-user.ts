@@ -13,6 +13,7 @@ import { CoreErrors } from '#/_base/errors/codes';
 import { KimiError } from '#/_base/errors/errors';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
 import { isAbortError } from '#/agent/loop/errors';
+import { IAgentTaskService } from '#/agent/task/task';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { TelemetryProperties } from '#/app/telemetry/telemetry';
 import type {
@@ -31,6 +32,7 @@ import type {
   QuestionResult,
 } from '#/session/question/question';
 import DESCRIPTION from './ask-user.md?raw';
+import { QuestionBackgroundTask } from './question-background-task';
 
 // ── Input schema ─────────────────────────────────────────────────────
 
@@ -62,6 +64,7 @@ const QuestionItemSchema = z.object({
 });
 
 export interface AskUserQuestionInput {
+  background?: boolean;
   questions: Array<{
     question: string;
     header: string;
@@ -108,6 +111,17 @@ const AskUserQuestionInputBaseSchema = z.object({
     .describe('The questions to ask the user (1-4 questions).'),
 });
 
+const AskUserQuestionInputSchemaWithBackground = AskUserQuestionInputBaseSchema.extend({
+  background: z
+    .boolean()
+    .default(false)
+    .describe(
+      'Set true to ask in the background and return immediately with a background task_id; you are notified automatically when the user answers — do not poll with TaskOutput while the question is pending.',
+    ),
+}).refine((data) => questionUniquenessError(data.questions) === null, {
+  message: QUESTION_UNIQUENESS_MESSAGE,
+});
+
 export const AskUserQuestionInputSchema: z.ZodType<AskUserQuestionInput> =
   AskUserQuestionInputBaseSchema.refine(
     (data) => questionUniquenessError(data.questions) === null,
@@ -123,17 +137,24 @@ const QUESTION_UNSUPPORTED_FAILURE_MESSAGE =
 
 export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
   readonly name = 'AskUserQuestion' as const;
-  readonly description: string = DESCRIPTION;
-  readonly parameters: Record<string, unknown> = toInputJsonSchema(AskUserQuestionInputSchema);
+  readonly description: string;
+  readonly parameters: Record<string, unknown>;
 
   constructor(
     @ISessionQuestionService private readonly question: ISessionQuestionService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-  ) {}
+    @IAgentTaskService private readonly tasks: IAgentTaskService,
+  ) {
+    this.description = `${DESCRIPTION}- Set background=true when you can keep working without the answer. This starts a background question task and returns a task_id immediately. The answer arrives automatically in a later turn — you do not need to poll, sleep, or check on it. Continue with other work; never fabricate or predict the answer.`;
+    this.parameters = toInputJsonSchema(this.inputSchema());
+  }
 
   resolveExecution(args: AskUserQuestionInput): ToolExecution {
+    const isBackground = args.background === true;
     return {
-      description: 'Asking user questions',
+      description: isBackground
+        ? `Starting background question: ${questionDescription(args.questions)}`
+        : 'Asking user questions',
       approvalRule: this.name,
       execute: (ctx) => this.execution(args, ctx),
     };
@@ -150,7 +171,61 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
       return { isError: true, output: uniquenessError };
     }
 
+    if (args.background === true) {
+      return this.executeInBackground(args, { toolCallId, turnId, signal });
+    }
+
     return this.executeQuestion(args, { toolCallId, turnId, signal });
+  }
+
+  private inputSchema(): z.ZodType<AskUserQuestionInput> {
+    return AskUserQuestionInputSchemaWithBackground;
+  }
+
+  private executeInBackground(
+    args: AskUserQuestionInput,
+    {
+      toolCallId,
+      signal,
+      turnId,
+    }: Pick<ExecutableToolContext, 'toolCallId' | 'signal' | 'turnId'>,
+  ): ExecutableToolResult {
+    if (signal.aborted) {
+      signal.throwIfAborted();
+    }
+
+    const description = questionDescription(args.questions);
+    let taskId: string;
+    try {
+      taskId = this.tasks.registerTask(
+        new QuestionBackgroundTask(
+          (taskSignal) => this.executeQuestion(args, { toolCallId, turnId, signal: taskSignal }),
+          description,
+          { questionCount: args.questions.length, toolCallId },
+        ),
+        { detached: true },
+      );
+    } catch (error) {
+      return {
+        isError: true,
+        output: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    const status = this.tasks.getTask(taskId)?.status ?? 'running';
+    return {
+      isError: false,
+      output:
+        `task_id: ${taskId}\n` +
+        `description: ${description}\n` +
+        `status: ${status}\n` +
+        `automatic_notification: true\n` +
+        'next_step: Continue your current work; the answer will arrive automatically when the user responds.\n' +
+        'next_step: Use TaskOutput with this task_id for a non-blocking status/answer snapshot.\n' +
+        'next_step: Use TaskStop only if the question should be cancelled.\n' +
+        'human_shell_hint: The pending question is also visible in /tasks.',
+      message: `Started ${taskId}`,
+    };
   }
 
   private async executeQuestion(
@@ -210,6 +285,13 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
 }
 
 registerTool(AskUserQuestionTool);
+
+function questionDescription(questions: AskUserQuestionInput['questions']): string {
+  const first = questions[0]?.question.trim();
+  const label = first === undefined || first.length === 0 ? 'Ask user question' : first;
+  if (questions.length <= 1) return label;
+  return `${label} (+${String(questions.length - 1)} more)`;
+}
 
 function dismissedQuestionResult(): ExecutableToolResult {
   return {

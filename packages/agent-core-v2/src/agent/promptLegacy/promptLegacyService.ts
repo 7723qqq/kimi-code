@@ -288,10 +288,10 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
     this.active = undefined;
     this.abortedPromptIds.delete(promptId);
     this.resolveCompletion(promptId, result);
-    if (result.reason === 'cancelled') {
+    if (result.type === 'cancelled') {
       this.publishAborted(promptId);
     } else {
-      this.publishCompleted(promptId, result.reason === 'failed' ? 'failed' : 'completed');
+      this.publishCompleted(promptId, result.type === 'failed' ? 'failed' : 'completed');
     }
     this.startNextQueued();
   }

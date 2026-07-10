@@ -38,7 +38,7 @@ import { sniffImageDimensions } from './file-type';
  * which reads the env-resolved `image` section (`KIMI_IMAGE_MAX_EDGE_PX` wins
  * over the file value over there — this module never reads env directly).
  */
-export const MAX_IMAGE_EDGE_PX = 3000;
+export const MAX_IMAGE_EDGE_PX = 2000;
 
 /**
  * The `[image] max_edge_px` value, pushed by the image-config bridge on load
@@ -105,17 +105,19 @@ export function resolveReadImageByteBudget(): number {
 function isPositiveInt(value: number): boolean {
   return Number.isInteger(value) && value > 0;
 }
-
 /** Progressively lower JPEG quality until the payload fits the byte budget. */
 const JPEG_QUALITY_STEPS = [80, 60, 40, 20] as const;
 
 /**
  * Longest-edge step-downs tried when the budget cannot be met at the fitted
- * size. The 2000px step preserves the behavior of the previous 2000px cap:
- * an image whose 2000px encode fits the budget keeps that resolution
- * instead of dropping straight to the 1000px last resort.
+ * size. With the built-in 2000px ceiling the first step is a no-op; it
+ * matters when a larger ceiling is configured (config/env/option). The
+ * sub-1000px tail exists for small (read-scale) budgets: JPEG bytes shrink
+ * roughly linearly with pixel count, so stepping down to 256px lets even
+ * entropy-upper-bound content (noise, photos) land within any budget of a
+ * few tens of KB instead of stalling at the q20@1000px floor.
  */
-const FALLBACK_EDGES_PX = [2000, 1000] as const;
+const FALLBACK_EDGES_PX = [2000, 1000, 768, 512, 384, 256] as const;
 
 /**
  * Pixel-count ceiling above which we skip compression entirely. A tiny-byte,
