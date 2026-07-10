@@ -117,6 +117,47 @@ describe('goal tools', () => {
     expect(goals.getGoal().goal?.status).toBe('active');
   });
 
+  it('UpdateGoal complete returns the completion summary prompt and stops the turn', async () => {
+    await goals.createGoal({ objective: 'ship it' });
+    const execution = updateGoalTool.resolveExecution({ status: 'complete' });
+    if (execution.isError === true) throw new Error('execution should not be an error');
+    const result = await execution.execute({ turnId: 0, toolCallId: 'call_c', signal });
+
+    expect(result.stopTurn).toBe(true);
+    expect(result.output).toContain('Goal completed successfully');
+    expect(result.output).toContain('Worked');
+    expect(result.output).toContain('Write a concise final message for the user');
+  });
+
+  it('UpdateGoal blocked returns the blocked-reason prompt and stops the turn', async () => {
+    await goals.createGoal({ objective: 'ship it' });
+    const execution = updateGoalTool.resolveExecution({ status: 'blocked' });
+    if (execution.isError === true) throw new Error('execution should not be an error');
+    const result = await execution.execute({ turnId: 0, toolCallId: 'call_b', signal });
+
+    expect(result.stopTurn).toBe(true);
+    expect(result.output).toContain('Goal blocked.');
+    expect(result.output).toContain('Worked');
+    expect(result.output).toContain('concrete blocker');
+  });
+
+  it('UpdateGoal reports no active goal when completing/blocking/resuming without one', async () => {
+    const done = updateGoalTool.resolveExecution({ status: 'complete' });
+    if (done.isError === true) throw new Error('execution should not be an error');
+    const doneResult = await done.execute({ turnId: 0, toolCallId: 'call_n1', signal });
+    expect(doneResult.output).toBe('Goal not completed: no active goal.');
+
+    const blocked = updateGoalTool.resolveExecution({ status: 'blocked' });
+    if (blocked.isError === true) throw new Error('execution should not be an error');
+    const blockedResult = await blocked.execute({ turnId: 0, toolCallId: 'call_n2', signal });
+    expect(blockedResult.output).toBe('Goal not blocked: no active goal.');
+
+    const resumed = updateGoalTool.resolveExecution({ status: 'active' });
+    if (resumed.isError === true) throw new Error('execution should not be an error');
+    const resumedResult = await resumed.execute({ turnId: 0, toolCallId: 'call_n3', signal });
+    expect(resumedResult.output).toBe('Goal not resumed: no current goal.');
+  });
+
   async function countGoalTurn(turnId: number): Promise<void> {
     const abortController = new AbortController();
     eventBus.publish({ type: 'turn.started', turnId, origin: USER_PROMPT_ORIGIN });
