@@ -376,11 +376,12 @@ function defineServiceValue<T>(
 }
 
 /**
- * Session-scope override for the execution environment and derived atoms.
+ * Scoped overrides for the execution environment and derived atoms.
  *
  * The session cwd is controlled via `TestAgentOptions.cwd` (seeded into
- * `ISessionContext.cwd`); this override only swaps the host-fs and process
- * runner atoms that depend on it.
+ * `ISessionContext.cwd`). Host fs is registered at its production App scope,
+ * where `IFileEditService` consumes it and Agent tools inherit it. The process
+ * runner and workspace context remain Session-scoped.
  */
 export interface ExecEnvOverride {
   readonly hostFs?: IHostFileSystem | Partial<IHostFileSystem>;
@@ -393,10 +394,7 @@ export interface ExecEnvOverride {
  * it.
  */
 export function execEnvServices(override: ExecEnvOverride = {}): TestAgentServiceOverride {
-  return sessionServices((reg) => {
-    if (override.hostFs !== undefined) {
-      reg.defineInstance(IHostFileSystem, resolveHostFsOverride(override.hostFs));
-    }
+  const session = sessionServices((reg) => {
     if (override.processRunner !== undefined) {
       reg.defineInstance(
         ISessionProcessRunner,
@@ -408,6 +406,15 @@ export function execEnvServices(override: ExecEnvOverride = {}): TestAgentServic
       new SyncDescriptor(SessionWorkspaceContextService),
     );
   });
+  if (override.hostFs === undefined) return session;
+
+  const hostFs = resolveHostFsOverride(override.hostFs);
+  return [
+    appServices((reg) => {
+      reg.defineInstance(IHostFileSystem, hostFs);
+    }),
+    session,
+  ];
 }
 
 function resolveHostFsOverride(input: IHostFileSystem | Partial<IHostFileSystem>): IHostFileSystem {
@@ -1017,9 +1024,10 @@ export class AgentTestContext {
             reg.defineInstance(ISessionInteractionService, this.createInteractionService());
             reg.defineInstance(ISessionApprovalService, this.createApprovalService());
             reg.defineInstance(ISessionQuestionService, this.createQuestionService());
-            // Note: the os `IHostFileSystem` (App scope) and `ISessionProcessRunner`
-            // are auto-registered by their service files. Tests that need a fake
-            // filesystem override it via `execEnvServices({ hostFs })`.
+            // Note: `IHostFileSystem` (App) and `ISessionProcessRunner`
+            // (Session) are auto-registered by their service files. Tests that
+            // need a fake filesystem override its App binding through
+            // `execEnvServices({ hostFs })`; child scopes inherit it.
             reg.defineDescriptor(
               ISessionWorkspaceContext,
               new SyncDescriptor(SessionWorkspaceContextService),
