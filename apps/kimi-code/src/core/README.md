@@ -155,7 +155,6 @@ v2 一行不改，缺失能力降级 + 标记。完整清单与设计文档 §7 
 实现期新增未编号 gap（设计 §7 之后发现，方向合理）：
 
 - v2 无 per-agent `ProviderConfig` DTO → resume 回放的 `provider?.model` 恒 undefined（`replay.ts:66`、`types.ts:173`）。
-- v2 无 `shell_command` prompt origin → `!` shell 输出不进 resume 回放（`session-replay.ts:256`）。
 - `/export-md` 的 `token_count` best-effort 填 0（`commands/session.ts:119`）。
 
 ## 7. 临时桥接（`TODO(migrate)`）
