@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { isAbsolute, resolve } from 'node:path';
 
@@ -12,6 +12,7 @@ import {
 } from '#/_base/di/scope';
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IEventService } from '#/app/event/event';
 import {
@@ -19,6 +20,8 @@ import {
   IAgentLifecycleService,
 } from '#/session/agentLifecycle/agentLifecycle';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/mainAgent';
+import { IAgentPlanService } from '#/agent/plan/plan';
+import { ISessionCronService } from '#/session/cron/sessionCronService';
 import { ISessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycle';
 import { SessionLifecycleService } from '#/app/sessionLifecycle/sessionLifecycleService';
 import { ISessionActivityKernel } from '#/activity/activity';
@@ -262,6 +265,52 @@ function agentLifecycleWithMainStub(): IAgentLifecycleService {
   };
 }
 
+function configStub(values: Record<string, unknown> = {}): IConfigService {
+  return {
+    get: (domain: string) => values[domain],
+    getAll: () => ({ ...values }),
+    onDidChangeConfiguration: () => ({ dispose: () => {} }),
+    onDidSectionChange: () => ({ dispose: () => {} }),
+  } as unknown as IConfigService;
+}
+
+function agentLifecycleCapturingPlanSpy(opts: { mainPreexists?: boolean } = {}): {
+  lifecycle: IAgentLifecycleService;
+  enter: ReturnType<typeof vi.fn>;
+  create: ReturnType<typeof vi.fn>;
+} {
+  const enter = vi.fn(() => Promise.resolve());
+  const planService = {
+    enter,
+    cancel: vi.fn(),
+    clear: vi.fn(() => Promise.resolve()),
+    exit: vi.fn(),
+    status: vi.fn(() => Promise.resolve(null)),
+  };
+  const makeMain = (agentId: string): IAgentScopeHandle =>
+    ({
+      id: agentId,
+      kind: LifecycleScope.Agent,
+      accessor: {
+        get: (token: unknown) => (token === IAgentPlanService ? planService : {}),
+      },
+      dispose: () => {},
+    }) as IAgentScopeHandle;
+  let mainHandle: IAgentScopeHandle | undefined = opts.mainPreexists
+    ? makeMain(MAIN_AGENT_ID)
+    : undefined;
+  const create = vi.fn((args: { agentId: string }) => {
+    mainHandle = makeMain(args.agentId);
+    return Promise.resolve(mainHandle);
+  });
+  const lifecycle: IAgentLifecycleService = {
+    ...agentLifecycleStub(),
+    getHandle: (id: string) => (id === MAIN_AGENT_ID ? mainHandle : undefined),
+    create,
+  };
+  return { lifecycle, enter, create };
+}
+
 function tick(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -341,6 +390,8 @@ describe('SessionLifecycleService', () => {
       stubPair(IAtomicDocumentStore, atomicDocumentStoreStub()),
       stubPair(IEventService, eventStub()),
       stubPair(IAgentLifecycleService, agentLifecycleStub()),
+      stubPair(IConfigService, configStub()),
+      stubPair(ISessionCronService, { _serviceBrand: undefined } as unknown as ISessionCronService),
       stubPair(ISessionActivityKernel, stubSessionActivityKernel()),
       stubPair(IWorkspaceLocalConfigService, workspaceLocalConfigStub()),
       ...extra,
@@ -752,6 +803,56 @@ describe('SessionLifecycleService', () => {
       expect(target.id).toMatch(/^session_[0-9a-f-]{36}$/);
       expect(target.id).toBe(target.id.toLowerCase());
       expect(target.id).not.toBe('src');
+    });
+  });
+
+  describe('defaultPlanMode bootstrap', () => {
+    it('enters plan mode on a fresh session when config.defaultPlanMode is true', async () => {
+      const { lifecycle, enter, create } = agentLifecycleCapturingPlanSpy();
+      const svc = build([
+        stubPair(IConfigService, configStub({ defaultPlanMode: true })),
+        stubPair(IAgentLifecycleService, lifecycle),
+      ]);
+
+      await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });
+
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(enter).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves plan mode inactive when config.defaultPlanMode is absent', async () => {
+      const { lifecycle, enter, create } = agentLifecycleCapturingPlanSpy();
+      const svc = build([
+        stubPair(IConfigService, configStub({})),
+        stubPair(IAgentLifecycleService, lifecycle),
+      ]);
+
+      await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });
+
+      expect(create).not.toHaveBeenCalled();
+      expect(enter).not.toHaveBeenCalled();
+    });
+
+    it('does not apply config.defaultPlanMode when resuming a session', async () => {
+      const workDir = '/tmp/proj';
+      const summary = { id: 's1', workspaceId: 'wd_stub', cwd: workDir } as SessionSummary;
+      const { lifecycle, enter, create } = agentLifecycleCapturingPlanSpy({
+        mainPreexists: true,
+      });
+      const svc = build([
+        stubPair(IConfigService, configStub({ defaultPlanMode: true })),
+        stubPair(IAgentLifecycleService, lifecycle),
+        stubPair(ISessionIndex, {
+          ...sessionIndexStub(),
+          get: () => Promise.resolve(summary),
+        }),
+        stubPair(IWorkspaceRegistry, persistentWorkspaceRegistryStub()),
+      ]);
+
+      await svc.resume('s1');
+
+      expect(create).not.toHaveBeenCalled();
+      expect(enter).not.toHaveBeenCalled();
     });
   });
 });

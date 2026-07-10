@@ -26,6 +26,8 @@ import {
 import { Emitter, type Event } from '#/_base/event';
 import { ISessionActivityKernel } from '#/activity/activity';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { DEFAULT_PLAN_MODE_SECTION } from '#/agent/plan/configSection';
+import { IAgentPlanService } from '#/agent/plan/plan';
 import {
   AGENT_WIRE_PROTOCOL_VERSION,
   IAgentWireRecordService,
@@ -33,6 +35,7 @@ import {
 } from '#/agent/wireRecord/wireRecord';
 import { WIRE_RECORD_FILENAME, wireRecordScope } from '#/agent/wireRecord/wireRecordService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
 import { IEventService } from '#/app/event/event';
 import {
   CHILD_SESSION_KIND,
@@ -99,6 +102,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
   constructor(
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @IConfigService private readonly config: IConfigService,
     @IHostEnvironment private readonly hostEnv: IHostEnvironment,
     @ISessionIndex private readonly index: ISessionIndex,
     @IAppendLogStore private readonly appendLogStore: IAppendLogStore,
@@ -114,6 +118,10 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
   async create(opts: CreateSessionOptions): Promise<ISessionScopeHandle> {
     const sessionId = opts.sessionId ?? createSessionId();
     const handle = await this.materializeSession({ ...opts, sessionId });
+    if (this.config.get<boolean>(DEFAULT_PLAN_MODE_SECTION) === true) {
+      const main = await ensureMainAgent(handle);
+      await main.accessor.get(IAgentPlanService).enter();
+    }
     await this.announceCreated({ sessionId, handle, source: 'startup' });
     return handle;
   }

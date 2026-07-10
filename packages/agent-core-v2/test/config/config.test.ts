@@ -23,6 +23,10 @@ import {
   EXTRA_SKILL_DIRS_SECTION,
   MERGE_ALL_AVAILABLE_SKILLS_SECTION,
 } from '#/app/skillCatalog/configSection';
+// Side-effect: registers the `defaultPermissionMode` section so the test below
+// can assert its schema (and that `yolo` is not a registered domain).
+import '#/agent/permissionMode/configSection';
+import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
 import { ILogService } from '#/_base/log/log';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -335,6 +339,21 @@ describe('skill config sections', () => {
 
     expect(registry.getSection(EXTRA_SKILL_DIRS_SECTION)?.defaultValue).toEqual([]);
     expect(registry.getSection(MERGE_ALL_AVAILABLE_SKILLS_SECTION)?.defaultValue).toBe(true);
+  });
+});
+
+describe('defaultPermissionMode config section', () => {
+  it('registers the defaultPermissionMode section and not a yolo domain', () => {
+    const registry = new ConfigRegistry();
+
+    const section = registry.getSection(DEFAULT_PERMISSION_MODE_SECTION);
+    expect(section).toBeDefined();
+    expect(registry.validate(DEFAULT_PERMISSION_MODE_SECTION, 'auto')).toBe('auto');
+    expect(registry.validate(DEFAULT_PERMISSION_MODE_SECTION, 'yolo')).toBe('yolo');
+    expect(() => registry.validate(DEFAULT_PERMISSION_MODE_SECTION, 'bogus')).toThrow();
+
+    // `yolo` is wire sugar, not a config domain — it must never be registered.
+    expect(registry.getSection('yolo')).toBeUndefined();
   });
 });
 

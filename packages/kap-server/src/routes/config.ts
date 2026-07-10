@@ -92,6 +92,13 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
         const config = core.accessor.get(IConfigService);
         await config.ready;
         const camelPatch = convertKeysSnakeToCamel(req.body) as Record<string, unknown>;
+        // v1 wire sugar: `yolo: true` is an alias for
+        // `default_permission_mode = 'yolo'`. Fold it into the canonical domain and
+        // drop the key so `yolo` is never a config domain and never persisted.
+        if (camelPatch['yolo'] === true) {
+          camelPatch['defaultPermissionMode'] = 'yolo';
+        }
+        delete camelPatch['yolo'];
         for (const domain of Object.keys(camelPatch)) {
           await config.set(domain, camelPatch[domain]);
         }
@@ -125,6 +132,13 @@ function toConfigResponse(resolved: Record<string, unknown>): ConfigResponse {
   const wire: Record<string, unknown> = {};
   for (const [domain, value] of Object.entries(resolved)) {
     wire[camelToSnake(domain)] = domain === 'providers' ? toProviderResponses(value) : value;
+  }
+  // v1 wire echo: surface `yolo` as a derived boolean of the effective default
+  // permission mode. `yolo` is not a config domain; it is computed here so the
+  // v1 `/config` shape is preserved without persisting a parallel field.
+  const defaultPermissionMode = resolved['defaultPermissionMode'];
+  if (typeof defaultPermissionMode === 'string') {
+    wire['yolo'] = defaultPermissionMode === 'yolo';
   }
   // `providers` is required by `ConfigResponse` even when no provider is configured.
   if (wire['providers'] === undefined) {
