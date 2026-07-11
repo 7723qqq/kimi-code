@@ -23,7 +23,7 @@ import { join } from 'node:path';
 
 import {
   IAgentLifecycleService,
-  IAgentPromptLegacyService,
+  IAgentPromptService,
   ISessionActivity,
   ISessionIndex,
   ISessionInteractionService,
@@ -235,7 +235,7 @@ export class SnapshotReader implements ISnapshotReader {
     if (main === undefined) return inFlightTurn;
     let currentPromptId: string | undefined;
     try {
-      currentPromptId = main.accessor.get(IAgentPromptLegacyService).list().active?.prompt_id;
+      currentPromptId = main.accessor.get(IAgentPromptService).list().active?.id;
     } catch {
       return inFlightTurn;
     }

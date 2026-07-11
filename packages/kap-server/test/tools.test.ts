@@ -140,11 +140,11 @@ describe('server-v2 /api/v1 tools + mcp', () => {
       expect(listToolsResponseSchema.parse(body.data).tools).toEqual([]);
     });
 
-    it('returns an empty list when the session has no main agent yet', async () => {
+    it('returns builtin tools after the session creates its main agent', async () => {
       await createSession();
       const { body } = await getJson<{ tools: ToolWire[] }>('/api/v1/tools');
       expect(body.code).toBe(0);
-      expect(listToolsResponseSchema.parse(body.data).tools).toEqual([]);
+      expect(listToolsResponseSchema.parse(body.data).tools.length).toBeGreaterThan(0);
     });
 
     it('projects registered tools with source mapping and mcp server id', async () => {

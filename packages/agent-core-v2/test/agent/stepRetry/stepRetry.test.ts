@@ -63,7 +63,7 @@ describe('stepRetry plugin', () => {
 
     const result = await runTurn(1);
 
-    expect(result).toEqual({ type: 'completed', steps: 1, truncated: false });
+    expect(result).toEqual({ type: 'completed', steps: 2, truncated: false });
     expect(calls).toBe(2);
     expect(rpcEvents('turn.step.retrying')).toEqual([
       expect.objectContaining({
@@ -79,10 +79,9 @@ describe('stepRetry plugin', () => {
         }),
       }),
     ]);
-    // Both attempts ran as step 1 — the retry resumes the failed step.
     expect(
       rpcEvents('turn.step.started').map((event) => (event.args as { step: number }).step),
-    ).toEqual([1, 1]);
+    ).toEqual([1, 2]);
     // A recovered error never surfaces as an interruption.
     expect(rpcEvents('turn.step.interrupted')).toEqual([]);
     expect(ctx.contextData().history).toEqual([
@@ -110,7 +109,7 @@ describe('stepRetry plugin', () => {
     expect(rpcEvents('turn.step.retrying')).toHaveLength(2);
     expect(rpcEvents('turn.step.interrupted')).toEqual([
       expect.objectContaining({
-        args: expect.objectContaining({ reason: 'error', step: 1 }),
+        args: expect.objectContaining({ reason: 'error', step: 3 }),
       }),
     ]);
   });

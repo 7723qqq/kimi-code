@@ -113,7 +113,7 @@ export class AgentSkillService extends Disposable implements IAgentSkillService 
       toolCalls: [],
       origin,
     };
-    return this.prompt.prompt(message);
+    return (await this.prompt.enqueue({ message })).launched;
   }
 
   private renderSkillPrompt(skill: SkillDefinition, rawArgs: string): string {

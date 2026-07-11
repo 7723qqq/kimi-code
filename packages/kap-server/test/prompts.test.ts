@@ -282,8 +282,8 @@ describe('server-v2 /api/v1 prompts', () => {
     }
     expect(image.source.media_type).toBe('image/png');
     expect(pngDimensions(Buffer.from(image.source.data, 'base64'))).toEqual({
-      width: 3000,
-      height: 1500,
+      width: 2000,
+      height: 1000,
     });
   });
 
@@ -321,8 +321,8 @@ describe('server-v2 /api/v1 prompts', () => {
       throw new Error('expected resolved base64 image');
     }
     expect(pngDimensions(Buffer.from(image.source.data, 'base64'))).toEqual({
-      width: 3000,
-      height: 1500,
+      width: 2000,
+      height: 1000,
     });
   });
 

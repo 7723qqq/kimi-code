@@ -6,8 +6,8 @@
  * `turn.prompt` record carries exactly v1's field set (`{ input, origin }` —
  * no `turnId`), and `apply` mirrors v1's `restorePrompt()`: every record
  * advances the counter by one, so the counter is restored by counting
- * turn starts. Every turn is started by `loopService.enqueue` receiving a
- * `nextTurn` request while the loop is idle, which dispatches one
+ * turn starts. Every turn is started by `loopService.enqueue` admitting a
+ * request that creates a new Turn, which dispatches one
  * `turn.prompt` per start. As a belt-and-suspenders for v1-written logs whose
  * internally-driven turns (goal continuations) have no `turn.prompt` record,
  * `TurnModel` also registers a cross-model reducer on

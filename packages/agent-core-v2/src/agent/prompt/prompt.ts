@@ -1,6 +1,6 @@
-import { createDecorator } from "#/_base/di/instantiation";
-import type { ContextMessage } from "#/agent/contextMemory/types";
-import type { Turn } from "#/agent/loop/loop";
+import { createDecorator } from '#/_base/di/instantiation';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import type { Turn, TurnResult } from '#/agent/loop/loop';
 import type { Hooks } from '#/hooks';
 
 export interface PromptSubmitContext {
@@ -9,30 +9,55 @@ export interface PromptSubmitContext {
   block: boolean;
 }
 
-export interface PromptSteerHandle {
-  removeFromQueue(): void;
+export interface PromptInput {
+  readonly id?: string;
+  readonly message: ContextMessage;
+}
+
+export type PromptState =
+  | 'pending'
+  | 'running'
+  | 'steered'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'blocked';
+
+export interface PromptCompletion {
+  readonly promptId: string;
+  readonly result: TurnResult | undefined;
+  readonly state: Extract<PromptState, 'completed' | 'failed' | 'cancelled' | 'blocked'>;
+}
+
+export interface PromptSnapshot {
+  readonly id: string;
+  readonly userMessageId: string;
+  readonly createdAt: string;
+  readonly state: PromptState;
+  readonly message: ContextMessage;
+}
+
+export interface PromptHandle extends PromptSnapshot {
   readonly launched: Promise<Turn | undefined>;
+  readonly completion: Promise<PromptCompletion>;
+}
+
+export interface PromptQueueSnapshot {
+  readonly active: PromptSnapshot | undefined;
+  readonly pending: readonly PromptSnapshot[];
 }
 
 export interface IAgentPromptService {
   readonly _serviceBrand: undefined;
-
-  prompt(message: ContextMessage): Promise<Turn | undefined>;
-  steer(message: ContextMessage): PromptSteerHandle;
-  retry(): Turn | undefined;
-  /**
-   * Remove the trailing `count` real-user prompts and the exchange that follows
-   * them. Returns the number of prompts removed. Throws
-   * `session.undo_unavailable` (with a structured `reason` of `empty` /
-   * `compaction_boundary` / `insufficient`) when fewer than `count` prompts can
-   * be undone — no state is removed in that case.
-   */
+  enqueue(input: PromptInput): Promise<PromptHandle>;
+  list(): PromptQueueSnapshot;
+  steer(promptIds: readonly string[]): Promise<readonly PromptHandle[]>;
+  abort(promptId: string, reason?: Error): boolean;
+  inject(message: ContextMessage): Promise<Turn | undefined>;
+  retry(): Promise<Turn | undefined>;
   undo(count: number): number;
   clear(): void;
-
-  readonly hooks: Hooks<{
-    onWillSubmitPrompt: PromptSubmitContext;
-  }>;
+  readonly hooks: Hooks<{ onWillSubmitPrompt: PromptSubmitContext }>;
 }
 
 export const IAgentPromptService = createDecorator<IAgentPromptService>('agentPromptService');

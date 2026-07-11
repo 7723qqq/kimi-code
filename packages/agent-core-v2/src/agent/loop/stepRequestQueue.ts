@@ -1,9 +1,9 @@
 /**
  * `loop` domain (L4) — the step queue held by `AgentLoopService`.
  *
- * Agent-scoped FIFO with head insertion: senders enqueue `StepRequest`s (tail
- * for ordered work, head for retries of a failed step), and the loop drains
- * the queue one batch per step. A batch is one *driver* (the first
+ * Turn-owned FIFO with head insertion: senders enqueue `StepRequest`s (tail
+ * for ordered work, head for retries of a failed step), and one Turn drains
+ * its queue one batch per step. A batch is one *driver* (the first
  * non-mergeable request) plus every *mergeable* request folded into the
  * driver's step — this is how steers land in the same LLM request as pending
  * tool results or a fresh prompt instead of each costing its own step. Extra
@@ -31,13 +31,6 @@ export class StepRequestQueue {
     }
   }
 
-  /** Head-insert a sequence preserving order: `requests[0]` is popped first. */
-  enqueueFront(requests: readonly StepRequest[]): void {
-    for (let index = requests.length - 1; index >= 0; index -= 1) {
-      this.items.unshift(requests[index]!);
-    }
-  }
-
   /** True while any non-aborted request is queued. */
   hasPendingRequests(): boolean {
     return this.items.some((item) => !item.aborted);
@@ -60,6 +53,10 @@ export class StepRequestQueue {
     this.items.length = 0;
     this.items.push(...rest);
     return { driver, merged };
+  }
+
+  drain(): StepRequest[] {
+    return this.items.splice(0);
   }
 
   /** Abort every queued turn-scoped request (run-end cleanup); agent-scoped requests survive. */

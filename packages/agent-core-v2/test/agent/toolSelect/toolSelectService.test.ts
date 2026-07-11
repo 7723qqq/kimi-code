@@ -26,9 +26,10 @@ import {
   IAgentLoopService,
   type AfterStepContext,
   type BeforeStepContext,
-  type LoopRunOptions,
+  type EnqueueReceipt,
   type LoopRunResult,
   type StepEnqueueOptions,
+  type Turn,
 } from '#/agent/loop/loop';
 import type { StepRequest } from '#/agent/loop/stepRequest';
 import { IAgentProfileService } from '#/agent/profile/profile';
@@ -49,8 +50,8 @@ import { SelectToolsTool } from '#/agent/toolSelect/tools/select-tools';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { registerLogServices } from '../../_base/log/stubs';
 import { recordingTelemetry } from '../../app/telemetry/stubs';
+import { stubToolExecutor } from '../loop/stubs';
 import { registerToolResultTruncationServices } from '../toolResultTruncation/stubs';
-import { stubToolExecutor } from '../turn/stubs';
 
 const MCP_ALPHA = 'mcp__srv__alpha';
 const MCP_BETA = 'mcp__srv__beta';
@@ -202,20 +203,28 @@ class FakeLoopService implements IAgentLoopService {
     afterStep: new OrderedHookSlot<AfterStepContext>(),
   };
 
-  registerLoopErrorHandler(): IDisposable {
+  enqueue(_request: StepRequest, _options?: StepEnqueueOptions): EnqueueReceipt {
     throw new Error('unused in this suite');
   }
 
-  run(_options: LoopRunOptions): Promise<LoopRunResult> {
+  async run(): Promise<LoopRunResult> {
     throw new Error('unused in this suite');
   }
 
-  enqueue(_request: StepRequest, _options?: StepEnqueueOptions): void {
+  status() {
+    return { state: 'idle' as const, pendingTurnIds: [], hasPendingRequests: false };
+  }
+
+  cancel(_turnId?: number, _reason?: unknown): boolean {
     throw new Error('unused in this suite');
   }
 
   hasPendingRequests(): boolean {
     return false;
+  }
+
+  registerLoopErrorHandler(): IDisposable {
+    throw new Error('unused in this suite');
   }
 }
 

@@ -21,7 +21,7 @@
 import {
   IAgentContextMemoryService,
   IAgentLifecycleService,
-  IAgentPromptLegacyService,
+  IAgentPromptService,
   ILogService,
   ISessionActivity,
   ISessionInteractionService,
@@ -209,7 +209,7 @@ async function readViaLegacyAssembly(
 function readCurrentPromptId(main: IAgentScopeHandle | undefined): string | undefined {
   if (main === undefined) return undefined;
   try {
-    return main.accessor.get(IAgentPromptLegacyService).list().active?.prompt_id;
+    return main.accessor.get(IAgentPromptService).list().active?.id;
   } catch {
     // Auxiliary reconnect metadata must not make the whole snapshot fail.
     return undefined;

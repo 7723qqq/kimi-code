@@ -13,31 +13,19 @@ import {
 import { ISessionInteractionService, type Interaction, type InteractionKind } from '#/session/interaction/interaction';
 import { ISessionActivity } from '#/session/sessionActivity/sessionActivity';
 import { SessionActivity } from '#/session/sessionActivity/sessionActivityService';
-import { IAgentTurnService, type Turn } from '#/agent/turn/turn';
-import { stubTurn } from '../../agent/turn/stubs';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { stubLoopWithHooks } from '../../agent/loop/stubs';
 
-function makeTurn(id: number): Turn {
-  return {
-    id,
-    signal: new AbortController().signal,
-    ready: Promise.resolve(),
-    result: Promise.resolve({ type: 'completed', steps: 0, truncated: false }),
-  };
+function makeTurnService(active: boolean): IAgentLoopService {
+  const base = stubLoopWithHooks({ hasActiveTurn: active });
+  if (active) base.startTurn();
+  return base;
 }
 
-function makeTurnService(active: boolean): IAgentTurnService {
-  const base = stubTurn();
-  const activeTurn = active ? makeTurn(1) : undefined;
-  return {
-    ...base,
-    getActiveTurn: () => activeTurn,
-  };
-}
-
-function makeAccessor(turn: IAgentTurnService): ServicesAccessor {
+function makeAccessor(turn: IAgentLoopService): ServicesAccessor {
   return {
     get<T>(id: ServiceIdentifier<T>): T {
-      if (id === (IAgentTurnService as unknown as ServiceIdentifier<T>)) {
+      if (id === (IAgentLoopService as unknown as ServiceIdentifier<T>)) {
         return turn as unknown as T;
       }
       throw new Error(`unexpected service request: ${String(id)}`);

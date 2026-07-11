@@ -10,7 +10,7 @@ describe('check-domain-layers', () => {
   it('flags a direct import of v1 (@moonshot-ai/agent-core)', () => {
     const violations = checkSource(
       `import { KimiCore } from '${V1}';`,
-      at('turn', 'turn.ts'),
+      at('loop', 'loop.ts'),
     );
     expect(violations).toHaveLength(1);
     expect(violations[0]?.message).toMatch(/v2 must not import v1/);
@@ -19,7 +19,7 @@ describe('check-domain-layers', () => {
   it('flags a v1 subpath import', () => {
     const violations = checkSource(
       `import { Session } from '${V1}/session';`,
-      at('turn', 'turn.ts'),
+      at('loop', 'loop.ts'),
     );
     expect(violations).toHaveLength(1);
     expect(violations[0]?.message).toMatch(/v2 must not import v1/);
@@ -28,25 +28,25 @@ describe('check-domain-layers', () => {
   it('allows a domain to import a lower layer', () => {
     const violations = checkSource(
       `import { createDecorator } from '#/_base/di/instantiation';`,
-      at('turn', 'turn.ts'),
+      at('loop', 'loop.ts'),
     );
     expect(violations).toHaveLength(0);
   });
 
   it('flags a lower layer importing a higher layer', () => {
     const violations = checkSource(
-      `import { IAgentTurnService } from '#/agent/turn/turn';`,
+      `import { IAgentLoopService } from '#/agent/loop/loop';`,
       at('log', 'log.ts'),
     );
     expect(violations).toHaveLength(1);
     expect(violations[0]?.message).toMatch(/layer violation/);
-    expect(violations[0]?.message).toMatch(/log.*L1.*turn.*L4/s);
+    expect(violations[0]?.message).toMatch(/log.*L1.*loop.*L4/s);
   });
 
   it('allows same-domain relative imports', () => {
     const violations = checkSource(
       `import { helper } from './helper';`,
-      at('turn', 'turn.ts'),
+      at('loop', 'loop.ts'),
     );
     expect(violations).toHaveLength(0);
   });

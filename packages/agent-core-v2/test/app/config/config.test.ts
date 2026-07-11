@@ -1,6 +1,5 @@
 import type { ModelCapability } from '#/app/llmProtocol/capability';
 import type { ToolCall } from '#/app/llmProtocol/message';
-import type { ProviderConfig } from '#/app/llmProtocol/providers/providers';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
@@ -68,13 +67,7 @@ describe('Agent config', () => {
     }
   });
 
-  it('exposes provider, system prompt, thinking level, and model capability updates', async () => {
-    const initialProvider: ProviderConfig = {
-      type: 'openai',
-      apiKey: 'sk-initial',
-      baseUrl: 'https://initial.example/v1',
-      model: 'gpt-initial',
-    };
+  it('exposes system prompt, thinking level, and model capability updates', async () => {
     const initialCapability: ModelCapability = {
       image_in: true,
       video_in: false,
@@ -83,21 +76,24 @@ describe('Agent config', () => {
       tool_use: true,
       max_context_tokens: 128000,
     };
-    ctx.configureRuntimeModel(initialProvider, initialCapability);
+    ctx.configureRuntimeModel(
+      {
+        type: 'openai',
+        apiKey: 'sk-initial',
+        baseUrl: 'https://initial.example/v1',
+        model: 'gpt-initial',
+      },
+      initialCapability,
+    );
 
+    // `getConfig` returns the profile DTO; the raw provider config is not part
+    // of the v2 wire contract (providers are served by the provider service).
     await expect(ctx.rpc.getConfig({})).resolves.toMatchObject({
-      provider: initialProvider,
       systemPrompt: DEFAULT_TEST_SYSTEM_PROMPT,
       thinkingLevel: 'off',
       modelCapabilities: initialCapability,
     });
 
-    const nextProvider: ProviderConfig = {
-      type: 'kimi',
-      apiKey: 'sk-next',
-      baseUrl: 'https://next.example/v1',
-      model: 'kimi-next',
-    };
     const nextCapability: ModelCapability = {
       image_in: true,
       video_in: true,
@@ -106,14 +102,21 @@ describe('Agent config', () => {
       tool_use: true,
       max_context_tokens: 262144,
     };
-    ctx.configureRuntimeModel(nextProvider, nextCapability);
+    ctx.configureRuntimeModel(
+      {
+        type: 'kimi',
+        apiKey: 'sk-next',
+        baseUrl: 'https://next.example/v1',
+        model: 'kimi-next',
+      },
+      nextCapability,
+    );
     profile.update({
       systemPrompt: 'Changed profile prompt.',
       thinkingLevel: 'high',
     });
 
     await expect(ctx.rpc.getConfig({})).resolves.toMatchObject({
-      provider: nextProvider,
       systemPrompt: 'Changed profile prompt.',
       thinkingLevel: 'high',
       modelCapabilities: nextCapability,
@@ -233,8 +236,8 @@ describe('Agent config', () => {
     expect(await ctx.untilApproval(true)).toMatchInlineSnapshot(`
       [wire] turn.prompt                     { "input": [ { "type": "text", "text": "Look up before config changes" } ], "origin": { "kind": "user" }, "time": "<time>" }
       [emit] turn.started                    { "turnId": 0, "origin": { "kind": "user" } }
-      [wire] context.append_message          { "message": { "role": "user", "content": [ { "type": "text", "text": "Look up before config changes" } ], "toolCalls": [], "origin": { "kind": "user" } }, "time": "<time>" }
-      [emit] context.spliced                 { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Look up before config changes" } ], "toolCalls": [], "origin": { "kind": "user" } } ] }
+      [wire] context.append_message          { "message": { "role": "user", "content": [ { "type": "text", "text": "Look up before config changes" } ], "toolCalls": [], "origin": { "kind": "user" }, "id": "<msg-1>" }, "time": "<time>" }
+      [emit] context.spliced                 { "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Look up before config changes" } ], "toolCalls": [], "origin": { "kind": "user" }, "id": "<msg-1>" } ] }
       [emit] turn.step.started               { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [wire] context.append_loop_event       { "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
       [wire] llm.tools_snapshot              { "hash": "3bfeb22e61431247933e79f6ab94e7ca14a127f899bc87e7bbd22594ba9cdb66", "tools": [ { "name": "Lookup", "description": "Look up a short test value.", "parameters": { "type": "object", "properties": { "query": { "type": "string" } }, "required": [ "query" ], "additionalProperties": false } } ], "time": "<time>" }
@@ -258,6 +261,7 @@ describe('Agent config', () => {
     ctx.configureRuntimeModel({
       type: 'kimi',
       apiKey: 'test-key',
+      baseUrl: 'https://changed.example.test/v1',
       model: 'changed-model',
     });
     profile.update({ systemPrompt: 'Changed system prompt.' });
@@ -272,13 +276,23 @@ describe('Agent config', () => {
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
       [emit] tool.result                 { "turnId": 0, "toolCallId": "call_lookup", "output": "original-result" }
       [wire] context.append_loop_event   { "event": { "type": "tool.result", "parentUuid": "<uuid-3>", "toolCallId": "call_lookup", "result": { "output": "original-result" } }, "time": "<time>" }
-      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "finishReason": "tool_use", "usage": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-1" }, "time": "<time>" }
-      [emit] turn.step.completed         { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_calls" }
-      [emit] turn.step.interrupted       { "turnId": 0, "step": 2, "reason": "error", "message": "Model \\"changed-model\\" (via provider \\"test-provider\\") is missing a base URL." }
-      [emit] turn.ended                  { "turnId": 0, "reason": "failed", "error": { "code": "config.invalid", "message": "Model \\"changed-model\\" (via provider \\"test-provider\\") is missing a base URL.", "name": "KimiError", "retryable": false } }
+      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "finishReason": "tool_use", "usage": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-1", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }, "time": "<time>" }
+      [emit] turn.step.completed         { "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }
+      [emit] turn.step.started           { "turnId": 0, "step": 2, "stepId": "<uuid-4>" }
+      [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-4>", "turnId": "0", "step": 2 }, "time": "<time>" }
+      [wire] llm.tools_snapshot          { "hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "tools": [], "time": "<time>" }
+      [wire] llm.request                 { "kind": "loop", "provider": "kimi", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 999974, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "systemPrompt": "You are a deterministic test agent.", "toolsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "messageCount": 3, "turnStep": "0.2", "time": "<time>" }
+      [emit] assistant.delta             { "turnId": 0, "delta": "Still using the original turn config." }
+      [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 31, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated        { "usage": { "byModel": { "mock-model": { "inputOther": 40, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 40, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 40, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [emit] agent.status.updated        { "contextTokens": 44 }
+      [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-5>", "turnId": "0", "step": 2, "stepUuid": "<uuid-4>", "part": { "type": "text", "text": "Still using the original turn config." } }, "time": "<time>" }
+      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-4>", "turnId": "0", "step": 2, "finishReason": "end_turn", "usage": { "inputOther": 31, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-2", "providerFinishReason": "completed", "rawFinishReason": "stop" }, "time": "<time>" }
+      [emit] turn.step.completed         { "turnId": 0, "step": 2, "stepId": "<uuid-4>", "usage": { "inputOther": 31, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn", "providerFinishReason": "completed", "rawFinishReason": "stop" }
+      [emit] turn.ended                  { "turnId": 0, "reason": "completed" }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      system: "Changed system prompt."
+      tools: []
       messages:
         <last>
         assistant: text "I will look it up."  calls call_lookup:Lookup { "query": "original" }
@@ -289,22 +303,25 @@ describe('Agent config', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Start a fresh turn' }] });
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] context.splice          { "start": 4, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Start a fresh turn" } ], "toolCalls": [], "id": "<msg-5>" } ], "time": "<time>" }
-      [wire] turn.launch             { "turnId": 1, "origin": { "kind": "user" }, "time": "<time>" }
-      [emit] turn.started            { "turnId": 1, "origin": { "kind": "user" } }
-      [emit] turn.step.started       { "turnId": 1, "step": 1, "stepId": "<uuid-3>" }
-      [emit] assistant.delta         { "turnId": 1, "delta": "Now the changed config is active." }
-      [wire] usage.record            { "model": "changed-model", "usage": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "context": { "type": "turn", "turnId": 1 }, "time": "<time>" }
-      [emit] agent.status.updated    { "usage": { "byModel": { "mock-model": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "changed-model": { "inputOther": 81, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 90, "output": 42, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] context.splice          { "start": 5, "deleteCount": 0, "messages": [ { "id": "<msg-6>", "role": "assistant", "content": [ { "type": "text", "text": "Now the changed config is active." } ], "toolCalls": [] } ], "time": "<time>" }
-      [wire] context_size.measured   { "length": 6, "tokens": 62, "time": "<time>" }
-      [emit] agent.status.updated    { "contextTokens": 62 }
-      [wire] context.splice          { "start": 5, "deleteCount": 1, "messages": [ { "id": "<msg-6>", "role": "assistant", "content": [ { "type": "text", "text": "Now the changed config is active." } ], "toolCalls": [], "providerMessageId": "mock-3" } ], "time": "<time>" }
-      [emit] turn.step.completed     { "turnId": 1, "step": 1, "stepId": "<uuid-3>", "usage": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "completed" }
-      [emit] turn.ended              { "turnId": 1, "reason": "completed" }
+      [emit] prompt.completed            { "promptId": "<msg-1>", "finishedAt": "<time>", "reason": "completed" }
+      [wire] turn.prompt                 { "input": [ { "type": "text", "text": "Start a fresh turn" } ], "origin": { "kind": "user" }, "time": "<time>" }
+      [emit] turn.started                { "turnId": 1, "origin": { "kind": "user" } }
+      [wire] context.append_message      { "message": { "role": "user", "content": [ { "type": "text", "text": "Start a fresh turn" } ], "toolCalls": [], "origin": { "kind": "user" }, "id": "<msg-2>" }, "time": "<time>" }
+      [emit] context.spliced             { "start": 4, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Start a fresh turn" } ], "toolCalls": [], "origin": { "kind": "user" }, "id": "<msg-2>" } ] }
+      [emit] turn.step.started           { "turnId": 1, "step": 1, "stepId": "<uuid-6>" }
+      [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-6>", "turnId": "1", "step": 1 }, "time": "<time>" }
+      [wire] llm.request                 { "kind": "loop", "provider": "kimi", "model": "changed-model", "modelAlias": "changed-model", "thinkingEffort": "off", "maxTokens": 999956, "toolSelect": false, "systemPromptHash": "7617cb8b42659214c397a1d7505fce204b673b078a10de8bcccc697d88dcda56", "toolsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "messageCount": 5, "turnStep": "1.1", "time": "<time>" }
+      [emit] assistant.delta             { "turnId": 1, "delta": "Now the changed config is active." }
+      [wire] usage.record                { "model": "changed-model", "usage": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated        { "usage": { "byModel": { "mock-model": { "inputOther": 40, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 }, "changed-model": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 90, "output": 42, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [emit] agent.status.updated        { "contextTokens": 62 }
+      [wire] context.append_loop_event   { "event": { "type": "content.part", "uuid": "<uuid-7>", "turnId": "1", "step": 1, "stepUuid": "<uuid-6>", "part": { "type": "text", "text": "Now the changed config is active." } }, "time": "<time>" }
+      [wire] context.append_loop_event   { "event": { "type": "step.end", "uuid": "<uuid-6>", "turnId": "1", "step": 1, "finishReason": "end_turn", "usage": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-3", "providerFinishReason": "completed", "rawFinishReason": "stop" }, "time": "<time>" }
+      [emit] turn.step.completed         { "turnId": 1, "step": 1, "stepId": "<uuid-6>", "usage": { "inputOther": 50, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn", "providerFinishReason": "completed", "rawFinishReason": "stop" }
+      [emit] turn.ended                  { "turnId": 1, "reason": "completed" }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      tools: []
+      system: "Changed system prompt."
       messages:
         <last>
         assistant: text "Still using the original turn config."

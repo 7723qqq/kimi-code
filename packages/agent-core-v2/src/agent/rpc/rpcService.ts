@@ -107,12 +107,14 @@ export class AgentRPCService implements IAgentRPCService {
     // prompt BEFORE launching the turn, so the web session title is populated as
     // soon as the conversation starts (gap closed — v2 used to leave it empty).
     await this.updatePromptMetadata(promptMetadataTextFromPayload(payload));
-    const turn = await this.promptService.prompt({
+    const handle = await this.promptService.enqueue({ message: {
       role: 'user',
       content: [...payload.input],
       toolCalls: [],
       origin: { kind: 'user' },
-    });
+    } });
+    if (handle.state === 'pending') return undefined;
+    const turn = await handle.launched;
     return turn === undefined ? undefined : { turn_id: turn.id };
   }
 
@@ -126,17 +128,18 @@ export class AgentRPCService implements IAgentRPCService {
 
   async steer(payload: SteerPayload): Promise<PromptLaunchResult | undefined> {
     this.telemetry.track('input_steer', { parts: payload.input.length });
-    const steer = this.promptService.steer({
+    const queued = await this.promptService.enqueue({ message: {
       role: 'user',
       content: [...payload.input],
       toolCalls: [],
-    });
-    const turn = await steer.launched;
+    } });
+    const [steered] = await this.promptService.steer([queued.id]);
+    const turn = await steered?.launched;
     return turn === undefined ? undefined : { turn_id: turn.id };
   }
 
   cancel({ turnId }: CancelPayload): void {
-    if (this.loop.getActiveTurn() !== undefined) {
+    if (this.loop.status().state === 'running') {
       this.telemetry.track('cancel', { from: 'streaming' });
     }
     this.loop.cancel(turnId);
@@ -272,12 +275,12 @@ export class AgentRPCService implements IAgentRPCService {
       commandArgs: origin.commandArgs,
       trigger: origin.trigger,
     });
-    await this.promptService.prompt({
+    await this.promptService.enqueue({ message: {
       role: 'user',
       content: [{ type: 'text', text: expanded }],
       toolCalls: [],
       origin,
-    });
+    } });
     await this.updatePromptMetadata(promptMetadataTextFromPluginCommand(payload));
   }
 

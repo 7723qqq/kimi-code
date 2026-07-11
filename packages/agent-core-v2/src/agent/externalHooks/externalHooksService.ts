@@ -201,7 +201,13 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
             toolCalls: [],
             origin: { kind: 'system_trigger', name: 'stop_hook' },
           });
-          loop.enqueue(new ContinuationStepRequest({ kind: 'stop_hook', mergeable: true }));
+          loop.enqueue(
+            new ContinuationStepRequest({
+              kind: 'stop_hook',
+              mergeable: true,
+              admission: 'activeOrNextTurn',
+            }),
+          );
           return;
         }
       }),

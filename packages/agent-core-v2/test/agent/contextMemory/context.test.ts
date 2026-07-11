@@ -185,7 +185,7 @@ describe('Agent context', () => {
     expect(history[1]?.content).toEqual([{ type: 'text', text: '' }]);
   });
 
-  it('rejects tool result messages left empty by LLM projection cleanup', () => {
+  it('renders tool result messages left empty by LLM projection cleanup as empty output', () => {
     const history: ContextMessage[] = [
       {
         role: 'assistant',
@@ -200,9 +200,21 @@ describe('Agent context', () => {
       },
     ];
 
-    expect(() => ctx.project(history)).toThrow(
-      'Tool result message content cannot be empty after removing empty text blocks.',
-    );
+    // Empty tool output never reaches the model as a blank block (and no
+    // longer throws): the projection renders the empty-output status text.
+    expect(ctx.project(history)).toEqual([
+      {
+        role: 'assistant',
+        content: [],
+        toolCalls: [{ type: 'function', id: 'call_empty', name: 'empty', arguments: '{}' }],
+      },
+      {
+        role: 'tool',
+        content: [{ type: 'text', text: '<system>Tool output is empty.</system>' }],
+        toolCalls: [],
+        toolCallId: 'call_empty',
+      },
+    ]);
   });
 
   it('projects hook result messages into LLM projection', async () => {
@@ -642,7 +654,8 @@ describe('Agent context', () => {
     expect(context.get().map((m) => m.role)).toEqual(['user', 'assistant']);
   });
 
-  it('preserves injection messages when undo removes the surrounding turn', () => {
+  it('removes injection messages inside the undone turn', () => {
+    context.append(userMessage('earlier question', { kind: 'user' }));
     context.append(userMessage('do the work', { kind: 'user' }));
     context.append(
       userMessage('Plan mode is active', {
@@ -661,10 +674,15 @@ describe('Agent context', () => {
 
     ctx.undoHistory(1);
 
+    // v2 undo cuts at the oldest undone real-user prompt regardless of origin:
+    // injections inside the removed range go with the turn (unlike v1, which
+    // kept them); dynamic context such as plan-mode notices and tool schemas
+    // self-heals via re-injection on the next turn boundary.
     expect(context.get()).toEqual([
       expect.objectContaining({
         role: 'user',
-        origin: { kind: 'injection', variant: 'plan_mode' },
+        content: [{ type: 'text', text: 'earlier question' }],
+        origin: { kind: 'user' },
       }),
     ]);
   });

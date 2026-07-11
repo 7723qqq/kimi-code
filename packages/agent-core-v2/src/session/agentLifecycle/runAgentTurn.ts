@@ -69,13 +69,13 @@ export async function runAgentTurn(
   const promptService = target.accessor.get(IAgentPromptService);
   const turn =
     request.kind === 'prompt'
-      ? await promptService.prompt({
+      ? await (await promptService.enqueue({ message: {
           role: 'user',
           content: [{ type: 'text', text: request.prompt }],
           toolCalls: [],
           origin: AGENT_RUN_PROMPT_ORIGIN,
-        })
-      : promptService.retry();
+        } })).launched
+      : await promptService.retry();
   if (turn === undefined) throw new Error('Agent turn could not be started');
 
   if (options.onReady !== undefined) {
@@ -150,12 +150,12 @@ async function distillSummary(
 
   const promptService = target.accessor.get(IAgentPromptService);
   for (let attempt = 0; attempt < policy.retries; attempt++) {
-    const turn = await promptService.prompt({
+    const turn = await (await promptService.enqueue({ message: {
       role: 'user',
       content: [{ type: 'text', text: policy.continuationPrompt }],
       toolCalls: [],
       origin: AGENT_RUN_PROMPT_ORIGIN,
-    });
+    } })).launched;
     if (turn === undefined) break;
     setTurn(turn);
     const result = await awaitTurn(turn, controller, cancelTurn);

@@ -18,15 +18,14 @@ import { IAgentToolExecutorService, type ToolExecutionResult } from '#/agent/too
 import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
-import { IAgentTurnService } from '#/agent/turn/turn';
 import { IAgentWireRecordService } from '#/agent/wireRecord/wireRecord';
 import { IAgentWireService } from '#/wire/tokens';
 import { WireService } from '#/wire/wireServiceImpl';
 import { stubWireRecord } from '../contextMemory/stubs';
 import { registerLogServices } from '../../_base/log/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import { stubLoopWithHooks } from '../loop/stubs';
 import { registerToolResultTruncationServices } from '../toolResultTruncation/stubs';
-import { stubLoopWithHooks, stubTurnWithHooks } from '../turn/stubs';
 
 const { REMINDER_TEXT_1, REMINDER_TEXT_3, makeReminderText2 } = toolDedupeTesting;
 const ZERO_USAGE = emptyUsage();
@@ -57,9 +56,9 @@ interface Harness {
 /**
  * Builds a container wired the same way the agent is: real executor + registry,
  * the dedupe plugin registered (and realized so its constructor installs the
- * loop / tool-executor hooks), recording telemetry, and stub loop / turn with
- * real hook slots. `ix.get(IAgentToolDedupeService)` is what forces the eager
- * plugin to construct and register its hooks.
+ * loop / tool-executor hooks), recording telemetry, and a stub loop with real
+ * hook slots. `ix.get(IAgentToolDedupeService)` is what forces the eager plugin
+ * to construct and register its hooks.
  */
 function createHarness(telemetry: ITelemetryService = recordingTelemetry(telemetryEvents)): Harness {
   const loop = stubLoopWithHooks();
@@ -91,7 +90,6 @@ function createHarness(telemetry: ITelemetryService = recordingTelemetry(telemet
         agentHomedir: () => homedir,
       } as unknown as IBootstrapService);
       reg.defineInstance(IAgentLoopService, loop);
-      reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
       reg.define(IAgentToolExecutorService, AgentToolExecutorService);
       registerToolResultTruncationServices(reg);

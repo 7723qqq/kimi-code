@@ -12,11 +12,10 @@ import {
   UpdateGoalToolInputSchema,
 } from '#/agent/goal/tools/update-goal';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentTurnService } from '#/agent/turn/turn';
 import { IEventBus } from '#/app/event/eventBus';
 
 import { agentService, createTestAgent, type TestAgentContext } from '../../../harness';
-import { stubLoopWithHooks, stubTurn } from '../../turn/stubs';
+import { stubLoopWithHooks } from '../../loop/stubs';
 
 const signal = new AbortController().signal;
 
@@ -29,11 +28,8 @@ describe('goal tools', () => {
   let updateGoalTool: UpdateGoalTool;
 
   beforeEach(() => {
-    loopService = stubLoopWithHooks();
-    ctx = createTestAgent(
-      agentService(IAgentTurnService, stubTurn({ hasActiveTurn: true })),
-      agentService(IAgentLoopService, loopService),
-    );
+    loopService = stubLoopWithHooks({ hasActiveTurn: true });
+    ctx = createTestAgent(agentService(IAgentLoopService, loopService));
     goals = ctx.get(IAgentGoalService);
     eventBus = ctx.get(IEventBus);
     setGoalBudgetTool = new SetGoalBudgetTool(goals);

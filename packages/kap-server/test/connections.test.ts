@@ -122,7 +122,7 @@ describe('server-v2 GET /api/v1/connections', () => {
     });
     try {
       // A successful call guarantees the `hello` handshake completed.
-      await client.call('core', 'sessions:list', {});
+      await client.call('core', 'sessionIndex', 'list', {});
       await waitForSize(1);
 
       const { cancel } = client.listen('session', 'interactions', { sessionId });
@@ -149,7 +149,7 @@ describe('server-v2 GET /api/v1/connections', () => {
       url: wsUrl,
       token: (server as RunningServer).authTokenService.getToken(),
     });
-    await client.call('core', 'sessions:list', {});
+    await client.call('core', 'sessionIndex', 'list', {});
     await waitForSize(1);
 
     client.close();

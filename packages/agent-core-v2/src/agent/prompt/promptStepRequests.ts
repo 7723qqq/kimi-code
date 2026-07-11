@@ -4,13 +4,12 @@
  * `PromptStepRequest` / `SteerStepRequest` carry an already-built user
  * `ContextMessage` (image-compression captions pre-split) and materialize it
  * at pop time — caption reminders first, message second, mirroring the old
- * `appendPrompt` ordering. `PromptStepRequest` is `nextTurn` (it starts a
- * fresh turn, seeding the `turn.prompt` record from its message);
- * `SteerStepRequest` is `tryInTurn`, mergeable (folds into the next step's
- * driver) and survives turn boundaries (drained by a later run); it records
+ * `appendPrompt` ordering. `PromptStepRequest` uses `newTurn`, seeding the
+ * `turn.prompt` record from its message. `SteerStepRequest` uses
+ * `activeOrNewTurn`, is mergeable, and survives turn boundaries; it records
  * the `turn.steer` wire op on materialization and unregisters itself from the
- * service's pending-steer set once settled. `RetryStepRequest` is `nextTurn`
- * too: it contributes no message and simply drives one more step over the
+ * service's pending-steer set once settled. `RetryStepRequest` uses `newTurn`:
+ * it contributes no message and simply drives one more step over the
  * existing context. Constructed by the prompt service with its collaborators
  * captured — these are plain runtime objects, not DI services.
  */
@@ -27,6 +26,10 @@ abstract class UserMessageStepRequest extends StepRequest {
     options?: StepRequestOptions,
   ) {
     super(options);
+  }
+
+  override get turnSeed(): TurnSeed {
+    return { input: this.message.content, origin: this.message.origin ?? USER_PROMPT_ORIGIN };
   }
 
   override onWillMaterialize(): void {
@@ -53,7 +56,7 @@ export class PromptStepRequest extends UserMessageStepRequest {
     captions: readonly string[],
     reminders: IAgentSystemReminderService,
   ) {
-    super(message, captions, reminders, { priority: 'nextTurn' });
+    super(message, captions, reminders, { admission: 'newTurn' });
   }
 
   override get turnSeed(): TurnSeed {
@@ -70,8 +73,13 @@ export class SteerStepRequest extends UserMessageStepRequest {
     reminders: IAgentSystemReminderService,
     private readonly recordSteer: (message: ContextMessage) => void,
     private readonly forgetSteer: (request: SteerStepRequest) => void,
+    admission: 'activeTurnOnly' | 'activeOrNewTurn' = 'activeTurnOnly',
   ) {
-    super(message, captions, reminders, { mergeable: true, turnScoped: false });
+    super(message, captions, reminders, {
+      mergeable: true,
+      turnScoped: false,
+      admission,
+    });
   }
 
   override onWillMaterialize(): void {
@@ -88,7 +96,7 @@ export class RetryStepRequest extends StepRequest {
   readonly kind = 'retry';
 
   constructor() {
-    super({ priority: 'nextTurn' });
+    super({ admission: 'newTurn' });
   }
 
   override get turnSeed(): TurnSeed {

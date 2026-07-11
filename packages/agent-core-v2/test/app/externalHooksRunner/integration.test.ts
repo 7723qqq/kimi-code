@@ -35,7 +35,6 @@ import { IAgentPermissionGate } from '#/agent/permissionGate/permissionGate';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentTurnService } from '#/agent/turn/turn';
 import { IExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunner';
 import { ExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunnerService';
 import { makeHookRunner } from '../../agent/externalHooks/runner-stub';
@@ -62,7 +61,7 @@ import { IAgentWireService } from '#/wire/tokens';
 import { WireService } from '#/wire/wireServiceImpl';
 
 import { stubBootstrap } from '../bootstrap/stubs';
-import { stubLoopWithHooks, stubToolExecutor, stubTurnWithHooks } from '../../agent/turn/stubs';
+import { stubLoopWithHooks, stubToolExecutor } from '../../agent/loop/stubs';
 
 function nodeCommand(source: string): string {
   return `node -e ${JSON.stringify(source.replaceAll(/\s*\n\s*/g, ' '))}`;
@@ -289,7 +288,6 @@ describe('IExternalHooksRunnerService integration', () => {
           reg.definePartialInstance(IAgentPromptService, {
             hooks: createHooks(['onWillSubmitPrompt']),
           });
-          reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
           reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
           reg.definePartialInstance(IAgentPermissionGate, {});
           reg.definePartialInstance(IAgentFullCompactionService, {
@@ -397,7 +395,6 @@ describe('IExternalHooksRunnerService integration', () => {
           reg.definePartialInstance(IAgentPromptService, {
             hooks: createHooks(['onWillSubmitPrompt']),
           });
-          reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
           reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
           reg.definePartialInstance(IAgentPermissionGate, {});
           reg.definePartialInstance(IAgentFullCompactionService, {
@@ -604,7 +601,6 @@ describe('IExternalHooksRunnerService integration', () => {
           reg.definePartialInstance(IAgentPromptService, {
             hooks: createHooks(['onWillSubmitPrompt']),
           });
-          reg.defineInstance(IAgentTurnService, stubTurnWithHooks());
           reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
           reg.definePartialInstance(IAgentPermissionGate, {});
           reg.definePartialInstance(IAgentFullCompactionService, {

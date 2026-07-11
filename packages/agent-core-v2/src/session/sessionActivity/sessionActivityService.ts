@@ -37,7 +37,7 @@ export class SessionActivity implements ISessionActivity {
   private hasActiveTurn(): boolean {
     for (const handle of this.agents.list()) {
       const loop = handle.accessor.get(IAgentLoopService);
-      if (loop.getActiveTurn() !== undefined) return true;
+      if (loop.status().state === 'running') return true;
     }
     return false;
   }

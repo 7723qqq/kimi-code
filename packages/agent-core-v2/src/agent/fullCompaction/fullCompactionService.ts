@@ -17,7 +17,7 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import { retryBackoffDelays, sleepForRetry } from '#/_base/utils/retry';
-import { IAgentLoopService, type LoopErrorContext, type LoopErrorRecovery } from '#/agent/loop/loop';
+import { IAgentLoopService, type LoopErrorContext } from '#/agent/loop/loop';
 import { isAbortError } from '#/_base/utils/abort';
 import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -144,7 +144,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     @IEventBus private readonly eventBus: IEventBus,
     @IAgentActivityService private readonly activity: IAgentActivityService,
     @ILogService private readonly log: ILogService,
-    @IAgentLoopService loopService: IAgentLoopService,
+    @IAgentLoopService private readonly loopService: IAgentLoopService,
   ) {
     super();
     this.strategy = new RuntimeCompactionStrategy(() => this.resolveModelContextWithEffectiveMax());
@@ -153,19 +153,19 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       this.eventBus.subscribe('turn.started', () => this.resetForTurn()),
     );
     this._register(
-      loopService.hooks.beforeStep.register('full-compaction', async (ctx, next) => {
+      this.loopService.hooks.beforeStep.register('full-compaction', async (ctx, next) => {
         await this.beforeStep(ctx.signal, ctx.turnId);
         await next();
       }),
     );
     this._register(
-      loopService.hooks.afterStep.register('full-compaction', async (_ctx, next) => {
+      this.loopService.hooks.afterStep.register('full-compaction', async (_ctx, next) => {
         await this.afterStep();
         await next();
       }),
     );
     this._register(
-      loopService.registerLoopErrorHandler({
+      this.loopService.registerLoopErrorHandler({
         id: 'full-compaction',
         match: (context) => this.shouldRecoverFromContextOverflow(context.error),
         handle: (context) => this.recoverFromContextOverflow(context),
@@ -254,53 +254,73 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   begin(input: FullCompactionInput): boolean {
     if (this._compacting) return false;
     const data: CompactionBeginData = { source: input.source, instruction: input.instruction };
-    if (data.source === 'manual') {
+    if (!this.reserveCompactionSlot(data.source)) return false;
+
+    const tokenCount = this.validateCompactionStart(data.source);
+    this.wire.dispatch(fullCompactionBegin(data));
+
+    const active = this.createActiveCompaction(data.source, tokenCount);
+    this._compacting = active.task;
+    active.task.abortController.signal.addEventListener(
+      'abort',
+      () => this.cancelActive(active.task),
+      { once: true },
+    );
+    void this.compactionWorker(active.task, data).then(active.resolve, active.reject);
+    void active.task.promise.catch(() => undefined);
+    return true;
+  }
+
+  private reserveCompactionSlot(source: CompactionBeginData['source']): boolean {
+    if (source === 'manual') {
       this.compactionCountInTurn = 0;
     } else {
       this.compactionCountInTurn += 1;
     }
-    if (this.compactionCountInTurn > this.strategy.maxCompactionPerTurn) return false;
+    return this.compactionCountInTurn <= this.strategy.maxCompactionPerTurn;
+  }
 
+  private validateCompactionStart(source: CompactionBeginData['source']): number {
     const history = this.context.get();
     if (history.length === 0) {
       throw new KimiError(ErrorCodes.COMPACTION_UNABLE, 'No messages to compact in current history.');
     }
-    if (data.source === 'manual' && this.activity.lane() !== 'idle') {
+    if (source === 'manual' && this.activity.lane() !== 'idle') {
       throw new KimiError(
         ErrorCodes.COMPACTION_UNABLE,
         'Cannot compact while a turn is active. Wait for it to finish, then retry.',
       );
     }
-    const tokenCount = estimateTokensForMessages(history);
+    return estimateTokensForMessages(history);
+  }
 
-    this.wire.dispatch(fullCompactionBegin(data));
-
+  private createActiveCompaction(
+    trigger: CompactionBeginData['source'],
+    tokenCount: number,
+  ): {
+    readonly task: ActiveCompaction;
+    readonly resolve: (result: CompactionResult) => void;
+    readonly reject: (reason: unknown) => void;
+  } {
     const abortController = new AbortController();
-    let resolveCompaction!: (result: CompactionResult) => void;
-    let rejectCompaction!: (reason: unknown) => void;
-    const promise = new Promise<CompactionResult>((resolve, reject) => {
-      resolveCompaction = resolve;
-      rejectCompaction = reject;
+    let resolve!: (result: CompactionResult) => void;
+    let reject!: (reason: unknown) => void;
+    const promise = new Promise<CompactionResult>((onResolve, onReject) => {
+      resolve = onResolve;
+      reject = onReject;
     });
-    const active: ActiveCompaction = {
-      abortController,
-      promise,
-      trigger: data.source,
-      tokenCount,
-      blockedByTurn: false,
-      bgRegistration: this.activity.registerBackground('compaction', abortController),
+    return {
+      task: {
+        abortController,
+        promise,
+        trigger,
+        tokenCount,
+        blockedByTurn: false,
+        bgRegistration: this.activity.registerBackground('compaction', abortController),
+      },
+      resolve,
+      reject,
     };
-    this._compacting = active;
-    abortController.signal.addEventListener('abort', () => {
-      this.cancelActive(active);
-    }, { once: true });
-    void this.compactionWorker(
-      active,
-      data,
-    )
-      .then(resolveCompaction, rejectCompaction);
-    void active.promise.catch(() => undefined);
-    return true;
   }
 
   private cancelActive(active: ActiveCompaction): boolean {
@@ -340,30 +360,36 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
 
   private async recoverFromContextOverflow(
     context: LoopErrorContext,
-  ): Promise<LoopErrorRecovery | undefined> {
-    const estimatedRequestTokens = this.estimateCurrentRequestTokens();
-    this.observeContextOverflow(estimatedRequestTokens);
+  ): Promise<boolean> {
+    this.recordOverflowRecovery(context.error);
+    const didStartCompaction = this.beginAutoCompaction();
+    if (!didStartCompaction && !this._compacting) return false;
+
+    await this.block(context.signal, context.turnId);
+    return this.retryFailedDriver(context);
+  }
+
+  private recordOverflowRecovery(error: unknown): void {
+    this.observeContextOverflow(this.estimateCurrentRequestTokens());
     this.consecutiveOverflowCompactions += 1;
     const maxAttempts = this.strategy.maxOverflowCompactionAttempts;
-    if (this.consecutiveOverflowCompactions > maxAttempts) {
-      throw new KimiError(
-        ErrorCodes.CONTEXT_OVERFLOW,
-        `Compaction failed to bring the context under the model window after ${String(maxAttempts)} attempts.`,
-        { cause: context.error instanceof Error ? context.error : undefined },
-      );
-    }
-    const didStartCompaction = this.beginAutoCompaction();
-    if (!didStartCompaction && !this._compacting) {
-      return undefined;
-    }
-    await this.block(context.signal, context.turnId);
+    if (this.consecutiveOverflowCompactions <= maxAttempts) return;
+    throw new KimiError(
+      ErrorCodes.CONTEXT_OVERFLOW,
+      `Compaction failed to bring the context under the model window after ${String(maxAttempts)} attempts.`,
+      { cause: error instanceof Error ? error : undefined },
+    );
+  }
+
+  private retryFailedDriver(context: LoopErrorContext): boolean {
     // The failed driver is already materialized, so re-running it does not
-    // append its messages a second time. Unlike `stepRetry`'s free re-attempt,
-    // an overflow recovery rides through the normal step numbering (no
-    // `resumeStep`): compacting must not reset the per-turn maxSteps budget.
-    return {
-      requests: context.failedDriver === undefined ? [] : [context.failedDriver],
-    };
+    // append its messages a second time. The loop only learns that the error
+    // was caught; the re-run rides the normal step numbering and keeps
+    // consuming the per-turn maxSteps budget — compacting must not reset it.
+    const driver = context.failedDriver;
+    if (driver === undefined || context.currentStep?.signal.aborted === true) return false;
+    context.retry(driver, { at: 'head' });
+    return true;
   }
 
   private async beforeStep(signal: AbortSignal, turnId?: number): Promise<void> {
@@ -413,20 +439,35 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     const active = this._compacting;
     if (active === null) return;
     active.blockedByTurn = true;
-    if (signal !== undefined) {
-      signal.addEventListener('abort', () => {
-        if (this._compacting === active) {
-          active.abortController.abort();
-        }
-      }, { once: true });
-    }
+    this.propagateBlockingAbort(active, signal);
     this.eventBus.publish({ type: 'compaction.blocked', turnId });
     try {
       await active.promise;
     } catch (error) {
-      if (signal?.aborted === true && (active.abortController.signal.aborted || isAbortError(error))) return;
+      if (this.wasBlockingWaitAborted(active, signal, error)) return;
       throw error;
     }
+  }
+
+  private propagateBlockingAbort(active: ActiveCompaction, signal: AbortSignal | undefined): void {
+    signal?.addEventListener(
+      'abort',
+      () => {
+        if (this._compacting === active) active.abortController.abort();
+      },
+      { once: true },
+    );
+  }
+
+  private wasBlockingWaitAborted(
+    active: ActiveCompaction,
+    signal: AbortSignal | undefined,
+    error: unknown,
+  ): boolean {
+    return (
+      signal?.aborted === true &&
+      (active.abortController.signal.aborted || isAbortError(error))
+    );
   }
 
   private async compactionWorker(

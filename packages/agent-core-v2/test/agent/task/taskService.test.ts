@@ -36,7 +36,7 @@ import { EventBusService } from '#/app/event/eventBusService';
 import { ITaskService } from '#/app/task/task';
 
 import { stubContextMemory, stubWireRecord } from '../contextMemory/stubs';
-import { stubLoopWithHooks } from '../turn/stubs';
+import { stubLoopWithHooks } from '../loop/stubs';
 
 function fakeProcessTask(): AgentTask {
   return {

@@ -41,6 +41,9 @@ function createProfileStub(): IAgentProfileService & ProfileStub {
   return {
     active,
     _serviceBrand: undefined,
+    // `undefined` = every tool active (the unrestricted default), matching the
+    // real profile service's `ActiveToolsModel` initial state.
+    getActiveToolNames: () => undefined,
     addActiveTool: (name: string) => {
       active.add(name);
     },

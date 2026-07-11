@@ -3,9 +3,10 @@
  *
  * Loop error-recovery plugin: claims retryable provider failures (HTTP 429 /
  * 5xx, connection, timeout, empty response — `isRetryableGenerateError`) from
- * the loop's error-handler registry and re-runs the failed step's driver
- * after exponential backoff (`retryBackoffDelays`). The retry resumes the
- * failed step's number, so attempts consume no `maxSteps` budget; each
+ * the loop's error-handler registry and re-enqueues the failed step's driver
+ * at the head of the queue after exponential backoff (`retryBackoffDelays`).
+ * The loop only learns that the error was caught; the retry rides the normal
+ * step numbering and consumes `maxSteps` budget like any other step. Each
  * claimed failure publishes `turn.step.retrying`. Consecutive attempts are
  * counted per failed driver and reset when any step succeeds (`afterStep`)
  * or a new turn starts. Bound at Agent scope; Eager so the handler registers
@@ -30,7 +31,6 @@ import { unwrapErrorCause } from '#/errors';
 import {
   IAgentLoopService,
   type LoopErrorContext,
-  type LoopErrorRecovery,
 } from '#/agent/loop/loop';
 import { LOOP_CONTROL_SECTION, type LoopControl } from '#/agent/loop/configSection';
 
@@ -49,20 +49,20 @@ export class AgentStepRetryService extends Disposable implements IAgentStepRetry
   private failedAttempts = 0;
 
   constructor(
-    @IAgentLoopService loopService: IAgentLoopService,
+    @IAgentLoopService private readonly loopService: IAgentLoopService,
     @IConfigService private readonly config: IConfigService,
     @IEventBus private readonly eventBus: IEventBus,
   ) {
     super();
     this._register(
-      loopService.registerLoopErrorHandler({
+      this.loopService.registerLoopErrorHandler({
         id: 'step-retry',
         match: (context) => isRetryableGenerateError(unwrapErrorCause(context.error)),
         handle: (context) => this.recover(context),
       }),
     );
     this._register(
-      loopService.hooks.afterStep.register('step-retry', async (_ctx, next) => {
+      this.loopService.hooks.afterStep.register('step-retry', async (_ctx, next) => {
         this.resetAttempts();
         await next();
       }),
@@ -75,9 +75,9 @@ export class AgentStepRetryService extends Disposable implements IAgentStepRetry
     this.failedAttempts = 0;
   }
 
-  private async recover(context: LoopErrorContext): Promise<LoopErrorRecovery | undefined> {
+  private async recover(context: LoopErrorContext): Promise<boolean> {
     const driver = context.failedDriver;
-    if (driver === undefined || context.step === undefined) return undefined;
+    if (driver === undefined || context.step === undefined) return false;
 
     if (this.lastFailedDriverId !== driver.id) {
       this.lastFailedDriverId = driver.id;
@@ -92,7 +92,7 @@ export class AgentStepRetryService extends Disposable implements IAgentStepRetry
     );
     if (this.failedAttempts >= maxAttempts) {
       this.resetAttempts();
-      return undefined;
+      return false;
     }
 
     const delayMs = retryBackoffDelays(maxAttempts)[this.failedAttempts - 1] ?? 0;
@@ -110,8 +110,10 @@ export class AgentStepRetryService extends Disposable implements IAgentStepRetry
     await sleepForRetry(delayMs, context.signal);
 
     // The driver is already materialized, so its messages are not appended a
-    // second time; re-running it resumes the same step number.
-    return { requests: [driver], resumeStep: true };
+    // second time; re-running it drives another step over the same context.
+    if (context.currentStep?.signal.aborted === true) return false;
+    context.retry(driver, { at: 'head' });
+    return true;
   }
 }
 

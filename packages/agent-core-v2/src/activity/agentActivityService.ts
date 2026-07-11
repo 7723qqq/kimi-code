@@ -135,7 +135,7 @@ export class AgentActivityService extends Disposable implements IAgentActivitySe
         break;
     }
 
-    const turnId = this.wire.getModel(TurnModel).nextTurnId;
+    const turnId = opts?.turnId ?? this.wire.getModel(TurnModel).nextTurnId;
     const origin = opts?.origin ?? USER_PROMPT_ORIGIN;
     const lease = new LeaseImpl(turnId, origin, this);
     // Session admission consult + lease registration. Throws `activity.session_rejected`

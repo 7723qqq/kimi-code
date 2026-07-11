@@ -27,7 +27,7 @@ describe('session `interactions` event source', () => {
     const { event, fire } = manualEvent<void>();
     let pending: readonly unknown[] = [];
     const interaction = {
-      onDidChange: event,
+      onDidChangePending: event,
       listPending: () => pending,
     };
     const scope = {

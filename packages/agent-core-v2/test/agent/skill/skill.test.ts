@@ -18,7 +18,7 @@ import {
 } from '#/agent/skill/tools/skill';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import type { Turn } from '#/agent/turn/turn';
+import type { Turn } from '#/agent/loop/loop';
 import { IAgentWireService } from '#/wire/tokens';
 import { WireService } from '#/wire/wireServiceImpl';
 import { executeTool } from '../../tools/fixtures/execute-tool';
@@ -51,6 +51,7 @@ function fakeTurn(): Turn {
     signal: new AbortController().signal,
     ready: Promise.resolve(),
     result: Promise.resolve({ type: 'completed', steps: 0, truncated: false }),
+    cancel: () => true,
   };
 }
 
@@ -66,18 +67,8 @@ describe('AgentSkillService', () => {
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IAgentPromptService, {
-          prompt: (message) => {
-            prompted.push(message);
-            return Promise.resolve(fakeTurn());
-          },
-          steer: (message) => {
-            prompted.push(message);
-            return {
-              removeFromQueue: () => {},
-              launched: Promise.resolve(undefined),
-            };
-          },
-          retry: () => undefined,
+          enqueue: ({ message }: { message: ContextMessage }) => { prompted.push(message); return Promise.resolve({ launched: Promise.resolve(fakeTurn()) } as never); },
+          retry: () => Promise.resolve(undefined),
           undo: () => 0,
           clear: () => {},
         });
@@ -171,18 +162,8 @@ describe('SkillTool', () => {
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IAgentPromptService, {
-          prompt: (message: ContextMessage) => {
-            prompted.push(message);
-            return Promise.resolve(fakeTurn());
-          },
-          steer: (message: ContextMessage) => {
-            prompted.push(message);
-            return {
-              removeFromQueue: () => {},
-              launched: Promise.resolve(undefined),
-            };
-          },
-          retry: () => undefined,
+          enqueue: ({ message }: { message: ContextMessage }) => { prompted.push(message); return Promise.resolve({ launched: Promise.resolve(fakeTurn()) } as never); },
+          retry: () => Promise.resolve(undefined),
           undo: () => 0,
           clear: () => {},
         });

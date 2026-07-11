@@ -14,7 +14,6 @@ import { GoalModel } from '#/agent/goal/goalOps';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentTurnService } from '#/agent/turn/turn';
 import { IAgentUsageService } from '#/agent/usage/usage';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
@@ -34,17 +33,6 @@ function noopDisposable(): { dispose: () => void } {
 
 function hookSlot(): { register: () => { dispose: () => void } } {
   return { register: () => noopDisposable() };
-}
-
-function createTurnStub(): IAgentTurnService {
-  return {
-    _serviceBrand: undefined,
-    hooks: { onLaunched: hookSlot(), onEnded: hookSlot() },
-    getActiveTurn: () => undefined,
-    launch: () => {
-      throw new Error('not exercised');
-    },
-  } as unknown as IAgentTurnService;
 }
 
 function createLoopStub(): IAgentLoopService {
@@ -114,7 +102,6 @@ function buildHost(key: string): {
   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
   ix.set(IAgentWireService, new SyncDescriptor(WireService, [{ logScope: SCOPE, logKey: key }]));
   ix.set(IEventBus, new SyncDescriptor(EventBusService));
-  ix.stub(IAgentTurnService, createTurnStub());
   ix.stub(IAgentLoopService, createLoopStub());
   ix.stub(IAgentUsageService, {
     hooks: { onDidRecord: hookSlot() },

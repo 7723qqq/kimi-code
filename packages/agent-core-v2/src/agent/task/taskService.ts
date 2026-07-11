@@ -973,14 +973,13 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   private async notifyAgentTask(info: AgentTaskInfo): Promise<void> {
     const context = await this.buildAgentTaskNotificationContext(info);
     if (context === undefined) return;
-    this.loop.enqueue(
-      new TaskNotificationStepRequest({
-        role: 'user',
-        content: [...context.content],
-        toolCalls: [],
-        origin: context.origin,
-      }),
-    );
+    const request = new TaskNotificationStepRequest({
+      role: 'user',
+      content: [...context.content],
+      toolCalls: [],
+      origin: context.origin,
+    });
+    this.loop.enqueue(request);
     this.fireNotificationHook(context.notification);
   }
 

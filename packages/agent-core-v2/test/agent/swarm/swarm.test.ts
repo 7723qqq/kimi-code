@@ -18,7 +18,7 @@ import { AgentSwarmTool, AgentSwarmToolInputSchema } from '#/agent/swarm/tools/a
 import type { ExecutableToolContext } from '#/agent/tool/toolContract';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
-import { IAgentTurnService } from '#/agent/turn/turn';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentWireRecordService } from '#/agent/wireRecord/wireRecord';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
@@ -32,7 +32,7 @@ import { EventBusService } from '#/app/event/eventBusService';
 
 import { stubContextMemory, stubWireRecord } from '../contextMemory/stubs';
 import { executeTool } from '../../tools/fixtures/execute-tool';
-import { stubTurnWithHooks } from '../turn/stubs';
+import { stubLoopWithHooks } from '../loop/stubs';
 
 const signal = new AbortController().signal;
 
@@ -78,7 +78,7 @@ describe('AgentSwarmService', () => {
       new SyncDescriptor(WireService, [{ logScope: 'wire', logKey: 'swarm-test' }]),
     );
     ix.set(IEventBus, new SyncDescriptor(EventBusService));
-    ix.stub(IAgentTurnService, stubTurnWithHooks());
+    ix.stub(IAgentLoopService, stubLoopWithHooks());
     ix.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
     ix.stub(IAgentLifecycleService, {});
     ix.stub(ISessionSwarmService, {

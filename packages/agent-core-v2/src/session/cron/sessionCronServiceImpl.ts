@@ -313,7 +313,7 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
     if (!mainHandle) return;
 
     const loop = mainHandle.accessor.get(IAgentLoopService);
-    if (loop.getActiveTurn() !== undefined) return;
+    if (loop.status().state === 'running') return;
 
     const now = this.clocks.wallNow();
 
@@ -425,7 +425,7 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
       toolCalls: [],
       origin,
     };
-    void promptService.steer(message).launched.catch(() => {});
+    void promptService.inject(message).catch(() => {});
     this.telemetry.track(CRON_MISSED, { count: tasks.length });
     return undefined;
   }
@@ -481,11 +481,11 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
       toolCalls: [],
       origin,
     };
-    const buffered = mainHandle.accessor.get(IAgentLoopService).getActiveTurn() !== undefined;
+    const buffered = mainHandle.accessor.get(IAgentLoopService).status().state === 'running';
 
     let launched: Promise<unknown>;
     try {
-      launched = promptService.steer(message).launched;
+      launched = promptService.inject(message);
     } catch (error) {
       this.debugLog(
         `steer threw for task ${task.id}: ${

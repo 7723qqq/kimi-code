@@ -9,7 +9,10 @@
  * after the dispatch, and are re-derived from the rebuilt Model by
  * `wire.onRestored` after `wire.replay`, so a resumed agent re-registers exactly
  * the tools the persisted ops describe without re-firing any live notification.
- * The per-tool `IDisposable` handles stay live-only (they cannot be persisted).
+ * The restore re-registers into the tool registry only: the active-tool set is
+ * owned by the persisted `ActiveToolsModel`, so the ephemeral `addActiveTool`
+ * overlay is not rebuilt (it is live-only by design). The per-tool
+ * `IDisposable` handles stay live-only (they cannot be persisted).
  * Bound at Agent scope.
  */
 
@@ -74,12 +77,20 @@ export class AgentUserToolService extends Disposable implements IAgentUserToolSe
   }
 
   private restoreRegisteredTools(): void {
+    // The persisted `ActiveToolsModel` is the source of truth for the active
+    // set on resume. Re-activating a tool whose registration predates the
+    // final `tools.set_active_tools` would resurrect a stale ephemeral
+    // overlay on top of an explicit base, so only activate tools the base
+    // does not exclude.
+    const persistedActive = this.profile.getActiveToolNames();
     for (const registration of this.wire.getModel(UserToolModel).values()) {
-      this.applyRegister(registration);
+      const activate =
+        persistedActive === undefined || persistedActive.includes(registration.name);
+      this.applyRegister(registration, { activate });
     }
   }
 
-  private applyRegister(input: UserToolRegistration): void {
+  private applyRegister(input: UserToolRegistration, options?: { readonly activate?: boolean }): void {
     const { name, description, parameters } = input;
     this.applyUnregister(name);
     const tool: ExecutableTool = {
@@ -92,6 +103,7 @@ export class AgentUserToolService extends Disposable implements IAgentUserToolSe
       }),
     };
     this.registrations.set(name, this._register(this.registry.register(tool, { source: 'user' })));
+    if (options?.activate === false) return;
     this.profile.addActiveTool(name);
   }
 

@@ -12,9 +12,9 @@
  * at a fork boundary; the `goal.*` record shapes stay declared in
  * `WireRecordMap` because they still ride the shared wire log read by
  * `getRecords()` and replayed into the Model. Injects reminders through
- * `contextInjector`, drives continuation turns by
- * enqueueing `nextTurn` `StepRequest`s onto `loop` (the continuation message
- * materializes when the loop pops it), accounts live
+ * `contextInjector`, drives continuation turns by enqueueing `newTurn`
+ * `StepRequest`s onto `loop` (the continuation message materializes when the
+ * loop pops it), accounts live
  * turn usage through `usage`, writes system reminders through
  * `systemReminder`, registers model tools through `toolRegistry`, and reports
  * telemetry through `telemetry`. Bound at Agent scope.
@@ -47,7 +47,6 @@ import { IConfigService } from '#/app/config/config';
 import {
   ErrorCodes,
   KimiError,
-  isKimiError,
   toKimiErrorPayload,
   type KimiErrorPayload,
 } from '#/errors';
@@ -214,6 +213,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   private readonly goalOutcomeToolResultTurns = new Set<number>();
   private readonly goalOutcomeContinuationTurns = new Set<number>();
   private readonly budgetGraceTurns = new Set<number>();
+  private pendingContinuation: import('#/agent/loop/loop').EnqueueReceipt | undefined;
 
   constructor(
     @IAgentWireService private readonly wire: IWireService,
@@ -308,27 +308,8 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   }
 
   async createGoal(input: CreateGoalInput, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
-    const objective = input.objective.trim();
-    if (objective.length === 0) {
-      throw new KimiError(ErrorCodes.GOAL_OBJECTIVE_EMPTY, 'Goal objective cannot be empty');
-    }
-    if (objective.length > MAX_GOAL_OBJECTIVE_LENGTH) {
-      throw new KimiError(
-        ErrorCodes.GOAL_OBJECTIVE_TOO_LONG,
-        `Goal objective cannot exceed ${MAX_GOAL_OBJECTIVE_LENGTH} characters`,
-      );
-    }
-
-    if (this.goalState !== null) {
-      if (input.replace !== true) {
-        throw new KimiError(
-          ErrorCodes.GOAL_ALREADY_EXISTS,
-          'A goal already exists; use replace to start a new one',
-        );
-      }
-      this.clearInternal('system');
-    }
-
+    const objective = this.validateObjective(input.objective);
+    this.prepareForGoalCreation(input.replace === true);
     this.wire.dispatch(
       createGoal({
         goalId: randomUUID(),
@@ -342,6 +323,31 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this.emitGoalUpdated(this.toSnapshot(state));
     this.telemetry.track('goal_created', { actor, replace: input.replace === true });
     return this.toSnapshot(state);
+  }
+
+  private validateObjective(value: string): string {
+    const objective = value.trim();
+    if (objective.length === 0) {
+      throw new KimiError(ErrorCodes.GOAL_OBJECTIVE_EMPTY, 'Goal objective cannot be empty');
+    }
+    if (objective.length > MAX_GOAL_OBJECTIVE_LENGTH) {
+      throw new KimiError(
+        ErrorCodes.GOAL_OBJECTIVE_TOO_LONG,
+        `Goal objective cannot exceed ${MAX_GOAL_OBJECTIVE_LENGTH} characters`,
+      );
+    }
+    return objective;
+  }
+
+  private prepareForGoalCreation(replace: boolean): void {
+    if (this.goalState === null) return;
+    if (!replace) {
+      throw new KimiError(
+        ErrorCodes.GOAL_ALREADY_EXISTS,
+        'A goal already exists; use replace to start a new one',
+      );
+    }
+    this.clearInternal('system');
   }
 
   async pauseGoal(input: GoalReasonInput = {}, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
@@ -422,23 +428,34 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   ): Promise<GoalSnapshot | null> {
     const state = this.goalState;
     if (state === null || state.status !== 'active') return null;
-    const wallClockMs = this.settleWallClock(state);
-    this.wallClockResumedAt = undefined;
-    this.wire.dispatch(
-      updateGoal({ status: 'complete', reason: input.reason, wallClockMs, actor }),
-    );
+    this.dispatchCompletion(state, input.reason, actor);
     const completed = this.requireState();
     const snapshot = this.toSnapshot(completed);
-    this.emitGoalUpdated(snapshot, {
-      kind: 'completion',
-      status: 'complete',
-      reason: input.reason,
-      stats: this.statsOf(completed),
-      actor,
-    });
+    this.emitCompletion(completed, snapshot, input.reason, actor);
     this.trackStatusChanged(completed, actor);
     this.clearInternal(actor);
     return snapshot;
+  }
+
+  private dispatchCompletion(state: GoalState, reason: string | undefined, actor: GoalActor): void {
+    const wallClockMs = this.settleWallClock(state);
+    this.wallClockResumedAt = undefined;
+    this.wire.dispatch(updateGoal({ status: 'complete', reason, wallClockMs, actor }));
+  }
+
+  private emitCompletion(
+    state: GoalState,
+    snapshot: GoalSnapshot,
+    reason: string | undefined,
+    actor: GoalActor,
+  ): void {
+    this.emitGoalUpdated(snapshot, {
+      kind: 'completion',
+      status: 'complete',
+      reason,
+      stats: this.statsOf(state),
+      actor,
+    });
   }
 
   async pauseOnInterrupt(input: GoalReasonInput = {}): Promise<GoalSnapshot | null> {
@@ -512,46 +529,37 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   }
 
   private handleAfterStep(ctx: AfterStepContext): void {
+    if (this.stopAfterBudgetReached(ctx)) return;
+    this.enqueueGoalOutcomeContinuation(ctx);
+  }
+
+  private stopAfterBudgetReached(ctx: AfterStepContext): boolean {
     const state = this.goalState;
     if (
-      this.goalDrivenTurns.has(ctx.turnId) &&
-      state !== null &&
-      this.toSnapshot(state).budget.overBudget
+      !this.goalDrivenTurns.has(ctx.turnId) ||
+      state === null ||
+      !this.toSnapshot(state).budget.overBudget
     ) {
-      // A reached hard goal budget is a deterministic ceiling. Usage
-      // accounting already blocked the goal (so this accepts any remaining
-      // goal record, not just an active one); here the turn winds down. A
-      // step that requested tool calls gets exactly one grace step: a
-      // reminder appended after the tool results tells the model to write a
-      // brief final status message without tools (further tool calls are
-      // answered by the goal-budget-reject gate without executing). The
-      // grace step is the loop's own tool-call continuation, so nothing is
-      // enqueued here. After the grace step — or when the step ended without
-      // tool calls — the backstop fires: stopTurn wins in the run loop over
-      // requested tool calls and any queued step requests, so the turn ends
-      // at this step boundary.
-      const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
-      if (
-        ctx.finishReason === 'tool_calls' &&
-        !this.budgetGraceTurns.has(ctx.turnId) &&
-        hasStepBudgetRemaining(maxSteps, ctx.step)
-      ) {
-        this.budgetGraceTurns.add(ctx.turnId);
-        this.reminders.appendSystemReminder(GOAL_BUDGET_STOP_REMINDER, {
-          kind: 'system_trigger',
-          name: GOAL_BUDGET_STOP_REMINDER_NAME,
-        });
-        return;
-      }
-      ctx.stopTurn = true;
-      return;
+      return false;
     }
-    // After UpdateGoal marks a goal terminal, its tool result carries the
-    // final-message reminder. Let the model read that result and produce one
-    // user-facing outcome message before the turn ends — unless the step
-    // budget is already exhausted, in which case the turn ends 'completed'.
-    // The loop enqueues no continuation for a stopTurn tool result, so the
-    // extra step is requested explicitly.
+    const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
+    if (
+      ctx.finishReason === 'tool_calls' &&
+      !this.budgetGraceTurns.has(ctx.turnId) &&
+      hasStepBudgetRemaining(maxSteps, ctx.step)
+    ) {
+      this.budgetGraceTurns.add(ctx.turnId);
+      this.reminders.appendSystemReminder(GOAL_BUDGET_STOP_REMINDER, {
+        kind: 'system_trigger',
+        name: GOAL_BUDGET_STOP_REMINDER_NAME,
+      });
+      return true;
+    }
+    ctx.stopTurn = true;
+    return true;
+  }
+
+  private enqueueGoalOutcomeContinuation(ctx: AfterStepContext): void {
     if (this.goalOutcomeContinuationTurns.has(ctx.turnId)) return;
     if (!this.goalOutcomeToolResultTurns.delete(ctx.turnId)) return;
     this.goalOutcomeContinuationTurns.add(ctx.turnId);
@@ -564,6 +572,24 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     turnId: number,
     result: Pick<TurnEndedEvent, 'reason' | 'error'>,
   ): Promise<void> {
+    const starterTurn = this.clearTurnTracking(turnId);
+    if (
+      result.reason === 'blocked' ||
+      result.reason === 'cancelled' ||
+      result.reason === 'failed'
+    ) {
+      await this.settleAbnormalTurn(result);
+      return;
+    }
+    if (starterTurn) await this.incrementTurn();
+
+    const state = this.goalState;
+    if (state === null || state.status !== 'active') return;
+    if (this.blockIfBudgetReached(state) !== null) return;
+    this.launchContinuationTurn();
+  }
+
+  private clearTurnTracking(turnId: number): boolean {
     if (this.liveTurnId === turnId) this.liveTurnId = undefined;
     const starterTurn = this.goalStarterTurns.delete(turnId);
     this.goalDrivenTurns.delete(turnId);
@@ -571,27 +597,25 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this.goalOutcomeToolResultTurns.delete(turnId);
     this.goalOutcomeContinuationTurns.delete(turnId);
     this.budgetGraceTurns.delete(turnId);
+    return starterTurn;
+  }
 
+  private async settleAbnormalTurn(
+    result: Pick<TurnEndedEvent, 'reason' | 'error'>,
+  ): Promise<boolean> {
     if (result.reason === 'blocked') {
       await this.markBlocked({ reason: 'Blocked by UserPromptSubmit hook' });
-      return;
+      return true;
     }
-
     if (result.reason === 'cancelled') {
       await this.pauseOnInterrupt({ reason: 'Paused after interruption' });
-      return;
+      return true;
     }
     if (result.reason === 'failed') {
       await this.pauseActiveGoal({ reason: goalFailurePauseReason(result.error) });
-      return;
+      return true;
     }
-
-    if (starterTurn) await this.incrementTurn();
-
-    const state = this.goalState;
-    if (state === null || state.status !== 'active') return;
-    if (this.blockIfBudgetReached(state) !== null) return;
-    this.launchContinuationTurn();
+    return false;
   }
 
   // A rejected turn-ended handler (e.g. a continuation launch losing a race
@@ -611,29 +635,29 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     }
   }
 
-  // Drives the next goal turn the same way `prompt` drives user turns: hand
-  // the `loop` a `nextTurn` request and the loop owns admission — it takes
-  // the turn lane synchronously, so a lost admission race (another activity
-  // holds the lane, or the session is closing) throws before the request ever
-  // enters the queue and the continuation simply defers: the goal stays
-  // active and the next turn-ended event re-runs the admission check. Any
-  // other failure propagates so the goal settles instead of stranding with
-  // nothing driving it.
   private launchContinuationTurn(): void {
+    if (this.pendingContinuation !== undefined) return;
     const message: ContextMessage = {
       role: 'user',
       content: [{ type: 'text', text: GOAL_CONTINUATION_PROMPT }],
       toolCalls: [],
       origin: GOAL_CONTINUATION_ORIGIN,
     };
-    try {
-      this.loopService.enqueue(
-        new MessageStepRequest(message, { kind: 'goal_continuation', priority: 'nextTurn' }),
-      );
-    } catch (error) {
-      if (isActivityAdmissionError(error)) return;
-      throw error;
-    }
+    const request = new MessageStepRequest(message, {
+      kind: 'goal_continuation',
+      admission: 'newTurn',
+    });
+    const receipt = this.loopService.enqueue(request);
+    this.pendingContinuation = receipt;
+    void receipt.assigned.then(({ turn }) => turn.result).finally(() => {
+      if (this.pendingContinuation === receipt) this.pendingContinuation = undefined;
+    });
+  }
+
+  private cancelPendingContinuation(): void {
+    const receipt = this.pendingContinuation;
+    this.pendingContinuation = undefined;
+    receipt?.abort();
   }
 
   private normalizeAfterReplay(): void {
@@ -672,6 +696,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     opts: { readonly emit?: boolean; readonly track?: boolean } = {},
   ): void {
     if (this.goalState === null) return;
+    this.cancelPendingContinuation();
     this.wallClockResumedAt = undefined;
     this.wire.dispatch(clearGoal({}));
     if (opts.emit !== false) this.emitGoalUpdated(null);
@@ -689,6 +714,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       this.wallClockResumedAt = Date.now();
       this.adoptStarterTurn();
     } else if (state.status === 'active') {
+      this.cancelPendingContinuation();
       this.wallClockResumedAt = undefined;
     }
     this.wire.dispatch(updateGoal({ status, reason, wallClockMs, actor }));
@@ -870,20 +896,6 @@ function normalizeGoalErrorPayload(error: unknown): KimiErrorPayload {
 function pauseReasonWithMessage(prefix: string, message: string | undefined): string {
   const trimmed = message?.trim();
   return trimmed === undefined || trimmed.length === 0 ? prefix : `${prefix}: ${trimmed}`;
-}
-
-// The coded failures `activity.begin('turn')` can raise: each one means "the
-// turn lane could not be taken right now", never a real turn failure.
-const ACTIVITY_ADMISSION_CODES: ReadonlySet<string> = new Set<string>([
-  ErrorCodes.ACTIVITY_AGENT_BUSY,
-  ErrorCodes.ACTIVITY_DISPOSING,
-  ErrorCodes.ACTIVITY_DISPOSED,
-  ErrorCodes.ACTIVITY_INITIALIZING,
-  ErrorCodes.ACTIVITY_SESSION_REJECTED,
-]);
-
-function isActivityAdmissionError(error: unknown): boolean {
-  return isKimiError(error) && ACTIVITY_ADMISSION_CODES.has(error.code);
 }
 
 registerScopedService(

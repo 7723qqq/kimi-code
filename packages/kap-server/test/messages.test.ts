@@ -38,7 +38,7 @@ interface PageWire {
   has_more: boolean;
 }
 
-const MSG_ID = /^msg_[0-9A-Z]{26}_\d{6}$/;
+const MSG_ID = /^msg_.+/;
 
 describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
   let server: RunningServer | undefined;

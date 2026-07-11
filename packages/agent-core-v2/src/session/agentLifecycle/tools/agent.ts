@@ -316,7 +316,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
     if (subagentParentAgentId(meta) !== this.callerAgentId) {
       throw new Error(`Agent instance "${agentId}" does not belong to this parent agent`);
     }
-    if (target.accessor.get(IAgentLoopService).getActiveTurn() !== undefined) {
+    if (target.accessor.get(IAgentLoopService).status().state === 'running') {
       throw new Error(`Agent instance "${agentId}" is already running and cannot run concurrently`);
     }
   }

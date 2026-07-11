@@ -26,7 +26,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IAgentTaskService } from '#/agent/task/task';
 import { SubagentTask } from '#/session/agentLifecycle/tools/subagent-task';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentTurnService } from '#/agent/turn/turn';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import {
   taskServices,
   createTestAgent,
@@ -58,13 +58,13 @@ describe('task notification → main agent (real Agent instance)', () => {
   describe('live notification delivery', () => {
     let ctx: TestAgentContext;
     let background: IAgentTaskService;
-    let turn: IAgentTurnService;
+    let loop: IAgentLoopService;
     let profile: IAgentProfileService;
 
     beforeEach(() => {
       ctx = createTestAgent();
       background = ctx.get(IAgentTaskService);
-      turn = ctx.get(IAgentTurnService);
+      loop = ctx.get(IAgentLoopService);
       profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: [] });
     });
@@ -78,7 +78,7 @@ describe('task notification → main agent (real Agent instance)', () => {
     });
 
     it('IDLE: completed bg agent notification is queued and rides the next turn', async () => {
-      expect(turn.getActiveTurn()).toBeUndefined();
+      expect(loop.status().activeTurnId).toBeUndefined();
       expect(ctx.llmCalls.length).toBe(0);
 
       const taskId = background.registerTask(agentTask(
@@ -96,7 +96,7 @@ describe('task notification → main agent (real Agent instance)', () => {
         { timeout: 2000 },
       );
       expect(ctx.llmCalls.length).toBe(0);
-      expect(turn.getActiveTurn()).toBeUndefined();
+      expect(loop.status().activeTurnId).toBeUndefined();
 
       // The next launched turn drains the queue: the mergeable notification
       // folds into the prompt's batch, so the turn's first LLM call carries
@@ -246,7 +246,7 @@ describe('task notification → main agent (real Agent instance)', () => {
         { timeout: 2000 },
       );
       expect(ctx.llmCalls.length).toBe(1);
-      expect(turn.getActiveTurn()).toBeUndefined();
+      expect(loop.status().activeTurnId).toBeUndefined();
 
       // The next user prompt drains the queued notification.
       ctx.mockNextResponse({ type: 'text', text: 'ack from bg notification' });
@@ -269,7 +269,7 @@ describe('task notification → main agent (real Agent instance)', () => {
     let sessionDir: string;
     let ctx: TestAgentContext;
     let background: TaskServiceTestManager;
-    let turn: IAgentTurnService;
+    let loop: IAgentLoopService;
 
     beforeEach(async () => {
       sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-resume-repro-'));
@@ -300,7 +300,7 @@ describe('task notification → main agent (real Agent instance)', () => {
 
       ctx = createTestAgent(homeDirServices(sessionDir), taskServices());
       background = ctx.get(IAgentTaskService) as TaskServiceTestManager;
-      turn = ctx.get(IAgentTurnService);
+      loop = ctx.get(IAgentLoopService);
       const profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: [] });
     });
@@ -330,7 +330,7 @@ describe('task notification → main agent (real Agent instance)', () => {
       // We do NOT mock any LLM response. If the resume path
       // mistakenly launches a turn, scripted-generate throws
       // "Unexpected generate call" and the test fails loudly.
-      const launchSpy = vi.spyOn(turn, 'launch');
+      const launchSpy = vi.spyOn(loop as unknown as { startTurn: () => unknown }, 'startTurn');
 
       // Reproduce Agent.resume()'s post-replay sequence.
       await background.loadFromDisk();
@@ -351,7 +351,7 @@ describe('task notification → main agent (real Agent instance)', () => {
       // loop), so no new turn ran.
       expect(launchSpy).not.toHaveBeenCalled();
       expect(ctx.llmCalls.length).toBe(0);
-      expect(turn.getActiveTurn()).toBeUndefined();
+      expect(loop.status().activeTurnId).toBeUndefined();
 
       // Both notifications are in context, waiting for the user. The
       // completed bash task references its persisted output file rather

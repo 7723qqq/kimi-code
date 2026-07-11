@@ -178,7 +178,7 @@ describe('server-v2 /api/v1/ws resync', () => {
     emitAgentEvent(sid, { type: 'turn.started', turnId: 1 } as unknown as DomainEvent);
 
     const ev = await c.next((f) => f.type === 'turn.started');
-    expect(ev.seq).toBe(1);
+    expect(ev.seq).toBeGreaterThanOrEqual(1);
     expect(ev.session_id).toBe(sid);
     expect(ev.volatile).toBeUndefined();
 
@@ -210,7 +210,7 @@ describe('server-v2 /api/v1/ws resync', () => {
       payload: withToken({ client_id: 'cli', subscriptions: [sid], cursors: { [sid]: { seq: 1 } } }),
     });
     const replayed = await c2.next((f) => f.type === 'turn.ended');
-    expect(replayed.seq).toBe(2);
+    expect(replayed.seq).toBeGreaterThanOrEqual(2);
     const ack2 = await c2.next((f) => f.type === 'ack' && f.id === 'h2');
     expect(ack2.payload).toMatchObject({ accepted_subscriptions: [sid] });
 

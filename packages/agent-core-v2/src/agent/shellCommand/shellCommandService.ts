@@ -158,7 +158,7 @@ export class AgentShellCommandService implements IAgentShellCommandService {
   }
 
   private notifyBackgrounded(output: string): void {
-    this.promptService.steer({
+    void this.promptService.inject({
       role: 'user',
       content: [{ type: 'text', text: output }],
       toolCalls: [],

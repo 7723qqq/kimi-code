@@ -87,6 +87,7 @@ import {
   ISessionProcessRunner,
   IAgentScopeContext,
   IAgentStepRetryService,
+  IAgentLoopContinuationService,
   IAgentSwarmService,
   AgentSwarmService,
   ITelemetryService,
@@ -1206,6 +1207,9 @@ export class AgentTestContext {
     // nothing pulls it lazily, so ignite it the way `AgentLifecycleService`
     // does, or turns driven directly through `loop.run` would never retry.
     this.get(IAgentStepRetryService);
+    // Same for the loop-continuation aspect: it only observes `afterStep`, so
+    // without ignition no tool-using turn would ever get its next step.
+    this.get(IAgentLoopContinuationService);
     const tasks = this.get(IAgentTaskService);
     const permission = this.get(IAgentPermissionGate);
     const swarm = this.get(IAgentSwarmService);
@@ -2074,7 +2078,15 @@ function taskNotificationKey(taskId: string, status: string): string {
 function configStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot['config'] {
   const profile = ctx.get(IAgentProfileService);
   const data = profile.data();
-  const model = profile.resolveModel();
+  // A restored alias may be unresolvable locally (the model is not in this
+  // config.toml); the resume comparison then carries no provider rather than
+  // failing the whole snapshot.
+  let model: ReturnType<IAgentProfileService['resolveModel']>;
+  try {
+    model = profile.resolveModel();
+  } catch {
+    model = undefined;
+  }
   const providerConfig =
     model === undefined ? undefined : ctx.get(IProviderService).get(model.providerName);
   return {

@@ -20,19 +20,13 @@ import { USER_PROMPT_ORIGIN, type ContextMessage, type PromptOrigin } from '#/ag
 
 export type StepRequestState = 'pending' | 'materialized' | 'aborted';
 
-/**
- * Which turn a queued request belongs to:
- * - `tryInTurn` joins the active turn when one is running; with no active turn
- *   it waits in the queue and rides the next turn (steers, continuations,
- *   task notifications). This is the default.
- * - `nextTurn` starts a fresh turn: `enqueue` takes the turn lane through the
- *   `activity` kernel and throws its coded admission error when another turn
- *   is active (prompts, retries, goal continuations). The request must carry
- *   a `turnSeed` for the `turn.prompt` record.
- */
-export type StepRequestPriority = 'tryInTurn' | 'nextTurn';
+export type StepRequestAdmission =
+  | 'newTurn'
+  | 'activeOrNewTurn'
+  | 'activeOrNextTurn'
+  | 'activeTurnOnly';
 
-/** Input/origin recorded through `turn.prompt` when a `nextTurn` request starts a turn. */
+/** Input/origin recorded through `turn.prompt` when a request starts a turn. */
 export interface TurnSeed {
   readonly input: readonly ContentPart[];
   readonly origin: PromptOrigin;
@@ -43,8 +37,8 @@ export interface StepRequestOptions {
   readonly mergeable?: boolean;
   /** Turn-scoped requests are aborted when the owning run ends; agent-scoped ones (steers) carry into the next turn. */
   readonly turnScoped?: boolean;
-  /** Turn membership; see {@link StepRequestPriority}. Defaults to `tryInTurn`. */
-  readonly priority?: StepRequestPriority;
+  /** Turn admission semantics. Defaults to `activeOrNextTurn`. */
+  readonly admission?: StepRequestAdmission;
 }
 
 export abstract class StepRequest {
@@ -52,21 +46,17 @@ export abstract class StepRequest {
   abstract readonly kind: string;
   readonly mergeable: boolean;
   readonly turnScoped: boolean;
-  readonly priority: StepRequestPriority;
+  readonly admission: StepRequestAdmission;
 
   private _state: StepRequestState = 'pending';
 
   constructor(options: StepRequestOptions = {}) {
     this.mergeable = options.mergeable ?? false;
     this.turnScoped = options.turnScoped ?? true;
-    this.priority = options.priority ?? 'tryInTurn';
+    this.admission = options.admission ?? 'activeOrNextTurn';
   }
 
-  /**
-   * Seed for the `turn.prompt` record when a `nextTurn` request starts a turn.
-   * `undefined` for requests that never start turns; the loop rejects a
-   * `nextTurn` request without one.
-   */
+  /** Seed for the `turn.prompt` record when this request starts a turn. */
   get turnSeed(): TurnSeed | undefined {
     return undefined;
   }

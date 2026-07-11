@@ -22,7 +22,7 @@ import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
 import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
-import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IAgentUsageService } from '#/agent/usage/usage';
@@ -104,10 +104,22 @@ interface LLMRequestLogInput {
   readonly fields?: LLMRequestLogFields;
 }
 
+/**
+ * The profile-derived request config one turn runs on: the resolved Model,
+ * its model context, and the system prompt, captured once on the turn's
+ * first step request and reused by every later step of the same turn.
+ */
+interface TurnRequestConfig {
+  readonly resolved: ProfileModelContext;
+  readonly model: Model;
+  readonly systemPrompt: string;
+}
+
 export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   declare readonly _serviceBrand: undefined;
 
   private lastConfigLogSignature: string | undefined;
+  private readonly turnConfigs = new Map<number, TurnRequestConfig>();
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -260,10 +272,10 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   }
 
   private resolveRequest(overrides: LLMRequestOverrides): ResolvedLLMRequest {
-    const resolved = this.profile.resolveModelContext();
-    let model = this.profile.getProvider();
-    model = applyCompletionBudget({
-      model,
+    const turnConfig = this.resolveTurnConfig(overrides.source);
+    const resolved = turnConfig?.resolved ?? this.profile.resolveModelContext();
+    const model = applyCompletionBudget({
+      model: turnConfig?.model ?? this.profile.getProvider(),
       budget: resolveCompletionBudget({
         maxOutputSize: overrides.maxOutputSize ?? resolved.maxOutputSize,
         reservedContextSize: resolved.reservedContextSize,
@@ -285,12 +297,39 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       model,
       modelAlias: resolved.modelAlias,
       thinkingEffort: resolved.thinkingLevel,
-      systemPrompt: overrides.systemPrompt ?? this.profile.getSystemPrompt(),
+      systemPrompt: overrides.systemPrompt ?? turnConfig?.systemPrompt ?? this.profile.getSystemPrompt(),
       tools: [...(overrides.tools ?? this.defaultTools())],
       messages: [...messages],
       source: overrides.source,
       logFields: logFieldsForSource(overrides.source),
     };
+  }
+
+  /**
+   * Per-turn request-config snapshot (v1 parity): model + system prompt
+   * captured on the turn's first step request and reused by every later step
+   * of that turn, so a mid-turn `config.update` only takes effect on the NEXT
+   * turn. Tools are deliberately NOT snapshotted — they are re-read per step
+   * so a `select_tools` load or `setActiveTools` lands on the very next step
+   * of the same turn. Turn ids are monotonic per agent, so a newer turn
+   * evicts every older entry; no `turn.ended` subscription is needed.
+   */
+  private resolveTurnConfig(source: LLMRequestSource | undefined): TurnRequestConfig | undefined {
+    if (source?.type !== 'turn') return undefined;
+    const turnId = source.turnId;
+    for (const id of this.turnConfigs.keys()) {
+      if (id < turnId) this.turnConfigs.delete(id);
+    }
+    let snapshot = this.turnConfigs.get(turnId);
+    if (snapshot === undefined) {
+      snapshot = {
+        resolved: this.profile.resolveModelContext(),
+        model: this.profile.getProvider(),
+        systemPrompt: this.profile.getSystemPrompt(),
+      };
+      this.turnConfigs.set(turnId, snapshot);
+    }
+    return snapshot;
   }
 
   private logRequest(input: LLMRequestLogInput): void {

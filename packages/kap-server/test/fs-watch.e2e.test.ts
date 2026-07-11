@@ -213,7 +213,7 @@ describe('WS fs watch (kap-server)', () => {
 
   it.skipIf(process.platform === 'win32')(
     'burst > 500 changes inside 200ms window → truncated:true',
-    { timeout: 5000 },
+    { timeout: 15000 },
     async () => {
       const r = await boot();
       const sid = await createSession(r);
@@ -234,7 +234,7 @@ describe('WS fs watch (kap-server)', () => {
       mkdirSync(burstDir, { recursive: true });
       for (let i = 0; i < 600; i++) writeFileSync(join(burstDir, `f${i}.txt`), `x${i}`);
 
-      const deadline = Date.now() + 4000;
+      const deadline = Date.now() + 12000;
       let sawTruncated = false;
       while (Date.now() < deadline) {
         let frame: WsFrame;

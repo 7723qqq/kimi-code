@@ -24,6 +24,8 @@ export type AgentLane = 'initializing' | 'idle' | 'turn' | 'disposing' | 'dispos
 export interface BeginOptions {
   /** Turn source, forwarded to the lease and the snapshot; admission is origin-agnostic. */
   readonly origin?: PromptOrigin;
+  /** Stable id reserved by the loop when the turn is enqueued. */
+  readonly turnId?: number;
 }
 
 export interface ActivityLease {
