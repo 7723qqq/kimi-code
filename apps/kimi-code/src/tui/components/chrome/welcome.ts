@@ -9,6 +9,8 @@ import chalk from 'chalk';
 
 import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
+
 import { isRainbowDancing, renderDanceWelcomeHeader } from '#/tui/easter-eggs/dance';
 import type { AppState } from '#/tui/types';
 import { currentTheme } from '#/tui/theme';
@@ -30,14 +32,14 @@ export class WelcomeComponent implements Component {
     const effectiveActiveModel = activeModel === undefined ? undefined : effectiveModelAlias(activeModel);
 
     if (safeWidth < 24) {
-      const title = chalk.bold.hex(currentTheme.palette.primary)('Welcome to Kimi Code!');
+      const title = chalk.bold.hex(currentTheme.palette.primary)(t('tui.chrome.welcome.title'));
       const prompt = isLoggedOut
-        ? chalk.hex(currentTheme.palette.warning)('Run /login or /provider to get started.')
-        : chalk.hex(currentTheme.palette.textDim)('Send /help for help information.');
+        ? chalk.hex(currentTheme.palette.warning)(t('tui.chrome.welcome.loggedOutPrompt'))
+        : chalk.hex(currentTheme.palette.textDim)(t('tui.chrome.welcome.helpPrompt'));
       const model = isLoggedOut
-        ? chalk.hex(currentTheme.palette.warning)('not set, run /login or /provider')
+        ? chalk.hex(currentTheme.palette.warning)(t('tui.chrome.welcome.modelNotSet'))
         : (effectiveActiveModel?.displayName ?? effectiveActiveModel?.model ?? this.state.model);
-      return ['', title, prompt, `Model: ${model}`].map((line) =>
+      return ['', title, prompt, `${t('tui.chrome.welcome.model')}${model}`].map((line) =>
         truncateToWidth(line, safeWidth, '…'),
       );
     }
@@ -52,14 +54,18 @@ export class WelcomeComponent implements Component {
     const textWidth = Math.max(4, innerWidth - logoWidth - gap.length);
 
     const rightRow0 = truncateToWidth(
-      chalk.bold.hex(currentTheme.palette.primary)('Welcome to Kimi Code!'),
+      chalk.bold.hex(currentTheme.palette.primary)(t('tui.chrome.welcome.title')),
       textWidth,
       '…',
     );
     const dim = chalk.hex(currentTheme.palette.textDim);
     const labelStyle = chalk.bold.hex(currentTheme.palette.textDim);
     const rightRow1 = truncateToWidth(
-      dim(isLoggedOut ? 'Run /login or /provider to get started.' : 'Send /help for help information.'),
+      dim(
+        isLoggedOut
+          ? t('tui.chrome.welcome.loggedOutPrompt')
+          : t('tui.chrome.welcome.helpPrompt'),
+      ),
       textWidth,
       '…',
     );
@@ -73,18 +79,18 @@ export class WelcomeComponent implements Component {
     }
 
     const modelValue = isLoggedOut
-      ? chalk.hex(currentTheme.palette.warning)('not set, run /login or /provider')
+      ? chalk.hex(currentTheme.palette.warning)(t('tui.chrome.welcome.modelNotSet'))
       : (effectiveActiveModel?.displayName ?? effectiveActiveModel?.model ?? this.state.model);
 
     const infoLines = [
-      labelStyle('Directory: ') + this.state.workDir,
-      labelStyle('Session:   ') + this.state.sessionId,
-      labelStyle('Model:     ') + modelValue,
-      labelStyle('Version:   ') + this.state.version,
+      labelStyle(t('tui.chrome.welcome.directory')) + this.state.workDir,
+      labelStyle(t('tui.chrome.welcome.session')) + this.state.sessionId,
+      labelStyle(t('tui.chrome.welcome.model')) + modelValue,
+      labelStyle(t('tui.chrome.welcome.version')) + this.state.version,
     ];
 
     if (this.state.mcpServersSummary) {
-      infoLines.push(labelStyle('MCP:       ') + this.state.mcpServersSummary);
+      infoLines.push(labelStyle(t('tui.chrome.welcome.mcp')) + this.state.mcpServersSummary);
     }
 
     const contentLines: string[] = [...renderedHeaderLines, '', ...infoLines];

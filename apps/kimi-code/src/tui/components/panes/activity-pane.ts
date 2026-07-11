@@ -1,5 +1,6 @@
 import { Container, Spacer } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
 import type { MoonLoader } from '#/tui/components/chrome/moon-loader';
 
 export type ActivityPaneMode = 'hidden' | 'waiting' | 'thinking' | 'composing' | 'tool';
@@ -23,7 +24,7 @@ export class ActivityPaneComponent extends Container {
     ) {
       this.addChild(new Spacer(1));
       if (options.tip) {
-        options.spinner.setTip(` · Tip: ${options.tip}`);
+        options.spinner.setTip(t('tui.chrome.activityPane.tipPrefix', { tip: options.tip }));
       }
       this.addChild(options.spinner);
     }

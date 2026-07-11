@@ -9,6 +9,8 @@
 import type { Component } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
+
 import { currentTheme } from '#/tui/theme';
 
 export interface DeviceCodeBoxParams {
@@ -37,13 +39,13 @@ export class DeviceCodeBoxComponent implements Component {
 
     const titleLine = truncateToWidth(currentTheme.boldFg('textStrong', title), innerWidth, '…');
     const promptLine = truncateToWidth(
-      currentTheme.fg('textDim', 'Visit the URL below in your browser to authorize:'),
+      currentTheme.fg('textDim', t('tui.chrome.deviceCodeBox.prompt')),
       innerWidth,
       '…',
     );
     const urlLine = truncateToWidth(currentTheme.fg('primary', url), innerWidth, '…');
 
-    const codeLabel = currentTheme.boldFg('textDim', 'Verification code:  ');
+    const codeLabel = currentTheme.boldFg('textDim', t('tui.chrome.deviceCodeBox.codeLabel'));
     const codeValue = currentTheme.boldFg('accent', code);
     const codeLine = truncateToWidth(`${codeLabel}${codeValue}`, innerWidth, '…');
 

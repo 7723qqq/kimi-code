@@ -675,7 +675,16 @@ function shouldSuppressQueuedAttemptFailureEvent(
   options: RunSubagentOptions,
   error: unknown,
 ): boolean {
-  if (options.suppressRetryableFailureEvent === true) return true;
+  if (
+    options.suppressRetryableFailureEvent === true &&
+    !isAbortError(error) &&
+    !options.signal.aborted
+  ) {
+    return true;
+  }
   if (options.suppressRateLimitFailureEvent === true && isProviderRateLimitError(error)) return true;
-  return isAbortError(error) || options.signal.aborted;
+  if (options.suppressRateLimitFailureEvent === true) {
+    return isAbortError(error) || options.signal.aborted;
+  }
+  return false;
 }

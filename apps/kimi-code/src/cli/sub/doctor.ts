@@ -89,7 +89,7 @@ export function registerDoctorCommand(parent: Command, deps?: Partial<DoctorDeps
 
   doctor
     .command('config')
-    .description('Validate config.toml.')
+    .description(t('cli.commandDescriptions.doctorConfig'))
     .argument('[path]', 'Validate this file as config.toml instead of the default path.')
     .action(async (path: string | undefined) => {
       await runDoctorCommand(deps, { target: 'config', path });
@@ -97,7 +97,7 @@ export function registerDoctorCommand(parent: Command, deps?: Partial<DoctorDeps
 
   doctor
     .command('tui')
-    .description('Validate tui.toml.')
+    .description(t('cli.commandDescriptions.doctorTui'))
     .argument('[path]', 'Validate this file as tui.toml instead of the default path.')
     .action(async (path: string | undefined) => {
       await runDoctorCommand(deps, { target: 'tui', path });

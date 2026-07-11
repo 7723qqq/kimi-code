@@ -11,6 +11,8 @@ import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
+
 import { ALL_TIPS, type ToolbarTip } from '#/tui/constant/tips';
 import { isRainbowDancing, renderDanceFooterModel } from '#/tui/easter-eggs/dance';
 import { currentTheme } from '#/tui/theme';
@@ -110,11 +112,22 @@ function formatGoalBadge(
       : goal.status === 'blocked'
         ? colors.warning
         : colors.textMuted;
+  const turnCount = goal.turnsUsed;
+  const turnBudget = goal.budget.turnBudget;
   const turns =
-    goal.budget.turnBudget !== null
-      ? `${goal.turnsUsed}/${goal.budget.turnBudget} turns`
-      : `${goal.turnsUsed} ${goal.turnsUsed === 1 ? 'turn' : 'turns'}`;
-  const label = `${goal.status} · ${formatBadgeElapsed(wallClockMs ?? goal.wallClockMs)} · ${turns}`;
+    turnBudget !== null
+      ? `${turnCount}/${turnBudget} ${t('tui.chrome.footer.turnPlural')}`
+      : t(
+          turnCount === 1 ? 'tui.chrome.footer.turn_one' : 'tui.chrome.footer.turn_other',
+          { count: turnCount },
+        );
+  const statusKey =
+    goal.status === 'active'
+      ? 'tui.chrome.footer.statusActive'
+      : goal.status === 'blocked'
+        ? 'tui.chrome.footer.statusBlocked'
+        : 'tui.chrome.footer.statusPaused';
+  const label = `${t(statusKey)} · ${formatBadgeElapsed(wallClockMs ?? goal.wallClockMs)} · ${turns}`;
   return (
     chalk.hex(colors.textMuted)('[goal ') +
     chalk.hex(dotColor)('●') +
@@ -124,11 +137,11 @@ function formatGoalBadge(
 
 function formatBadgeElapsed(ms: number): string {
   const totalSeconds = Math.round(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
+  if (totalSeconds < 60) return t('tui.chrome.footer.elapsedSeconds', { count: totalSeconds });
   const minutes = Math.floor(totalSeconds / 60);
-  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 60) return t('tui.chrome.footer.elapsedMinutes', { count: minutes });
   const hours = Math.floor(minutes / 60);
-  return `${hours}h${minutes % 60}m`;
+  return t('tui.chrome.footer.elapsedHours', { hours, minutes: minutes % 60 });
 }
 
 function modelDisplayName(state: AppState): string {
@@ -167,9 +180,13 @@ function safeUsage(usage: number): number {
 function formatContextStatus(usage: number, tokens?: number, maxTokens?: number): string {
   const pct = `${(safeUsage(usage) * 100).toFixed(1)}%`;
   if (maxTokens && maxTokens > 0 && tokens !== undefined) {
-    return `context: ${pct} (${formatTokenCount(tokens)}/${formatTokenCount(maxTokens)})`;
+    return t('tui.chrome.footer.contextWithTokens', {
+      pct,
+      tokens: formatTokenCount(tokens),
+      maxTokens: formatTokenCount(maxTokens),
+    });
   }
-  return `context: ${pct}`;
+  return t('tui.chrome.footer.context', { pct });
 }
 
 export function formatFooterGitBadge(status: GitStatus, colors: ColorPalette): string {
@@ -273,8 +290,8 @@ export class FooterComponent implements Component {
       const thinkingLabel =
         effort !== 'off'
           ? hasEfforts && effort !== 'on'
-            ? ` thinking: ${effort}`
-            : ' thinking'
+            ? t('tui.chrome.footer.thinkingEffort', { effort })
+            : t('tui.chrome.footer.thinking')
           : '';
       const modelLabel = `${model}${thinkingLabel}`;
       let renderedModelLabel = chalk.hex(colors.text)(modelLabel);
@@ -288,15 +305,27 @@ export class FooterComponent implements Component {
     // (shell processes) and `agent-*` tasks (background subagents) get
     // separate badges so the user can distinguish them at a glance.
     if (this.backgroundBashTaskCount > 0) {
-      const noun = this.backgroundBashTaskCount === 1 ? 'task' : 'tasks';
       left.push(
-        chalk.hex(colors.primary)(`[${String(this.backgroundBashTaskCount)} ${noun} running]`),
+        chalk.hex(colors.primary)(
+          `[${t(
+            this.backgroundBashTaskCount === 1
+              ? 'tui.chrome.footer.task_one'
+              : 'tui.chrome.footer.task_other',
+            { count: this.backgroundBashTaskCount },
+          )}]`,
+        ),
       );
     }
     if (this.backgroundAgentCount > 0) {
-      const noun = this.backgroundAgentCount === 1 ? 'agent' : 'agents';
       left.push(
-        chalk.hex(colors.primary)(`[${String(this.backgroundAgentCount)} ${noun} running]`),
+        chalk.hex(colors.primary)(
+          `[${t(
+            this.backgroundAgentCount === 1
+              ? 'tui.chrome.footer.agent_one'
+              : 'tui.chrome.footer.agent_other',
+            { count: this.backgroundAgentCount },
+          )}]`,
+        ),
       );
     }
 

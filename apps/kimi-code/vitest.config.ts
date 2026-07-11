@@ -14,6 +14,7 @@ export default defineConfig({
     name: 'cli',
     env: {
       KIMI_LOG_LEVEL: 'off',
+      KIMI_LANG: 'en',
     },
     include: ['test/**/*.test.ts', 'test/**/*.test.tsx'],
   },
