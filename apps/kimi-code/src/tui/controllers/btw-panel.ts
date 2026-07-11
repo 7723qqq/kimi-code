@@ -6,7 +6,7 @@ import type {
   TurnEndedEvent,
 } from '@moonshot-ai/kimi-code-sdk';
 
-import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
+import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { BtwPanelComponent } from '../components/panes/btw-panel';
 import { formatErrorMessage } from '../utils/event-payload';
 import { formatHookResultPlain } from '../utils/hook-result-format';
@@ -168,7 +168,7 @@ export class BtwPanelController {
   private promptAgent(agentId: string, prompt: string, panel: BtwPanelComponent): void {
     const session = this.host.session;
     if (session === undefined) {
-      panel.markFailed(NO_ACTIVE_SESSION_MESSAGE);
+      panel.markFailed(getNoActiveSessionMessage());
       this.host.state.ui.requestRender();
       return;
     }

@@ -1,4 +1,4 @@
-import { LLM_NOT_SET_MESSAGE } from '../constant/kimi-tui';
+import { getLlmNotSetMessage } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { SlashCommandHost } from './dispatch';
 
@@ -6,7 +6,7 @@ export async function handleBtwCommand(host: SlashCommandHost, args: string): Pr
   const prompt = args.trim();
   const session = host.session;
   if (host.state.appState.model.trim().length === 0 || session === undefined) {
-    host.showError(LLM_NOT_SET_MESSAGE);
+    host.showError(getLlmNotSetMessage());
     return;
   }
   host.btwPanelController.closeOrCancel();

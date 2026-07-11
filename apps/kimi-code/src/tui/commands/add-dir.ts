@@ -1,4 +1,4 @@
-import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
+import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
 import type { SlashCommandHost } from './dispatch';
 
@@ -19,7 +19,7 @@ export async function handleAddDirCommand(host: SlashCommandHost, args: string):
   }
 
   if (session === undefined) {
-    host.showError(NO_ACTIVE_SESSION_MESSAGE);
+    host.showError(getNoActiveSessionMessage());
     return;
   }
 
@@ -71,7 +71,7 @@ async function handleAddDirChoice(
 
   const session = host.session;
   if (session === undefined || session.id !== sessionId) {
-    host.showError(NO_ACTIVE_SESSION_MESSAGE);
+    host.showError(getNoActiveSessionMessage());
     return;
   }
 

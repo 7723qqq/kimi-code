@@ -1,7 +1,7 @@
 import en from './locales/en';
 import zh from './locales/zh';
 
-type Locale = 'en' | 'zh';
+export type Locale = 'en' | 'zh';
 
 const messages = { en, zh };
 
@@ -70,7 +70,7 @@ function resolveMessage(
 }
 
 export function t(
-  key: TranslationKey,
+  key: TranslationKey | (string & {}),
   params?: Record<string, string | number>,
 ): string {
   let message = resolveMessage(currentLocale, key);
