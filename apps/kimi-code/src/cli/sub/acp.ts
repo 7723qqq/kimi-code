@@ -31,6 +31,7 @@ import { createKimiHarness, type Session, type SkillSummary } from '@moonshot-ai
 
 import { KIMI_CODE_HOME_ENV } from '#/constant/app';
 import { createKimiCodeHostIdentity, getVersion } from '#/cli/version';
+import { t } from '#/i18n';
 import { buildSkillSlashCommands } from '#/tui/commands/skills';
 
 import { runLoginFlow } from './login-flow';
@@ -38,7 +39,7 @@ import { runLoginFlow } from './login-flow';
 export function registerAcpCommand(parent: Command): void {
   parent
     .command('acp')
-    .description('Run kimi-code as an Agent Client Protocol (ACP) server over stdio.')
+    .description(t('cli.commandDescriptions.acp'))
     .option(
       '--login',
       'Run the device-code login flow then exit (entry point for ACP terminal-auth).',

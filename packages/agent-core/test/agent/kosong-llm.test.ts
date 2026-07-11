@@ -94,9 +94,8 @@ describe('KosongLLM streaming tool-call deltas', () => {
 describe('KosongLLM retry classification', () => {
   it('keeps agent-level retry enabled even when the provider SDK also retries internally', () => {
     const llm = new KosongLLM({
-      provider,
+      provider: { ...provider, name: 'openai' },
       systemPrompt: 'system',
-      providerHandlesRetry: true,
     });
 
     expect(llm.isRetryableError(new APIConnectionError('socket hang up'))).toBe(true);

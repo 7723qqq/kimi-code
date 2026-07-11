@@ -311,13 +311,6 @@ export class Agent {
       maxOutputSize: this.config.maxOutputSize,
       reservedContextSize: loopControl?.reservedContextSize,
     });
-    // Providers whose own HTTP client (SDK) already handles retry
-    // internally: Anthropic, OpenAI, Google GenAI. For these, the
-    // agent-level chatWithRetry degrades to a single-attempt pass-through
-    // to avoid dual backoff.
-    const providerHandlesRetry = ['anthropic', 'openai', 'openai-responses', 'google_genai'].includes(
-      provider.name,
-    );
     return new KosongLLM({
       provider,
       systemPrompt: this.config.systemPrompt,
@@ -325,7 +318,6 @@ export class Agent {
       generate: this.generate,
       completionBudgetConfig,
       usedContextTokens: () => this.context.tokenCount,
-      providerHandlesRetry,
     });
   }
 
