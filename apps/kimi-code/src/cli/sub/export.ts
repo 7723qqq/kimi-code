@@ -25,6 +25,7 @@ import {
 import type { Command } from 'commander';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
+import { t } from '#/i18n';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from '#/cli/telemetry';
 import { detectInstallSource } from '#/cli/update/source';
 import { createKimiCodeHostIdentity } from '#/cli/version';
@@ -107,7 +108,7 @@ export async function handleExport(
 export function registerExportCommand(parent: Command, deps?: Partial<ExportDeps>): void {
   parent
     .command('export')
-    .description('Export a session as a ZIP archive.')
+    .description(t('cli.commandDescriptions.exportCmd'))
     .option('-o, --output <path>', 'Output ZIP path.')
     .option('-y, --yes', 'Skip previous-session confirmation.')
     .option(

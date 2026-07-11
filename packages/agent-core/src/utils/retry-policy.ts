@@ -9,14 +9,20 @@ export const SUBAGENT_RATE_LIMIT_RETRY_BASE_MS = 3_000;
 export const SUBAGENT_RATE_LIMIT_RETRY_FACTOR = 2;
 export const SUBAGENT_RATE_LIMIT_GLOBAL_RETRY_MAX_MS = 60_000;
 export const SUBAGENT_RATE_LIMIT_MAX_RETRIES = 10;
+export const SUBAGENT_RATE_LIMIT_SUSPENDED_REASON =
+  'Provider rate limit; subagent requeued for retry.';
 
 export const SUBAGENT_TRANSIENT_MAX_RETRIES = 10;
+export const SUBAGENT_TRANSIENT_SUSPENDED_REASON =
+  'Transient provider error; subagent requeued for retry.';
 export const SUBAGENT_TRANSIENT_BACKOFF_DELAYS_MS = [
   5_000, 10_000, 20_000, 40_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000,
 ] as const;
 
 export const SUBAGENT_FAILED_RESUME_MAX_RETRIES = 5;
 export const SUBAGENT_FAILED_RESUME_RETRY_MS = 60_000;
+export const SUBAGENT_FAILED_RESUME_SUSPENDED_REASON =
+  'Subagent failed; requeued for automatic recovery.';
 
 export function retryBackoffDelays(maxAttempts: number): number[] {
   const count = Math.max(maxAttempts - 1, 0);

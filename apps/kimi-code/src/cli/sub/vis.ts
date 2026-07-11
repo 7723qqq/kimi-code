@@ -11,6 +11,7 @@
 import type { Command } from 'commander';
 
 import { createCliTelemetryBootstrap } from '#/cli/telemetry';
+import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
 
 interface WritableLike {
@@ -103,7 +104,7 @@ export async function handleVis(deps: VisDeps, opts: VisOptions): Promise<void> 
 export function registerVisCommand(parent: Command, overrides?: Partial<VisDeps>): void {
   parent
     .command('vis')
-    .description('Launch the session visualizer in your browser.')
+    .description(t('cli.commandDescriptions.vis'))
     .option('--port <number>', 'Port to bind. Default: auto-pick a free port.')
     .option('--host <host>', 'Host to bind. Default: 127.0.0.1.')
     .option('--no-open', 'Do not open the browser automatically.')

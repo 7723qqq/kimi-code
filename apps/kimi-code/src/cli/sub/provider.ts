@@ -36,6 +36,7 @@ import {
 import type { Command } from 'commander';
 
 import { createKimiCodeHostIdentity } from '#/cli/version';
+import { t } from '#/i18n';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -409,7 +410,7 @@ async function loadCatalogOrExit(deps: ProviderDeps, url: string): Promise<Catal
 export function registerProviderCommand(parent: Command, deps?: Partial<ProviderDeps>): void {
   const provider = parent
     .command('provider')
-    .description('Manage LLM providers non-interactively.');
+    .description(t('cli.commandDescriptions.provider'));
 
   // Last-resort boundary: handlers report expected failures themselves, but
   // anything that escapes (e.g. a config write rejected because config.toml

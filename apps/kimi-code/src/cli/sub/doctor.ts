@@ -10,6 +10,7 @@ import {
 import type { Command } from 'commander';
 import { z } from 'zod';
 
+import { t } from '#/i18n';
 import { getTuiConfigPath, parseTuiConfig } from '#/tui/config';
 
 interface WritableLike {
@@ -81,7 +82,7 @@ export async function handleDoctor(deps: DoctorDeps, options: DoctorOptions): Pr
 export function registerDoctorCommand(parent: Command, deps?: Partial<DoctorDeps>): void {
   const doctor = parent
     .command('doctor')
-    .description('Validate Kimi Code configuration files.')
+    .description(t('cli.commandDescriptions.doctor'))
     .action(async () => {
       await runDoctorCommand(deps, {});
     });

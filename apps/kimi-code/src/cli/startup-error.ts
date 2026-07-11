@@ -2,6 +2,7 @@ import { KIMI_ERROR_INFO, isKimiError } from '@moonshot-ai/kimi-code-sdk';
 import { chalkStderr } from 'chalk';
 
 import { STARTUP_ERROR_COLOR } from '#/constant/startup-error';
+import { t } from '#/i18n';
 
 export interface StartupErrorFormatOptions {
   readonly errorStyle?: (text: string) => string;
@@ -19,15 +20,20 @@ export function formatStartupError(
   const errorStyle = options.errorStyle ?? chalkStderr.hex(STARTUP_ERROR_COLOR);
 
   if (!isKimiError(error)) {
-    const operation = options.operation ?? 'start shell';
-    return `${errorStyle(`error: failed to ${operation}: ${formatUnknownErrorMessage(error)}`)}\n`;
+    const operation = options.operation ?? t('startup.operations.startShell');
+    return `${errorStyle(
+      t('startup.error.failedTo', {
+        operation,
+        message: formatUnknownErrorMessage(error),
+      }),
+    )}\n`;
   }
 
   const info = KIMI_ERROR_INFO[error.code];
   const lines = [
-    errorStyle(`error: ${info.title}`),
+    errorStyle(t('startup.error.title', { title: info.title })),
     '',
-    errorStyle('message:'),
+    errorStyle(t('startup.error.messageLabel')),
     errorStyle(error.message),
   ];
 

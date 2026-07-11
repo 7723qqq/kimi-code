@@ -1,5 +1,4 @@
 import { isProviderRateLimitError, isRetryableGenerateError, type TokenUsage } from '@moonshot-ai/kosong';
-import * as retry from 'retry';
 
 import type {
   RunSubagentOptions,
@@ -7,6 +6,21 @@ import type {
   SubagentHandle,
 } from './subagent-host';
 import { isUserCancellation } from '../utils/abort';
+import {
+  SUBAGENT_FAILED_RESUME_MAX_RETRIES,
+  SUBAGENT_FAILED_RESUME_RETRY_MS,
+  SUBAGENT_FAILED_RESUME_SUSPENDED_REASON,
+  SUBAGENT_RATE_LIMIT_GLOBAL_RETRY_MAX_MS,
+  SUBAGENT_RATE_LIMIT_MAX_RETRIES,
+  SUBAGENT_RATE_LIMIT_RETRY_BASE_MS,
+  SUBAGENT_RATE_LIMIT_SUSPENDED_REASON,
+  SUBAGENT_TRANSIENT_MAX_RETRIES,
+  SUBAGENT_TRANSIENT_SUSPENDED_REASON,
+  applyRetryJitter,
+  readRetryAfterMs,
+  subagentRateLimitBackoffDelay,
+  subagentTransientBackoffDelay,
+} from '../utils/retry-policy';
 
 /*
 Subagent batch scheduling contract:
@@ -32,30 +46,11 @@ Results and cancellation:
 
 const INITIAL_LAUNCH_LIMIT = 5;
 const INITIAL_LAUNCH_INTERVAL_MS = 700;
-const RATE_LIMIT_RETRY_BASE_MS = 3000;
-const RATE_LIMIT_RETRY_FACTOR = 2;
 const RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS = 2000;
 const RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS = 3 * 60 * 1000;
-const RATE_LIMIT_GLOBAL_RETRY_MAX_MS = 60_000;
-const RATE_LIMIT_MAX_RETRIES = 10;
 const RATE_LIMIT_SUSPENDED_REASON = 'Provider rate limit; subagent requeued for retry.';
 const TRANSIENT_SUSPENDED_REASON = 'Transient provider error; subagent requeued for retry.';
-const TRANSIENT_MAX_RETRIES = 10;
-const TRANSIENT_BACKOFF_DELAYS_MS = [
-  5_000, 10_000, 20_000, 40_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000,
-];
-const FAILED_RESUME_MAX_RETRIES = 5;
-const FAILED_RESUME_RETRY_MS = 60_000;
 const FAILED_RESUME_SUSPENDED_REASON = 'Subagent failed; requeued for automatic recovery.';
-
-function applyJitter(delayMs: number): number {
-  return Math.round(delayMs * (0.75 + Math.random() * 0.5));
-}
-
-function transientBackoffDelay(retryCount: number): number {
-  const index = Math.min(Math.max(retryCount - 1, 0), TRANSIENT_BACKOFF_DELAYS_MS.length - 1);
-  return applyJitter(TRANSIENT_BACKOFF_DELAYS_MS[index]!);
-}
 
 const AGENT_SWARM_MAX_CONCURRENCY_ENV = 'KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY';
 
@@ -176,7 +171,7 @@ export class SubagentBatch<T> {
   private lastRateLimitAt: number | undefined;
   private lastCapacityShrinkAt: number | undefined;
   private lastCapacityRecoveryAt: number | undefined;
-  private globalRetryIntervalMs = RATE_LIMIT_RETRY_BASE_MS;
+  private globalRetryIntervalMs = SUBAGENT_RATE_LIMIT_RETRY_BASE_MS;
   private nextRateLimitLaunchAt = 0;
 
   constructor(
@@ -386,20 +381,20 @@ export class SubagentBatch<T> {
       };
     } catch (error) {
       if (isProviderRateLimitError(error)) {
-        if (attempt.state.retryCount >= RATE_LIMIT_MAX_RETRIES) {
+        if (attempt.state.retryCount >= SUBAGENT_RATE_LIMIT_MAX_RETRIES) {
           return this.failedAttemptOutcome(attempt, error);
         }
-        const retryAfterMs = (error as { retryAfterMs?: unknown }).retryAfterMs;
+        const retryAfterMs = readRetryAfterMs(error);
         return {
           type: 'rate_limited',
           agentId: handle.agentId,
           error: this.attemptErrorMessage(attempt, error, 'failed'),
-          retryAfterMs: typeof retryAfterMs === 'number' && retryAfterMs > 0 ? retryAfterMs : null,
+          retryAfterMs,
         };
       }
 
       if (
-        attempt.state.retryCount < TRANSIENT_MAX_RETRIES &&
+        attempt.state.retryCount < SUBAGENT_TRANSIENT_MAX_RETRIES &&
         isRetryableGenerateError(error)
       ) {
         return {
@@ -437,7 +432,7 @@ export class SubagentBatch<T> {
     }
 
     if (this.rateLimitMode) {
-      this.globalRetryIntervalMs = RATE_LIMIT_RETRY_BASE_MS;
+      this.globalRetryIntervalMs = SUBAGENT_RATE_LIMIT_RETRY_BASE_MS;
       this.nextRateLimitLaunchAt = Date.now() + this.globalRetryIntervalMs;
       this.schedule();
     }
@@ -452,7 +447,7 @@ export class SubagentBatch<T> {
         outcome.status === 'failed' &&
         outcome.agentId !== undefined &&
         !attempt.timedOut &&
-        attempt.state.resumeCount < FAILED_RESUME_MAX_RETRIES
+        attempt.state.resumeCount < SUBAGENT_FAILED_RESUME_MAX_RETRIES
       ) {
         this.requeueFailedAttempt(attempt, outcome.agentId);
       } else {
@@ -497,19 +492,7 @@ export class SubagentBatch<T> {
     const now = Date.now();
     this.lastRateLimitAt = now;
     state.retryCount += 1;
-    // Honor the server's Retry-After directive when present; otherwise fall
-    // back to the local exponential backoff schedule.
-    const retryDelay =
-      retryAfterMs != null && retryAfterMs > 0
-        ? retryAfterMs
-        : applyJitter(
-            retry.createTimeout(Math.max(0, state.retryCount - 1), {
-              minTimeout: RATE_LIMIT_RETRY_BASE_MS,
-              maxTimeout: RATE_LIMIT_GLOBAL_RETRY_MAX_MS,
-              factor: RATE_LIMIT_RETRY_FACTOR,
-              randomize: false,
-            }),
-          );
+    const retryDelay = retryAfterMs ?? subagentRateLimitBackoffDelay(state.retryCount);
     state.retryReadyAt = now + retryDelay;
     this.pending.unshift(state);
     this.enterRateLimitMode(now);
@@ -517,7 +500,7 @@ export class SubagentBatch<T> {
     if (!attempt.ready) {
       this.globalRetryIntervalMs = Math.min(
         Math.max(this.globalRetryIntervalMs * 2, retryDelay),
-        RATE_LIMIT_GLOBAL_RETRY_MAX_MS,
+        SUBAGENT_RATE_LIMIT_GLOBAL_RETRY_MAX_MS,
       );
       this.nextRateLimitLaunchAt = Math.max(
         this.nextRateLimitLaunchAt,
@@ -526,7 +509,7 @@ export class SubagentBatch<T> {
     } else {
       this.nextRateLimitLaunchAt = Math.max(
         this.nextRateLimitLaunchAt,
-        now + RATE_LIMIT_RETRY_BASE_MS,
+        now + SUBAGENT_RATE_LIMIT_RETRY_BASE_MS,
       );
     }
   }
@@ -543,7 +526,7 @@ export class SubagentBatch<T> {
 
     const now = Date.now();
     state.retryCount += 1;
-    state.retryReadyAt = now + transientBackoffDelay(state.retryCount);
+    state.retryReadyAt = now + subagentTransientBackoffDelay(state.retryCount);
     this.pending.unshift(state);
   }
 
@@ -559,7 +542,7 @@ export class SubagentBatch<T> {
     });
 
     const now = Date.now();
-    state.retryReadyAt = now + applyJitter(FAILED_RESUME_RETRY_MS);
+    state.retryReadyAt = now + applyRetryJitter(SUBAGENT_FAILED_RESUME_RETRY_MS);
     this.pending.unshift(state);
   }
 
@@ -570,7 +553,7 @@ export class SubagentBatch<T> {
       this.rateLimitCapacity = Math.max(1, this.startedSuccessCount);
       this.nextRateLimitLaunchAt = Math.max(
         this.nextRateLimitLaunchAt,
-        now + RATE_LIMIT_RETRY_BASE_MS,
+        now + SUBAGENT_RATE_LIMIT_RETRY_BASE_MS,
       );
       this.shrinkRateLimitCapacity(now, true);
       return;

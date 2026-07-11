@@ -4,6 +4,7 @@ import {
   APIStatusError,
   ChatProviderError,
   isProviderRateLimitError,
+  isRetryableGenerateError,
   type TokenUsage,
 } from '@moonshot-ai/kosong';
 
@@ -13,6 +14,7 @@ import { ErrorCodes, type KimiErrorPayload } from '../errors';
 import { DenyAllPermissionPolicy } from '../agent/permission/policies/deny-all';
 import { InMemoryAgentRecordPersistence } from '../agent/records';
 import { isAbortError } from '../loop/errors';
+import { sleepForRetry } from '../loop/retry';
 import { log } from '../logging/logger';
 import type { Logger } from '../logging/types';
 import {
@@ -25,6 +27,16 @@ import {
   userCancellationReason,
 } from '../utils/abort';
 import { collectGitContext } from './git-context';
+import {
+  SUBAGENT_FAILED_RESUME_MAX_RETRIES,
+  SUBAGENT_FAILED_RESUME_RETRY_MS,
+  SUBAGENT_RATE_LIMIT_MAX_RETRIES,
+  SUBAGENT_TRANSIENT_MAX_RETRIES,
+  applyRetryJitter,
+  readRetryAfterMs,
+  subagentRateLimitBackoffDelay,
+  subagentTransientBackoffDelay,
+} from '../utils/retry-policy';
 import type { Session } from './index';
 import {
   SubagentBatch,
@@ -83,6 +95,8 @@ export interface RunSubagentOptions {
   readonly signal: AbortSignal;
   readonly onReady?: () => void;
   readonly suppressRateLimitFailureEvent?: boolean;
+  readonly suppressRetryableFailureEvent?: boolean;
+  readonly suppressAutomaticRetry?: boolean;
 }
 
 export interface SpawnSubagentOptions extends RunSubagentOptions {
@@ -126,13 +140,14 @@ export class SessionSubagentHost {
       { type: 'sub', generate: parent.rawGenerate },
       { parentAgentId: this.ownerAgentId, swarmItem: options.swarmItem },
     );
-    const completion = this.runWithActiveChild(id, options, async (runOptions) => {
-      this.emitSubagentSpawned(parent, id, profile.name, runOptions);
+    const runOptions = retryableRunOptions(options);
+    const completion = this.runWithActiveChild(id, runOptions, async (activeOptions) => {
+      this.emitSubagentSpawned(parent, id, profile.name, activeOptions);
       try {
         await this.configureChild(parent, agent, profile);
-        return await this.runPromptTurn(parent, id, agent, profile.name, runOptions);
+        return await this.runPromptTurn(parent, id, agent, profile.name, activeOptions);
       } catch (error) {
-        this.emitSubagentFailed(parent, id, runOptions, error);
+        this.emitSubagentFailed(parent, id, activeOptions, error);
         throw error;
       }
     });
@@ -140,46 +155,58 @@ export class SessionSubagentHost {
       agentId: id,
       profileName: profile.name,
       resumed: false,
-      completion,
+      completion: this.withAutomaticRetry(parent, id, profile.name, runOptions, completion),
     };
   }
 
   async resume(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle> {
     options.signal.throwIfAborted();
     const { parent, child, profileName } = await this.ensureIdleSubagent(agentId);
-    const completion = this.runWithActiveChild(agentId, options, async (runOptions) => {
-      this.emitSubagentSpawned(parent, agentId, profileName, runOptions);
+    const runOptions = retryableRunOptions(options);
+    const completion = this.runWithActiveChild(agentId, runOptions, async (activeOptions) => {
+      this.emitSubagentSpawned(parent, agentId, profileName, activeOptions);
       try {
         child.config.update({ modelAlias: parent.config.modelAlias });
-        return await this.runPromptTurn(parent, agentId, child, profileName, runOptions);
+        return await this.runPromptTurn(parent, agentId, child, profileName, activeOptions);
       } catch (error) {
-        this.emitSubagentFailed(parent, agentId, runOptions, error);
+        this.emitSubagentFailed(parent, agentId, activeOptions, error);
         throw error;
       }
     });
-    return { agentId, profileName, resumed: true, completion };
+    return {
+      agentId,
+      profileName,
+      resumed: true,
+      completion: this.withAutomaticRetry(parent, agentId, profileName, runOptions, completion),
+    };
   }
 
   async retry(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle> {
     options.signal.throwIfAborted();
     const { parent, child, profileName } = await this.ensureIdleSubagent(agentId);
-    const completion = this.runWithActiveChild(agentId, options, async (runOptions) => {
+    const runOptions = retryableRunOptions(options);
+    const completion = this.runWithActiveChild(agentId, runOptions, async (activeOptions) => {
       try {
-        runOptions.signal.throwIfAborted();
+        activeOptions.signal.throwIfAborted();
         child.config.update({ modelAlias: parent.config.modelAlias });
         this.emitSubagentStarted(parent, agentId);
         const turnId = child.turn.retry('agent-host');
         if (turnId === null) {
           throw new Error(`Agent instance "${agentId}" could not start a retry turn`);
         }
-        this.observeFirstRequest(child, runOptions);
-        return await this.waitForChildCompletion(parent, agentId, child, profileName, runOptions);
+        this.observeFirstRequest(child, activeOptions);
+        return await this.waitForChildCompletion(parent, agentId, child, profileName, activeOptions);
       } catch (error) {
-        this.emitSubagentFailed(parent, agentId, runOptions, error);
+        this.emitSubagentFailed(parent, agentId, activeOptions, error);
         throw error;
       }
     });
-    return { agentId, profileName, resumed: true, completion };
+    return {
+      agentId,
+      profileName,
+      resumed: true,
+      completion: this.withAutomaticRetry(parent, agentId, profileName, runOptions, completion),
+    };
   }
 
   private async ensureIdleSubagent(
@@ -205,6 +232,14 @@ export class SessionSubagentHost {
   async runQueued<T>(tasks: readonly QueuedSubagentTask<T>[]): Promise<Array<SubagentResult<T>>> {
     const maxConcurrency = resolveSwarmMaxConcurrency();
     return new SubagentBatch(this, tasks, { maxConcurrency }).run();
+  }
+
+  async runOne<T>(task: QueuedSubagentTask<T>): Promise<SubagentResult<T>> {
+    const [result] = await new SubagentBatch(this, [task], { maxConcurrency: 1 }).run();
+    if (result === undefined) {
+      throw new Error('Subagent batch completed without a result.');
+    }
+    return result;
   }
 
   suspended(event: SubagentSuspendedEvent): void {
@@ -301,6 +336,46 @@ export class SessionSubagentHost {
       unlinkAbortSignal();
       this.activeChildren.delete(childId);
     });
+  }
+
+  private async withAutomaticRetry(
+    parent: Agent,
+    agentId: string,
+    profileName: string,
+    options: RunSubagentOptions,
+    firstCompletion: Promise<SubagentCompletion>,
+  ): Promise<SubagentCompletion> {
+    if (options.suppressAutomaticRetry === true) return firstCompletion;
+
+    let retryCount = 0;
+    let resumeCount = 0;
+    let completion = firstCompletion;
+    for (;;) {
+      try {
+        return await completion;
+      } catch (error) {
+        options.signal.throwIfAborted();
+        const retry = nextSubagentRetry(error, retryCount, resumeCount);
+        if (retry === null) {
+          this.emitSubagentFailed(parent, agentId, options, error);
+          throw error;
+        }
+
+        this.suspended({
+          task: queuedRetryTask(options, profileName),
+          agentId,
+          reason: retry.reason,
+        });
+        await sleepForRetry(retry.delayMs, options.signal);
+        if (retry.kind === 'failed_resume') {
+          resumeCount += 1;
+        } else {
+          retryCount += 1;
+        }
+        const handle = await this.retry(agentId, retryRunOptions(options));
+        completion = handle.completion;
+      }
+    }
   }
 
   private async runPromptTurn(
