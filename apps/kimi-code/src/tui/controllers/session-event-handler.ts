@@ -40,8 +40,8 @@ import {
   type SwarmModeMarkerState,
 } from '../components/messages/swarm-markers';
 import {
+  getOauthLoginRequiredStartupNotice,
   OAUTH_LOGIN_REQUIRED_CODE,
-  OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE,
 } from '../constant/kimi-tui';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
 import {
@@ -863,7 +863,7 @@ export class SessionEventHandler {
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeLiveTextBuffers('idle');
     if (event.code === OAUTH_LOGIN_REQUIRED_CODE) {
-      this.host.showError(OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE);
+      this.host.showError(getOauthLoginRequiredStartupNotice());
       return;
     }
     this.host.showError(formatErrorPayload(event));

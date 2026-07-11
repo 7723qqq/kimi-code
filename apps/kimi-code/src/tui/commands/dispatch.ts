@@ -4,7 +4,7 @@ import type { KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
 
 import type { ColorToken, ThemeName } from '#/tui/theme';
 
-import { LLM_NOT_SET_MESSAGE } from '../constant/kimi-tui';
+import { getLlmNotSetMessage } from '../constant/kimi-tui';
 import type { AuthFlowController } from '../controllers/auth-flow';
 import type { BtwPanelController } from '../controllers/btw-panel';
 import type { StreamingUIController } from '../controllers/streaming-ui';
@@ -195,7 +195,7 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
     case 'skill': {
       const session = host.session;
       if (host.state.appState.model.trim().length === 0 || session === undefined) {
-        host.showError(LLM_NOT_SET_MESSAGE);
+        host.showError(getLlmNotSetMessage());
         return;
       }
       host.track('input_command', {
@@ -207,12 +207,12 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
     }
     case 'plugin-command': {
       if (host.state.appState.model.trim().length === 0) {
-        host.showError(LLM_NOT_SET_MESSAGE);
+        host.showError(getLlmNotSetMessage());
         return;
       }
       const session = host.session;
       if (session === undefined) {
-        host.showError(LLM_NOT_SET_MESSAGE);
+        host.showError(getLlmNotSetMessage());
         return;
       }
       host.track('input_command', { command: `${intent.pluginId}:${intent.commandName}` });

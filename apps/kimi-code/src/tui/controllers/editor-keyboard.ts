@@ -6,12 +6,12 @@ import { parseImageMeta } from '#/utils/image/image-mime';
 import { editInExternalEditor, resolveEditorCommand } from '#/utils/process/external-editor';
 
 import {
-  CTRL_C_HINT,
-  CTRL_D_HINT,
   DOUBLE_ESC_WINDOW_MS,
   EXIT_CONFIRM_WINDOW_MS,
-  LLM_NOT_SET_MESSAGE,
-  NO_ACTIVE_SESSION_MESSAGE,
+  getCtrlCHint,
+  getCtrlDHint,
+  getLlmNotSetMessage,
+  getNoActiveSessionMessage,
 } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { ImageAttachmentStore } from '../utils/image-attachment-store';
@@ -159,7 +159,7 @@ export class EditorKeyboardController {
       if (editor.getText().length > 0) {
         editor.setText('');
       }
-      this.armPendingExit('ctrl-c', CTRL_C_HINT);
+      this.armPendingExit('ctrl-c', getCtrlCHint());
     };
 
     editor.onCtrlD = () => {
@@ -168,7 +168,7 @@ export class EditorKeyboardController {
         void host.stop();
         return;
       }
-      this.armPendingExit('ctrl-d', CTRL_D_HINT);
+      this.armPendingExit('ctrl-d', getCtrlDHint());
     };
 
     editor.onEscape = () => {
@@ -203,7 +203,7 @@ export class EditorKeyboardController {
 
     editor.onShiftTab = () => {
       if (host.session === undefined) {
-        host.showError(NO_ACTIVE_SESSION_MESSAGE);
+        host.showError(getNoActiveSessionMessage());
         return;
       }
       const next = !host.state.appState.planMode;
@@ -263,7 +263,7 @@ export class EditorKeyboardController {
         if (!editorIsBash) editor.setText('');
         const session = host.session;
         if (host.state.appState.model.trim().length === 0 || session === undefined) {
-          host.showError(LLM_NOT_SET_MESSAGE);
+          host.showError(getLlmNotSetMessage());
         } else {
           host.steerMessage(session, parts);
         }

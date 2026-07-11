@@ -19,7 +19,7 @@ import { PluginCommandComponent } from '../components/messages/plugin-command';
 import { ThinkingComponent } from '../components/messages/thinking';
 import { ToolCallComponent } from '../components/messages/tool-call';
 import { UserMessageComponent } from '../components/messages/user-message';
-import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
+import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import type { TranscriptEntry } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
 import { getTranscriptComponentEntry } from '../utils/transcript-component-metadata';
@@ -64,7 +64,7 @@ export async function handleUndoCommand(
 
   const session = host.session;
   if (session === undefined) {
-    host.showError(NO_ACTIVE_SESSION_MESSAGE);
+    host.showError(getNoActiveSessionMessage());
     return;
   }
 
@@ -80,7 +80,7 @@ export async function handleUndoCommand(
 async function undoByCount(host: SlashCommandHost, count: number): Promise<boolean> {
   const session = host.session;
   if (session === undefined) {
-    host.showError(NO_ACTIVE_SESSION_MESSAGE);
+    host.showError(getNoActiveSessionMessage());
     return false;
   }
 
@@ -126,7 +126,7 @@ async function undoByCount(host: SlashCommandHost, count: number): Promise<boole
 
 async function showUndoSelector(host: SlashCommandHost): Promise<void> {
   if (host.session === undefined) {
-    host.showError(NO_ACTIVE_SESSION_MESSAGE);
+    host.showError(getNoActiveSessionMessage());
     return;
   }
 

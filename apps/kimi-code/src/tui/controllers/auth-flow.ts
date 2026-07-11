@@ -1,7 +1,7 @@
 import type { CreateSessionOptions, KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
 import type { SkillListSession } from '../commands';
 
-import { OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE } from '../constant/kimi-tui';
+import { getOauthLoginRequiredStartupNotice } from '../constant/kimi-tui';
 import {
   refreshAllProviderModels,
   type RefreshProviderScope,
@@ -58,7 +58,7 @@ export class AuthFlowController {
       contextUsage: 0,
       sessionTitle: null,
     });
-    this.host.appendStartupNotice(OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE);
+    this.host.appendStartupNotice(getOauthLoginRequiredStartupNotice());
     this.host.setStartupReady();
   }
 
