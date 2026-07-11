@@ -1,12 +1,13 @@
 /**
- * `web` domain (L4) — auth-independent URL fetching.
+ * `web` domain (L4) — URL fetching with an optional OAuth-backed backend.
  *
- * Owns the built-in `FetchURL` tool and the host-injection seam for its fetch
- * backend. `IWebFetchService` yields the `UrlFetcher` the `FetchURL` tool uses;
- * the default implementation falls back to the built-in `LocalFetchURLProvider`,
- * so `FetchURL` works without any OAuth configuration. The `MoonshotFetchURLProvider`
- * is exported as a building block for hosts that want to route fetches through
- * the Moonshot fetch service. Bound at App scope.
+ * Owns the built-in `FetchURL` tool and the `IWebFetchService` seam that yields
+ * its `UrlFetcher`. The default `WebFetchService` routes fetches through the
+ * Moonshot fetch service when the managed Kimi OAuth provider is configured
+ * (falling back to the built-in `LocalFetchURLProvider` on failure or when no
+ * OAuth provider is present), so `FetchURL` works both with and without OAuth.
+ * The `MoonshotFetchURLProvider` is also exported as a building block for hosts
+ * that bind `IWebFetchService` directly. Bound at App scope.
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
@@ -15,11 +16,6 @@ import type { UrlFetcher } from './tools/fetch-url-types';
 
 export type { UrlFetcher, UrlFetchKind, UrlFetchResult } from './tools/fetch-url-types';
 export { HttpFetchError } from './tools/fetch-url-types';
-
-export interface WebFetchServiceOptions {
-  /** URL fetch backend. Defaults to the built-in `LocalFetchURLProvider`. */
-  readonly urlFetcher?: UrlFetcher;
-}
 
 export interface IWebFetchService {
   readonly _serviceBrand: undefined;
