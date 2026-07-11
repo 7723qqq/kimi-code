@@ -17,6 +17,10 @@ const SessionSummaryStateSchema = z.object({
   lastPrompt: z.string().optional(),
   title: z.string().optional(),
   workDir: z.string().optional(),
+  /** Oldest (kimi-cli-era) sessions recorded the workDir as a bare top-level
+   *  `cwd`, before `custom.cwd` and `workDir` existed. Only reindex recovery
+   *  reads it. */
+  cwd: z.string().optional(),
   custom: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -192,9 +196,10 @@ export class SessionStore {
    *
    * The bucket directory name is a one-way hash of the workDir, so the workDir
    * can only be recovered from each session's self-describing `state.json`
-   * (`workDir`, falling back to `custom.cwd` for older sessions). Sessions that
-   * record no workDir, or whose recorded workDir does not match the bucket they
-   * live in, are left untouched rather than writing a misleading entry.
+   * (`workDir`, falling back to `custom.cwd`, then to the kimi-cli-era
+   * top-level `cwd`). Sessions that record no workDir, or whose recorded
+   * workDir does not match the bucket they live in, are left untouched rather
+   * than writing a misleading entry.
    *
    * The index is append-only and `readSessionIndex` lets later lines override
    * earlier ones for the same id, so appending a corrected line both adds
@@ -268,7 +273,9 @@ export class SessionStore {
         return undefined;
       }
     }
-    const legacyCwd = state?.custom?.['cwd'];
+    // Fallbacks for sessions written before `workDir` existed: `custom.cwd`
+    // (older kimi-code), then a bare top-level `cwd` (kimi-cli era).
+    const legacyCwd = state?.custom?.['cwd'] ?? state?.cwd;
     if (typeof legacyCwd === 'string' && legacyCwd.length > 0) {
       try {
         return normalizeWorkDir(legacyCwd);

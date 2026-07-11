@@ -137,6 +137,29 @@ describe('SessionStore', () => {
       expect((await store.get(sessionId)).workDir).toBe(workDir);
     });
 
+    it('adds an index entry for a session whose state.json only has a legacy top-level cwd', async () => {
+      const workDir = await trackWorkDir('legacycwd');
+      const sessionId = 'session_legacycwd';
+      // kimi-cli-era state.json: no workDir, no custom.cwd — only a bare
+      // top-level `cwd` next to the schema version.
+      const dir = join(homeDir, 'sessions', encodeWorkDirKey(workDir), sessionId);
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, 'state.json'),
+        JSON.stringify({ id: sessionId, version: 2, cwd: workDir }),
+        'utf-8',
+      );
+
+      expect(await store.list({})).toHaveLength(0);
+
+      const stats = await store.reindex();
+      expect(stats).toEqual({ scanned: 1, added: 1, repaired: 0 });
+
+      const listed = await store.list({});
+      expect(listed.map((s) => s.id)).toEqual([sessionId]);
+      expect(listed[0]?.workDir).toBe(workDir);
+    });
+
     it('leaves a session unindexed when it records no recoverable workDir', async () => {
       const workDir = await trackWorkDir('noworkdir');
       const sessionId = 'session_noworkdir';

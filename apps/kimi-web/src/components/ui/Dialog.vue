@@ -39,6 +39,7 @@ const emit = defineEmits<{
 }>();
 
 const panel = ref<HTMLElement | null>(null);
+const overlay = ref<HTMLElement | null>(null);
 let previouslyFocused: Element | null = null;
 
 const FOCUSABLE =
@@ -95,6 +96,10 @@ function onOverlayClick(event: MouseEvent) {
   if (props.closeOnOverlay && event.target === event.currentTarget) close();
 }
 
+// Exposed so consumers can run exit animations on the panel/overlay (e.g.
+// AddWorkspaceDialog's fly-into-anchor) before emitting close.
+defineExpose({ panel, overlay });
+
 watch(
   () => props.open,
   async (isOpen) => {
@@ -133,7 +138,7 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="ui-dialog__overlay" @mousedown="onOverlayClick">
+    <div v-if="open" ref="overlay" class="ui-dialog__overlay" @mousedown="onOverlayClick">
       <div
         ref="panel"
         class="ui-dialog"

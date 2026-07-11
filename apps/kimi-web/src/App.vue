@@ -46,7 +46,7 @@ import Icon from './components/ui/Icon.vue';
 import InternalBuildBanner from './components/InternalBuildBanner.vue';
 import { isMacosDesktop } from './lib/desktopFlag';
 
-// Hydrate the server-transport credential (fragment token or sessionStorage)
+// Hydrate the server-transport credential (fragment token or localStorage)
 // BEFORE the client connects, so the first REST/WS calls already carry it.
 const hasServerCredential = initServerAuth();
 const authRequired = ref(!hasServerCredential);
@@ -283,6 +283,16 @@ const pendingWorkspaceSubmit = ref<SubmitPayload | null>(null);
 // a path. Kept separate from the global toast so the feedback is visible above
 // the picker's backdrop and persists until the user retries or closes.
 const addWorkspaceError = ref<string | null>(null);
+// Flipped true once addWorkspaceByPath succeeds — the picker flies into the
+// workspace anchor and closes itself afterwards.
+const addWorkspaceSucceeded = ref(false);
+// Which entry opened the picker: only the session onboarding composer gets the
+// fly-into-anchor close animation; sidebar/switcher adds close plainly.
+const addWorkspaceEntry = ref<'onboarding' | 'default'>('default');
+function openAddWorkspace(entry: 'onboarding' | 'default'): void {
+  addWorkspaceEntry.value = entry;
+  showAddWorkspace.value = true;
+}
 
 // Any of these modal/overlay layers, when open, owns Escape. The global
 // capture-phase handler must NOT close a background side panel out from under an
@@ -553,7 +563,7 @@ async function handleSubmit(payload: SubmitPayload): Promise<void> {
   }
   if (!client.activeSessionId.value && !wsId) {
     pendingWorkspaceSubmit.value = payload;
-    showAddWorkspace.value = true;
+    openAddWorkspace('onboarding');
     return;
   }
   void client.sendPrompt(payload.text, payload.attachments);
@@ -570,7 +580,10 @@ async function handleAddWorkspace(root: string): Promise<void> {
     addWorkspaceError.value = t('workspace.addFailed');
     return;
   }
-  showAddWorkspace.value = false;
+  // Success: keep the dialog alive so it can fly into the workspace anchor; it
+  // emits close when the animation finishes (handleCloseAddWorkspace owns
+  // showAddWorkspace from there).
+  addWorkspaceSucceeded.value = true;
   const pending = pendingWorkspaceSubmit.value;
   pendingWorkspaceSubmit.value = null;
   const wsId = client.activeWorkspaceId.value;
@@ -582,6 +595,7 @@ async function handleAddWorkspace(root: string): Promise<void> {
 function handleCloseAddWorkspace(): void {
   pendingWorkspaceSubmit.value = null;
   addWorkspaceError.value = null;
+  addWorkspaceSucceeded.value = false;
   showAddWorkspace.value = false;
 }
 
@@ -674,7 +688,7 @@ function openPr(url: string): void {
         @create="handleCreateSession"
         @create-in-workspace="handleCreateSessionInWorkspace($event)"
         @select-workspace="client.openWorkspace($event)"
-        @add-workspace="showAddWorkspace = true"
+        @add-workspace="openAddWorkspace('default')"
         @rename="(id, title) => client.renameSession(id, title)"
         @archive="(id) => client.archiveSession(id)"
         @fork="(id) => client.forkSession(id)"
@@ -758,7 +772,7 @@ function openPr(url: string): void {
       :conversation-toc="client.conversationToc.value"
       @open-changes="openDiffDetail()"
       @select-workspace="handleCreateSessionInWorkspace($event)"
-      @add-workspace="showAddWorkspace = true"
+      @add-workspace="openAddWorkspace('onboarding')"
       @open-pr="openPr"
       @submit="handleSubmit($event)"
       @steer="client.steerPrompt($event.text, $event.attachments)"
@@ -981,6 +995,8 @@ function openPr(url: string): void {
       :get-fs-home="client.getFsHome"
       :default-path="client.visibleWorkspace.value?.root ?? client.status.value.cwd"
       :error="addWorkspaceError"
+      :added="addWorkspaceSucceeded"
+      :fly-target="addWorkspaceEntry === 'onboarding' ? '[data-session-onboarding]' : undefined"
       @add="handleAddWorkspace($event)"
       @close="handleCloseAddWorkspace"
     />
@@ -1019,7 +1035,7 @@ function openPr(url: string): void {
       @select="client.selectSession($event)"
       @create="handleCreateSession"
       @create-in-workspace="handleCreateSessionInWorkspace($event)"
-      @add-workspace="showAddWorkspace = true"
+      @add-workspace="openAddWorkspace('default')"
       @rename="(id, title) => client.renameSession(id, title)"
       @archive="(id) => client.archiveSession(id)"
       @delete-workspace="(id) => client.deleteWorkspace(id)"

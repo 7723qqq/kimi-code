@@ -1218,6 +1218,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
             <Composer
               ref="emptyComposerRef"
               class="empty-composer"
+              data-session-onboarding
               :session-id="sessionId"
               :running="running"
               :queued="queued"

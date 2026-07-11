@@ -570,6 +570,21 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // hiding already-fetched rows.
       await loadWorkspaces();
       const sessions = await loadInitialSessionsByWorkspace();
+      // Per-workspace loading can miss sessions whose workspace mapping is
+      // inconsistent (TUI-created under symlinked cwds, stale index entries,
+      // removed workspaces). Union in the global walk — the same reliable
+      // membership source Cmd+K search uses — so no session stays invisible.
+      const globalSessions = await listAllSessionsGlobal().catch(() => [] as AppSession[]);
+      const knownIds = new Set(sessions.map((s) => s.id));
+      const missed = globalSessions.filter((s) => !knownIds.has(s.id));
+      if (missed.length > 0) {
+        console.warn(
+          '[kimi-web] sessions missed by per-workspace load, recovered via global list:',
+          missed.map((s) => ({ id: s.id, cwd: s.cwd, workspaceId: s.workspaceId })),
+        );
+        sessions.push(...missed);
+        sessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      }
       setSessions(sessions);
 
       // First load: pick the workspace of the most-recent session, unless the
