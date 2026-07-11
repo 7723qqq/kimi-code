@@ -428,7 +428,7 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
   provider
     .command('add <url>')
     .description(t('cli.commandDescriptions.providerAdd'))
-    .option('--api-key <key>', 'Registry API key. Falls back to KIMI_REGISTRY_API_KEY.')
+    .option('--api-key <key>', t('cli.optionDescriptions.providerApiKey'))
     .action(async (url: string, options: { apiKey?: string }) => {
       const resolved = resolveDeps(deps);
       await runAction(resolved, () => handleProviderAdd(resolved, url, { apiKey: options.apiKey }));
@@ -445,7 +445,7 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
   provider
     .command('list')
     .description(t('cli.commandDescriptions.providerList'))
-    .option('--json', 'Emit the raw providers/models config as JSON.', false)
+    .option('--json', t('cli.optionDescriptions.providerListJson'), false)
     .action(async (options: { json?: boolean }) => {
       const resolved = resolveDeps(deps);
       await runAction(resolved, () => handleProviderList(resolved, { json: options.json === true }));
@@ -458,9 +458,9 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
   catalog
     .command('list [providerId]')
     .description(t('cli.commandDescriptions.providerCatalogList'))
-    .option('--filter <substring>', 'Case-insensitive id/name substring filter.')
-    .option('--url <url>', `Override catalog URL. Defaults to ${DEFAULT_CATALOG_URL}.`)
-    .option('--json', 'Emit the matching catalog slice as JSON.', false)
+    .option('--filter <substring>', t('cli.optionDescriptions.providerCatalogFilter'))
+    .option('--url <url>', t('cli.optionDescriptions.providerCatalogUrl', { url: DEFAULT_CATALOG_URL }))
+    .option('--json', t('cli.optionDescriptions.providerCatalogJson'), false)
     .action(
       async (
         providerId: string | undefined,
@@ -480,9 +480,9 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
   catalog
     .command('add <providerId>')
     .description(t('cli.commandDescriptions.providerCatalogAdd'))
-    .option('--api-key <key>', 'API key for the provider. Falls back to KIMI_REGISTRY_API_KEY.')
-    .option('--default-model <modelId>', 'Mark the imported model as default_model after import.')
-    .option('--url <url>', `Override catalog URL. Defaults to ${DEFAULT_CATALOG_URL}.`)
+    .option('--api-key <key>', t('cli.optionDescriptions.providerCatalogApiKey'))
+    .option('--default-model <modelId>', t('cli.optionDescriptions.providerCatalogDefaultModel'))
+    .option('--url <url>', t('cli.optionDescriptions.providerCatalogUrl', { url: DEFAULT_CATALOG_URL }))
     .action(
       async (
         providerId: string,

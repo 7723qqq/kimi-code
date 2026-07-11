@@ -113,9 +113,9 @@ export function registerExportCommand(parent: Command, deps?: Partial<ExportDeps
     .option('-y, --yes', t('cli.optionDescriptions.exportYes'))
     .option(
       '--no-include-global-log',
-      'Skip bundling the active global diagnostic log (~/.kimi-code/logs/kimi-code.log, not rotated .1 files). By default the global log is included.',
+      t('cli.optionDescriptions.exportNoIncludeGlobalLog'),
     )
-    .argument('[sessionId]', 'Session id to export. Defaults to the most recent session.')
+    .argument('[sessionId]', t('cli.optionDescriptions.exportSessionId'))
     .action(
       async (
         sessionId: string | undefined,

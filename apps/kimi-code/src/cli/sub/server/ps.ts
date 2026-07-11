@@ -42,7 +42,7 @@ export function registerPsCommand(server: Command): void {
   server
     .command('ps')
     .description(t('cli.commandDescriptions.serverPs'))
-    .option('--json', 'Print the raw connection list as JSON.')
+    .option('--json', t('cli.optionDescriptions.serverPsJson'))
     .action(async (opts: { json?: boolean }) => {
       try {
         await handlePsCommand(opts);
