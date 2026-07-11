@@ -10,6 +10,7 @@ import { getLiveLock, rotateServerToken } from '@moonshot-ai/server';
 import chalk from 'chalk';
 import type { Command } from 'commander';
 
+import { t } from '#/i18n';
 import { darkColors } from '#/tui/theme/colors';
 import { getDataDir } from '#/utils/paths';
 
@@ -20,7 +21,7 @@ export function registerRotateTokenCommand(server: Command): void {
   server
     .command('rotate-token')
     .description(
-      'Generate a new persistent server token; the previous token stops working immediately.',
+      t('cli.commandDescriptions.serverRotateToken'),
     )
     .action(async () => {
       try {

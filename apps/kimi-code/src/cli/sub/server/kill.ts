@@ -18,6 +18,7 @@ import type { Command } from 'commander';
 
 import { getLiveLock, type LockContents } from '@moonshot-ai/server';
 
+import { t } from '#/i18n';
 import { getDataDir } from '#/utils/paths';
 
 import { lockConnectHost } from './daemon';
@@ -47,7 +48,7 @@ export interface KillCommandDeps {
 export function registerKillCommand(server: Command): void {
   server
     .command('kill')
-    .description('Stop the running Kimi server (graceful API + forced PID kill).')
+    .description(t('cli.commandDescriptions.serverKill'))
     .action(async () => {
       try {
         await handleKillCommand(DEFAULT_KILL_DEPS);

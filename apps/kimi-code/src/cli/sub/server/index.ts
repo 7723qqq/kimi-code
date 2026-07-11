@@ -28,7 +28,7 @@ export function registerServerCommand(program: Command): void {
     .description(t('cli.commandDescriptions.server'));
 
   buildRunCommand(
-    server.command('run').description('Start the Kimi server (background daemon; use --foreground to attach).'),
+    server.command('run').description(t('cli.commandDescriptions.serverRun')),
     { defaultOpen: false },
   );
 

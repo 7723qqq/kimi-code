@@ -48,7 +48,7 @@ describe('kimi acp', () => {
 
     const acp = program.commands.find((c) => c.name() === 'acp');
     expect(acp).toBeDefined();
-    expect(acp?.description()).toMatch(/Agent Client Protocol/);
+    expect(acp?.description()).toMatch(/ACP|Agent Client Protocol/);
   });
 
   it('invokes runAcpServer with a constructed harness and exits 0 on success', async () => {

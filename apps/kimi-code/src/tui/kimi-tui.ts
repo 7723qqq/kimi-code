@@ -23,6 +23,7 @@ import {
 import { resolve } from 'pathe';
 
 import type { CLIOptions } from '#/cli/options';
+import { t } from '#/i18n';
 import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/index';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
@@ -2187,10 +2188,10 @@ export class KimiTUI {
     openUrl(auth.verificationUriComplete);
     this.state.transcriptContainer.addChild(
       new DeviceCodeBoxComponent({
-        title: 'Sign in to Kimi Code',
+        title: t('tui.chrome.deviceCodeBox.title'),
         url: auth.verificationUriComplete,
         code: auth.userCode,
-        hint: 'Press Ctrl-C to cancel',
+        hint: t('tui.chrome.deviceCodeBox.hint'),
       }),
     );
     this.state.ui.requestRender();

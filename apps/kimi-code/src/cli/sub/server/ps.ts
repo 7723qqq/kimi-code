@@ -9,6 +9,8 @@
 import chalk from 'chalk';
 import type { Command } from 'commander';
 
+import { t } from '#/i18n';
+
 import { getLiveLock } from '@moonshot-ai/server';
 
 import { getDataDir } from '#/utils/paths';
@@ -39,7 +41,7 @@ const USER_AGENT_MAX_WIDTH = 40;
 export function registerPsCommand(server: Command): void {
   server
     .command('ps')
-    .description('List clients currently connected to the running Kimi server.')
+    .description(t('cli.commandDescriptions.serverPs'))
     .option('--json', 'Print the raw connection list as JSON.')
     .action(async (opts: { json?: boolean }) => {
       try {
