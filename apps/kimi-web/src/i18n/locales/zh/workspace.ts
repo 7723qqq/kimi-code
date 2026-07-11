@@ -43,7 +43,7 @@ export default {
   badParent: '上级目录不存在：{parent}',
   pathFollowHint: '已定位到目标文件夹，按回车或点击"打开此文件夹"完成添加。',
   degradedPlaceholder: '输入绝对路径，回车添加…',
-  degradedHint: '守护进程无法浏览文件系统，请直接输入绝对路径（/ 或 ~ 开头）后回车添加。',
+  degradedHint: '守护进程无法浏览文件系统，请直接输入绝对路径后回车添加。',
   // Attention marker
   attentionTitle: '{count} 项待处理',
   // Per-session pending tags (sidebar)
