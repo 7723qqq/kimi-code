@@ -638,7 +638,10 @@ async function handleLoadOlderMessages(): Promise<void> {
   // rebuild that turn with a new id. Fall back to the overall height delta so
   // the viewport does not jump into the inserted history.
   if (delta === 0) delta = el2.scrollHeight - oldHeight;
-  el2.scrollTop = oldTop + delta;
+  // Apply the delta to the CURRENT scrollTop, not the pre-fetch oldTop: the
+  // user may have kept scrolling (e.g. trackpad momentum) while the request
+  // was in flight, and snapping back to oldTop would yank the viewport down.
+  el2.scrollTop = el2.scrollTop + delta;
 }
 
 function attrEscape(value: string): string {
