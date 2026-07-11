@@ -15,7 +15,7 @@ import { flags } from '../../flags';
 import type { BuiltinTool } from '../../agent/tool';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../loop/types';
 import { ToolAccesses } from '../../loop/tool-access';
-import { isWithinDirectory, resolvePathAccessPath } from '../../tools/policies/path-access';
+import { isWithinDirectory, resolvePathAccessPath, resolveSymlinkEscape } from '../../tools/policies/path-access';
 import type { WorkspaceConfig } from '../../tools/support/workspace';
 import { toInputJsonSchema } from '../../tools/support/input-schema';
 import {
@@ -123,6 +123,14 @@ export class NativeReadTool implements BuiltinTool {
           homeDir: this.kaos.gethome(),
         }),
       execute: async (ctx: ExecutableToolContext): Promise<ExecutableToolResult> => {
+        try {
+          await resolveSymlinkEscape(path, this.workspace, this.kaos.pathClass());
+        } catch (error) {
+          return {
+            isError: true,
+            output: error instanceof Error ? error.message : String(error),
+          };
+        }
         const result = await callNative<{ content: string; lineCount: number; error?: string }>(
           'nativeRead',
           path,
@@ -188,6 +196,14 @@ export class NativeWriteTool implements BuiltinTool {
           homeDir: this.kaos.gethome(),
         }),
       execute: async (ctx: ExecutableToolContext): Promise<ExecutableToolResult> => {
+        try {
+          await resolveSymlinkEscape(path, this.workspace, this.kaos.pathClass());
+        } catch (error) {
+          return {
+            isError: true,
+            output: error instanceof Error ? error.message : String(error),
+          };
+        }
         const result = await callNative<{ bytesWritten: number; error?: string }>(
           'nativeWrite',
           path,

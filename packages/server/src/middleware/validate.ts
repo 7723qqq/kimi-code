@@ -48,14 +48,14 @@ interface ValidationDetailItem {
   message: string;
 }
 
-function zodIssuesToDetails(error: z.ZodError): ValidationDetailItem[] {
+export function zodIssuesToDetails(error: z.ZodError): ValidationDetailItem[] {
   return error.issues.map((issue) => ({
     path: issue.path.join('.'),
     message: issue.message,
   }));
 }
 
-function buildValidationEnvelope(
+export function buildValidationEnvelope(
   details: ValidationDetailItem[],
   requestId: string,
 ): {

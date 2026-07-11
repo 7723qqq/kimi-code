@@ -79,6 +79,22 @@ function normalizeAnthropicStopReason(raw: string | null | undefined): {
       return { finishReason: 'other', rawFinishReason: raw };
   }
 }
+
+function parseAnthropicCustomHeaderEnv(): string[] {
+  const customHeaders = process.env['ANTHROPIC_CUSTOM_HEADERS'];
+  if (customHeaders === undefined || customHeaders.length === 0) return [];
+
+  const names: string[] = [];
+  for (const line of customHeaders.split('\n')) {
+    const colonIndex = line.indexOf(':');
+    if (colonIndex < 0) continue;
+
+    const name = line.slice(0, colonIndex).trim().toLowerCase();
+    if (name.length > 0) names.push(name);
+  }
+  return names;
+}
+
 export interface AnthropicOptions {
   apiKey?: string | undefined;
   baseUrl?: string | undefined;
@@ -851,8 +867,6 @@ class AnthropicStreamedMessage implements StreamedMessage {
   private async *_convertStreamResponse(
     response: AsyncIterable<MessageStreamEvent>,
   ): AsyncGenerator<StreamedMessagePart> {
-    const toolUseBlockIndexes = new Set<number>();
-
     try {
       for await (const event of response) {
         const evt = event as unknown as Record<string, unknown>;
@@ -889,7 +903,6 @@ class AnthropicStreamedMessage implements StreamedMessage {
               };
               break;
             case 'tool_use':
-              toolUseBlockIndexes.add(blockIndex);
               yield {
                 type: 'function',
                 id: block.id,
@@ -998,6 +1011,7 @@ export class AnthropicChatProvider implements ChatProvider {
   private _adaptiveThinking: boolean | undefined;
   private _betaApi: boolean;
   private _explicitMaxTokens: boolean;
+  private _customHeaderNames: string[];
 
   constructor(options: AnthropicOptions) {
     this._model = options.model;
@@ -1010,6 +1024,7 @@ export class AnthropicChatProvider implements ChatProvider {
     this._baseUrl = options.baseUrl;
     this._defaultHeaders = options.defaultHeaders;
     this._clientFactory = options.clientFactory;
+    this._customHeaderNames = parseAnthropicCustomHeaderEnv();
     this._client = this._apiKey === undefined ? undefined : this._buildClient(this._apiKey);
     this._explicitMaxTokens = options.defaultMaxTokens !== undefined;
     this._generationKwargs = {
@@ -1257,18 +1272,7 @@ export class AnthropicChatProvider implements ChatProvider {
   }
 
   private _anthropicCustomHeaderEnvNames(): string[] {
-    const customHeaders = process.env['ANTHROPIC_CUSTOM_HEADERS'];
-    if (customHeaders === undefined || customHeaders.length === 0) return [];
-
-    const names: string[] = [];
-    for (const line of customHeaders.split('\n')) {
-      const colonIndex = line.indexOf(':');
-      if (colonIndex < 0) continue;
-
-      const name = line.slice(0, colonIndex).trim().toLowerCase();
-      if (name.length > 0) names.push(name);
-    }
-    return names;
+    return this._customHeaderNames;
   }
 
   private _buildDefaultHeaders(apiKey: string): Record<string, string | null> {

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { Readable } from 'node:stream';
 
 import { KaosFileExistsError, KaosValueError } from '#/errors';
 import {
@@ -833,6 +834,22 @@ describe('SSHKaos mock success paths', () => {
         }
         cb(null, node.content ?? Buffer.alloc(0));
       },
+      createReadStream(
+        path: string,
+        options?: { start?: number; end?: number },
+      ): Readable {
+        const node = lookup(root, path);
+        if (!node || node.type !== 'file') {
+          const err = new Error(`no such file: ${path}`);
+          (err as unknown as { code: number }).code = 2;
+          const errorStream = new Readable({ read() { this.destroy(err); } });
+          return errorStream;
+        }
+        const content = node.content ?? Buffer.alloc(0);
+        const start = options?.start ?? 0;
+        const end = options?.end !== undefined ? options.end + 1 : content.length;
+        return Readable.from([content.subarray(start, end)]);
+      },
     };
   }
 
@@ -1246,6 +1263,52 @@ describe('SSHKaos mock success paths', () => {
     expect(matches).toEqual(['/tree']);
   });
 
+  it('glob ** skips directories already in the visited set', async () => {
+    // Two sibling directories both contain a subdirectory named `shared`
+    // that the SFTP server resolves to the same target path. Without
+    // visited-set cycle detection, the `**` walk would visit `shared`
+    // twice (once via /a/shared and once via /b/shared), yielding
+    // duplicate results.
+    //
+    // We simulate this by having readdir return entries whose joined
+    // paths collide: /a/shared and /b/shared both map to the same
+    // directory content, and the visited set ensures the second visit
+    // is skipped.
+    const sharedContent = [{ filename: 'data.txt', attrs: { isDirectory: () => false } }];
+    const sftp = {
+      realpath(p: string, cb: (err: Error | null, abs: string) => void): void {
+        cb(null, p);
+      },
+      readdir(path: string, cb: (err: Error | null, list?: unknown[]) => void): void {
+        if (path === '/root') {
+          cb(null, [
+            { filename: 'a', attrs: { isDirectory: () => true } },
+            { filename: 'b', attrs: { isDirectory: () => true } },
+          ]);
+        } else if (path === '/root/a' || path === '/root/b') {
+          cb(null, [{ filename: 'shared', attrs: { isDirectory: () => true } }]);
+        } else {
+          // /root/a/shared and /root/b/shared
+          cb(null, sharedContent);
+        }
+      },
+    };
+    const kaos = makeFakeKaos(sftp, '/root');
+
+    const matches: string[] = [];
+    for await (const m of kaos.glob('/root', '**')) {
+      matches.push(m);
+    }
+    // Both /root/a/shared and /root/b/shared should appear (different paths),
+    // but each should appear only once.
+    expect(matches).toContain('/root/a/shared');
+    expect(matches).toContain('/root/b/shared');
+    expect(matches).toContain('/root/a/shared/data.txt');
+    expect(matches).toContain('/root/b/shared/data.txt');
+    // No duplicates.
+    expect(matches.length).toBe(new Set(matches).size);
+  });
+
   // ── readBytes ──────────────────────────────────────────────────────
 
   it('readBytes(n) returns only the first n bytes of the file', async () => {
@@ -1414,12 +1477,17 @@ describe('SSHKaos mkdir existOk edge cases', () => {
 describe('SSHKaos.close lifecycle', () => {
   class FakeClient extends EventEmitter {
     closed = false;
+    destroyed = false;
 
     end(): void {
       queueMicrotask(() => {
         this.closed = true;
         this.emit('close');
       });
+    }
+
+    destroy(): void {
+      this.destroyed = true;
     }
 
     exec(
@@ -1468,5 +1536,42 @@ describe('SSHKaos.close lifecycle', () => {
     await kaos.close();
 
     await expect(kaos.exec('pwd')).rejects.toThrow(/channel closed/);
+  });
+
+  it('resolves after the 5s timeout when the close event never fires', async () => {
+    // FakeClient whose end() never emits 'close' — simulates a hung SSH
+    // connection. close() must still resolve (after the timeout) and
+    // destroy the client so resources are freed.
+    class HungClient extends FakeClient {
+      override end(): void {
+        // Intentionally do NOT emit 'close' — simulates a stuck socket.
+      }
+    }
+    const instance = Object.create(SSHKaos.prototype) as SSHKaos;
+    const internals = instance as unknown as {
+      _client: HungClient;
+      _cwd: string;
+      _home: string;
+      _sftp: { end(): void };
+      _envLayers: readonly Record<string, string>[];
+    };
+    internals._client = new HungClient();
+    internals._cwd = '/tmp';
+    internals._home = '/tmp';
+    internals._envLayers = [];
+    internals._sftp = { end(): void {} };
+
+    // Use fake timers to avoid waiting 5 real seconds.
+    const { vi } = await import('vitest');
+    vi.useFakeTimers();
+    try {
+      const closePromise = instance.close();
+      // Advance past the 5s timeout.
+      vi.advanceTimersByTime(5000);
+      await expect(closePromise).resolves.toBeUndefined();
+      expect(internals._client.destroyed).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

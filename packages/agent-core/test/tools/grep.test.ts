@@ -1810,7 +1810,7 @@ describe('GrepTool', () => {
     expect(lines[1]).toBe('src/b.py-41-context');
   });
 
-  it('passes lines through unchanged when path is not under the workspace', async () => {
+  it('filters out paths outside the search root after rg returns', async () => {
     const stdout = '/other/path/file.py:1:hit\n--\n';
     const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), {
@@ -1820,8 +1820,8 @@ describe('GrepTool', () => {
 
     const result = await executeTool(tool, context({ pattern: 'hit', output_mode: 'content' }));
 
-    const lines = toolContentString(result).split('\n');
-    expect(lines[0]).toBe('/other/path/file.py:1:hit');
+    expect(result.output).toContain('No non-sensitive matches found');
+    expect(result.output).not.toContain('/other/path/file.py');
   });
 
   it('treats a trailing-slash workspace dir the same as one without', async () => {
@@ -1847,7 +1847,7 @@ describe('GrepTool', () => {
     expect(toolContentString(noSepResult)).not.toContain('/tmp/dir/file.py');
   });
 
-  it('does not strip a workspace dir prefix when it would match a sibling name', async () => {
+  it('filters paths outside the search root and relativizes those inside', async () => {
     const stdout = ['/tmp/abc/file.py', '/tmp/a/file.py', ''].join('\n');
     const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), {
@@ -1859,11 +1859,10 @@ describe('GrepTool', () => {
       context({ pattern: 'x', output_mode: 'files_with_matches' }),
     );
     const output = toolContentString(result);
-    expect(output).toContain('/tmp/abc/file.py');
+    // /tmp/a/file.py is inside the workspace and relativized to "file.py".
     expect(output).toContain('file.py');
-    // The /tmp/a entry should be relativized to "file.py"; the /tmp/abc
-    // entry must stay absolute so it does not collide with the relative form.
-    expect(output.split('\n')).toEqual(expect.arrayContaining(['file.py', '/tmp/abc/file.py']));
+    // /tmp/abc/file.py is outside the search root and filtered out.
+    expect(output).not.toContain('/tmp/abc/file.py');
   });
 
   it('relativizes a single-file absolute path against the workspace dir', async () => {

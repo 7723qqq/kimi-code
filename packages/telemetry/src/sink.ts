@@ -81,7 +81,12 @@ export class EventSink {
     if (this.buffer.length === 0) return;
     const events = this.buffer;
     this.buffer = [];
-    await this.transport.send(events, signal);
+    try {
+      await this.transport.send(events, signal);
+    } catch (error) {
+      this.buffer = [...events, ...this.buffer];
+      throw error;
+    }
   }
 
   flushSync(): void {

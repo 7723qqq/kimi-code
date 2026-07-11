@@ -194,6 +194,17 @@ export class AcpServer implements Agent {
       typeof slash === 'function'
         ? async (session) => toResolvedSlashCommands(await slash(session))
         : async () => toResolvedSlashCommands(slash ?? []);
+    if (this.conn) {
+      // Defer until the AgentSideConnection constructor finishes setting
+      // up its internal Connection (which owns the AbortSignal). The
+      // factory callback `toAgent(this)` runs before that field is
+      // assigned, so accessing `conn.signal` synchronously here throws.
+      queueMicrotask(() => {
+        this.conn?.signal.addEventListener('abort', () => {
+          this.sessions.clear();
+        });
+      });
+    }
   }
 
   /** Returns the {@link AcpVersionSpec} chosen during `initialize`, if any. */
@@ -677,10 +688,22 @@ export class AcpServer implements Agent {
     const value = (params as { value: unknown }).value;
     switch (params.configId) {
       case 'model':
-        await acpSession.setModel(String(value));
+        if (typeof value !== 'string' || value.length === 0) {
+          throw RequestError.invalidParams(
+            { configId: 'model', value },
+            'model config option requires a non-empty string value',
+          );
+        }
+        await acpSession.setModel(value);
         break;
       case 'mode':
-        await acpSession.setMode(String(value));
+        if (typeof value !== 'string' || value.length === 0) {
+          throw RequestError.invalidParams(
+            { configId: 'mode', value },
+            'mode config option requires a non-empty string value',
+          );
+        }
+        await acpSession.setMode(value);
         break;
       case 'thinking': {
         // Phase 16 changed the wire shape from boolean to a 2-entry
@@ -887,9 +910,10 @@ export class AcpServer implements Agent {
   }
 
   private scheduleAvailableCommandsUpdate(sessionId: string): void {
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       void this.emitAvailableCommandsUpdate(sessionId);
     }, 0);
+    timer.unref();
   }
 
   private async emitAvailableCommandsUpdate(sessionId: string): Promise<void> {

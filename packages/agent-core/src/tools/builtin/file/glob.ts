@@ -249,10 +249,15 @@ export class GlobTool implements BuiltinTool<GlobInput> {
       resolve(searchRoot, p),
     );
 
+    // Validate resolved paths are within the search root — rg could surface
+    // paths that escape via symlinks within the searched tree.
+    const pathClass = this.kaos.pathClass();
+    const safePaths = rawPaths.filter((p) => isWithinDirectory(p, searchRoot, pathClass));
+
     // Authoritative sensitive-file check (the rg prefilter is conservative).
     const kept: string[] = [];
     let filteredSensitive = 0;
-    for (const p of rawPaths) {
+    for (const p of safePaths) {
       if (isSensitiveFile(p)) {
         filteredSensitive++;
       } else {
@@ -276,7 +281,6 @@ export class GlobTool implements BuiltinTool<GlobInput> {
     // save tokens, but only for the primary workspace. Relative paths are
     // later resolved against workspaceDir, so additionalDir matches stay
     // absolute to keep follow-up Read/Edit calls on the same file.
-    const pathClass = this.kaos.pathClass();
     const shouldRelativize = isWithinDirectory(searchRoot, this.workspace.workspaceDir, pathClass);
     const displayLines = limited.map((p) =>
       shouldRelativize ? relativizeIfUnder(p, searchRoot, pathClass) : p,

@@ -509,8 +509,15 @@ export class PromptService
         if (state.turnId !== null) cancelArgs.turnId = state.turnId;
         await this.core.rpc.cancel(cancelArgs);
       } catch (error) {
-        // Roll back the optimistic flag so the route surfaces a real error;
-        // the caller will see a 50001 (internal) via the global error handler.
+        // If _handleBusEvent processed a turn.ended during the cancel RPC,
+        // the state has been detached from _active and the next queued
+        // prompt already started. Rolling back would mutate a detached
+        // object and the prompt.aborted event would never fire — the prompt
+        // is lost. Guard by checking the state is still current.
+        if (this._active.get(key) !== state) {
+          this._publishAborted(sid, state.agentId, pid);
+          return { aborted: true };
+        }
         state.aborted = false;
         throw error;
       }
@@ -978,6 +985,10 @@ export class PromptService
     }
     if (next === undefined) return;
     await this._startPrompt(sid, next).catch(() => {
+      // _startPrompt already removed the failed prompt from _active and
+      // threw. Emit a synthetic prompt.aborted so observers learn the
+      // prompt never ran, then advance the queue.
+      this._publishAborted(sid, next.agentId, next.promptId);
       void this._startNextQueued(sid, agentId);
     });
   }

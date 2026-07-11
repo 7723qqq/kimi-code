@@ -54,9 +54,9 @@ export function acpBlocksToPromptParts(
       if ('text' in resource) {
         // TextResourceContents — wrap as a `<resource>` element so the
         // model sees the uri provenance alongside the text body.
-        const text = `<resource uri="${escapeXmlAttr(resource.uri)}">${
-          resource.text
-        }</resource>`;
+        const text = `<resource uri="${escapeXmlAttr(resource.uri)}">${escapeXmlText(
+          resource.text,
+        )}</resource>`;
         out.push({ type: 'text', text });
         continue;
       }
@@ -170,6 +170,20 @@ function escapeXmlAttr(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
+}
+
+/**
+ * Escape XML-special characters in element **text content**. Unlike
+ * {@link escapeXmlAttr} this does NOT escape `"` / `'` — those are only
+ * significant inside attribute values, not in text nodes. Escaping `&`,
+ * `<`, and `>` is sufficient to prevent the body from breaking out of
+ * the enclosing `<resource>` tag.
+ */
+function escapeXmlText(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function fileLinkToTextRef(uri: string): string | null {

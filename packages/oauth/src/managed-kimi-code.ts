@@ -457,10 +457,10 @@ export function parseThinkEfforts(value: unknown): {
   supportEfforts: readonly string[] | undefined;
   defaultEffort: string | undefined;
 } {
-  if (value === null || typeof value !== 'object') {
+  if (!isRecord(value)) {
     return { supportEfforts: undefined, defaultEffort: undefined };
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   // `support` gates the whole object: when it is not true, ignore
   // valid_efforts / default_effort entirely.
   if (record['support'] !== true) {

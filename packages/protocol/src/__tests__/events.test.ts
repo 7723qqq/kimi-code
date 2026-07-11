@@ -242,4 +242,26 @@ describe('events / display re-exports', () => {
       }).success,
     ).toBe(false);
   });
+
+  it('validates event.config.changed events through the agent event union', () => {
+    const parsed = agentEventSchema.safeParse({
+      type: 'event.config.changed',
+      changedFields: ['default_model'],
+      config: { providers: {} },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('accepts sse transport on mcp.server.status events', () => {
+    const parsed = agentEventSchema.safeParse({
+      type: 'mcp.server.status',
+      server: {
+        name: 'remote-sse',
+        transport: 'sse',
+        status: 'connected',
+        toolCount: 0,
+      },
+    });
+    expect(parsed.success).toBe(true);
+  });
 });

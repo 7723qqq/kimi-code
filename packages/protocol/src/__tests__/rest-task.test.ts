@@ -38,6 +38,11 @@ describe('getTaskQuerySchema', () => {
     expect(parsed.with_output).toBe(true);
     expect(parsed.output_bytes).toBe(512);
   });
+
+  it('parses with_output "false" and "0" as false (not coerced to true)', () => {
+    expect(getTaskQuerySchema.parse({ with_output: 'false' }).with_output).toBe(false);
+    expect(getTaskQuerySchema.parse({ with_output: '0' }).with_output).toBe(false);
+  });
 });
 
 describe('getTaskResponseSchema', () => {

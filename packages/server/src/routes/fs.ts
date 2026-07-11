@@ -36,6 +36,7 @@ import { z } from 'zod';
 
 
 import { errEnvelope, okEnvelope } from '../envelope';
+import { buildValidationEnvelope, zodIssuesToDetails } from '../middleware/validate';
 import { defineRoute } from '../middleware/defineRoute';
 import {
   launchDetached,
@@ -335,7 +336,7 @@ async function handleList(
 ): Promise<void> {
   const parsed = fsListRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    reply.send(buildValidationEnvelope(zodIssuesToDetails(parsed.error), req.id));
     return;
   }
   const body: FsListRequest = parsed.data;
@@ -351,7 +352,7 @@ async function handleRead(
 ): Promise<void> {
   const parsed = fsReadRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    reply.send(buildValidationEnvelope(zodIssuesToDetails(parsed.error), req.id));
     return;
   }
   const body: FsReadRequest = parsed.data;
@@ -367,7 +368,7 @@ async function handleListMany(
 ): Promise<void> {
   const parsed = fsListManyRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    reply.send(buildValidationEnvelope(zodIssuesToDetails(parsed.error), req.id));
     return;
   }
   const body: FsListManyRequest = parsed.data;
@@ -385,7 +386,7 @@ async function handleStat(
 ): Promise<void> {
   const parsed = fsStatRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    reply.send(buildValidationEnvelope(zodIssuesToDetails(parsed.error), req.id));
     return;
   }
   const body: FsStatRequest = parsed.data;
@@ -401,7 +402,7 @@ async function handleStatMany(
 ): Promise<void> {
   const parsed = fsStatManyRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    reply.send(buildValidationEnvelope(zodIssuesToDetails(parsed.error), req.id));
     return;
   }
   const body: FsStatManyRequest = parsed.data;
@@ -419,7 +420,7 @@ async function handleMkdir(
 ): Promise<void> {
   const parsed = fsMkdirRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    reply.send(buildValidationEnvelope(zodIssuesToDetails(parsed.error), req.id));
     return;
   }
   const body: FsMkdirRequest = parsed.data;
@@ -437,7 +438,7 @@ async function handleSearch(
 ): Promise<void> {
   const parsed = fsSearchRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    reply.send(buildValidationEnvelope(zodIssuesToDetails(parsed.error), req.id));
     return;
   }
   const body: FsSearchRequest = parsed.data;
@@ -455,7 +456,7 @@ async function handleGrep(
 ): Promise<void> {
   const parsed = fsGrepRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    reply.send(buildValidationEnvelope(zodIssuesToDetails(parsed.error), req.id));
     return;
   }
   const body: FsGrepRequest = parsed.data;
@@ -473,7 +474,7 @@ async function handleGitStatus(
 ): Promise<void> {
   const parsed = fsGitStatusRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    reply.send(buildValidationEnvelope(zodIssuesToDetails(parsed.error), req.id));
     return;
   }
   const body: FsGitStatusRequest = parsed.data;
@@ -491,7 +492,7 @@ async function handleDiff(
 ): Promise<void> {
   const parsed = fsDiffRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    reply.send(buildValidationEnvelope(zodIssuesToDetails(parsed.error), req.id));
     return;
   }
   const body: FsDiffRequest = parsed.data;
@@ -509,7 +510,7 @@ async function handleOpen(
 ): Promise<void> {
   const parsed = fsOpenRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    reply.send(buildValidationEnvelope(zodIssuesToDetails(parsed.error), req.id));
     return;
   }
   const body: FsOpenRequest = parsed.data;
@@ -528,7 +529,7 @@ async function handleReveal(
 ): Promise<void> {
   const parsed = fsRevealRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    reply.send(buildValidationEnvelope(zodIssuesToDetails(parsed.error), req.id));
     return;
   }
   const body: FsRevealRequest = parsed.data;
@@ -547,7 +548,7 @@ async function handleOpenIn(
 ): Promise<void> {
   const parsed = fsOpenInRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    reply.send(buildValidationEnvelope(zodIssuesToDetails(parsed.error), req.id));
     return;
   }
   const body: FsOpenInRequest = parsed.data;
@@ -620,35 +621,6 @@ function sendMappedError(
     return;
   }
   throw err;
-}
-
-function buildValidationEnvelope(
-  issues: readonly { path: readonly PropertyKey[]; message: string }[],
-  requestId: string,
-): {
-  code: number;
-  msg: string;
-  data: null;
-  request_id: string;
-  details: { path: string; message: string }[];
-} {
-  const details = issues.map((i) => ({
-    path: i.path.map((p) => String(p)).join('.'),
-    message: i.message,
-  }));
-  const first = details[0];
-  const msg = first === undefined
-    ? 'validation failed'
-    : first.path === ''
-      ? first.message
-      : `${first.path}: ${first.message}`;
-  return {
-    code: ErrorCode.VALIDATION_FAILED,
-    msg,
-    data: null,
-    request_id: requestId,
-    details,
-  };
 }
 
 function pickHeader(

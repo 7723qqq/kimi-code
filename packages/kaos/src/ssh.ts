@@ -628,13 +628,14 @@ export class SSHKaos implements Kaos {
     }
     // Use local glob implementation over SFTP readdir
     const patternParts = pattern.split('/');
-    yield* this._globWalk(resolved, patternParts, caseSensitive);
+    yield* this._globWalk(resolved, patternParts, caseSensitive, new Set<string>());
   }
 
   private async *_globWalk(
     basePath: string,
     patternParts: string[],
     caseSensitive: boolean,
+    visited: Set<string>,
   ): AsyncGenerator<string> {
     if (patternParts.length === 0) return;
 
@@ -656,7 +657,7 @@ export class SSHKaos implements Kaos {
       // — that would double-count matches at depth ≥ 1 because case (a)
       // inside the child recursion already yields those results.
       if (remainingParts.length > 0) {
-        yield* this._globWalk(basePath, remainingParts, caseSensitive);
+        yield* this._globWalk(basePath, remainingParts, caseSensitive, visited);
       } else {
         // Pattern ends with `**`: yield basePath itself (zero-dir match).
         yield basePath;
@@ -673,7 +674,9 @@ export class SSHKaos implements Kaos {
         if (entry.filename === '.' || entry.filename === '..') continue;
         const fullPath = join(basePath, entry.filename);
         if (entry.attrs.isDirectory()) {
-          yield* this._globWalk(fullPath, patternParts, caseSensitive);
+          if (visited.has(fullPath)) continue;
+          visited.add(fullPath);
+          yield* this._globWalk(fullPath, patternParts, caseSensitive, visited);
         } else if (remainingParts.length === 0) {
           // Pattern ends with `**`: non-directory entries match too.
           yield fullPath;
@@ -698,7 +701,9 @@ export class SSHKaos implements Kaos {
         if (remainingParts.length === 0) {
           yield fullPath;
         } else if (entry.attrs.isDirectory()) {
-          yield* this._globWalk(fullPath, remainingParts, caseSensitive);
+          if (visited.has(fullPath)) continue;
+          visited.add(fullPath);
+          yield* this._globWalk(fullPath, remainingParts, caseSensitive, visited);
         }
       }
     }
@@ -707,9 +712,23 @@ export class SSHKaos implements Kaos {
   // ── File operations (async) ────────────────────────────────────────
 
   async readBytes(path: string, n?: number): Promise<Buffer> {
-    const data = await sftpReadFile(this._sftp, this._resolvePath(path));
-    if (n === undefined) return data;
-    return data.subarray(0, n);
+    const resolved = this._resolvePath(path);
+    if (n !== undefined) {
+      return new Promise<Buffer>((resolve, reject) => {
+        const stream = this._sftp.createReadStream(resolved, { start: 0, end: n - 1 });
+        const chunks: Buffer[] = [];
+        stream.on('data', (chunk: Buffer) => {
+          chunks.push(chunk);
+        });
+        stream.on('end', () => {
+          resolve(Buffer.concat(chunks));
+        });
+        stream.on('error', (err: Error) => {
+          reject(mapSftpError('readFile', err));
+        });
+      });
+    }
+    return sftpReadFile(this._sftp, resolved);
   }
 
   async readText(
@@ -935,11 +954,16 @@ export class SSHKaos implements Kaos {
    */
   close(): Promise<void> {
     this._sftp.end();
-    return new Promise<void>((resolve) => {
-      this._client.once('close', () => {
-        resolve();
-      });
-      this._client.end();
+    const closed = new Promise<void>((resolve) => {
+      this._client.once('close', () => resolve());
     });
+    const timeout = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        this._client.destroy();
+        resolve();
+      }, 5000);
+    });
+    this._client.end();
+    return Promise.race([closed, timeout]);
   }
 }

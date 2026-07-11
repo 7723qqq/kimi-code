@@ -1,6 +1,6 @@
 import { isValid, ulid } from 'ulid';
 
-export const ulidRegex = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
+export const ulidRegex = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/i;
 
 export function parseOrGenerateRequestId(headerValue: string | undefined): string {
   if (typeof headerValue === 'string' && isValid(headerValue)) {

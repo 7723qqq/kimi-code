@@ -11,7 +11,7 @@
 
 import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@moonshot-ai/kimi-code-sdk';
 
-import type { BackgroundAgentStatusData, BackgroundAgentStatusPhase } from '@/tui/types';
+import type { BackgroundAgentStatusData, BackgroundAgentStatusPhase } from '#/tui/types';
 
 import { t } from '#/i18n';
 

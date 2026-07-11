@@ -1369,7 +1369,7 @@ export const toolListUpdatedEventSchema = z.object({
 
 export const mcpServerStatusPayloadSchema = z.object({
   name: z.string(),
-  transport: z.enum(['stdio', 'http']),
+  transport: z.enum(['stdio', 'http', 'sse']),
   status: z.enum(['pending', 'connected', 'failed', 'disabled', 'needs-auth']),
   toolCount: z.number(),
   error: z.string().optional(),
@@ -1390,6 +1390,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   workspaceUpdatedEventSchema,
   workspaceDeletedEventSchema,
   sessionStatusChangedEventSchema,
+  configChangedEventSchema,
   modelCatalogChangedEventSchema,
   goalUpdatedEventSchema,
   skillActivatedEventSchema,

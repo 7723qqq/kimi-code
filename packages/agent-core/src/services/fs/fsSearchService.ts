@@ -1,6 +1,7 @@
 
 
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
@@ -60,7 +61,8 @@ function getNativeFsSearch() {
   if (nativeFsSearch === null) return undefined;
   if (nativeFsSearch !== undefined) return nativeFsSearch;
   try {
-    nativeFsSearch = require('@moonshot-ai/kimi-native-tools');
+    const cjsRequire = createRequire(import.meta.url);
+    nativeFsSearch = cjsRequire('@moonshot-ai/kimi-native-tools');
     return nativeFsSearch;
   } catch {
     nativeFsSearch = null;
@@ -323,6 +325,10 @@ export class FsSearchService
           const line = rec.data?.line_number ?? 0;
           const col = (rec.data?.submatches?.[0]?.start ?? 0) + 1;
           const before = buf.pending.slice(-req.context_lines);
+          if (buf.matches.length > 0 && buf.pending.length > 0) {
+            const prev = buf.matches[buf.matches.length - 1]!;
+            prev.after = buf.pending.slice(0, req.context_lines);
+          }
           buf.pending.length = 0;
           buf.matches.push({
             line,
@@ -357,13 +363,17 @@ export class FsSearchService
     });
 
     let stderrBuf = '';
+    let exitCode: number | null = null;
     child.stderr.setEncoding('utf-8');
     child.stderr.on('data', (c: string) => {
       stderrBuf += c;
     });
 
     await new Promise<void>((resolve) => {
-      child.once('close', () => resolve());
+      child.once('close', (code) => {
+        exitCode = code;
+        resolve();
+      });
       child.once('error', () => resolve());
     });
 
@@ -378,6 +388,13 @@ export class FsSearchService
     }
     fileBuf.clear();
 
+    const code = exitCode;
+    if (code !== null && code !== 0 && code !== 1 && stderrBuf.length > 0) {
+      this.logger.warn(
+        `rg (ripgrep) exited with code ${String(code)}: ${stderrBuf.trim()}`,
+      );
+    }
+
     if (signal.aborted) {
 
       if (totalMatches === 0 && filesScanned === 0) {
@@ -386,7 +403,6 @@ export class FsSearchService
 
       truncated = true;
     }
-    void stderrBuf;
 
     return {
       files,

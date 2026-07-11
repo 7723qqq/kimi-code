@@ -1,7 +1,10 @@
 import type { ContentPart } from '@moonshot-ai/kosong';
+import { createRequire } from 'node:module';
 import { estimateTokensForMessage } from '../../utils/tokens';
 import type { PromptOrigin } from '../context/types';
 import summaryPrefixTemplate from './compaction-summary-prefix.md?raw';
+
+const require = createRequire(import.meta.url);
 
 // ── Native module loading (lazy, with TS fallback) ──────────────────────────
 

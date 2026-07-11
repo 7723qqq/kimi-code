@@ -1294,11 +1294,4 @@ async function warnIfLogFlushFails(
   } catch (error) {
     exportLog.warn(message, { error });
   }
-  try {
-    await flush();
-  } catch {
-    // Best-effort final flush — if the second attempt also fails there
-    // is no further recovery path. The first failure has already been
-    // exported as a warning above.
-  }
 }

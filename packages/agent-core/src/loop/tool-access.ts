@@ -21,6 +21,10 @@ export type ToolAccesses = readonly ToolResourceAccess[];
 
 // ── Native module loading (lazy, with TS fallback) ──────────────────────────
 
+import { createRequire } from 'node:module';
+
+const cjsRequire = createRequire(import.meta.url);
+
 let nativeModule: {
   nativeToolAccessesConflict?: (
     left: ReadonlyArray<{
@@ -42,7 +46,7 @@ function getNative() {
   if (nativeModule === null) return undefined;
   if (nativeModule !== undefined) return nativeModule;
   try {
-    nativeModule = require('@moonshot-ai/kimi-native-tools');
+    nativeModule = cjsRequire('@moonshot-ai/kimi-native-tools');
     return nativeModule;
   } catch {
     nativeModule = null;

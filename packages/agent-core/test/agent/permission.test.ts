@@ -793,7 +793,7 @@ describe('Permission policy chain', () => {
       ),
     ).resolves.toMatchObject({
       block: true,
-      reason: expect.stringContaining('AgentSwarm must be the only tool call'),
+      reason: expect.stringContaining('must be the only tool call'),
     });
 
     expect(requestApproval).not.toHaveBeenCalled();
@@ -898,9 +898,9 @@ describe('Simple permission policy direct behavior', () => {
       ),
     ).toMatchObject({
       kind: 'deny',
-      message: expect.stringContaining('AgentSwarm must be the only tool call'),
+      message: expect.stringContaining('must be the only tool call'),
       reason: {
-        agent_swarm_tool_calls: 1,
+        solitary_tool_calls: 1,
         tool_calls: 2,
       },
     });
@@ -939,17 +939,17 @@ describe('Simple permission policy direct behavior', () => {
 
     expect(result).toMatchObject({
       kind: 'deny',
-      message: expect.stringContaining('Multiple AgentSwarm calls are not forbidden'),
+      message: expect.stringContaining('AgentSwarm/SwarmDiscussion must be called one at a time'),
       reason: {
-        agent_swarm_tool_calls: 2,
+        solitary_tool_calls: 2,
         tool_calls: 2,
       },
     });
     expect(result).toMatchObject({
-      message: expect.stringContaining('call one AgentSwarm, wait for its result'),
+      message: expect.stringContaining('call one, wait for its result'),
     });
     expect(result).toMatchObject({
-      message: expect.stringContaining('merge the work into a single AgentSwarm'),
+      message: expect.stringContaining('merge the work into a single call'),
     });
   });
 

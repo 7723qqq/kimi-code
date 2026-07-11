@@ -199,6 +199,25 @@ describe('globPatternToRegex additional cases', () => {
     expect(regex.test('ab.c$d(e)')).toBe(false);
   });
 
+  it('escapes literal * and ? in the default branch', () => {
+    // A bare `*` or `?` in the default branch would be treated as a glob
+    // wildcard by the switch cases above. But when they reach the default
+    // branch (e.g. inside an escaped sequence or as part of a literal that
+    // somehow bypasses the switch), they must be regex-escaped so they
+    // don't act as regex quantifiers.
+    //
+    // We verify via the backslash-escape path: `\*` and `\?` should match
+    // literal `*` and `?` in the filename, not be re-interpreted as
+    // regex metacharacters.
+    const starRegex = globPatternToRegex('file\\*.txt', true);
+    expect(starRegex.test('file*.txt')).toBe(true);
+    expect(starRegex.test('fileX.txt')).toBe(false);
+
+    const qRegex = globPatternToRegex('file\\?.txt', true);
+    expect(qRegex.test('file?.txt')).toBe(true);
+    expect(qRegex.test('fileX.txt')).toBe(false);
+  });
+
   it('treats backslash as an escape character for the next literal', () => {
     // `\[` and `\]` should match literal brackets in the filename.
     const regex = globPatternToRegex('special \\[bracket\\].ts', true);

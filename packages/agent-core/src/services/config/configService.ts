@@ -22,7 +22,7 @@ export class ConfigService extends Disposable implements IConfigService {
   }
 
   async set(patch: PatchConfigRequest): Promise<ConfigResponse> {
-    const camelPatch = convertKeysSnakeToCamel(patch) as Record<string, unknown>;
+    const camelPatch = convertPatchKeys(patch);
     const updated = await this.core.rpc.setKimiConfig(camelPatch);
     const response = toConfigResponse(updated);
 
@@ -84,22 +84,29 @@ function nonEmpty(value: string | undefined): string | undefined {
   return trimmed.length === 0 ? undefined : trimmed;
 }
 
-function convertKeysSnakeToCamel(obj: unknown): unknown {
-  if (Array.isArray(obj)) {
-    return obj.map(convertKeysSnakeToCamel);
+/**
+ * Convert only the known top-level config field names from snake_case to
+ * camelCase. Nested values (provider configs, model aliases, hooks, etc.) are
+ * passed through untouched so arbitrary user data is not mutated.
+ */
+function convertPatchKeys(patch: PatchConfigRequest): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) {
+    const camelKey = PATCH_KEY_MAP[key] ?? key;
+    result[camelKey] = value;
   }
-  if (obj !== null && typeof obj === 'object') {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(obj)) {
-      result[snakeToCamel(key)] = convertKeysSnakeToCamel(value);
-    }
-    return result;
-  }
-  return obj;
+  return result;
 }
 
-function snakeToCamel(str: string): string {
-  return str.replaceAll(/_([a-z])/g, (_, ch: string) => ch.toUpperCase());
-}
+const PATCH_KEY_MAP: Record<string, string> = {
+  default_provider: 'defaultProvider',
+  default_model: 'defaultModel',
+  plan_mode: 'planMode',
+  default_permission_mode: 'defaultPermissionMode',
+  default_plan_mode: 'defaultPlanMode',
+  merge_all_available_skills: 'mergeAllAvailableSkills',
+  extra_skill_dirs: 'extraSkillDirs',
+  loop_control: 'loopControl',
+};
 
 registerSingleton(IConfigService, ConfigService, InstantiationType.Delayed);

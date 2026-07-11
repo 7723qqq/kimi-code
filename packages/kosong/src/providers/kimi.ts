@@ -427,6 +427,7 @@ export class KimiChatProvider implements ChatProvider {
             apiKey: this._apiKey,
             baseURL: this._baseUrl,
             defaultHeaders: this._defaultHeaders,
+            maxRetries: 5,
           });
   }
 

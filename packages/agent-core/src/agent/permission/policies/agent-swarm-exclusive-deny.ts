@@ -3,43 +3,45 @@ import type { PermissionPolicy, PermissionPolicyContext, PermissionPolicyResult 
 export class AgentSwarmExclusiveDenyPermissionPolicy implements PermissionPolicy {
   readonly name = 'agent-swarm-exclusive-deny';
 
+  private readonly solitaryTools = new Set(['AgentSwarm', 'SwarmDiscussion']);
+
   evaluate(context: PermissionPolicyContext): PermissionPolicyResult | undefined {
     const toolCalls = context.toolCalls;
-    const agentSwarmCount = toolCalls.filter(
-      (toolCall) => toolCall.name === 'AgentSwarm',
+    const solitaryCount = toolCalls.filter(
+      (toolCall) => this.solitaryTools.has(toolCall.name),
     ).length;
 
-    if (agentSwarmCount === 0) return;
-    if (agentSwarmCount === 1 && toolCalls.length === 1) return;
+    if (solitaryCount === 0) return;
+    if (solitaryCount === 1 && toolCalls.length === 1) return;
 
     return {
       kind: 'deny',
       message:
-        agentSwarmCount > 1
-          ? multipleAgentSwarmDeniedMessage(toolCalls.length > agentSwarmCount)
-          : mixedAgentSwarmDeniedMessage(),
+        solitaryCount > 1
+          ? multipleSolitaryDeniedMessage(toolCalls.length > solitaryCount)
+          : mixedSolitaryDeniedMessage(),
       reason: {
-        agent_swarm_tool_calls: agentSwarmCount,
+        solitary_tool_calls: solitaryCount,
         tool_calls: toolCalls.length,
       },
     };
   }
 }
 
-function multipleAgentSwarmDeniedMessage(hasOtherToolCalls: boolean): string {
+function multipleSolitaryDeniedMessage(hasOtherToolCalls: boolean): string {
   const suffix = hasOtherToolCalls
-    ? ' AgentSwarm also must not be combined with other tools in the same response.'
+    ? ' These tools also must not be combined with other tools in the same response.'
     : '';
   return (
-    'AgentSwarm must be called one swarm at a time. Multiple AgentSwarm calls are not forbidden, ' +
-    'but issue them sequentially: call one AgentSwarm, wait for its result, then call the next; ' +
-    `or merge the work into a single AgentSwarm when one swarm can cover it.${suffix}`
+    'AgentSwarm/SwarmDiscussion must be called one at a time. Multiple calls are not forbidden, ' +
+    'but issue them sequentially: call one, wait for its result, then call the next; ' +
+    `or merge the work into a single call when one can cover it.${suffix}`
   );
 }
 
-function mixedAgentSwarmDeniedMessage(): string {
+function mixedSolitaryDeniedMessage(): string {
   return (
-    'AgentSwarm must be the only tool call in a model response. Retry with a single AgentSwarm ' +
-    'call by itself, then call any other tools after it returns.'
+    'AgentSwarm/SwarmDiscussion must be the only tool call in a model response. ' +
+    'Retry with a single call by itself, then call any other tools after it returns.'
   );
 }

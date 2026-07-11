@@ -33,7 +33,7 @@ export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 export const createSessionResponseSchema = sessionSchema;
 export type CreateSessionResponse = z.infer<typeof createSessionResponseSchema>;
 
-const booleanQueryParam = z.preprocess(
+export const booleanQueryParam = z.preprocess(
   (value) => {
     if (value === 'true' || value === '1' || value === 1 || value === true) return true;
     if (value === 'false' || value === '0' || value === 0 || value === false) return false;

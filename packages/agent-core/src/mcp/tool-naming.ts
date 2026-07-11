@@ -1,3 +1,27 @@
+// ── Native module loading (lazy, with TS fallback) ──────────────────────────
+
+import { createRequire } from 'node:module';
+
+const cjsRequire = createRequire(import.meta.url);
+
+let nativeModule: {
+  nativeSanitizeMcpNamePart?: (part: string) => string;
+  nativeIsMcpToolName?: (name: string) => boolean;
+  nativeQualifyMcpToolName?: (serverName: string, toolName: string) => string;
+} | null | undefined;
+
+function getNative() {
+  if (nativeModule === null) return undefined;
+  if (nativeModule !== undefined) return nativeModule;
+  try {
+    nativeModule = cjsRequire('@moonshot-ai/kimi-native-tools');
+    return nativeModule;
+  } catch {
+    nativeModule = null;
+    return undefined;
+  }
+}
+
 const MCP_NAME_PREFIX = 'mcp__';
 const MCP_NAME_SEPARATOR = '__';
 /**
@@ -15,10 +39,14 @@ const MAX_QUALIFIED_LENGTH = 64;
  * first `__` after the prefix.
  */
 export function sanitizeMcpNamePart(part: string): string {
+  const mod = getNative();
+  if (mod?.nativeSanitizeMcpNamePart) return mod.nativeSanitizeMcpNamePart(part);
   return part.replaceAll(/[^a-zA-Z0-9_-]/g, '_').replaceAll(/_+/g, '_');
 }
 
 export function isMcpToolName(name: string): boolean {
+  const mod = getNative();
+  if (mod?.nativeIsMcpToolName) return mod.nativeIsMcpToolName(name);
   return name.startsWith(MCP_NAME_PREFIX);
 }
 
@@ -28,6 +56,8 @@ export function isMcpToolName(name: string): boolean {
  * 8-char hash suffix replaces the tail so the prefix structure stays intact.
  */
 export function qualifyMcpToolName(serverName: string, toolName: string): string {
+  const mod = getNative();
+  if (mod?.nativeQualifyMcpToolName) return mod.nativeQualifyMcpToolName(serverName, toolName);
   const full = `${MCP_NAME_PREFIX}${sanitizeMcpNamePart(serverName)}${MCP_NAME_SEPARATOR}${sanitizeMcpNamePart(toolName)}`;
   if (full.length <= MAX_QUALIFIED_LENGTH) return full;
 

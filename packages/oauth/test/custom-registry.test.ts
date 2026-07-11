@@ -158,27 +158,26 @@ describe('fetchCustomRegistry', () => {
           'registry_chat-completions': goodEntry,
         }),
     );
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const skipped: Array<{ key: string; url: string }> = [];
+    const onSkipped = (key: string, url: string) => skipped.push({ key, url });
 
-    try {
-      const result = await fetchCustomRegistry(
-        KOKUB_SOURCE,
-        fetchMock as unknown as typeof fetch,
-      );
+    const result = await fetchCustomRegistry(
+      KOKUB_SOURCE,
+      fetchMock as unknown as typeof fetch,
+      undefined,
+      onSkipped,
+    );
 
-      expect(Object.keys(result)).toEqual(['registry_chat-completions']);
-      expect(result['broken-entry']).toBeUndefined();
-      expect(result['unknown-type']).toBeUndefined();
-      expect(result['registry_chat-completions']?.type).toBe('openai');
+    expect(Object.keys(result)).toEqual(['registry_chat-completions']);
+    expect(result['broken-entry']).toBeUndefined();
+    expect(result['unknown-type']).toBeUndefined();
+    expect(result['registry_chat-completions']?.type).toBe('openai');
 
-      expect(warnSpy).toHaveBeenCalledTimes(2);
-      const warnings = warnSpy.mock.calls.map((args) => String(args[0]));
-      expect(warnings.some((m) => m.includes('broken-entry'))).toBe(true);
-      expect(warnings.some((m) => m.includes('unknown-type'))).toBe(true);
-      expect(warnings.every((m) => m.includes(KOKUB_SOURCE.url))).toBe(true);
-    } finally {
-      warnSpy.mockRestore();
-    }
+    expect(skipped).toHaveLength(2);
+    expect(skipped.map((s) => s.key)).toEqual(
+      expect.arrayContaining(['broken-entry', 'unknown-type']),
+    );
+    expect(skipped.every((s) => s.url === KOKUB_SOURCE.url)).toBe(true);
   });
 });
 

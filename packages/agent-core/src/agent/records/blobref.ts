@@ -100,8 +100,12 @@ export class BlobStore {
   }
 
   async rehydrateParts(parts: readonly ContentPart[]): Promise<void> {
-    for (const part of parts) {
-      await this.rehydrateContentPart(part);
+    const mutable = parts as ContentPart[];
+    for (let i = 0; i < parts.length; i++) {
+      const next = await this.rehydrateContentPart(parts[i]!);
+      if (next !== parts[i]) {
+        mutable[i] = next;
+      }
     }
   }
 
@@ -123,9 +127,10 @@ export class BlobStore {
     return updated === undefined ? part : (updated as unknown as ContentPart);
   }
 
-  private async rehydrateContentPart(part: ContentPart): Promise<void> {
+  private async rehydrateContentPart(part: ContentPart): Promise<ContentPart> {
     const record = part as unknown as Record<string, unknown>;
-    for (const value of Object.values(record)) {
+    let updated: Record<string, unknown> | undefined;
+    for (const [key, value] of Object.entries(record)) {
       const mediaObj = asMediaContainer(value);
       if (mediaObj === undefined) continue;
 
@@ -133,8 +138,10 @@ export class BlobStore {
       if (typeof url !== 'string' || !isBlobRef(url)) continue;
 
       const newUrl = await this.rehydrateBlobRefUrl(url);
-      mediaObj.url = newUrl ?? MISSING_MEDIA_PLACEHOLDER;
+      if (updated === undefined) updated = { ...part };
+      updated[key] = { ...(value as object), url: newUrl ?? MISSING_MEDIA_PLACEHOLDER };
     }
+    return updated === undefined ? part : (updated as unknown as ContentPart);
   }
 
   private async rehydrateBlobRefUrl(url: string): Promise<string | undefined> {

@@ -876,6 +876,105 @@ describe('PromptService.abort', () => {
     expect(ev.type).toBe('prompt.aborted');
     expect(ev.promptId).toBe(second.prompt_id);
   });
+
+  it('emits prompt.aborted and returns {aborted:true} when turn.ended races cancel RPC failure', async () => {
+    const { bridge, record } = makeBridge();
+    const { bus, events, triggerSubscribers } = makeBus();
+    const impl = newSvc(bridge, bus);
+    const submit = await impl.submit(SID, mkBody());
+    triggerSubscribers({
+      type: 'turn.started',
+      turnId: 5,
+      origin: { kind: 'user' },
+      sessionId: SID,
+      agentId: 'main',
+    } as unknown as Event);
+    events.length = 0;
+
+    // Make cancel reject — but not before turn.ended fires during the RPC.
+    (bridge.rpc.cancel as ReturnType<typeof vi.fn>).mockImplementationOnce(async (payload) => {
+      record.cancelCalls.push(payload);
+      // Simulate turn.ended arriving while cancel is in flight: _handleBusEvent
+      // sees state.aborted=true, detaches state, and starts next queued prompt.
+      triggerSubscribers({
+        type: 'turn.ended',
+        turnId: 5,
+        reason: 'completed',
+        sessionId: SID,
+        agentId: 'main',
+      } as unknown as Event);
+      throw new Error('cancel rpc failed');
+    });
+
+    const result = await impl.abort(SID, submit.prompt_id);
+
+    // Despite the RPC failure, the prompt is not lost: a synthetic
+    // prompt.aborted event fires and abort() resolves to {aborted:true}.
+    expect(result.aborted).toBe(true);
+    expect(record.cancelCalls).toHaveLength(1);
+    const aborted = events.filter(
+      (event) => (event as unknown as { type?: string }).type === 'prompt.aborted',
+    );
+    expect(aborted).toHaveLength(1);
+    expect((aborted[0] as unknown as { promptId: string }).promptId).toBe(submit.prompt_id);
+  });
+});
+
+describe('PromptService._startNextQueued error handling', () => {
+  it('emits prompt.aborted for a queued prompt whose _startPrompt fails, then starts the next', async () => {
+    const { bridge, record } = makeBridge();
+    const { bus, events, triggerSubscribers } = makeBus();
+    const impl = newSvc(bridge, bus);
+
+    const first = await impl.submit(SID, mkBodyMinimal({ content: [{ type: 'text', text: 'one' }] }));
+    const second = await impl.submit(SID, mkBodyMinimal({ content: [{ type: 'text', text: 'two' }] }));
+    const third = await impl.submit(SID, mkBodyMinimal({ content: [{ type: 'text', text: 'three' }] }));
+
+    triggerSubscribers({
+      type: 'turn.started',
+      turnId: 1,
+      origin: { kind: 'user' },
+      sessionId: SID,
+      agentId: 'main',
+    } as unknown as Event);
+
+    // Make the second prompt's core.rpc.prompt reject (but still record the call).
+    (bridge.rpc.prompt as ReturnType<typeof vi.fn>).mockImplementationOnce(async (payload) => {
+      record.promptCalls.push(payload);
+      throw new Error('dispatch failed');
+    });
+
+    events.length = 0;
+    triggerSubscribers({
+      type: 'turn.ended',
+      turnId: 1,
+      reason: 'completed',
+      sessionId: SID,
+      agentId: 'main',
+    } as unknown as Event);
+
+    // Wait for the queue to drain (second fails → third starts).
+    await vi.waitFor(() => {
+      expect(record.promptCalls).toHaveLength(3);
+    });
+
+    // The failed second prompt got a synthetic prompt.aborted event.
+    const aborted = events.filter(
+      (event) => (event as unknown as { type?: string }).type === 'prompt.aborted',
+    );
+    expect(aborted).toHaveLength(1);
+    expect((aborted[0] as unknown as { promptId: string }).promptId).toBe(second.prompt_id);
+
+    // The third prompt was dispatched.
+    expect(record.promptCalls[2]).toEqual({
+      sessionId: SID,
+      agentId: 'main',
+      input: [{ type: 'text', text: 'three' }],
+    });
+    const listed = await impl.list(SID);
+    expect(listed.active?.prompt_id).toBe(third.prompt_id);
+    expect(listed.queued).toHaveLength(0);
+  });
 });
 
 describe('PromptService.getCurrentPromptId', () => {

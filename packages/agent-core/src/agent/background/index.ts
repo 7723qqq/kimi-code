@@ -80,6 +80,8 @@ interface ManagedTask {
   foregroundRelease?: ControlledPromise<ForegroundTaskReleaseReason>;
   /** Resettable deadline timer; reset on detach to apply `detachTimeoutMs`. */
   timeoutHandle?: ResettableTimeoutPromise<TerminalOutcome>;
+  /** Abort listener registered on `options.signal`; removed when the task completes. */
+  signalAbortListener?: (() => void) | null;
   /** User/tool stop request. */
   readonly stop: ControlledPromise<StopRequest>;
   /** Resolved once manager has finalized the task. */
@@ -867,6 +869,10 @@ export class BackgroundManager {
     ]).finally(() => {
       timeout.clear();
       entry.timeoutHandle = undefined;
+      if (entry.signalAbortListener !== null && entry.signalAbortListener !== undefined) {
+        entry.options.signal?.removeEventListener('abort', entry.signalAbortListener);
+        entry.signalAbortListener = null;
+      }
     });
     const settlement = await this.settlementForOutcome(entry, outcome, worker);
     await this.finalizeTask(entry, settlement);
@@ -881,13 +887,11 @@ export class BackgroundManager {
     });
     if (signal.aborted) return Promise.resolve(outcome());
     return new Promise((resolve) => {
-      signal.addEventListener(
-        'abort',
-        () => {
-          if (!this.isDetached(entry)) resolve(outcome());
-        },
-        { once: true },
-      );
+      const listener = () => {
+        if (!this.isDetached(entry)) resolve(outcome());
+      };
+      entry.signalAbortListener = listener;
+      signal.addEventListener('abort', listener, { once: true });
     });
   }
 
