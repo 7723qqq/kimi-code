@@ -7,9 +7,12 @@
  * limits through `config`, records lifecycle and broadcasts through `wire`
  * (`task.started` / `task.terminated` Ops into `TaskModel`, plus the matching
  * signals), restores ghosts through a single `wire.onRestored` handler (wire
- * replay -> disk load -> reconcile, in that order), delivers terminal
- * notifications through `contextMemory`, and re-surfaces active tasks through
- * `contextInjector` after compaction. Bound at Agent scope.
+ * replay -> disk load -> reconcile, in that order), delivers live terminal
+ * notifications by enqueueing `TaskNotificationStepRequest`s onto `loop`
+ * (drained in queue order by the next turn — mid-turn ones fold into the
+ * following step, idle ones ride the next launched turn), silently appends
+ * restored notifications through `contextMemory`, and re-surfaces active
+ * tasks through `contextInjector` after compaction. Bound at Agent scope.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -22,8 +25,10 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { abortable } from '#/_base/utils/abort';
 import { escapeXml, escapeXmlAttr } from '#/_base/utils/xml-escape';
 import { IEventBus } from '#/app/event/eventBus';
-import type { TaskOrigin } from '#/agent/contextMemory/types';
+import type { ContextMessage, TaskOrigin } from '#/agent/contextMemory/types';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { MessageStepRequest } from '#/agent/loop/stepRequest';
 import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task/task';
 import {
   TERMINAL_STATUSES,
@@ -34,7 +39,6 @@ import { renderNotificationXml } from './notificationXml';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IConfigService } from '#/app/config/config';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -185,6 +189,12 @@ declare module '#/app/event/eventBus' {
   }
 }
 
+export class TaskNotificationStepRequest extends MessageStepRequest {
+  constructor(message: ContextMessage) {
+    super(message, { kind: 'task_notification', mergeable: true, turnScoped: false });
+  }
+}
+
 export class AgentTaskService extends Disposable implements IAgentTaskService {
   declare readonly _serviceBrand: undefined;
 
@@ -197,7 +207,6 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
 
   constructor(
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IAgentPromptService private readonly prompt: IAgentPromptService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IConfigService private readonly config: IConfigService,
     @IAtomicDocumentStore atomicDocs: IAtomicDocumentStore,
@@ -208,6 +217,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     @IAgentWireService private readonly wire: IWireService,
     @IEventBus private readonly eventBus: IEventBus,
     @IAgentContextInjectorService injector: IAgentContextInjectorService,
+    @IAgentLoopService private readonly loop: IAgentLoopService,
   ) {
     super();
     this.persistence = new AgentTaskPersistence(
@@ -416,8 +426,8 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       if (!TERMINAL_TASK_STATES.has(state)) return;
       const status = entry.timedOut ? 'timed_out' as const
         : state === 'cancelled' ? 'killed' as const
-        : state === 'failed' ? 'failed' as const
-        : 'completed' as const;
+          : state === 'failed' ? 'failed' as const
+            : 'completed' as const;
       void this.settleTask(entry, { status, stopReason: entry.stopReason });
     });
 
@@ -428,7 +438,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       },
     };
 
-    entry.lifecyclePromise = handle.result.then(() => {}, () => {});
+    entry.lifecyclePromise = handle.result.then(() => { }, () => { });
 
     this.installForegroundSignal(entry);
 
@@ -963,12 +973,14 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   private async notifyAgentTask(info: AgentTaskInfo): Promise<void> {
     const context = await this.buildAgentTaskNotificationContext(info);
     if (context === undefined) return;
-    await this.prompt.steer({
-      role: 'user',
-      content: [...context.content],
-      toolCalls: [],
-      origin: context.origin,
-    }).launched;
+    this.loop.enqueue(
+      new TaskNotificationStepRequest({
+        role: 'user',
+        content: [...context.content],
+        toolCalls: [],
+        origin: context.origin,
+      }),
+    );
     this.fireNotificationHook(context.notification);
   }
 

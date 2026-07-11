@@ -6,10 +6,12 @@
  */
 
 import type { IAgentLoopService } from '#/agent/loop/loop';
+import type { StepRequest } from '#/agent/loop/stepRequest';
+import { StepRequestQueue, type StepRequestBatch } from '#/agent/loop/stepRequestQueue';
 import type { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { IAgentTurnService, Turn } from '#/agent/turn/turn';
 import type { ContentPart } from '#/app/llmProtocol/message';
-import type { PromptOrigin } from '#/agent/contextMemory/types';
+import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { createHooks } from '#/hooks';
 
 export interface StubTurnOptions {
@@ -122,12 +124,48 @@ export function stubTurnWithHooks(): IAgentTurnService {
   return stubTurn();
 }
 
-/** An `IAgentLoopService` stub backed by real loop lifecycle hook slots. */
-export function stubLoopWithHooks(): IAgentLoopService {
+export type StubLoop = IAgentLoopService & {
+  /** The backing queue; tests may inspect or seed it directly. */
+  readonly queue: StepRequestQueue;
+  /**
+   * Pop the next batch and materialize it into the given context, mirroring
+   * `AgentLoopService.materializeBatch`. Returns undefined when the queue has
+   * no runnable request. Stands in for a step boundary in stub-based tests
+   * (the old `flushSteers` beforeStep helper).
+   */
+  drainNextBatch(context: { append(...messages: ContextMessage[]): void }): StepRequestBatch | undefined;
+};
+
+function materializeStubRequest(
+  request: StepRequest,
+  context: { append(...messages: ContextMessage[]): void },
+): void {
+  if (request.state !== 'pending') return;
+  request.onWillMaterialize();
+  const messages = request.resolveContextMessages();
+  if (messages.length > 0) context.append(...messages);
+  request.markMaterialized();
+}
+
+/** An `IAgentLoopService` stub backed by real hook slots and a real `StepRequestQueue`. */
+export function stubLoopWithHooks(): StubLoop {
   const hooks = makeAgentLoopHookSlots();
+  const queue = new StepRequestQueue();
   return {
     _serviceBrand: undefined,
     hooks,
+    queue,
+    enqueue: (request, options) => queue.enqueue(request, options?.at ?? 'tail'),
+    hasPendingRequests: () => queue.hasPendingRequests(),
+    drainNextBatch(context) {
+      const batch = queue.takeNextBatch();
+      if (batch === undefined) return undefined;
+      materializeStubRequest(batch.driver, context);
+      for (const request of batch.merged) {
+        materializeStubRequest(request, context);
+      }
+      return batch;
+    },
     run: async (options) => {
       options.onStarted?.(1);
       return { type: 'completed', steps: 0, truncated: false };

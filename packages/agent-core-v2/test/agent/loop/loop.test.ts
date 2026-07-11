@@ -4,9 +4,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentProfileService } from '#/index';
 import { IAgentLLMRequesterService, type LLMStreamTiming } from '#/agent/llmRequester/llmRequester';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentGoalService } from '#/agent/goal/goal';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { ContinuationStepRequest, MessageStepRequest } from '#/agent/loop/stepRequest';
 import { IAgentTurnService } from '#/agent/turn/turn';
 import type { ExecutableTool } from '#/agent/tool/toolContract';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -232,6 +232,7 @@ describe('Agent loop', () => {
       throw recoveryError;
     });
 
+    loop.enqueue(new ContinuationStepRequest());
     const result = await loop.run({ turnId: 0 });
 
     expect(result.type).toBe('failed');
@@ -333,15 +334,17 @@ describe('Agent loop', () => {
     loop.hooks.afterStep.register('test-repeat-stop-continuation', async (hookCtx, next) => {
       if (continuations < 2) {
         continuations += 1;
-        const prompt = `continue ${continuations}`;
-        const context = ctx.get(IAgentContextMemoryService);
-        context.append({
-          role: 'user',
-          content: [{ type: 'text', text: prompt }],
-          toolCalls: [],
-          origin: { kind: 'system_trigger', name: 'stop_hook' },
-        });
-        hookCtx.continue = true;
+        loop.enqueue(
+          new MessageStepRequest(
+            {
+              role: 'user',
+              content: [{ type: 'text', text: `continue ${continuations}` }],
+              toolCalls: [],
+              origin: { kind: 'system_trigger', name: 'stop_hook' },
+            },
+            { kind: 'stop_hook', mergeable: true },
+          ),
+        );
         return;
       }
       await next();
@@ -419,11 +422,11 @@ describe('Agent loop', () => {
     });
   });
 
-  it('lets stopTurn take precedence over a hook-set continue', async () => {
+  it('lets stopTurn take precedence over a queued continuation request', async () => {
     profile.update({ activeToolNames: [] });
 
     loop.hooks.afterStep.register('test-continue-like-stop-hook', async (hookCtx, next) => {
-      hookCtx.continue = true;
+      loop.enqueue(new ContinuationStepRequest());
       await next();
     });
     loop.hooks.afterStep.register('test-hard-stop', async (hookCtx, next) => {
@@ -486,8 +489,10 @@ describe('aborted step tool execution', () => {
       await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 60 } });
       ctx.get(IEventBus).publish({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } });
 
+      const loopService = ctx.get(IAgentLoopService);
+      loopService.enqueue(new ContinuationStepRequest());
       const controller = new AbortController();
-      const resultPromise = ctx.get(IAgentLoopService).run({
+      const resultPromise = loopService.run({
         turnId: 1,
         signal: controller.signal,
       });
@@ -533,8 +538,10 @@ describe('aborted step tool execution', () => {
 
     try {
       const slowToolStarted = registerAbortableWorkTool(ctx);
+      const loopService = ctx.get(IAgentLoopService);
+      loopService.enqueue(new ContinuationStepRequest());
       const controller = new AbortController();
-      const result = ctx.get(IAgentLoopService).run({
+      const result = loopService.run({
         turnId: 1,
         signal: controller.signal,
       });

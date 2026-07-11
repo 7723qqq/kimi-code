@@ -116,7 +116,9 @@ function buildHost(key: string): {
   ix.set(IEventBus, new SyncDescriptor(EventBusService));
   ix.stub(IAgentTurnService, createTurnStub());
   ix.stub(IAgentLoopService, createLoopStub());
-  ix.stub(IAgentUsageService, { hooks: { onDidRecord: hookSlot() } });
+  ix.stub(IAgentUsageService, {
+    hooks: { onDidRecord: hookSlot() },
+  } as unknown as IAgentUsageService);
   ix.stub(IAgentContextMemoryService, createContextStub());
   ix.stub(IAgentContextInjectorService, createInjectorStub());
   ix.stub(IAgentSystemReminderService, createRemindersStub());

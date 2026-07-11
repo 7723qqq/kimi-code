@@ -1,21 +1,10 @@
 /**
- * Base error classes shared by every domain — `KimiError`,
- * `CancellationError`, and related control-flow errors.
+ * Base error classes shared by every domain — `KimiError` and related
+ * control-flow errors.
  */
 
 import { CoreErrors } from './codes';
 import type { ErrorCode } from './codes';
-
-export class CancellationError extends Error {
-  constructor() {
-    super('Canceled');
-    this.name = 'CancellationError';
-  }
-}
-
-export function isCancellationError(error: unknown): error is CancellationError {
-  return error instanceof CancellationError;
-}
 
 export class ExpectedError extends Error {
   readonly isExpected = true;

@@ -1,3 +1,20 @@
+/**
+ * `loop` domain (L4) — `IAgentLoopService` implementation.
+ *
+ * Drives one agent turn by draining an agent-scoped `StepRequestQueue` one
+ * batch per step: each batch's driver request (plus any mergeable requests
+ * folded into it) materializes its context messages, then one LLM step runs
+ * (`beforeStep` → streamed request → content parts → tool execution →
+ * `step.end` → `afterStep`). A step that executed tools enqueues a
+ * `ContinuationStepRequest` for the next step; a plain assistant message
+ * enqueues nothing, so the queue empties and the turn completes. A failed
+ * step is retried by head-inserting its driver (`onError` hook opt-in);
+ * orchestrators (`prompt`, `goal`, `externalHooks`) steer the turn purely by
+ * enqueueing further requests. Emits `turn.step.*` / delta events through
+ * `event`, persists loop events through `contextMemory`, and reads step /
+ * retry budgets from `config`. Bound at Agent scope.
+ */
+
 import { randomUUID } from 'node:crypto';
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -35,7 +52,13 @@ import {
   type LoopRunOptions,
   type AfterStepContext,
   type LoopRunResult,
+  type StepEnqueueOptions,
 } from './loop';
+import {
+  ContinuationStepRequest,
+  type StepRequest,
+} from './stepRequest';
+import { StepRequestQueue, type StepRequestBatch } from './stepRequestQueue';
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
@@ -60,6 +83,8 @@ export class AgentLoopService implements IAgentLoopService {
     onError: new OrderedHookSlot(),
   };
 
+  private readonly stepQueue = new StepRequestQueue();
+
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
@@ -68,80 +93,130 @@ export class AgentLoopService implements IAgentLoopService {
     @IConfigService private readonly config: IConfigService,
   ) { }
 
+  enqueue(request: StepRequest, options?: StepEnqueueOptions): void {
+    this.stepQueue.enqueue(request, options?.at ?? 'tail');
+  }
+
+  hasPendingRequests(): boolean {
+    return this.stepQueue.hasPendingRequests();
+  }
+
   async run(options: LoopRunOptions): Promise<LoopRunResult> {
     const { turnId } = options;
     const signal = options.signal ?? new AbortController().signal;
 
     let steps = 0;
     let activeStep: number | undefined;
-    while (true) {
-      try {
-        activeStep = undefined;
-        signal.throwIfAborted();
-
-        const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
-
-        if (maxSteps !== undefined && maxSteps > 0 && steps >= maxSteps) {
-          throw createMaxStepsExceededError(maxSteps);
-        }
-
-        steps += 1;
-        activeStep = steps;
-        const stepResult = await this.executeLoopStep(
-          turnId,
-          signal,
-          steps,
-          options.onStarted,
-        );
-        activeStep = undefined;
-
-        if (stepResult.stopReason === 'filtered') {
-          throw new KimiError(
-            ErrorCodes.PROVIDER_FILTERED,
-            'Provider safety policy blocked the response.',
-            {
-              name: 'ProviderFilteredError',
-              details: { finishReason: 'filtered' },
-            },
-          );
-        }
-
-        // A hook-set stopTurn is a hard stop: it wins over both requested
-        // tool calls and any hook that set continue (steer flushes, Stop-hook
-        // continuations), so the turn always ends at this step boundary.
-        if (!stepResult.stopTurn && (stepResult.stopReason === 'tool_calls' || stepResult.continue)) {
-          continue;
-        }
-
-        return { type: 'completed', steps, truncated: stepResult.stopReason === 'truncated' };
-      } catch (error) {
-        if (isAbortError(error) || signal.aborted) {
-          const abortReason = signal.reason ?? error;
-          this.emitStepInterrupted(
-            turnId,
-            activeStep,
-            'aborted',
-            isUserCancellation(abortReason) ? undefined : errorMessage(abortReason),
-          );
-          return { type: 'cancelled', reason: abortReason, steps };
-        }
-
-        const reason: LoopInterruptReason = isMaxStepsExceededError(error) ? 'max_steps' : 'error';
-        this.emitStepInterrupted(turnId, activeStep, reason, errorMessage(error));
-
-        const context = { turnId, step: activeStep, signal, error, retry: false };
+    let lastStopReason: FinishReason | undefined;
+    try {
+      while (true) {
+        let failedDriver: StepRequest | undefined;
         try {
-          await this.hooks.onError.run(context);
-        } catch (hookError) {
-          return { type: 'failed', error: hookError, steps };
-        }
-        if (context.retry) {
           activeStep = undefined;
-          continue;
+          signal.throwIfAborted();
+
+          if (!this.stepQueue.hasPendingRequests()) {
+            return { type: 'completed', steps, truncated: lastStopReason === 'truncated' };
+          }
+
+          const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
+
+          if (maxSteps !== undefined && maxSteps > 0 && steps >= maxSteps) {
+            throw createMaxStepsExceededError(maxSteps);
+          }
+
+          steps += 1;
+          activeStep = steps;
+          const batch = this.stepQueue.takeNextBatch()!;
+          failedDriver = batch.driver;
+          this.materializeBatch(batch);
+          const stepResult = await this.executeLoopStep(
+            turnId,
+            signal,
+            steps,
+            options.onStarted,
+          );
+          activeStep = undefined;
+          lastStopReason = stepResult.stopReason;
+
+          if (stepResult.stopReason === 'filtered') {
+            throw new KimiError(
+              ErrorCodes.PROVIDER_FILTERED,
+              'Provider safety policy blocked the response.',
+              {
+                name: 'ProviderFilteredError',
+                details: { finishReason: 'filtered' },
+              },
+            );
+          }
+
+          // A hook-set stopTurn is a hard stop: it wins over both requested
+          // tool calls and any queued step requests, so the turn always ends
+          // at this step boundary. Queued steers survive into the next turn.
+          if (stepResult.hookStopTurn) {
+            return { type: 'completed', steps, truncated: stepResult.stopReason === 'truncated' };
+          }
+
+          if (stepResult.enqueueContinuation) {
+            this.stepQueue.enqueue(new ContinuationStepRequest());
+          }
+        } catch (error) {
+          if (isAbortError(error) || signal.aborted) {
+            const abortReason = signal.reason ?? error;
+            this.emitStepInterrupted(
+              turnId,
+              activeStep,
+              'aborted',
+              isUserCancellation(abortReason) ? undefined : errorMessage(abortReason),
+            );
+            return { type: 'cancelled', reason: abortReason, steps };
+          }
+
+          const reason: LoopInterruptReason = isMaxStepsExceededError(error) ? 'max_steps' : 'error';
+          this.emitStepInterrupted(turnId, activeStep, reason, errorMessage(error));
+
+          const context = { turnId, step: activeStep, signal, error, retry: false };
+          try {
+            await this.hooks.onError.run(context);
+          } catch (hookError) {
+            return { type: 'failed', error: hookError, steps };
+          }
+          if (context.retry && failedDriver !== undefined) {
+            // Retry jumps the queue: the failed driver re-runs as the very next
+            // step. It is already materialized, so its messages are not
+            // appended a second time.
+            this.stepQueue.enqueue(failedDriver, 'head');
+            activeStep = undefined;
+            continue;
+          }
+          return { type: 'failed', error, steps };
         }
-        return { type: 'failed', error, steps };
       }
+    } finally {
+      this.stepQueue.abortTurnScoped();
     }
+  }
+
+  /**
+   * Append the batch's context messages (driver first, then merged requests)
+   * before `beforeStep` hooks run, so compaction / injection hooks observe the
+   * full step input. A materialized driver (a retried step) is skipped.
+   */
+  private materializeBatch(batch: StepRequestBatch): void {
+    this.materializeRequest(batch.driver);
+    for (const request of batch.merged) {
+      this.materializeRequest(request);
+    }
+  }
+
+  private materializeRequest(request: StepRequest): void {
+    if (request.state !== 'pending') return;
+    request.onWillMaterialize();
+    const messages = request.resolveContextMessages();
+    if (messages.length > 0) {
+      this.context.append(...messages);
+    }
+    request.markMaterialized();
   }
 
   private async executeLoopStep(
@@ -151,8 +226,8 @@ export class AgentLoopService implements IAgentLoopService {
     onStarted: ((step: number) => void) | undefined,
   ): Promise<{
     readonly stopReason: FinishReason;
-    readonly continue: boolean;
-    readonly stopTurn: boolean;
+    readonly enqueueContinuation: boolean;
+    readonly hookStopTurn: boolean;
   }> {
     await this.hooks.beforeStep.run({ turnId, step: currentStep, signal });
     signal.throwIfAborted();
@@ -218,8 +293,8 @@ export class AgentLoopService implements IAgentLoopService {
     }
 
     const hasToolCalls = message.toolCalls.length > 0;
+    let toolResultStopTurn = false;
     if (hasToolCalls) {
-      let stopTurn = false;
       for await (const toolResult of this.toolExecutor.execute(response.message.toolCalls, {
         signal,
         turnId,
@@ -245,9 +320,9 @@ export class AgentLoopService implements IAgentLoopService {
           toolCallId: toolResult.toolCallId,
           result: { output: result.output, isError: result.isError, note: result.note },
         });
-        if (result.stopTurn === true) stopTurn = true;
+        if (result.stopTurn === true) toolResultStopTurn = true;
       }
-      if (stopTurn) {
+      if (toolResultStopTurn) {
         finishReason = 'completed';
       } else {
         finishReason = 'tool_calls';
@@ -289,7 +364,6 @@ export class AgentLoopService implements IAgentLoopService {
       signal,
       usage,
       finishReason,
-      continue: false,
       stopTurn: false,
     };
     try {
@@ -301,8 +375,10 @@ export class AgentLoopService implements IAgentLoopService {
 
     return {
       stopReason: finishReason,
-      continue: afterStepContext.continue,
-      stopTurn: afterStepContext.stopTurn,
+      // A step that ran tools drives the next step; a plain assistant message
+      // enqueues nothing, so the queue drains and the turn completes.
+      enqueueContinuation: hasToolCalls && !toolResultStopTurn,
+      hookStopTurn: afterStepContext.stopTurn,
     };
   }
 

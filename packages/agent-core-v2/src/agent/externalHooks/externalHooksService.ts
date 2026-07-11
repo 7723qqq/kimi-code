@@ -10,8 +10,9 @@
  * of its own). The requester-side `SubagentStart` / `SubagentStop` hooks are
  * translated by the Session-scope `SessionExternalHooksService`, which observes
  * the `agentLifecycle` run slots hosted on `IAgentLifecycleService`. Appends
- * UserPromptSubmit hook results and Stop hook continuation prompts through
- * `contextMemory`, and passes the current session id from `sessionContext`
+ * UserPromptSubmit hook results through `contextMemory`, drives Stop hook
+ * continuations by enqueueing a mergeable `StepRequest` onto `loop`, and
+ * passes the current session id from `sessionContext`
  * into hook runner payloads.
  */
 
@@ -29,6 +30,7 @@ import {
 } from '#/agent/fullCompaction/fullCompaction';
 import type { CompactionResult } from '#/agent/fullCompaction/types';
 import { IAgentLoopService, type AfterStepContext } from '#/agent/loop/loop';
+import { ContinuationStepRequest } from '#/agent/loop/stepRequest';
 import {
   IAgentPermissionGate,
 } from '#/agent/permissionGate/permissionGate';
@@ -183,20 +185,26 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
         if (
           ctx.finishReason === 'tool_calls' ||
           ctx.finishReason === 'filtered' ||
-          ctx.continue
+          // The turn already continues on its own (a queued steer or
+          // orchestrator continuation), so a Stop-hook continuation would
+          // pile a redundant step onto it.
+          loop.hasPendingRequests()
         ) {
           return;
         }
         const reason = await this.runStop(ctx);
         if (reason !== undefined) {
           this.stopHookContinuationUsed = true;
+          // The message lands immediately so it stays in history even when the
+          // turn dies before the next step (e.g. max-steps); the queued
+          // message-less request only drives the continuation step.
           this.context.append({
             role: 'user',
             content: [{ type: 'text', text: reason }],
             toolCalls: [],
             origin: { kind: 'system_trigger', name: 'stop_hook' },
           });
-          ctx.continue = true;
+          loop.enqueue(new ContinuationStepRequest({ kind: 'stop_hook', mergeable: true }));
           return;
         }
       }),

@@ -1,3 +1,19 @@
+/**
+ * `prompt` domain (L4) — `IAgentPromptService` implementation.
+ *
+ * Ingests user input and turns it into `StepRequest`s on the `loop` queue
+ * instead of holding any queue of its own: `prompt` seeds a fresh turn with a
+ * `PromptStepRequest`, `steer` enqueues a mergeable `SteerStepRequest` into
+ * the active turn (or delegates to `prompt` when no turn is active), and
+ * `retry` seeds a message-less `RetryStepRequest`. Image-compression captions
+ * are rerouted into hidden `systemReminder` injections when the request
+ * materializes. `undo` / `clear` mutate `contextMemory` directly without any
+ * request, and input arriving while a full compaction holds an idle agent is
+ * deferred and replayed through `fullCompaction`'s finish hook. Consumes
+ * tool-declared `delivery: steer` results from `toolExecutor`. Bound at Agent
+ * scope.
+ */
+
 import { InstantiationType } from '#/_base/di/extensions';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -17,17 +33,12 @@ import { ErrorCodes, KimiError } from '#/errors';
 import { OrderedHookSlot } from '#/hooks';
 
 import { IAgentPromptService, type PromptSubmitContext, type PromptSteerHandle } from './prompt';
-
-interface QueuedSteer {
-  readonly message: ContextMessage;
-  emitted: boolean;
-  removed: boolean;
-}
+import { PromptStepRequest, RetryStepRequest, SteerStepRequest } from './promptStepRequests';
 
 export class AgentPromptService implements IAgentPromptService {
   declare readonly _serviceBrand: undefined;
-  private readonly steerQueue: QueuedSteer[] = [];
   private readonly compactionDeferred: ContextMessage[] = [];
+  private readonly pendingSteers = new Set<SteerStepRequest>();
   private fullCompactionService: IAgentFullCompactionService | undefined;
 
   readonly hooks = {
@@ -39,22 +50,9 @@ export class AgentPromptService implements IAgentPromptService {
     @IAgentTurnService private readonly turnService: IAgentTurnService,
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
-    @IAgentLoopService loopService: IAgentLoopService,
+    @IAgentLoopService private readonly loop: IAgentLoopService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
   ) {
-    loopService.hooks.beforeStep.register(
-      'prompt-service-steer-before-step',
-      async (_ctx, next) => {
-        this.flushSteerQueue();
-        await next();
-      },
-    );
-    loopService.hooks.afterStep.register('prompt-service-steer', async (ctx, next) => {
-      if (this.flushSteerQueue()) {
-        ctx.continue = true;
-      }
-      await next();
-    });
     toolExecutor.hooks.onDidExecuteTool.register('prompt-service-delivery', async (ctx, next) => {
       await this.deliverToolResult(ctx);
       await next();
@@ -68,9 +66,14 @@ export class AgentPromptService implements IAgentPromptService {
       this.appendPrompt(rerouted, captions);
       return undefined;
     }
-    const turn = this.turnService.launch({ input: rerouted.content, origin: rerouted.origin });
-    this.appendPrompt(rerouted, captions);
-    return turn;
+    const request = new PromptStepRequest(rerouted, captions, this.reminders);
+    this.loop.enqueue(request);
+    try {
+      return this.turnService.launch({ input: rerouted.content, origin: rerouted.origin });
+    } catch (error) {
+      request.abort();
+      throw error;
+    }
   }
 
   steer(message: ContextMessage): PromptSteerHandle {
@@ -84,14 +87,19 @@ export class AgentPromptService implements IAgentPromptService {
       };
     }
 
-    const entry: QueuedSteer = {
-      message,
-      emitted: false,
-      removed: false,
-    };
+    const { message: rerouted, captions } = this.extractCompressionCaptions(message);
+    const request = new SteerStepRequest(
+      rerouted,
+      captions,
+      this.reminders,
+      (materialized) => this.turnService.recordSteer(materialized.content, materialized.origin),
+      (settled) => this.pendingSteers.delete(settled),
+    );
     return {
-      removeFromQueue: () => this.removeQueuedSteer(entry),
-      launched: this.enqueueSteer(activeTurn, entry),
+      removeFromQueue: () => {
+        if (!request.abort()) throw steerAlreadyEmittedError();
+      },
+      launched: this.enqueueSteer(activeTurn, request, message),
     };
   }
 
@@ -126,7 +134,14 @@ export class AgentPromptService implements IAgentPromptService {
       origin: { kind: 'retry' },
     };
     if (this.deferWhileCompacting(retryMessage)) return undefined;
-    return this.turnService.launch({ input: [], origin: { kind: 'retry' } });
+    const request = new RetryStepRequest();
+    this.loop.enqueue(request);
+    try {
+      return this.turnService.launch({ input: [], origin: { kind: 'retry' } });
+    } catch (error) {
+      request.abort();
+      throw error;
+    }
   }
 
   undo(count: number): number {
@@ -155,7 +170,11 @@ export class AgentPromptService implements IAgentPromptService {
   }
 
   clear(): void {
-    this.discardQueuedSteers();
+    // abort() settles each request, which unregisters it from this set;
+    // Set iteration tolerates removing the element currently being visited.
+    for (const request of this.pendingSteers) {
+      request.abort();
+    }
     this.context.clear();
   }
 
@@ -188,10 +207,12 @@ export class AgentPromptService implements IAgentPromptService {
   }
 
   /**
-   * Resolved lazily (not constructor-injected): materializing the compaction
-   * service from this constructor would reorder loop-hook registration and move
-   * the `full-compaction` beforeStep hook ahead of the hooks that let a freshly
-   * launched prompt land in context before the auto-compaction check runs.
+   * Resolved lazily (not constructor-injected): prompt is constructed early in
+   * agent setup, and pulling the whole compaction subtree (context size, LLM
+   * requester, profile, tool registry/select, todo, …) in from this
+   * constructor would reorder eager service startup for every agent. The
+   * registered `onDidFinishCompaction` hook replays input deferred by
+   * `deferWhileCompacting`.
    */
   private get fullCompaction(): IAgentFullCompactionService {
     if (this.fullCompactionService === undefined) {
@@ -216,19 +237,6 @@ export class AgentPromptService implements IAgentPromptService {
     }
   }
 
-  private flushSteerQueue(): boolean {
-    const pending = this.steerQueue.splice(0).filter((entry) => !entry.removed);
-    if (pending.length === 0) return false;
-
-    for (const entry of pending) {
-      entry.emitted = true;
-      const { message, captions } = this.extractCompressionCaptions(entry.message);
-      this.turnService.recordSteer(message.content, message.origin);
-      this.appendPrompt(message, captions);
-    }
-    return true;
-  }
-
   /**
    * Split inline image-compression captions out of a user message so they can
    * be delivered through the built-in system-reminder injection instead.
@@ -238,10 +246,6 @@ export class AgentPromptService implements IAgentPromptService {
    * inside the user message, that raw markup is user-visible in every history
    * projection (TUI replay, vis, export). The reminder's `injection` origin is
    * hidden by every UI, while the model still receives the full note.
-   *
-   * Pure: the reminders are appended by {@link appendPrompt} at append time,
-   * so the launch-before-append wire ordering is preserved and the reminders
-   * stay adjacent to their user message in context.
    */
   private extractCompressionCaptions(message: ContextMessage): {
     message: ContextMessage;
@@ -251,14 +255,18 @@ export class AgentPromptService implements IAgentPromptService {
       return { message, captions: [] };
     }
     const { captions, parts } = splitImageCompressionCaptions(message.content);
-    if (captions.length === 0) return { message, captions };
+    if (captions.length === 0) {
+      return { message, captions };
+    }
     return { message: { ...message, content: parts }, captions };
   }
 
   /**
    * Append a prompt message preceded by its rerouted caption reminders. A
    * message whose content was caption-only is dropped entirely rather than
-   * appended empty.
+   * appended empty. Used for input that never enters the step queue (blocked
+   * by a submit hook); queued input goes through `StepRequest`
+   * materialization, which applies the same ordering.
    */
   private appendPrompt(message: ContextMessage, captions: readonly string[]): void {
     for (const caption of captions) {
@@ -270,29 +278,17 @@ export class AgentPromptService implements IAgentPromptService {
     if (message.content.length > 0) this.append(message);
   }
 
-  private async enqueueSteer(activeTurn: Turn, entry: QueuedSteer): Promise<Turn | undefined> {
-    if (await this.blockedByHook(entry.message, true)) return undefined;
-    if (entry.removed) return undefined;
+  private async enqueueSteer(
+    activeTurn: Turn,
+    request: SteerStepRequest,
+    originalMessage: ContextMessage,
+  ): Promise<Turn | undefined> {
+    if (await this.blockedByHook(originalMessage, true)) return undefined;
+    if (request.aborted) return undefined;
 
-    this.steerQueue.push(entry);
+    this.pendingSteers.add(request);
+    this.loop.enqueue(request);
     return activeTurn;
-  }
-
-  private removeQueuedSteer(entry: QueuedSteer): void {
-    if (entry.emitted) {
-      throw steerAlreadyEmittedError();
-    }
-    entry.removed = true;
-    const index = this.steerQueue.indexOf(entry);
-    if (index >= 0) {
-      this.steerQueue.splice(index, 1);
-    }
-  }
-
-  private discardQueuedSteers(): void {
-    for (const entry of this.steerQueue.splice(0)) {
-      entry.removed = true;
-    }
   }
 }
 
@@ -310,7 +306,7 @@ function steerAlreadyEmittedError(): KimiError {
 // text part is scanned rather than matched whole. Text left empty once its
 // captions are removed is dropped entirely.
 function splitImageCompressionCaptions(content: readonly ContentPart[]): {
-  captions: readonly string[];
+  captions: string[];
   parts: ContentPart[];
 } {
   const captions: string[] = [];

@@ -12,9 +12,10 @@
  * at a fork boundary; the `goal.*` record shapes stay declared in
  * `WireRecordMap` because they still ride the shared wire log read by
  * `getRecords()` and replayed into the Model. Injects reminders through
- * `contextInjector`, drives continuation turns through `turn`, participates in
- * steps through `loop`, accounts live turn usage through `usage`, updates
- * context through `contextMemory`, writes system reminders through
+ * `contextInjector`, drives continuation turns through `turn`, orchestrates
+ * step-level continuations by enqueueing `StepRequest`s onto `loop` (the
+ * continuation message materializes when the loop pops it), accounts live
+ * turn usage through `usage`, writes system reminders through
  * `systemReminder`, registers model tools through `toolRegistry`, and reports
  * telemetry through `telemetry`. Bound at Agent scope.
  */
@@ -27,7 +28,6 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { GoalInjection } from '#/agent/goal/injection/goalInjection';
 import {
@@ -36,6 +36,7 @@ import {
   type BeforeStepContext,
 } from '#/agent/loop/loop';
 import { LOOP_CONTROL_SECTION, type LoopControl } from '#/agent/loop/configSection';
+import { ContinuationStepRequest, MessageStepRequest } from '#/agent/loop/stepRequest';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import type { ExecutableToolResult } from '#/agent/tool/toolContract';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
@@ -217,10 +218,9 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
-    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentTurnService private readonly turnService: IAgentTurnService,
     @IAgentActivityService private readonly activity: IAgentActivityService,
-    @IAgentLoopService loopService: IAgentLoopService,
+    @IAgentLoopService private readonly loopService: IAgentLoopService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
     @IAgentUsageService usageService: IAgentUsageService,
     @IConfigService private readonly config: IConfigService,
@@ -523,11 +523,12 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       // step that requested tool calls gets exactly one grace step: a
       // reminder appended after the tool results tells the model to write a
       // brief final status message without tools (further tool calls are
-      // answered by the goal-budget-reject gate without executing). After
-      // the grace step — or when the step ended without tool calls — the
-      // backstop fires: stopTurn wins in the run loop over requested tool
-      // calls and other hooks' continuations (steer flushes, Stop-hook
-      // continuations), so the turn ends at this step boundary.
+      // answered by the goal-budget-reject gate without executing). The
+      // grace step is the loop's own tool-call continuation, so nothing is
+      // enqueued here. After the grace step — or when the step ended without
+      // tool calls — the backstop fires: stopTurn wins in the run loop over
+      // requested tool calls and any queued step requests, so the turn ends
+      // at this step boundary.
       const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
       if (
         ctx.finishReason === 'tool_calls' &&
@@ -539,7 +540,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
           kind: 'system_trigger',
           name: GOAL_BUDGET_STOP_REMINDER_NAME,
         });
-        ctx.continue = true;
         return;
       }
       ctx.stopTurn = true;
@@ -549,12 +549,14 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     // final-message reminder. Let the model read that result and produce one
     // user-facing outcome message before the turn ends — unless the step
     // budget is already exhausted, in which case the turn ends 'completed'.
+    // The loop enqueues no continuation for a stopTurn tool result, so the
+    // extra step is requested explicitly.
     if (this.goalOutcomeContinuationTurns.has(ctx.turnId)) return;
     if (!this.goalOutcomeToolResultTurns.delete(ctx.turnId)) return;
     this.goalOutcomeContinuationTurns.add(ctx.turnId);
     const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
     if (!hasStepBudgetRemaining(maxSteps, ctx.step)) return;
-    ctx.continue = true;
+    this.loopService.enqueue(new ContinuationStepRequest());
   }
 
   private async handleTurnEnded(
@@ -588,10 +590,12 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     const state = this.goalState;
     if (state === null || state.status !== 'active') return;
     if (this.blockIfBudgetReached(state) !== null) return;
-    // Atomically acquire the turn lane BEFORE appending the continuation message:
-    // if another activity holds the lane (race lost), `tryBegin` returns
-    // undefined and we skip — no orphan continuation message in context, and the
-    // busy outcome is no longer swallowed by a `.catch(() => undefined)`.
+    // Atomically acquire the turn lane BEFORE enqueueing the continuation
+    // request: if another activity holds the lane (race lost), `tryBegin`
+    // returns undefined and we skip. Because the request's message only
+    // materializes when the loop pops it, a skipped or aborted launch leaves
+    // no orphan continuation message in context, and the busy outcome is no
+    // longer swallowed by a `.catch(() => undefined)`.
     const lease = this.activity.tryBegin('turn', { origin: GOAL_CONTINUATION_ORIGIN });
     if (lease === undefined) return;
     this.launchContinuationTurn(lease);
@@ -621,11 +625,17 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       toolCalls: [],
       origin: GOAL_CONTINUATION_ORIGIN,
     };
-    this.context.append(message);
-    this.turnService.launchWithLease(lease, {
-      input: message.content,
-      origin: GOAL_CONTINUATION_ORIGIN,
-    });
+    const request = new MessageStepRequest(message, { kind: 'goal_continuation' });
+    this.loopService.enqueue(request);
+    try {
+      this.turnService.launchWithLease(lease, {
+        input: message.content,
+        origin: GOAL_CONTINUATION_ORIGIN,
+      });
+    } catch (error) {
+      request.abort();
+      throw error;
+    }
   }
 
   private normalizeAfterReplay(): void {

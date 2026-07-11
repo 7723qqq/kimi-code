@@ -34,8 +34,9 @@ export interface IAgentTurnService {
   /**
    * Launches a turn using an already-acquired `ActivityLease` (from
    * `IAgentActivityService.tryBegin`). Callers that must prove they hold the
-   * lane before doing other work (e.g. goal continuation appending its prompt
-   * to context) use this instead of `launch`, which acquires the lease itself.
+   * lane before seeding the turn (e.g. goal continuation enqueueing its
+   * `StepRequest` onto `loop`) use this instead of `launch`, which acquires
+   * the lease itself.
    */
   launchWithLease(lease: ActivityLease, prompt?: TurnPromptInfo): Turn;
   recordSteer(input: readonly ContentPart[], origin?: PromptOrigin): void;

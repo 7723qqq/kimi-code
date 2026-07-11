@@ -7,7 +7,7 @@ import { APIConnectionError, APIEmptyResponseError, APIStatusError, APITimeoutEr
 
 import { CoreErrors, errorInfo, isErrorCode } from './codes';
 import type { ErrorCode } from './codes';
-import { KimiError, isCancellationError } from './errors';
+import { KimiError } from './errors';
 
 export interface ErrorPayload {
   readonly code: ErrorCode;
@@ -65,9 +65,6 @@ function sanitizeStatusErrorMessage(message: string): string {
 }
 
 export function toErrorPayload(error: unknown): ErrorPayload {
-  if (isCancellationError(error)) {
-    return makeErrorPayload(CoreErrors.codes.INTERNAL, error.message);
-  }
   if (isCodedError(error)) {
     return {
       code: error.code,

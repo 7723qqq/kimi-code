@@ -2,6 +2,7 @@ import { createDecorator } from '#/_base/di/instantiation';
 import type { FinishReason } from '#/app/llmProtocol/finishReason';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
 import type { Hooks } from '#/hooks';
+import type { StepRequest } from './stepRequest';
 
 export interface BeforeStepContext {
   readonly turnId: number;
@@ -12,12 +13,11 @@ export interface BeforeStepContext {
 export interface AfterStepContext extends BeforeStepContext {
   readonly usage: TokenUsage;
   readonly finishReason: FinishReason;
-  continue: boolean;
   /**
    * Set to true to end the turn at this step boundary. Takes precedence in
-   * the run loop over both requested tool calls and `continue`, so a hard
-   * stop (e.g. a reached goal budget) cannot be overridden by another hook's
-   * continuation.
+   * the run loop over both requested tool calls and any queued step
+   * requests, so a hard stop (e.g. a reached goal budget) cannot be
+   * overridden by another hook's continuation.
    */
   stopTurn: boolean;
 }
@@ -59,10 +59,30 @@ export type LoopRunResult =
       readonly reason: unknown;
     };
 
+export interface StepEnqueueOptions {
+  /** `tail` (default) preserves order for normal work; `head` jumps the queue (used to retry a failed step). */
+  readonly at?: 'head' | 'tail';
+}
+
 export interface IAgentLoopService {
   readonly _serviceBrand: undefined;
 
+  /**
+   * Drain the step queue for one turn: each queued `StepRequest` drives (or
+   * merges into) one step, and the turn completes once the queue empties.
+   * Callers seed the queue via `enqueue` before launching the turn.
+   */
   run(options: LoopRunOptions): Promise<LoopRunResult>;
+
+  /**
+   * Enqueue a step request. Requests enqueued while no run is active are
+   * drained by the next run; turn-scoped requests enqueued during a run are
+   * aborted if the turn ends before they are popped.
+   */
+  enqueue(request: StepRequest, options?: StepEnqueueOptions): void;
+
+  /** True while any non-aborted step request is queued. */
+  hasPendingRequests(): boolean;
 
   readonly hooks: Hooks<{
     beforeStep: BeforeStepContext;

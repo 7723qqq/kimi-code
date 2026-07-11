@@ -29,7 +29,9 @@ import {
   type LoopErrorContext,
   type LoopRunOptions,
   type LoopRunResult,
+  type StepEnqueueOptions,
 } from '#/agent/loop/loop';
+import type { StepRequest } from '#/agent/loop/stepRequest';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
@@ -204,6 +206,14 @@ class FakeLoopService implements IAgentLoopService {
 
   run(_options: LoopRunOptions): Promise<LoopRunResult> {
     throw new Error('unused in this suite');
+  }
+
+  enqueue(_request: StepRequest, _options?: StepEnqueueOptions): void {
+    throw new Error('unused in this suite');
+  }
+
+  hasPendingRequests(): boolean {
+    return false;
   }
 }
 

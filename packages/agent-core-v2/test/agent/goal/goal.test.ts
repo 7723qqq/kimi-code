@@ -30,7 +30,7 @@ import {
   type TestAgentOptions,
 } from '../../harness';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
-import { stubLoopWithHooks, stubTurn, type StubTurn } from '../turn/stubs';
+import { stubLoopWithHooks, stubTurn, type StubLoop, type StubTurn } from '../turn/stubs';
 
 type GoalServiceTestManager = IAgentGoalService & AgentGoalService;
 type GoalRecord = Extract<PersistedWireRecord, { type: `goal.${string}` }>;
@@ -70,7 +70,7 @@ function makeTurn(id: number): Turn {
   };
 }
 
-async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<boolean> {
+async function runGoalStep(loopService: StubLoop, turn: Turn): Promise<boolean> {
   const step = {
     turnId: turn.id,
     step: 1,
@@ -82,12 +82,13 @@ async function runGoalStep(loopService: IAgentLoopService, turn: Turn): Promise<
     signal: turn.signal,
     usage: zeroUsage,
     finishReason: 'completed' as const,
-    continue: false,
     stopTurn: false,
   };
   await loopService.hooks.beforeStep.run(step);
   await loopService.hooks.afterStep.run(afterStep);
-  return afterStep.continue;
+  // Hooks ask for another step by enqueueing a continuation request (the old
+  // `afterStep.continue` flag); the loop pops it as the next step's driver.
+  return loopService.queue.takeNextBatch() !== undefined;
 }
 
 function recordStepUsage(
@@ -596,7 +597,7 @@ describe('AgentGoalService core workflow hooks', () => {
   let context: IAgentContextMemoryService;
   let goals: IAgentGoalService;
   let turnService: StubTurn;
-  let loopService: IAgentLoopService;
+  let loopService: StubLoop;
   let toolExecutor: IAgentToolExecutorService;
   let usageService: IAgentUsageService;
   let eventBus: IEventBus;
@@ -632,6 +633,9 @@ describe('AgentGoalService core workflow hooks', () => {
       turnsUsed: 1,
     });
     expect(turnService.launches).toHaveLength(1);
+    // The continuation message is carried by a queued step request and only
+    // lands in context when the loop pops it.
+    expect(loopService.drainNextBatch(context)).toBeDefined();
     expect(context.get().at(-1)?.origin).toEqual({
       kind: 'system_trigger',
       name: 'goal_continuation',
@@ -775,7 +779,6 @@ describe('AgentGoalService core workflow hooks', () => {
       signal: turn.signal,
       usage: zeroUsage,
       finishReason: 'completed' as const,
-      continue: false,
       stopTurn: false,
     };
     await loopService.hooks.beforeStep.run(step);
@@ -784,24 +787,26 @@ describe('AgentGoalService core workflow hooks', () => {
     await runTerminalUpdateGoalResult(toolExecutor, turn, 'complete', 'outcome prompt');
     await loopService.hooks.afterStep.run(afterStep);
 
-    expect(afterStep.continue).toBe(true);
+    // The outcome continuation is a queued step request now, not a ctx flag.
+    expect(loopService.hasPendingRequests()).toBe(true);
     expect(goals.getGoal().goal).toBeNull();
     expect(turnService.launches).toEqual([]);
     expect(JSON.stringify(context.get())).not.toContain('goal_completion_summary');
     expect(JSON.stringify(context.get())).not.toContain('goal_blocked_reason');
 
+    // The loop pops the continuation to drive step 2.
+    expect(loopService.drainNextBatch(context)).toBeDefined();
     const secondAfterStep: AfterStepContext = {
       turnId: turn.id,
       step: 2,
       signal: turn.signal,
       usage: zeroUsage,
       finishReason: 'completed' as const,
-      continue: false,
       stopTurn: false,
     };
     await loopService.hooks.afterStep.run(secondAfterStep);
     endTurn(eventBus, turn);
-    expect(secondAfterStep.continue).toBe(false);
+    expect(loopService.hasPendingRequests()).toBe(false);
   });
 
   it('pauses active goals after failed turns', async () => {

@@ -89,14 +89,6 @@ function createHarness(options: { readonly hasActiveTurn?: boolean } = {}) {
   };
 }
 
-async function flushSteers(loop: IAgentLoopService, turn: Turn): Promise<void> {
-  await loop.hooks.beforeStep.run({
-    turnId: turn.id,
-    step: 1,
-    signal: turn.signal,
-  });
-}
-
 describe('AgentPromptService', () => {
   it('delegates inactive steer to prompt', async () => {
     const { prompt, turn } = createHarness();
@@ -131,8 +123,8 @@ describe('AgentPromptService', () => {
     );
   });
 
-  it('launches the turn before appending the user message', async () => {
-    const { context, prompt, turn } = createHarness();
+  it('launches the turn and materializes the user message at the step boundary', async () => {
+    const { context, loop, prompt, turn } = createHarness();
     const events: string[] = [];
     const originalLaunch = turn.launch.bind(turn);
     turn.launch = (...args) => {
@@ -147,8 +139,14 @@ describe('AgentPromptService', () => {
 
     await prompt.prompt(userMessage('ordered', { kind: 'user' }));
 
-    expect(events).toEqual(['turn.launch', 'context.append']);
+    // prompt() only enqueues the request; the loop materializes the message
+    // when it pops the request at the step boundary.
+    expect(events).toEqual(['turn.launch']);
     expect(turn.launches).toEqual([0]);
+    expect(context.messages).toEqual([]);
+
+    expect(loop.drainNextBatch(context)).toBeDefined();
+    expect(events).toEqual(['turn.launch', 'context.append']);
     expect(context.messages.map((message) => message.content[0])).toMatchObject([
       { type: 'text', text: 'ordered' },
     ]);
@@ -173,7 +171,7 @@ describe('AgentPromptService', () => {
     );
     await expect(removed.launched).resolves.toBe(activeTurn);
     removed.removeFromQueue();
-    await flushSteers(loop, activeTurn);
+    expect(loop.drainNextBatch(context)).toBeUndefined();
     expect(context.messages).toEqual([]);
     expect(turn.steered).toEqual([]);
 
@@ -181,7 +179,7 @@ describe('AgentPromptService', () => {
       userMessage('emitted', { kind: 'system_trigger', name: 'test_emitted' }),
     );
     await expect(emitted.launched).resolves.toBe(activeTurn);
-    await flushSteers(loop, activeTurn);
+    expect(loop.drainNextBatch(context)).toBeDefined();
 
     expect(seen).toEqual([
       { isSteer: true, originKind: 'system_trigger' },
@@ -216,7 +214,8 @@ describe('AgentPromptService', () => {
     );
 
     await expect(steer.launched).resolves.toBeUndefined();
-    await flushSteers(loop, activeTurn);
+    expect(loop.hasPendingRequests()).toBe(false);
+    expect(loop.drainNextBatch(context)).toBeUndefined();
     expect(context.messages).toEqual([]);
   });
 
@@ -276,7 +275,7 @@ describe('AgentPromptService', () => {
     // The hook consumes the side channel so it never reaches the loop/persistence.
     expect(didCtx.result.delivery).toBeUndefined();
 
-    await flushSteers(loop, activeTurn);
+    expect(loop.drainNextBatch(context)).toBeDefined();
     expect(context.messages.map((message) => message.content[0])).toMatchObject([
       { type: 'text', text: 'injected skill body' },
     ]);
@@ -301,7 +300,7 @@ describe('AgentPromptService', () => {
     });
 
     it('throws session.undo_unavailable (empty) when no real user prompt exists', () => {
-      const { prompt } = createHarness();
+      const { context, prompt } = createHarness();
 
       expect(() => prompt.undo(1)).toThrow(
         expect.objectContaining({
@@ -313,6 +312,7 @@ describe('AgentPromptService', () => {
 
     it('throws session.undo_unavailable (insufficient) and removes nothing when count exceeds the history', () => {
       const { context, prompt } = createHarness();
+
       context.append(userMessage('q', { kind: 'user' }));
       context.append(assistantMessage('a'));
 
@@ -342,7 +342,7 @@ describe('AgentPromptService', () => {
       message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 
     it('reroutes an inline caption into a hidden system reminder', async () => {
-      const { context, prompt } = createHarness();
+      const { context, loop, prompt } = createHarness();
 
       // The TUI merges the caption into the preceding text segment; the server
       // route emits it as a standalone part. Cover the merged (harder) shape.
@@ -356,6 +356,7 @@ describe('AgentPromptService', () => {
         origin: { kind: 'user' },
       });
 
+      expect(loop.drainNextBatch(context)).toBeDefined();
       expect(context.messages.map(({ role, origin }) => ({ role, origin }))).toEqual([
         { role: 'user', origin: { kind: 'injection', variant: 'image_compression' } },
         { role: 'user', origin: { kind: 'user' } },
@@ -370,7 +371,7 @@ describe('AgentPromptService', () => {
     });
 
     it('drops a caption-only text part instead of leaving an empty user text part', async () => {
-      const { context, prompt } = createHarness();
+      const { context, loop, prompt } = createHarness();
 
       await prompt.prompt({
         role: 'user',
@@ -382,6 +383,7 @@ describe('AgentPromptService', () => {
         origin: { kind: 'user' },
       });
 
+      expect(loop.drainNextBatch(context)).toBeDefined();
       const [, userMsg] = context.messages;
       expect(userMsg!.content).toEqual([
         { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
@@ -389,7 +391,7 @@ describe('AgentPromptService', () => {
     });
 
     it('leaves caption-shaped text alone on non-user origins', async () => {
-      const { context, prompt } = createHarness();
+      const { context, loop, prompt } = createHarness();
 
       await prompt.prompt({
         role: 'user',
@@ -398,6 +400,7 @@ describe('AgentPromptService', () => {
         origin: { kind: 'hook_result', event: 'PostToolUse' },
       });
 
+      expect(loop.drainNextBatch(context)).toBeDefined();
       expect(context.messages).toHaveLength(1);
       expect(context.messages[0]!.origin).toEqual({
         kind: 'hook_result',
@@ -406,7 +409,7 @@ describe('AgentPromptService', () => {
       expect(textOf(context.messages[0]!)).toBe(CAPTION);
     });
 
-    it('reroutes captions in steered user messages at flush time', async () => {
+    it('reroutes captions in steered user messages at materialization time', async () => {
       const { context, loop, prompt, turn } = createHarness({ hasActiveTurn: true });
       const activeTurn = turn.launch();
 
@@ -420,10 +423,10 @@ describe('AgentPromptService', () => {
         origin: { kind: 'user' },
       });
       await steer.launched;
-      // Nothing lands in context until the steer flushes at the step boundary.
+      // Nothing lands in context until the steer materializes at the step boundary.
       expect(context.messages).toEqual([]);
 
-      await flushSteers(loop, activeTurn);
+      expect(loop.drainNextBatch(context)).toBeDefined();
 
       expect(context.messages.map(({ role, origin }) => ({ role, origin }))).toEqual([
         { role: 'user', origin: { kind: 'injection', variant: 'image_compression' } },
@@ -463,7 +466,9 @@ describe('steer queue retention across non-completed turns', () => {
 
     const nextTurn = await prompt.prompt(userMessage('next prompt', { kind: 'user' }));
     expect(nextTurn).toBeDefined();
-    await flushSteers(loop, nextTurn!);
+    // The carried-over steer merges into the new turn's first step, after the
+    // fresh prompt message.
+    expect(loop.drainNextBatch(context)).toBeDefined();
 
     expect(context.messages.map((message) => message.content[0])).toMatchObject([
       { type: 'text', text: 'next prompt' },
@@ -482,7 +487,7 @@ describe('steer queue retention across non-completed turns', () => {
     await expect(steer.launched).resolves.toBe(activeTurn);
 
     prompt.clear();
-    await flushSteers(loop, activeTurn);
+    expect(loop.drainNextBatch(context)).toBeUndefined();
 
     expect(context.messages).toEqual([]);
     expect(turn.steered).toEqual([]);
@@ -508,7 +513,7 @@ describe('prompt deferral during full compaction', () => {
     expect(turn.launches).toEqual([0]);
     const launched = turn.getActiveTurn();
     expect(launched).toBeDefined();
-    await flushSteers(loop, launched!);
+    expect(loop.drainNextBatch(context)).toBeDefined();
     expect(context.messages.map((message) => message.content[0])).toMatchObject([
       { type: 'text', text: 'deferred one' },
       { type: 'text', text: 'deferred two' },

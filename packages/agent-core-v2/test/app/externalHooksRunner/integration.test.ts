@@ -86,7 +86,6 @@ function makeAfterStep(signal: AbortSignal): AfterStepContext {
     signal,
     usage: emptyUsage(),
     finishReason: 'completed',
-    continue: false,
     stopTurn: false,
   };
 }
@@ -298,13 +297,13 @@ describe('IExternalHooksRunnerService integration', () => {
         finishReason: 'filtered',
       };
       await loop.hooks.afterStep.run(filtered);
-      expect(filtered.continue).toBe(false);
+      expect(loop.hasPendingRequests()).toBe(false);
       expect(stopInputs).toEqual([]);
       expect(context.messages).toEqual([]);
 
       const first = makeAfterStep(signal);
       await loop.hooks.afterStep.run(first);
-      expect(first.continue).toBe(true);
+      expect(loop.hasPendingRequests()).toBe(true);
       expect(context.messages.at(-1)).toEqual(
         expect.objectContaining({
           role: 'user',
@@ -312,10 +311,12 @@ describe('IExternalHooksRunnerService integration', () => {
           origin: { kind: 'system_trigger', name: 'stop_hook' },
         }),
       );
+      // The queued request only drives the next step; pop it to move on.
+      expect(loop.drainNextBatch(context)).toBeDefined();
 
       const second = makeAfterStep(signal);
       await loop.hooks.afterStep.run(second);
-      expect(second.continue).toBe(false);
+      expect(loop.hasPendingRequests()).toBe(false);
       expect(stopInputs).toEqual([{ stopHookActive: false }]);
 
       eventBus.publish({
@@ -327,7 +328,7 @@ describe('IExternalHooksRunnerService integration', () => {
 
       const nextTurn = makeAfterStep(signal);
       await loop.hooks.afterStep.run(nextTurn);
-      expect(nextTurn.continue).toBe(true);
+      expect(loop.hasPendingRequests()).toBe(true);
       expect(context.messages.at(-1)).toEqual(
         expect.objectContaining({
           role: 'user',
@@ -335,6 +336,7 @@ describe('IExternalHooksRunnerService integration', () => {
           origin: { kind: 'system_trigger', name: 'stop_hook' },
         }),
       );
+      expect(loop.drainNextBatch(context)).toBeDefined();
       expect(stopInputs).toEqual([{ stopHookActive: false }, { stopHookActive: false }]);
     } finally {
       ix?.dispose();
@@ -613,7 +615,7 @@ describe('IExternalHooksRunnerService integration', () => {
       resolveReady();
       await pending;
 
-      expect(afterStep.continue).toBe(true);
+      expect(loop.hasPendingRequests()).toBe(true);
       expect(context.messages.at(-1)).toEqual(
         expect.objectContaining({
           role: 'user',
