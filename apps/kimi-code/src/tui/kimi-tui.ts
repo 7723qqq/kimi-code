@@ -36,7 +36,7 @@ import { restoreTerminalModes } from '#/utils/terminal-restore';
 import { BannerProvider } from './banner/banner-provider';
 import { readBannerDisplayState, writeBannerDisplayState } from './banner/state';
 import {
-  BUILTIN_SLASH_COMMANDS,
+  getBuiltinSlashCommands,
   buildPluginSlashCommands,
   buildSkillSlashCommands,
   isExperimentalFlagEnabled,
@@ -374,7 +374,7 @@ export class KimiTUI {
   // =========================================================================
 
   private getSlashCommands(): readonly KimiSlashCommand[] {
-    const builtins = sortSlashCommands(BUILTIN_SLASH_COMMANDS).filter((command) =>
+    const builtins = sortSlashCommands(getBuiltinSlashCommands()).filter((command) =>
       isExperimentalFlagEnabled(command.experimentalFlag),
     );
     return [...builtins, ...this.skillCommands, ...this.pluginCommands];

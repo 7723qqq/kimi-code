@@ -13,6 +13,7 @@ import {
 import { formatSessionLabel } from '#/migration/index';
 import { CURRENT_MARK, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import { t } from '#/i18n';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
 export interface SessionRow {
@@ -206,18 +207,18 @@ export class SessionPickerComponent extends Container implements Focusable {
   // prevents the "Rendered line exceeds terminal width" crash (issue #240).
   private renderLines(width: number): string[] {
     const lines: string[] = [currentTheme.fg('primary', '─'.repeat(width))];
-    const title = this.scope === 'all' ? 'All sessions' : 'Sessions';
+    const title = this.scope === 'all' ? t('tui.dialogs.sessionPicker.titleAll') : t('tui.dialogs.sessionPicker.titleCwd');
     const scopeHint =
       this.onToggleScope === undefined
         ? undefined
         : this.scope === 'all'
-          ? 'Ctrl+A current cwd'
-          : 'Ctrl+A all';
+          ? t('tui.dialogs.sessionPicker.scopeHintCwd')
+          : t('tui.dialogs.sessionPicker.scopeHintAll');
 
     if (this.loading) {
       lines.push(currentTheme.boldFg('primary', truncateToWidth(title, width, ELLIPSIS)));
       lines.push(
-        currentTheme.fg('textMuted', truncateToWidth('Loading sessions...', width, ELLIPSIS)),
+        currentTheme.fg('textMuted', truncateToWidth(t('tui.dialogs.sessionPicker.loading'), width, ELLIPSIS)),
       );
       lines.push(currentTheme.fg('primary', '─'.repeat(width)));
       return lines;
@@ -233,7 +234,7 @@ export class SessionPickerComponent extends Container implements Focusable {
       );
       lines.push('');
       lines.push(
-        currentTheme.fg('textMuted', truncateToWidth('No sessions found.', width, ELLIPSIS)),
+        currentTheme.fg('textMuted', truncateToWidth(t('tui.dialogs.sessionPicker.empty'), width, ELLIPSIS)),
       );
       lines.push(currentTheme.fg('primary', '─'.repeat(width)));
       return lines;
