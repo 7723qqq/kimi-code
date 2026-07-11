@@ -26,7 +26,12 @@ import { openUrl as defaultOpenUrl } from '#/utils/open-url';
 import { getDataDir } from '#/utils/paths';
 
 import { initializeServerTelemetry } from '../../telemetry';
-import { createKimiCodeHostIdentity, getHostPackageRoot, getVersion } from '../../version';
+import {
+  buildKimiDefaultHeaders,
+  createKimiCodeHostIdentity,
+  getHostPackageRoot,
+  getVersion,
+} from '../../version';
 import {
   accessUrlLines,
   buildOpenableUrl,
@@ -406,6 +411,7 @@ async function runServerInProcess(
     // its agent-core-v2 engine are only resolved when the flag is on.
     const { createServerLogger: createServerV2Logger, startServer: startServerV2 } =
       await import('@moonshot-ai/kap-server');
+    const { hostRequestHeadersSeed } = await import('@moonshot-ai/agent-core-v2');
     const logger = createServerV2Logger({ level: options.logLevel });
     const v2 = await startServerV2({
       host: options.host,
@@ -418,6 +424,10 @@ async function runServerInProcess(
       allowRemoteTerminals: options.allowRemoteTerminals,
       allowedHosts: options.allowedHosts,
       disableAuth: options.dangerousBypassAuth,
+      // Seed the CLI's Kimi identity headers so the v2 engine's outbound
+      // requests (model, WebSearch, FetchURL) carry the same User-Agent +
+      // X-Msh-* identity as direct CLI runs.
+      seeds: hostRequestHeadersSeed(buildKimiDefaultHeaders(version)),
       webAssetsDir: serverWebAssetsDir(),
     });
     // v2's connection registry exposes no count-change hook, so forward
