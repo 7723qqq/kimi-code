@@ -5,8 +5,19 @@
 [Documentation](https://moonshotai.github.io/kimi-code/zh/) · [Issues](https://github.com/MoonshotAI/kimi-code/issues) · [English](README.md)
 
 
+> ⚠️ **个人实验性 fork**，基于 [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code)。与 Moonshot AI 无关，仅供个人使用。请勿将本 fork 的 PR 提交到上游。
+
 ![Kimi Code 的使用演示](./docs/media/intro.gif)
 
+## 本 Fork 新增特性
+
+相比上游，本 fork 新增：
+
+- **🌐 i18n 国际化多语言支持**：TUI / CLI / Web UI 完整中英双语。所有硬编码英文替换为 `t()` 调用，通过 `/locale` 或对话框切换语言。
+- **🤖 Swarm Discussion 多 Agent 讨论**：多 Agent 讨论协作工具，Agent 之间可辩论、交叉审查并达成共识后输出。
+- **⚡ Rust 原生工具加速**：性能关键工具（grep、glob、edit、read、write、bash、token 统计、输出截断）用 Rust 重写为原生 Node addon，显著快于 JS 实现。
+- **🪟 Windows 一键启动脚本**：`start-native.bat` 和 `start-desktop.bat`，双击即可启动。
+- 其他多项修复和体验优化。
 
 ## 什么是 Kimi Code CLI
 

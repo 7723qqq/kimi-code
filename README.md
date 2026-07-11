@@ -3,7 +3,19 @@
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![Docs](https://img.shields.io/badge/docs-online-blue)](https://moonshotai.github.io/kimi-code/en/) <br>
 [Documentation](https://moonshotai.github.io/kimi-code/en/) · [Issues](https://github.com/MoonshotAI/kimi-code/issues) · [中文](README.zh-CN.md)
 
+> ⚠️ **This is a personal experimental fork** of [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code). Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream.
+
 ![Demo of using Kimi Code](./docs/media/intro.gif)
+
+## What's Different in This Fork
+
+Compared to upstream, this fork adds:
+
+- **🌐 i18n / Multi-language support.** Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via `/locale` or the dialog.
+- **🤖 Swarm Discussion.** Multi-agent discussion and collaboration tool — agents can debate, cross-review, and reach consensus before output.
+- **⚡ Rust Native Tools.** Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as native Node addon, significantly faster than JS.
+- **🪟 Windows one-click launchers.** `start-native.bat` and `start-desktop.bat` for quick launch on Windows.
+- Various other fixes and QoL improvements.
 
 ## What is Kimi Code CLI
 
