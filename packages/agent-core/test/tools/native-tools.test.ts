@@ -16,6 +16,8 @@ import {
   NativeWriteTool,
   tryLoadNative,
 } from '../../src/tools/builtin/native-tools';
+import { GlobTool } from '../../src/tools/builtin/file/glob';
+import { GrepTool } from '../../src/tools/builtin/file/grep';
 import { createFakeKaos } from './fixtures/fake-kaos';
 import { executeTool } from './fixtures/execute-tool';
 import { createBackgroundManager } from '../agent/background/helpers';
@@ -188,7 +190,8 @@ describe('native-tools integration', () => {
   it('greps a file through the native module', async () => {
     writeFileSync(join(tmpDir, 'grep.txt'), 'first line\nneedle line\nlast line');
 
-    const tool = new NativeGrepTool(makeKaos(), workspace, 'Search files.');
+    const kaos = makeKaos();
+    const tool = new NativeGrepTool(kaos, workspace, 'Search files.', new GrepTool(kaos, workspace));
     const result = await executeTool(tool, {
       turnId: '0',
       toolCallId: 'call_grep',
@@ -204,7 +207,8 @@ describe('native-tools integration', () => {
     writeFileSync(join(tmpDir, 'a.ts'), '');
     writeFileSync(join(tmpDir, 'b.ts'), '');
 
-    const tool = new NativeGlobTool(makeKaos(), workspace, 'Find files.');
+    const kaos = makeKaos();
+    const tool = new NativeGlobTool(kaos, workspace, 'Find files.', new GlobTool(kaos, workspace));
     const result = await executeTool(tool, {
       turnId: '0',
       toolCallId: 'call_glob',
@@ -220,7 +224,8 @@ describe('native-tools integration', () => {
   it('glob relativizes results under the workspace', async () => {
     writeFileSync(join(tmpDir, 'file.ts'), '');
     const globWorkspace = { workspaceDir: tmpDir, additionalDirs: [] };
-    const tool = new NativeGlobTool(makeKaos(), globWorkspace, 'Find files.');
+    const kaos = makeKaos();
+    const tool = new NativeGlobTool(kaos, globWorkspace, 'Find files.', new GlobTool(kaos, globWorkspace));
     const result = await executeTool(tool, {
       turnId: '0',
       toolCallId: 'call_glob_rel',
@@ -266,7 +271,8 @@ describe('native-tools integration', () => {
     writeFileSync(join(tmpDir, '.env'), 'SECRET_TOKEN=abcdef123\nDATABASE_URL=postgres://x');
     writeFileSync(join(tmpDir, 'safe.txt'), 'SECRET_TOKEN=public-marker');
 
-    const tool = new NativeGrepTool(makeKaos(), workspace, 'Search files.');
+    const kaos = makeKaos();
+    const tool = new NativeGrepTool(kaos, workspace, 'Search files.', new GrepTool(kaos, workspace));
     const result = await executeTool(tool, {
       turnId: '0',
       toolCallId: 'call_grep',
@@ -285,7 +291,8 @@ describe('native-tools integration', () => {
     writeFileSync(join(tmpDir, 'match.ts'), 'needle in ts');
     writeFileSync(join(tmpDir, 'match.py'), 'needle in py');
 
-    const tool = new NativeGrepTool(makeKaos(), workspace, 'Search files.');
+    const kaos = makeKaos();
+    const tool = new NativeGrepTool(kaos, workspace, 'Search files.', new GrepTool(kaos, workspace));
     const result = await executeTool(tool, {
       turnId: '0',
       toolCallId: 'call_grep_type',
@@ -302,7 +309,8 @@ describe('native-tools integration', () => {
     writeFileSync(join(tmpDir, 'counts.txt'), 'needle line\nneedle again\nneedle third');
     writeFileSync(join(tmpDir, 'nope.txt'), 'nothing here');
 
-    const tool = new NativeGrepTool(makeKaos(), workspace, 'Search files.');
+    const kaos = makeKaos();
+    const tool = new NativeGrepTool(kaos, workspace, 'Search files.', new GrepTool(kaos, workspace));
     const result = await executeTool(tool, {
       turnId: '0',
       toolCallId: 'call_grep_count',
@@ -322,7 +330,8 @@ describe('native-tools integration', () => {
     writeFileSync(join(tmpDir, 'match2.txt'), 'needle there');
     writeFileSync(join(tmpDir, 'nope.txt'), 'nothing');
 
-    const tool = new NativeGrepTool(makeKaos(), workspace, 'Search files.');
+    const kaos = makeKaos();
+    const tool = new NativeGrepTool(kaos, workspace, 'Search files.', new GrepTool(kaos, workspace));
     const result = await executeTool(tool, {
       turnId: '0',
       toolCallId: 'call_grep_fwm',
@@ -341,7 +350,8 @@ describe('native-tools integration', () => {
     writeFileSync(join(tmpDir, '.git', 'HEAD'), 'needle inside git');
     writeFileSync(join(tmpDir, 'tracked.txt'), 'needle outside git');
 
-    const tool = new NativeGrepTool(makeKaos(), workspace, 'Search files.');
+    const kaos = makeKaos();
+    const tool = new NativeGrepTool(kaos, workspace, 'Search files.', new GrepTool(kaos, workspace));
     const result = await executeTool(tool, {
       turnId: '0',
       toolCallId: 'call_grep_vcs',
@@ -363,7 +373,8 @@ describe('native-tools integration', () => {
     const bashExec = expectRunnable(bash.resolveExecution({ command: 'echo hi' }));
     expect(bashExec.approvalRule).not.toBe('auto-approve');
 
-    const grep = new NativeGrepTool(makeKaos(), workspace, 'Search files.');
+    const grepKaos = makeKaos();
+    const grep = new NativeGrepTool(grepKaos, workspace, 'Search files.', new GrepTool(grepKaos, workspace));
     const grepExec = expectRunnable(grep.resolveExecution({ pattern: 'x' }));
     expect(grepExec.approvalRule).not.toBe('auto-approve');
   });
@@ -442,7 +453,8 @@ describe('native-tools integration', () => {
   it('grep with context lines', async () => {
     writeFileSync(join(tmpDir, 'context.txt'), 'line1\nline2\nneedle\nline4\nline5');
 
-    const tool = new NativeGrepTool(makeKaos(), workspace, 'Search files.');
+    const kaos = makeKaos();
+    const tool = new NativeGrepTool(kaos, workspace, 'Search files.', new GrepTool(kaos, workspace));
     const result = await executeTool(tool, {
       turnId: '0',
       toolCallId: 'call_grep_ctx',
@@ -460,7 +472,8 @@ describe('native-tools integration', () => {
     writeFileSync(join(tmpDir, 'match.txt'), 'needle in txt');
     writeFileSync(join(tmpDir, 'match.log'), 'needle in log');
 
-    const tool = new NativeGrepTool(makeKaos(), workspace, 'Search files.');
+    const kaos = makeKaos();
+    const tool = new NativeGrepTool(kaos, workspace, 'Search files.', new GrepTool(kaos, workspace));
     const result = await executeTool(tool, {
       turnId: '0',
       toolCallId: 'call_grep_glob',
@@ -478,7 +491,8 @@ describe('native-tools integration', () => {
     writeFileSync(join(tmpDir, 'file.tsx'), '');
     writeFileSync(join(tmpDir, 'file.py'), '');
 
-    const tool = new NativeGlobTool(makeKaos(), workspace, 'Find files.');
+    const kaos = makeKaos();
+    const tool = new NativeGlobTool(kaos, workspace, 'Find files.', new GlobTool(kaos, workspace));
     const result = await executeTool(tool, {
       turnId: '0',
       toolCallId: 'call_glob_brace',
@@ -496,7 +510,8 @@ describe('native-tools integration', () => {
     mkdirSync(join(tmpDir, 'subdir'), { recursive: true });
     writeFileSync(join(tmpDir, 'file.txt'), '');
 
-    const tool = new NativeGlobTool(makeKaos(), workspace, 'Find files.');
+    const kaos = makeKaos();
+    const tool = new NativeGlobTool(kaos, workspace, 'Find files.', new GlobTool(kaos, workspace));
     const result = await executeTool(tool, {
       turnId: '0',
       toolCallId: 'call_glob_no_dirs',

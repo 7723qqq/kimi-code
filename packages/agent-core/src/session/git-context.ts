@@ -255,8 +255,8 @@ async function runGit(kaos: Kaos, cwd: string, args: readonly string[]): Promise
   const work = Promise.all([collectStream(proc.stdout), collectStream(proc.stderr), proc.wait()]);
   // Attach a rejection handler up front: if `work` rejects during the
   // timeout-handling window (before the catch block re-awaits it), Node must
-  // not flag it as an unhandled rejection.
-  work.catch(() => {});
+  // not flag it as an unhandled rejection. The error is re-awaited below.
+  work.catch(() => { /* intentional — prevents unhandled rejection during timeout race */ });
   let timer: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
   try {

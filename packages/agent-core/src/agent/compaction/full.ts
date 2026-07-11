@@ -16,6 +16,7 @@ import {
   APIRequestTooLargeError,
   APIStatusError,
   createUserMessage,
+  isImageFormatError,
 } from '@moonshot-ai/kosong';
 
 import type { Agent } from '..';
@@ -53,13 +54,6 @@ import { buildCompactionSummaryText, isRealUserInput } from './handoff';
 
 export const MAX_COMPACTION_RETRY_ATTEMPTS = 5;
 
-/**
- * Default hard cap on compaction output tokens when `maxOutputSize` is not
- * configured on the model alias. Without this, compaction falls back to the
- * full context window size, which exceeds the `max_tokens` ceiling enforced
- * by many OpenAI-compatible providers. 128k matches the chat-completions
- * ceiling applied by the OpenAI Legacy provider.
- */
 const DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS = 128 * 1024;
 const OVERFLOW_CONTEXT_SAFETY_RATIO = 0.85;
 const OVERFLOW_STATUS_RECOVERY_RATIO = 0.5;
@@ -475,16 +469,20 @@ export class FullCompaction {
           summary = extractCompactionSummary(response);
           break;
         } catch (error) {
-          // A request-body-size rejection (HTTP 413) is first retried with
-          // media parts replaced by text markers: accumulated base64 payloads
-          // are the usual culprit, and a text summary does not need them —
-          // the conversation already narrates what was seen, and the
-          // ReadMediaFile `<image path="...">` text wrapper survives. Only
-          // the summarizer input copy is rewritten; the real history keeps
-          // its media. A 413 after the strip (or with no media to strip)
-          // falls through to the overflow shrink below — dropping oldest
-          // messages shrinks the body too.
-          if (error instanceof APIRequestTooLargeError && !mediaStripAttempted) {
+          // A request-body-size rejection (HTTP 413) or an image-format
+          // rejection is first retried with media parts replaced by text
+          // markers: accumulated base64 payloads are the usual 413 culprit,
+          // a poisoned image the format-rejection culprit, and a text summary
+          // needs neither — the conversation already narrates what was seen,
+          // and the ReadMediaFile `<image path="...">` text wrapper survives.
+          // Only the summarizer input copy is rewritten; the real history
+          // keeps its media. A rejection after the strip (or with no media to
+          // strip) falls through to the overflow shrink below for a 413, and
+          // propagates for a format error — dropping oldest messages cannot
+          // fix a poisoned image's format.
+          const mediaRejected =
+            error instanceof APIRequestTooLargeError || isImageFormatError(error);
+          if (mediaRejected && !mediaStripAttempted) {
             mediaStripAttempted = true;
             const stripped = replaceMediaPartsWithMarkers(historyForModel);
             if (stripped !== historyForModel) {

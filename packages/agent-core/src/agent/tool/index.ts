@@ -734,10 +734,20 @@ export class ToolManager {
           ? new NativeEditTool(kaos, workspace, toolDescs.edit)
           : new b.EditTool(kaos, workspace),
         useNative
-          ? new NativeGrepTool(kaos, workspace, toolDescs.grep)
+          ? new NativeGrepTool(
+              kaos,
+              workspace,
+              toolDescs.grep,
+              new b.GrepTool(kaos, workspace, this.agent.telemetry),
+            )
           : new b.GrepTool(kaos, workspace, this.agent.telemetry),
         useNative
-          ? new NativeGlobTool(kaos, workspace, toolDescs.glob)
+          ? new NativeGlobTool(
+              kaos,
+              workspace,
+              toolDescs.glob,
+              new b.GlobTool(kaos, workspace, this.agent.telemetry),
+            )
           : new b.GlobTool(kaos, workspace, this.agent.telemetry),
         useNative
           ? new NativeBashTool(kaos, cwd, background, {

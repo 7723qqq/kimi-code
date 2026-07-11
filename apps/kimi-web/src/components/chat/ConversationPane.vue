@@ -1421,6 +1421,15 @@ defineExpose({ loadComposerForEdit, focusComposer });
   position: relative;
   font-family: var(--mono);
 }
+/* Measurement proxy — rendered off-screen so the real menu can measure its
+   stable max-width without a visible duplicate. */
+.ws-pick-measure {
+  position: absolute;
+  top: 0;
+  left: -9999px;
+  visibility: hidden;
+  pointer-events: none;
+}
 .ws-pick-btn {
   display: inline-flex;
   align-items: center;

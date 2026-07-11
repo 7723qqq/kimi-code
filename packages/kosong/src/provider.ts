@@ -118,6 +118,8 @@ export interface StreamedMessage {
 export interface ProviderRequestAuth {
   /** Bearer/API token resolved for this specific provider request. */
   apiKey?: string;
+  /** Bearer token for OAuth-authenticated requests. */
+  bearerToken?: string;
   /** Request-scoped headers. These override constructor-level default headers. */
   headers?: Record<string, string>;
 }

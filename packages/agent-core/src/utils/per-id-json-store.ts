@@ -126,16 +126,15 @@ export function createPerIdJsonStore<T>(
     } catch {
       return [];
     }
-    const out: T[] = [];
+    const ids: string[] = [];
     for (const entry of entries) {
       if (!entry.endsWith('.json')) continue;
       const id = entry.slice(0, -'.json'.length);
       if (!idRegex.test(id)) continue;
-      const value = await read(id);
-      if (value === undefined) continue;
-      out.push(value);
+      ids.push(id);
     }
-    return out;
+    const results = await Promise.all(ids.map((id) => read(id)));
+    return results.filter((value): value is NonNullable<typeof value> => value !== undefined) as readonly T[];
   }
 
   async function remove(id: string): Promise<void> {

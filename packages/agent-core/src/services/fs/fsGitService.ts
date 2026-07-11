@@ -289,7 +289,10 @@ function killChild(child: ChildProcess): void {
   }
   try {
     child.kill();
-  } catch {}
+  } catch {
+    // Process already exited or is otherwise unreachable — nothing left
+    // to clean up.
+  }
 }
 
 function parsePullRequest(stdout: string): FsPullRequest | null {

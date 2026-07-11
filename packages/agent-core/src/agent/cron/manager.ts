@@ -301,8 +301,16 @@ export class CronManager {
     // Snapshot the chain promises rather than the map itself — the
     // `.finally` cleanup deletes entries while we await, and a live
     // map iteration would observe the deletions and miss tails.
-    const inFlight = Array.from(this.persistQueues.values());
-    await Promise.allSettled(inFlight);
+    //
+    // After the initial wait, re-check the queue: a `persistEnqueue`
+    // that ran in a different event-loop tick during our await may
+    // have added a new promise that wasn't in the snapshot. Loop
+    // until the queue is truly empty to guarantee all writes are
+    // settled before returning.
+    while (this.persistQueues.size > 0) {
+      const inFlight = Array.from(this.persistQueues.values());
+      await Promise.allSettled(inFlight);
+    }
   }
 
   /**

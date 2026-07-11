@@ -16,8 +16,12 @@
  *    prompt. Callers simply send the original instead.
  *  - PNG, JPEG, and (non-animated) WebP are re-encoded; WebP re-encodes
  *    through the PNG/JPEG ladder, so only its decoder wasm ships. GIF and
- *    animated WebP are passed through to preserve animation. Unknown formats
- *    are passed through.
+ *    animated WebP are passed through to preserve animation. Formats outside
+ *    the provider-accepted set (see ./image-format-policy) are never
+ *    forwarded by the part-level helpers — they are replaced with a text
+ *    notice; the byte-level helpers still pass anything they cannot
+ *    re-encode through unchanged, so callers must gate on
+ *    `isModelAcceptedImageMime` first.
  *  - Compression must never be silent to the model: results carry the
  *    original dimensions, {@link buildImageCompressionCaption} renders the
  *    shared "what was compressed, where is the original" note every ingestion
@@ -33,84 +37,18 @@ import type { ContentPart } from '@moonshot-ai/kosong';
 import type { TelemetryClient } from '#/telemetry';
 
 import { sniffImageDimensions } from './file-type';
+import {
+  buildMalformedImageNotice,
+  buildUnsupportedImageNotice,
+  decodeBase64Prefix,
+  isDataUrl,
+  isModelAcceptedImageMime,
+  normalizeImageMime,
+  parseImageDataUrl,
+  resolveEffectiveImageMime,
+  unsupportedImageMimeFromUrl,
+} from './image-format-policy';
 import { decodeWebp, isAnimatedWebp } from './webp-decode';
-
-// ── Native module loading (lazy, with TS fallback) ──────────────────────────
-
-type NativeCompressImageConfig = {
-  readonly maxEdge: number;
-  readonly byteBudget: number;
-  readonly fallbackEdges: number[];
-  readonly jpegQualitySteps: number[];
-};
-
-type NativeCompressImageResult = {
-  readonly data: Uint8Array;
-  readonly mimeType: string;
-  readonly width: number;
-  readonly height: number;
-  readonly originalWidth: number;
-  readonly originalHeight: number;
-  readonly changed: boolean;
-  readonly originalByteLength: number;
-  readonly finalByteLength: number;
-};
-
-type NativeCropImageConfig = {
-  readonly maxEdge: number;
-  readonly byteBudget: number;
-  readonly skipResize: boolean;
-  readonly fallbackEdges: number[];
-  readonly jpegQualitySteps: number[];
-};
-
-type NativeCropImageOutcome = {
-  readonly ok: boolean;
-  readonly error: string;
-  readonly errorKind: string;
-  readonly data: Uint8Array;
-  readonly mimeType: string;
-  readonly width: number;
-  readonly height: number;
-  readonly originalWidth: number;
-  readonly originalHeight: number;
-  readonly regionX: number;
-  readonly regionY: number;
-  readonly regionWidth: number;
-  readonly regionHeight: number;
-  readonly resized: boolean;
-  readonly originalByteLength: number;
-  readonly finalByteLength: number;
-};
-
-let nativeModule: {
-  nativeCompressImage?: (
-    data: Uint8Array,
-    mimeType: string,
-    config: NativeCompressImageConfig,
-  ) => Promise<NativeCompressImageResult | null>;
-  nativeCropImage?: (
-    data: Uint8Array,
-    mimeType: string,
-    regionX: number,
-    regionY: number,
-    regionWidth: number,
-    regionHeight: number,
-    config: NativeCropImageConfig,
-  ) => Promise<NativeCropImageOutcome>;
-} | null | undefined;
-
-function getNative() {
-  if (nativeModule === null) return undefined;
-  if (nativeModule !== undefined) return nativeModule;
-  try {
-    nativeModule = require('@moonshot-ai/kimi-native-tools');
-    return nativeModule;
-  } catch {
-    nativeModule = null;
-    return undefined;
-  }
-}
 
 /**
  * Built-in longest-edge ceiling (px). Larger images are scaled down to fit.
@@ -118,6 +56,18 @@ function getNative() {
  * {@link resolveMaxImageEdgePx} (explicit option > env > config > this).
  */
 export const MAX_IMAGE_EDGE_PX = 2000;
+
+function isPositiveInt(value: number): boolean {
+  return Number.isInteger(value) && value > 0;
+}
+
+/** The `[image] max_edge_px` value from config.toml; set at core startup. */
+let configuredMaxImageEdgePx: number | undefined;
+
+/** Push (or clear, with `undefined`) the config.toml max-pixel-edge ceiling. */
+export function setConfiguredMaxImageEdgePx(value: number | undefined): void {
+  configuredMaxImageEdgePx = value !== undefined && isPositiveInt(value) ? value : undefined;
+}
 
 /**
  * Env var overriding the longest-edge ceiling (px). Read live on every
@@ -134,23 +84,11 @@ export function maxImageEdgeFromEnv(
 }
 
 /**
- * The `[image] max_edge_px` value from config.toml, pushed by the config
- * owner (KimiCore) on load and reload. Processes that never load config
- * (TUI paste, ACP adapter) leave this unset and get env/built-in behavior.
- */
-let configuredMaxImageEdgePx: number | undefined;
-
-/** Push (or clear, with `undefined`) the config.toml longest-edge ceiling. */
-export function setConfiguredMaxImageEdgePx(value: number | undefined): void {
-  configuredMaxImageEdgePx = value !== undefined && isPositiveInt(value) ? value : undefined;
-}
-
-/**
  * Effective default longest-edge ceiling (px), for calls that pass no
- * explicit `maxEdge`. Precedence mirrors the experimental-flag resolver:
- * env var > config.toml > built-in {@link MAX_IMAGE_EDGE_PX}. Owned call
- * sites (tools under an Agent, server ingestion under a core) resolve
- * through their `ImageLimits` instance instead.
+ * explicit `maxEdge`. Precedence: env var > config.toml > built-in
+ * {@link MAX_IMAGE_EDGE_PX}. Owned call sites (tools under an Agent, server
+ * ingestion under a core) resolve through their `ImageLimits` instance
+ * instead, which adds the owner's `[image]` config between the two.
  */
 export function resolveMaxImageEdgePx(
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -166,10 +104,6 @@ function positiveIntFromEnv(
   if (raw === undefined || raw.length === 0 || !/^\d+$/.test(raw)) return undefined;
   const parsed = Number(raw);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
-}
-
-function isPositiveInt(value: number): boolean {
-  return Number.isInteger(value) && value > 0;
 }
 
 /**
@@ -198,13 +132,6 @@ export const READ_IMAGE_BYTE_BUDGET = 256 * 1024;
  */
 export const READ_IMAGE_BYTE_BUDGET_ENV = 'KIMI_IMAGE_READ_BYTE_BUDGET';
 
-/** The env override for the read-image byte budget, or undefined when unset/invalid. */
-export function readImageByteBudgetFromEnv(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): number | undefined {
-  return positiveIntFromEnv(env, READ_IMAGE_BYTE_BUDGET_ENV);
-}
-
 /** The `[image] read_byte_budget` value from config.toml; see {@link setConfiguredMaxImageEdgePx}. */
 let configuredReadImageByteBudget: number | undefined;
 
@@ -213,11 +140,17 @@ export function setConfiguredReadImageByteBudget(value: number | undefined): voi
   configuredReadImageByteBudget = value !== undefined && isPositiveInt(value) ? value : undefined;
 }
 
+/** The env override for the read-image byte budget, or undefined when unset/invalid. */
+export function readImageByteBudgetFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number | undefined {
+  return positiveIntFromEnv(env, READ_IMAGE_BYTE_BUDGET_ENV);
+}
+
 /**
- * Effective read-image byte budget. Precedence mirrors
- * {@link resolveMaxImageEdgePx}: env var > config.toml > built-in
- * {@link READ_IMAGE_BYTE_BUDGET}. Owned call sites resolve through their
- * `ImageLimits` instance instead.
+ * Effective read-image byte budget. Precedence:
+ * env var > config.toml > built-in {@link READ_IMAGE_BYTE_BUDGET}.
+ * Owned call sites resolve through their `ImageLimits` instance instead.
  */
 export function resolveReadImageByteBudget(
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -279,7 +212,7 @@ export interface CompressImageOptions {
   /**
    * Override the longest-edge ceiling (px). When omitted, owned call sites
    * pass their {@link ImageLimits.maxEdgePx}; ownerless ones fall back to
-   * {@link resolveMaxImageEdgePx} (env var, then config, then built-in).
+   * {@link resolveMaxImageEdgePx} (env var, then built-in).
    */
   readonly maxEdge?: number;
   /** Override the raw-byte budget. */
@@ -355,7 +288,7 @@ export async function compressImageForModel(
   const maxEdge = options.maxEdge ?? resolveMaxImageEdgePx();
   const byteBudget = options.byteBudget ?? IMAGE_BYTE_BUDGET;
   const maxDecodeBytes = options.maxDecodeBytes ?? MAX_DECODE_BYTES;
-  const normalizedMime = normalizeMime(mimeType);
+  const normalizedMime = normalizeImageMime(mimeType);
   const dims = sniffImageDimensions(bytes);
 
   const passthrough = (): CompressImageResult => ({
@@ -405,46 +338,6 @@ export async function compressImageForModel(
   // Refuse to decode very large byte payloads (e.g. a huge or invalid image
   // from an MCP tool) that would be loaded just to be dropped downstream.
   if (bytes.length > maxDecodeBytes) return finish('passthrough_guard', passthrough());
-
-  // Native path: the Rust `image` crate decodes/resizes/encodes 10–100× faster
-  // than pure-JS jimp. The native function handles only the compute-heavy
-  // quality-ladder path; all fast-path and guard checks above stay in TS.
-  // Falls back to jimp when the native module is unavailable or when the image
-  // has EXIF orientation (the Rust `image` crate does not apply EXIF rotation
-  // during decode, while jimp does — the decoded coordinate space must match
-  // for crop regions to work correctly).
-  const native = getNative();
-  if (native?.nativeCompressImage && dims?.transposed !== true) {
-    try {
-      const result = await native.nativeCompressImage(bytes, normalizedMime, {
-        maxEdge,
-        byteBudget,
-        fallbackEdges: [...FALLBACK_EDGES_PX],
-        jpegQualitySteps: [...JPEG_QUALITY_STEPS],
-      });
-      if (result === null) {
-        // Native couldn't handle this format (e.g. WebP) — fall through
-        // to the TS path which has the @jsquash/webp wasm decoder.
-      } else {
-        if (!result.changed) {
-          return finish('passthrough_unhelpful', passthrough());
-        }
-        return finish('compressed', {
-          data: result.data,
-          mimeType: result.mimeType,
-          width: result.width,
-          height: result.height,
-          originalWidth: result.originalWidth,
-          originalHeight: result.originalHeight,
-          changed: true,
-          originalByteLength: result.originalByteLength,
-          finalByteLength: result.finalByteLength,
-        });
-      }
-    } catch {
-      // Native call failed unexpectedly — fall through to the jimp path.
-    }
-  }
 
   try {
     const image = await decodeToJimp(bytes, normalizedMime);
@@ -519,7 +412,10 @@ export interface CompressBase64Result {
 /**
  * Convenience wrapper for call sites that already hold base64 (MCP results,
  * data URLs). Decodes, compresses, and re-encodes to base64. Best effort:
- * returns the original base64 unchanged on any failure.
+ * returns the original base64 unchanged on any failure — including formats it
+ * cannot re-encode, so callers must refuse MIME types outside the
+ * provider-accepted set (`isModelAcceptedImageMime`) before building an
+ * image part from the result.
  */
 export async function compressBase64ForModel(
   base64: string,
@@ -547,7 +443,7 @@ export async function compressBase64ForModel(
     reportCompressEvent(options.telemetry, {
       outcome: 'passthrough_guard',
       startedAt,
-      inputMime: normalizeMime(mimeType),
+      inputMime: normalizeImageMime(mimeType),
       exifTransposed: false,
       result,
     });
@@ -571,7 +467,7 @@ export async function compressBase64ForModel(
     reportCompressEvent(options.telemetry, {
       outcome: 'passthrough_error',
       startedAt,
-      inputMime: normalizeMime(mimeType),
+      inputMime: normalizeImageMime(mimeType),
       exifTransposed: false,
       result,
     });
@@ -619,12 +515,91 @@ export interface CompressedContentParts {
 }
 
 /**
+ * Enforce the provider-accepted image format set (see ./image-format-policy)
+ * on a content-part list. Inline `data:` image parts whose MIME is outside
+ * the accepted set are dropped and replaced with a text notice, so one
+ * unsupported image cannot poison the session history. Accepted images are
+ * forwarded only as the byte-exact canonical data URL: an alias
+ * (`image/jpg`), case/whitespace variants, or MIME parameters
+ * (`image/jpeg;charset=utf-8`) all rebuild to the bare canonical form,
+ * because strict provider whitelists exact-match the full header. Remote
+ * (non-data) image URLs and non-image parts pass through — a URL carries no
+ * bytes to inspect.
+ *
+ * The BYTES are authoritative, not the declared MIME: the header of each
+ * inline image is sniffed, and a mismatch (e.g. AVIF bytes an MCP image
+ * search tool labels `image/png`) is gated on what the image IS — the
+ * provider decodes bytes, not labels. When the sniffer doesn't recognize
+ * the bytes (corrupt image, exotic container), the declared MIME stands
+ * and the 400-recovery path remains the backstop.
+ *
+ * This is the format gate shared by every ingestion point; run it BEFORE
+ * compression so unsupported bytes are never decoded.
+ */
+export function gateImageFormatParts(parts: readonly ContentPart[]): ContentPart[] {
+  const out: ContentPart[] = [];
+  for (const part of parts) {
+    if (part.type === 'image_url') {
+      const parsed = parseImageDataUrl(part.imageUrl.url);
+      if (parsed === null) {
+        // A `data:` URL that failed to parse (missing `;base64,` separator,
+        // empty MIME, …) is guaranteed to fail at the provider — Anthropic
+        // throws on it, OpenAI-compat servers 400. Drop it for a notice at
+        // ingestion instead of leaving it to poison the session and trigger
+        // the media-stripped resend on every later turn.
+        if (isDataUrl(part.imageUrl.url)) {
+          out.push({ type: 'text', text: buildMalformedImageNotice(part.imageUrl.url) });
+          continue;
+        }
+        // Remote image URL (no bytes to sniff): reject when its path
+        // extension names a format providers reject (e.g. a search-tool
+        // link ending in `.avif`) — the notice keeps the URL so the model
+        // can still fetch and convert the image. Extensionless / unknown
+        // URLs pass through to the provider — and to the 400 recovery.
+        const extMime = unsupportedImageMimeFromUrl(part.imageUrl.url);
+        if (extMime !== null) {
+          out.push({
+            type: 'text',
+            text: buildUnsupportedImageNotice(extMime, part.imageUrl.url),
+          });
+          continue;
+        }
+        out.push(part);
+        continue;
+      }
+      const effectiveMime = resolveEffectiveImageMime(
+        parsed.mimeType,
+        decodeBase64Prefix(parsed.base64),
+      );
+      if (!isModelAcceptedImageMime(effectiveMime)) {
+        out.push({ type: 'text', text: buildUnsupportedImageNotice(effectiveMime) });
+        continue;
+      }
+      const canonicalUrl = `data:${normalizeImageMime(effectiveMime)};base64,${parsed.base64}`;
+      if (part.imageUrl.url !== canonicalUrl) {
+        out.push({ type: 'image_url', imageUrl: { ...part.imageUrl, url: canonicalUrl } });
+        continue;
+      }
+    }
+    out.push(part);
+  }
+  return out;
+}
+
+/**
  * Compress any inline base64 image parts in a content-part list — used by
  * the MCP tool-result path (prompt ingestion compresses per image with
  * {@link compressBase64ForModel} while constructing the part). Image parts
  * whose URL is not a `data:` URL (e.g. a remote http(s) image) are passed
  * through, as are non-image parts. Best effort: a part that fails to
  * compress is left unchanged.
+ *
+ * The format gate ({@link gateImageFormatParts}) runs first: parts whose
+ * MIME is outside the provider-accepted set are never forwarded — the part
+ * is dropped and a text notice stands in, so one unsupported image cannot
+ * poison the session history. This is the MCP funnel's enforcement point —
+ * MCP servers can return any `image/*` MIME (e.g. AVIF from an image search
+ * tool).
  *
  * With `annotate` set, every image that was actually re-encoded gets a
  * caption in {@link CompressedContentParts.captions} so the model knows it
@@ -640,7 +615,7 @@ export async function compressImageContentParts(
   const { annotate, ...compressOptions } = options;
   const out: ContentPart[] = [];
   const captions: string[] = [];
-  for (const part of parts) {
+  for (const part of gateImageFormatParts(parts)) {
     if (part.type === 'image_url') {
       const parsed = parseImageDataUrl(part.imageUrl.url);
       if (parsed !== null) {
@@ -767,7 +742,7 @@ export async function cropImageForModel(
   const maxEdge = options.maxEdge ?? resolveMaxImageEdgePx();
   const byteBudget = options.byteBudget ?? IMAGE_BYTE_BUDGET;
   const maxDecodeBytes = options.maxDecodeBytes ?? MAX_DECODE_BYTES;
-  const normalizedMime = normalizeMime(mimeType);
+  const normalizedMime = normalizeImageMime(mimeType);
 
   const fail = (errorKind: CropErrorKind, error: string): CropImageFailure => {
     reportCropEvent(options.telemetry, { startedAt, ok: false, errorKind });
@@ -812,62 +787,6 @@ export async function cropImageForModel(
   }
   if (bytes.length > maxDecodeBytes) {
     return fail('too_large', 'The image is too large to decode for cropping.');
-  }
-
-  // Native path: the Rust `image` crate handles decode/crop/encode 10–100×
-  // faster than pure-JS jimp. All pre-decode guards (empty, unsupported,
-  // region finiteness, decode-bomb) stay in TS; the native function handles
-  // out_of_bounds, budget, and decode failures with structured error kinds.
-  // Falls back to jimp when the native module is unavailable or when the image
-  // has EXIF orientation (crop regions are in decoded/EXIF-rotated space).
-  const native = getNative();
-  if (native?.nativeCropImage && dims?.transposed !== true) {
-    try {
-      const outcome = await native.nativeCropImage(
-        bytes,
-        normalizedMime,
-        region.x,
-        region.y,
-        region.width,
-        region.height,
-        {
-          maxEdge,
-          byteBudget,
-          skipResize: options.skipResize === true,
-          fallbackEdges: [...FALLBACK_EDGES_PX],
-          jpegQualitySteps: [...JPEG_QUALITY_STEPS],
-        },
-      );
-      if (!outcome.ok) {
-        // Native only handles PNG/JPEG — fall through to the TS path for
-        // WebP (which uses the @jsquash/webp wasm decoder) instead of
-        // failing outright.
-        if (outcome.errorKind !== 'unsupported_format') {
-          return fail(outcome.errorKind as CropErrorKind, outcome.error);
-        }
-      } else {
-        return succeed({
-          ok: true,
-          data: outcome.data,
-          mimeType: outcome.mimeType,
-          width: outcome.width,
-          height: outcome.height,
-          originalWidth: outcome.originalWidth,
-          originalHeight: outcome.originalHeight,
-          region: {
-            x: outcome.regionX,
-            y: outcome.regionY,
-            width: outcome.regionWidth,
-            height: outcome.regionHeight,
-          },
-          resized: outcome.resized,
-          originalByteLength: outcome.originalByteLength,
-          finalByteLength: outcome.finalByteLength,
-        });
-      }
-    } catch {
-      // Native call failed unexpectedly — fall through to the jimp path.
-    }
   }
 
   try {
@@ -1056,12 +975,6 @@ export function formatByteSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function parseImageDataUrl(url: string): { mimeType: string; base64: string } | null {
-  const match = /^data:([^;,]+);base64,(.*)$/s.exec(url);
-  if (match === null) return null;
-  return { mimeType: match[1]!, base64: match[2]! };
-}
-
 // ── internals ────────────────────────────────────────────────────────
 
 /** The concrete jimp image instance type, derived from the lazily-loaded module. */
@@ -1205,11 +1118,6 @@ function fitWithinEdge(image: JimpImage, edge: number): boolean {
   return true;
 }
 
-function normalizeMime(mimeType: string): string {
-  const lower = mimeType.trim().toLowerCase();
-  return lower === 'image/jpg' ? 'image/jpeg' : lower;
-}
-
 // ── telemetry ────────────────────────────────────────────────────────
 
 /** Failure classification carried by the `image_crop` event. */
@@ -1254,7 +1162,7 @@ function reportCompressEvent(
       source: telemetry.source,
       outcome: input.outcome,
       input_mime: input.inputMime,
-      output_mime: normalizeMime(input.result.mimeType),
+      output_mime: normalizeImageMime(input.result.mimeType),
       original_bytes: input.result.originalByteLength,
       final_bytes: input.result.finalByteLength,
       original_width: input.result.originalWidth,

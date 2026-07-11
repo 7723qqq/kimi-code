@@ -1,16 +1,10 @@
 import {
   APIConnectionError,
   APITimeoutError,
-  APIStatusError,
-  APIProviderRateLimitError,
   ChatProviderError,
-  PROVIDER_OVERLOAD_MESSAGE_PATTERN,
-  PROVIDER_RATE_LIMIT_MESSAGE_PATTERN,
-  PROVIDER_REVERSE_PROXY_ERROR_PATTERN,
-  PROVIDER_REVERSE_PROXY_RATE_LIMIT_PATTERN,
-  PROVIDER_STREAM_INTERRUPTED_MESSAGE_PATTERN,
   classifyBaseApiError,
   normalizeAPIStatusError,
+  parseRetryAfterMs,
 } from '#/errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
 import { isToolDeclarationOnlyMessage } from '#/message';
@@ -102,6 +96,15 @@ export interface AnthropicOptions {
    * encode a parseable Claude version. Leave undefined to infer from the name.
    */
   adaptiveThinking?: boolean | undefined;
+  /**
+   * Use the Anthropic **beta** Messages API (`client.beta.messages.create`,
+   * `POST /v1/messages?beta=true`) instead of the standard Messages API.
+   *
+   * Beta features (`betaFeatures`) are then sent via the request `betas`
+   * field rather than the `anthropic-beta` header. Defaults to false, which
+   * keeps the standard endpoint + header behavior.
+   */
+  betaApi?: boolean | undefined;
   clientFactory?: (auth: ProviderRequestAuth) => Anthropic;
 }
 
@@ -472,16 +475,33 @@ interface AnthropicImageBlock {
   cache_control?: { type: 'ephemeral' };
 }
 
-// The Messages API has no representation for audio or video input. Instead of
+interface AnthropicVideoBlock {
+  type: 'video';
+  source:
+    | { type: 'base64'; media_type: string; data: string }
+    | { type: 'url'; url: string };
+}
+
+// The Messages API has no representation for audio input. Instead of
 // silently dropping such parts (the model would not even know an attachment
 // existed), emit a placeholder text block so it can acknowledge the gap.
 // Consecutive parts of the same kind collapse into a single placeholder.
 const OMITTED_MEDIA_PLACEHOLDER = {
   audio_url: '(audio omitted: not supported by this provider)',
-  video_url: '(video omitted: not supported by this provider)',
 } as const;
 
 const SUPPORTED_B64_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
+const SUPPORTED_B64_VIDEO_TYPES = new Set([
+  'video/mp4',
+  'video/mpeg',
+  'video/quicktime',
+  'video/webm',
+  'video/x-matroska',
+  'video/x-msvideo',
+  'video/x-flv',
+  'video/3gpp',
+]);
 
 function imageUrlPartToAnthropic(url: string): AnthropicImageBlock {
   if (url.startsWith('data:')) {
@@ -507,6 +527,32 @@ function imageUrlPartToAnthropic(url: string): AnthropicImageBlock {
     source: { type: 'url', url },
   };
 }
+
+function videoUrlPartToAnthropic(url: string): AnthropicVideoBlock {
+  if (url.startsWith('data:')) {
+    const withoutScheme = url.slice(5);
+    const parts = withoutScheme.split(';base64,', 2);
+    if (parts.length !== 2 || parts[0] === undefined || parts[1] === undefined) {
+      throw new ChatProviderError(`Invalid data URL for video: ${url}`);
+    }
+    const mediaType = parts[0];
+    const data = parts[1];
+    if (!SUPPORTED_B64_VIDEO_TYPES.has(mediaType)) {
+      throw new ChatProviderError(
+        `Unsupported media type for base64 video: ${mediaType}, url: ${url}`,
+      );
+    }
+    return {
+      type: 'video',
+      source: { type: 'base64', media_type: mediaType, data },
+    };
+  }
+
+  return {
+    type: 'video',
+    source: { type: 'url', url },
+  };
+}
 interface AnthropicToolParam extends AnthropicTool {
   cache_control?: { type: 'ephemeral' } | null;
 }
@@ -519,7 +565,7 @@ function convertTool(tool: Tool): AnthropicToolParam {
   };
 }
 function toolResultToBlock(toolCallId: string, content: ContentPart[]): ToolResultBlockParam {
-  const blocks: Array<TextBlockParam | AnthropicImageBlock> = [];
+  const blocks: Array<TextBlockParam | AnthropicImageBlock | AnthropicVideoBlock> = [];
   for (const part of content) {
     if (part.type === 'text') {
       if (part.text) {
@@ -527,7 +573,9 @@ function toolResultToBlock(toolCallId: string, content: ContentPart[]): ToolResu
       }
     } else if (part.type === 'image_url') {
       blocks.push(imageUrlPartToAnthropic(part.imageUrl.url));
-    } else if (part.type === 'audio_url' || part.type === 'video_url') {
+    } else if (part.type === 'video_url') {
+      blocks.push(videoUrlPartToAnthropic(part.videoUrl.url));
+    } else if (part.type === 'audio_url') {
       const placeholder = OMITTED_MEDIA_PLACEHOLDER[part.type];
       const last = blocks.at(-1);
       if (!(last?.type === 'text' && last.text === placeholder)) {
@@ -596,7 +644,9 @@ function convertMessage(message: Message, model: string): MessageParam {
       } else if (part.think !== '' && shouldPreserveUnsignedThinking(model)) {
         blocks.push({ type: 'thinking', thinking: part.think } as unknown as ThinkingBlockParam);
       }
-    } else if (part.type === 'audio_url' || part.type === 'video_url') {
+    } else if (part.type === 'video_url') {
+      blocks.push(videoUrlPartToAnthropic(part.videoUrl.url) as unknown as ContentBlockParam);
+    } else if (part.type === 'audio_url') {
       const placeholder = OMITTED_MEDIA_PLACEHOLDER[part.type];
       const last = blocks.at(-1);
       if (!(last?.type === 'text' && last.text === placeholder)) {
@@ -633,49 +683,6 @@ function convertMessage(message: Message, model: string): MessageParam {
 
   return { role: role, content: blocks };
 }
-
-/**
- * Classify a status-less Anthropic SDK error into a retryable error type
- * based on message patterns. This catches provider-level errors (e.g.
- * reverse-proxy overloads like Xunfei's "Engine Busy") that the SDK
- * surfaces as a generic {@link AnthropicError} without an HTTP status code.
- */
-function classifyAnthropicSdkError(message: string): ChatProviderError {
-  const lower = message.toLowerCase();
-
-  // Extract HTTP status code from reverse-proxy error messages like
-  // "429 {...}" or "500 {...}" that arrive as plain Error (not APIError).
-  const statusMatch = message.match(/^\s*(\d{3})\s/);
-  const statusCode = statusMatch !== null ? Number.parseInt(statusMatch[1]!, 10) : undefined;
-
-  // Rate-limit patterns (including Xunfei reverse-proxy rate-limit codes)
-  // — map to 429 so the full rate-limit handling pipeline kicks in.
-  if (PROVIDER_REVERSE_PROXY_RATE_LIMIT_PATTERN.test(lower)) {
-    return new APIProviderRateLimitError(`Anthropic error: ${message}`, null);
-  }
-  if (PROVIDER_RATE_LIMIT_MESSAGE_PATTERN.test(lower)) {
-    return new APIProviderRateLimitError(`Anthropic error: ${message}`, null);
-  }
-  if (statusCode === 429) {
-    return new APIProviderRateLimitError(`Anthropic error: ${message}`, null);
-  }
-  // Provider-side overload / transient failures — map to 503 so the
-  // retry loop picks them up automatically.
-  if (PROVIDER_REVERSE_PROXY_ERROR_PATTERN.test(lower)) {
-    return new APIStatusError(503, `Anthropic error: ${message}`, null);
-  }
-  if (PROVIDER_OVERLOAD_MESSAGE_PATTERN.test(lower)) {
-    return new APIStatusError(503, `Anthropic error: ${message}`, null);
-  }
-  if (PROVIDER_STREAM_INTERRUPTED_MESSAGE_PATTERN.test(lower)) {
-    return new APIStatusError(503, `Anthropic error: ${message}`, null);
-  }
-  if (statusCode !== undefined && [429, 500, 502, 503, 504].includes(statusCode)) {
-    return new APIStatusError(statusCode, `Anthropic error: ${message}`, null);
-  }
-  return new ChatProviderError(`Anthropic error: ${message}`);
-}
-
 export function convertAnthropicError(error: unknown): ChatProviderError {
   // Check timeout before connection (APIConnectionTimeoutError extends APIConnectionError)
   if (error instanceof AnthropicTimeoutError) {
@@ -687,12 +694,15 @@ export function convertAnthropicError(error: unknown): ChatProviderError {
   // APIError with a status code => status error
   if (error instanceof AnthropicAPIError && typeof error.status === 'number') {
     const reqId = error.requestID ?? null;
-    return normalizeAPIStatusError(error.status, error.message, reqId);
+    return normalizeAPIStatusError(
+      error.status,
+      error.message,
+      reqId,
+      parseRetryAfterMs(error.headers),
+    );
   }
   if (error instanceof AnthropicError) {
-    // Heuristic: classify status-less SDK errors into retryable categories
-    // so the downstream retry loop doesn't treat them as fatal.
-    return classifyAnthropicSdkError(error.message);
+    return new ChatProviderError(`Anthropic error: ${error.message}`);
   }
   // Raw, non-SDK errors (e.g. undici's `TypeError: terminated` raised when a
   // streaming response body is dropped mid-flight) are never wrapped by the
@@ -700,7 +710,7 @@ export function convertAnthropicError(error: unknown): ChatProviderError {
   // transport-layer heuristic so genuine connection failures become retryable
   // instead of fatal generic errors.
   if (error instanceof Error) {
-    return classifyAnthropicSdkError(error.message);
+    return classifyBaseApiError(error.message);
   }
   return new ChatProviderError(`Error: ${String(error)}`);
 }
@@ -986,6 +996,7 @@ export class AnthropicChatProvider implements ChatProvider {
   private _defaultHeaders: Record<string, string | null> | undefined;
   private _clientFactory: ((auth: ProviderRequestAuth) => Anthropic) | undefined;
   private _adaptiveThinking: boolean | undefined;
+  private _betaApi: boolean;
   private _explicitMaxTokens: boolean;
 
   constructor(options: AnthropicOptions) {
@@ -993,6 +1004,7 @@ export class AnthropicChatProvider implements ChatProvider {
     this._stream = options.stream ?? true;
     this._metadata = options.metadata;
     this._adaptiveThinking = options.adaptiveThinking;
+    this._betaApi = options.betaApi ?? false;
     this._apiKey =
       options.apiKey === undefined || options.apiKey.length === 0 ? undefined : options.apiKey;
     this._baseUrl = options.baseUrl;
@@ -1135,10 +1147,13 @@ export class AnthropicChatProvider implements ChatProvider {
       kwargs['context_management'] = this._generationKwargs.contextManagement;
     }
 
-    // Build beta headers
+    // Build the beta feature list. On the standard Messages API these travel
+    // via the `anthropic-beta` header; on the beta Messages API (`betaApi`) the
+    // SDK reads them from the request `betas` field and sets the header itself,
+    // so we must not also set the header (that would duplicate it).
     const betas = this._generationKwargs.betaFeatures ?? [];
     const extraHeaders: Record<string, string> = {};
-    if (betas.length > 0) {
+    if (!this._betaApi && betas.length > 0) {
       extraHeaders['anthropic-beta'] = betas.join(',');
     }
 
@@ -1170,6 +1185,10 @@ export class AnthropicChatProvider implements ChatProvider {
       createParams['metadata'] = this._metadata;
     }
 
+    if (this._betaApi && betas.length > 0) {
+      createParams['betas'] = betas;
+    }
+
     const requestOptions: Record<string, unknown> = {};
     const headers = mergeRequestHeaders(extraHeaders, options?.auth?.headers);
     if (headers !== undefined) {
@@ -1187,10 +1206,15 @@ export class AnthropicChatProvider implements ChatProvider {
       // The helper reparses accumulated input_json_delta buffers on every chunk,
       // which becomes synchronous O(n^2) work for large streamed tool arguments.
       try {
-        const stream = await client.messages.create(
-          { ...createParams, stream: true } as unknown as MessageCreateParamsStreaming,
-          finalRequestOptions,
-        );
+        const stream = this._betaApi
+          ? await client.beta.messages.create(
+              { ...createParams, stream: true } as unknown as MessageCreateParamsStreaming,
+              finalRequestOptions,
+            )
+          : await client.messages.create(
+              { ...createParams, stream: true } as unknown as MessageCreateParamsStreaming,
+              finalRequestOptions,
+            );
         return new AnthropicStreamedMessage(stream, true);
       } catch (error: unknown) {
         throw convertAnthropicError(error);
@@ -1199,10 +1223,15 @@ export class AnthropicChatProvider implements ChatProvider {
 
     // Non-streaming fallback
     try {
-      const response = await client.messages.create(
-        { ...createParams, stream: false } as unknown as MessageCreateParams,
-        finalRequestOptions,
-      );
+      const response = this._betaApi
+        ? await client.beta.messages.create(
+            { ...createParams, stream: false } as unknown as MessageCreateParams,
+            finalRequestOptions,
+          )
+        : await client.messages.create(
+            { ...createParams, stream: false } as unknown as MessageCreateParams,
+            finalRequestOptions,
+          );
       return new AnthropicStreamedMessage(response, false);
     } catch (error: unknown) {
       throw convertAnthropicError(error);
@@ -1269,7 +1298,11 @@ export class AnthropicChatProvider implements ChatProvider {
       authToken: null,
       baseURL: this._baseUrl ?? null,
       defaultHeaders: this._buildDefaultHeaders(apiKey),
-      maxRetries: 0,
+      // SDK handles HTTP retry (429/5xx) internally with its own backoff.
+      // The agent-level chatWithRetry is disabled for Anthropic to avoid
+      // dual backoff; bump SDK maxRetries from the default 2 to provide
+      // equivalent resilience.
+      maxRetries: 5,
     });
   }
 

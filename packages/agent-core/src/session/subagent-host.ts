@@ -13,6 +13,8 @@ import { ErrorCodes, type KimiErrorPayload } from '../errors';
 import { DenyAllPermissionPolicy } from '../agent/permission/policies/deny-all';
 import { InMemoryAgentRecordPersistence } from '../agent/records';
 import { isAbortError } from '../loop/errors';
+import { log } from '../logging/logger';
+import type { Logger } from '../logging/types';
 import {
   DEFAULT_AGENT_PROFILES,
   prepareSystemPromptContext,
@@ -108,6 +110,7 @@ export class SessionSubagentHost {
       runInBackground: boolean;
     }
   >();
+  readonly log: Logger = log;
 
   constructor(
     private readonly session: Session,
@@ -417,7 +420,15 @@ export class SessionSubagentHost {
       .then(() => {
         options.onReady?.();
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        // onReady is best-effort — log the failure but don't propagate.
+        if (error !== undefined) {
+          // Ignore AbortError (parent cancelled the turn); log others.
+          if (!(error instanceof Error && error.name === 'AbortError')) {
+            this.log?.debug('subagent onReady callback failed', { error });
+          }
+        }
+      });
   }
 
   private emitSubagentSpawned(

@@ -69,13 +69,19 @@ export async function discoverLogFiles(baseLogPath: string): Promise<string[]> {
  * Read and parse the given log files in order, concatenated into one structured
  * stream with continuous line numbers. Returns null when none could be read.
  * The MAX_LINES tail cap applies across the combined set.
+ *
+ * Memory is bounded: after each file the buffer is trimmed to the last
+ * `maxLines` lines, so a multi-hundred-MB log across many rotated files
+ * never holds more than `maxLines + <one file's lines>` in memory at once.
  */
 export async function readLogs(
   paths: readonly string[],
   maxLines = MAX_LINES,
 ): Promise<LogReadResult | null> {
-  const allLines: string[] = [];
+  const buffer: string[] = [];
+  let totalLines = 0;
   let read = 0;
+
   for (const path of paths) {
     let raw: string;
     try {
@@ -87,15 +93,23 @@ export async function readLogs(
     const lines = raw.split(/\r?\n/);
     // Drop a single trailing empty line from each file's final newline.
     if (lines.length > 0 && lines.at(-1) === '') lines.pop();
-    for (const line of lines) allLines.push(line);
+    for (const line of lines) {
+      buffer.push(line);
+      totalLines++;
+    }
+    // Trim after each file to bound memory — keep only the tail `maxLines`.
+    if (buffer.length > maxLines) {
+      buffer.splice(0, buffer.length - maxLines);
+    }
   }
   if (read === 0) return null;
 
-  const truncated = allLines.length > maxLines;
-  const startLineNo = truncated ? allLines.length - maxLines : 0;
-  const slice = truncated ? allLines.slice(startLineNo) : allLines;
+  const truncated = totalLines > buffer.length;
+  const startLineNo = truncated ? totalLines - buffer.length : 0;
 
-  const lines: LogLine[] = slice.map((text, i) => parseLogLine(text, startLineNo + i + 1));
+  const lines: LogLine[] = buffer.map((text, i) =>
+    parseLogLine(text, startLineNo + i + 1),
+  );
   return { lines, truncated };
 }
 

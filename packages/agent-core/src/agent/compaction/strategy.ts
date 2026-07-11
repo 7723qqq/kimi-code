@@ -1,3 +1,6 @@
+import type { Message } from '@moonshot-ai/kosong';
+
+import { estimateTokensForMessage } from '../../utils/tokens';
 import type { CompactionSource } from './types';
 
 interface CompactionMessageMeta {
@@ -66,6 +69,14 @@ export interface CompactionConfig {
    * compaction can no longer shrink the request below the model window.
    */
   maxOverflowCompactionAttempts: number;
+  /** Maximum number of recent messages to keep when auto-compacting. */
+  maxRecentMessages: number;
+  /** Maximum number of recent user messages to keep when auto-compacting. */
+  maxRecentUserMessages: number;
+  /** Maximum ratio of recent messages size to the context window. */
+  maxRecentSizeRatio: number;
+  /** Minimum reduction ratio when compacting on overflow. */
+  minOverflowReductionRatio: number;
 }
 
 /**
@@ -79,6 +90,10 @@ export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
   reservedContextSize: 50_000,
   maxCompactionPerTurn: Infinity,
   maxOverflowCompactionAttempts: 3,
+  maxRecentMessages: Infinity,
+  maxRecentUserMessages: Infinity,
+  maxRecentSizeRatio: 0.2,
+  minOverflowReductionRatio: 0.05,
 };
 
 export interface CompactionStrategy {
@@ -87,6 +102,32 @@ export interface CompactionStrategy {
   readonly checkAfterStep: boolean;
   readonly maxCompactionPerTurn: number;
   readonly maxOverflowCompactionAttempts: number;
+}
+
+/**
+ * Whether it is safe to split the message stream after the given index.
+ * Mirrors the Rust `can_split_after` in `compaction.rs`.
+ */
+function canSplitAfter(messages: readonly Message[], index: number): boolean {
+  if (index < 0 || index >= messages.length) return false;
+  const m = messages[index]!;
+  if (m.role === 'user') return false;
+  if (m.role === 'assistant' && m.toolCalls.length > 0) return false;
+  const next = messages[index + 1];
+  if (next !== undefined && next.role === 'tool') return false;
+  // Check for open tool exchange in the prefix
+  if (m.role === 'tool') {
+    let toolResultCount = 0;
+    for (let i = index; i >= 0; i--) {
+      const msg = messages[i]!;
+      if (msg.role === 'tool') {
+        toolResultCount++;
+        continue;
+      }
+      return msg.role === 'assistant' && msg.toolCalls.length > toolResultCount;
+    }
+  }
+  return true;
 }
 
 export class DefaultCompactionStrategy implements CompactionStrategy {

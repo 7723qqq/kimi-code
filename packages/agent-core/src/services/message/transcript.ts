@@ -46,6 +46,7 @@
  * missing tail (see `MessageService`).
  */
 
+import { createReadStream } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -329,23 +330,27 @@ function rawToolResultContent(output: ExecutableToolResult['output']): ContentPa
  * throws so the caller can fall back to the live context view.
  */
 export async function readWireRecords(wirePath: string): Promise<AgentRecord[]> {
-  const raw = await readFile(wirePath, 'utf8');
-  const lines = raw.split('\n');
   const records: AgentRecord[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    let line = lines[i]!;
-    if (line.endsWith('\r')) line = line.slice(0, -1);
-    if (line.length === 0) continue;
-    try {
-      records.push(JSON.parse(line) as AgentRecord);
-    } catch (parseError) {
-      if (i === lines.length - 1) break;
-      throw new Error(
-        `wire.jsonl: corrupted line ${i + 1} in ${wirePath}: ${String(parseError)}`,
-        { cause: parseError },
-      );
+  let line = '';
+  let lineNumber = 0;
+  const stream = createReadStream(wirePath, { encoding: 'utf8' });
+  try {
+    for await (const chunk of stream) {
+      line += chunk;
+      let newlineIndex = line.indexOf('\n');
+      while (newlineIndex !== -1) {
+        const rawLine = line.slice(0, newlineIndex);
+        line = line.slice(newlineIndex + 1);
+        lineNumber++;
+        const trimmed = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+        if (trimmed.length === 0) continue;
+        records.push(JSON.parse(trimmed) as AgentRecord);
+      }
     }
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error;
   }
+  // Trailing content without a newline is dropped (crash mid-flush).
   return records;
 }
 
@@ -374,6 +379,8 @@ async function rehydrateBlobRefs(
   blobsDir: string,
 ): Promise<void> {
   const cache = new Map<string, string | undefined>();
+  // Collect all blob refs first, then resolve them in parallel.
+  const blobRefs: Array<{ entry: TranscriptEntry; part: unknown; media: { url?: unknown } }> = [];
   for (const entry of entries) {
     for (const part of entry.message.content) {
       for (const value of Object.values(part as unknown as Record<string, unknown>)) {
@@ -382,10 +389,34 @@ async function rehydrateBlobRefs(
         if (typeof media.url !== 'string' || !media.url.startsWith(BLOBREF_PROTOCOL)) {
           continue;
         }
-        media.url = (await resolveBlobRef(media.url, blobsDir, cache)) ?? MISSING_MEDIA_PLACEHOLDER;
+        blobRefs.push({ entry, part, media });
       }
     }
   }
+  await Promise.all(
+    blobRefs.map(async ({ media }) => {
+      media.url = (await resolveBlobRef(media.url as string, blobsDir, cache)) ?? MISSING_MEDIA_PLACEHOLDER;
+    }),
+  );
+}
+
+/** MIME-type prefixes that are safe to embed in a `data:` URI. Anything
+ *  outside this set is downgraded to `application/octet-stream` so a
+ *  hand-edited or corrupted blobref URL (e.g. `blobref:text/html;…`)
+ *  cannot produce an executable HTML data URI when the transcript is
+ *  consumed by a web UI. */
+const SAFE_DATA_MIME_PREFIXES = ['image/', 'audio/', 'video/'];
+const SAFE_DATA_MIME_EXACT = new Set([
+  'application/octet-stream',
+  'application/pdf',
+  'application/json',
+]);
+
+function sanitizeDataMime(raw: string): string {
+  const lower = raw.toLowerCase().trim();
+  if (SAFE_DATA_MIME_EXACT.has(lower)) return lower;
+  if (SAFE_DATA_MIME_PREFIXES.some((p) => lower.startsWith(p))) return lower;
+  return 'application/octet-stream';
 }
 
 async function resolveBlobRef(
@@ -398,11 +429,12 @@ async function resolveBlobRef(
   const rest = url.slice(BLOBREF_PROTOCOL.length);
   const semiIdx = rest.indexOf(';');
   if (semiIdx !== -1) {
-    const mimeType = rest.slice(0, semiIdx);
+    const mimeType = sanitizeDataMime(rest.slice(0, semiIdx));
     const hash = rest.slice(semiIdx + 1);
     // Hashes are hex digests written by BlobStore; reject anything that could
     // escape the blobs directory.
     if (/^[0-9a-f]{16,}$/i.test(hash)) {
+      // ENOENT is expected — the blob may have been garbage-collected.
       const payload = await readFile(path.join(blobsDir, hash)).catch(() => undefined);
       if (payload !== undefined) {
         resolved = `data:${mimeType};base64,${payload.toString('base64')}`;

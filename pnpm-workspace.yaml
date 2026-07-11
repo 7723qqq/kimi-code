@@ -17,3 +17,8 @@ overrides:
 # prebuilds, matching the prior default.
 onlyBuiltDependencies:
   - electron
+  - esbuild
+  - node-pty
+  - protobufjs
+  - simple-git-hooks
+  - ssh2

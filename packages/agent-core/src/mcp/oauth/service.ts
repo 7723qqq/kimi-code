@@ -140,7 +140,10 @@ export class McpOAuthService {
         throw new Error('OAuth provider did not capture an authorization URL');
       }
     } catch (error) {
-      await callbackServer.close().catch(() => undefined);
+      await callbackServer.close().catch((closeError: unknown) => {
+        // Server may already be closed or not yet fully bound.
+        void closeError;
+      });
       provider.resetFlow();
       if (error instanceof AlreadyAuthorizedError) throw error;
       throw wrapAuthError(`failed to start OAuth flow for "${serverName}"`, error);
@@ -150,7 +153,9 @@ export class McpOAuthService {
     const cancel = async (): Promise<void> => {
       if (settled) return;
       settled = true;
-      await callbackServer.close().catch(() => undefined);
+      await callbackServer.close().catch((closeError: unknown) => {
+        void closeError;
+      });
       provider.resetFlow();
     };
 
@@ -159,9 +164,13 @@ export class McpOAuthService {
         throw new Error('OAuth flow already completed or cancelled');
       }
       try {
+        // Default timeout: 5 minutes. Without this, a user who opens the
+        // auth flow but never completes it leaves the callback server
+        // listening indefinitely.
+        const timeoutMs = opts.timeoutMs ?? 5 * 60 * 1000;
         const { code, state } = await callbackServer.waitForCode({
           signal: opts.signal,
-          timeoutMs: opts.timeoutMs,
+          timeoutMs,
         });
         const expectedState = provider.expectedState();
         if (expectedState !== undefined && state !== expectedState) {

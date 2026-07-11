@@ -184,8 +184,21 @@ export class PermissionManager {
           : this.permissionPolicyResolutionToPrepare(resolved, context, policyName);
       }
     } else {
-      response = {
-        decision: 'approved',
+      // No RPC available — cannot ask the user for approval. Reject
+      // tool execution to prevent silent auto‑approval. This branch
+      // should only be reached when the agent is misconfigured (e.g.
+      // a subagent whose RPC proxy was not wired). Track the event
+      // so operators can detect the misconfiguration.
+      this.agent.telemetry.track('permission_approval_no_rpc', {
+        policy_name: policyName ?? null,
+        tool_name: name,
+        permission_mode: this.mode,
+      });
+      return {
+        block: true,
+        reason:
+          `Cannot approve "${name}" — the agent has no user‑approval channel. ` +
+          `This is an agent configuration error.`,
       };
     }
 

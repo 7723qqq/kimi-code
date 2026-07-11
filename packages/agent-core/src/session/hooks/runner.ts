@@ -16,17 +16,73 @@ export function buildHookSpawnOptions(options: {
   env?: Readonly<Record<string, string>>;
 }): SpawnOptionsWithoutStdio {
   return {
-    shell: true,
+    shell: false,
     cwd: options.cwd,
     stdio: 'pipe',
     detached: process.platform !== 'win32',
-    // Hide the console Windows would otherwise allocate for the shell child.
-    // Without `windowsHide:true`, each hook flashes a visible console window —
-    // the same regression the Bash tool path already guards against in KAOS
-    // (see `buildLocalSpawnOptions`). Unconditional: it is a no-op on POSIX.
     windowsHide: true,
     env: options.env ? { ...process.env, ...options.env } : undefined,
   };
+}
+
+/**
+ * Parse a hook command string into binary + args, respecting
+ * single- and double-quoted tokens (handles paths with spaces).
+ * Falls back to explicit shell invocation only when the command
+ * contains dangerous shell metacharacters (command chaining,
+ * substitution) that cannot be represented as argv.
+ */
+function parseHookCommand(command: string): { binary: string; args: string[] } {
+  const trimmed = command.trim();
+  const parts = splitShellArgs(trimmed);
+  if (parts.length > 0 && !hasDangerousMetachars(trimmed)) {
+    return { binary: parts[0]!, args: parts.slice(1) };
+  }
+  // Fall back to explicit shell invocation.
+  if (process.platform === 'win32') {
+    return { binary: 'cmd.exe', args: ['/d', '/s', '/c', trimmed] };
+  }
+  return { binary: '/bin/sh', args: ['-c', trimmed] };
+}
+
+/** Shell metacharacters that indicate command chaining or substitution. */
+const DANGEROUS_METACHARS = /[;&|`$(){}<>]/;
+
+function hasDangerousMetachars(command: string): boolean {
+  return DANGEROUS_METACHARS.test(command);
+}
+
+/** Split a command string into argv respecting single/double quotes. */
+function splitShellArgs(command: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]!;
+    if (inSingle) {
+      if (ch === "'") { inSingle = false; }
+      else { current += ch; }
+    } else if (inDouble) {
+      if (ch === '"') { inDouble = false; }
+      else if (ch === '\\' && i + 1 < command.length && command[i + 1] === '"') {
+        i++;
+        current += '"';
+      } else {
+        current += ch;
+      }
+    } else if (ch === "'") {
+      inSingle = true;
+    } else if (ch === '"') {
+      inDouble = true;
+    } else if (ch === ' ' || ch === '\t') {
+      if (current.length > 0) { result.push(current); current = ''; }
+    } else {
+      current += ch;
+    }
+  }
+  if (current.length > 0) result.push(current);
+  return result;
 }
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
@@ -64,7 +120,8 @@ export async function runHook(
 ): Promise<HookResult> {
   let child: ChildProcessWithoutNullStreams;
   try {
-    child = spawn(command, buildHookSpawnOptions({ cwd: options.cwd, env: options.env }));
+    const parsed = parseHookCommand(command);
+    child = spawn(parsed.binary, parsed.args, buildHookSpawnOptions({ cwd: options.cwd, env: options.env }));
   } catch (error) {
     return allowResult({ stderr: errorMessage(error) });
   }
@@ -236,7 +293,9 @@ function tryKillProcess(child: ChildProcessWithoutNullStreams, signal: NodeJS.Si
   } catch {
     try {
       child.kill(signal);
-    } catch {}
+    } catch {
+      // Final fallback — process is already defunct, nothing more to do.
+    }
   }
 }
 
@@ -251,7 +310,9 @@ function killProcessTreeWindows(child: ChildProcessWithoutNullStreams, force: bo
   } catch {
     try {
       child.kill('SIGTERM');
-    } catch {}
+    } catch {
+      // Process already exited — nothing left to clean up.
+    }
   }
 }
 

@@ -15,6 +15,7 @@ use crate::tool_access::{self, ToolAccessMeta};
 use crate::write::{self, WriteMode, WriteResult};
 use napi::bindgen_prelude::Uint8Array;
 use napi_derive::napi;
+use std::collections::HashMap;
 
 // ============================================================================
 // Read tool
@@ -761,4 +762,228 @@ pub fn native_write_tool_output_chunk(
         new_nchars: result.new_nchars as u32,
         truncated: result.truncated,
     }
+}
+
+// ============================================================================
+// MCP — Config loading
+// ============================================================================
+
+use crate::mcp;
+
+/// A single MCP server configuration entry returned by `nativeMcpLoadConfig`.
+#[napi(object)]
+pub struct NativeMcpServerConfig {
+    /// Transport type: "stdio", "http", or "sse".
+    pub transport: String,
+    /// Command to execute (stdio only).
+    pub command: Option<String>,
+    /// Command arguments (stdio only).
+    pub args: Option<Vec<String>>,
+    /// Environment variables (stdio only).
+    pub env: Option<HashMap<String, String>>,
+    /// Working directory (stdio only).
+    pub cwd: Option<String>,
+    /// Server URL (http/sse only).
+    pub url: Option<String>,
+    /// HTTP headers (http/sse only).
+    pub headers: Option<HashMap<String, String>>,
+    /// Environment variable name containing the bearer token (http/sse only).
+    pub bearer_token_env_var: Option<String>,
+    /// Whether the server is enabled. Defaults to true.
+    pub enabled: Option<bool>,
+    /// Startup timeout in milliseconds.
+    pub startup_timeout_ms: Option<u32>,
+    /// Tool call timeout in milliseconds.
+    pub tool_timeout_ms: Option<u32>,
+    /// Allowlist of tool names.
+    pub enabled_tools: Option<Vec<String>>,
+    /// Blocklist of tool names.
+    pub disabled_tools: Option<Vec<String>>,
+}
+
+/// A named server entry in the config result.
+#[napi(object)]
+pub struct NativeMcpServerEntry {
+    /// Server name (key in mcpServers object).
+    pub name: String,
+    /// Server configuration.
+    pub config: NativeMcpServerConfig,
+}
+
+/// Result of `nativeMcpLoadConfig`.
+#[napi(object)]
+pub struct NativeMcpConfigLoadResult {
+    /// Merged server entries from all config files.
+    pub servers: Vec<NativeMcpServerEntry>,
+    /// Path to the user-global mcp.json.
+    pub user_path: String,
+    /// Path to the project-root .mcp.json.
+    pub project_root_path: String,
+    /// Path to the project-local .kimi-code/mcp.json.
+    pub project_path: String,
+    /// Error message if loading failed partially.
+    pub error: Option<String>,
+}
+
+/// Load and merge MCP server configs from the three-tier file hierarchy.
+///
+/// Reads from:
+///   1. `~/.kimi-code/mcp.json` (user-global)
+///   2. `<project-root>/.mcp.json` (project-root)
+///   3. `<cwd>/.kimi-code/mcp.json` (project-local)
+///
+/// Later files override earlier entries with the same key.
+///
+/// @param cwd - Current working directory (used to find project root).
+/// @param homeDir - Optional home directory override. Falls back to USERPROFILE (Windows) or HOME (Unix).
+/// @returns Merged config with resolved paths.
+#[napi]
+pub async fn native_mcp_load_config(
+    cwd: String,
+    home_dir: Option<String>,
+) -> Result<NativeMcpConfigLoadResult, napi::Error> {
+    let input = mcp::McpConfigLoadInput { cwd, home_dir };
+    let result = mcp::load_mcp_config(&input).await;
+
+    let servers = result
+        .servers
+        .into_iter()
+        .map(|(name, config)| NativeMcpServerEntry {
+            name,
+            config: NativeMcpServerConfig {
+                transport: config.transport,
+                command: config.command,
+                args: config.args,
+                env: config.env,
+                cwd: config.cwd,
+                url: config.url,
+                headers: config.headers,
+                bearer_token_env_var: config.bearer_token_env_var,
+                enabled: config.enabled,
+                startup_timeout_ms: config.startup_timeout_ms,
+                tool_timeout_ms: config.tool_timeout_ms,
+                enabled_tools: config.enabled_tools,
+                disabled_tools: config.disabled_tools,
+            },
+        })
+        .collect();
+
+    Ok(NativeMcpConfigLoadResult {
+        servers,
+        user_path: result.user_path,
+        project_root_path: result.project_root_path,
+        project_path: result.project_path,
+        error: result.error,
+    })
+}
+
+// ============================================================================
+// MCP — Stdio client
+// ============================================================================
+
+/// Configuration for `nativeMcpStdioSpawn`.
+#[napi(object)]
+pub struct NativeMcpStdioSpawnConfig {
+    pub command: String,
+    pub args: Option<Vec<String>>,
+    pub env: Option<HashMap<String, String>>,
+    pub cwd: Option<String>,
+}
+
+/// Result of `nativeMcpStdioSpawn`.
+#[napi(object)]
+pub struct NativeMcpStdioSpawnResult {
+    pub handle: u64,
+    pub pid: u32,
+}
+
+/// A tool definition returned by `tools/list`.
+#[napi(object)]
+pub struct NativeMcpToolDef {
+    pub name: String,
+    pub description: String,
+    pub input_schema: String,
+}
+
+#[napi]
+pub async fn native_mcp_stdio_spawn(
+    config: NativeMcpStdioSpawnConfig,
+) -> Result<NativeMcpStdioSpawnResult, napi::Error> {
+    let spawn_config = mcp::StdioSpawnConfig {
+        command: config.command,
+        args: config.args.unwrap_or_default(),
+        env: config.env.unwrap_or_default(),
+        cwd: config.cwd,
+    };
+    let result = mcp::stdio_spawn(&spawn_config)
+        .await
+        .map_err(|e| napi::Error::from_reason(e))?;
+    Ok(NativeMcpStdioSpawnResult {
+        handle: result.handle,
+        pid: result.pid,
+    })
+}
+
+#[napi]
+pub async fn native_mcp_stdio_initialize(
+    handle: u64,
+    client_name: String,
+    client_version: String,
+    timeout_ms: Option<u32>,
+) -> Result<String, napi::Error> {
+    let result = mcp::stdio_initialize(handle, &client_name, &client_version, timeout_ms)
+        .await
+        .map_err(|e| napi::Error::from_reason(e))?;
+    serde_json::to_string(&result)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize result: {}", e)))
+}
+
+#[napi]
+pub async fn native_mcp_stdio_list_tools(
+    handle: u64,
+) -> Result<Vec<NativeMcpToolDef>, napi::Error> {
+    let tools = mcp::stdio_list_tools(handle)
+        .await
+        .map_err(|e| napi::Error::from_reason(e))?;
+    Ok(tools
+        .into_iter()
+        .map(|tool| NativeMcpToolDef {
+            name: tool.name,
+            description: tool.description,
+            input_schema: serde_json::to_string(&tool.input_schema).unwrap_or_default(),
+        })
+        .collect())
+}
+
+#[napi]
+pub async fn native_mcp_stdio_call_tool(
+    handle: u64,
+    name: String,
+    args_json: String,
+    timeout_ms: Option<u32>,
+) -> Result<String, napi::Error> {
+    let args: serde_json::Value = serde_json::from_str(&args_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid args JSON: {}", e)))?;
+    let result = mcp::stdio_call_tool(handle, &name, &args, timeout_ms)
+        .await
+        .map_err(|e| napi::Error::from_reason(e))?;
+    serde_json::to_string(&result)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize result: {}", e)))
+}
+
+#[napi]
+pub async fn native_mcp_stdio_close(handle: u64) -> Result<(), napi::Error> {
+    mcp::stdio_close(handle)
+        .await
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
+pub async fn native_mcp_stdio_stderr_snapshot(handle: u64) -> String {
+    mcp::stdio_stderr_snapshot(handle).await
+}
+
+#[napi]
+pub async fn native_mcp_stdio_is_alive(handle: u64) -> bool {
+    mcp::stdio_is_alive(handle).await
 }

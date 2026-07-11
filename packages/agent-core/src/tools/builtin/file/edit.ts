@@ -14,7 +14,7 @@ import { z } from 'zod';
 import type { BuiltinTool } from '../../../agent/tool';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
-import { resolvePathAccessPath } from '../../policies/path-access';
+import { resolvePathAccessPath, resolveSymlinkEscape } from '../../policies/path-access';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '../../support/rule-match';
 import type { WorkspaceConfig } from '../../support/workspace';
@@ -102,6 +102,10 @@ export class EditTool implements BuiltinTool<EditInput> {
     }
 
     try {
+      // Detect symlink escapes before editing — a symlink inside the workspace
+      // could point to a target outside of it, bypassing the lexical guard.
+      await resolveSymlinkEscape(safePath, this.workspace, this.kaos.pathClass());
+
       const raw = await this.kaos.readText(safePath);
       const modelView = toModelTextView(raw);
       const content = modelView.text;

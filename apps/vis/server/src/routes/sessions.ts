@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { rm } from 'node:fs/promises';
 import { KIMI_CODE_HOME } from '../config';
 import { revealInOs } from '../lib/reveal';
-import { listSessions, readSessionDetail } from '../lib/session-store';
+import { isSafeSessionId, listSessions, readSessionDetail } from '../lib/session-store';
 
 export function sessionsRoute(home: string = KIMI_CODE_HOME): Hono {
   const r = new Hono();
@@ -12,6 +12,9 @@ export function sessionsRoute(home: string = KIMI_CODE_HOME): Hono {
   });
   r.delete('/:id', async (c) => {
     const id = c.req.param('id');
+    if (!isSafeSessionId(id)) {
+      return c.json({ error: 'invalid session id', code: 'BAD_REQUEST' }, 400);
+    }
     const all = await listSessions(home);
     const target = all.find((s) => s.sessionId === id);
     if (!target) return c.json({ error: 'session not found', code: 'NOT_FOUND' }, 404);
@@ -22,6 +25,9 @@ export function sessionsRoute(home: string = KIMI_CODE_HOME): Hono {
   // opened on the SERVER host — only meaningful when vis runs locally.
   r.post('/:id/reveal', async (c) => {
     const id = c.req.param('id');
+    if (!isSafeSessionId(id)) {
+      return c.json({ error: 'invalid session id', code: 'BAD_REQUEST' }, 400);
+    }
     const detail = await readSessionDetail(home, id);
     if (!detail) return c.json({ error: 'session not found', code: 'NOT_FOUND' }, 404);
     try {

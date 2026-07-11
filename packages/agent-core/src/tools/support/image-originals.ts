@@ -119,6 +119,7 @@ async function sweepCache(dir: string, maxTotalBytes: number): Promise<void> {
   entries.sort((a, b) => a.mtimeMs - b.mtimeMs);
   for (const entry of entries) {
     if (total <= maxTotalBytes) break;
+    // Best-effort cleanup — temp files may already be removed or locked.
     await unlink(entry.path).catch(() => undefined);
     total -= entry.size;
   }

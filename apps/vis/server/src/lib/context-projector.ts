@@ -3,6 +3,7 @@ import {
   COMPACTION_ELISION_VARIANT,
   buildCompactionElisionText,
   collectCompactableUserMessages,
+  estimateTokens as agentCoreEstimateTokens,
   isRealUserInput,
   renderToolResultForModel,
   selectCompactionUserMessages,
@@ -571,24 +572,14 @@ function addUsage(into: TokenUsage, src: TokenUsage): void {
 const MICRO_TRUNCATED_MARKER = '[Old tool result content cleared]';
 const MICRO_MIN_CONTENT_TOKENS = 100;
 
-/** Replicates agent-core's per-char token weighting exactly, over the same
- *  `text` + `think` parts its gate counts. agent-core
- *  (`packages/agent-core/src/utils/tokens.ts`) sums per-part estimates, each
- *  `estimateTokens(s) = Math.ceil(asciiCount / 4) + nonAsciiCount` (ASCII ~4
- *  chars/token, every non-ASCII/CJK code point a full token); other part types
- *  contribute 0. Matching it ensures Chinese-heavy tool results blank at the
- *  same gate as the agent. */
+/** Delegates to agent-core's `estimateTokens` to avoid logic duplication.
+ *  agent-core (`packages/agent-core/src/utils/tokens.ts`) sums per-part
+ *  estimates, each `estimateTokens(s) = Math.ceil(asciiCount / 4) +
+ *  nonAsciiCount` (ASCII ~4 chars/token, every non-ASCII/CJK code point a
+ *  full token); other part types contribute 0. Matching it ensures
+ *  Chinese-heavy tool results blank at the same gate as the agent. */
 function estimateTokens(text: string): number {
-  let asciiCount = 0;
-  let nonAsciiCount = 0;
-  for (const char of text) {
-    if (char.codePointAt(0)! <= 127) {
-      asciiCount++;
-    } else {
-      nonAsciiCount++;
-    }
-  }
-  return Math.ceil(asciiCount / 4) + nonAsciiCount;
+  return agentCoreEstimateTokens(text);
 }
 
 function estimateContentTokens(content: readonly ContentPart[]): number {

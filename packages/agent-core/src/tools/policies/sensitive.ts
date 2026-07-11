@@ -30,11 +30,29 @@ const SENSITIVE_BASENAMES = new Set<string>([
   'id_ed25519',
   'id_ecdsa',
   'credentials',
+  // Package manager credentials
+  '.npmrc',
+  '.pypirc',
+  '.netrc',
+  // Auth / password files
+  'htpasswd',
+  '.pgpass',
+  '.git-credentials',
+  // Key / certificate files
+  '.ppk',
+  '.p12',
+  '.pfx',
+  // Kubernetes
+  'kubeconfig',
 ]);
 
 const SENSITIVE_PATH_SUFFIXES = [
   ['.aws', 'credentials'],
   ['.gcp', 'credentials'],
+  ['.docker', 'config.json'],
+  ['.kube', 'config'],
+  ['.config', 'kube', 'config'],
+  ['.ssh', 'config'],
 ];
 
 const ENV_PREFIX = '.env.';
@@ -54,6 +72,45 @@ export const SENSITIVE_DOT_VARIANT_SUFFIXES = [
   '.save',
   '.tmp',
 ] as const;
+
+/**
+ * Additional sensitive basename patterns that use a dot-extension style.
+ * These are common private-key / certificate formats that don't share a
+ * prefix with the `id_*` family.
+ */
+const SENSITIVE_KEYFILE_EXTENSIONS = new Set<string>([
+  '.ppk',
+  '.p12',
+  '.pfx',
+  '.keystore',
+  '.jks',
+]);
+
+/**
+ * Content-sniff markers — if a file's first non-whitespace bytes match
+ * any of these patterns, it is almost certainly a private key regardless
+ * of the filename. This is used as a secondary check by callers that
+ * read file content.
+ */
+export const PRIVATE_KEY_MARKERS = [
+  '-----BEGIN RSA PRIVATE KEY-----',
+  '-----BEGIN EC PRIVATE KEY-----',
+  '-----BEGIN OPENSSH PRIVATE KEY-----',
+  '-----BEGIN DSA PRIVATE KEY-----',
+  '-----BEGIN PRIVATE KEY-----',
+  '-----BEGIN ENCRYPTED PRIVATE KEY-----',
+  '-----BEGIN PGP PRIVATE KEY BLOCK-----',
+] as const;
+
+/**
+ * Quick check: does the start of a file's content look like a private key?
+ * Callers that already have file content (e.g. Read tool) can use this as
+ * a defense-in-depth check even when the filename doesn't match.
+ */
+export function looksLikePrivateKeyContent(content: string): boolean {
+  const trimmed = content.slice(0, 200).trimStart();
+  return PRIVATE_KEY_MARKERS.some((marker) => trimmed.startsWith(marker));
+}
 const SENSITIVE_DOT_VARIANT_SUFFIX_SET = new Set<string>(SENSITIVE_DOT_VARIANT_SUFFIXES);
 
 function comparable(path: string): string {
@@ -94,6 +151,11 @@ export function isSensitiveFile(path: string): boolean {
     ) {
       return true;
     }
+  }
+
+  // Check keyfile-style extensions (e.g. `server.p12`, `mycert.pfx`)
+  for (const ext of SENSITIVE_KEYFILE_EXTENSIONS) {
+    if (comparableName.endsWith(ext)) return true;
   }
 
   return false;

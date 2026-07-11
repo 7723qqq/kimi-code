@@ -12,7 +12,10 @@ class AsyncSerialQueue {
 
   run<T>(task: () => Promise<T>): Promise<T> {
     const next = this.tail.then(task, task);
-    this.tail = next.catch(() => {});
+    // Swallow rejection on the tail to prevent unhandled rejection in the
+    // serial chain — the actual error surfaces through the returned `next`
+    // promise which the caller awaits.
+    this.tail = next.catch(() => { /* intentional — serial queue tail guard */ });
     return next;
   }
 }
@@ -38,6 +41,11 @@ export class RotatingFileSink implements Sink {
   private lastStderrNotice = 0;
   private currentBytes = -1;
   private directorySynced = false;
+  /** Lines taken from `pending` by `drain()` but not yet confirmed written.
+   *  `flushSync()` uses this to avoid losing the last batch when the process
+   *  exits while an async drain is in flight (the event loop stops, so the
+   *  drain's pending `await`s never resume). */
+  private inFlight: string[] | undefined;
 
   constructor(private readonly options: RotatingFileSinkOptions) {}
 
@@ -66,12 +74,23 @@ export class RotatingFileSink implements Sink {
   }
 
   flushSync(): void {
-    if (this.closed || this.pending.length === 0) return;
+    if (this.closed) return;
+    const hasPending = this.pending.length > 0;
+    const hasInFlight = this.inFlight !== undefined && this.inFlight.length > 0;
+    if (!hasPending && !hasInFlight) return;
     try {
       mkdirSync(dirname(this.options.path), { recursive: true });
-      const body = this.pending.join('') + this.takeDroppedNotice();
+      const parts: string[] = [];
+      // In-flight lines may have been partially written by the async drain —
+      // duplicate lines are preferable to data loss on exit.
+      if (hasInFlight) parts.push(this.inFlight!.join(''));
+      if (hasPending) {
+        parts.push(this.pending.join(''));
+        parts.push(this.takeDroppedNotice());
+      }
       this.pending = [];
-      appendFileSync(this.options.path, body);
+      this.inFlight = undefined;
+      appendFileSync(this.options.path, parts.join(''));
     } catch (error) {
       this.noteFailure(error);
     }
@@ -90,6 +109,7 @@ export class RotatingFileSink implements Sink {
     const droppedLine = this.takeDroppedNotice();
     const lines = droppedLine === '' ? [...this.pending] : [...this.pending, droppedLine];
     this.pending = [];
+    this.inFlight = lines;
     try {
       await mkdir(dirname(this.options.path), { recursive: true });
       if (this.currentBytes < 0) {
@@ -102,9 +122,11 @@ export class RotatingFileSink implements Sink {
         this.directorySynced = true;
       }
 
+      this.inFlight = undefined;
       return true;
     } catch (error) {
       this.noteFailure(error);
+      this.inFlight = undefined;
       this.restorePending(lines);
       return false;
     }
@@ -216,6 +238,8 @@ export class RotatingFileSink implements Sink {
     const code = (error as NodeJS.ErrnoException)?.code ?? 'UNKNOWN';
     try {
       process.stderr.write(`[logger] write failed: ${code}\n`);
-    } catch {}
+    } catch {
+      // stderr itself is unavailable — nothing left to fall back on.
+    }
   }
 }
