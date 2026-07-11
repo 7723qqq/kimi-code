@@ -497,13 +497,15 @@ export interface AgentProjector {
    */
   bindNextPromptId(sessionId: string, promptId: string): void;
   /**
-   * Seed mid-turn state from a session snapshot's `in_flight_turn` (v2 sync):
+   * Seed mid-step state from a session snapshot's `in_flight_turn` (v2 sync):
    * resets per-session state, builds the partially-streamed assistant message
-   * (thinking + text + running tool_use parts), and returns the messageCreated
-   * AppEvent to apply to the reducer. Live deltas continue appending; their
-   * wire `offset` aligns against the seeded text so the overlap window around
-   * snapshot/subscribe is exact. Session status is NOT seeded here — the REST
-   * snapshot's `session.status` is the authoritative value.
+   * (thinking + text + running tool_use parts of the CURRENT step only — the
+   * snapshot transcript already carries every completed step), and returns
+   * the messageCreated AppEvent to apply to the reducer. Live deltas continue
+   * appending; their wire `offset` aligns against the seeded text so the
+   * overlap window around snapshot/subscribe is exact. Session status is NOT
+   * seeded here — the REST snapshot's `session.status` is the authoritative
+   * value.
    */
   seedInFlight(sessionId: string, turn: AppInFlightTurn): AppEvent[];
   /** Reset all per-session state (call on re-subscribe / resync). */
@@ -723,6 +725,13 @@ export function createAgentProjector(): AgentProjector {
           s.currentPromptId = promptId;
           if (turnId !== undefined) s.turnPromptId.set(turnId, promptId);
         }
+
+        // Delta offsets are step-relative: the daemon's InFlightTurnTracker
+        // resets its accumulation at each step boundary (the snapshot
+        // transcript already carries prior steps), so the local counters must
+        // reset in step with it or every delta of the new step mis-aligns.
+        s.turnTextLen = 0;
+        s.turnThinkLen = 0;
 
         // Create a new pending assistant message
         const msg = startAssistantMessage(s, sessionId, promptId);

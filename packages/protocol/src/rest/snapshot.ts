@@ -11,9 +11,10 @@
  * No gap and no duplication by construction: the watermark ties the REST
  * snapshot to the WS event stream.
  *
- * `in_flight_turn` carries the accumulated state of a currently-running turn
- * (volatile deltas are not replayable; this is how a reconnecting client
- * recovers mid-turn assistant/thinking text and running tool calls).
+ * `in_flight_turn` carries the accumulated state of the currently-streaming
+ * STEP (volatile deltas are not replayable; this is how a reconnecting client
+ * recovers mid-step assistant/thinking text and running tool calls). The
+ * transcript in `messages` already covers every completed step.
  *
  * The server reads the watermark, assembles the snapshot, then re-reads the
  * watermark and retries assembly if a durable event landed in between
@@ -48,9 +49,11 @@ export type InFlightToolCall = z.infer<typeof inFlightToolCallSchema>;
 
 export const inFlightTurnSchema = z.object({
   turn_id: z.number().int().nonnegative(),
-  /** Assistant text accumulated from `assistant.delta` so far. */
+  /** Assistant text accumulated from `assistant.delta` in the CURRENT step
+   *  (reset at each `turn.step.started`; prior steps live in `messages`). */
   assistant_text: z.string(),
-  /** Thinking text accumulated from `thinking.delta` so far. */
+  /** Thinking text accumulated from `thinking.delta` in the CURRENT step
+   *  (reset at each `turn.step.started`; prior steps live in `messages`). */
   thinking_text: z.string(),
   /** Tool calls started but without a `tool.result` yet. */
   running_tools: z.array(inFlightToolCallSchema),
