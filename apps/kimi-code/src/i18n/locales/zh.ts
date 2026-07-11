@@ -61,6 +61,12 @@ export default {
       addDir: '为本会话添加额外的工作区目录。可重复指定。',
       yes: '自动确认提示。',
       autoApprove: '自动批准所有操作。',
+      exportOutput: '输出 ZIP 路径。',
+      exportYes: '跳过上一个会话的确认。',
+      acpLogin: '运行设备码登录流程后退出（ACP 终端认证的入口点）。',
+      visPort: '绑定的端口。默认自动选择一个空闲端口。',
+      visHost: '绑定的主机。默认：127.0.0.1。',
+      visNoOpen: '不自动打开浏览器。',
     },
     errors: {
       unknownCommand: "未知命令 '{{command}}'。参见 '{{cliName}} --help'。",

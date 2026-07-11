@@ -79,22 +79,29 @@ describe('chatWithRetry: terminated stream drops', () => {
 
   it('retries through the fifth attempt by default', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
-    let calls = 0;
-    const llm: LLM = {
-      systemPrompt: '',
-      modelName: 'mock',
-      isRetryableError: (e) => isRetryableGenerateError(e),
-      async chat(_params: LLMChatParams): Promise<LLMChatResponse> {
-        calls += 1;
-        if (calls < 5) throw new APIConnectionError('socket hang up');
-        return okResponse();
-      },
-    };
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const llm: LLM = {
+        systemPrompt: '',
+        modelName: 'mock',
+        isRetryableError: (e) => isRetryableGenerateError(e),
+        async chat(_params: LLMChatParams): Promise<LLMChatResponse> {
+          calls += 1;
+          if (calls < 5) throw new APIConnectionError('socket hang up');
+          return okResponse();
+        },
+      };
 
-    const response = await chatWithRetry(makeInput(llm, new AbortController().signal));
+      const running = chatWithRetry(makeInput(llm, new AbortController().signal));
+      await vi.advanceTimersByTimeAsync(500 + 1_000 + 2_000 + 4_000);
 
-    expect(calls).toBe(5);
-    expect(response).toEqual(okResponse());
+      await expect(running).resolves.toEqual(okResponse());
+      expect(calls).toBe(5);
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
   });
 
   it('does NOT retry when the signal is aborted (user ESC), surfacing a clean AbortError', async () => {

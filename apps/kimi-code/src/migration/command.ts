@@ -9,10 +9,12 @@
 
 import type { Command } from 'commander';
 
+import { t } from '#/i18n';
+
 export function registerMigrateCommand(parent: Command, onMigrate: () => void): void {
   parent
     .command('migrate')
-    .description('Migrate data from a legacy kimi-cli installation into kimi-code.')
+    .description(t('cli.commandDescriptions.migrate'))
     .action(() => {
       onMigrate();
     });

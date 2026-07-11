@@ -28,11 +28,10 @@ import {
 } from '../utils/abort';
 import { collectGitContext } from './git-context';
 import {
-  SUBAGENT_FAILED_RESUME_MAX_RETRIES,
-  SUBAGENT_FAILED_RESUME_RETRY_MS,
   SUBAGENT_RATE_LIMIT_MAX_RETRIES,
+  SUBAGENT_RATE_LIMIT_SUSPENDED_REASON,
   SUBAGENT_TRANSIENT_MAX_RETRIES,
-  applyRetryJitter,
+  SUBAGENT_TRANSIENT_SUSPENDED_REASON,
   readRetryAfterMs,
   subagentRateLimitBackoffDelay,
   subagentTransientBackoffDelay,
@@ -348,16 +347,15 @@ export class SessionSubagentHost {
     if (options.suppressAutomaticRetry === true) return firstCompletion;
 
     let retryCount = 0;
-    let resumeCount = 0;
     let completion = firstCompletion;
     for (;;) {
       try {
         return await completion;
       } catch (error) {
-        options.signal.throwIfAborted();
-        const retry = nextSubagentRetry(error, retryCount, resumeCount);
+        if (options.signal.aborted) throw error;
+        const retry = nextSubagentRetry(error, retryCount);
         if (retry === null) {
-          this.emitSubagentFailed(parent, agentId, options, error);
+          this.emitSubagentFailed(parent, agentId, finalFailureEventOptions(options), error);
           throw error;
         }
 
@@ -367,11 +365,7 @@ export class SessionSubagentHost {
           reason: retry.reason,
         });
         await sleepForRetry(retry.delayMs, options.signal);
-        if (retry.kind === 'failed_resume') {
-          resumeCount += 1;
-        } else {
-          retryCount += 1;
-        }
+        retryCount += 1;
         const handle = await this.retry(agentId, retryRunOptions(options));
         completion = handle.completion;
       }
@@ -554,6 +548,75 @@ export class SessionSubagentHost {
   }
 }
 
+type AutomaticSubagentRetry = {
+  readonly kind: 'rate_limit' | 'transient';
+  readonly reason: string;
+  readonly delayMs: number;
+};
+
+function retryableRunOptions(options: RunSubagentOptions): RunSubagentOptions {
+  if (options.suppressAutomaticRetry === true) return options;
+  return { ...options, suppressRetryableFailureEvent: true };
+}
+
+function retryRunOptions(options: RunSubagentOptions): RunSubagentOptions {
+  return {
+    ...options,
+    suppressAutomaticRetry: true,
+    suppressRetryableFailureEvent: true,
+  };
+}
+
+function finalFailureEventOptions(options: RunSubagentOptions): RunSubagentOptions {
+  return {
+    ...options,
+    suppressRetryableFailureEvent: false,
+  };
+}
+
+function nextSubagentRetry(
+  error: unknown,
+  retryCount: number,
+): AutomaticSubagentRetry | null {
+  if (isProviderRateLimitError(error)) {
+    if (retryCount >= SUBAGENT_RATE_LIMIT_MAX_RETRIES) return null;
+    return {
+      kind: 'rate_limit',
+      reason: SUBAGENT_RATE_LIMIT_SUSPENDED_REASON,
+      delayMs: readRetryAfterMs(error) ?? subagentRateLimitBackoffDelay(retryCount + 1),
+    };
+  }
+
+  if (isRetryableGenerateError(error)) {
+    if (retryCount >= SUBAGENT_TRANSIENT_MAX_RETRIES) return null;
+    return {
+      kind: 'transient',
+      reason: SUBAGENT_TRANSIENT_SUSPENDED_REASON,
+      delayMs: subagentTransientBackoffDelay(retryCount + 1),
+    };
+  }
+
+  return null;
+}
+
+function queuedRetryTask(
+  options: RunSubagentOptions,
+  profileName: string,
+): QueuedSubagentTask<undefined> {
+  return {
+    kind: 'spawn',
+    data: undefined,
+    profileName,
+    parentToolCallId: options.parentToolCallId,
+    parentToolCallUuid: options.parentToolCallUuid,
+    prompt: options.prompt,
+    description: options.description,
+    swarmIndex: options.swarmIndex,
+    runInBackground: options.runInBackground,
+    signal: options.signal,
+  };
+}
+
 async function runChildTurnToCompletion(child: Agent, signal: AbortSignal): Promise<void> {
   const completion = await child.turn.waitForCurrentTurn(signal);
   const turnEnded = completion.event;
@@ -612,7 +675,7 @@ function shouldSuppressQueuedAttemptFailureEvent(
   options: RunSubagentOptions,
   error: unknown,
 ): boolean {
-  if (options.suppressRateLimitFailureEvent !== true) return false;
-  if (isProviderRateLimitError(error)) return true;
+  if (options.suppressRetryableFailureEvent === true) return true;
+  if (options.suppressRateLimitFailureEvent === true && isProviderRateLimitError(error)) return true;
   return isAbortError(error) || options.signal.aborted;
 }

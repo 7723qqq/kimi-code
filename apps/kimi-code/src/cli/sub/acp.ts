@@ -42,7 +42,7 @@ export function registerAcpCommand(parent: Command): void {
     .description(t('cli.commandDescriptions.acp'))
     .option(
       '--login',
-      'Run the device-code login flow then exit (entry point for ACP terminal-auth).',
+      t('cli.optionDescriptions.acpLogin'),
       false,
     )
     .action(async (opts: { login?: boolean }) => {

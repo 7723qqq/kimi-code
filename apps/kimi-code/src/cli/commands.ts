@@ -101,7 +101,7 @@ export function createProgram(
   program.argument('[args...]').action((args: string[]) => {
     if (args.length > 0) {
       program.error(
-        t('cli.errors.unknownCommand', { command: args[0], cliName: CLI_COMMAND_NAME }),
+        t('cli.errors.unknownCommand', { command: args[0] ?? '', cliName: CLI_COMMAND_NAME }),
       );
     }
 

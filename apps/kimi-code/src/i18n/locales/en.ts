@@ -61,6 +61,12 @@ export default {
       addDir: 'Add an additional workspace directory for this session. Can be repeated.',
       yes: 'Automatically confirm prompts.',
       autoApprove: 'Automatically approve all actions.',
+      exportOutput: 'Output ZIP path.',
+      exportYes: 'Skip previous-session confirmation.',
+      acpLogin: 'Run the device-code login flow then exit (entry point for ACP terminal-auth).',
+      visPort: 'Port to bind. Default: auto-pick a free port.',
+      visHost: 'Host to bind. Default: 127.0.0.1.',
+      visNoOpen: 'Do not open the browser automatically.',
     },
     errors: {
       unknownCommand: "unknown command '{{command}}'. See '{{cliName}} --help'.",

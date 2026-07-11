@@ -105,9 +105,9 @@ export function registerVisCommand(parent: Command, overrides?: Partial<VisDeps>
   parent
     .command('vis')
     .description(t('cli.commandDescriptions.vis'))
-    .option('--port <number>', 'Port to bind. Default: auto-pick a free port.')
-    .option('--host <host>', 'Host to bind. Default: 127.0.0.1.')
-    .option('--no-open', 'Do not open the browser automatically.')
+    .option('--port <number>', t('cli.optionDescriptions.visPort'))
+    .option('--host <host>', t('cli.optionDescriptions.visHost'))
+    .option('--no-open', t('cli.optionDescriptions.visNoOpen'))
     .argument('[sessionId]', 'Open directly to this session.')
     .action(
       async (
