@@ -1,5 +1,21 @@
 # @moonshot-ai/kimi-code
 
+## 0.24.0
+
+### Minor Changes
+
+- [#1555](https://github.com/MoonshotAI/kimi-code/pull/1555) [`2f97917`](https://github.com/MoonshotAI/kimi-code/commit/2f97917bb5edc8bdb9837724e57a88f5c0e1f2bd) Thanks [@sailist](https://github.com/sailist)! - Keep `kimi -p` runs alive after a turn ends while a goal is still active or a cron task is pending, so goal continuations and cron fires run their turns instead of being cut off when the main turn finishes.
+
+### Patch Changes
+
+- [#1550](https://github.com/MoonshotAI/kimi-code/pull/1550) [`f17a6ec`](https://github.com/MoonshotAI/kimi-code/commit/f17a6ecb52907ffabf67a26de65df89572ac515a) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Treat a dismissed question prompt as the user choosing not to answer, instead of implicitly selecting the recommended option.
+
+- [#1488](https://github.com/MoonshotAI/kimi-code/pull/1488) [`7bd29ab`](https://github.com/MoonshotAI/kimi-code/commit/7bd29ab0117a1c15691404f411fd67f511bbb897) Thanks [@starquakee](https://github.com/starquakee)! - Rename the dynamic tool loading model capability from `select_tools` to `dynamically_loaded_tools`.
+
+- [#1552](https://github.com/MoonshotAI/kimi-code/pull/1552) [`37bb4b8`](https://github.com/MoonshotAI/kimi-code/commit/37bb4b870edf6a5458dda755a5b4a432c32df2a7) Thanks [@wbxl2000](https://github.com/wbxl2000)! - web: Fix ReadMediaFile results rendering as plain tool cards instead of images after resuming or reloading a session.
+
+- [#1547](https://github.com/MoonshotAI/kimi-code/pull/1547) [`19c5aa6`](https://github.com/MoonshotAI/kimi-code/commit/19c5aa64ebef86925ad58074ebcac6a5a7a8ff8d) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Update the WebBridge install page link opened from the /plugins panel.
+
 ## 0.23.5
 
 ### Patch Changes
