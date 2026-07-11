@@ -1046,6 +1046,7 @@ describe('SessionSubagentHost', () => {
       description: 'Fix rate-limit retry',
       runInBackground: false,
       signal,
+      suppressAutomaticRetry: true,
     });
     await expect(handle.completion).rejects.toThrow('Rate limited');
 
@@ -1107,17 +1108,18 @@ describe('SessionSubagentHost', () => {
       });
       void running.catch(() => {});
 
-      await vi.advanceTimersByTimeAsync(0);
-      expect(parent.allEvents).toContainEqual(
-        expect.objectContaining({
-          type: '[rpc]',
-          event: 'subagent.suspended',
-          args: expect.objectContaining({
-            subagentId: 'agent-0',
-            reason: 'Transient provider error; subagent requeued for retry.',
+      await vi.waitFor(() => {
+        expect(parent.allEvents).toContainEqual(
+          expect.objectContaining({
+            type: '[rpc]',
+            event: 'subagent.suspended',
+            args: expect.objectContaining({
+              subagentId: 'agent-0',
+              reason: 'Transient provider error; subagent requeued for retry.',
+            }),
           }),
-        }),
-      );
+        );
+      });
 
       await vi.advanceTimersByTimeAsync(5_000);
       await expect(running).resolves.toMatchObject({

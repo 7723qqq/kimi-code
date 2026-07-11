@@ -8,14 +8,14 @@ const messages = { en, zh };
 let currentLocale: Locale = 'en';
 
 function detectLocale(): Locale {
-  const envLang = process.env.KIMI_LANG;
+  const envLang = process.env['KIMI_LANG'];
   if (envLang === 'zh' || envLang?.startsWith('zh')) {
     return 'zh';
   }
   if (envLang === 'en' || envLang?.startsWith('en')) {
     return 'en';
   }
-  const systemLang = process.env.LANG || process.env.LC_ALL || process.env.LC_MESSAGES;
+  const systemLang = process.env['LANG'] || process.env['LC_ALL'] || process.env['LC_MESSAGES'];
   if (systemLang?.toLowerCase().startsWith('zh')) {
     return 'zh';
   }

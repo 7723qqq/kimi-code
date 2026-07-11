@@ -109,8 +109,8 @@ export function registerExportCommand(parent: Command, deps?: Partial<ExportDeps
   parent
     .command('export')
     .description(t('cli.commandDescriptions.exportCmd'))
-    .option('-o, --output <path>', 'Output ZIP path.')
-    .option('-y, --yes', 'Skip previous-session confirmation.')
+    .option('-o, --output <path>', t('cli.optionDescriptions.exportOutput'))
+    .option('-y, --yes', t('cli.optionDescriptions.exportYes'))
     .option(
       '--no-include-global-log',
       'Skip bundling the active global diagnostic log (~/.kimi-code/logs/kimi-code.log, not rotated .1 files). By default the global log is included.',

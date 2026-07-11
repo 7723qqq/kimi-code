@@ -48,9 +48,6 @@ const INITIAL_LAUNCH_LIMIT = 5;
 const INITIAL_LAUNCH_INTERVAL_MS = 700;
 const RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS = 2000;
 const RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS = 3 * 60 * 1000;
-const RATE_LIMIT_SUSPENDED_REASON = 'Provider rate limit; subagent requeued for retry.';
-const TRANSIENT_SUSPENDED_REASON = 'Transient provider error; subagent requeued for retry.';
-const FAILED_RESUME_SUSPENDED_REASON = 'Subagent failed; requeued for automatic recovery.';
 
 const AGENT_SWARM_MAX_CONCURRENCY_ENV = 'KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY';
 
@@ -347,6 +344,7 @@ export class SubagentBatch<T> {
       onReady: () => {
         this.markAttemptReady(attempt);
       },
+      suppressAutomaticRetry: true,
       suppressRateLimitFailureEvent: true,
     };
 
@@ -486,7 +484,7 @@ export class SubagentBatch<T> {
     this.launcher.suspended?.({
       task: state.task,
       agentId,
-      reason: RATE_LIMIT_SUSPENDED_REASON,
+      reason: SUBAGENT_RATE_LIMIT_SUSPENDED_REASON,
     });
 
     const now = Date.now();
@@ -521,7 +519,7 @@ export class SubagentBatch<T> {
     this.launcher.suspended?.({
       task: state.task,
       agentId,
-      reason: TRANSIENT_SUSPENDED_REASON,
+      reason: SUBAGENT_TRANSIENT_SUSPENDED_REASON,
     });
 
     const now = Date.now();
@@ -538,7 +536,7 @@ export class SubagentBatch<T> {
     this.launcher.suspended?.({
       task: state.task,
       agentId,
-      reason: FAILED_RESUME_SUSPENDED_REASON,
+      reason: SUBAGENT_FAILED_RESUME_SUSPENDED_REASON,
     });
 
     const now = Date.now();
