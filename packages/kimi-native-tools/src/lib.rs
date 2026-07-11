@@ -3,6 +3,7 @@
 mod bash;
 mod compaction;
 mod edit;
+mod escape;
 mod file_type;
 mod glob;
 mod grep;
@@ -15,6 +16,7 @@ mod output_truncate;
 mod read;
 mod tool_access;
 mod tokens;
+mod tool_naming;
 mod write;
 
 pub use napi_bindings::*;

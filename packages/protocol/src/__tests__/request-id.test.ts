@@ -15,6 +15,12 @@ describe('request-id — ulidRegex', () => {
     expect(ulidRegex.test('01HX')).toBe(false);
     expect(ulidRegex.test('01ARZ3NDEKTSV4RRFFQ69G5FALI')).toBe(false);
   });
+
+  it('matches lowercase ULIDs (isUlid accepts them)', () => {
+    const id = ulid().toLowerCase();
+    expect(isUlid(id)).toBe(true);
+    expect(ulidRegex.test(id)).toBe(true);
+  });
 });
 
 describe('request-id — parseOrGenerateRequestId', () => {

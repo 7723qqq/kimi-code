@@ -26,7 +26,6 @@ export class SessionClientsService extends Disposable implements ISessionClients
       {
         sessionId,
         subscriberCount: set.size,
-        allSessions: Array.from(this._bySession.keys()),
       },
       '[DBG session-clients.subscribe] added',
     );
@@ -46,7 +45,6 @@ export class SessionClientsService extends Disposable implements ISessionClients
       {
         sessionId,
         found: set ? set.size : 0,
-        allSessions: Array.from(this._bySession.keys()),
       },
       '[DBG session-clients.getConnections] lookup',
     );

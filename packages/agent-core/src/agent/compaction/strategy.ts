@@ -1,7 +1,11 @@
 import type { Message } from '@moonshot-ai/kosong';
 
+import { createRequire } from 'node:module';
+
 import { estimateTokensForMessage } from '../../utils/tokens';
 import type { CompactionSource } from './types';
+
+const require = createRequire(import.meta.url);
 
 interface CompactionMessageMeta {
   role: string;

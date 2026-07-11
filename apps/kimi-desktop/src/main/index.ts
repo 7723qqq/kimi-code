@@ -94,10 +94,14 @@ function loadingHtml(): string {
 
 function errorHtml(message: string): string {
   const safe = message.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  const logPath = serverLogPath()
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
   return `<!doctype html><meta charset="utf-8">${SCREEN_STYLE}
     <h1>无法启动本地服务</h1>
     <p>${safe}</p>
-    <p>查看日志：<code>${serverLogPath()}</code></p>
+    <p>查看日志：<code>${logPath}</code></p>
     <p>菜单 → Kimi Code Desktop → 重试连接，或先检查日志。</p>`;
 }
 

@@ -1,4 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 import { SessionNotFoundError } from '@moonshot-ai/agent-core';
@@ -52,7 +53,17 @@ export async function restoreArchivedSession(homeDir: string, sessionId: string)
     archived: false,
     updatedAt: new Date().toISOString(),
   };
-  await writeFile(statePath, `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
+  const payload = `${JSON.stringify(next, null, 2)}\n`;
+  // Atomic write: write to a temp file then rename, so a crash mid-write
+  // cannot leave a truncated state.json.
+  const tmp = `${statePath}.tmp.${randomBytes(8).toString('hex')}`;
+  try {
+    await writeFile(tmp, payload, 'utf-8');
+    await rename(tmp, statePath);
+  } catch (err) {
+    await unlink(tmp).catch(() => {});
+    throw err;
+  }
 }
 
 async function findSessionDir(homeDir: string, sessionId: string): Promise<string | undefined> {

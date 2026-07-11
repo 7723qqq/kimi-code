@@ -29,6 +29,7 @@ import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { restoreArchivedSession } from '../lib/sessionArchive';
+import { buildValidationEnvelope, zodIssuesToDetails } from '../middleware/validate';
 import { defineRoute } from '../middleware/defineRoute';
 import { parseActionSuffix } from './action-suffix';
 
@@ -535,20 +536,28 @@ export function registerSessionsRoutes(
         }
 
         if (parsed.action === 'fork') {
-          const body = forkSessionRequestSchema.parse(req.body);
+          const result = forkSessionRequestSchema.safeParse(req.body);
+          if (!result.success) {
+            reply.send(buildValidationEnvelope(zodIssuesToDetails(result.error), req.id));
+            return;
+          }
           const session = await ix.invokeFunction((a) =>
-            a.get(ISessionService).fork(parsed.id, body),
+            a.get(ISessionService).fork(parsed.id, result.data),
           );
           reply.send(okEnvelope(session, req.id));
           return;
         }
 
         if (parsed.action === 'compact') {
-          const body = compactSessionRequestSchema.parse(req.body);
-          const result = await ix.invokeFunction((a) =>
-            a.get(ISessionService).compact(parsed.id, body),
+          const result = compactSessionRequestSchema.safeParse(req.body);
+          if (!result.success) {
+            reply.send(buildValidationEnvelope(zodIssuesToDetails(result.error), req.id));
+            return;
+          }
+          const compactResult = await ix.invokeFunction((a) =>
+            a.get(ISessionService).compact(parsed.id, result.data),
           );
-          reply.send(okEnvelope(result, req.id));
+          reply.send(okEnvelope(compactResult, req.id));
           return;
         }
 
@@ -586,9 +595,13 @@ export function registerSessionsRoutes(
           return;
         }
 
-        const body = undoSessionRequestSchema.parse(req.body);
+        const undoResult = undoSessionRequestSchema.safeParse(req.body);
+        if (!undoResult.success) {
+          reply.send(buildValidationEnvelope(zodIssuesToDetails(undoResult.error), req.id));
+          return;
+        }
         const result = await ix.invokeFunction((a) =>
-          a.get(ISessionService).undo(parsed.id, body),
+          a.get(ISessionService).undo(parsed.id, undoResult.data),
         );
         reply.send(okEnvelope(result, req.id));
       } catch (err) {
@@ -795,29 +808,4 @@ function formatErrorMessage(err: unknown): string {
     return (err as { readonly message: string }).message;
   }
   return err instanceof Error ? err.message : String(err);
-}
-
-function buildValidationEnvelope(
-  details: { path: string; message: string }[],
-  requestId: string,
-): {
-  code: number;
-  msg: string;
-  data: null;
-  request_id: string;
-  details: { path: string; message: string }[];
-} {
-  const first = details[0];
-  const msg = first === undefined
-    ? 'validation failed'
-    : first.path === ''
-      ? first.message
-      : `${first.path}: ${first.message}`;
-  return {
-    code: ErrorCode.VALIDATION_FAILED,
-    msg,
-    data: null,
-    request_id: requestId,
-    details,
-  };
 }

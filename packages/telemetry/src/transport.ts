@@ -1,13 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import {
-  chmodSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { EnrichedTelemetryEvent, TelemetryPrimitive } from './types';
@@ -124,7 +117,7 @@ export class AsyncTransport {
   async retryDiskEvents(): Promise<void> {
     let entries: string[];
     try {
-      entries = readdirSync(this.telemetryDir());
+      entries = await readdir(this.telemetryDir());
     } catch {
       return;
     }
@@ -134,9 +127,9 @@ export class AsyncTransport {
       if (!entry.startsWith('failed_') || !entry.endsWith('.jsonl')) continue;
       const path = join(this.telemetryDir(), entry);
       try {
-        const stat = statSync(path);
-        if (now - stat.mtimeMs > DISK_EVENT_MAX_AGE_MS) {
-          unlinkSync(path);
+        const stats = await stat(path);
+        if (now - stats.mtimeMs > DISK_EVENT_MAX_AGE_MS) {
+          await unlink(path);
           continue;
         }
       } catch {
@@ -146,12 +139,12 @@ export class AsyncTransport {
       let events: EnrichedTelemetryEvent[];
       let payload: TelemetryPayload;
       try {
-        events = readJsonl(path);
+        events = await readJsonl(path);
         payload = buildPayload(events, this.deviceId);
       } catch (error) {
         if (error instanceof SyntaxError || error instanceof TypeError) {
           try {
-            unlinkSync(path);
+            await unlink(path);
           } catch {
             // best effort cleanup.
           }
@@ -161,7 +154,7 @@ export class AsyncTransport {
 
       try {
         await this.sendHttp(payload);
-        unlinkSync(path);
+        await unlink(path);
       } catch (error) {
         if (error instanceof TransientTelemetryError) continue;
       }
@@ -285,8 +278,8 @@ function handleStatus(status: number): void {
   }
 }
 
-function readJsonl(path: string): EnrichedTelemetryEvent[] {
-  const text = readFileSync(path, 'utf-8');
+async function readJsonl(path: string): Promise<EnrichedTelemetryEvent[]> {
+  const text = await readFile(path, 'utf-8');
   const events: EnrichedTelemetryEvent[] = [];
   for (const line of text.split('\n')) {
     const trimmed = line.trim();

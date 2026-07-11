@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 
 import { loadOrCreateServerToken, serverTokenPath } from './persistentToken';
@@ -69,12 +69,9 @@ export async function createTokenStore(homeDir: string): Promise<TokenStore> {
     tokenPath,
     getToken: currentToken,
     isValid(candidate: string): boolean {
-      const tokenBuf = Buffer.from(currentToken());
-      const candidateBuf = Buffer.from(candidate);
-      if (candidateBuf.length !== tokenBuf.length) {
-        return false;
-      }
-      return timingSafeEqual(candidateBuf, tokenBuf);
+      const tokenHash = createHash('sha256').update(currentToken()).digest();
+      const candidateHash = createHash('sha256').update(candidate).digest();
+      return timingSafeEqual(candidateHash, tokenHash);
     },
     async dispose(): Promise<void> {
       // Persistent token: intentionally left on disk so it survives restarts.

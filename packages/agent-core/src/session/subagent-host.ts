@@ -123,6 +123,8 @@ export class SessionSubagentHost {
       runInBackground: boolean;
     }
   >();
+  /** Subagents created by spawnPersistent that stay alive across turns. */
+  private readonly persistentChildren = new Map<string, Agent>();
   readonly log: Logger = log;
 
   constructor(
@@ -206,6 +208,105 @@ export class SessionSubagentHost {
       resumed: true,
       completion: this.withAutomaticRetry(parent, agentId, profileName, runOptions, completion),
     };
+  }
+
+  // ── Persistent subagent methods (for discussion / roundtable) ──────────
+
+  /**
+   * Create a persistent subagent that stays alive across multiple turns.
+   * Unlike spawn(), this does NOT run a prompt turn — it only configures the
+   * child agent and returns its id. Call runDiscussionTurn() to inject prompts.
+   */
+  async spawnPersistent(options: SpawnSubagentOptions): Promise<string> {
+    options.signal.throwIfAborted();
+
+    const parent = await this.session.ensureAgentResumed(this.ownerAgentId);
+    const profile = this.resolveProfile(parent, options.profileName);
+    const { id, agent } = await this.session.createAgent(
+      { type: 'sub', generate: parent.rawGenerate },
+      { parentAgentId: this.ownerAgentId, swarmItem: options.swarmItem },
+    );
+
+    agent.config.update({
+      cwd: parent.config.cwd,
+      modelAlias: parent.config.modelAlias,
+      thinkingEffort: parent.config.thinkingEffort,
+    });
+    const context = await prepareSystemPromptContext(
+      this.session.systemContextKaos(agent.kaos.getcwd()),
+      this.session.options.kimiHomeDir,
+      { additionalDirs: agent.getAdditionalDirs() },
+    );
+    agent.useProfile(profile, context, this.session.options.kimiHomeDir);
+    agent.tools.inheritUserTools(parent.tools);
+
+    this.emitSubagentSpawned(parent, id, profile.name, {
+      parentToolCallId: options.parentToolCallId,
+      prompt: options.prompt,
+      description: options.description,
+      runInBackground: options.runInBackground,
+      signal: options.signal,
+    });
+
+    this.persistentChildren.set(id, agent);
+    return id;
+  }
+
+  /**
+   * Run a single discussion turn on a persistent subagent:
+   * inject a prompt, wait for completion, and return the assistant's text.
+   * The agent is NOT destroyed afterwards — its context is preserved for
+   * the next round so it sees the full discussion history.
+   */
+  async runDiscussionTurn(
+    agentId: string,
+    prompt: string,
+    signal: AbortSignal,
+  ): Promise<string> {
+    signal.throwIfAborted();
+
+    const agent = this.persistentChildren.get(agentId);
+    if (agent === undefined) {
+      throw new Error(`Persistent subagent "${agentId}" not found`);
+    }
+    if (agent.turn.hasActiveTurn) {
+      throw new Error(`Persistent subagent "${agentId}" already has an active turn`);
+    }
+
+    const parent = await this.session.ensureAgentResumed(this.ownerAgentId);
+    this.emitSubagentStarted(parent, agentId);
+
+    const turnId = agent.turn.prompt(
+      [{ type: 'text', text: prompt }],
+      SUBAGENT_PROMPT_ORIGIN,
+    );
+    if (turnId === null) {
+      throw new Error(`Persistent subagent "${agentId}" could not start a turn`);
+    }
+
+    await runChildTurnToCompletion(agent, signal);
+    return lastAssistantText(agent);
+  }
+
+  /**
+   * Destroy a persistent subagent and release its resources.
+   */
+  async destroyPersistent(agentId: string): Promise<void> {
+    const agent = this.persistentChildren.get(agentId);
+    if (agent === undefined) return;
+    this.persistentChildren.delete(agentId);
+    agent.turn.cancel(undefined, new Error('Subagent destroyed'));
+    this.session.agents.delete(agentId);
+    delete this.session.metadata.agents[agentId];
+  }
+
+  /**
+   * Get cumulative token usage for a persistent subagent.
+   */
+  getPersistentUsage(agentId: string): TokenUsage | undefined {
+    const agent = this.persistentChildren.get(agentId);
+    if (agent === undefined) return undefined;
+    return agent.usage.data().total;
   }
 
   private async ensureIdleSubagent(

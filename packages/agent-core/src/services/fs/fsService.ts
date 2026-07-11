@@ -122,13 +122,14 @@ export class FsService extends Disposable implements IFsService {
         visible.push(d);
       }
 
-      sortDirents(visible, req.sort);
+      await sortDirents(visible, req.sort, entry.absPath);
 
       const parentKey = entry.relPath === '' ? '.' : entry.relPath;
       const bucket: FsEntry[] = [];
       for (const d of visible) {
         if (items.length >= req.limit && entry.depthRemaining === req.depth) {
           truncated = true;
+          queue.length = 0;
           break;
         }
         const childRel = entry.relPath === '' ? d.name : `${entry.relPath}/${d.name}`;
@@ -427,28 +428,56 @@ function isHidden(name: string): boolean {
   return HIDDEN_NAME_RE.test(name) || MACOS_NOISE.has(name);
 }
 
-function sortDirents(
+async function sortDirents(
   ds: import('node:fs').Dirent[],
   sort: FsListRequest['sort'],
-): void {
-  const cmp = {
-    type_first: (a: import('node:fs').Dirent, b: import('node:fs').Dirent) => {
-      const ad = a.isDirectory() ? 0 : 1;
-      const bd = b.isDirectory() ? 0 : 1;
-      if (ad !== bd) return ad - bd;
-      return a.name.localeCompare(b.name);
-    },
-    name_asc: (a: import('node:fs').Dirent, b: import('node:fs').Dirent) =>
-      a.name.localeCompare(b.name),
-    name_desc: (a: import('node:fs').Dirent, b: import('node:fs').Dirent) =>
-      b.name.localeCompare(a.name),
+  absDir: string,
+): Promise<void> {
+  if (sort !== 'mtime_desc' && sort !== 'size_desc') {
+    const cmp = {
+      type_first: (a: import('node:fs').Dirent, b: import('node:fs').Dirent) => {
+        const ad = a.isDirectory() ? 0 : 1;
+        const bd = b.isDirectory() ? 0 : 1;
+        if (ad !== bd) return ad - bd;
+        return a.name.localeCompare(b.name);
+      },
+      name_asc: (a: import('node:fs').Dirent, b: import('node:fs').Dirent) =>
+        a.name.localeCompare(b.name),
+      name_desc: (a: import('node:fs').Dirent, b: import('node:fs').Dirent) =>
+        b.name.localeCompare(a.name),
+    }[sort];
+    ds.sort(cmp);
+    return;
+  }
 
-    mtime_desc: (a: import('node:fs').Dirent, b: import('node:fs').Dirent) =>
-      a.name.localeCompare(b.name),
-    size_desc: (a: import('node:fs').Dirent, b: import('node:fs').Dirent) =>
-      a.name.localeCompare(b.name),
-  }[sort];
-  ds.sort(cmp);
+  const stats = await Promise.all(
+    ds.map(async (d) => {
+      try {
+        return await fs.lstat(path.join(absDir, d.name));
+      } catch {
+        return null;
+      }
+    }),
+  );
+  if (sort === 'mtime_desc') {
+    ds.sort((a, b) => {
+      const sa = stats[ds.indexOf(a)];
+      const sb = stats[ds.indexOf(b)];
+      const ma = sa?.mtimeMs ?? 0;
+      const mb = sb?.mtimeMs ?? 0;
+      if (mb !== ma) return mb - ma;
+      return a.name.localeCompare(b.name);
+    });
+  } else {
+    ds.sort((a, b) => {
+      const sa = stats[ds.indexOf(a)];
+      const sb = stats[ds.indexOf(b)];
+      const sa_size = sa?.size ?? 0;
+      const sb_size = sb?.size ?? 0;
+      if (sb_size !== sa_size) return sb_size - sa_size;
+      return a.name.localeCompare(b.name);
+    });
+  }
 }
 
 function matchesAnyGlob(rel: string, globs: readonly string[]): boolean {

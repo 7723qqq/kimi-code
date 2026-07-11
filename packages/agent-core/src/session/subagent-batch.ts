@@ -275,6 +275,7 @@ export class SubagentBatch<T> {
       this.normalLaunchCount += 1;
       this.schedule();
     }, delay);
+    this.normalLaunchTimer.unref();
   }
 
   private isAtConcurrencyLimit(): boolean {
@@ -601,6 +602,7 @@ export class SubagentBatch<T> {
       this.rateLimitLaunchTimer = undefined;
       this.schedule();
     }, wakeupAt - now);
+    this.rateLimitLaunchTimer.unref();
   }
 
   private scheduleNextRateLimitWakeup(now: number): void {

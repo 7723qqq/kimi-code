@@ -104,6 +104,7 @@ export class OpenPlatformApiError extends Error {
 
   constructor(message: string, status: number) {
     super(message);
+    this.name = 'OpenPlatformApiError';
     this.status = status;
   }
 }

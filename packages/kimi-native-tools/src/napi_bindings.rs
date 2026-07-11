@@ -5,6 +5,7 @@
 use crate::bash::{self, BashConfig, BashResult, DEFAULT_TIMEOUT_S, MAX_TIMEOUT_S};
 use crate::compaction::{self, CompactionConfigMeta, CompactionMessageMeta};
 use crate::edit::{self, EditResult};
+use crate::escape;
 use crate::glob::{self, GlobConfig, GlobResult, MAX_MATCHES};
 use crate::grep::{self, GrepConfig, GrepResult, GrepStructuredConfig, GrepStructuredResult, OutputMode, DEFAULT_HEAD_LIMIT};
 use crate::image_compress;
@@ -12,6 +13,7 @@ use crate::list_directory::{self, ListDirectoryConfig, ListDirectoryResult};
 use crate::output_truncate;
 use crate::read::{self, ReadConfig, ReadResult, MAX_BYTES, MAX_LINE_LENGTH, MAX_LINES};
 use crate::tool_access::{self, ToolAccessMeta};
+use crate::tool_naming;
 use crate::write::{self, WriteMode, WriteResult};
 use napi::bindgen_prelude::Uint8Array;
 use napi_derive::napi;
@@ -986,4 +988,50 @@ pub async fn native_mcp_stdio_stderr_snapshot(handle: u64) -> String {
 #[napi]
 pub async fn native_mcp_stdio_is_alive(handle: u64) -> bool {
     mcp::stdio_is_alive(handle).await
+}
+
+// ============================================================================
+// XML/HTML escaping
+// ============================================================================
+
+/// Escape all XML-significant characters: & < > "
+#[napi]
+pub fn native_escape_xml(text: String) -> String {
+    escape::escape_xml(&text)
+}
+
+/// Escape XML attribute boundary characters only: & "
+#[napi]
+pub fn native_escape_xml_attr(text: String) -> String {
+    escape::escape_xml_attr(&text)
+}
+
+/// Escape tag delimiters only: < > (Markdown-safe)
+#[napi]
+pub fn native_escape_xml_tags(text: String) -> String {
+    escape::escape_xml_tags(&text)
+}
+
+// ============================================================================
+// MCP tool name sanitization
+// ============================================================================
+
+/// Sanitize a string for use as part of an MCP tool name.
+/// Replaces non-safe characters with `_` and collapses runs of `_`.
+#[napi]
+pub fn native_sanitize_mcp_name_part(part: String) -> String {
+    tool_naming::sanitize_mcp_name_part(&part)
+}
+
+/// Check if a tool name starts with the MCP prefix (`mcp__`).
+#[napi]
+pub fn native_is_mcp_tool_name(name: String) -> bool {
+    tool_naming::is_mcp_tool_name(&name)
+}
+
+/// Produce the qualified MCP tool name: `mcp__<server>__<tool>`.
+/// Truncates with a deterministic 8-char FNV-1a hash suffix if > 64 chars.
+#[napi]
+pub fn native_qualify_mcp_tool_name(server_name: String, tool_name: String) -> String {
+    tool_naming::qualify_mcp_tool_name(&server_name, &tool_name)
 }

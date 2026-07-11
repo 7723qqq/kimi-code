@@ -588,11 +588,17 @@ describe('SessionService.list', () => {
     expect(newerPage.items.map((s) => s.metadata.cwd)).toEqual(['/tmp/c', '/tmp/b']);
   });
 
-  it('status filter applies post-hydration', async () => {
+  it('status filter applies before pagination so pages are full', async () => {
     const empty = await svc.list({ status: 'running' });
     expect(empty.items).toEqual([]);
     const idle = await svc.list({ status: 'idle' });
     expect(idle.items.length).toBe(3);
+
+    // With page_size=2 and status=idle, the first page must return 2 items
+    // (not fewer) because the filter is applied before slicing.
+    const page = await svc.list({ status: 'idle', page_size: 2 });
+    expect(page.items).toHaveLength(2);
+    expect(page.has_more).toBe(true);
   });
 
   it('forwards workDir to the underlying core.rpc.listSessions for the workspace fast path', async () => {

@@ -222,7 +222,3 @@ function supportsLineTarget(command: string): boolean {
   return /(?:^|\/)(code|cursor|windsurf)(?:\.cmd|\.exe)?$/i.test(first);
 }
 
-function quoteShellArg(value: string, platform: NodeJS.Platform): string {
-  if (platform === 'win32') return `"${value.replaceAll('"', '\\"')}"`;
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}

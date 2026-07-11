@@ -18,7 +18,7 @@
  */
 
 import type { Kaos } from '@moonshot-ai/kaos';
-import { normalize } from 'pathe';
+import { normalize, resolve } from 'pathe';
 import { z } from 'zod';
 
 import type { BuiltinTool } from '../../../agent/tool';
@@ -26,7 +26,7 @@ import { isAbortError } from '../../../loop/errors';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import { noopTelemetryClient, type TelemetryClient } from '../../../telemetry';
-import { resolvePathAccessPath } from '../../policies/path-access';
+import { isWithinDirectory, resolvePathAccessPath } from '../../policies/path-access';
 import type { PathClass } from '../../policies/path-access';
 import { isSensitiveFile } from '../../policies/sensitive';
 import { toInputJsonSchema } from '../../support/input-schema';
@@ -272,7 +272,13 @@ export class GrepTool implements BuiltinTool<GrepInput> {
     const rawLines = parseRipgrepOutput(stdoutText, mode);
 
     const filteredSensitive = new Set<string>();
-    const keptLines = filterSensitiveLines(rawLines, mode, filteredSensitive, pathClass);
+    const keptLines = filterSensitiveLines(
+      rawLines,
+      mode,
+      filteredSensitive,
+      pathClass,
+      searchPaths[0] ?? this.workspace.workspaceDir,
+    );
     let orderedLines: ParsedGrepLine[];
     try {
       orderedLines =
@@ -670,6 +676,7 @@ function filterSensitiveLines(
   mode: GrepMode,
   filteredPaths: Set<string>,
   pathClass: PathClass,
+  searchRoot: string,
 ): ParsedGrepLine[] {
   const kept: ParsedGrepLine[] = [];
   for (const line of lines) {
@@ -678,9 +685,15 @@ function filterSensitiveLines(
       continue;
     }
     const filePath = parsedFilePath(line, mode, pathClass);
-    if (filePath !== undefined && isSensitiveFile(filePath)) {
-      filteredPaths.add(filePath);
-      continue;
+    if (filePath !== undefined) {
+      const resolvedPath = resolve(searchRoot, filePath);
+      if (!isWithinDirectory(resolvedPath, searchRoot, pathClass)) {
+        continue;
+      }
+      if (isSensitiveFile(filePath)) {
+        filteredPaths.add(filePath);
+        continue;
+      }
     }
     kept.push(line);
   }

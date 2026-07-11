@@ -62,6 +62,12 @@ export class PathSecurityError extends Error {
 
 const DEFAULT_PATH_CLASS: PathClass = process.platform === 'win32' ? 'win32' : 'posix';
 
+function isEnoentError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const code = (error as { code?: unknown })['code'];
+  return code === 'ENOENT';
+}
+
 function isWin32DriveRelative(path: string): boolean {
   return /^[A-Za-z]:(?:$|[^\\/])/.test(path);
 }
@@ -304,6 +310,13 @@ export async function resolveSymlinkEscape(
   config: WorkspaceConfig,
   pathClass: PathClass = DEFAULT_PATH_CLASS,
 ): Promise<string | undefined> {
+  // Only check for symlink escapes when the canonical path is inside the
+  // workspace. A path that is already outside the workspace has been
+  // explicitly allowed by the path access policy — there is no symlink
+  // escape to detect.
+  if (!isWithinWorkspace(canonicalPath, config, pathClass)) {
+    return undefined;
+  }
   let resolved: string;
   try {
     resolved = await realpath(canonicalPath);
@@ -313,7 +326,7 @@ export async function resolveSymlinkEscape(
     const parent = pathe.dirname(canonicalPath);
     try {
       const resolvedParent = await realpath(parent);
-      if (!isWithinWorkspace(resolvedParent, config, pathClass)) {
+      if (!(await isWithinResolvedWorkspace(resolvedParent, config, pathClass))) {
         throw new PathSecurityError(
           'PATH_OUTSIDE_WORKSPACE',
           canonicalPath,
@@ -323,12 +336,13 @@ export async function resolveSymlinkEscape(
       }
     } catch (e) {
       if (e instanceof PathSecurityError) throw e;
+      if (!isEnoentError(e)) throw e;
       // Parent also doesn't exist — no symlink to follow, allow.
     }
     return undefined;
   }
   // realpath succeeded — check the resolved target.
-  if (resolved !== canonicalPath && !isWithinWorkspace(resolved, config, pathClass)) {
+  if (resolved !== canonicalPath && !(await isWithinResolvedWorkspace(resolved, config, pathClass))) {
     throw new PathSecurityError(
       'PATH_OUTSIDE_WORKSPACE',
       canonicalPath,
@@ -337,4 +351,29 @@ export async function resolveSymlinkEscape(
     );
   }
   return resolved;
+}
+
+/**
+ * Like {@link isWithinWorkspace} but resolves each workspace root through
+ * `fs.realpath` before comparing, so that Windows short-name paths (e.g.
+ * `ADMINI~1`) and symlinked roots are compared fairly against the
+ * `realpath`-resolved candidate. Falls back to lexical comparison if a
+ * workspace root cannot be resolved (non-existent path, permissions).
+ */
+async function isWithinResolvedWorkspace(
+  candidate: string,
+  config: WorkspaceConfig,
+  pathClass: PathClass,
+): Promise<boolean> {
+  const roots = [config.workspaceDir, ...config.additionalDirs];
+  for (const root of roots) {
+    if (isWithinDirectory(candidate, root, pathClass)) return true;
+    try {
+      const resolvedRoot = await realpath(root);
+      if (isWithinDirectory(candidate, resolvedRoot, pathClass)) return true;
+    } catch {
+      // Root doesn't exist or can't be resolved — skip, lexical check above suffices.
+    }
+  }
+  return false;
 }

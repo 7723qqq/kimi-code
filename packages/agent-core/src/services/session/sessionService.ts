@@ -278,8 +278,19 @@ export class SessionService extends Disposable implements ISessionService {
 
     const requestedSize = query.page_size ?? DEFAULT_PAGE_SIZE;
     const pageSize = Math.min(Math.max(requestedSize, 1), MAX_PAGE_SIZE);
-    const pageSummaries = slice.slice(0, pageSize);
-    const hasMore = slice.length > pageSize;
+
+    // Apply the status filter BEFORE slicing so each page is filled with
+    // matching sessions and has_more reflects the filtered set. Status is
+    // computed from in-memory daemon state, so we can filter on the summary
+    // without hydrating the full protocol Session first.
+    let filtered = slice;
+    if (query.status !== undefined) {
+      const status = query.status;
+      filtered = slice.filter((s) => this._computeStatus(s.id) === status);
+    }
+
+    const pageSummaries = filtered.slice(0, pageSize);
+    const hasMore = filtered.length > pageSize;
 
     const items = await Promise.all(
       pageSummaries.map(async (s) =>
@@ -287,10 +298,7 @@ export class SessionService extends Disposable implements ISessionService {
       ),
     );
 
-    const filtered =
-      query.status !== undefined ? items.filter((s) => s.status === query.status) : items;
-
-    return { items: filtered, has_more: hasMore };
+    return { items, has_more: hasMore };
   }
 
   async get(id: string): Promise<Session> {
@@ -394,20 +402,25 @@ export class SessionService extends Disposable implements ISessionService {
 
     const requestedSize = query.page_size ?? DEFAULT_PAGE_SIZE;
     const pageSize = Math.min(Math.max(requestedSize, 1), MAX_PAGE_SIZE);
-    const pageSummaries = slice.slice(0, pageSize);
+
+    // Apply the status filter BEFORE slicing so each page is filled with
+    // matching sessions and has_more reflects the filtered set.
+    let filtered = slice;
+    if (query.status !== undefined) {
+      const status = query.status;
+      filtered = slice.filter((s) => this._computeStatus(s.id) === status);
+    }
+
+    const pageSummaries = filtered.slice(0, pageSize);
     const items = await Promise.all(
       pageSummaries.map(async (s) =>
         this._patchSessionStatus(toProtocolSession(s, await this.tryGetMeta(s.id)))
       ),
     );
-    const filtered =
-      query.status !== undefined
-        ? items.filter((session) => session.status === query.status)
-        : items;
 
     return {
-      items: filtered,
-      has_more: slice.length > pageSize,
+      items,
+      has_more: filtered.length > pageSize,
     };
   }
 

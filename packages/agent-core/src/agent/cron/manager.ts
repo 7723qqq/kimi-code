@@ -278,7 +278,7 @@ export class CronManager {
       .catch(() => {})
       .then(() => work())
       .catch((error: unknown) => {
-        this.agent.log?.warn?.('cron persist failed', error);
+        this.agent.log?.warn?.('cron persist failed', { error });
       })
       .finally(() => {
         if (this.persistQueues.get(id) === next) {

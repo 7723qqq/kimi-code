@@ -75,6 +75,8 @@ export class CustomRegistryApiError extends Error {
   }
 }
 
+export type SkippedEntryLogger = (key: string, url: string) => void;
+
 function isAllowedProviderType(value: unknown): value is CustomRegistryProviderType {
   return typeof value === 'string' && ALLOWED_PROVIDER_TYPES.has(value as CustomRegistryProviderType);
 }
@@ -183,6 +185,7 @@ export async function fetchCustomRegistry(
   source: CustomRegistrySource,
   fetchImpl: typeof fetch = fetch,
   signal?: AbortSignal,
+  onSkipped?: SkippedEntryLogger,
 ): Promise<Record<string, CustomRegistryProviderEntry>> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
@@ -218,9 +221,7 @@ export async function fetchCustomRegistry(
       // fetch, mirroring `toModelEntry`'s skip-on-invalid behavior. This keeps
       // existing providers working when kokub adds a new provider type that
       // this client doesn't yet recognize.
-      console.warn(
-        `[custom-registry] Skipping invalid entry "${key}" at ${source.url}: missing required fields or unsupported type (id, name, api, type, models).`,
-      );
+      onSkipped?.(key, source.url);
       continue;
     }
     out[key] = entry;

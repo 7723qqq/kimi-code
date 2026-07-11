@@ -679,11 +679,9 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     if (this._httpClient !== undefined) {
       clientOpts['httpClient'] = this._httpClient;
     }
-    // Disable SDK-level retry. The agent-level chatWithRetry is disabled
-    // for OpenAI (dual backoff), and the OpenAI SDK defaults to 2 retries
-    // internally — so parity is maintained by chatWithRetry within the
-    // agent loop. (Comment kept: future versions may revisit if the SDK
-    // retry proves more reliable in practice.)
+    // SDK-level retry: the agent-level chatWithRetry is disabled for OpenAI
+    // (dual backoff), so the OpenAI SDK's own retry handles transient
+    // failures. Set to 5 to match the retry budget used by other providers.
     clientOpts['maxRetries'] = 5;
     return new OpenAI(clientOpts as ConstructorParameters<typeof OpenAI>[0]);
   }

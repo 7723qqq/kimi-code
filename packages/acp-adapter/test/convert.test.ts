@@ -227,7 +227,7 @@ describe('acpBlocksToPromptParts', () => {
     ]);
   });
 
-  it('inlines TextResourceContents as <resource uri>text</resource>', () => {
+  it('inlines TextResourceContents as <resource uri>escaped-text</resource>', () => {
     const out = acpBlocksToPromptParts([
       textResourceBlock('file:///hello.md', '# Hello\nworld', 'text/markdown'),
     ]);
@@ -238,6 +238,18 @@ describe('acpBlocksToPromptParts', () => {
       },
     ]);
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('escapes XML-special characters in embedded resource text body', () => {
+    const out = acpBlocksToPromptParts([
+      textResourceBlock('file:///x.md', 'a < b > c & d <tag>text</tag>'),
+    ]);
+    expect(out).toEqual([
+      {
+        type: 'text',
+        text: '<resource uri="file:///x.md">a &lt; b &gt; c &amp; d &lt;tag&gt;text&lt;/tag&gt;</resource>',
+      },
+    ]);
   });
 
   it('drops BlobResourceContents with a dedicated warn', () => {

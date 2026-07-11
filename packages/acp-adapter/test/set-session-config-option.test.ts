@@ -331,4 +331,60 @@ describe('AcpServer session/set_config_option', () => {
       }),
     ).rejects.toMatchObject({ code: -32602 });
   });
+
+  it('configId="model" + undefined value → invalid_params (-32602) before any SDK call', async () => {
+    const handle = makeFakeSession('sess-model-undef');
+    const harness = makeHarness(handle);
+    const { client, capturing, sessionId } = await openSession(harness);
+    capturing.notifications.length = 0;
+
+    await expect(
+      client.setSessionConfigOption({
+        sessionId,
+        configId: 'model',
+        // @ts-expect-error — deliberately omitting `value` to test validation
+        value: undefined,
+      }),
+    ).rejects.toMatchObject({ code: -32602 });
+
+    expect(handle.setModelCalls).toEqual([]);
+    const updates = capturing.notifications.filter(
+      (n) => n.update.sessionUpdate === 'config_option_update',
+    );
+    expect(updates).toEqual([]);
+  });
+
+  it('configId="model" + empty string value → invalid_params (-32602)', async () => {
+    const handle = makeFakeSession('sess-model-empty');
+    const harness = makeHarness(handle);
+    const { client, sessionId } = await openSession(harness);
+
+    await expect(
+      client.setSessionConfigOption({ sessionId, configId: 'model', value: '' }),
+    ).rejects.toMatchObject({ code: -32602 });
+    expect(handle.setModelCalls).toEqual([]);
+  });
+
+  it('configId="mode" + undefined value → invalid_params (-32602) before any SDK call', async () => {
+    const handle = makeFakeSession('sess-mode-undef');
+    const harness = makeHarness(handle);
+    const { client, capturing, sessionId } = await openSession(harness);
+    capturing.notifications.length = 0;
+
+    await expect(
+      client.setSessionConfigOption({
+        sessionId,
+        configId: 'mode',
+        // @ts-expect-error — deliberately omitting `value` to test validation
+        value: undefined,
+      }),
+    ).rejects.toMatchObject({ code: -32602 });
+
+    expect(handle.planModeCalls).toEqual([]);
+    expect(handle.setPermissionCalls).toEqual([]);
+    const updates = capturing.notifications.filter(
+      (n) => n.update.sessionUpdate === 'config_option_update',
+    );
+    expect(updates).toEqual([]);
+  });
 });

@@ -239,6 +239,37 @@ describe('AcpServer session/set_mode', () => {
   });
 });
 
+describe('AcpServer session cleanup on connection close', () => {
+  it('clears the sessions map when the connection closes', async () => {
+    const handle = makeFakeSession('sess-cleanup');
+    const harness = makeHarness(handle);
+    const clientToAgent = new TransformStream<Uint8Array, Uint8Array>();
+    const agentToClient = new TransformStream<Uint8Array, Uint8Array>();
+    const agentStream = ndJsonStream(agentToClient.writable, clientToAgent.readable);
+    const clientStream = ndJsonStream(clientToAgent.writable, agentToClient.readable);
+    let serverRef: AcpServer | undefined;
+    new AgentSideConnection((c) => {
+      serverRef = new AcpServer(harness, c);
+      return serverRef;
+    }, agentStream);
+    const capturing = new CapturingClient();
+    const client = new ClientSideConnection((_a) => capturing, clientStream);
+    const response = await client.newSession({ cwd: '/tmp/x', mcpServers: [] });
+
+    // Session is registered after newSession.
+    expect(serverRef!.getSession(response.sessionId)).toBeDefined();
+
+    // Close the client-to-agent writable so the agent's read side hits EOF,
+    // triggering the AgentSideConnection's abort signal.
+    await clientToAgent.writable.close();
+    // Wait for the connection's abort signal to fire and the listener to clear sessions.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // The abort listener should have cleared the sessions map.
+    expect(serverRef!.getSession(response.sessionId)).toBeUndefined();
+  });
+});
+
 describe('AcpServer session/unstable_setSessionModel', () => {
   it('forwards modelId to Session.setModel exactly once + emits one config_option_update', async () => {
     const handle = makeFakeSession('sess-model');
