@@ -12,7 +12,7 @@ export default {
     generic: '批准操作?',
   },
   subagentBadge: '子 agent · {name}',
-  required: 'APPROVAL REQUIRED',
+  required: '需要批准',
   danger: '危险: {detail}',
   searchQueryLabel: '查询',
   searchScope: '范围：{scope}',

@@ -1,5 +1,5 @@
 import { APIConnectionError, emptyUsage, isRetryableGenerateError } from '@moonshot-ai/kosong';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { KimiConfig } from '#/config';
 import { ErrorCodes, KimiError } from '#/errors';
@@ -74,6 +74,26 @@ describe('chatWithRetry: terminated stream drops', () => {
     const response = await chatWithRetry(makeInput(llm, new AbortController().signal));
 
     expect(calls).toBe(2);
+    expect(response).toEqual(okResponse());
+  });
+
+  it('retries through the fifth attempt by default', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    let calls = 0;
+    const llm: LLM = {
+      systemPrompt: '',
+      modelName: 'mock',
+      isRetryableError: (e) => isRetryableGenerateError(e),
+      async chat(_params: LLMChatParams): Promise<LLMChatResponse> {
+        calls += 1;
+        if (calls < 5) throw new APIConnectionError('socket hang up');
+        return okResponse();
+      },
+    };
+
+    const response = await chatWithRetry(makeInput(llm, new AbortController().signal));
+
+    expect(calls).toBe(5);
     expect(response).toEqual(okResponse());
   });
 

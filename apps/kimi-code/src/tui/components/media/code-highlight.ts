@@ -47,8 +47,8 @@ export function langFromPath(filePath: string): string | undefined {
   const ext = extname(filePath).slice(1).toLowerCase();
   if (ext.length === 0) return undefined;
   const lang = EXT_LANG_MAP[ext] ?? ext;
-  if (_highlight === undefined || _highlight.supportsLanguage(lang)) return lang;
-  return undefined;
+  if (_highlight === undefined || !_highlight.supportsLanguage(lang)) return undefined;
+  return lang;
 }
 
 export function highlightLines(code: string, lang: string | undefined): string[] {
