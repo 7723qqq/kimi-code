@@ -241,18 +241,19 @@ export class Agent {
 
   /**
    * Single decision point for select_tools progressive disclosure. All three
-   * gates must be open: the model declares the `select_tools` capability, the
-   * model declares `tool_use` (a model without tool use registering
-   * select_tools is a contradiction), and the `tool-select` experimental flag
-   * is on. Every consumer — top-level tools[] convergence, select_tools
-   * registration, manifest announcements, projection shaping — reads this
-   * instead of re-deriving the conditions, so degradation is lossless: any
-   * closed gate reproduces the inline behavior byte-for-byte.
+   * gates must be open: the model has the `dynamically_loaded_tools`
+   * capability (message-level tool declarations), the model declares
+   * `tool_use` (a model without tool use loading tools dynamically is a
+   * contradiction), and the `tool-select` experimental flag is on. Every
+   * consumer — top-level tools[] convergence, select_tools registration,
+   * manifest announcements, projection shaping — reads this instead of
+   * re-deriving the conditions, so degradation is lossless: any closed gate
+   * reproduces the inline behavior byte-for-byte.
    */
   get toolSelectEnabled(): boolean {
     const capability = this.config.modelCapabilities;
     return (
-      capability.select_tools === true &&
+      capability.dynamically_loaded_tools === true &&
       capability.tool_use &&
       this.experimentalFlags.enabled('tool-select')
     );
@@ -529,6 +530,9 @@ export class Agent {
       pauseGoal: () => this.goal.pauseGoal(),
       resumeGoal: () => this.goal.resumeGoal(),
       cancelGoal: () => this.goal.cancelGoal(),
+      // `cron` is null for subagents, which never schedule; report an empty
+      // list rather than failing the RPC so callers can poll uniformly.
+      getCronTasks: () => ({ tasks: this.cron?.listTaskSnapshots() ?? [] }),
       getBackgroundOutput: (payload) => this.background.readOutput(payload.taskId, payload.tail),
       getContext: () => this.context.data(),
       getConfig: () => this.config.data(),
