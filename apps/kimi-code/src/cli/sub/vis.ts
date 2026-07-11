@@ -108,7 +108,7 @@ export function registerVisCommand(parent: Command, overrides?: Partial<VisDeps>
     .option('--port <number>', t('cli.optionDescriptions.visPort'))
     .option('--host <host>', t('cli.optionDescriptions.visHost'))
     .option('--no-open', t('cli.optionDescriptions.visNoOpen'))
-    .argument('[sessionId]', 'Open directly to this session.')
+    .argument('[sessionId]', t('cli.optionDescriptions.visSessionId'))
     .action(
       async (
         sessionId: string | undefined,
