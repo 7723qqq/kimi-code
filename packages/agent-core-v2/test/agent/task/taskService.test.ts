@@ -22,7 +22,7 @@ import type { IProcess } from '#/session/process/processRunner';
 import { IConfigRegistry, IConfigService } from '#/app/config/config';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -36,6 +36,7 @@ import { EventBusService } from '#/app/event/eventBusService';
 import { ITaskService } from '#/app/task/task';
 
 import { stubContextMemory, stubWireRecord } from '../contextMemory/stubs';
+import { stubLoopWithHooks } from '../turn/stubs';
 
 function fakeProcessTask(): AgentTask {
   return {
@@ -97,12 +98,7 @@ describe('AgentTaskService', () => {
     ix.stub(IAgentToolRegistryService, {
       register: () => toDisposable(() => {}),
     });
-    ix.stub(IAgentPromptService, {
-      steer: () => ({
-        removeFromQueue: () => {},
-        launched: Promise.resolve(undefined),
-      }),
-    });
+    ix.stub(IAgentLoopService, stubLoopWithHooks());
     ix.stub(IConfigRegistry, { registerSection: () => {} });
     ix.stub(IConfigService, {
       get: (() => undefined) as IConfigService['get'],

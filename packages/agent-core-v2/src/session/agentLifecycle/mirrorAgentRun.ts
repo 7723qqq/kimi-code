@@ -34,7 +34,7 @@ import type {
   SubagentStartedEvent,
 } from '@moonshot-ai/protocol';
 import { IEventBus } from '#/app/event/eventBus';
-import { isAbortError } from '#/agent/loop/errors';
+import { isAbortError } from '#/_base/utils/abort';
 
 import { type AgentRunHandle, IAgentLifecycleService } from './agentLifecycle';
 

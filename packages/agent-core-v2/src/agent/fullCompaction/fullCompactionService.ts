@@ -18,7 +18,7 @@ import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import { retryBackoffDelays, sleepForRetry } from '#/agent/llmRequester/retry';
 import { IAgentLoopService, type LoopErrorContext } from '#/agent/loop/loop';
-import { isAbortError, isContextOverflowError } from '#/agent/loop/errors';
+import { isAbortError } from '#/_base/utils/abort';
 import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { stripDynamicToolContext } from '#/agent/toolSelect/dynamicTools';
@@ -38,7 +38,7 @@ import type { Tool } from '#/app/llmProtocol/tool';
 import { type TokenUsage } from '#/app/llmProtocol/usage';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ErrorCodes, KimiError, isKimiError, toKimiErrorPayload } from "#/errors";
+import { ErrorCodes, KimiError, isCodedError, isKimiError, toKimiErrorPayload, unwrapErrorCause } from "#/errors";
 import { IAgentWireService } from '#/wire/tokens';
 import type { IWireService } from '#/wire/wireService';
 import compactionInstructionTemplate from './compaction-instruction.md?raw';
@@ -225,7 +225,9 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     error: unknown,
     estimatedRequestTokens = this.estimateCurrentRequestTokens(),
   ): boolean {
-    if (isContextOverflowError(error)) return true;
+    if (isCodedError(error) && error.code === ErrorCodes.CONTEXT_OVERFLOW) return true;
+    // The raw provider error rides as `cause` of the translated coded error;
+    // the 413 heuristic below still needs its status code.
     const statusError = findAPIStatusError(error);
     if (statusError instanceof APIContextOverflowError) return true;
     if (statusError === undefined || statusError.statusCode !== 413) return false;
@@ -569,7 +571,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
             continue;
           }
           if (
-            (error instanceof CompactionTruncatedError || error instanceof APIEmptyResponseError) &&
+            (error instanceof CompactionTruncatedError || unwrapErrorCause(error) instanceof APIEmptyResponseError) &&
             messagesToCompact.length > 1
           ) {
             emptyOrTruncatedShrinkCount += 1;
@@ -582,7 +584,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
             retryCount = 0;
             continue;
           }
-          if (!isRetryableGenerateError(error)) {
+          if (!isRetryableGenerateError(unwrapErrorCause(error))) {
             throw error;
           }
           if (retryCount + 1 >= MAX_COMPACTION_RETRY_ATTEMPTS) {

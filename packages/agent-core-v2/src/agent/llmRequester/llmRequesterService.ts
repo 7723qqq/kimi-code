@@ -68,9 +68,10 @@ import {
   type LlmRequestPayload,
   type LlmRequestToolSchema,
 } from './llmRequestOps';
+import { isAbortError } from '#/_base/utils/abort';
+import { unwrapErrorCause } from '#/errors';
 import {
   DEFAULT_MAX_RETRY_ATTEMPTS,
-  isAbortError,
   retryBackoffDelays,
   retryErrorFields,
   sleepForRetry,
@@ -157,7 +158,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       try {
         return await this.executeRequestAttempt(overrides, onPart, signal, attempt, maxAttempts);
       } catch (error) {
-        if (attempt >= maxAttempts || !isRetryableGenerateError(error)) {
+        if (attempt >= maxAttempts || !isRetryableGenerateError(unwrapErrorCause(error))) {
           this.logRequestFailure(error, overrides, signal, attempt, maxAttempts);
           this.trackApiError(error, startedAt, signal);
           throw error;
@@ -305,7 +306,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     try {
       return await run(false);
     } catch (error) {
-      if (signal?.aborted === true || !isRecoverableRequestStructureError(error)) throw error;
+      if (signal?.aborted === true || !isRecoverableRequestStructureError(unwrapErrorCause(error))) throw error;
       signal?.throwIfAborted();
       this.log.warn('provider rejected request structure; resending with strict projection', {
         model: request.model.name,
@@ -518,27 +519,41 @@ function fingerprint(content: string): string {
 }
 
 function apiErrorType(error: unknown): string {
-  if (error instanceof APIContextOverflowError) return 'context_overflow';
-  if (error instanceof APIStatusError) {
-    if (isContextOverflowStatusError(error.statusCode, error.message)) return 'context_overflow';
-    if (error.statusCode === 429) return 'rate_limit';
-    if (error.statusCode === 401 || error.statusCode === 403) return 'auth';
-    if (error.statusCode >= 500) return '5xx_server';
-    if (error.statusCode >= 400) return '4xx_client';
+  // Errors crossing the model boundary are coded `KimiError`s with the raw
+  // provider error as `cause`; classify on the raw shape when available.
+  const raw = unwrapErrorCause(error);
+  if (raw instanceof APIContextOverflowError) return 'context_overflow';
+  if (raw instanceof APIStatusError) {
+    if (isContextOverflowStatusError(raw.statusCode, raw.message)) return 'context_overflow';
+    if (raw.statusCode === 429) return 'rate_limit';
+    if (raw.statusCode === 401 || raw.statusCode === 403) return 'auth';
+    if (raw.statusCode >= 500) return '5xx_server';
+    if (raw.statusCode >= 400) return '4xx_client';
   }
-  if (error instanceof APIConnectionError) return 'network';
-  if (error instanceof APITimeoutError) return 'timeout';
-  if (error instanceof APIEmptyResponseError) return 'empty_response';
+  if (raw instanceof APIConnectionError) return 'network';
+  if (raw instanceof APITimeoutError) return 'timeout';
+  if (raw instanceof APIEmptyResponseError) return 'empty_response';
   return 'other';
 }
 
 function apiStatusCode(error: unknown): number | undefined {
-  if (error instanceof APIStatusError) return error.statusCode;
-  if (typeof error !== 'object' || error === null) return undefined;
-  const statusCode = (error as Record<string, unknown>)['statusCode'];
-  if (typeof statusCode === 'number') return statusCode;
-  const status = (error as Record<string, unknown>)['status'];
-  return typeof status === 'number' ? status : undefined;
+  const raw = unwrapErrorCause(error);
+  if (raw instanceof APIStatusError) return raw.statusCode;
+  if (typeof raw === 'object' && raw !== null) {
+    const statusCode = (raw as Record<string, unknown>)['statusCode'];
+    if (typeof statusCode === 'number') return statusCode;
+    const status = (raw as Record<string, unknown>)['status'];
+    if (typeof status === 'number') return status;
+  }
+  // Boundary-translated errors carry the HTTP status in `details`.
+  if (typeof error === 'object' && error !== null) {
+    const details = (error as Record<string, unknown>)['details'];
+    if (typeof details === 'object' && details !== null) {
+      const statusCode = (details as Record<string, unknown>)['statusCode'];
+      if (typeof statusCode === 'number') return statusCode;
+    }
+  }
+  return undefined;
 }
 
 registerScopedService(

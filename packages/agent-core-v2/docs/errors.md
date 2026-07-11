@@ -11,7 +11,7 @@ unified `ErrorCodes` const.
 
 ## Where things live
 
-- `src/_base/errors/errors.ts`: base classes — `KimiError`, `CancellationError`, `ExpectedError`, `ErrorNoTelemetry`, `BugIndicatingError`, `NotImplementedError`.
+- `src/_base/errors/errors.ts`: base classes — `KimiError`, `ExpectedError`, `ErrorNoTelemetry`, `BugIndicatingError`, `NotImplementedError`.
 - `src/_base/errors/codes.ts`: the `ErrorDomain` contract, the `ErrorCode` type (aliased to the protocol's `KimiErrorCode`), the runtime registry (`registerErrorDomain` / `errorInfo` / `isErrorCode`), and the domain-independent `CoreErrors` (`internal`, `not_implemented`).
 - `src/_base/errors/serialize.ts`: `ErrorPayload`, `isCodedError`, `toErrorPayload`, `fromErrorPayload`, `makeErrorPayload`. Reads retryability from the registry via `errorInfo`.
 - `src/_base/errors/errorMessage.ts`: `toErrorMessage(error, verbose?)` for logs/CLI.
@@ -62,7 +62,7 @@ serialization.
 
 ## Serialization & boundary translation
 
-- `toErrorPayload(error)`: `CancellationError` → `internal`; any coded error (incl. deserialized shapes) → its code + `retryable` from `errorInfo`; anything else → `internal`.
+- `toErrorPayload(error)`: any coded error (incl. deserialized shapes) → its code + `retryable` from `errorInfo`; anything else → `internal`.
 - `fromErrorPayload(payload)`: rehydrates a `KimiError` for in-process `instanceof` / `isCodedError` use at the SDK/RPC boundary.
 - `isCodedError(error)`: structural guard (checks `code` against the registry), so it works for both `KimiError` instances and plain objects revived from a payload.
 - The registry is populated when the facade is imported (the package `index.ts` re-exports it); tests that import a single domain get that domain's codes via its self-registration. `errorInfo` falls back to `{ title: code, retryable, public: true }` for any unregistered code.

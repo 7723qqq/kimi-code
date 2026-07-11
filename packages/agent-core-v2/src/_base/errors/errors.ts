@@ -56,6 +56,20 @@ export function isKimiError(error: unknown): error is KimiError {
   return error instanceof KimiError;
 }
 
+/**
+ * Follow `cause` links out of `KimiError` wrappers down to the underlying raw
+ * error. Boundary-translated errors carry the original provider/fs error as
+ * `cause`, so predicates that classify raw error shapes (retryability,
+ * status codes) test the unwrapped value.
+ */
+export function unwrapErrorCause(error: unknown): unknown {
+  let current = error;
+  while (current instanceof KimiError && current.cause !== undefined) {
+    current = current.cause;
+  }
+  return current;
+}
+
 export class NotImplementedError extends KimiError {
   constructor(feature?: string) {
     super(

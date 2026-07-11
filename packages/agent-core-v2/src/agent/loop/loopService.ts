@@ -19,7 +19,8 @@ import { randomUUID } from 'node:crypto';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { isUserCancellation } from '#/_base/utils/abort';
+import { isAbortError, isUserCancellation } from '#/_base/utils/abort';
+import { toErrorMessage } from '#/_base/errors/errorMessage';
 import type {
   AssistantDeltaEvent,
   ThinkingDeltaEvent,
@@ -43,12 +44,8 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { LOOP_CONTROL_SECTION, type LoopControl } from './configSection';
 import {
   createMaxStepsExceededError,
-  errorMessage,
-  isAbortError,
-  isMaxStepsExceededError,
-} from './errors';
-import {
   IAgentLoopService,
+  isMaxStepsExceededError,
   type LoopRunOptions,
   type AfterStepContext,
   type LoopRunResult,
@@ -161,19 +158,25 @@ export class AgentLoopService implements IAgentLoopService {
             this.stepQueue.enqueue(new ContinuationStepRequest());
           }
         } catch (error) {
+          // ① Control flow first: cancellation is not an error. It never
+          // reaches the error events, the onError hook, or the failure path —
+          // `signal` is the single source of truth for turn cancellation.
           if (isAbortError(error) || signal.aborted) {
             const abortReason = signal.reason ?? error;
             this.emitStepInterrupted(
               turnId,
               activeStep,
               'aborted',
-              isUserCancellation(abortReason) ? undefined : errorMessage(abortReason),
+              isUserCancellation(abortReason) ? undefined : toErrorMessage(abortReason),
             );
             return { type: 'cancelled', reason: abortReason, steps };
           }
 
+          // ② Failures from down-stack arrive already coded (provider errors
+          // are translated at the model boundary). Report the interruption,
+          // then let onError handlers (e.g. full-compaction) opt into recovery.
           const reason: LoopInterruptReason = isMaxStepsExceededError(error) ? 'max_steps' : 'error';
-          this.emitStepInterrupted(turnId, activeStep, reason, errorMessage(error));
+          this.emitStepInterrupted(turnId, activeStep, reason, toErrorMessage(error));
 
           const context = { turnId, step: activeStep, signal, error, retry: false };
           try {
@@ -181,6 +184,8 @@ export class AgentLoopService implements IAgentLoopService {
           } catch (hookError) {
             return { type: 'failed', error: hookError, steps };
           }
+
+          // ③ Recover by retrying the failed driver, or fail the turn.
           if (context.retry && failedDriver !== undefined) {
             // Retry jumps the queue: the failed driver re-runs as the very next
             // step. It is already materialized, so its messages are not

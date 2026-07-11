@@ -1,5 +1,6 @@
 import type { TokenUsage } from '#/app/llmProtocol/usage';
 
+import { isAbortError } from '#/_base/utils/abort';
 import {
   type AgentTask,
   type AgentTaskInfoBase,
@@ -30,10 +31,6 @@ declare module '#/agent/task/types' {
   interface AgentTaskInfoByKind {
     readonly agent: SubagentTaskInfo;
   }
-}
-
-function isAbortError(err: unknown): boolean {
-  return err instanceof Error && err.name === 'AbortError';
 }
 
 function errorMessage(err: unknown): string {

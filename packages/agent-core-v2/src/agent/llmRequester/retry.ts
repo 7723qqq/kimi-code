@@ -44,10 +44,6 @@ export function retryErrorFields(error: unknown): RetryErrorFields {
   };
 }
 
-export function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
-}
-
 function sleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, delayMs);
@@ -57,5 +53,12 @@ function sleep(delayMs: number): Promise<void> {
 function maybeStatusCode(error: unknown): number | undefined {
   if (typeof error !== 'object' || error === null) return undefined;
   const statusCode = (error as { statusCode?: unknown }).statusCode;
-  return typeof statusCode === 'number' ? statusCode : undefined;
+  if (typeof statusCode === 'number') return statusCode;
+  // Boundary-translated errors carry the HTTP status in `details`.
+  const details = (error as { details?: unknown }).details;
+  if (details !== null && typeof details === 'object') {
+    const detailsStatus = (details as { statusCode?: unknown }).statusCode;
+    if (typeof detailsStatus === 'number') return detailsStatus;
+  }
+  return undefined;
 }

@@ -1,12 +1,23 @@
 /**
  * `protocol` domain error codes — LLM wire API failures raised while driving
- * a Model's `request(...)` through the protocol adapter registry.
+ * a Model's `request(...)` through the protocol adapter registry — plus
+ * `translateProviderError`, the boundary translation that converts raw
+ * `llmProtocol` provider errors into coded `KimiError`s.
  *
  * Registered at module load. Historical name `ChatProviderErrors` is retained
  * as a re-exported alias so existing call sites don't have to migrate.
  */
 
-import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
+import { CoreErrors, registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
+import { KimiError, isKimiError } from '#/_base/errors/errors';
+import {
+  APIConnectionError,
+  APIContextOverflowError,
+  APIEmptyResponseError,
+  APIStatusError,
+  APITimeoutError,
+  ChatProviderError,
+} from '#/app/llmProtocol/errors';
 
 export const ProtocolErrors = {
   codes: {
@@ -15,8 +26,9 @@ export const ProtocolErrors = {
     PROVIDER_RATE_LIMIT: 'provider.rate_limit',
     PROVIDER_AUTH_ERROR: 'provider.auth_error',
     PROVIDER_CONNECTION_ERROR: 'provider.connection_error',
+    CONTEXT_OVERFLOW: 'context.overflow',
   },
-  retryable: ['provider.rate_limit', 'provider.connection_error'],
+  retryable: ['provider.rate_limit', 'provider.connection_error', 'context.overflow'],
   info: {
     'provider.rate_limit': {
       title: 'Provider rate limit',
@@ -36,6 +48,12 @@ export const ProtocolErrors = {
       public: true,
       action: 'Check provider credentials and authentication configuration.',
     },
+    'context.overflow': {
+      title: 'Context overflow',
+      retryable: true,
+      public: true,
+      action: 'Compact the conversation or retry with fewer tokens.',
+    },
   },
 } as const satisfies ErrorDomain;
 
@@ -43,3 +61,72 @@ export const ProtocolErrors = {
 export const ChatProviderErrors = ProtocolErrors;
 
 registerErrorDomain(ProtocolErrors);
+
+/**
+ * Boundary translation from raw `llmProtocol` provider errors into coded
+ * `KimiError`s. Idempotent: a `KimiError` passes through untouched. The raw
+ * error is preserved as `cause` and HTTP fields ride in `details`, so
+ * up-stack consumers branch on `code` + `details` (or unwrap `cause`)
+ * instead of importing provider classes. Abort-shaped errors are control
+ * flow, not provider failures — callers must branch on them before calling.
+ */
+export function translateProviderError(error: unknown): KimiError {
+  if (isKimiError(error)) {
+    return error;
+  }
+  if (error instanceof APIStatusError) {
+    const code =
+      error instanceof APIContextOverflowError
+        ? ProtocolErrors.codes.CONTEXT_OVERFLOW
+        : error.statusCode === 429
+          ? ProtocolErrors.codes.PROVIDER_RATE_LIMIT
+          : error.statusCode === 401 || error.statusCode === 403
+            ? ProtocolErrors.codes.PROVIDER_AUTH_ERROR
+            : ProtocolErrors.codes.PROVIDER_API_ERROR;
+    return new KimiError(code, sanitizeStatusErrorMessage(error.message), {
+      name: error.name,
+      cause: error,
+      details: { statusCode: error.statusCode, requestId: error.requestId },
+    });
+  }
+  if (error instanceof APIConnectionError || error instanceof APITimeoutError) {
+    return new KimiError(ProtocolErrors.codes.PROVIDER_CONNECTION_ERROR, error.message, {
+      name: error.name,
+      cause: error,
+    });
+  }
+  if (error instanceof APIEmptyResponseError) {
+    const code =
+      error.finishReason === 'filtered'
+        ? ProtocolErrors.codes.PROVIDER_FILTERED
+        : ProtocolErrors.codes.PROVIDER_API_ERROR;
+    return new KimiError(code, error.message, {
+      name: error.name,
+      cause: error,
+      details: {
+        finishReason: error.finishReason,
+        rawFinishReason: error.rawFinishReason,
+      },
+    });
+  }
+  if (error instanceof ChatProviderError) {
+    return new KimiError(ProtocolErrors.codes.PROVIDER_API_ERROR, error.message, {
+      name: error.name,
+      cause: error,
+    });
+  }
+  if (error instanceof Error) {
+    return new KimiError(CoreErrors.codes.INTERNAL, error.message, {
+      name: error.name,
+      cause: error,
+    });
+  }
+  return new KimiError(CoreErrors.codes.INTERNAL, String(error), { cause: error });
+}
+
+function sanitizeStatusErrorMessage(message: string): string {
+  const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(message);
+  const extracted = titleMatch?.[1]?.trim();
+  const normalized = extracted !== undefined && extracted.length > 0 ? extracted : message;
+  return normalized.replaceAll('\r', '');
+}

@@ -1,48 +1,80 @@
-import { APIStatusError } from '#/app/llmProtocol/errors';
 import { describe, expect, it } from 'vitest';
 
-import { toErrorPayload } from '#/_base/errors/serialize';
+// Side effect: populate the error-code registry through the facade, the way
+// the package entrypoint does.
+import '#/errors';
 
-const NGINX_413_HTML =
-  '413 <html>\r\n<head><title>413 Request Entity Too Large</title></head>\r\n' +
-  '<body>\r\n<center><h1>413 Request Entity Too Large</h1></center>\r\n' +
-  '<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n';
+import { KimiError } from '#/_base/errors/errors';
+import { fromErrorPayload, toErrorPayload } from '#/_base/errors/serialize';
 
-describe('toErrorPayload — APIStatusError message sanitization', () => {
-  it('extracts the <title> from an nginx 413 HTML body and strips CR', () => {
-    const payload = toErrorPayload(new APIStatusError(413, NGINX_413_HTML));
+describe('toErrorPayload', () => {
+  it('passes a coded error through with registry retryability and details', () => {
+    const payload = toErrorPayload(
+      new KimiError('provider.rate_limit', 'slow down', {
+        name: 'APIStatusError',
+        details: { statusCode: 429 },
+      }),
+    );
+    expect(payload).toMatchObject({
+      code: 'provider.rate_limit',
+      message: 'slow down',
+      name: 'APIStatusError',
+      details: { statusCode: 429 },
+      retryable: true,
+    });
+  });
+
+  it('collapses an uncoded Error to internal', () => {
+    const payload = toErrorPayload(new Error('boom'));
+    expect(payload.code).toBe('internal');
+    expect(payload.message).toBe('boom');
+  });
+
+  it('stringifies non-error throws', () => {
+    expect(toErrorPayload('nope').code).toBe('internal');
+    expect(toErrorPayload(undefined).code).toBe('internal');
+  });
+
+  it('serializes the cause chain recursively', () => {
+    const payload = toErrorPayload(
+      new KimiError('provider.api_error', 'translated', {
+        cause: new KimiError('provider.connection_error', 'socket reset'),
+      }),
+    );
     expect(payload.code).toBe('provider.api_error');
-    expect(payload.message).toBe('413 Request Entity Too Large');
-    expect(payload.details).toMatchObject({ statusCode: 413 });
+    expect(payload.cause).toMatchObject({
+      code: 'provider.connection_error',
+      message: 'socket reset',
+    });
   });
 
-  it('extracts the <title> from other nginx HTML error pages', () => {
-    const html =
-      '<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n' +
-      '<body><center><h1>502 Bad Gateway</h1></center></body></html>';
-    const payload = toErrorPayload(new APIStatusError(502, html));
-    expect(payload.message).toBe('502 Bad Gateway');
+  it('caps cause recursion for pathologically deep chains', () => {
+    let error: KimiError | undefined;
+    for (let i = 0; i < 20; i += 1) {
+      error = new KimiError('internal', `layer ${i}`, error === undefined ? undefined : { cause: error });
+    }
+    const payload = toErrorPayload(error!);
+    let depth = 0;
+    let current = payload;
+    while (current.cause !== undefined) {
+      depth += 1;
+      current = current.cause;
+    }
+    expect(depth).toBeLessThanOrEqual(8);
   });
+});
 
-  it('leaves a plain-text message unchanged', () => {
-    const payload = toErrorPayload(new APIStatusError(500, 'Internal Server Error'));
-    expect(payload.message).toBe('Internal Server Error');
-  });
-
-  it('strips carriage returns from a non-HTML message', () => {
-    const payload = toErrorPayload(new APIStatusError(500, 'line1\r\nline2\r'));
-    expect(payload.message).toBe('line1\nline2');
-  });
-
-  it('falls back to the original message when the <title> is empty', () => {
-    const html = '<html><head><title>   </title></head><body>x</body></html>';
-    const payload = toErrorPayload(new APIStatusError(500, html));
-    expect(payload.message).toContain('<html>');
-  });
-
-  it('does not affect 429 / 401 code mapping, only the message', () => {
-    const html = '<html><head><title>429 Too Many Requests</title></head></html>';
-    expect(toErrorPayload(new APIStatusError(429, html)).code).toBe('provider.rate_limit');
-    expect(toErrorPayload(new APIStatusError(401, 'Unauthorized')).code).toBe('provider.auth_error');
+describe('fromErrorPayload', () => {
+  it('rehydrates a KimiError with its cause chain', () => {
+    const original = new KimiError('provider.api_error', 'outer', {
+      details: { statusCode: 500 },
+      cause: new KimiError('provider.connection_error', 'inner'),
+    });
+    const revived = fromErrorPayload(toErrorPayload(original));
+    expect(revived).toBeInstanceOf(KimiError);
+    expect(revived.code).toBe('provider.api_error');
+    expect(revived.details).toMatchObject({ statusCode: 500 });
+    expect(revived.cause).toBeInstanceOf(KimiError);
+    expect((revived.cause as KimiError).code).toBe('provider.connection_error');
   });
 });

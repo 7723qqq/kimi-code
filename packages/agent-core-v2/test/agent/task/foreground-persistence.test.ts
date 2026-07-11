@@ -15,6 +15,8 @@ import type { IProcess } from '#/session/process/processRunner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { TERMINAL_STATUSES } from '#/agent/task/types';
 import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
 import {
   taskServices,
@@ -87,6 +89,37 @@ function registerForeground(
   });
 }
 
+/**
+ * Detached tasks that reached a terminal state enqueue a notification onto
+ * the loop. Resume-compare requires it materialized in the live context (the
+ * replayed side re-derives it from the persisted record), so drain the queue
+ * with one turn before `expectResumeMatches`.
+ */
+async function drainPendingNotifications(
+  ctx: TestAgentContext,
+  background: IAgentTaskService,
+): Promise<void> {
+  const expectsNotification = background
+    .list(false)
+    .some(
+      (task) =>
+        TERMINAL_STATUSES.has(task.status) &&
+        task.detached !== false &&
+        task.terminalNotificationSuppressed !== true,
+    );
+  if (!expectsNotification) return;
+  await vi.waitFor(() => {
+    const delivered = ctx.allEvents.filter((e) => e.event === 'task.notified').length;
+    expect(delivered).toBeGreaterThanOrEqual(1);
+  });
+  if (!ctx.get(IAgentLoopService).hasPendingRequests()) return;
+  ctx.mockNextResponse({ type: 'text', text: 'notification drain ack' });
+  await ctx.rpc.prompt({
+    input: [{ type: 'text', text: 'drain notifications' }],
+  });
+  await ctx.untilTurnEnd();
+}
+
 describe('AgentTaskService — foreground persistence', () => {
   let sessionDir: string;
   let persistence: ReturnType<typeof createAgentTaskPersistence>;
@@ -102,6 +135,7 @@ describe('AgentTaskService — foreground persistence', () => {
 
   afterEach(async () => {
     try {
+      await drainPendingNotifications(ctx, background);
       await ctx.expectResumeMatches();
     } finally {
       await ctx.dispose();

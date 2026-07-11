@@ -26,7 +26,7 @@ import {
 } from '#/_base/tools/args-validator';
 import { PathSecurityError } from '#/_base/tools/policies/path-access';
 import { isUserCancellation } from "#/_base/utils/abort";
-import { isAbortError } from '#/agent/loop/errors';
+import { isAbortError } from '#/_base/utils/abort';
 import { IEventBus } from '#/app/event/eventBus';
 import { ToolAccesses } from '#/agent/tool/tool-access';
 import type { ExecutableTool, ExecutableToolResult, RunnableToolExecution, ToolExecution, ToolResult, ToolUpdate } from '#/agent/tool/toolContract';

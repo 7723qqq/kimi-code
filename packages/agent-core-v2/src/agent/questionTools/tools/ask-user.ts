@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { CoreErrors } from '#/_base/errors/codes';
 import { KimiError } from '#/_base/errors/errors';
 import { toInputJsonSchema } from '#/_base/tools/support/input-schema';
-import { isAbortError } from '#/agent/loop/errors';
+import { isAbortError } from '#/_base/utils/abort';
 import { IAgentTaskService } from '#/agent/task/task';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { TelemetryProperties } from '#/app/telemetry/telemetry';

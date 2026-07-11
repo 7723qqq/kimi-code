@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { isAbortError } from '#/agent/loop/errors';
 import {
   abortError,
   abortable,
+  isAbortError,
   isUserCancellation,
   userCancellationReason,
 } from '#/_base/utils/abort';

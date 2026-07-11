@@ -306,6 +306,7 @@ export interface KimiErrorPayload {
   readonly name?: string;
   readonly details?: Record<string, unknown>;
   readonly retryable: boolean;
+  readonly cause?: KimiErrorPayload;
 }
 
 export interface TaskInfoBase {
@@ -1181,12 +1182,17 @@ export const kimiErrorCodeSchema = z.enum([
   'internal',
 ]) satisfies z.ZodType<KimiErrorCode>;
 
-export const kimiErrorPayloadSchema = z.object({
+export const kimiErrorPayloadSchema: z.ZodType<KimiErrorPayload> = z.lazy(
+  () => kimiErrorPayloadObjectSchema,
+);
+
+const kimiErrorPayloadObjectSchema = z.object({
   code: kimiErrorCodeSchema,
   message: z.string(),
   name: z.string().optional(),
   details: z.record(z.string(), z.unknown()).optional(),
   retryable: z.boolean(),
+  cause: kimiErrorPayloadSchema.optional(),
 }) satisfies z.ZodType<KimiErrorPayload>;
 
 export const taskInfoBaseSchema = z.object({
@@ -1400,7 +1406,7 @@ export const pluginCommandActivatedEventSchema = z.object({
   trigger: z.literal('user-slash'),
 }) satisfies z.ZodType<PluginCommandActivatedEvent>;
 
-export const errorEventSchema = kimiErrorPayloadSchema.extend({
+export const errorEventSchema = kimiErrorPayloadObjectSchema.extend({
   type: z.literal('error'),
 }) satisfies z.ZodType<ErrorEvent>;
 

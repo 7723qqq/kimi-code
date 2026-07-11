@@ -1,9 +1,12 @@
 /**
- * Wire serialization of errors — converts between thrown values and the
- * portable `ErrorPayload` that crosses process / language boundaries.
+ * `errors` domain (cross-cutting) — wire serialization of thrown values.
+ *
+ * Converts between thrown values and the portable `ErrorPayload` that crosses
+ * process / language boundaries, recursively through the `cause` chain. Knows
+ * only coded errors and the core codes: business-domain translation (e.g.
+ * provider API errors) happens at the owning domain's boundary before errors
+ * reach this layer, so `_base/errors` never imports a business domain.
  */
-
-import { APIConnectionError, APIEmptyResponseError, APIStatusError, APITimeoutError, ChatProviderError } from '#/app/llmProtocol/errors';
 
 import { CoreErrors, errorInfo, isErrorCode } from './codes';
 import type { ErrorCode } from './codes';
@@ -15,6 +18,7 @@ export interface ErrorPayload {
   readonly name?: string;
   readonly details?: Readonly<Record<string, unknown>>;
   readonly retryable: boolean;
+  readonly cause?: ErrorPayload;
 }
 
 export type KimiErrorPayload = ErrorPayload;
@@ -26,11 +30,8 @@ export interface CodedErrorShape {
   readonly details?: Readonly<Record<string, unknown>>;
 }
 
-const PROVIDER_API_ERROR: ErrorCode = 'provider.api_error';
-const PROVIDER_FILTERED: ErrorCode = 'provider.filtered';
-const PROVIDER_RATE_LIMIT: ErrorCode = 'provider.rate_limit';
-const PROVIDER_AUTH_ERROR: ErrorCode = 'provider.auth_error';
-const PROVIDER_CONNECTION_ERROR: ErrorCode = 'provider.connection_error';
+/** Caps `cause` recursion so cyclic / pathological chains stay serializable. */
+const MAX_CAUSE_DEPTH = 8;
 
 export function isCodedError(error: unknown): error is CodedErrorShape {
   if (error === null || typeof error !== 'object') {
@@ -57,14 +58,23 @@ export function makeErrorPayload(
   };
 }
 
-function sanitizeStatusErrorMessage(message: string): string {
-  const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(message);
-  const extracted = titleMatch?.[1]?.trim();
-  const normalized = extracted !== undefined && extracted.length > 0 ? extracted : message;
-  return normalized.replaceAll('\r', '');
+export function toErrorPayload(error: unknown): ErrorPayload {
+  return toErrorPayloadAtDepth(error, 0);
 }
 
-export function toErrorPayload(error: unknown): ErrorPayload {
+function toErrorPayloadAtDepth(error: unknown, depth: number): ErrorPayload {
+  const payload = toShallowErrorPayload(error);
+  if (depth >= MAX_CAUSE_DEPTH) {
+    return payload;
+  }
+  const cause = readErrorCause(error);
+  if (cause === undefined) {
+    return payload;
+  }
+  return { ...payload, cause: toErrorPayloadAtDepth(cause, depth + 1) };
+}
+
+function toShallowErrorPayload(error: unknown): ErrorPayload {
   if (isCodedError(error)) {
     return {
       code: error.code,
@@ -74,41 +84,17 @@ export function toErrorPayload(error: unknown): ErrorPayload {
       retryable: errorInfo(error.code).retryable,
     };
   }
-  if (error instanceof APIStatusError) {
-    const code =
-      error.statusCode === 429
-        ? PROVIDER_RATE_LIMIT
-        : error.statusCode === 401 || error.statusCode === 403
-          ? PROVIDER_AUTH_ERROR
-          : PROVIDER_API_ERROR;
-    return makeErrorPayload(code, sanitizeStatusErrorMessage(error.message), {
-      name: error.name,
-      details: {
-        statusCode: error.statusCode,
-        requestId: error.requestId,
-      },
-    });
-  }
-  if (error instanceof APIConnectionError || error instanceof APITimeoutError) {
-    return makeErrorPayload(PROVIDER_CONNECTION_ERROR, error.message, { name: error.name });
-  }
-  if (error instanceof APIEmptyResponseError) {
-    const code = error.finishReason === 'filtered' ? PROVIDER_FILTERED : PROVIDER_API_ERROR;
-    return makeErrorPayload(code, error.message, {
-      name: error.name,
-      details: {
-        finishReason: error.finishReason,
-        rawFinishReason: error.rawFinishReason,
-      },
-    });
-  }
-  if (error instanceof ChatProviderError) {
-    return makeErrorPayload(PROVIDER_API_ERROR, error.message, { name: error.name });
-  }
   if (error instanceof Error) {
     return makeErrorPayload(CoreErrors.codes.INTERNAL, error.message, { name: error.name });
   }
   return makeErrorPayload(CoreErrors.codes.INTERNAL, String(error));
+}
+
+function readErrorCause(error: unknown): unknown {
+  if (error === null || typeof error !== 'object') {
+    return undefined;
+  }
+  return (error as { readonly cause?: unknown }).cause;
 }
 
 export const toKimiErrorPayload = toErrorPayload;
@@ -117,5 +103,6 @@ export function fromErrorPayload(payload: ErrorPayload): KimiError {
   return new KimiError(payload.code, payload.message, {
     name: payload.name,
     details: payload.details,
+    cause: payload.cause === undefined ? undefined : fromErrorPayload(payload.cause),
   });
 }

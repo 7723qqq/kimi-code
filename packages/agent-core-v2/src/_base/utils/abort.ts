@@ -9,6 +9,16 @@ export function abortError(message = 'Aborted'): Error {
   return error;
 }
 
+/**
+ * Control-flow check for abort-shaped errors (`DOMException('AbortError')`,
+ * `UserCancellationError`, default `AbortController` reasons). Cancellation is
+ * not an error — catch sites must branch on this (or `signal.aborted`) before
+ * any error handling.
+ */
+export function isAbortError(error: unknown): error is Error {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
 export class UserCancellationError extends Error {
   readonly userCancelled = true;
 

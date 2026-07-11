@@ -10,6 +10,7 @@
  * `AgentTaskService` terminal notifications.
  */
 
+import { isAbortError } from '#/_base/utils/abort';
 import {
   type AgentTask,
   type AgentTaskInfoBase,
@@ -27,10 +28,6 @@ declare module '#/agent/task/types' {
   interface AgentTaskInfoByKind {
     readonly question: QuestionTaskInfo;
   }
-}
-
-function isAbortError(err: unknown): boolean {
-  return err instanceof Error && err.name === 'AbortError';
 }
 
 function errorMessage(err: unknown): string {

@@ -1,8 +1,32 @@
 import { createDecorator } from '#/_base/di/instantiation';
+import { KimiError, isKimiError, type KimiErrorOptions } from '#/_base/errors/errors';
 import type { FinishReason } from '#/app/llmProtocol/finishReason';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
 import type { Hooks } from '#/hooks';
+import { LoopErrors } from './errors';
 import type { StepRequest } from './stepRequest';
+
+export type LoopErrorCode = (typeof LoopErrors.codes)[keyof typeof LoopErrors.codes];
+
+export class LoopError extends KimiError {
+  constructor(code: LoopErrorCode, message: string, options?: KimiErrorOptions) {
+    super(code, message, options);
+    this.name = 'LoopError';
+  }
+}
+
+export function createMaxStepsExceededError(maxSteps: number, message?: string): LoopError {
+  return new LoopError(
+    LoopErrors.codes.LOOP_MAX_STEPS_EXCEEDED,
+    message ??
+      `Turn exceeded maxSteps=${maxSteps}. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn), or run "/update-config" to update it, then "/reload".`,
+    { details: { maxSteps } },
+  );
+}
+
+export function isMaxStepsExceededError(error: unknown): boolean {
+  return isKimiError(error) && error.code === LoopErrors.codes.LOOP_MAX_STEPS_EXCEEDED;
+}
 
 export interface BeforeStepContext {
   readonly turnId: number;

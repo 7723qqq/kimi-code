@@ -6,6 +6,7 @@ import { join } from 'pathe';
 import type { IProcess } from '#/session/process/processRunner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { TERMINAL_STATUSES } from '#/agent/task/types';
 import { TaskOutputTool } from '#/agent/task/tools/task-output';
 import { ProcessTask } from '#/os/backends/node-local/tools/process-task';
@@ -80,17 +81,30 @@ async function waitForTaskNotifications(
   );
   if (tasks.length === 0) return;
 
+  // Enqueue-only delivery: live notifications wait on the loop queue until a
+  // turn drains them. Wait for every enqueue, then drive one drain turn so
+  // they materialize into context in queue order.
   await vi.waitFor(() => {
-    const origins = ctx.context.get().map((message) => message.origin);
-    for (const task of tasks) {
-      expect(origins).toContainEqual({
-        kind: 'task',
-        taskId: task.taskId,
-        status: task.status,
-        notificationId: `task:${task.taskId}:${task.status}`,
-      });
-    }
+    const delivered = ctx.allEvents.filter((e) => e.event === 'task.notified').length;
+    expect(delivered).toBeGreaterThanOrEqual(tasks.length);
   });
+  if (ctx.get(IAgentLoopService).hasPendingRequests()) {
+    ctx.mockNextResponse({ type: 'text', text: 'notification drain ack' });
+    await ctx.rpc.prompt({
+      input: [{ type: 'text', text: 'drain notifications' }],
+    });
+    await ctx.untilTurnEnd();
+  }
+
+  const origins = ctx.context.get().map((message) => message.origin);
+  for (const task of tasks) {
+    expect(origins).toContainEqual({
+      kind: 'task',
+      taskId: task.taskId,
+      status: task.status,
+      notificationId: `task:${task.taskId}:${task.status}`,
+    });
+  }
 }
 
 function immediateProcess(exitCode: number, stdoutText = ''): IProcess {

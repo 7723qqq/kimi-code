@@ -18,6 +18,7 @@
  */
 
 import { AsyncEventQueue } from '#/_base/asyncEventQueue';
+import { isAbortError } from '#/_base/utils/abort';
 import { type ModelCapability } from '#/app/llmProtocol/capability';
 import { APIStatusError } from '#/app/llmProtocol/errors';
 import { type GenerationKwargs } from '#/app/llmProtocol/kimiOptions';
@@ -26,7 +27,8 @@ import { type GenerateCallbacks, type MaxCompletionTokensOptions, type ProviderR
 import { type ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
 import type { ChatProvider } from '#/app/llmProtocol/provider';
 import type { Protocol, ProtocolProviderOptions } from '#/app/protocol/protocol';
-import { generate } from '#/app/llmProtocol/generate';
+import { generate, type GenerateResult } from '#/app/llmProtocol/generate';
+import { translateProviderError } from '#/app/protocol/errors';
 import { type ProtocolAdapterRegistry } from '#/app/protocol/protocolAdapterRegistry';
 import { ErrorCodes, KimiError } from '#/errors';
 
@@ -245,31 +247,40 @@ export class ModelImpl implements Model {
       },
     };
 
-    const result = await this.runWithAuthRefresh((auth) => {
-      requestStartedAt = Date.now();
-      return generate(
-        provider,
-        input.systemPrompt,
-        [...input.tools],
-        [...input.messages],
-        callbacks,
-        {
-          signal,
-          auth,
-          onRequestStart: () => {
-            requestStartedAt = Date.now();
+    let result: GenerateResult;
+    try {
+      result = await this.runWithAuthRefresh((auth) => {
+        requestStartedAt = Date.now();
+        return generate(
+          provider,
+          input.systemPrompt,
+          [...input.tools],
+          [...input.messages],
+          callbacks,
+          {
+            signal,
+            auth,
+            onRequestStart: () => {
+              requestStartedAt = Date.now();
+            },
+            onRequestSent: () => {
+              requestSentAt = Date.now();
+            },
+            onStreamEnd: (stats) => {
+              streamEndedAt = Date.now();
+              decodeStats = stats;
+            },
+            responseFormat: input.responseFormat,
           },
-          onRequestSent: () => {
-            requestSentAt = Date.now();
-          },
-          onStreamEnd: (stats) => {
-            streamEndedAt = Date.now();
-            decodeStats = stats;
-          },
-          responseFormat: input.responseFormat,
-        },
-      );
-    });
+        );
+      });
+    } catch (error) {
+      // Cancellation is control flow, not a provider failure — abort shapes
+      // pass through untouched. Everything else crosses the provider boundary
+      // here, so it is translated into a coded `KimiError` exactly once.
+      if (isAbortError(error) || signal?.aborted === true) throw error;
+      throw translateProviderError(error);
+    }
 
     // Non-streaming providers still populate `result.message`; surface its
     // content and tool calls as parts so downstream consumers see them.

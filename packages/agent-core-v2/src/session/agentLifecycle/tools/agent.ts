@@ -28,7 +28,7 @@ import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMo
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTurnService } from '#/agent/turn/turn';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
-import { isAbortError } from '#/agent/loop/errors';
+import { isAbortError } from '#/_base/utils/abort';
 import { ToolAccesses } from '#/agent/tool/tool-access';
 import type {
   BuiltinTool,
