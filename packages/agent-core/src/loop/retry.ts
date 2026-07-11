@@ -1,6 +1,4 @@
 import { sleep } from '@antfu/utils';
-import { isProviderRateLimitError, APIStatusError } from '@moonshot-ai/kosong';
-import * as retry from 'retry';
 
 import type { Logger } from '#/logging/types';
 
@@ -9,32 +7,18 @@ import type { LoopEventDispatcher } from './events';
 import { isAbortError } from './errors';
 import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
 
-export const DEFAULT_MAX_RETRY_ATTEMPTS = 5;
+export const DEFAULT_MAX_RETRY_ATTEMPTS = 3;
 
-const RETRY_MIN_TIMEOUT_MS = 300;
-const RETRY_MAX_TIMEOUT_MS = 5000;
+const BASE_DELAY_MS = 500;
+// Per-attempt backoff cap (32s). With the default 3 attempts the ramp
+// (0.5s, 1s) never reaches the cap, so interactive runs are unaffected; it
+// only matters for high-attempt configs (e.g. eval harnesses with
+// `max_retries_per_step = 10`), where it lets retries ride out multi-minute
+// provider overload instead of giving up after a few seconds of backoff.
+const MAX_DELAY_MS = 32_000;
 const RETRY_FACTOR = 2;
-
-// Rate-limit errors (e.g. Xunfei TPM limit code 11210) need much longer
-// backoff than transient server errors. TPM limits refresh per minute, so
-// a 5s backoff is useless. Use 15s minimum with a higher ceiling.
-const RATE_LIMIT_RETRY_MIN_TIMEOUT_MS = 15_000;
-const RATE_LIMIT_RETRY_MAX_TIMEOUT_MS = 60_000;
-const RATE_LIMIT_RETRY_FACTOR = 2;
-
-// Server overload / 503 / "system is busy" errors need longer backoff than
-// generic transient errors but shorter than rate-limit. The upstream may
-// need 5-10s to recover from a temporary overload spike.
-const OVERLOAD_RETRY_MIN_TIMEOUT_MS = 5_000;
-const OVERLOAD_RETRY_MAX_TIMEOUT_MS = 30_000;
-const OVERLOAD_RETRY_FACTOR = 2;
-
-// ±25% jitter on all backoff paths. Without it, concurrent turns hitting the
-// same 429/503 retry at identical timestamps re-collide. Mirrors the jitter
-// applied in subagent-batch so the whole retry stack is consistent.
-export function applyJitter(delayMs: number): number {
-  return Math.round(delayMs * (0.75 + Math.random() * 0.5));
-}
+// Up to 25% jitter on top of the exponential base to avoid herd retries.
+const JITTER_FACTOR = 0.25;
 
 export interface ChatWithRetryInput {
   readonly llm: LLM;
@@ -60,6 +44,8 @@ export async function chatWithRetry(input: ChatWithRetryInput): Promise<LLMChatR
     }
   }
 
+  const delays = retryBackoffDelays(maxAttempts);
+
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await input.llm.chat(paramsForAttempt(input, attempt, maxAttempts));
@@ -69,11 +55,10 @@ export async function chatWithRetry(input: ChatWithRetryInput): Promise<LLMChatR
         throw error;
       }
 
-      const delayMs = isProviderRateLimitError(error)
-        ? rateLimitBackoffDelay(attempt)
-        : isOverloadError(error)
-          ? overloadBackoffDelay(attempt)
-          : genericBackoffDelay(attempt);
+      // A server `Retry-After` (carried on the error) overrides the computed
+      // backoff. The chosen delay is what gets reported on the
+      // `step.retrying` event via `delayMs` either way.
+      const delayMs = readRetryAfterMs(error) ?? delays[attempt - 1] ?? 0;
       input.params.signal.throwIfAborted();
       input.dispatchEvent({
         type: 'step.retrying',
@@ -127,51 +112,28 @@ function paramsForAttempt(
   };
 }
 
-function genericBackoffDelay(attempt: number): number {
-  const base = retry.createTimeout(Math.max(0, attempt - 1), {
-    minTimeout: RETRY_MIN_TIMEOUT_MS,
-    maxTimeout: RETRY_MAX_TIMEOUT_MS,
-    factor: RETRY_FACTOR,
-    randomize: false,
-  });
-  return applyJitter(base);
-}
-
 export function retryBackoffDelays(maxAttempts: number): number[] {
-  return retry.timeouts({
-    retries: Math.max(maxAttempts - 1, 0),
-    minTimeout: RETRY_MIN_TIMEOUT_MS,
-    maxTimeout: RETRY_MAX_TIMEOUT_MS,
-    factor: RETRY_FACTOR,
-    randomize: false,
-  }).map(applyJitter);
-}
-
-function rateLimitBackoffDelay(attempt: number): number {
-  const base = retry.createTimeout(Math.max(0, attempt - 1), {
-    minTimeout: RATE_LIMIT_RETRY_MIN_TIMEOUT_MS,
-    maxTimeout: RATE_LIMIT_RETRY_MAX_TIMEOUT_MS,
-    factor: RATE_LIMIT_RETRY_FACTOR,
-    randomize: false,
-  });
-  return applyJitter(base);
-}
-
-function overloadBackoffDelay(attempt: number): number {
-  const base = retry.createTimeout(Math.max(0, attempt - 1), {
-    minTimeout: OVERLOAD_RETRY_MIN_TIMEOUT_MS,
-    maxTimeout: OVERLOAD_RETRY_MAX_TIMEOUT_MS,
-    factor: OVERLOAD_RETRY_FACTOR,
-    randomize: false,
-  });
-  return applyJitter(base);
-}
-
-function isOverloadError(error: unknown): boolean {
-  if (error instanceof APIStatusError) {
-    return error.statusCode === 503;
+  // For attempt (1-based) the base delay is min(500ms * 2^(attempt-1), 32s),
+  // plus up to 25% jitter. Index i here is 0-based, so attempt = i + 1.
+  const count = Math.max(maxAttempts - 1, 0);
+  const delays: number[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const base = Math.min(BASE_DELAY_MS * Math.pow(RETRY_FACTOR, i), MAX_DELAY_MS);
+    delays.push(base + Math.random() * JITTER_FACTOR * base);
   }
-  return false;
+  return delays;
+}
+
+/**
+ * Server-requested backoff carried on a kosong `APIStatusError` (parsed from
+ * the `retry-after` response header). When present and positive it overrides
+ * the computed backoff — a server `Retry-After` directive takes precedence
+ * over the local exponential delay.
+ */
+function readRetryAfterMs(error: unknown): number | null {
+  if (typeof error !== 'object' || error === null) return null;
+  const value = (error as { retryAfterMs?: unknown }).retryAfterMs;
+  return typeof value === 'number' && value > 0 ? value : null;
 }
 
 export async function sleepForRetry(delayMs: number, signal: AbortSignal): Promise<void> {

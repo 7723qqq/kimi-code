@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 
 import { Hono } from 'hono';
 
@@ -94,6 +94,48 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Hono> {
       c.header('www-authenticate', 'Bearer realm="kimi-vis"');
       return c.json({ error: 'unauthorized', code: 'UNAUTHORIZED' }, 401);
     });
+  } else {
+    // CSRF defence for the loopback-no-auth mode: a malicious website on a
+    // different origin can send simple cross-origin POSTs (and some DELETEs
+    // via preflight) to `http://127.0.0.1:<port>/api/…` without the user's
+    // consent. Reject state-changing methods (POST / PUT / PATCH / DELETE)
+    // whose Origin or Referer header does not match the server's own host.
+    // Browser clients always send one of these headers on such requests;
+    // curl / scripts send neither, so they are unaffected.
+    const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+    api.use('*', async (c, next) => {
+      if (!unsafeMethods.has(c.req.method)) {
+        await next();
+        return;
+      }
+      const origin = c.req.header('origin');
+      const referer = c.req.header('referer');
+      if (origin === undefined && referer === undefined) {
+        // Non-browser client — allow.
+        await next();
+        return;
+      }
+      const expectedHost = new URL(`http://${c.req.header('host') ?? 'localhost'}`).host;
+      let allowed = false;
+      if (origin !== undefined) {
+        try {
+          allowed = new URL(origin).host === expectedHost;
+        } catch {
+          allowed = false;
+        }
+      }
+      if (!allowed && referer !== undefined) {
+        try {
+          allowed = new URL(referer).host === expectedHost;
+        } catch {
+          allowed = false;
+        }
+      }
+      if (!allowed) {
+        return c.json({ error: 'cross-origin request blocked', code: 'FORBIDDEN' }, 403);
+      }
+      await next();
+    });
   }
   api.route('/sessions', sessionsRoute(home));
   api.route('/sessions', sessionDetailRoute(home));
@@ -136,7 +178,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Hono> {
         }
         if (pathname === '/' || pathname === '') pathname = '/index.html';
         const resolved = resolve(publicDir, `.${pathname}`);
-        if (!resolved.startsWith(publicDir)) {
+        // Use `publicDir + sep` (not bare `publicDir`) so a sibling directory
+        // whose name is a string-prefix of publicDir (e.g. `/app/publicx`
+        // when publicDir is `/app/public`) does not bypass the containment
+        // check — `startsWith('/app/public')` would match `/app/publicx/…`.
+        if (resolved !== publicDir && !resolved.startsWith(publicDir + sep)) {
           return c.text('forbidden', 403);
         }
         try {
@@ -145,7 +191,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Hono> {
             const buf = await readFile(resolved);
             const body = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
             return new Response(body, {
-              headers: { 'content-type': mimeFor(resolved) },
+              headers: {
+                'content-type': mimeFor(resolved),
+                'x-content-type-options': 'nosniff',
+              },
             });
           }
         } catch {

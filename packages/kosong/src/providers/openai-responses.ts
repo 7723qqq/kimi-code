@@ -20,7 +20,6 @@ import type { TokenUsage } from '#/usage';
 import OpenAI from 'openai';
 
 import { usesOpenAIResponsesDeveloperRole } from './capability-registry';
-import { createSharedAgent } from '../http/undici-agent';
 import {
   convertOpenAIError,
   isMediaPart,
@@ -236,6 +235,13 @@ function formatResponsesErrorEvent(
   return `${codeText}: ${message}${paramText}`;
 }
 
+const EMBEDDED_STATUS_CODE_RE = /\bstatus_code\s*[:=]\s*(\d{3})\b/;
+
+function readEmbeddedStatusCode(message: string): number | undefined {
+  const match = EMBEDDED_STATUS_CODE_RE.exec(message);
+  return match === null ? undefined : Number(match[1]);
+}
+
 function errorFromOpenAIResponsesEvent(
   prefix: string,
   code: string | null,
@@ -247,7 +253,7 @@ function errorFromOpenAIResponsesEvent(
   if (isContextOverflowErrorCode(code)) {
     return new APIContextOverflowError(400, fullMessage);
   }
-  if (code === 'rate_limit_exceeded') {
+  if (code === 'rate_limit_exceeded' || readEmbeddedStatusCode(message) === 429) {
     return new APIProviderRateLimitError(fullMessage);
   }
   return new ChatProviderError(fullMessage);
@@ -759,41 +765,27 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
   private async *_convertStreamResponse(
     response: AsyncIterable<RawObject>,
   ): AsyncGenerator<StreamedMessagePart> {
-    // Accumulate tool-call argument deltas into arrays (O(1) per delta)
-    // rather than `+=` against the running string. The previous
-    // implementation re-copied the entire accumulated string on every
-    // delta, giving O(n^2) work for a tool call whose arguments
-    // stream in N pieces. The full string is only materialized when
-    // the suffix diff needs it (once per tool call).
-    const functionCallArgumentChunksByIndex = new Map<number | string, string[]>();
-    let unindexedFunctionCallArgumentChunks: string[] | undefined;
-
-    const joinChunks = (chunks: string[] | undefined): string =>
-      chunks === undefined ? '' : chunks.join('');
+    const functionCallArgumentsByIndex = new Map<number | string, string>();
+    let unindexedFunctionCallArguments: string | undefined;
 
     const hasFunctionCallArguments = (streamIndex: number | string | undefined): boolean =>
       streamIndex === undefined
-        ? unindexedFunctionCallArgumentChunks !== undefined
-        : functionCallArgumentChunksByIndex.has(streamIndex);
+        ? unindexedFunctionCallArguments !== undefined
+        : functionCallArgumentsByIndex.has(streamIndex);
 
     const getFunctionCallArguments = (streamIndex: number | string | undefined): string =>
       streamIndex === undefined
-        ? joinChunks(unindexedFunctionCallArgumentChunks)
-        : joinChunks(functionCallArgumentChunksByIndex.get(streamIndex));
+        ? (unindexedFunctionCallArguments as string)
+        : functionCallArgumentsByIndex.get(streamIndex)!;
 
-    const replaceFunctionCallArguments = (
+    const setFunctionCallArguments = (
       streamIndex: number | string | undefined,
       argumentsValue: string,
     ): void => {
-      // Always keep an entry, even when the value is empty, so subsequent
-      // `appendFunctionCallArguments` calls can find the stream index.
-      // The chunks array is the storage; an empty array yields the empty
-      // string when joined by `getFunctionCallArguments`.
-      const chunks = argumentsValue === '' ? [] : [argumentsValue];
       if (streamIndex === undefined) {
-        unindexedFunctionCallArgumentChunks = chunks;
+        unindexedFunctionCallArguments = argumentsValue;
       } else {
-        functionCallArgumentChunksByIndex.set(streamIndex, chunks);
+        functionCallArgumentsByIndex.set(streamIndex, argumentsValue);
       }
     };
 
@@ -808,16 +800,10 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
           `received function-call arguments for unknown stream index ${formatResponseStreamIndex(streamIndex)}.`,
         );
       }
-      if (streamIndex === undefined) {
-        (unindexedFunctionCallArgumentChunks ??= []).push(argumentsPart);
-      } else {
-        let chunks = functionCallArgumentChunksByIndex.get(streamIndex);
-        if (chunks === undefined) {
-          chunks = [];
-          functionCallArgumentChunksByIndex.set(streamIndex, chunks);
-        }
-        chunks.push(argumentsPart);
-      }
+      setFunctionCallArguments(
+        streamIndex,
+        getFunctionCallArguments(streamIndex) + argumentsPart,
+      );
     };
 
     const yieldFinalArgumentsSuffix = function* (
@@ -846,7 +832,7 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
       }
 
       const suffix = finalArguments.slice(accumulatedArguments.length);
-      replaceFunctionCallArguments(streamIndex, finalArguments);
+      setFunctionCallArguments(streamIndex, finalArguments);
       if (suffix.length === 0) {
         return;
       }
@@ -904,7 +890,7 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
               // Preserve it so the generate loop can dispatch interleaved
               // deltas across parallel function calls correctly.
               const streamIndex = responseStreamIndex(item.itemId, outputIndex);
-              replaceFunctionCallArguments(streamIndex, item.arguments ?? '');
+              setFunctionCallArguments(streamIndex, item.arguments ?? '');
               const tc: ToolCall = {
                 type: 'function',
                 id: functionCallId(item.callId),
@@ -1046,10 +1032,7 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     this._stream = true; // Responses API always supports streaming
     this._generationKwargs = {};
     this._toolMessageConversion = options.toolMessageConversion ?? null;
-    // Default to the process-wide shared undici Agent so every OpenAI
-    // Responses call routes through the same connection pool. Callers
-    // can still override by passing `httpClient` explicitly.
-    this._httpClient = options.httpClient ?? createSharedAgent();
+    this._httpClient = options.httpClient;
     this._clientFactory = options.clientFactory;
 
     if (options.maxOutputTokens !== undefined) {
@@ -1202,6 +1185,7 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     if (this._httpClient !== undefined) {
       clientOpts['httpClient'] = this._httpClient;
     }
+    clientOpts['maxRetries'] = 5;
     return new OpenAI(clientOpts as ConstructorParameters<typeof OpenAI>[0]);
   }
 }

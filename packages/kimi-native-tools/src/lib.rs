@@ -9,6 +9,7 @@ mod grep;
 mod image_compress;
 mod line_endings;
 mod list_directory;
+mod mcp;
 mod napi_bindings;
 mod output_truncate;
 mod read;

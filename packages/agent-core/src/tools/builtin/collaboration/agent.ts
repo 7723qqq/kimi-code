@@ -235,7 +235,9 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
         signal.removeEventListener('abort', abortBeforeRegister);
       } catch (error) {
         controller.abort();
-        void handle.completion.catch(() => {});
+        void handle.completion.catch((error: unknown) => {
+          this.log?.debug('background agent completion rejected after abort', { toolCallId, error });
+        });
         signal.removeEventListener('abort', abortBeforeRegister);
         this.log?.warn('background agent task registration failed', {
           toolCallId,

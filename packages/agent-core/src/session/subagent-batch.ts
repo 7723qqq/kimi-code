@@ -114,6 +114,8 @@ type RateLimitedOutcome = {
   readonly type: 'rate_limited';
   readonly agentId: string;
   readonly error: string;
+  /** Server-requested backoff in ms from the Retry-After header. */
+  readonly retryAfterMs: number | null;
 };
 
 type TransientErrorOutcome = {
@@ -387,10 +389,12 @@ export class SubagentBatch<T> {
         if (attempt.state.retryCount >= RATE_LIMIT_MAX_RETRIES) {
           return this.failedAttemptOutcome(attempt, error);
         }
+        const retryAfterMs = (error as { retryAfterMs?: unknown }).retryAfterMs;
         return {
           type: 'rate_limited',
           agentId: handle.agentId,
           error: this.attemptErrorMessage(attempt, error, 'failed'),
+          retryAfterMs: typeof retryAfterMs === 'number' && retryAfterMs > 0 ? retryAfterMs : null,
         };
       }
 
@@ -457,7 +461,7 @@ export class SubagentBatch<T> {
     } else if (outcome.type === 'transient_error') {
       this.requeueTransientError(attempt, outcome.agentId);
     } else {
-      this.requeueRateLimited(attempt, outcome.agentId);
+      this.requeueRateLimited(attempt, outcome.agentId, outcome.retryAfterMs);
     }
     this.schedule();
   }
@@ -480,7 +484,7 @@ export class SubagentBatch<T> {
     return true;
   }
 
-  private requeueRateLimited(attempt: ActiveAttempt<T>, agentId: string): void {
+  private requeueRateLimited(attempt: ActiveAttempt<T>, agentId: string, retryAfterMs?: number | null): void {
     const state = attempt.state;
     state.agentId = agentId;
     state.retryAgentId = agentId;
@@ -493,14 +497,19 @@ export class SubagentBatch<T> {
     const now = Date.now();
     this.lastRateLimitAt = now;
     state.retryCount += 1;
-    const retryDelay = applyJitter(
-      retry.createTimeout(Math.max(0, state.retryCount - 1), {
-        minTimeout: RATE_LIMIT_RETRY_BASE_MS,
-        maxTimeout: RATE_LIMIT_GLOBAL_RETRY_MAX_MS,
-        factor: RATE_LIMIT_RETRY_FACTOR,
-        randomize: false,
-      }),
-    );
+    // Honor the server's Retry-After directive when present; otherwise fall
+    // back to the local exponential backoff schedule.
+    const retryDelay =
+      retryAfterMs != null && retryAfterMs > 0
+        ? retryAfterMs
+        : applyJitter(
+            retry.createTimeout(Math.max(0, state.retryCount - 1), {
+              minTimeout: RATE_LIMIT_RETRY_BASE_MS,
+              maxTimeout: RATE_LIMIT_GLOBAL_RETRY_MAX_MS,
+              factor: RATE_LIMIT_RETRY_FACTOR,
+              randomize: false,
+            }),
+          );
     state.retryReadyAt = now + retryDelay;
     this.pending.unshift(state);
     this.enterRateLimitMode(now);

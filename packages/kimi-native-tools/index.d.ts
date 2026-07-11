@@ -310,3 +310,87 @@ export const GLOB_MAX_MATCHES: number;
 export const GREP_DEFAULT_HEAD_LIMIT: number;
 export const BASH_DEFAULT_TIMEOUT: number;
 export const BASH_MAX_TIMEOUT: number;
+
+// ── MCP — Config loading ───────────────────────────────────────────────────
+
+export interface NativeMcpServerConfig {
+  readonly transport: string;
+  readonly command?: string;
+  readonly args?: string[];
+  readonly env?: Record<string, string>;
+  readonly cwd?: string;
+  readonly url?: string;
+  readonly headers?: Record<string, string>;
+  readonly bearerTokenEnvVar?: string;
+  readonly enabled?: boolean;
+  readonly startupTimeoutMs?: number;
+  readonly toolTimeoutMs?: number;
+  readonly enabledTools?: string[];
+  readonly disabledTools?: string[];
+}
+
+export interface NativeMcpServerEntry {
+  readonly name: string;
+  readonly config: NativeMcpServerConfig;
+}
+
+export interface NativeMcpConfigLoadResult {
+  readonly servers: NativeMcpServerEntry[];
+  readonly userPath: string;
+  readonly projectRootPath: string;
+  readonly projectPath: string;
+  readonly error?: string;
+}
+
+export function nativeMcpLoadConfig(
+  cwd: string,
+  homeDir?: string,
+): Promise<NativeMcpConfigLoadResult>;
+
+// ── MCP — Stdio client ─────────────────────────────────────────────────────
+
+export interface NativeMcpStdioSpawnConfig {
+  readonly command: string;
+  readonly args?: string[];
+  readonly env?: Record<string, string>;
+  readonly cwd?: string;
+}
+
+export interface NativeMcpStdioSpawnResult {
+  readonly handle: number;
+  readonly pid: number;
+}
+
+export interface NativeMcpToolDef {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: string;
+}
+
+export function nativeMcpStdioSpawn(
+  config: NativeMcpStdioSpawnConfig,
+): Promise<NativeMcpStdioSpawnResult>;
+
+export function nativeMcpStdioInitialize(
+  handle: number,
+  clientName: string,
+  clientVersion: string,
+  timeoutMs?: number,
+): Promise<string>;
+
+export function nativeMcpStdioListTools(
+  handle: number,
+): Promise<NativeMcpToolDef[]>;
+
+export function nativeMcpStdioCallTool(
+  handle: number,
+  name: string,
+  argsJson: string,
+  timeoutMs?: number,
+): Promise<string>;
+
+export function nativeMcpStdioClose(handle: number): Promise<void>;
+
+export function nativeMcpStdioStderrSnapshot(handle: number): Promise<string>;
+
+export function nativeMcpStdioIsAlive(handle: number): Promise<boolean>;

@@ -154,6 +154,7 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
   readonly configPath: string;
   readonly sessions = new Map<string, Session>();
   readonly telemetry: TelemetryClient;
+  readonly log: Logger = log;
 
   private kaos: Promise<Kaos> | undefined;
   private runtime: ToolServices | undefined;
@@ -343,7 +344,12 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
       await session.writeMetadata();
       await session.flushMetadata();
     } catch (error) {
-      await session.close().catch(() => {});
+      // Best-effort cleanup: session creation failed, so close any
+      // partial state. Log failures at debug level since the primary
+      // error from the catch block is what matters to the caller.
+      await session.close().catch((closeError: unknown) => {
+        this.log?.debug('session.close() failed during error recovery', { closeError });
+      });
       throw error;
     }
     this.sessions.set(id, session);
@@ -455,7 +461,9 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
       warning = resumeResult.warning;
       await this.refreshSessionRuntimeConfig(session, config);
     } catch (error) {
-      await session.close().catch(() => {});
+      await session.close().catch((closeError: unknown) => {
+        this.log?.debug('session.close() failed during resume error recovery', { closeError });
+      });
       withTelemetryContext(this.telemetry, { sessionId: summary.id }).track('session_load_failed', {
         reason: telemetryErrorReason(error),
       });
@@ -1288,5 +1296,9 @@ async function warnIfLogFlushFails(
   }
   try {
     await flush();
-  } catch {}
+  } catch {
+    // Best-effort final flush — if the second attempt also fails there
+    // is no further recovery path. The first failure has already been
+    // exported as a warning above.
+  }
 }

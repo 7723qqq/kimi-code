@@ -161,15 +161,20 @@ export async function discoverSkills(
 
     const directorySkills = new Set<string>();
     const subdirs: string[] = [];
-    for (const entry of entries) {
-      const entryPath = path.join(dirPath, entry);
-      // A directory holding SKILL.md is a skill bundle: register it, then keep
-      // descending so nested SKILL.md bundles remain discoverable as sub-skills.
-      if (await isFile(path.join(entryPath, 'SKILL.md'))) {
+    // Resolve is-dir and has-skill-md checks in parallel for all entries.
+    const checks = await Promise.all(
+      entries.map(async (entry) => ({
+        entry,
+        entryPath: path.join(dirPath, entry),
+        isSkillBundle: await isFile(path.join(dirPath, entry, 'SKILL.md')),
+        isSubdir: entry !== 'node_modules' && !entry.startsWith('.') && (await isDir(path.join(dirPath, entry))),
+      })),
+    );
+    for (const { entry, isSkillBundle, isSubdir } of checks) {
+      if (isSkillBundle) {
         directorySkills.add(entry);
       }
-      if (entry === 'node_modules' || entry.startsWith('.')) continue;
-      if (await isDir(entryPath)) subdirs.push(entry);
+      if (isSubdir) subdirs.push(entry);
     }
 
     const allowedSubSkillBundles = new Map<string, string>();

@@ -114,7 +114,9 @@ export class HookEngine {
   private emitTriggered(event: string, target: string, count: number): void {
     try {
       this.options.onTriggered?.(event, target, count);
-    } catch {}
+    } catch {
+      // User-provided callback — must not crash the hook engine.
+    }
   }
 
   private emitResolved(
@@ -126,7 +128,9 @@ export class HookEngine {
   ): void {
     try {
       this.options.onResolved?.(event, target, action, reason, durationMs);
-    } catch {}
+    } catch {
+      // User-provided callback — must not crash the hook engine.
+    }
   }
 }
 

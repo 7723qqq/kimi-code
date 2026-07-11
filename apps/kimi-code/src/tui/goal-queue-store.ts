@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
   ErrorCodes,
@@ -170,7 +170,12 @@ async function readQueueFile(session: GoalQueueSession): Promise<GoalQueueFile> 
 async function writeQueueFile(session: GoalQueueSession, file: GoalQueueFile): Promise<void> {
   const filePath = goalQueuePath(session);
   await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(file, null, 2)}\n`, 'utf-8');
+  // Atomic write: write to a temp file in the same directory, then rename.
+  // This prevents partial-write corruption if the process crashes mid-write
+  // or if another process reads the file concurrently.
+  const tmpPath = `${filePath}.${process.pid}.tmp`;
+  await writeFile(tmpPath, `${JSON.stringify(file, null, 2)}\n`, 'utf-8');
+  await rename(tmpPath, filePath);
 }
 
 async function withQueueMutationLock<T>(

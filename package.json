@@ -7,7 +7,7 @@
   "scripts": {
     "postinstall": "node scripts/fix-node-pty-perms.mjs",
     "build": "pnpm -r run build",
-    "build:packages": "pnpm -r --filter './packages/*' run build",
+    "build:packages": "pnpm -r --filter './packages/**' run build",
     "dev:cli": "pnpm -C apps/kimi-code run dev",
     "dev:cli:marketplace": "KIMI_CODE_DEV_MARKETPLACE_URL=https://code.kimi.com/kimi-code/plugins/marketplace.json pnpm -C apps/kimi-code run dev",
     "dev:web": "pnpm -C apps/kimi-web run dev",
@@ -61,5 +61,21 @@
   "engines": {
     "node": ">=24.15.0"
   },
-  "packageManager": "pnpm@10.33.0"
+  "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "overrides": {
+      "protobufjs": ">=7.6.3",
+      "shell-quote": ">=1.8.4",
+      "tar": ">=7.5.16",
+      "fast-uri": ">=3.1.2",
+      "ws": ">=8.21.0",
+      "js-yaml": ">=4.2.0",
+      "esbuild": ">=0.25.0",
+      "dompurify": ">=3.4.11",
+      "postcss": ">=8.5.10",
+      "ip-address": ">=10.1.1",
+      "qs": ">=6.15.2",
+      "@babel/core": ">=7.29.6"
+    }
+  }
 }

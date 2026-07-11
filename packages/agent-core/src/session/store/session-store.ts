@@ -106,7 +106,13 @@ export class SessionStore {
       });
       return summary;
     } catch (error) {
-      await rm(targetDir, { recursive: true, force: true }).catch(() => {});
+      // Best-effort cleanup — ENOENT or EBUSY are expected during failure recovery.
+      await rm(targetDir, { recursive: true, force: true }).catch((error: unknown) => {
+        // Intentionally swallowed: the directory may be partially created,
+        // locked by another process, or already removed. The primary error
+        // from the catch block above is more important to propagate.
+        void error;
+      });
       throw error;
     }
   }

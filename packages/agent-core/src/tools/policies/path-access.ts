@@ -1,7 +1,12 @@
 /**
  * Path safety guards used by Read/Write/Edit/Grep/Glob.
  *
- * Canonicalization is **lexical** only (no `realpath` / symlink following).
+ * Canonicalization is **lexical** by default (no `realpath` / symlink
+ * following). An optional symlink-resolve pass (`resolveSymlinks`) uses
+ * `fs.realpath` to detect symlink escapes on the local filesystem —
+ * callers should enable it for write operations where the risk is
+ * highest.
+ *
  * Mirrors `KaosPath.canonical()` and keeps the guard backend-aware:
  * callers should pass the active Kaos path class so SSH paths stay POSIX
  * even when the host Node process is running on Windows.
@@ -11,6 +16,8 @@
  * separator (or exact equality) after the base prefix in
  * `isWithinDirectory`.
  */
+
+import { realpath } from 'node:fs/promises';
 
 import * as pathe from 'pathe';
 
@@ -260,9 +267,9 @@ export function resolvePathAccessPath(
  * path, matches a known sensitive file, or is empty. Returns the canonical
  * absolute path when the check passes.
  *
- * Note: this is purely lexical. It does NOT protect against symlink
- * targets that point outside the workspace — that would require kaos-layer
- * realpath support, which is not currently available.
+ * Note: the primary check is purely lexical. For write operations, callers
+ * should additionally call {@link resolveSymlinkEscape} to detect symlink
+ * targets that point outside the workspace.
  */
 export function assertPathAllowed(
   path: string,
@@ -278,4 +285,56 @@ export function assertPathAllowed(
       checkSensitive: options.checkSensitive ?? DEFAULT_WORKSPACE_ACCESS_POLICY.checkSensitive,
     },
   }).path;
+}
+
+/**
+ * Best-effort symlink-escape check: resolves `canonicalPath` via
+ * `fs.realpath` and verifies the resolved target still falls within the
+ * workspace roots. Returns the realpath if safe, or `undefined` if the
+ * path does not exist (common for write-before-create), or throws
+ * `PathSecurityError` if the symlink target escapes.
+ *
+ * This is an async, local-filesystem-only check. It should be called
+ * after `assertPathAllowed` / `resolvePathAccess` for write operations
+ * where the canonical path might traverse a symlink planted inside the
+ * workspace that points outside.
+ */
+export async function resolveSymlinkEscape(
+  canonicalPath: string,
+  config: WorkspaceConfig,
+  pathClass: PathClass = DEFAULT_PATH_CLASS,
+): Promise<string | undefined> {
+  let resolved: string;
+  try {
+    resolved = await realpath(canonicalPath);
+  } catch {
+    // ENOENT — file doesn't exist yet (write-create scenario).
+    // Walk the parent chain to detect a symlink in the path prefix.
+    const parent = pathe.dirname(canonicalPath);
+    try {
+      const resolvedParent = await realpath(parent);
+      if (!isWithinWorkspace(resolvedParent, config, pathClass)) {
+        throw new PathSecurityError(
+          'PATH_OUTSIDE_WORKSPACE',
+          canonicalPath,
+          resolvedParent,
+          `Symlink in path prefix resolves outside workspace: "${parent}" → "${resolvedParent}"`,
+        );
+      }
+    } catch (e) {
+      if (e instanceof PathSecurityError) throw e;
+      // Parent also doesn't exist — no symlink to follow, allow.
+    }
+    return undefined;
+  }
+  // realpath succeeded — check the resolved target.
+  if (resolved !== canonicalPath && !isWithinWorkspace(resolved, config, pathClass)) {
+    throw new PathSecurityError(
+      'PATH_OUTSIDE_WORKSPACE',
+      canonicalPath,
+      resolved,
+      `Symlink target resolves outside workspace: "${canonicalPath}" → "${resolved}"`,
+    );
+  }
+  return resolved;
 }

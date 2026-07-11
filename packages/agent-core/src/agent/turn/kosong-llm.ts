@@ -64,6 +64,13 @@ export interface KosongLLMConfig {
    * providers to size the completion budget to the remaining context window.
    */
   readonly usedContextTokens?: (() => number) | undefined;
+  /**
+   * When true, the provider's HTTP client (SDK) already handles retry
+   * internally with its own backoff. chatWithRetry degrades to a single
+   * attempt — no additional retry layer. Set this for providers backed by
+   * SDKs with built‑in retry (Anthropic, OpenAI).
+   */
+  readonly providerHandlesRetry?: boolean | undefined;
 }
 
 export class KosongLLM implements LLM {
@@ -75,6 +82,7 @@ export class KosongLLM implements LLM {
   private readonly generate: GenerateFn;
   private readonly completionBudgetConfig: CompletionBudgetConfig | undefined;
   private readonly usedContextTokens: (() => number) | undefined;
+  private readonly _providerHandlesRetry: boolean;
 
   constructor(config: KosongLLMConfig) {
     this.provider = config.provider;
@@ -84,6 +92,7 @@ export class KosongLLM implements LLM {
     this.generate = config.generate ?? kosongGenerate;
     this.completionBudgetConfig = config.completionBudgetConfig;
     this.usedContextTokens = config.usedContextTokens;
+    this._providerHandlesRetry = config.providerHandlesRetry ?? false;
   }
 
   async chat(params: LLMChatParams): Promise<LLMChatResponse> {
@@ -163,6 +172,10 @@ export class KosongLLM implements LLM {
   }
 
   isRetryableError(error: unknown): boolean {
+    // When the provider's own HTTP client (Anthropic / OpenAI SDK) already
+    // handles retry internally, chatWithRetry should not add a second
+    // backoff layer — it degrades to a single-attempt pass-through.
+    if (this._providerHandlesRetry) return false;
     return isRetryableGenerateError(error);
   }
 }

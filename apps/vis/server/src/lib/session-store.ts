@@ -10,6 +10,12 @@ import { importedDirOf, isImportId, listImportedIds, readImportMeta } from './im
 const SESSION_ID_RE = /^session_[A-Za-z0-9._-]+$/;
 const AGENT_ID_RE = /^[A-Za-z0-9._-]+$/;
 
+/** Reject session ids that don't match the expected format. Defence-in-depth:
+ *  prevents malformed ids from reaching directory-scan logic in route handlers. */
+export function isSafeSessionId(id: string): boolean {
+  return SESSION_ID_RE.test(id) || isImportId(id);
+}
+
 /** Reject agent ids that could escape the session directory via path
  *  joins. Defence-in-depth: the on-disk source of these ids is
  *  agent-core (which only generates main / agent-N), but a corrupted

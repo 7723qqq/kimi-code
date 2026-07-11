@@ -30,6 +30,68 @@ export function mergeRequestHeaders(
 }
 
 /**
+ * Small LRU cache for per-request auth clients. Keyed on a digest of
+ * `(apiKey, headers)` so that repeated requests with the same short-lived
+ * credentials reuse the SDK client (and its connection pool) instead of
+ * constructing a fresh one per request.
+ *
+ * The cache is bounded to `maxSize` entries. When full, the oldest entry
+ * is evicted. Each entry has a `createdAt` timestamp; entries older than
+ * `ttlMs` are treated as misses and refreshed.
+ */
+export class AuthClientLRU<TClient> {
+  private readonly entries = new Map<string, { client: TClient; createdAt: number }>();
+  private readonly maxSize: number;
+  private readonly ttlMs: number;
+
+  constructor(maxSize = 4, ttlMs = 5 * 60 * 1000) {
+    this.maxSize = maxSize;
+    this.ttlMs = ttlMs;
+  }
+
+  get(auth: ProviderRequestAuth | undefined): TClient | undefined {
+    if (auth === undefined) return undefined;
+    const key = this.digest(auth);
+    const entry = this.entries.get(key);
+    if (entry === undefined) return undefined;
+    if (Date.now() - entry.createdAt > this.ttlMs) {
+      this.entries.delete(key);
+      return undefined;
+    }
+    // Move to end (most recently used).
+    this.entries.delete(key);
+    this.entries.set(key, entry);
+    return entry.client;
+  }
+
+  set(auth: ProviderRequestAuth | undefined, client: TClient): void {
+    if (auth === undefined) return;
+    const key = this.digest(auth);
+    if (this.entries.size >= this.maxSize && !this.entries.has(key)) {
+      // Evict oldest (first entry in Map insertion order).
+      const oldestKey = this.entries.keys().next().value;
+      if (oldestKey !== undefined) this.entries.delete(oldestKey);
+    }
+    this.entries.set(key, { client, createdAt: Date.now() });
+  }
+
+  clear(): void {
+    this.entries.clear();
+  }
+
+  private digest(auth: ProviderRequestAuth): string {
+    const parts: string[] = [];
+    if (auth.apiKey !== undefined) parts.push(`k:${auth.apiKey}`);
+    if (auth.bearerToken !== undefined) parts.push(`b:${auth.bearerToken}`);
+    if (auth.headers !== undefined) {
+      const entries = Object.entries(auth.headers).sort(([a], [b]) => a.localeCompare(b));
+      for (const [k, v] of entries) parts.push(`h:${k}=${v}`);
+    }
+    return parts.join('|');
+  }
+}
+
+/**
  * Resolve the SDK client to use for a single provider request, applying the
  * standard precedence shared by every provider adapter:
  *
@@ -37,24 +99,19 @@ export function mergeRequestHeaders(
  *    per-request {@link ProviderRequestAuth}, defaulting to `{}`).
  * 2. Otherwise, if no per-request auth is needed AND a constructor-time
  *    client was cached, reuse the cached instance.
- * 3. Otherwise, call `build(auth)` to construct a fresh client for this
+ * 3. Otherwise, if an `authClientLRU` is configured and has an entry for
+ *    this auth, reuse it (avoids constructing a fresh SDK client per
+ *    request when the same OAuth token is used repeatedly).
+ * 4. Otherwise, call `build(auth)` to construct a fresh client for this
  *    request — typically using `requireProviderApiKey` plus
- *    `mergeRequestHeaders`.
- *
- * Note: when per-request `auth` is provided (e.g. an OAuth bearer token
- * resolved immediately before each call), step 3 fires and a brand-new SDK
- * client is constructed per request. This is intentional — it keeps short-lived
- * credentials out of any long-lived shared state and avoids racing concurrent
- * requests on a mutable client. The trade-off is that connection-pool / keep-
- * alive state inside the SDK client isn't reused across requests on the OAuth
- * path. For the current agent-CLI workload (one LLM call per turn step) this
- * is fine; if a future host needs high-throughput per-request auth, the
- * obvious optimization is a small LRU keyed on `(apiKey, headers digest)`.
+ *    `mergeRequestHeaders`. The result is cached in the LRU for future
+ *    requests with the same auth.
  */
 export function resolveAuthBackedClient<TClient>(
   state: {
     readonly cachedClient: TClient | undefined;
     readonly clientFactory: ((auth: ProviderRequestAuth) => TClient) | undefined;
+    readonly authClientLRU?: AuthClientLRU<TClient>;
   },
   auth: ProviderRequestAuth | undefined,
   build: (auth: ProviderRequestAuth | undefined) => TClient,
@@ -64,6 +121,14 @@ export function resolveAuthBackedClient<TClient>(
   }
   if (auth === undefined && state.cachedClient !== undefined) {
     return state.cachedClient;
+  }
+  // Check LRU cache for per-request auth reuse.
+  if (auth !== undefined && state.authClientLRU !== undefined) {
+    const cached = state.authClientLRU.get(auth);
+    if (cached !== undefined) return cached;
+    const client = build(auth);
+    state.authClientLRU.set(auth, client);
+    return client;
   }
   return build(auth);
 }

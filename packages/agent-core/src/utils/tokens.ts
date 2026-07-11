@@ -37,6 +37,15 @@ function getNative() {
 
 // ── TS fallback implementations ─────────────────────────────────────────────
 
+/**
+ * JSON/structured content tends to have more tokens per character than
+ * natural language — short identifiers, brackets, colons, and commas each
+ * tokenize into individual tokens. The raw heuristic (ascii/4) under-counts
+ * these. A 1.3× multiplier on JSON-stringified content closes most of the
+ * gap without paying for a real tokenizer.
+ */
+const JSON_TOKEN_MULTIPLIER = 1.3;
+
 function tsEstimateTokens(text: string): number {
   let asciiCount = 0;
   let nonAsciiCount = 0;
@@ -48,6 +57,14 @@ function tsEstimateTokens(text: string): number {
     }
   }
   return Math.ceil(asciiCount / 4) + nonAsciiCount;
+}
+
+/**
+ * Estimate tokens for JSON-serialized content. The multiplier compensates
+ * for the heuristic's under-counting of JSON's dense punctuation.
+ */
+function estimateTokensForJson(text: string): number {
+  return Math.ceil(tsEstimateTokens(text) * JSON_TOKEN_MULTIPLIER);
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -83,13 +100,13 @@ export function estimateTokensForTools(tools: readonly Tool[]): number {
       texts.push(tool.description);
       texts.push(JSON.stringify(tool.parameters));
     }
-    return mod.nativeEstimateTokensBatch(texts);
+    return Math.ceil(mod.nativeEstimateTokensBatch(texts) * JSON_TOKEN_MULTIPLIER);
   }
   let total = 0;
   for (const tool of tools) {
     total += tsEstimateTokens(tool.name);
     total += tsEstimateTokens(tool.description);
-    total += tsEstimateTokens(JSON.stringify(tool.parameters));
+    total += estimateTokensForJson(JSON.stringify(tool.parameters));
   }
   return total;
 }
@@ -114,10 +131,11 @@ export function estimateTokensForMessage(message: TokenEstimatableMessage): numb
     if (message.toolCalls !== undefined) {
       for (const call of message.toolCalls) {
         texts.push(call.name);
+        // JSON arguments need the multiplier too — see estimateTokensForJson.
         texts.push(JSON.stringify(call.arguments));
       }
     }
-    total = mod.nativeEstimateTokensBatch(texts);
+    total = Math.ceil(mod.nativeEstimateTokensBatch(texts) * (1 + (JSON_TOKEN_MULTIPLIER - 1) * 0.5));
   } else {
     total = tsEstimateTokens(message.role);
     for (const part of message.content) {
@@ -130,7 +148,7 @@ export function estimateTokensForMessage(message: TokenEstimatableMessage): numb
     if (message.toolCalls !== undefined) {
       for (const call of message.toolCalls) {
         total += tsEstimateTokens(call.name);
-        total += tsEstimateTokens(JSON.stringify(call.arguments));
+        total += estimateTokensForJson(JSON.stringify(call.arguments));
       }
     }
   }

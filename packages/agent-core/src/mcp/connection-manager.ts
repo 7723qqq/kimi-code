@@ -39,6 +39,11 @@ interface InternalEntry {
 export type McpStatusListener = (entry: McpServerEntry) => void;
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
+const MCP_STARTUP_MAX_RETRIES = 3;
+const MCP_STARTUP_RETRY_BASE_MS = 1000;
+const MCP_STARTUP_RETRY_FACTOR = 2;
+const MCP_STARTUP_RETRY_MAX_MS = 30_000;
+const MCP_STARTUP_RETRY_JITTER = 0.25;
 
 type RuntimeMcpClient = StdioMcpClient | HttpMcpClient | SseMcpClient;
 
@@ -256,7 +261,7 @@ export class McpConnectionManager {
     entry.enabledNames = undefined;
     entry.error = undefined;
     this.emit(entry);
-    await this.connectOne(entry, attemptId);
+    await this.connectWithRetry(entry, attemptId);
   }
 
   async shutdown(): Promise<void> {
@@ -268,7 +273,54 @@ export class McpConnectionManager {
 
   private async connectOne(entry: InternalEntry, attemptId: number): Promise<void> {
     const timeoutMs = entry.config.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
+    const err = await this.tryConnect(entry, attemptId, timeoutMs);
+    if (err === undefined) return;
+    // First attempt failed — apply the error immediately so a broken
+    // server does not block session startup.
+    if (!this.isCurrent(entry, attemptId)) return;
+    this.applyConnectError(entry, err);
+    this.emit(entry);
+  }
 
+  /**
+   * Retry a connection attempt with exponential backoff. Used by
+   * reconnect() when the user explicitly asks for a reconnect — not
+   * during initial session startup.
+   */
+  private async connectWithRetry(entry: InternalEntry, attemptId: number): Promise<void> {
+    const timeoutMs = entry.config.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
+    let lastError: unknown = await this.tryConnect(entry, attemptId, timeoutMs);
+    if (lastError === undefined) return;
+
+    for (let retry = 0; retry < MCP_STARTUP_MAX_RETRIES; retry += 1) {
+      const delay = Math.min(
+        MCP_STARTUP_RETRY_BASE_MS * Math.pow(MCP_STARTUP_RETRY_FACTOR, retry),
+        MCP_STARTUP_RETRY_MAX_MS,
+      );
+      const jittered = Math.round(delay * (1 + (Math.random() * 2 - 1) * MCP_STARTUP_RETRY_JITTER));
+      await new Promise<void>((resolve) => setTimeout(resolve, jittered));
+
+      if (!this.isCurrent(entry, attemptId)) return;
+      const err = await this.tryConnect(entry, attemptId, timeoutMs);
+      if (err === undefined) return;
+      lastError = err;
+    }
+
+    if (!this.isCurrent(entry, attemptId)) return;
+    this.applyConnectError(entry, lastError);
+    this.emit(entry);
+  }
+
+  /**
+   * Attempt a single connection cycle. Returns `undefined` on success,
+   * or the error that caused the failure (already applied to the entry
+   * when non-transient).
+   */
+  private async tryConnect(
+    entry: InternalEntry,
+    attemptId: number,
+    timeoutMs: number,
+  ): Promise<unknown | undefined> {
     let client: RuntimeMcpClient | undefined;
     try {
       const startupClient = this.createClient(entry.config, entry.name);
@@ -278,41 +330,59 @@ export class McpConnectionManager {
         this.connectAndDiscoverTools(startupClient),
         timeoutMs,
         () => {
-          // Best-effort cleanup if the startup promise is still racing.
           void this.closeRuntimeClient(startupClient);
         },
       );
       if (!this.isCurrent(entry, attemptId)) {
         await this.closeRuntimeClient(startupClient);
-        return;
+        return undefined;
       }
       entry.tools = discovered.tools;
       entry.rawTools = discovered.rawTools;
       entry.enabledNames = computeEnabledNames(entry.config, discovered.tools);
       entry.status = 'connected';
       this.watchForUnexpectedClose(entry, startupClient, attemptId);
+      this.emit(entry);
+      return undefined;
     } catch (error) {
       if (!this.isCurrent(entry, attemptId)) {
         if (client !== undefined) {
           await this.closeRuntimeClient(client);
         }
-        return;
+        return undefined;
       }
       if (this.shouldMarkNeedsAuth(entry, error)) {
         entry.status = 'needs-auth';
         entry.error = `${entry.name} requires OAuth — run /mcp-config login ${entry.name}`;
-      } else {
-        entry.status = 'failed';
-        entry.error = formatStartupError(error, client);
+        entry.tools = undefined;
+        entry.rawTools = undefined;
+        entry.enabledNames = undefined;
+        entry.client = undefined;
+        this.emit(entry);
+        return undefined;
+      }
+      // Return the error so the caller can decide whether to retry.
+      // Don't mark the entry failed yet — that happens after all retries
+      // are exhausted.
+      const msg = formatStartupError(error, client);
+      if (client !== undefined) {
+        await this.closeRuntimeClient(client);
       }
       entry.tools = undefined;
       entry.rawTools = undefined;
       entry.enabledNames = undefined;
-      // Drop the client reference so a later reconnect builds a fresh one.
-      await this.closeClient(entry);
+      entry.client = undefined;
+      return msg;
     }
-    if (!this.isCurrent(entry, attemptId)) return;
-    this.emit(entry);
+  }
+
+  /** Apply a final error to the entry (after retries exhausted). */
+  private applyConnectError(entry: InternalEntry, error: unknown): void {
+    entry.status = 'failed';
+    entry.error = typeof error === 'string' ? error : formatStartupError(error, entry.client);
+    entry.tools = undefined;
+    entry.rawTools = undefined;
+    entry.enabledNames = undefined;
   }
 
   private watchForUnexpectedClose(

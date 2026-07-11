@@ -1,4 +1,5 @@
 import { isRecord } from './utils';
+import { redactString } from './redact';
 
 const DIRECT_ERROR_KEYS = ['error_description', 'message', 'detail'] as const;
 const NESTED_ERROR_KEYS = ['message', 'error_description', 'detail', 'code', 'type'] as const;
@@ -52,7 +53,10 @@ export async function readApiErrorMessage(
     return fallback;
   }
 
-  return extractApiErrorMessage(parsed) ?? fallback;
+  const raw = extractApiErrorMessage(parsed) ?? fallback;
+  // Defensively redact any tokens or secrets the upstream server may have
+  // inadvertently included in its error response body.
+  return redactString(raw);
 }
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {

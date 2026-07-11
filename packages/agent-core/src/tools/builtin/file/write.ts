@@ -13,7 +13,7 @@ import { z } from 'zod';
 import type { BuiltinTool } from '../../../agent/tool';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
-import { resolvePathAccessPath } from '../../policies/path-access';
+import { resolvePathAccessPath, resolveSymlinkEscape } from '../../policies/path-access';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '../../support/rule-match';
 import { S_IFDIR, S_IFMT } from '../../support/path-utils';
@@ -80,6 +80,17 @@ export class WriteTool implements BuiltinTool<WriteInput> {
   }
 
   private async execution(args: WriteInput, safePath: string): Promise<ExecutableToolResult> {
+    // Detect symlink escapes before writing — a symlink inside the workspace
+    // could point to a target outside of it, bypassing the lexical guard.
+    try {
+      await resolveSymlinkEscape(safePath, this.workspace, this.kaos.pathClass());
+    } catch (error) {
+      return {
+        isError: true,
+        output: error instanceof Error ? error.message : String(error),
+      };
+    }
+
     const parentError = await this.ensureParentDirectory(safePath);
     if (parentError !== undefined) {
       return { isError: true, output: parentError };

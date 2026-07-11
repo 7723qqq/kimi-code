@@ -19,11 +19,18 @@ export function openFileCommandFor(
     const target = supportsLineTarget(editor) && line !== undefined
       ? `${absolutePath}:${line}`
       : absolutePath;
-    return {
-      command: `${editor} ${quoteShellArg(target, platform)}`,
-      args: [],
-      shell: true,
-    };
+    // Parse the editor into binary + args to avoid shell injection from
+    // uncontrolled environment variable values (KIMI_CODE_EDITOR / VISUAL / EDITOR).
+    // If the editor is a simple single binary, pass it directly to spawn with
+    // the target as an argument. For editors with embedded spaces or flags
+    // (e.g. 'code --goto'), split into argv. Escaped paths are rare for
+    // editor env vars; fall back to platform default if parsing is ambiguous.
+    const editorBin = editor.trim().split(/\s+/)[0];
+    const editorArgs = editor.trim().split(/\s+/).slice(1);
+    if (editorBin !== undefined && editorBin.length > 0) {
+      return { command: editorBin, args: [...editorArgs, target] };
+    }
+    // Empty editor string — fall through to platform default.
   }
 
   switch (platform) {
@@ -139,15 +146,11 @@ function openInVsCodeLike(
   binary: string,
   absolutePath: string,
   line: number | undefined,
-  platform: NodeJS.Platform,
+  _platform: NodeJS.Platform,
 ): LaunchCommand {
   const target = line !== undefined ? `${absolutePath}:${line}` : absolutePath;
-  const flag = line !== undefined ? '-g ' : '';
-  return {
-    command: `${binary} ${flag}${quoteShellArg(target, platform)}`,
-    args: [],
-    shell: true,
-  };
+  const args = line !== undefined ? ['-g', target] : [target];
+  return { command: binary, args };
 }
 
 function openInFinder(

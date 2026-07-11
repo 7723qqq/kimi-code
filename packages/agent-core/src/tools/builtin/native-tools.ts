@@ -3,8 +3,8 @@
  * ExecutableTool interface used by the agent loop.
  *
  * Feature flag: set `KIMI_CODE_EXPERIMENTAL_NATIVE_TOOLS=0` to disable native tools.
- * When disabled or when the native module fails to load,
- * the TypeScript originals are used as fallback.
+ * When disabled, when the native module fails to load, or when a native call
+ * fails at runtime, the TypeScript originals are used as fallback.
  */
 
 import type { Kaos } from '@moonshot-ai/kaos';
@@ -13,7 +13,7 @@ import { z } from 'zod';
 import type { BackgroundManager } from '../../agent/background';
 import { flags } from '../../flags';
 import type { BuiltinTool } from '../../agent/tool';
-import type { ToolExecution } from '../../loop/types';
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../loop/types';
 import { ToolAccesses } from '../../loop/tool-access';
 import { isWithinDirectory, resolvePathAccessPath } from '../../tools/policies/path-access';
 import type { WorkspaceConfig } from '../../tools/support/workspace';
@@ -23,18 +23,27 @@ import {
   matchesGlobRuleSubject,
   matchesPathRuleSubject,
 } from '../../tools/support/rule-match';
+import { EditTool } from './file/edit';
+import { GlobTool } from './file/glob';
+import { GrepTool } from './file/grep';
+import { ReadTool } from './file/read';
+import { WriteTool } from './file/write';
 import { BashTool, type BashInput } from './shell/bash';
 
 // Lazy-load the native module to avoid hard dependency.
-let nativeModule: Record<string, unknown> | undefined;
+// Three-state cache (undefined = not tried, null = tried and failed, object = loaded)
+// matching the pattern used by all other native-module consumers in this codebase.
+let nativeModule: Record<string, unknown> | null | undefined;
 
 function getNativeModule(): Record<string, unknown> | undefined {
+  if (nativeModule === null) return undefined;
   if (nativeModule !== undefined) return nativeModule;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     nativeModule = require('@moonshot-ai/kimi-native-tools');
-    return nativeModule;
+    return nativeModule ?? undefined;
   } catch {
+    nativeModule = null;
     return undefined;
   }
 }
@@ -48,14 +57,18 @@ export function tryLoadNative(): Record<string, unknown> | undefined {
   return getNativeModule();
 }
 
-const NATIVE_UNAVAILABLE = 'Native tools module not available.';
-
 async function callNative<T>(fnName: string, ...args: unknown[]): Promise<T | undefined> {
   const mod = getNativeModule();
   if (!mod) return undefined;
   const fn = mod[fnName];
   if (typeof fn !== 'function') return undefined;
-  return fn(...args) as T;
+  try {
+    return await (fn(...args) as T);
+  } catch {
+    // Native function threw at runtime (corrupted binary, missing DLL, etc.)
+    // — return undefined so callers can fall back to the TS implementation.
+    return undefined;
+  }
 }
 
 function joinSearchPath(base: string, relativePath: string, pathClass: 'posix' | 'win32'): string {
@@ -78,6 +91,7 @@ export class NativeReadTool implements BuiltinTool {
   readonly name = 'Read' as const;
   readonly description: string;
   readonly parameters: Record<string, unknown>;
+  private readonly fallback: ReadTool;
 
   constructor(
     private readonly kaos: Kaos,
@@ -86,6 +100,7 @@ export class NativeReadTool implements BuiltinTool {
   ) {
     this.description = description;
     this.parameters = toInputJsonSchema(NativeReadInputSchema);
+    this.fallback = new ReadTool(kaos, workspace);
   }
 
   resolveExecution(input: { path: string; line_offset?: number; n_lines?: number }): ToolExecution {
@@ -94,6 +109,8 @@ export class NativeReadTool implements BuiltinTool {
       workspace: this.workspace,
       operation: 'read',
     });
+
+    const fallbackExec = this.fallback.resolveExecution(input);
 
     return {
       accesses: ToolAccesses.readFile(path),
@@ -105,14 +122,16 @@ export class NativeReadTool implements BuiltinTool {
           pathClass: this.kaos.pathClass(),
           homeDir: this.kaos.gethome(),
         }),
-      execute: async () => {
+      execute: async (ctx: ExecutableToolContext): Promise<ExecutableToolResult> => {
         const result = await callNative<{ content: string; lineCount: number; error?: string }>(
           'nativeRead',
           path,
           { lineOffset: input.line_offset, nLines: input.n_lines },
         );
         if (!result) {
-          return { isError: true, output: NATIVE_UNAVAILABLE };
+          // Native module unavailable or call failed — fall back to TS implementation.
+          if ('execute' in fallbackExec) return fallbackExec.execute(ctx);
+          return fallbackExec;
         }
         if (result.error) {
           return { isError: true, output: result.error };
@@ -137,6 +156,7 @@ export class NativeWriteTool implements BuiltinTool {
   readonly name = 'Write' as const;
   readonly description: string;
   readonly parameters: Record<string, unknown>;
+  private readonly fallback: WriteTool;
 
   constructor(
     private readonly kaos: Kaos,
@@ -145,14 +165,17 @@ export class NativeWriteTool implements BuiltinTool {
   ) {
     this.description = description;
     this.parameters = toInputJsonSchema(NativeWriteInputSchema);
+    this.fallback = new WriteTool(kaos, workspace);
   }
 
-  resolveExecution(input: { path: string; content: string; mode?: string }): ToolExecution {
+  resolveExecution(input: { path: string; content: string; mode?: 'overwrite' | 'append' }): ToolExecution {
     const path = resolvePathAccessPath(input.path, {
       kaos: this.kaos,
       workspace: this.workspace,
       operation: 'write',
     });
+
+    const fallbackExec = this.fallback.resolveExecution(input);
 
     return {
       accesses: ToolAccesses.writeFile(path),
@@ -164,7 +187,7 @@ export class NativeWriteTool implements BuiltinTool {
           pathClass: this.kaos.pathClass(),
           homeDir: this.kaos.gethome(),
         }),
-      execute: async () => {
+      execute: async (ctx: ExecutableToolContext): Promise<ExecutableToolResult> => {
         const result = await callNative<{ bytesWritten: number; error?: string }>(
           'nativeWrite',
           path,
@@ -172,7 +195,9 @@ export class NativeWriteTool implements BuiltinTool {
           { mode: input.mode },
         );
         if (!result) {
-          return { isError: true, output: NATIVE_UNAVAILABLE };
+          // Native module unavailable or call failed — fall back to TS implementation.
+          if ('execute' in fallbackExec) return fallbackExec.execute(ctx);
+          return fallbackExec;
         }
         if (result.error) {
           return { isError: true, output: result.error };
@@ -199,6 +224,7 @@ export class NativeEditTool implements BuiltinTool {
   readonly name = 'Edit' as const;
   readonly description: string;
   readonly parameters: Record<string, unknown>;
+  private readonly fallback: EditTool;
 
   constructor(
     private readonly kaos: Kaos,
@@ -207,6 +233,7 @@ export class NativeEditTool implements BuiltinTool {
   ) {
     this.description = description;
     this.parameters = toInputJsonSchema(NativeEditInputSchema);
+    this.fallback = new EditTool(kaos, workspace);
   }
 
   resolveExecution(input: { path: string; old_string: string; new_string: string; replace_all?: boolean }): ToolExecution {
@@ -215,6 +242,8 @@ export class NativeEditTool implements BuiltinTool {
       workspace: this.workspace,
       operation: 'write',
     });
+
+    const fallbackExec = this.fallback.resolveExecution(input);
 
     return {
       accesses: ToolAccesses.writeFile(path),
@@ -226,7 +255,7 @@ export class NativeEditTool implements BuiltinTool {
           pathClass: this.kaos.pathClass(),
           homeDir: this.kaos.gethome(),
         }),
-      execute: async () => {
+      execute: async (ctx: ExecutableToolContext): Promise<ExecutableToolResult> => {
         const result = await callNative<{ success: boolean; error?: string; replacements: number }>(
           'nativeEdit',
           path,
@@ -235,7 +264,9 @@ export class NativeEditTool implements BuiltinTool {
           { replaceAll: input.replace_all },
         );
         if (!result) {
-          return { isError: true, output: NATIVE_UNAVAILABLE };
+          // Native module unavailable or call failed — fall back to TS implementation.
+          if ('execute' in fallbackExec) return fallbackExec.execute(ctx);
+          return fallbackExec;
         }
         if (!result.success) {
           return { isError: true, output: result.error ?? 'Edit failed.' };
@@ -285,14 +316,17 @@ export class NativeGrepTool implements BuiltinTool {
   readonly name = 'Grep' as const;
   readonly description: string;
   readonly parameters: Record<string, unknown>;
+  private readonly fallback: GrepTool;
 
   constructor(
     private readonly kaos: Kaos,
     private readonly workspace: WorkspaceConfig,
     description: string,
+    fallback: GrepTool,
   ) {
     this.description = description;
     this.parameters = toInputJsonSchema(NativeGrepInputSchema);
+    this.fallback = fallback;
   }
 
   resolveExecution(input: {
@@ -300,7 +334,7 @@ export class NativeGrepTool implements BuiltinTool {
     path?: string;
     glob?: string;
     type?: string;
-    output_mode?: string;
+    output_mode?: 'content' | 'files_with_matches' | 'count_matches';
     '-i'?: boolean;
     '-n'?: boolean;
     '-A'?: number;
@@ -322,12 +356,14 @@ export class NativeGrepTool implements BuiltinTool {
     }
     const accesses = ToolAccesses.searchTree(searchPath ?? this.workspace.workspaceDir);
 
+    const fallbackExec = this.fallback.resolveExecution(input);
+
     return {
       accesses,
       description: `Searching ${searchPath ?? 'workspace'}`,
       approvalRule: literalRulePattern(this.name, input.pattern),
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, input.pattern),
-      execute: async () => {
+      execute: async (ctx: ExecutableToolContext): Promise<ExecutableToolResult> => {
         const result = await callNative<{
           content: string;
           error?: string;
@@ -351,7 +387,9 @@ export class NativeGrepTool implements BuiltinTool {
           includeIgnored: input.include_ignored,
         });
         if (!result) {
-          return { isError: true, output: NATIVE_UNAVAILABLE };
+          // Native module unavailable or call failed — fall back to TS implementation.
+          if ('execute' in fallbackExec) return fallbackExec.execute(ctx);
+          return fallbackExec;
         }
         if (result.error) {
           return { isError: true, output: result.error };
@@ -395,14 +433,17 @@ export class NativeGlobTool implements BuiltinTool {
   readonly name = 'Glob' as const;
   readonly description: string;
   readonly parameters: Record<string, unknown>;
+  private readonly fallback: GlobTool;
 
   constructor(
     private readonly kaos: Kaos,
     private readonly workspace: WorkspaceConfig,
     description: string,
+    fallback: GlobTool,
   ) {
     this.description = description;
     this.parameters = toInputJsonSchema(NativeGlobInputSchema);
+    this.fallback = fallback;
   }
 
   resolveExecution(input: { pattern: string; path?: string; include_dirs?: boolean }): ToolExecution {
@@ -416,19 +457,23 @@ export class NativeGlobTool implements BuiltinTool {
       : this.workspace.workspaceDir;
     const accesses = ToolAccesses.searchTree(searchPath);
 
+    const fallbackExec = this.fallback.resolveExecution(input);
+
     return {
       accesses,
       description: `Globbing ${searchPath}`,
       approvalRule: literalRulePattern(this.name, input.pattern),
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, input.pattern),
-      execute: async () => {
+      execute: async (ctx: ExecutableToolContext): Promise<ExecutableToolResult> => {
         const result = await callNative<{ files: string[]; error?: string; truncated: boolean }>(
           'nativeGlob',
           input.pattern,
           { path: searchPath, includeDirs: input.include_dirs },
         );
         if (!result) {
-          return { isError: true, output: NATIVE_UNAVAILABLE };
+          // Native module unavailable or call failed — fall back to TS implementation.
+          if ('execute' in fallbackExec) return fallbackExec.execute(ctx);
+          return fallbackExec;
         }
         if (result.error) {
           return { isError: true, output: result.error };
@@ -472,7 +517,7 @@ export class NativeBashTool extends BashTool {
     const cwd = args.cwd ?? this.nativeCwd;
     return {
       ...parentExecution,
-      execute: async () => {
+      execute: async (ctx: ExecutableToolContext): Promise<ExecutableToolResult> => {
         const result = await callNative<{
           exitCode: number;
           stdout: string;
@@ -484,7 +529,8 @@ export class NativeBashTool extends BashTool {
           timeout: args.timeout,
         });
         if (!result) {
-          return { isError: true, output: NATIVE_UNAVAILABLE };
+          // Native module unavailable or call failed — fall back to TS (parent) implementation.
+          return parentExecution.execute(ctx);
         }
         if (result.error) {
           return { isError: true, output: result.error };

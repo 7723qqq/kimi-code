@@ -9,6 +9,12 @@ import { resolveSeaPath } from './sea-path';
 
 let mainWindow: BrowserWindow | null = null;
 
+/** Guard against concurrent connect() calls on the same window. When the user
+ *  clicks “重试连接” while a previous connect is still in flight (ensureServer
+ *  can take several seconds), two concurrent connect() flows would race to
+ *  loadURL, causing visual flicker and a potential mixed-content flash. */
+let connecting = false;
+
 // --- window state persistence -------------------------------------------------
 
 interface WindowBounds {
@@ -117,8 +123,10 @@ function readServerToken(): string | undefined {
 // --- connect flow -------------------------------------------------------------
 
 async function connect(win: BrowserWindow): Promise<void> {
-  await win.loadURL(dataUrl(loadingHtml()));
+  if (connecting) return;
+  connecting = true;
   try {
+    await win.loadURL(dataUrl(loadingHtml()));
     const { origin } = await ensureServer(resolveSeaPath());
     process.stdout.write(`[kimi-desktop] connected to ${origin}\n`);
     if (!win.isDestroyed()) {
@@ -140,6 +148,8 @@ async function connect(win: BrowserWindow): Promise<void> {
     if (!win.isDestroyed()) {
       await win.loadURL(dataUrl(errorHtml(message)));
     }
+  } finally {
+    connecting = false;
   }
 }
 

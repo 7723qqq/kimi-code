@@ -527,6 +527,106 @@ function nativeWriteToolOutputChunk(text, currentNchars, maxChars, maxLineLength
 }
 
 // ============================================================================
+// MCP — Config loading
+// ============================================================================
+
+/**
+ * Load and merge MCP server configs from the three-tier file hierarchy.
+ *
+ * @param {string} cwd - Current working directory.
+ * @param {string} [homeDir] - Home directory override.
+ * @returns {Promise<object>} Merged config result.
+ */
+function nativeMcpLoadConfig(cwd, homeDir) {
+  return binding.nativeMcpLoadConfig(cwd, homeDir ?? null);
+}
+
+// ============================================================================
+// MCP — Stdio client
+// ============================================================================
+
+/**
+ * Spawn a stdio MCP server child process.
+ *
+ * @param {object} config - Spawn config (command, args, env, cwd).
+ * @returns {Promise<{handle: number, pid: number}>}
+ */
+function nativeMcpStdioSpawn(config) {
+  return binding.nativeMcpStdioSpawn({
+    command: config.command,
+    args: config.args ?? null,
+    env: config.env ?? null,
+    cwd: config.cwd ?? null,
+  });
+}
+
+/**
+ * Send the JSON-RPC initialize request.
+ *
+ * @param {number} handle - Handle from nativeMcpStdioSpawn.
+ * @param {string} clientName - Client name.
+ * @param {string} clientVersion - Client version.
+ * @param {number} [timeoutMs] - Timeout in ms.
+ * @returns {Promise<string>} JSON string of the server's initialize result.
+ */
+function nativeMcpStdioInitialize(handle, clientName, clientVersion, timeoutMs) {
+  return binding.nativeMcpStdioInitialize(handle, clientName, clientVersion, timeoutMs ?? null);
+}
+
+/**
+ * Call tools/list on the MCP server.
+ *
+ * @param {number} handle - Handle from nativeMcpStdioSpawn.
+ * @returns {Promise<object[]>} Array of tool definitions.
+ */
+function nativeMcpStdioListTools(handle) {
+  return binding.nativeMcpStdioListTools(handle);
+}
+
+/**
+ * Call tools/call on the MCP server.
+ *
+ * @param {number} handle - Handle from nativeMcpStdioSpawn.
+ * @param {string} name - Tool name.
+ * @param {string} argsJson - Tool arguments as JSON string.
+ * @param {number} [timeoutMs] - Timeout in ms.
+ * @returns {Promise<string>} JSON string of the tool call result.
+ */
+function nativeMcpStdioCallTool(handle, name, argsJson, timeoutMs) {
+  return binding.nativeMcpStdioCallTool(handle, name, argsJson, timeoutMs ?? null);
+}
+
+/**
+ * Close a stdio MCP connection.
+ *
+ * @param {number} handle - Handle from nativeMcpStdioSpawn.
+ * @returns {Promise<void>}
+ */
+function nativeMcpStdioClose(handle) {
+  return binding.nativeMcpStdioClose(handle);
+}
+
+/**
+ * Get stderr snapshot from the child process.
+ *
+ * @param {number} handle - Handle from nativeMcpStdioSpawn.
+ * @returns {Promise<string>} Stderr tail (last ~4KB).
+ */
+function nativeMcpStdioStderrSnapshot(handle) {
+  return binding.nativeMcpStdioStderrSnapshot(handle);
+}
+
+/**
+ * Check if the child process is still alive.
+ *
+ * @param {number} handle - Handle from nativeMcpStdioSpawn.
+ * @returns {Promise<boolean>}
+ */
+function nativeMcpStdioIsAlive(handle) {
+  return binding.nativeMcpStdioIsAlive(handle);
+}
+
+// ============================================================================
 // Exports
 // ============================================================================
 
@@ -564,6 +664,16 @@ module.exports = {
 
   // Structured grep
   nativeGrepStructured,
+
+  // MCP
+  nativeMcpLoadConfig,
+  nativeMcpStdioSpawn,
+  nativeMcpStdioInitialize,
+  nativeMcpStdioListTools,
+  nativeMcpStdioCallTool,
+  nativeMcpStdioClose,
+  nativeMcpStdioStderrSnapshot,
+  nativeMcpStdioIsAlive,
 
   // Constants
   READ_MAX_LINES,
