@@ -1,16 +1,22 @@
 /**
- * `InFlightTurnTracker` — accumulates the current turn's volatile stream
+ * `InFlightTurnTracker` — accumulates the current STEP's volatile stream
  * state per session so a reconnecting client can rebuild mid-turn UI from
  * the session snapshot instead of replaying deltas (which are not journaled).
+ *
+ * Accumulation resets at every `turn.step.started`: the snapshot transcript
+ * already carries every completed step's text/thinking, so `in_flight_turn`
+ * must describe only the step still streaming. Keeping the whole turn's
+ * text made seeding clients re-render every prior step's text as one giant
+ * duplicated blob appended after the structured history.
  *
  * Owned by `WSBroadcastService` and updated INSIDE its per-session dispatch
  * queue — this keeps the accumulated text, the journal watermark, and the
  * fan-out order mutually consistent without a second event subscription.
  *
  * `apply()` also returns the pre-append character offset for text-delta
- * frames; the broadcast layer stamps it on the wire envelope so clients can
- * align live deltas against snapshot text exactly (skip duplicates, detect
- * gaps).
+ * frames (step-relative, matching the accumulation); the broadcast layer
+ * stamps it on the wire envelope so clients can align live deltas against
+ * snapshot text exactly (skip duplicates, detect gaps).
  *
  * Only main-agent activity is tracked: subagent deltas share the session id
  * but describe a different stream and would corrupt the accumulation.
@@ -63,6 +69,15 @@ export class InFlightTurnTracker {
       }
       case 'turn.ended': {
         this.bySession.delete(sessionId);
+        return {};
+      }
+      case 'turn.step.started': {
+        // New step → fresh accumulation. Completed steps live in the
+        // transcript; only the streaming step belongs in `in_flight_turn`.
+        const turn = this.bySession.get(sessionId);
+        if (!turn || turn.turnId !== event.turnId) return {};
+        turn.assistantText = '';
+        turn.thinkingText = '';
         return {};
       }
       case 'assistant.delta': {
