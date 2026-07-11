@@ -45,10 +45,14 @@ import {
   compressImageForModel,
   cropImageForModel,
   formatByteSize,
-  resolveReadImageByteBudget,
   type ImageCompressionTelemetry,
   type ImageCropRegion,
 } from '../../support/image-compress';
+import {
+  buildImageConversionGuidance,
+  isModelAcceptedImageMime,
+} from '../../support/image-format-policy';
+import { ImageLimits } from '../../support/image-limits';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '../../support/rule-match';
 import type { WorkspaceConfig } from '../../support/workspace';
@@ -214,56 +218,19 @@ function buildMediaNote(input: {
 
 // ── Implementation ───────────────────────────────────────────────────
 
-/**
- * Refusal message for HEIC/HEIF with a conversion command matching the
- * execution environment (`kaos.osEnv.osKind` — where Bash actually runs, so
- * SSH/container sessions get the right command too). macOS converts with the
- * built-in `sips`; Linux and Windows have no built-in HEIC decoder, so the
- * guidance names the common tools and how to get them.
- */
-function buildHeicConversionGuidance(path: string, mimeType: string, osKind: string): string {
-  const converted = path.replace(/\.[^./\\]+$/, '') + '.jpg';
-  return (
-    `"${path}" is a ${mimeType} image, which the provider does not accept. ` +
-    'Convert it to JPEG first, then read the converted file. ' +
-    heicConversionCommand(path, converted, osKind)
-  );
-}
-
-function heicConversionCommand(path: string, converted: string, osKind: string): string {
-  switch (osKind) {
-    case 'macOS':
-      return `On macOS: sips -s format jpeg "${path}" --out "${converted}"`;
-    case 'Linux':
-      return (
-        `On Linux: heif-convert "${path}" "${converted}" (package libheif-examples), ` +
-        `or with ImageMagick: magick "${path}" "${converted}"`
-      );
-    case 'Windows':
-      return (
-        `On Windows, with ImageMagick: magick "${path}" "${converted}" ` +
-        '(install it first if missing: winget install ImageMagick.ImageMagick)'
-      );
-    default:
-      return (
-        `Options: sips -s format jpeg "${path}" --out "${converted}" (macOS), ` +
-        `heif-convert "${path}" "${converted}" (Linux, package libheif-examples), ` +
-        `or magick "${path}" "${converted}" (ImageMagick)`
-      );
-  }
-}
-
 export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
   readonly name = 'ReadMediaFile' as const;
   readonly description: string;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ReadMediaFileInputSchema);
   private readonly compressTelemetry: ImageCompressionTelemetry | undefined;
+  private readonly imageLimits: ImageLimits;
   constructor(
     private readonly kaos: Kaos,
     private readonly workspace: WorkspaceConfig,
     private readonly capabilities: ModelCapability,
     private readonly videoUploader?: VideoUploader | undefined,
     telemetry?: TelemetryClient,
+    imageLimits?: ImageLimits,
   ) {
     if (!capabilities.image_in && !capabilities.video_in) {
       const skip = new Error('ReadMediaFile requires image_in or video_in capability');
@@ -273,6 +240,7 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
     this.description = buildDescription(capabilities);
     this.compressTelemetry =
       telemetry === undefined ? undefined : { client: telemetry, source: 'read_media' };
+    this.imageLimits = imageLimits ?? new ImageLimits();
   }
 
   resolveExecution(args: ReadMediaFileInput): ToolExecution {
@@ -333,15 +301,22 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
             'Tell the user to use a model with image input capability.',
         };
       }
-      // HEIC/HEIF must never reach the provider: no provider accepts them,
-      // and once the image_url lands in the history every subsequent request
-      // in the session is rejected. Refuse with a conversion command for the
-      // execution environment instead — the model can run it through Bash
-      // (under the normal permission flow) and read the converted file.
-      if (fileType.mimeType === 'image/heic' || fileType.mimeType === 'image/heif') {
+      // Formats outside the provider-accepted set (AVIF, HEIC, BMP, TIFF,
+      // ICO, …) must never reach the model: once the image_url lands in the
+      // history every subsequent request in the session is rejected. Refuse
+      // with a conversion command for the execution environment instead —
+      // the model can run it through Bash (under the normal permission flow)
+      // and read the converted file. The accepted set and guidance live in
+      // support/image-format-policy, the single source of truth every
+      // ingestion point shares.
+      if (fileType.kind === 'image' && !isModelAcceptedImageMime(fileType.mimeType)) {
         return {
           isError: true,
-          output: buildHeicConversionGuidance(args.path, fileType.mimeType, this.kaos.osEnv.osKind),
+          output: buildImageConversionGuidance(
+            args.path,
+            fileType.mimeType,
+            this.kaos.osEnv.osKind,
+          ),
         };
       }
       if (fileType.kind === 'video' && !this.capabilities.video_in) {
@@ -387,6 +362,7 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
           // full fidelity, so a prior downsampled view can be zoomed into.
           const outcome = await cropImageForModel(data, fileType.mimeType, args.region, {
             skipResize: args.full_resolution === true,
+            maxEdge: this.imageLimits.maxEdgePx(),
             telemetry: this.compressTelemetry,
           });
           if (!outcome.ok) {
@@ -446,7 +422,8 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
           // failure compressImageForModel returns the original bytes, so the
           // read still succeeds with the uncompressed image.
           const compressed = await compressImageForModel(data, fileType.mimeType, {
-            byteBudget: resolveReadImageByteBudget(),
+            maxEdge: this.imageLimits.maxEdgePx(),
+            byteBudget: this.imageLimits.readByteBudget(),
             telemetry: this.compressTelemetry,
           });
           const base64 = Buffer.from(compressed.data).toString('base64');

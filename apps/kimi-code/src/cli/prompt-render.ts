@@ -23,6 +23,22 @@ interface HookResultEventLike {
   readonly blocked?: boolean;
 }
 
+/**
+ * Structural retry shape the renderer reads. Mirrors the v1 SDK
+ * `turn.step.retrying` event fields the stream-json meta line surfaces. Only
+ * the v1 driver forwards retries to `writeRetrying`; the v2 runner currently
+ * just discards the failed attempt's partial output and stays silent.
+ */
+interface RetryingEventLike {
+  readonly failedAttempt: number;
+  readonly nextAttempt: number;
+  readonly maxAttempts: number;
+  readonly delayMs: number;
+  readonly errorName: string;
+  readonly errorMessage: string;
+  readonly statusCode?: number;
+}
+
 export interface PromptOutput {
   readonly columns?: number | undefined;
   write(chunk: string): boolean;
@@ -42,6 +58,7 @@ export interface PromptTurnWriter {
     argumentsPart: string | undefined,
   ): void;
   writeToolResult(toolCallId: string, output: unknown): void;
+  writeRetrying(event: RetryingEventLike): void;
   flushAssistant(): void;
   discardAssistant(): void;
   finish(): void;
@@ -66,6 +83,18 @@ interface PromptJsonToolMessage {
   role: 'tool';
   tool_call_id: string;
   content: string;
+}
+
+interface PromptJsonRetryMetaMessage {
+  role: 'meta';
+  type: 'turn.step.retrying';
+  failed_attempt: number;
+  next_attempt: number;
+  max_attempts: number;
+  delay_ms: number;
+  error_name: string;
+  error_message: string;
+  status_code?: number;
 }
 
 export class PromptTranscriptWriter implements PromptTurnWriter {
@@ -98,6 +127,11 @@ export class PromptTranscriptWriter implements PromptTurnWriter {
   writeToolCallDelta(): void {}
 
   writeToolResult(): void {}
+
+  // Text `-p` keeps retries silent: only the failed attempt's partial assistant
+  // text is discarded (handled by the caller). No human-readable retry line is
+  // emitted, matching the prior behavior.
+  writeRetrying(): void {}
 
   flushAssistant(): void {
     this.assistantWriter.finish();
@@ -171,6 +205,24 @@ export class PromptJsonWriter implements PromptTurnWriter {
     });
   }
 
+  writeRetrying(event: RetryingEventLike): void {
+    // Emit a machine-readable meta line so stream-json consumers can observe
+    // provider retries. The failed attempt's partial assistant text was already
+    // discarded by the caller, so no half-formed assistant message leaks.
+    const message: PromptJsonRetryMetaMessage = {
+      role: 'meta',
+      type: 'turn.step.retrying',
+      failed_attempt: event.failedAttempt,
+      next_attempt: event.nextAttempt,
+      max_attempts: event.maxAttempts,
+      delay_ms: event.delayMs,
+      error_name: event.errorName,
+      error_message: event.errorMessage,
+      status_code: event.statusCode,
+    };
+    this.writeJsonLine(message);
+  }
+
   flushAssistant(): void {
     if (this.assistantText.length === 0 && this.toolCalls.length === 0) return;
     const message: PromptJsonAssistantMessage = {
@@ -206,7 +258,9 @@ export class PromptJsonWriter implements PromptTurnWriter {
     return toolCall;
   }
 
-  private writeJsonLine(message: PromptJsonAssistantMessage | PromptJsonToolMessage): void {
+  private writeJsonLine(
+    message: PromptJsonAssistantMessage | PromptJsonToolMessage | PromptJsonRetryMetaMessage,
+  ): void {
     this.stdout.write(`${JSON.stringify(message)}\n`);
   }
 }

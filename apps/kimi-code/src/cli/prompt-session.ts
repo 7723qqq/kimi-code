@@ -16,6 +16,7 @@ import type {
   CreateGoalInput,
   CreateSessionOptions,
   Event,
+  GetCronTasksResult,
   GoalSnapshot,
   GoalToolResult,
   KimiAuthFacade,
@@ -60,4 +61,5 @@ export interface PromptSession {
   waitForBackgroundTasksOnPrint(): Promise<void>;
   createGoal(input: CreateGoalInput): Promise<GoalSnapshot>;
   getGoal(): Promise<GoalToolResult>;
+  getCronTasks(): Promise<GetCronTasksResult>;
 }
