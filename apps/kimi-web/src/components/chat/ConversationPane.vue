@@ -580,17 +580,26 @@ function scrollToBottom(smooth = false): void {
 
 type ScrollAnchor = { kind: 'turn' | 'tool'; id: string; top: number };
 
+function scrollAnchorTop(container: HTMLElement, node: HTMLElement): number {
+  // Tool calls inside a collapsed group still exist under an inert, clipped
+  // body. Anchor them to the visible group row so hidden content cannot create
+  // a fake layout delta while the stable tool id remains usable.
+  const inert = node.closest<HTMLElement>('[inert]');
+  const positionNode = inert?.closest<HTMLElement>('.tool-group') ?? node;
+  return (
+    positionNode.getBoundingClientRect().top -
+    container.getBoundingClientRect().top +
+    container.scrollTop
+  );
+}
+
 function findTopAnchors(
   container: HTMLElement,
   scrollTop: number,
 ): ScrollAnchor[] {
-  const containerTop = container.getBoundingClientRect().top;
   const anchors = Array.from(
     container.querySelectorAll<HTMLElement>('.turn-anchor[data-turn-id], [data-scroll-anchor-id]'),
-  ).map((node) => ({
-    node,
-    top: node.getBoundingClientRect().top - containerTop + scrollTop,
-  }));
+  ).map((node) => ({ node, top: scrollAnchorTop(container, node) }));
   const firstAfterTop = anchors.findIndex((anchor) => anchor.top >= scrollTop);
   const start = firstAfterTop < 0 ? Math.max(0, anchors.length - 1) : firstAfterTop;
   // The first id can be rebuilt when a page boundary splits an assistant turn;
@@ -615,13 +624,7 @@ function historyScrollDelta(container: HTMLElement, snapshot: HistoryScrollSnaps
     const newAnchor = container.querySelector<HTMLElement>(
       `[${attr}="${attrEscape(anchor.id)}"]`,
     );
-    if (newAnchor) {
-      const newTop =
-        newAnchor.getBoundingClientRect().top -
-        container.getBoundingClientRect().top +
-        container.scrollTop;
-      return newTop - anchor.top;
-    }
+    if (newAnchor) return scrollAnchorTop(container, newAnchor) - anchor.top;
   }
   // If the page boundary split an assistant/tool turn, messagesToTurns may
   // rebuild that turn with a new id. Fall back to the overall height delta.
@@ -1030,14 +1033,13 @@ function cancelScheduledFollow(): void {
 
 function cancelActiveScrollWrites(): void {
   const el = panesRef.value;
-  const smoothInFlight = performance.now() < smoothScrollUntil;
 
   userActionFollowUntil = 0;
   cancelScheduledFollow();
   pinUntil = 0;
   pinEl = null;
 
-  if (el && smoothInFlight) {
+  if (el) {
     const top = el.scrollTop;
     if (typeof el.scrollTo === 'function') el.scrollTo({ top, behavior: 'auto' });
     else el.scrollTop = top;
