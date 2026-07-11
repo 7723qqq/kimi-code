@@ -34,7 +34,7 @@ export default defineConfig({
     onlyBundle: false,
   },
   outputOptions: {
-    codeSplitting: false,
     entryFileNames: 'main.mjs',
+    chunkFileNames: 'chunks/[name]-[hash].mjs',
   },
 });
