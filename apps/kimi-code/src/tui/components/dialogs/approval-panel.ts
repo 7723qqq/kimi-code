@@ -26,7 +26,6 @@ import type {
   FileContentDisplayBlock,
   PendingApproval,
 } from '#/tui/reverse-rpc/types';
-import { t } from '#/i18n';
 
 export interface ApprovalPanelResponse {
   readonly response: 'approved' | 'approved_for_session' | 'rejected' | 'cancelled';
@@ -111,7 +110,7 @@ function renderDisplayBlock(
     case 'diff':
       return renderDiffLinesClustered(block.old_text, block.new_text, block.path, {
         contextLines: 3,
-        expandKeyHint: 'ctrl+e to preview',
+        expandKeyHint: t('tui.dialogs.approvalPanel.previewHint'),
         maxLines: DIFF_SUMMARY_MAX_LINES,
       });
     case 'file_content': {
@@ -126,7 +125,12 @@ function renderDisplayBlock(
       if (remaining > 0) {
         lines.push(
           s.dim(
-            `     … ${String(remaining)} more line${remaining > 1 ? 's' : ''} hidden (ctrl+e to preview)`,
+            `     ${t(
+              remaining === 1
+                ? 'tui.dialogs.approvalPanel.moreLinesHidden_one'
+                : 'tui.dialogs.approvalPanel.moreLinesHidden_other',
+              { count: remaining, previewHint: t('tui.dialogs.approvalPanel.previewHint') },
+            )}`,
           ),
         );
       }

@@ -615,10 +615,11 @@ export class KimiTUI {
       const result = await this.authFlow.refreshProviderModels();
       for (const c of result.changed) {
         if (c.added <= 0) continue;
-        this.showStatus(`${c.providerName} · +${String(c.added)} model${c.added > 1 ? 's' : ''}.`);
+        const modelsAddedKey = c.added === 1 ? 'tui.statusMessages.modelsAdded_one' : 'tui.statusMessages.modelsAdded_other';
+        this.showStatus(t(modelsAddedKey, { providerName: c.providerName, count: c.added }));
       }
       for (const f of result.failed) {
-        this.showStatus(`Skipped refreshing ${f.provider}: ${f.reason}`, 'warning');
+        this.showStatus(t('tui.statusMessages.skippedRefreshing', { provider: f.provider, reason: f.reason }), 'warning');
       }
     } catch {
       // Best-effort: startup must not crash on background refresh failures.
@@ -641,7 +642,7 @@ export class KimiTUI {
     }
     const resumeState = this.session?.getResumeState();
     if (resumeState?.warning !== undefined) {
-      this.showStatus(`Warning: ${resumeState.warning}`, 'warning');
+      this.showStatus(t('tui.statusMessages.warningLabel', { warning: resumeState.warning }), 'warning');
     }
     if (this.session !== undefined) {
       this.sessionEventHandler.startSubscription();
@@ -661,7 +662,7 @@ export class KimiTUI {
       if (this.session !== session) return;
       for (const warning of warnings) {
         const severity = warning.severity === 'error' ? 'error' : 'warning';
-        this.showStatus(`Warning: ${warning.message}`, severity);
+        this.showStatus(t('tui.statusMessages.warningLabel', { warning: warning.message }), severity);
       }
     } catch {
       // Best-effort: startup must not block on warning retrieval.
@@ -741,7 +742,7 @@ export class KimiTUI {
             session = await this.harness.createSession(createSessionOptions);
             this.startupNotice = combineStartupNotice(
               this.startupNotice,
-              `No sessions to continue under "${workDir}"; starting a fresh session.`,
+              t('tui.statusMessages.noSessionsToContinue', { workDir }),
             );
           }
         }
@@ -935,7 +936,7 @@ export class KimiTUI {
     }
     if (text.trim().length === 0) return;
     if (this.state.appState.isReplaying) {
-      this.showError('Cannot send input while session history is replaying.');
+      this.showError(t('tui.statusMessages.cannotSendWhileReplaying'));
       return;
     }
     // Shell commands are stored with a leading `!` so ↑ recall can tell them
@@ -961,7 +962,7 @@ export class KimiTUI {
   private runShellCommandFromInput(command: string): void {
     const session = this.session;
     if (session === undefined) {
-      this.showError('No active session for shell command.');
+      this.showError(t('tui.statusMessages.noActiveSessionShell'));
       return;
     }
     // Echo the command locally (bash-input) with a `$` prompt. The agent also
@@ -1004,7 +1005,7 @@ export class KimiTUI {
       (error: unknown) => {
         const message = formatErrorMessage(error);
         this.finishShellOutput(commandId, '', message, true);
-        this.showError(`Shell command failed: ${message}`);
+        this.showError(t('tui.statusMessages.shellCommandFailed', { message: formatErrorMessage(error) }));
       },
     );
   }
@@ -1028,7 +1029,7 @@ export class KimiTUI {
     if (session === undefined) return;
     for (const commandId of this.shellOutputStreams.keys()) {
       void session.cancelShellCommand(commandId).catch((error: unknown) => {
-        this.showError(`Failed to cancel shell command: ${formatErrorMessage(error)}`);
+        this.showError(t('tui.statusMessages.failedToCancelShell', { message: formatErrorMessage(error) }));
       });
     }
   }
@@ -1107,14 +1108,14 @@ export class KimiTUI {
       extraction.imageAttachmentIds.length > 0 &&
       !this.supportsCurrentModelCapability('image_in')
     ) {
-      this.showError('Current model does not support image input.');
+      this.showError(t('tui.statusMessages.modelNoImageInput'));
       return false;
     }
     if (
       extraction.videoAttachmentIds.length > 0 &&
       !this.supportsCurrentModelCapability('video_in')
     ) {
-      this.showError('Current model does not support video input.');
+      this.showError(t('tui.statusMessages.modelNoVideoInput'));
       return false;
     }
     return true;
@@ -1242,7 +1243,7 @@ export class KimiTUI {
     const sdkInput = options?.parts ?? input;
     void session.prompt(sdkInput).catch((error: unknown) => {
       const message = formatErrorMessage(error);
-      this.failSessionRequest(`Failed to send: ${message}`);
+      this.failSessionRequest(t('tui.statusMessages.failedToSend', { message }));
     });
   }
 
@@ -1250,7 +1251,7 @@ export class KimiTUI {
     this.beginSessionRequest();
     void session.activateSkill(skillName, skillArgs).catch((error: unknown) => {
       const message = formatErrorMessage(error);
-      this.failSessionRequest(`Skill "${skillName}" failed: ${message}`);
+      this.failSessionRequest(t('tui.statusMessages.skillFailed', { skillName, message }));
     });
   }
 
@@ -1263,7 +1264,7 @@ export class KimiTUI {
     this.beginSessionRequest();
     void session.activatePluginCommand(pluginId, commandName, args).catch((error: unknown) => {
       const message = formatErrorMessage(error);
-      this.failSessionRequest(`Command "${pluginId}:${commandName}" failed: ${message}`);
+      this.failSessionRequest(t('tui.statusMessages.pluginCommandFailed', { pluginId, commandName, message }));
     });
   }
 
@@ -1305,7 +1306,7 @@ export class KimiTUI {
 
     void session.steer(input.join('\n\n')).catch((error: unknown) => {
       const message = formatErrorMessage(error);
-      this.showError(`Failed to steer: ${message}`);
+      this.showError(t('tui.statusMessages.failedToSteer', { message }));
     });
   }
 
@@ -1590,26 +1591,26 @@ export class KimiTUI {
   private async showResumeOtherWorkDirHint(session: SessionRow): Promise<void> {
     this.hideSessionPicker();
     const command = `cd ${quoteShellArg(session.work_dir)} && kimi --resume ${quoteShellArg(session.id)}`;
-    const message = `Current session is in a different working directory.\n  To resume, run: ${command}`;
+    const message = t('tui.statusMessages.resumeOtherWorkDir', { command });
     try {
       await copyTextToClipboard(command);
-      this.showStatus(`${message}\n  Command copied to clipboard`, 'warning');
+      this.showStatus(`${message}\n  ${t('tui.statusMessages.commandCopiedToClipboard')}`, 'warning');
     } catch {
-      this.showStatus(`${message}\n  Failed to copy command to clipboard`, 'warning');
+      this.showStatus(`${message}\n  ${t('tui.statusMessages.failedToCopyCommand')}`, 'warning');
     }
   }
 
   private async resumeSession(targetSessionId: string): Promise<boolean> {
     if (targetSessionId === this.state.appState.sessionId) {
-      this.showStatus('Already on this session.');
+      this.showStatus(t('tui.statusMessages.alreadyOnSession'));
       return true;
     }
     if (this.state.appState.streamingPhase !== 'idle') {
-      this.showError('Cannot switch sessions while streaming — press Esc or Ctrl-C first.');
+      this.showError(t('tui.statusMessages.cannotSwitchWhileStreaming'));
       return false;
     }
     if (this.state.appState.isReplaying) {
-      this.showError('Cannot switch sessions while history is replaying.');
+      this.showError(t('tui.statusMessages.cannotSwitchWhileReplaying'));
       return false;
     }
 
@@ -1618,11 +1619,11 @@ export class KimiTUI {
       session = await this.harness.resumeSession({ id: targetSessionId });
     } catch (error) {
       const msg = formatErrorMessage(error);
-      this.showError(`Failed to resume session ${targetSessionId}: ${msg}`);
+      this.showError(t('tui.statusMessages.failedToResumeSession', { sessionId: targetSessionId, message: msg }));
       return false;
     }
 
-    await this.switchToSession(session, `Resumed session (${session.id}).`);
+    await this.switchToSession(session, t('tui.statusMessages.resumedSession', { sessionId: session.id }));
     return true;
   }
 
@@ -1642,13 +1643,13 @@ export class KimiTUI {
       await this.sessionReplay.hydrateFromReplay(session);
     } catch (error) {
       const msg = formatErrorMessage(error);
-      this.showError(`Failed to replay session history: ${msg}`);
+      this.showError(t('tui.statusMessages.failedToReplayHistory', { message: msg }));
     } finally {
       this.sessionEventHandler.startSubscription();
     }
     const resumeState = session.getResumeState();
     if (resumeState?.warning !== undefined) {
-      this.showStatus(`Warning: ${resumeState.warning}`, 'warning');
+      this.showStatus(t('tui.statusMessages.warningLabel', { warning: resumeState.warning }), 'warning');
     }
     this.showStatus(statusMessage);
     void this.showSessionWarnings(session);
@@ -1678,7 +1679,7 @@ export class KimiTUI {
     this.sessionEventHandler.startSubscription();
     const resumeState = session.getResumeState();
     if (resumeState?.warning !== undefined) {
-      this.showStatus(`Warning: ${resumeState.warning}`, 'warning');
+      this.showStatus(t('tui.statusMessages.warningLabel', { warning: resumeState.warning }), 'warning');
     }
     this.showStatus(statusMessage);
     void this.showSessionWarnings(session);
@@ -1686,7 +1687,7 @@ export class KimiTUI {
 
   async createNewSession(): Promise<void> {
     if (this.state.appState.isReplaying) {
-      this.showError('Cannot start a new session while history is replaying.');
+      this.showError(t('tui.statusMessages.cannotStartNewWhileReplaying'));
       return;
     }
 
@@ -1695,7 +1696,7 @@ export class KimiTUI {
       session = await this.createSessionFromCurrentState();
     } catch (error) {
       const msg = formatErrorMessage(error);
-      this.showError(`Failed to start a new session: ${msg}`);
+      this.showError(t('tui.statusMessages.failedToStartNewSession', { message: msg }));
       return;
     }
 
@@ -1708,7 +1709,7 @@ export class KimiTUI {
     } catch (error) {
       this.sessionEventHandler.startSubscription();
       const msg = formatErrorMessage(error);
-      this.showError(`Post-create setup failed: ${msg}`);
+      this.showError(t('tui.statusMessages.postCreateSetupFailed', { message: msg }));
       return;
     }
     try {
@@ -1719,7 +1720,7 @@ export class KimiTUI {
     }
     this.sessionEventHandler.startSubscription();
     this.clearTranscriptAndRedraw();
-    this.showStatus(`Started a new session (${session.id}).`);
+    this.showStatus(t('tui.statusMessages.startedNewSession', { sessionId: session.id }));
     void this.showSessionWarnings(session);
     void this.showConfigWarningsIfAny();
   }
@@ -1854,13 +1855,13 @@ export class KimiTUI {
     const parts: string[] = [];
     switch (response.decision) {
       case 'approved':
-        parts.push(response.scope === 'session' ? 'Approved for session' : 'Approved');
+        parts.push(response.scope === 'session' ? t('tui.statusMessages.approvedForSession') : t('tui.statusMessages.approved'));
         break;
       case 'rejected':
-        parts.push('Rejected');
+        parts.push(t('tui.statusMessages.rejected'));
         break;
       case 'cancelled':
-        parts.push('Cancelled');
+        parts.push(t('tui.statusMessages.cancelled'));
         break;
     }
     parts.push(`: ${request.action}`);
@@ -2198,7 +2199,7 @@ export class KimiTUI {
       }),
     );
     this.state.ui.requestRender();
-    return this.showLoginProgressSpinner('Waiting for authorization…');
+    return this.showLoginProgressSpinner(t('tui.statusMessages.waitingForAuthorization'));
   }
 
   // =========================================================================
@@ -2266,7 +2267,7 @@ export class KimiTUI {
         break;
       }
       case 'composing': {
-        const spinner = this.ensureActivitySpinner('braille', 'working...', (s) =>
+        const spinner = this.ensureActivitySpinner('braille', t('tui.statusMessages.working'), (s) =>
           currentTheme.fg('primary', s),
         );
         this.syncAgentSwarmActivitySpinner(undefined);
@@ -2383,12 +2384,12 @@ export class KimiTUI {
     // Only one `!` command runs at a time (input is queued while busy).
     const next = this.shellOutputStreams.entries().next();
     if (next.done) {
-      this.showDetachHint('No shell command running.');
+      this.showDetachHint(t('tui.statusMessages.noShellCommandRunning'));
       return;
     }
     const [commandId, stream] = next.value;
     if (stream.taskId === undefined) {
-      this.showDetachHint('Command is still starting — try again.');
+      this.showDetachHint(t('tui.statusMessages.commandStillStarting'));
       return;
     }
     const session = this.session;
@@ -2396,23 +2397,23 @@ export class KimiTUI {
     try {
       const info = await session.detachBackgroundTask(stream.taskId);
       if (info === undefined) {
-        this.showDetachHint('Command already finished.');
+        this.showDetachHint(t('tui.statusMessages.commandAlreadyFinished'));
         return;
       }
     } catch (error) {
-      this.showError(`Failed to move to background: ${formatErrorMessage(error)}`);
+      this.showError(t('tui.statusMessages.failedToMoveToBackground', { message: formatErrorMessage(error) }));
       return;
     }
     // Finalize the card as backgrounded and drop the stream so the eventual
     // runShellCommand resolution (which carries background metadata) is a no-op
     // instead of overwriting this view.
     stream.component.finishBackgrounded();
-    stream.entry.content = 'Moved to background.';
+    stream.entry.content = t('tui.statusMessages.movedToBackground');
     this.shellOutputStreams.delete(commandId);
     // The backgrounded command's notification turn (started by agent-core via
     // appendSystemReminderAndNotify) owns the streaming phase and drains the
     // queue when it completes, so we intentionally leave both untouched here.
-    this.showDetachHint('Moved to background. /tasks to view.');
+    this.showDetachHint(t('tui.statusMessages.movedToBackgroundHint'));
   }
 
   async detachCurrentForegroundTask(): Promise<void> {
@@ -2434,13 +2435,13 @@ export class KimiTUI {
       // and therefore included. We filter to `detached === false` ourselves.
       tasks = await session.listBackgroundTasks();
     } catch (error) {
-      this.showError(`Failed to list tasks: ${formatErrorMessage(error)}`);
+      this.showError(t('tui.statusMessages.failedToListTasks', { message: formatErrorMessage(error) }));
       return;
     }
 
     const targets = pickForegroundTasks(tasks);
     if (targets.length === 0) {
-      this.showDetachHint('No foreground task running.');
+      this.showDetachHint(t('tui.statusMessages.noForegroundTaskRunning'));
       return;
     }
 
@@ -2452,20 +2453,22 @@ export class KimiTUI {
         if (info === undefined) alreadyFinished++;
         else detached++;
       } catch (error) {
-        this.showError(`Failed to detach ${target.taskId}: ${formatErrorMessage(error)}`);
+        this.showError(t('tui.statusMessages.failedToDetachTask', { taskId: target.taskId, message: formatErrorMessage(error) }));
       }
     }
 
     let hint: string;
     if (detached === 0 && alreadyFinished > 0) {
-      hint = alreadyFinished === 1 ? 'Task already finished.' : 'Tasks already finished.';
+      const key = alreadyFinished === 1 ? 'tui.statusMessages.taskAlreadyFinished_one' : 'tui.statusMessages.taskAlreadyFinished_other';
+      hint = t(key);
     } else if (detached === targets.length) {
-      hint =
-        detached === 1 ? 'Moved 1 task to background.' : `Moved ${detached} tasks to background.`;
+      hint = detached === 1
+        ? t('tui.statusMessages.movedOneTaskToBackground')
+        : t('tui.statusMessages.movedTasksToBackground', { count: detached });
     } else {
-      hint = `Moved ${detached} of ${targets.length} tasks to background.`;
+      hint = t('tui.statusMessages.movedTasksOfToBackground', { detached, total: targets.length });
     }
-    if (detached > 0) hint = `${hint} /tasks to view.`;
+    if (detached > 0) hint = `${hint}${t('tui.statusMessages.tasksToView')}`;
     this.showDetachHint(hint);
   }
 
@@ -2788,7 +2791,7 @@ export class KimiTUI {
         onSelect: (session: SessionRow) => {
           void this.handleSessionPickerSelect(session, options.applyStartupModes === true).catch(
             (error) => {
-              this.showError(`Failed to apply startup flags: ${formatErrorMessage(error)}`);
+              this.showError(t('tui.statusMessages.failedToApplyStartupFlags', { message: formatErrorMessage(error) }));
             },
           );
         },

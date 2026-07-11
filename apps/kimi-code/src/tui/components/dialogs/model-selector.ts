@@ -276,12 +276,12 @@ export class ModelSelectorComponent extends Container implements Focusable {
     // "type to search" already lives in the title suffix, so the hint only
     // surfaces the backspace shortcut once a query is active.
     const hintParts: string[] = [];
-    if (this.opts.providerSwitchHint) hintParts.push('Tab toggle provider');
-    hintParts.push('↑↓ navigate');
-    if (searchable && view.query.length > 0) hintParts.push('Backspace clear');
+    if (this.opts.providerSwitchHint) hintParts.push(t('tui.dialogs.modelSelector.hintTab'));
+    hintParts.push(t('tui.dialogs.modelSelector.hintNavigate'));
+    if (searchable && view.query.length > 0) hintParts.push(t('tui.dialogs.modelSelector.hintBackspace'));
     hintParts.push(t('tui.dialogs.modelSelector.hintSelect'));
-    if (this.opts.onSessionOnlySelect !== undefined) hintParts.push('Alt+S session-only');
-    hintParts.push('Esc cancel');
+    if (this.opts.onSessionOnlySelect !== undefined) hintParts.push(t('tui.dialogs.modelSelector.hintSessionOnly'));
+    hintParts.push(t('tui.dialogs.modelSelector.hintCancel'));
 
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
@@ -295,7 +295,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
     }
 
     if (view.items.length === 0) {
-      lines.push(currentTheme.fg('textMuted', '   No matches'));
+      lines.push(currentTheme.fg('textMuted', '   ' + t('tui.dialogs.modelSelector.noMatches')));
     } else {
       // Column width for model names so the provider column lines up. Capped so
       // the provider + "← current" marker still fit on normal terminal widths.
@@ -329,13 +329,16 @@ export class ModelSelectorComponent extends Container implements Focusable {
     if (view.query.length > 0) {
       lines.push('');
       lines.push(
-        currentTheme.fg('textMuted', ` ${String(view.items.length)} / ${String(totalCount)}`),
+        currentTheme.fg(
+          'textMuted',
+          ` ${t('tui.dialogs.modelSelector.count', { matches: view.items.length, total: totalCount })}`,
+        ),
       );
     } else {
       const below = view.items.length - view.page.end;
       if (below > 0) {
         lines.push('');
-        lines.push(currentTheme.fg('textMuted', ` ▼ ${String(below)} more`));
+        lines.push(currentTheme.fg('textMuted', ` ${t('tui.dialogs.modelSelector.more', { count: below })}`));
       }
     }
 
@@ -343,7 +346,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
     const selected = this.selectedChoice();
     if (selected !== undefined) {
       const canSwitch = segmentsFor(selected.model).length > 1;
-      const thinkingHeader = canSwitch ? ' Thinking  (←→ to switch)' : ' Thinking';
+      const thinkingHeader = canSwitch ? t('tui.dialogs.modelSelector.thinkingSwitchable') : t('tui.dialogs.modelSelector.thinking');
       lines.push(currentTheme.fg('textMuted', thinkingHeader));
       lines.push(this.renderThinkingControl(selected));
     }
@@ -364,17 +367,20 @@ export class ModelSelectorComponent extends Container implements Focusable {
     // The whole segment is muted, suffix included, so the disabled side reads
     // as a single greyed-out control rather than a selectable option.
     const unavailable = (label: string): string =>
-      currentTheme.fg('textMuted', `  ${label} (Unsupported)  `);
+      currentTheme.fg(
+        'textMuted',
+        `  ${label} (${t('tui.dialogs.modelSelector.unsupported')})  `,
+      );
 
     // Non-effort always-on / unsupported models keep the original On/Off layout
     // so the control never shifts while moving across legacy models.
     const efforts = effortsOf(choice.model);
     const availability = thinkingAvailability(choice.model);
     if (efforts.length === 0 && availability === 'always-on') {
-      return `  ${segment('On', true)} ${unavailable('Off')}`;
+      return `  ${segment(t('tui.dialogs.modelSelector.on'), true)} ${unavailable(t('tui.dialogs.modelSelector.off'))}`;
     }
     if (efforts.length === 0 && availability === 'unsupported') {
-      return `  ${unavailable('On')} ${segment('Off', true)}`;
+      return `  ${unavailable(t('tui.dialogs.modelSelector.on'))} ${segment(t('tui.dialogs.modelSelector.off'), true)}`;
     }
 
     const segments = segmentsFor(choice.model);

@@ -1,4 +1,5 @@
 import { ErrorCodes, isKimiError, type PermissionMode } from '@moonshot-ai/kimi-code-sdk';
+import { t } from '#/i18n';
 
 import {
   GoalStartPermissionPromptComponent,
@@ -28,8 +29,8 @@ import { formatErrorMessage } from '../utils/event-payload';
 import type { SlashCommandHost } from './dispatch';
 
 const MAX_GOAL_OBJECTIVE_LENGTH = 4000;
-const RESUME_GOAL_INPUT = 'Resume the active goal.';
-const START_NEXT_GOAL_NOW_MESSAGE = 'No active goal. Starting this goal now.';
+const RESUME_GOAL_INPUT = t('tui.statusMessages.resumeGoalInput');
+const START_NEXT_GOAL_NOW_MESSAGE = t('tui.statusMessages.startingNow');
 
 type GoalCommandHost = Pick<
   SlashCommandHost,
@@ -108,13 +109,13 @@ export function parseGoalCommand(rawArgs: string): ParsedGoalCommand {
     return {
       kind: 'error',
       severity: 'hint',
-      message: 'Provide a goal objective, e.g. `/goal Ship feature X`.',
+      message: t('tui.statusMessages.provideObjective'),
     };
   }
   if (objective.length > MAX_GOAL_OBJECTIVE_LENGTH) {
     return {
       kind: 'error',
-      message: `Goal objective is too long (max ${MAX_GOAL_OBJECTIVE_LENGTH} characters). Reference long details by file path.`,
+      message: t('tui.statusMessages.objectiveTooLong', { max: MAX_GOAL_OBJECTIVE_LENGTH }),
     };
   }
   return { kind: 'create', objective, replace };
@@ -160,14 +161,13 @@ function parseNextGoalCommand(tokens: readonly string[]): ParsedGoalCommand {
     return {
       kind: 'error',
       severity: 'hint',
-      message:
-        'Provide an upcoming goal objective, e.g. `/goal next Ship feature X`, or use `/goal next manage`.',
+      message: t('tui.statusMessages.provideNextObjective'),
     };
   }
   if (objective.length > MAX_GOAL_OBJECTIVE_LENGTH) {
     return {
       kind: 'error',
-      message: `Goal objective is too long (max ${MAX_GOAL_OBJECTIVE_LENGTH} characters). Reference long details by file path.`,
+      message: t('tui.statusMessages.objectiveTooLong', { max: MAX_GOAL_OBJECTIVE_LENGTH }),
     };
   }
   return { kind: 'next-add', objective };
@@ -183,7 +183,7 @@ async function queueNextGoal(
     const { goal } = await session.getGoal();
     hasCurrentGoal = goal !== null;
   } catch (error) {
-    host.showError(`Failed to inspect current goal: ${formatErrorMessage(error)}`);
+    host.showError(t('tui.statusMessages.failedToInspectGoal', { error: formatErrorMessage(error) }));
     return;
   }
 
@@ -219,7 +219,7 @@ async function showGoalQueueManager(
   try {
     snapshot = await readGoalQueue(host.requireSession());
   } catch (error) {
-    host.showError(`Failed to load upcoming goals: ${formatErrorMessage(error)}`);
+    host.showError(t('tui.statusMessages.failedToLoadUpcomingGoals', { error: formatErrorMessage(error) }));
     return;
   }
 
@@ -232,7 +232,7 @@ async function showGoalQueueManager(
         try {
           return await handleGoalQueueManagerAction(host, action);
         } catch (error) {
-          host.showError(`Failed to update upcoming goals: ${formatErrorMessage(error)}`);
+          host.showError(t('tui.statusMessages.failedToUpdateUpcomingGoals', { error: formatErrorMessage(error) }));
           return undefined;
         }
       },
@@ -276,13 +276,13 @@ async function showGoalQueueEditDialog(
   try {
     snapshot = await readGoalQueue(host.requireSession());
   } catch (error) {
-    host.showError(`Failed to load upcoming goals: ${formatErrorMessage(error)}`);
+    host.showError(t('tui.statusMessages.failedToLoadUpcomingGoals', { error: formatErrorMessage(error) }));
     return;
   }
 
   const goal = snapshot.goals.find((item) => item.id === goalId);
   if (goal === undefined) {
-    host.showStatus('Queued goal no longer exists.');
+    host.showStatus(t('tui.statusMessages.queuedGoalNoLongerExists'));
     await showGoalQueueManager(host);
     return;
   }
@@ -292,7 +292,7 @@ async function showGoalQueueEditDialog(
       goal,
       onDone: (result) => {
         void handleGoalQueueEditResult(host, result).catch((error: unknown) => {
-          host.showError(`Failed to update upcoming goal: ${formatErrorMessage(error)}`);
+          host.showError(t('tui.statusMessages.failedToUpdateUpcomingGoal', { error: formatErrorMessage(error) }));
         });
       },
     }),
@@ -348,7 +348,7 @@ function showGoalStartPermissionPrompt(
   const commandText = `/goal ${rawArgs.trim()}`;
   const cancelStart = (): void => {
     host.restoreInputText(commandText);
-    host.showStatus('Goal not started.');
+    host.showStatus(t('tui.statusMessages.goalNotStarted'));
   };
   host.mountEditorReplacement(
     new GoalStartPermissionPromptComponent({
@@ -391,7 +391,7 @@ async function setPermissionForGoal(host: GoalCommandHost, mode: PermissionMode)
   try {
     await host.requireSession().setPermission(mode);
   } catch (error) {
-    host.showError(`Failed to set permission mode: ${formatErrorMessage(error)}`);
+    host.showError(t('tui.statusMessages.failedToSetPermission', { error: formatErrorMessage(error) }));
     return false;
   }
   host.setAppState({ permissionMode: mode });
@@ -411,7 +411,7 @@ async function startGoal(
   } catch (error) {
     if (isKimiError(error) && error.code === ErrorCodes.GOAL_ALREADY_EXISTS) {
       host.showError(
-        'A goal is already active. Use `/goal replace <objective>` to replace it, or `/goal status` to inspect it.',
+        t('tui.statusMessages.goalAlreadyActive'),
       );
       return false;
     }
@@ -438,14 +438,14 @@ async function pauseGoal(host: SlashCommandHost): Promise<void> {
     if (isStreaming(host)) await session.cancel();
   } catch (error) {
     if (isKimiError(error) && error.code === ErrorCodes.GOAL_NOT_FOUND) {
-      host.showStatus('No goal to pause.');
+      host.showStatus(t('tui.statusMessages.noGoalToPause'));
       return;
     }
     host.showError(formatErrorMessage(error));
     return;
   }
   host.track('goal_pause');
-  host.showStatus('Goal paused. Use `/goal resume` to continue.');
+  host.showStatus(t('tui.statusMessages.goalPaused'));
 }
 
 async function resumeGoal(host: SlashCommandHost): Promise<void> {
@@ -458,7 +458,7 @@ async function resumeGoal(host: SlashCommandHost): Promise<void> {
     await host.requireSession().resumeGoal();
   } catch (error) {
     if (isKimiError(error) && error.code === ErrorCodes.GOAL_NOT_FOUND) {
-      host.showStatus('No goal to resume.');
+      host.showStatus(t('tui.statusMessages.noGoalToResume'));
       return;
     }
     host.showError(formatErrorMessage(error));
@@ -475,21 +475,21 @@ async function cancelGoal(host: SlashCommandHost): Promise<void> {
     if (isStreaming(host)) await session.cancel();
   } catch (error) {
     if (isKimiError(error) && error.code === ErrorCodes.GOAL_NOT_FOUND) {
-      host.showStatus('No goal to cancel.');
+      host.showStatus(t('tui.statusMessages.noGoalToCancel'));
       return;
     }
     host.showError(formatErrorMessage(error));
     return;
   }
   host.track('goal_cancel');
-  host.showNotice('Goal cancelled.');
+  host.showNotice(t('tui.statusMessages.goalCancelled'));
 }
 
 async function showGoalStatus(host: SlashCommandHost): Promise<void> {
   const { goal } = await host.requireSession().getGoal();
   host.track('goal_status', { status: goal?.status ?? 'none' });
   if (goal === null) {
-    host.showStatus('No goal set. Start one with `/goal <objective>`.');
+    host.showStatus(t('tui.statusMessages.noGoalSet'));
     return;
   }
   host.state.transcriptContainer.addChild(
