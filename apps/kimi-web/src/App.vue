@@ -1,6 +1,6 @@
 <!-- apps/kimi-web/src/App.vue -->
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import Sidebar from './components/Sidebar.vue';
 import ResizeHandle from './components/ResizeHandle.vue';
@@ -11,20 +11,20 @@ import AgentDetailPanel from './components/chat/AgentDetailPanel.vue';
 import ToolDiffPanel from './components/chat/ToolDiffPanel.vue';
 import SideChatPanel from './components/chat/SideChatPanel.vue';
 import DiffView from './components/chat/DiffView.vue';
-import ModelPicker from './components/settings/ModelPicker.vue';
-import ProviderManager from './components/settings/ProviderManager.vue';
-import LoginDialog from './components/dialogs/LoginDialog.vue';
-import SettingsDialog from './components/settings/SettingsDialog.vue';
-import AddWorkspaceDialog from './components/dialogs/AddWorkspaceDialog.vue';
+const ModelPicker = defineAsyncComponent(() => import('./components/settings/ModelPicker.vue'));
+const ProviderManager = defineAsyncComponent(() => import('./components/settings/ProviderManager.vue'));
+const LoginDialog = defineAsyncComponent(() => import('./components/dialogs/LoginDialog.vue'));
+const SettingsDialog = defineAsyncComponent(() => import('./components/settings/SettingsDialog.vue'));
+const AddWorkspaceDialog = defineAsyncComponent(() => import('./components/dialogs/AddWorkspaceDialog.vue'));
 import ConfirmDialogHost from './components/dialogs/ConfirmDialogHost.vue';
-import StatusPanel from './components/chat/StatusPanel.vue';
+const StatusPanel = defineAsyncComponent(() => import('./components/chat/StatusPanel.vue'));
 import WarningToasts from './components/WarningToasts.vue';
 import MobileTopBar from './components/mobile/MobileTopBar.vue';
-import MobileSwitcherSheet from './components/mobile/MobileSwitcherSheet.vue';
-import MobileSettingsSheet from './components/mobile/MobileSettingsSheet.vue';
-import Onboarding from './components/settings/Onboarding.vue';
+const MobileSwitcherSheet = defineAsyncComponent(() => import('./components/mobile/MobileSwitcherSheet.vue'));
+const MobileSettingsSheet = defineAsyncComponent(() => import('./components/mobile/MobileSettingsSheet.vue'));
+const Onboarding = defineAsyncComponent(() => import('./components/settings/Onboarding.vue'));
 import GlobalLoading from './components/GlobalLoading.vue';
-import DebugPanel from './debug/DebugPanel.vue';
+const DebugPanel = defineAsyncComponent(() => import('./debug/DebugPanel.vue'));
 import { isTraceEnabled } from './debug/trace';
 import { useKimiWebClient } from './composables/useKimiWebClient';
 import { useAuthGate } from './composables/useAuthGate';
