@@ -4,16 +4,16 @@
  *
  * Registers with `sessionLifecycle` hook slots to run `SessionStart` and
  * `SessionEnd` external commands for the current `sessionContext`, and
- * observes the requester-side agent-run hook slots (`onWillStartAgentTask` /
- * `onDidStopAgentTask`) hosted on `agentLifecycle`'s `IAgentLifecycleService`
- * to translate them into the `SubagentStart` / `SubagentStop` external
- * commands. The slot host lives on the service that owns the run (run by
- * `mirrorAgentRun`); this adapter only registers its own listeners here, so
- * the runner owns the slots it runs — the same pattern the Agent-scope adapter
- * follows against the agent behavior services. The actual hook execution is
- * delegated to the shared App-scope `IExternalHooksRunnerService`; all
- * config/plugin loading and engine lifecycle live in the runner. Bound at
- * Session scope.
+ * observes the requester-side agent-run hook slot (`onWillStartAgentTask`) and
+ * stop event (`onDidStopAgentTask`) hosted on `agentLifecycle`'s
+ * `IAgentLifecycleService` to translate them into the `SubagentStart` /
+ * `SubagentStop` external commands. The slot/event host lives on the service
+ * that owns the run (run by `mirrorAgentRun`); this adapter only registers its
+ * own listeners here, so the runner owns the slots it runs — the same pattern
+ * the Agent-scope adapter follows against the agent behavior services. The
+ * actual hook execution is delegated to the shared App-scope
+ * `IExternalHooksRunnerService`; all config/plugin loading and engine lifecycle
+ * live in the runner. Bound at Session scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -71,12 +71,7 @@ export class SessionExternalHooksService
         await next();
       }),
     );
-    this._register(
-      agentLifecycle.hooks.onDidStopAgentTask.register('externalHooks', (ctx, next) => {
-        this.notifySubagentStop(ctx);
-        return next();
-      }),
-    );
+    this._register(agentLifecycle.onDidStopAgentTask((ctx) => this.notifySubagentStop(ctx)));
   }
 
   private async triggerSessionStart(source: SessionStartHookSource): Promise<void> {

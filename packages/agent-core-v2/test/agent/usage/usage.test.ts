@@ -135,12 +135,11 @@ describe('AgentUsageService (wire-backed)', () => {
     ]);
   });
 
-  it('runs the post-record hook with the live usage context', () => {
+  it('fires onDidRecord with the live usage context', () => {
     const contexts: UsageRecordedContext[] = [];
     disposables.add(
-      svc.hooks.onDidRecord.register('usage-test', (ctx, next) => {
+      svc.onDidRecord((ctx) => {
         contexts.push(ctx);
-        return next();
       }),
     );
 

@@ -1909,10 +1909,6 @@ function createWorkspaceContextStub(
 
 function createPermissionModeService(initialMode: PermissionMode): IAgentPermissionModeService {
   let mode = initialMode;
-  const emptyHook = {
-    register: () => toDisposable(() => { }),
-    run: () => Promise.resolve(),
-  };
   return {
     _serviceBrand: undefined,
     get mode() {
@@ -1921,9 +1917,7 @@ function createPermissionModeService(initialMode: PermissionMode): IAgentPermiss
     setMode: (nextMode) => {
       mode = nextMode;
     },
-    hooks: {
-      onDidChangeMode: emptyHook,
-    } as unknown as IAgentPermissionModeService['hooks'],
+    onDidChangeMode: Event.None as IAgentPermissionModeService['onDidChangeMode'],
   };
 }
 

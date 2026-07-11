@@ -244,10 +244,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       this.eventBus.subscribe('turn.started', (e) => this.handleTurnLaunched(e.turnId)),
     );
     this._register(
-      usageService.hooks.onDidRecord.register('goal-account-usage', async (ctx, next) => {
-        this.handleUsageRecorded(ctx);
-        await next();
-      }),
+      usageService.onDidRecord((ctx) => this.handleUsageRecorded(ctx)),
     );
     this._register(
       loopService.hooks.onWillBeginStep.register('goal-count-turn', async (ctx, next) => {

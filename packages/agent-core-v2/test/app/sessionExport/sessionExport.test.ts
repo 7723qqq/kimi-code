@@ -414,16 +414,15 @@ function stubSessionMetadata(meta: SessionMeta): ISessionMetadata {
 function stubAgentLifecycle(agents: readonly IAgentScopeHandle[]): IAgentLifecycleService {
   return {
     _serviceBrand: undefined,
-    hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
-      'onWillStartAgentTask',
-      'onDidStopAgentTask',
-    ]),
+    hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>(['onWillStartAgentTask']),
+    onDidStopAgentTask: noopEvent,
     onDidCreate: noopEvent,
     onDidCreateMain: noopEvent,
     onDidDispose: noopEvent,
     create: async () => agents[0]!,
     ensureMcpReady: async () => {},
     notifyMainCreated: () => {},
+    notifyAgentTaskStopped: () => {},
     fork: async () => agents[0]!,
     run: async () => {
       throw new Error('run should not be called by session export');
@@ -446,7 +445,7 @@ function stubAgentWire(flush: () => Promise<void> = async () => {}): IAgentWireR
     close: async () => {},
     hooks: {
       onDidRestoreRecord: { run: async () => {} },
-      onDidFinishResume: { run: async () => {} },
     } as unknown as IAgentWireRecordService['hooks'],
+    onDidFinishResume: noopEvent,
   };
 }

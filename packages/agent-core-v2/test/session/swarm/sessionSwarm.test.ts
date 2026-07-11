@@ -1161,13 +1161,11 @@ function lifecycleStub(
   handles: Map<string, IAgentScopeHandle>,
   eventBus: IEventBus,
 ): IAgentLifecycleService {
-  const hooks = createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
-    'onWillStartAgentTask',
-    'onDidStopAgentTask',
-  ]);
+  const hooks = createHooks<AgentTaskHooks, keyof AgentTaskHooks>(['onWillStartAgentTask']);
   const lifecycle = {
     _serviceBrand: undefined,
     hooks,
+    onDidStopAgentTask: Event.None,
     onDidCreate: Event.None,
     onDidCreateMain: Event.None,
     onDidDispose: Event.None,
@@ -1184,6 +1182,7 @@ function lifecycleStub(
     }),
     ensureMcpReady: async () => {},
     notifyMainCreated: () => {},
+    notifyAgentTaskStopped: () => {},
     fork: vi.fn(),
     run: vi.fn(async (agentId: string) => ({
       agentId,
@@ -1219,7 +1218,7 @@ function agentHandle(
     _serviceBrand: undefined,
     mode: 'auto',
     setMode: () => {},
-    hooks: createHooks(['onDidChangeMode']),
+    onDidChangeMode: Event.None,
   } as IAgentPermissionModeService;
   return {
     id,

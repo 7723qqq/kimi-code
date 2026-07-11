@@ -2,6 +2,7 @@ import { describe, expect, it, onTestFinished } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
+import { Event } from '#/_base/event';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
@@ -32,7 +33,8 @@ function harness() {
     _serviceBrand: undefined,
     compacting: null,
     begin: () => false,
-    hooks: createHooks(['onWillCompact', 'onDidFinishCompaction']),
+    hooks: createHooks(['onWillCompact']),
+    onDidFinishCompaction: Event.None,
   } as unknown as IAgentFullCompactionService;
   const ix = createServices(disposables, { strict: true, additionalServices: (reg) => {
     reg.defineInstance(IAgentContextMemoryService, context);

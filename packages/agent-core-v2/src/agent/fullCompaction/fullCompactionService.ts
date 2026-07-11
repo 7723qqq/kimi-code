@@ -61,6 +61,7 @@ import {
   type CompactionBeginData,
   type CompactionResult,
 } from './types';
+import { Emitter, type Event } from '#/_base/event';
 import { OrderedHookSlot } from '#/hooks';
 
 // The `full_compaction.*` record shapes stay declared in `WireRecordMap`
@@ -111,8 +112,9 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   declare readonly _serviceBrand: undefined;
   readonly hooks: IAgentFullCompactionService['hooks'] = {
     onWillCompact: new OrderedHookSlot<FullCompactionTask>(),
-    onDidFinishCompaction: new OrderedHookSlot<FullCompactionTask>(),
   };
+  private readonly _onDidFinishCompaction = this._register(new Emitter<FullCompactionTask>());
+  readonly onDidFinishCompaction: Event<FullCompactionTask> = this._onDidFinishCompaction.event;
 
   private readonly strategy: CompactionStrategy;
   private compactionCountInTurn = 0;
@@ -524,7 +526,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       // the compaction held the context is never lost. `_compacting` is already
       // null on every path, so a replayed launch starts a turn instead of
       // re-buffering.
-      await this.hooks.onDidFinishCompaction.run(active);
+      this._onDidFinishCompaction.fire(active);
     }
   }
 

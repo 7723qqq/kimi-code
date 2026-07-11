@@ -87,10 +87,11 @@ async function runRegisteredInjection(): Promise<string | undefined> {
 describe('AgentPermissionModeService (wire-backed)', () => {
   it('setMode updates mode and fires onDidChangeMode with mode/previousMode', () => {
     const changes: { mode: PermissionMode; previousMode: PermissionMode }[] = [];
-    svc.hooks.onDidChangeMode.register('test', (ctx, next) => {
-      changes.push({ mode: ctx.mode, previousMode: ctx.previousMode });
-      return next();
-    });
+    disposables.add(
+      svc.onDidChangeMode((ctx) => {
+        changes.push({ mode: ctx.mode, previousMode: ctx.previousMode });
+      }),
+    );
 
     expect(svc.mode).toBe('manual');
 

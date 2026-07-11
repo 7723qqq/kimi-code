@@ -9,6 +9,7 @@
 
 import { toDisposable } from '#/_base/di/lifecycle';
 import type { ServiceRegistration } from '#/_base/di/test';
+import { Event } from '#/_base/event';
 import { createHooks } from '#/hooks';
 import { buildContextCompactionShape } from '#/agent/contextMemory/compactionHandoff';
 import {
@@ -29,12 +30,13 @@ import { IAgentWireRecordService } from '#/agent/wireRecord/wireRecord';
  * cleanly.
  */
 export function stubWireRecord(): IAgentWireRecordService {
-  const hooks = createHooks(['onDidRestoreRecord', 'onDidFinishResume']) as IAgentWireRecordService['hooks'];
+  const hooks = createHooks(['onDidRestoreRecord']) as IAgentWireRecordService['hooks'];
   return {
     _serviceBrand: undefined,
     restoring: null,
     postRestoring: false,
     hooks,
+    onDidFinishResume: Event.None as Event<void>,
     register: () => toDisposable(() => {}),
     restore: () => Promise.resolve({}),
     flush: () => Promise.resolve(),

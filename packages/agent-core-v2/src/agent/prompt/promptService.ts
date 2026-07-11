@@ -210,7 +210,7 @@ export class AgentPromptService implements IAgentPromptService {
   private get fullCompaction(): IAgentFullCompactionService {
     if (this.fullCompactionService === undefined) {
       this.fullCompactionService = this.instantiation.invokeFunction((a) => a.get(IAgentFullCompactionService));
-      this.fullCompactionService.hooks.onDidFinishCompaction.register('prompt-service-compaction-replay', async (_ctx, next) => { void this.startNext(); await next(); });
+      this.fullCompactionService.onDidFinishCompaction(() => { void this.startNext(); });
     }
     return this.fullCompactionService;
   }

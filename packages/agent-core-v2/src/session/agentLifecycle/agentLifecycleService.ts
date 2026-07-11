@@ -80,6 +80,7 @@ import {
   type AgentRunHandle,
   type AgentRunRequest,
   type AgentTaskHooks,
+  type AgentTaskStopHookContext,
   type CreateAgentOptions,
   type ForkAgentOptions,
   IAgentLifecycleService,
@@ -91,14 +92,14 @@ let nextAgentId = 0;
 
 export class AgentLifecycleService extends Disposable implements IAgentLifecycleService {
   declare readonly _serviceBrand: undefined;
-  readonly hooks = createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
-    'onWillStartAgentTask',
-    'onDidStopAgentTask',
-  ]);
+  readonly hooks = createHooks<AgentTaskHooks, keyof AgentTaskHooks>(['onWillStartAgentTask']);
   private readonly handles = new Map<string, IAgentScopeHandle>();
   private readonly onDidCreateEmitter = this._register(new Emitter<IAgentScopeHandle>());
   private readonly onDidCreateMainEmitter = this._register(new Emitter<IAgentScopeHandle>());
   private readonly onDidDisposeEmitter = this._register(new Emitter<string>());
+  private readonly onDidStopAgentTaskEmitter = this._register(
+    new Emitter<AgentTaskStopHookContext>(),
+  );
   private mcpManager: McpConnectionManager | undefined;
   private mcpInitialLoad: Promise<void> | undefined;
   private readonly interactionBusDisposables = new Map<string, IDisposable>();
@@ -111,6 +112,13 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   }
   get onDidDispose() {
     return this.onDidDisposeEmitter.event;
+  }
+  get onDidStopAgentTask() {
+    return this.onDidStopAgentTaskEmitter.event;
+  }
+
+  notifyAgentTaskStopped(context: AgentTaskStopHookContext): void {
+    this.onDidStopAgentTaskEmitter.fire(context);
   }
 
   constructor(

@@ -215,7 +215,7 @@ describe('AgentLifecycleService', () => {
       _serviceBrand: undefined,
       mode: 'manual',
       setMode: permissionModeSetMode,
-      hooks: { onDidChangeMode: { register: () => ({ dispose: () => {} }) } },
+      onDidChangeMode: Event.None,
     } as unknown as IAgentPermissionModeService);
     ix.set(IAgentLifecycleService, new SyncDescriptor(AgentLifecycleService));
   });

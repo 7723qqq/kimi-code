@@ -5,7 +5,7 @@ import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { LifecycleScope } from '#/_base/di/scope';
 import type { ServiceIdentifier } from '#/_base/di/instantiation';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { Emitter } from '#/_base/event';
+import { Emitter, Event } from '#/_base/event';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -20,6 +20,7 @@ import { FileWorkspaceLocalConfigService } from '#/persistence/backends/node-fs/
 import { createHooks } from '#/hooks';
 import {
   type AgentTaskHooks,
+  type AgentTaskStopHookContext,
   IAgentLifecycleService,
 } from '#/session/agentLifecycle/agentLifecycle';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/mainAgent';
@@ -165,16 +166,15 @@ function agentsStub(): AgentsStub {
   return {
     _serviceBrand: undefined,
     mainContext,
-    hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
-      'onWillStartAgentTask',
-      'onDidStopAgentTask',
-    ]),
+    hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>(['onWillStartAgentTask']),
+    onDidStopAgentTask: Event.None as Event<AgentTaskStopHookContext>,
     onDidCreate: () => ({ dispose: () => {} }),
     onDidCreateMain: mainCreated.event,
     onDidDispose: () => ({ dispose: () => {} }),
     create: () => Promise.reject(new Error('not implemented')),
     ensureMcpReady: () => Promise.resolve(),
     notifyMainCreated: (handle) => mainCreated.fire(handle),
+    notifyAgentTaskStopped: () => {},
     fork: () => Promise.reject(new Error('not implemented')),
     run: () => {
       throw new Error('not implemented');

@@ -5,8 +5,10 @@ import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiati
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { type IAgentScopeHandle, type ISessionScopeHandle, LifecycleScope } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
+import { Event } from '#/_base/event';
 import {
   type AgentTaskHooks,
+  type AgentTaskStopHookContext,
   IAgentLifecycleService,
 } from '#/session/agentLifecycle/agentLifecycle';
 import type { ContextMessage } from '#/agent/contextMemory/types';
@@ -75,14 +77,13 @@ describe('RestGateway', () => {
     };
     const agents: IAgentLifecycleService = {
       _serviceBrand: undefined,
-      hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
-        'onWillStartAgentTask',
-        'onDidStopAgentTask',
-      ]),
+      hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>(['onWillStartAgentTask']),
+      onDidStopAgentTask: Event.None as Event<AgentTaskStopHookContext>,
       onDidCreate: () => ({ dispose: () => {} }),
       onDidDispose: () => ({ dispose: () => {} }),
       onDidCreateMain: () => ({ dispose: () => {} }),
       notifyMainCreated: () => {},
+      notifyAgentTaskStopped: () => {},
       create: () => Promise.resolve(agentHandle),
       ensureMcpReady: () => Promise.resolve(),
       fork: () => Promise.resolve(agentHandle),

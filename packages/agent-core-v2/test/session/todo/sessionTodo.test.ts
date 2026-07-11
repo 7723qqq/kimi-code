@@ -4,7 +4,7 @@ import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiati
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { type IAgentScopeHandle, LifecycleScope } from '#/_base/di/scope';
-import { Emitter } from '#/_base/event';
+import { Emitter, Event } from '#/_base/event';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentProfileService } from '#/agent/profile/profile';
@@ -12,6 +12,7 @@ import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { createHooks } from '#/hooks';
 import {
   type AgentTaskHooks,
+  type AgentTaskStopHookContext,
   IAgentLifecycleService,
 } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionTodoService } from '#/session/todo/sessionTodo';
@@ -170,10 +171,8 @@ function makeLifecycleStub(handles: readonly IAgentScopeHandle[] = []): Lifecycl
 
   const service: IAgentLifecycleService = {
     _serviceBrand: undefined,
-    hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
-      'onWillStartAgentTask',
-      'onDidStopAgentTask',
-    ]),
+    hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>(['onWillStartAgentTask']),
+    onDidStopAgentTask: Event.None as Event<AgentTaskStopHookContext>,
     onDidCreate: onDidCreate.event,
     onDidCreateMain: onDidCreateMain.event,
     onDidDispose: onDidDispose.event,
@@ -184,6 +183,7 @@ function makeLifecycleStub(handles: readonly IAgentScopeHandle[] = []): Lifecycl
     },
     ensureMcpReady: () => Promise.resolve(),
     notifyMainCreated: () => {},
+    notifyAgentTaskStopped: () => {},
     fork: async () => {
       throw new Error('not implemented');
     },

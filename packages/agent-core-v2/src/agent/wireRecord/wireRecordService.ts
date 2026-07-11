@@ -3,6 +3,7 @@ import { relative } from 'pathe';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { Disposable, toDisposable } from "#/_base/di/lifecycle";
+import { Emitter, type Event } from '#/_base/event';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
@@ -46,8 +47,9 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
   private _postRestoring = false;
   readonly hooks = {
     onDidRestoreRecord: new OrderedHookSlot<WireRecordRestoredContext>(),
-    onDidFinishResume: new OrderedHookSlot<{}>(),
   };
+  private readonly _onDidFinishResume = this._register(new Emitter<void>());
+  readonly onDidFinishResume: Event<void> = this._onDidFinishResume.event;
 
   constructor(
     private readonly options: WireRecordServiceOptions = {},
@@ -130,7 +132,7 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
         ? this.log.read<PersistedWireRecord>(this.wireScope, WIRE_RECORD_FILENAME)
         : undefined);
     if (source === undefined) {
-      await this.runResumeEndedHooks();
+      this.fireResumeEnded();
       return {};
     }
 
@@ -199,7 +201,7 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
       await this.log.flush();
     }
     if (completed) {
-      await this.runResumeEndedHooks();
+      this.fireResumeEnded();
     }
     return warning === undefined ? {} : { warning };
   }
@@ -236,10 +238,10 @@ export class AgentWireRecordService extends Disposable implements IAgentWireReco
     }
   }
 
-  private async runResumeEndedHooks(): Promise<void> {
+  private fireResumeEnded(): void {
     this._postRestoring = true;
     try {
-      await this.hooks.onDidFinishResume.run({});
+      this._onDidFinishResume.fire();
     } finally {
       this._postRestoring = false;
     }

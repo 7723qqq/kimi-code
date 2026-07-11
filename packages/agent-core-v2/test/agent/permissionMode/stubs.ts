@@ -7,9 +7,11 @@
  * `../permissionMode/stubs`).
  */
 
-import { createHooks } from '#/hooks';
-import type { Hooks } from '#/hooks';
-import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { Event } from '#/_base/event';
+import type {
+  IAgentPermissionModeService,
+  PermissionModeChangedContext,
+} from '#/agent/permissionMode/permissionMode';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 
 export function stubPermissionModeService(
@@ -21,8 +23,6 @@ export function stubPermissionModeService(
       return mode();
     },
     setMode: () => {},
-    hooks: createHooks(['onDidChangeMode']) as Hooks<{
-      onDidChangeMode: { mode: PermissionMode; previousMode: PermissionMode };
-    }>,
+    onDidChangeMode: Event.None as Event<PermissionModeChangedContext>,
   };
 }

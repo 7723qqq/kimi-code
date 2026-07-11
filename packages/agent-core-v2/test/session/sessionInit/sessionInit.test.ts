@@ -46,8 +46,8 @@ describe('SessionInitService', () => {
       _serviceBrand: undefined,
       hooks: {
         onWillStartAgentTask: { run: vi.fn(async () => {}) },
-        onDidStopAgentTask: { run: vi.fn(async () => {}) },
       },
+      notifyAgentTaskStopped: vi.fn(),
       getHandle: vi.fn((id: string) => handles[id]),
       create: vi.fn(async () => handles['agent-0']),
       run: vi.fn(async (agentId: string) => ({

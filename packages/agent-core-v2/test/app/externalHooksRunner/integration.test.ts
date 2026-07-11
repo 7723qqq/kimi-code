@@ -11,7 +11,7 @@ import {
   createServices,
   type TestInstantiationService,
 } from '#/_base/di/test';
-import { Event } from '#/_base/event';
+import { Emitter, Event } from '#/_base/event';
 import { emptyUsage } from '#/app/llmProtocol/usage';
 import { buildContextCompactionShape } from '#/agent/contextMemory/compactionHandoff';
 import {
@@ -53,6 +53,7 @@ import { createHooks } from '#/hooks';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import {
   type AgentTaskHooks,
+  type AgentTaskStopHookContext,
   IAgentLifecycleService,
 } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionExternalHooksService } from '#/session/externalHooks/externalHooks';
@@ -494,6 +495,8 @@ describe('IExternalHooksRunnerService integration', () => {
         },
       };
 
+      const stopAgentTask = disposables.add(new Emitter<AgentTaskStopHookContext>());
+
       ix = createServices(disposables, {
         strict: true,
         additionalServices: (reg) => {
@@ -511,10 +514,8 @@ describe('IExternalHooksRunnerService integration', () => {
           });
           reg.defineInstance(ISessionLifecycleService, stubSessionLifecycle());
           reg.definePartialInstance(IAgentLifecycleService, {
-            hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
-              'onWillStartAgentTask',
-              'onDidStopAgentTask',
-            ]),
+            hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>(['onWillStartAgentTask']),
+            onDidStopAgentTask: stopAgentTask.event,
           });
         },
       });
@@ -522,7 +523,7 @@ describe('IExternalHooksRunnerService integration', () => {
       ix.set(ISessionExternalHooksService, new SyncDescriptor(SessionExternalHooksService));
 
       // Construct the observer first so it registers its listeners on the
-      // agent-lifecycle run-hook slots, then drive the slots the way
+      // agent-lifecycle run-hook slot / stop event, then drive them the way
       // `mirrorAgentRun` does.
       ix.get(ISessionExternalHooksService);
       const agentLifecycle = ix.get(IAgentLifecycleService);
@@ -532,7 +533,7 @@ describe('IExternalHooksRunnerService integration', () => {
         prompt: 'Fix the bug',
         signal: new AbortController().signal,
       });
-      await agentLifecycle.hooks.onDidStopAgentTask.run({
+      stopAgentTask.fire({
         agentName: 'coder',
         response: 'Bug fixed',
       });
@@ -854,10 +855,8 @@ describe('IExternalHooksRunnerService integration', () => {
           });
           reg.defineInstance(ISessionLifecycleService, lifecycle);
           reg.definePartialInstance(IAgentLifecycleService, {
-            hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>([
-              'onWillStartAgentTask',
-              'onDidStopAgentTask',
-            ]),
+            hooks: createHooks<AgentTaskHooks, keyof AgentTaskHooks>(['onWillStartAgentTask']),
+            onDidStopAgentTask: Event.None as Event<AgentTaskStopHookContext>,
           });
           reg.definePartialInstance(IConfigService, {
             ready: Promise.resolve(),

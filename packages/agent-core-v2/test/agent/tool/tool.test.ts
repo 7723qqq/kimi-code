@@ -37,6 +37,7 @@ import {
   IAgentLifecycleService,
   type AgentRunHandle,
   type AgentRunRequest,
+  type AgentTaskStopHookContext,
   type RunAgentOptions,
 } from '#/session/agentLifecycle/agentLifecycle';
 import { IEventBus, type DomainEvent } from '#/app/event/eventBus';
@@ -238,8 +239,8 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
     _serviceBrand: undefined,
     hooks: {
       onWillStartAgentTask: hookSlot(),
-      onDidStopAgentTask: hookSlot(),
     },
+    onDidStopAgentTask: Event.None as KimiEvent<AgentTaskStopHookContext>,
     onDidCreate: Event.None as KimiEvent<IAgentScopeHandle>,
     onDidCreateMain: Event.None as KimiEvent<IAgentScopeHandle>,
     onDidDispose: Event.None as KimiEvent<string>,
@@ -258,6 +259,7 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
     }),
     ensureMcpReady: vi.fn(async () => {}),
     notifyMainCreated: vi.fn(),
+    notifyAgentTaskStopped: vi.fn(),
     fork: vi.fn(async () => {
       throw new Error('unexpected fork');
     }),

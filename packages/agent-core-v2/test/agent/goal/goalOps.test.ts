@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
+import { Event } from '#/_base/event';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 import { IConfigService } from '#/app/config/config';
@@ -104,7 +105,7 @@ function buildHost(key: string): {
   ix.set(IEventBus, new SyncDescriptor(EventBusService));
   ix.stub(IAgentLoopService, createLoopStub());
   ix.stub(IAgentUsageService, {
-    hooks: { onDidRecord: hookSlot() },
+    onDidRecord: Event.None,
   } as unknown as IAgentUsageService);
   ix.stub(IAgentContextMemoryService, createContextStub());
   ix.stub(IAgentContextInjectorService, createInjectorStub());

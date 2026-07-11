@@ -5,10 +5,11 @@
  * + Model), `fork` (inherit binding + context history), `run` (drive one
  * prompt/retry turn on an agent and await its distilled summary), plus lookup
  * (`getHandle` / `list`) and removal. Hosts the requester-side agent-run hook
- * slots (`hooks.onWillStartAgentTask` / `onDidStopAgentTask`) that
- * `mirrorAgentRun` runs when one agent drives another, so observers such as the
- * Session-scope `externalHooks` adapter can translate them into external hook
- * commands. Session-scoped — one instance per session.
+ * slot (`hooks.onWillStartAgentTask`) and stop announcement
+ * (`onDidStopAgentTask`) that `mirrorAgentRun` runs when one agent drives
+ * another, so observers such as the Session-scope `externalHooks` adapter can
+ * translate them into external hook commands. Session-scoped — one instance
+ * per session.
  *
  * Invariants:
  * - The registry is flat: agents have no nesting. There is no parent/child or
@@ -111,21 +112,28 @@ export interface AgentTaskStopHookContext {
 
 export type AgentTaskHooks = {
   readonly onWillStartAgentTask: AgentTaskStartHookContext;
-  readonly onDidStopAgentTask: AgentTaskStopHookContext;
 };
 
 export interface IAgentLifecycleService {
   readonly _serviceBrand: undefined;
 
   /**
-   * Requester-side agent-run hook slots (`onWillStartAgentTask` /
-   * `onDidStopAgentTask`) run by `mirrorAgentRun` when one agent drives
-   * another. Observers — e.g. the Session-scope `externalHooks` adapter —
-   * register here to translate a run into `SubagentStart` / `SubagentStop`
-   * external hook commands. The slot host lives on the service that owns the
-   * run; callers never invoke the external hook commands directly.
+   * Requester-side agent-run hook slot (`onWillStartAgentTask`) run by
+   * `mirrorAgentRun` when one agent drives another. Observers — e.g. the
+   * Session-scope `externalHooks` adapter — register here to translate a run
+   * into the `SubagentStart` external hook command; a rejecting handler
+   * cancels the run. The slot host lives on the service that owns the run;
+   * callers never invoke the external hook commands directly.
    */
   readonly hooks: Hooks<AgentTaskHooks>;
+
+  /**
+   * Fires after a mirrored agent run has stopped, with the run's distilled
+   * summary. Announced by `mirrorAgentRun` via {@link notifyAgentTaskStopped};
+   * observers such as the Session-scope `externalHooks` adapter translate it
+   * into the `SubagentStop` external hook command.
+   */
+  readonly onDidStopAgentTask: Event<AgentTaskStopHookContext>;
 
   /** Fires after an agent is created and registered, with its scope handle. */
   readonly onDidCreate: Event<IAgentScopeHandle>;
@@ -153,6 +161,12 @@ export interface IAgentLifecycleService {
    * every {@link onDidCreate}. No other caller should invoke it.
    */
   notifyMainCreated(handle: IAgentScopeHandle): void;
+  /**
+   * Fire {@link onDidStopAgentTask} for a mirrored run that has stopped.
+   * Called by `mirrorAgentRun` once per mirrored run completion; no other
+   * caller should invoke it.
+   */
+  notifyAgentTaskStopped(context: AgentTaskStopHookContext): void;
   /**
    * Fork an agent: copy its profile binding and context history into a new
    * agent, recording `forkedFrom = sourceAgentId`. Throws when the source does
