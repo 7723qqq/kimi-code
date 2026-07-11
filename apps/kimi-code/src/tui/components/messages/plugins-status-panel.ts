@@ -196,20 +196,32 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
   const iface = info.manifest?.interface;
   if (iface !== undefined) {
     lines.push('');
-    lines.push(value('Display:'));
-    if (iface.shortDescription !== undefined) lines.push(`  ${muted('-')} ${value(iface.shortDescription)}`);
-    if (iface.developerName !== undefined) lines.push(`  ${muted('-')} ${value(`by ${iface.developerName}`)}`);
+    lines.push(value(t('tui.messages.pluginsStatusPanel.display')));
+    if (iface.shortDescription !== undefined) {
+      lines.push(`  ${muted('-')} ${value(iface.shortDescription)}`);
+    }
+    if (iface.developerName !== undefined) {
+      lines.push(
+        `  ${muted('-')} ${value(t('tui.messages.pluginsStatusPanel.by', { name: iface.developerName }))}`,
+      );
+    }
     if (iface.websiteURL !== undefined) lines.push(`  ${muted('-')} ${value(iface.websiteURL)}`);
   }
 
   if (info.manifest?.keywords !== undefined && info.manifest.keywords.length > 0) {
     lines.push('');
-    lines.push(muted(`Keywords: ${info.manifest.keywords.join(', ')}`));
+    lines.push(
+      muted(
+        t('tui.messages.pluginsStatusPanel.keywords', {
+          keywords: info.manifest.keywords.join(', '),
+        }),
+      ),
+    );
   }
 
   if (info.diagnostics.length > 0) {
     lines.push('');
-    lines.push(value(t('tui.messages.pluginsStatusPanel.diagnosticsLabel')));
+    lines.push(value(t('tui.messages.pluginsStatusPanel.diagnostics')));
     for (const d of info.diagnostics) {
       const paint = d.severity === 'error' ? error : d.severity === 'warn' ? warning : muted;
       lines.push(`  ${paint(`[${d.severity}]`)} ${value(d.message)}`);

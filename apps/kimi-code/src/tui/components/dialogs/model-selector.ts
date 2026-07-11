@@ -11,6 +11,7 @@ import {
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '#/constant/app';
 import { CURRENT_MARK, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import { t } from '#/i18n';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
 import type { ChoiceOption } from './choice-picker';
@@ -269,7 +270,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 
     const titleSuffix =
       searchable && view.query.length === 0
-        ? currentTheme.fg('textMuted', '  (type to search)')
+        ? currentTheme.fg('textMuted', `  ${t('tui.dialogs.modelSelector.searchHint')}`)
         : '';
 
     // "type to search" already lives in the title suffix, so the hint only
@@ -278,19 +279,19 @@ export class ModelSelectorComponent extends Container implements Focusable {
     if (this.opts.providerSwitchHint) hintParts.push('Tab toggle provider');
     hintParts.push('↑↓ navigate');
     if (searchable && view.query.length > 0) hintParts.push('Backspace clear');
-    hintParts.push('Enter select');
+    hintParts.push(t('tui.dialogs.modelSelector.hintSelect'));
     if (this.opts.onSessionOnlySelect !== undefined) hintParts.push('Alt+S session-only');
     hintParts.push('Esc cancel');
 
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg('primary', ' Select a model') + titleSuffix,
+      currentTheme.boldFg('primary', ` ${t('tui.dialogs.modelSelector.title')}`) + titleSuffix,
       currentTheme.fg('textMuted', ' ' + hintParts.join(' · ')),
       '',
     ];
 
     if (searchable && view.query.length > 0) {
-      lines.push(currentTheme.fg('primary', ' Search: ') + currentTheme.fg('text', view.query));
+      lines.push(currentTheme.fg('primary', ` ${t('tui.dialogs.modelSelector.searchLabel')}`) + currentTheme.fg('text', view.query));
     }
 
     if (view.items.length === 0) {

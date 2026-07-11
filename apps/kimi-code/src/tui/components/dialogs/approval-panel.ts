@@ -16,6 +16,7 @@ import {
   wrapTextWithAnsi,
 } from '@moonshot-ai/pi-tui';
 import { currentTheme } from '#/tui/theme';
+import { t } from '#/i18n';
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
 import type {
@@ -25,6 +26,7 @@ import type {
   FileContentDisplayBlock,
   PendingApproval,
 } from '#/tui/reverse-rpc/types';
+import { t } from '#/i18n';
 
 export interface ApprovalPanelResponse {
   readonly response: 'approved' | 'approved_for_session' | 'rejected' | 'cancelled';
@@ -191,17 +193,17 @@ function isDuplicateBriefBlock(block: DisplayBlock, description: string): boolea
 function headerFor(toolName: string): string {
   switch (toolName) {
     case 'Bash':
-      return 'Run this command?';
+      return t('tui.dialogs.approvalPanel.headerForBash');
     case 'Write':
-      return 'Write this file?';
+      return t('tui.dialogs.approvalPanel.headerForWrite');
     case 'Edit':
-      return 'Apply these edits?';
+      return t('tui.dialogs.approvalPanel.headerForEdit');
     case 'TaskStop':
-      return 'Stop this task?';
+      return t('tui.dialogs.approvalPanel.headerForTaskStop');
     case 'ExitPlanMode':
-      return 'Ready to build with this plan?';
+      return t('tui.dialogs.approvalPanel.headerForExitPlanMode');
     default:
-      return `Approve ${toolName}?`;
+      return t('tui.dialogs.approvalPanel.headerForDefault', { toolName });
   }
 }
 
@@ -395,13 +397,13 @@ export class ApprovalPanelComponent extends Container implements Focusable {
 
     lines.push('');
     if (this.feedbackMode) {
-      lines.push(indent(dim('Type feedback · ↵ submit.')));
+      lines.push(indent(dim(t('tui.dialogs.approvalPanel.feedbackHint'))));
     } else {
-      const expandHint = hasPreviewable ? ' · ctrl+e preview' : '';
+      const expandHint = hasPreviewable ? t('tui.dialogs.approvalPanel.expandHint') : '';
       lines.push(
         indent(
           dim(
-            `↑/↓ select · ${buildNumericHint(data.choices.length)} choose · ↵ confirm${expandHint}`,
+            t('tui.dialogs.approvalPanel.navHint', { numeric: buildNumericHint(data.choices.length), expand: expandHint }),
           ),
         ),
       );
