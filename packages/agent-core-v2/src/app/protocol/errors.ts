@@ -14,6 +14,7 @@ import {
   APIConnectionError,
   APIContextOverflowError,
   APIEmptyResponseError,
+  APIProviderOverloadedError,
   APIStatusError,
   APITimeoutError,
   ChatProviderError,
@@ -26,9 +27,15 @@ export const ProtocolErrors = {
     PROVIDER_RATE_LIMIT: 'provider.rate_limit',
     PROVIDER_AUTH_ERROR: 'provider.auth_error',
     PROVIDER_CONNECTION_ERROR: 'provider.connection_error',
+    PROVIDER_OVERLOADED: 'provider.overloaded',
     CONTEXT_OVERFLOW: 'context.overflow',
   },
-  retryable: ['provider.rate_limit', 'provider.connection_error', 'context.overflow'],
+  retryable: [
+    'provider.rate_limit',
+    'provider.connection_error',
+    'provider.overloaded',
+    'context.overflow',
+  ],
   info: {
     'provider.rate_limit': {
       title: 'Provider rate limit',
@@ -47,6 +54,12 @@ export const ProtocolErrors = {
       retryable: false,
       public: true,
       action: 'Check provider credentials and authentication configuration.',
+    },
+    'provider.overloaded': {
+      title: 'Provider overloaded',
+      retryable: true,
+      public: true,
+      action: 'Retry after the provider recovers from overload.',
     },
     'context.overflow': {
       title: 'Context overflow',
@@ -78,11 +91,13 @@ export function translateProviderError(error: unknown): KimiError {
     const code =
       error instanceof APIContextOverflowError
         ? ProtocolErrors.codes.CONTEXT_OVERFLOW
-        : error.statusCode === 429
-          ? ProtocolErrors.codes.PROVIDER_RATE_LIMIT
-          : error.statusCode === 401 || error.statusCode === 403
-            ? ProtocolErrors.codes.PROVIDER_AUTH_ERROR
-            : ProtocolErrors.codes.PROVIDER_API_ERROR;
+        : error instanceof APIProviderOverloadedError || error.statusCode === 529
+          ? ProtocolErrors.codes.PROVIDER_OVERLOADED
+          : error.statusCode === 429
+            ? ProtocolErrors.codes.PROVIDER_RATE_LIMIT
+            : error.statusCode === 401 || error.statusCode === 403
+              ? ProtocolErrors.codes.PROVIDER_AUTH_ERROR
+              : ProtocolErrors.codes.PROVIDER_API_ERROR;
     return new KimiError(code, sanitizeStatusErrorMessage(error.message), {
       name: error.name,
       cause: error,

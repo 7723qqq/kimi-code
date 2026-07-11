@@ -11,7 +11,7 @@
 import type { ContentPart } from '#/app/llmProtocol/message';
 
 import { createDecorator } from '#/_base/di/instantiation';
-import type { Turn } from '#/agent/turn/turn';
+import type { Turn } from '#/agent/loop/loop';
 import type { CronTask, CronTaskInit } from '#/app/cron/cronTask';
 import type { ParsedCronExpression } from '#/app/cron/cron-expr';
 

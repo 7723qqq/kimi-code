@@ -6,14 +6,15 @@
  * this file drives a real `Agent` instance so we can verify the
  * full chain:
  *
- *    onLiveTaskTerminal → notifyAgentTask → turn.steer()
- *      → (idle) launch() → turnWorker() → LLM generate called with
- *        the notification XML in history
- *      → (busy) buffered into steerBuffer → flushed on next loop step
+ *    task terminal → notifyAgentTask → loop.enqueue(TaskNotificationStepRequest)
+ *      → (busy) the mergeable request folds into the active turn's next step
+ *      → (idle / race) the agent-scoped request survives and rides the next
+ *        launched turn — no turn is auto-launched for a notification
  *
- * If either scenario fails to inject the notification into the next
- * LLM call, the scripted LLM will throw "Unexpected generate call",
- * making the failure mode explicit.
+ * Delivery is queue-ordered and the message only materializes when the loop
+ * pops the request. If a scenario fails to inject the notification into an
+ * LLM call, the per-notification `waitFor` times out, making the failure
+ * mode explicit.
  */
 
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -24,7 +25,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentTaskService } from '#/agent/task/task';
 import { SubagentTask } from '#/session/agentLifecycle/tools/subagent-task';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentTurnService } from '#/agent/turn/turn';
 import {
@@ -49,18 +49,21 @@ function agentTask(
   );
 }
 
+/** `task.notified` fires once per enqueued notification (after the enqueue). */
+function notifiedCount(ctx: TestAgentContext): number {
+  return ctx.allEvents.filter((e) => e.event === 'task.notified').length;
+}
+
 describe('task notification → main agent (real Agent instance)', () => {
   describe('live notification delivery', () => {
     let ctx: TestAgentContext;
     let background: IAgentTaskService;
-    let prompt: IAgentPromptService;
     let turn: IAgentTurnService;
     let profile: IAgentProfileService;
 
     beforeEach(() => {
       ctx = createTestAgent();
       background = ctx.get(IAgentTaskService);
-      prompt = ctx.get(IAgentPromptService);
       turn = ctx.get(IAgentTurnService);
       profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: [] });
@@ -74,30 +77,36 @@ describe('task notification → main agent (real Agent instance)', () => {
       }
     });
 
-    it('IDLE: completed bg agent auto-starts a new turn with <notification> XML', async () => {
+    it('IDLE: completed bg agent notification is queued and rides the next turn', async () => {
       expect(turn.getActiveTurn()).toBeUndefined();
       expect(ctx.llmCalls.length).toBe(0);
-
-      // The expected auto-launched turn will call generate once, then end.
-      ctx.mockNextResponse({ type: 'text', text: 'ack from main agent' });
 
       const taskId = background.registerTask(agentTask(
         Promise.resolve({ result: 'background agent finished its job' }),
         'idle-state repro',
       ));
-
       await background.wait(taskId);
 
-      // Give the steer→launch→turnWorker→generate chain time to run.
+      // Enqueue-only delivery: the notification lands on the loop queue
+      // (announced via `task.notified`) but no turn is auto-launched for it.
       await vi.waitFor(
         () => {
-          expect(ctx.llmCalls.length).toBeGreaterThanOrEqual(1);
+          expect(notifiedCount(ctx)).toBe(1);
         },
         { timeout: 2000 },
       );
+      expect(ctx.llmCalls.length).toBe(0);
+      expect(turn.getActiveTurn()).toBeUndefined();
 
-      // The latest LLM call must include the notification XML the
-      // AgentTaskService injected via `turn.steer`.
+      // The next launched turn drains the queue: the mergeable notification
+      // folds into the prompt's batch, so the turn's first LLM call carries
+      // the notification XML.
+      ctx.mockNextResponse({ type: 'text', text: 'ack from main agent' });
+      await ctx.rpc.prompt({
+        input: [{ type: 'text', text: 'user follow-up' }],
+      });
+      await ctx.untilTurnEnd();
+
       const lastCall = ctx.llmCalls.at(-1)!;
       const flatHistoryText = JSON.stringify(lastCall.history);
       expect(flatHistoryText).toContain('<notification');
@@ -108,57 +117,50 @@ describe('task notification → main agent (real Agent instance)', () => {
       expect(flatHistoryText).not.toContain('background agent finished its job');
     });
 
-    it('BUSY: completed bg agent during an active turn is flushed before the next LLM call', async () => {
-      // Step 1 of the user-prompted turn: produce no tool call, end turn.
-      // But to give the steerBuffer a chance to be flushed we want a
-      // multi-step turn. So instead: queue a text response for step 1
-      // that DOESN'T end the turn yet (set finishReason to tool_calls
-      // is wrong because we have no tool call). Easiest is to chain two
-      // responses: first one is text-only (so step ends), the steer
-      // notification arrives during that step, then a second LLM call
-      // happens that should contain the notification.
-      //
-      // Actually with the scripted-generate harness, a text-only
-      // response yields finishReason='completed' and the turn ends.
-      // To force a 2-step turn we need the first step to emit a tool
-      // call. Since we configured no tools, we can't. So this BUSY
-      // case is hard to model without LLM-side multi-step. Instead we
-      // test the buffer mechanism directly:
-
-      const steerSpy = vi.spyOn(prompt, 'steer');
-
-      // Pretend a turn is active by calling prompt and not awaiting end.
-      // Queue a response that will be consumed.
+    it('BUSY: completed bg agent during an active turn is flushed into an LLM call', async () => {
+      // The notification is enqueued (mergeable, agent-scoped) while the
+      // user-prompted turn runs. Depending on delivery timing it either
+      // folds into that turn's next step or survives into a follow-up turn
+      // that drains it — in every case it must reach an LLM call. Three
+      // scripted responses cover both branches plus the drain prompt.
       ctx.mockNextResponse({ type: 'text', text: 'first turn ack' });
+      ctx.mockNextResponse({ type: 'text', text: 'notification ack' });
+      ctx.mockNextResponse({ type: 'text', text: 'drain turn ack' });
+
       const promptPromise = ctx.rpc.prompt({
         input: [{ type: 'text', text: 'kick off a turn' }],
       });
 
-      // Right after kicking off, register a background task that
-      // completes immediately. The notification should be steer()d
-      // while activeTurn is still set, landing in the steerBuffer.
+      // Right after kicking off, register a background task that completes
+      // immediately, so the notification is enqueued mid-turn.
       const taskId = background.registerTask(agentTask(
         Promise.resolve({ result: 'busy-state bg result' }),
         'busy-state repro',
       ));
 
-      // Wait for the first turn to end.
       await promptPromise;
       await ctx.untilTurnEnd();
+      await vi.waitFor(
+        () => {
+          expect(notifiedCount(ctx)).toBe(1);
+        },
+        { timeout: 2000 },
+      );
 
-      // steer() must have been called at least once for our task.
-      await vi.waitFor(() => {
-        expect(steerSpy).toHaveBeenCalled();
+      // Drain whatever the first turn left queued, then assert the
+      // notification reached an LLM call whichever branch delivered it.
+      await ctx.rpc.prompt({
+        input: [{ type: 'text', text: 'drain the queue' }],
       });
-      const matchingCall = steerSpy.mock.calls.find((c) => {
-        const payload = c[0] as { origin?: { kind?: string; taskId?: string } } | undefined;
-        return payload?.origin?.kind === 'task' && payload?.origin?.taskId === taskId;
-      });
-      expect(matchingCall).toBeDefined();
+      await ctx.untilTurnEnd();
 
-      // After the turn ends, the steerBuffer should be flushed —
-      // i.e. the notification text appears as a user message in
-      // the agent's context history.
+      const delivered = ctx.llmCalls.some((call) => {
+        const flat = JSON.stringify(call.history);
+        return flat.includes('<notification') && flat.includes(taskId);
+      });
+      expect(delivered).toBe(true);
+
+      // …and it must be materialized in the agent's context history.
       const data = ctx.contextData();
       const flatContext = JSON.stringify(data);
       expect(flatContext).toContain('<notification');
@@ -169,11 +171,9 @@ describe('task notification → main agent (real Agent instance)', () => {
       expect(flatContext).not.toContain('busy-state bg result');
     });
 
-    it('IDLE × N: a GROUP of bg agents completes — all notifications should reach the LLM', async () => {
-      // Only one auto-launched turn is expected; its beforeStep should
-      // drain ALL buffered notifications. So one queued response is enough.
-      ctx.mockNextResponse({ type: 'text', text: 'ack group' });
-
+    it('IDLE × N: a GROUP of bg agents completes — all notifications reach the LLM in one turn', async () => {
+      // Every idle delivery lands on the loop queue without launching a
+      // turn; the next prompt drains them all in a single merged batch.
       const taskIds = [
         background.registerTask(agentTask(
           Promise.resolve({ result: 'bg #1 result' }),
@@ -193,18 +193,24 @@ describe('task notification → main agent (real Agent instance)', () => {
         await background.wait(id);
       }
 
+      // ⚠️ All 3 notifications queued, still no turn launched.
       await vi.waitFor(
         () => {
-          expect(ctx.llmCalls.length).toBeGreaterThanOrEqual(1);
+          expect(notifiedCount(ctx)).toBe(3);
         },
         { timeout: 2000 },
       );
+      expect(ctx.llmCalls.length).toBe(0);
 
+      ctx.mockNextResponse({ type: 'text', text: 'ack group' });
+      await ctx.rpc.prompt({
+        input: [{ type: 'text', text: 'user follow-up' }],
+      });
+      await ctx.untilTurnEnd();
+
+      // The single prompt turn's first LLM call carries every notification.
       const lastCall = ctx.llmCalls.at(-1)!;
       const flatHistoryText = JSON.stringify(lastCall.history);
-
-      // ⚠️ Each of the 3 tasks' notifications must show up in the LLM
-      // history of the (single) auto-launched turn.
       for (const id of taskIds) {
         expect(flatHistoryText).toContain(id);
       }
@@ -217,46 +223,37 @@ describe('task notification → main agent (real Agent instance)', () => {
       expect(flatHistoryText).not.toContain('bg #3 result');
     });
 
-    it('RACE: bg completion fires AFTER LLM returns but BEFORE activeTurn is cleared', async () => {
-      // We're hunting a window: shouldContinueAfterStop reads an empty
-      // steerBuffer → returns { continue: false } → loop.run unwinds →
-      // finally block hasn't yet set activeTurn = null. If a steer()
-      // lands in this window, it gets buffered, then activeTurn=null
-      // and the buffer is never flushed until the next user prompt.
+    it('RACE: bg completion right after turn end is queued, not launched, and drains on the next prompt', async () => {
       // 1st turn: prompted by user — produces text and ends.
       ctx.mockNextResponse({ type: 'text', text: 'first user-prompted ack' });
-
-      // Schedule the bg completion to fire when the first turn ends.
-      // The cleanest trigger: hook into the `turn.ended` event.
-      const turnEndedPromise = ctx.once('turn.ended');
-
-      // Kick off the user-prompted turn — don't await yet.
       await ctx.rpc.prompt({
         input: [{ type: 'text', text: 'hello main agent' }],
       });
-
-      // Wait until turn.ended fires.
       await ctx.untilTurnEnd();
-      await turnEndedPromise;
+      expect(ctx.llmCalls.length).toBe(1);
 
-      // At this point activeTurn should be null. Now fire the bg
-      // completion — this is the IDLE path, NOT the racy one. We
-      // queue an LLM response so the auto-launched turn can run.
-      ctx.mockNextResponse({ type: 'text', text: 'auto ack from bg notification' });
+      // Fire the bg completion while the agent is idle. The notification is
+      // enqueued (agent-scoped) but NO turn is auto-launched.
       const taskId = background.registerTask(agentTask(
         Promise.resolve({ result: 'post-turn bg result' }),
         'race-after-turn',
       ));
-
       await background.wait(taskId);
-
-      // The notification arriving while idle should auto-launch a turn.
       await vi.waitFor(
         () => {
-          expect(ctx.llmCalls.length).toBeGreaterThanOrEqual(2);
+          expect(notifiedCount(ctx)).toBe(1);
         },
         { timeout: 2000 },
       );
+      expect(ctx.llmCalls.length).toBe(1);
+      expect(turn.getActiveTurn()).toBeUndefined();
+
+      // The next user prompt drains the queued notification.
+      ctx.mockNextResponse({ type: 'text', text: 'ack from bg notification' });
+      await ctx.rpc.prompt({
+        input: [{ type: 'text', text: 'user follow-up' }],
+      });
+      await ctx.untilTurnEnd();
 
       const lastCall = ctx.llmCalls.at(-1)!;
       const flatHistoryText = JSON.stringify(lastCall.history);
@@ -272,7 +269,6 @@ describe('task notification → main agent (real Agent instance)', () => {
     let sessionDir: string;
     let ctx: TestAgentContext;
     let background: TaskServiceTestManager;
-    let prompt: IAgentPromptService;
     let turn: IAgentTurnService;
 
     beforeEach(async () => {
@@ -304,7 +300,6 @@ describe('task notification → main agent (real Agent instance)', () => {
 
       ctx = createTestAgent(homeDirServices(sessionDir), taskServices());
       background = ctx.get(IAgentTaskService) as TaskServiceTestManager;
-      prompt = ctx.get(IAgentPromptService);
       turn = ctx.get(IAgentTurnService);
       const profile = ctx.get(IAgentProfileService);
       profile.update({ activeToolNames: [] });
@@ -324,8 +319,8 @@ describe('task notification → main agent (real Agent instance)', () => {
       // running; on next start, resume() loads them from disk and
       // reconcile() classifies them as terminal (lost for in-process
       // agent tasks; possibly completed for bash tasks if the process
-      // wrote a terminal state). The restore path uses
-      // `appendUserMessage`, NOT `steer`, so:
+      // wrote a terminal state). The restore path appends the
+      // notifications to context directly, NOT via the loop queue, so:
       //   - Notification XML lands in context history ✓
       //   - No new turn is launched ✗
       //   - User sees nothing happen until they type
@@ -335,7 +330,7 @@ describe('task notification → main agent (real Agent instance)', () => {
       // We do NOT mock any LLM response. If the resume path
       // mistakenly launches a turn, scripted-generate throws
       // "Unexpected generate call" and the test fails loudly.
-      const steerSpy = vi.spyOn(prompt, 'steer');
+      const launchSpy = vi.spyOn(turn, 'launch');
 
       // Reproduce Agent.resume()'s post-replay sequence.
       await background.loadFromDisk();
@@ -351,9 +346,10 @@ describe('task notification → main agent (real Agent instance)', () => {
         expect(flatContext).toContain('agent-prev0000');
       });
 
-      // Hard assertion: steer was NOT called for either restored task.
-      // The notifications were silently appended, so no new turn ran.
-      expect(steerSpy).not.toHaveBeenCalled();
+      // Hard assertion: no turn was launched for either restored task.
+      // The notifications were silently appended (never enqueued onto the
+      // loop), so no new turn ran.
+      expect(launchSpy).not.toHaveBeenCalled();
       expect(ctx.llmCalls.length).toBe(0);
       expect(turn.getActiveTurn()).toBeUndefined();
 

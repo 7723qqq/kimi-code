@@ -205,10 +205,12 @@ describe('AgentTaskService', () => {
 
   // ── Output ceiling for shell (process) tasks ─────────────────────────
   //
-  // A single foreground shell command that streams more output than the
-  // per-command limit must be force-terminated instead of growing the
-  // unbounded live-forward buffer until the process runs out of memory.
-  // Detached process tasks and non-process task results are not capped.
+  // A single shell command that streams more output than the per-command
+  // limit must be force-terminated instead of growing the unbounded
+  // live-forward buffer or the on-disk `output.log` write chain until the
+  // process runs out of memory or fills the disk. Foreground and detached
+  // (background) process tasks are both capped; non-process task results
+  // (subagent completions, user-question answers) are not.
 
   const MiB = 1024 * 1024;
   const LIMIT_BYTES = 16 * MiB;
@@ -369,7 +371,7 @@ describe('AgentTaskService', () => {
     expect(forwardedChars).toBeLessThanOrEqual(LIMIT_BYTES);
   });
 
-  it('does not terminate a detached (background) task for the same output', async () => {
+  it('also terminates a detached (background) task for the same output', async () => {
     const svc = ix.get(IAgentTaskService);
     const chunks = Array.from({ length: 20 }, () => 'x'.repeat(MiB));
     const { proc, kill } = streamingProcess(chunks);
@@ -381,9 +383,9 @@ describe('AgentTaskService', () => {
 
     const info = await waitForTerminal(svc, taskId);
 
-    expect(info?.status).toBe('completed');
-    expect(info?.stopReason).toBeUndefined();
-    expect(kill).not.toHaveBeenCalledWith('SIGTERM');
+    expect(info?.status).toBe('killed');
+    expect(info?.stopReason ?? '').toMatch(/output limit/i);
+    expect(kill).toHaveBeenCalledWith('SIGTERM');
   });
 
   it('stops enqueuing output to disk once the foreground cap trips', async () => {
@@ -409,11 +411,12 @@ describe('AgentTaskService', () => {
     expect(persistedChars()).toBeLessThanOrEqual(17 * MiB);
   });
 
-  it('persists detached process output beyond the foreground cap', async () => {
+  it('stops appending persisted output once the output limit trips for a detached process task', async () => {
     const { svc, persistedChars } = serviceWithAppendCounter();
 
     // 20 MiB, and the producer ignores SIGTERM so it keeps writing through
-    // the whole foreground grace window. Detached tasks are exempt.
+    // the whole grace window. The detached task is still capped: once the
+    // ceiling trips the disk write chain stops growing.
     const chunks = Array.from({ length: 20 }, () => 'x'.repeat(MiB));
     const { proc } = sigtermIgnoringProcess(chunks);
 
@@ -425,8 +428,8 @@ describe('AgentTaskService', () => {
     const info = await waitForTerminal(svc, taskId);
     await svc.getOutputSnapshot(taskId, 1);
 
-    expect(info?.status).toBe('completed');
-    expect(persistedChars()).toBeGreaterThanOrEqual(20 * MiB);
+    expect(info?.status).toBe('killed');
+    expect(persistedChars()).toBeLessThanOrEqual(17 * MiB);
   });
 
   it('does not cap or drop a detached subagent result larger than the limit', async () => {

@@ -48,6 +48,7 @@ import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceCo
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentActivityService, ISessionActivityKernel } from '#/activity/activity';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentStepRetryService } from '#/agent/stepRetry/stepRetry';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IAgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSelectAnnouncements';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
@@ -279,6 +280,10 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     // derived from it before the first turn.
     handle.accessor.get(IAgentToolSelectService);
     handle.accessor.get(IAgentToolSelectAnnouncementsService);
+    // Step-retry plugin: registers the loop error handler that retries
+    // retryable provider failures. Nothing injects it directly — it observes
+    // the loop — so it must be ignited before the first turn.
+    handle.accessor.get(IAgentStepRetryService);
   }
 
   private async bindBootstrap(

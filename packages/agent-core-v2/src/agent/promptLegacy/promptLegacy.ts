@@ -19,7 +19,7 @@ import type {
 } from '@moonshot-ai/protocol';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { TurnResult } from '#/agent/turn/turn';
+import type { TurnResult } from '#/agent/loop/loop';
 
 /**
  * Outcome of a prompt that was launched (or queued and later launched) by

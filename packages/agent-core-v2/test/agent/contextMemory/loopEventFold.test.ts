@@ -108,6 +108,92 @@ describe('loop-event fold parity', () => {
     expect(folded).toEqual(baseline);
   });
 
+  function shapes(messages: readonly ContextMessage[]) {
+    return messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+      toolCalls: m.toolCalls,
+      toolCallId: m.toolCallId,
+      isError: m.isError,
+      partial: m.partial,
+    }));
+  }
+
+  it('drops an empty partial assistant left by a failed attempt when the retry begins', () => {
+    context.appendLoopEvent({ type: 'step.begin', uuid: 's1' });
+    // The attempt failed before any output; the loop re-runs the step.
+    context.appendLoopEvent({ type: 'step.begin', uuid: 's2' });
+    context.appendLoopEvent({
+      type: 'content.part',
+      stepUuid: 's2',
+      part: { type: 'text', text: 'recovered' },
+    });
+    context.appendLoopEvent({ type: 'step.end', uuid: 's2' });
+
+    expect(shapes(context.get())).toEqual([
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'recovered' }],
+        toolCalls: [],
+        toolCallId: undefined,
+        isError: undefined,
+        partial: undefined,
+      },
+    ]);
+  });
+
+  it('seals a failed attempt’s partial assistant and closes its tool exchange on the next step.begin', () => {
+    context.appendLoopEvent({ type: 'step.begin', uuid: 's1' });
+    context.appendLoopEvent({
+      type: 'content.part',
+      stepUuid: 's1',
+      part: { type: 'text', text: 'half' },
+    });
+    context.appendLoopEvent({
+      type: 'tool.call',
+      stepUuid: 's1',
+      toolCallId: 'c1',
+      name: 'Bash',
+      args: {},
+    });
+    // The attempt failed before the tool result arrived; the retry begins.
+    context.appendLoopEvent({ type: 'step.begin', uuid: 's2' });
+
+    expect(shapes(context.get())).toEqual([
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'half' }],
+        toolCalls: [{ type: 'function', id: 'c1', name: 'Bash', arguments: '{}' }],
+        toolCallId: undefined,
+        isError: undefined,
+        partial: undefined,
+      },
+      {
+        role: 'tool',
+        content: expect.any(Array),
+        toolCalls: [],
+        toolCallId: 'c1',
+        isError: true,
+        partial: undefined,
+      },
+      {
+        role: 'assistant',
+        content: [],
+        toolCalls: [],
+        toolCallId: undefined,
+        isError: undefined,
+        partial: true,
+      },
+    ]);
+  });
+
+  it('drops an assistant that produced no output at step.end', () => {
+    context.appendLoopEvent({ type: 'step.begin', uuid: 's1' });
+    context.appendLoopEvent({ type: 'step.end', uuid: 's1' });
+
+    expect(context.get()).toEqual([]);
+  });
+
   it('folds a tool-result note as structured model-only metadata', () => {
     context.append(
       {

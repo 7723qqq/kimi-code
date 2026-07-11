@@ -259,14 +259,10 @@ describe('ToolManager SkillTool wire behavior', () => {
         }),
       }),
     });
-    expect(persistence.records.find((record) => record.type === 'skill.activate')).toMatchObject({
-      type: 'skill.activate',
-      origin: {
-        kind: 'skill_activation',
-        skillName: 'review',
-        trigger: 'model-tool',
-      },
-    });
+    // `skill.activate` is a live-only Op (`persist: false`): the activation
+    // fact is not a v1 record type, so only the reminder message lands in the
+    // wire log — there is no separate `skill.activate` record.
+    expect(persistence.records.some((record) => record.type === 'skill.activate')).toBe(false);
     expect(context.get().at(-1)).toMatchObject({
       role: 'assistant',
       content: [{ type: 'text', text: 'Review skill loaded.' }],
@@ -332,15 +328,13 @@ describe('ToolManager SkillTool restore behavior', () => {
       { type: 'context.append_message', message },
     ]);
 
-    expect(emit).toHaveBeenCalledWith({
-      type: 'skill.activated',
-      activationId: 'act_restore_skill',
-      skillName: 'review',
-      trigger: 'user-slash',
-      skillArgs: 'src/app.ts',
-      skillPath: '/skills/review/SKILL.md',
-      skillSource: 'user',
-    });
+    // Replay is silent: `skill.activated` derives from the Op on `dispatch`
+    // only, so restoring the records re-fires neither the domain event nor
+    // telemetry (matching the former `restoring` guard); only the context
+    // message lands back in history.
+    expect(emit).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'skill.activated' }),
+    );
     expect(ctx.allEvents).not.toContainEqual(
       expect.objectContaining({ type: '[rpc]', event: 'skill.activated' }),
     );

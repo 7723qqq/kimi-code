@@ -5,6 +5,7 @@ import {
   APIConnectionError,
   APIContextOverflowError,
   APIEmptyResponseError,
+  APIProviderOverloadedError,
   APIStatusError,
   APITimeoutError,
   ChatProviderError,
@@ -48,6 +49,24 @@ describe('translateProviderError', () => {
   it('maps context-overflow status errors to context.overflow', () => {
     const error = translateProviderError(new APIContextOverflowError(400, 'context length exceeded'));
     expect(error.code).toBe('context.overflow');
+  });
+
+  it('maps provider-overload errors to provider.overloaded, keeping HTTP details', () => {
+    const raw = new APIProviderOverloadedError(529, 'Overloaded', 'req-overload');
+    const error = translateProviderError(raw);
+    expect(error.code).toBe('provider.overloaded');
+    expect(error.cause).toBe(raw);
+    expect(error.details).toMatchObject({ statusCode: 529, requestId: 'req-overload' });
+  });
+
+  it('maps a bare 529 status error to provider.overloaded', () => {
+    const error = translateProviderError(new APIStatusError(529, 'Overloaded'));
+    expect(error.code).toBe('provider.overloaded');
+  });
+
+  it('keeps a bare 503 status error on provider.api_error', () => {
+    const error = translateProviderError(new APIStatusError(503, 'Service Unavailable'));
+    expect(error.code).toBe('provider.api_error');
   });
 
   it('maps connection and timeout errors to provider.connection_error', () => {

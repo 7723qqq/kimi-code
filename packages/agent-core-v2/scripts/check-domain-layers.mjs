@@ -136,7 +136,6 @@ const DOMAIN_LAYER = new Map([
   ['activity', 4],
   ['context', 4],
   ['message', 4],
-  ['turn', 4],
   ['injection', 4],
   ['compaction', 4],
   ['plan', 4],
@@ -154,6 +153,7 @@ const DOMAIN_LAYER = new Map([
   ['contextSize', 4],
   ['fullCompaction', 4],
   ['loop', 4],
+  ['stepRetry', 4],
   ['media', 4],
   // `edit` spans two scopes: the App-scope `IFileEditService` capability (pure
   // TextModel / EditService + os-backed read/write over the L1 hostFs bridge)
@@ -272,8 +272,7 @@ function domainFromRel(rel, { exemptRootFile }) {
  *                                 Agent plan state to approve/deny tool use.
  *  - `permissionPolicy>swarm`    : swarm-mode approval policy needs the current
  *                                 Agent swarm state to approve AgentSwarm.
- *  - `skill>turn`           : skill activate starts a turn (same Agent scope intent).
- *  - `turn>agentLifecycle` : turn cancels sub-agents via lifecycle handle.
+ *  - `skill>loop`           : skill activate starts a turn through the loop (same Agent scope intent).
  *  - `swarm>agentLifecycle`: swarm spawns/manages sub-agents.
  *  - `cron>agentLifecycle` : cron coordinator steers the main agent.
  *  - `cron>sessionContext`: cron scheduler reads session identity for store filtering.
@@ -307,8 +306,7 @@ const ALLOWED_EXCEPTIONS = new Set([
   'userTool>interaction',
   'permissionPolicy>plan',
   'permissionPolicy>swarm',
-  'skill>turn',
-  'turn>agentLifecycle',
+  'skill>loop',
   'swarm>agentLifecycle',
   'cron>agentLifecycle',
   'cron>sessionContext',

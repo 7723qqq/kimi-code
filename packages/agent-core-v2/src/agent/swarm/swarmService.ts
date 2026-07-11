@@ -20,7 +20,6 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
-import { IAgentTurnService } from '#/agent/turn/turn';
 import { IEventBus } from '#/app/event/eventBus';
 import { IAgentWireService } from '#/wire/tokens';
 import type { IWireService } from '#/wire/wireService';
@@ -36,7 +35,6 @@ export class AgentSwarmService extends Disposable implements IAgentSwarmService 
     @IAgentWireService private readonly wire: IWireService,
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-    @IAgentTurnService turnService: IAgentTurnService,
     @IEventBus private readonly eventBus: IEventBus,
   ) {
     super();

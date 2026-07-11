@@ -27,7 +27,7 @@ import { IAgentSkillService } from '#/agent/skill/skill';
 import { IAgentSwarmService } from '#/agent/swarm/swarm';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IAgentTurnService } from '#/agent/turn/turn';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentUsageService } from '#/agent/usage/usage';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import type {
@@ -77,7 +77,7 @@ export class AgentRPCService implements IAgentRPCService {
   constructor(
     @IAgentPromptService private readonly promptService: IAgentPromptService,
     @IAgentShellCommandService private readonly shellCommand: IAgentShellCommandService,
-    @IAgentTurnService private readonly turnService: IAgentTurnService,
+    @IAgentLoopService private readonly loop: IAgentLoopService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
     @IAgentPermissionGate private readonly permission: IAgentPermissionGate,
@@ -136,10 +136,10 @@ export class AgentRPCService implements IAgentRPCService {
   }
 
   cancel({ turnId }: CancelPayload): void {
-    if (this.turnService.getActiveTurn() !== undefined) {
+    if (this.loop.getActiveTurn() !== undefined) {
       this.telemetry.track('cancel', { from: 'streaming' });
     }
-    this.turnService.cancel(turnId);
+    this.loop.cancel(turnId);
   }
 
   undoHistory(payload: UndoHistoryPayload): number {

@@ -1,33 +1,51 @@
 /**
  * `loop` domain (L4) — `IAgentLoopService` implementation.
  *
- * Drives one agent turn by draining an agent-scoped `StepRequestQueue` one
- * batch per step: each batch's driver request (plus any mergeable requests
- * folded into it) materializes its context messages, then one LLM step runs
- * (`beforeStep` → streamed request → content parts → tool execution →
- * `step.end` → `afterStep`). A step that executed tools enqueues a
- * `ContinuationStepRequest` for the next step; a plain assistant message
- * enqueues nothing, so the queue empties and the turn completes. A failed
- * step is retried by head-inserting its driver (`onError` hook opt-in);
- * orchestrators (`prompt`, `goal`, `externalHooks`) steer the turn purely by
- * enqueueing further requests. Emits `turn.step.*` / delta events through
- * `event`, persists loop events through `contextMemory`, and reads step /
- * retry budgets from `config`. Bound at Agent scope.
+ * Owns the whole turn lifecycle: a turn is one drain of the agent-scoped
+ * `StepRequestQueue`, and it starts when `enqueue` receives a `nextTurn`
+ * request while the loop is idle. Starting a turn synchronously takes the
+ * turn lane through the `activity` kernel (`activity.begin('turn')`, whose
+ * coded admission errors propagate to the caller before the request enters
+ * the queue), records `turn.prompt`, publishes `turn.started`, and kicks the
+ * run; ending it publishes `turn.ended` / `error` after `lease.end()` returns
+ * the lane to idle (so `turn.ended` subscribers can start the next turn).
+ * A `tryInTurn` request never starts a turn: it joins the active run or waits
+ * in the queue for the next one.
+ *
+ * The run drains the queue one batch per step: each batch's driver request
+ * (plus any mergeable requests folded into it) materializes its context
+ * messages, then one LLM step runs (`beforeStep` → streamed request → content
+ * parts → tool execution → `step.end` → `afterStep`). A step that executed
+ * tools enqueues a `ContinuationStepRequest` for the next step; a plain
+ * assistant message enqueues nothing, so the queue empties and the turn
+ * completes. A failed step is dispatched to the registered error handlers
+ * (first match wins); a handler that claims the error continues the turn with
+ * the recovery's requests head-inserted into the queue — `stepRetry` re-runs
+ * the failed driver after backoff, `fullCompaction` recovers provider
+ * overflow — while an unclaimed error fails the turn. Orchestrators
+ * (`prompt`, `goal`, `externalHooks`, `task`) steer the turn purely by
+ * enqueueing further requests. Emits `turn.*` / delta events through `event`,
+ * persists loop events through `contextMemory`, and reads the step budget
+ * from `config`. Bound at Agent scope.
  */
 
 import { randomUUID } from 'node:crypto';
 
+import { createControlledPromise } from '@antfu/utils';
+
 import { InstantiationType } from '#/_base/di/extensions';
+import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { isAbortError, isUserCancellation } from '#/_base/utils/abort';
+import { abortError, isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import { toErrorMessage } from '#/_base/errors/errorMessage';
 import type {
   AssistantDeltaEvent,
   ThinkingDeltaEvent,
   ToolCallDeltaEvent,
+  TurnEndedEvent,
+  TurnStartedEvent,
   TurnStepCompletedEvent,
   TurnStepInterruptedEvent,
-  TurnStepRetryingEvent,
   TurnStepStartedEvent,
 } from '@moonshot-ai/protocol';
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester/llmRequester';
@@ -37,35 +55,52 @@ import { IEventBus } from '#/app/event/eventBus';
 import { type FinishReason } from '#/app/llmProtocol/finishReason';
 import { type StreamedMessagePart } from '#/app/llmProtocol/message';
 import { type TokenUsage } from '#/app/llmProtocol/usage';
-import { ErrorCodes, KimiError } from '#/errors';
+import { BugIndicatingError, ErrorCodes, KimiError, toKimiErrorPayload } from '#/errors';
 import { OrderedHookSlot } from '#/hooks';
 
+import type { ActivityLease } from '#/activity/activity';
+import { IAgentActivityService } from '#/activity/activity';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 import { LOOP_CONTROL_SECTION, type LoopControl } from './configSection';
 import {
   createMaxStepsExceededError,
   IAgentLoopService,
   isMaxStepsExceededError,
-  type LoopRunOptions,
   type AfterStepContext,
+  type EnqueueReceipt,
+  type LoopErrorContext,
+  type LoopErrorHandler,
+  type LoopErrorHandlerRegistrationOptions,
+  type LoopRunOptions,
   type LoopRunResult,
   type StepEnqueueOptions,
+  type Turn,
+  type TurnResult,
 } from './loop';
 import {
   ContinuationStepRequest,
   type StepRequest,
+  type TurnSeed,
 } from './stepRequest';
 import { StepRequestQueue, type StepRequestBatch } from './stepRequestQueue';
+import { cancelTurn, promptTurn } from './turnOps';
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
+    'turn.started': TurnStartedEvent;
+    'turn.ended': TurnEndedEvent;
     'turn.step.started': TurnStepStartedEvent;
-    'turn.step.retrying': TurnStepRetryingEvent;
     'turn.step.completed': TurnStepCompletedEvent;
     'turn.step.interrupted': TurnStepInterruptedEvent;
     'assistant.delta': AssistantDeltaEvent;
     'thinking.delta': ThinkingDeltaEvent;
     'tool.call.delta': ToolCallDeltaEvent;
+    // `error` is declared by the `mcp` domain (interface-merge); reused here,
+    // not re-declared.
   }
 }
 
@@ -77,10 +112,11 @@ export class AgentLoopService implements IAgentLoopService {
   readonly hooks: IAgentLoopService['hooks'] = {
     beforeStep: new OrderedHookSlot(),
     afterStep: new OrderedHookSlot(),
-    onError: new OrderedHookSlot(),
   };
 
   private readonly stepQueue = new StepRequestQueue();
+  private readonly errorHandlers: LoopErrorHandler[] = [];
+  private activeTurn: Turn | undefined;
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -88,26 +124,185 @@ export class AgentLoopService implements IAgentLoopService {
     @IEventBus private readonly eventBus: IEventBus,
     @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
     @IConfigService private readonly config: IConfigService,
+    @IAgentActivityService private readonly activity: IAgentActivityService,
+    @IAgentWireService private readonly wire: IWireService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IAgentTelemetryContextService private readonly telemetryContext: IAgentTelemetryContextService,
   ) { }
 
-  enqueue(request: StepRequest, options?: StepEnqueueOptions): void {
+  enqueue(request: StepRequest, options?: StepEnqueueOptions): EnqueueReceipt {
+    const retract = (): boolean => request.abort();
+    if (request.priority === 'nextTurn') {
+      const seed = request.turnSeed;
+      if (seed === undefined) {
+        throw new BugIndicatingError(
+          `Step request "${request.kind}" is nextTurn but carries no turnSeed`,
+        );
+      }
+      // `startTurn` admits through the activity kernel BEFORE the request
+      // enters the queue: a rejected admission throws with no queue residue,
+      // so callers never need an abort-on-failure cleanup.
+      return { turn: this.startTurn(request, seed), abort: retract };
+    }
     this.stepQueue.enqueue(request, options?.at ?? 'tail');
+    return { turn: this.activeTurn, abort: retract };
+  }
+
+  getActiveTurn(): Turn | undefined {
+    return this.activeTurn;
+  }
+
+  cancel(turnId?: number, reason?: unknown): boolean {
+    this.wire.dispatch(cancelTurn({ turnId }));
+    const turn = this.activeTurn;
+    if (turn === undefined) return false;
+    if (turnId !== undefined && turn.id !== turnId) return false;
+    return this.activity.cancel(reason ?? userCancellationReason());
   }
 
   hasPendingRequests(): boolean {
     return this.stepQueue.hasPendingRequests();
   }
 
-  async run(options: LoopRunOptions): Promise<LoopRunResult> {
+  /**
+   * Open a turn around the queue: admission → seed the driver → `turn.prompt`
+   * record → `turn.started` → run. The whole prefix up to the first
+   * `beforeStep` hook runs synchronously inside the caller's `enqueue`.
+   */
+  private startTurn(request: StepRequest, seed: TurnSeed): Turn {
+    const lease = this.activity.begin('turn', { origin: seed.origin });
+    this.stepQueue.enqueue(request);
+    this.wire.dispatch(promptTurn({ input: seed.input, origin: lease.origin }));
+    const ready = createControlledPromise<void>();
+    const turn: MutableTurn = {
+      id: lease.turnId,
+      signal: lease.signal,
+      ready,
+      result: Promise.resolve({
+        type: 'failed',
+        steps: 0,
+        error: new BugIndicatingError('Turn result was not initialized'),
+      }),
+    };
+    void ready.catch(() => undefined);
+    this.activeTurn = turn;
+    this.eventBus.publish({ type: 'turn.started', turnId: turn.id, origin: lease.origin });
+    turn.result = this.runTurn(turn, lease, ready);
+    return turn;
+  }
+
+  private async runTurn(
+    turn: Turn,
+    lease: ActivityLease,
+    ready: ReturnType<typeof createControlledPromise<void>>,
+  ): Promise<TurnResult> {
+    const startedAt = Date.now();
+    const turnTelemetry = this.telemetry.withContext(this.telemetryContext.get());
+    let result: TurnResult | undefined;
+    try {
+      turnTelemetry.track('turn_started');
+      result = await this.run({
+        turnId: turn.id,
+        signal: lease.signal,
+        onStarted: () => ready.resolve(),
+      });
+      return result;
+    } catch (error) {
+      if (lease.signal.aborted) {
+        result = {
+          type: 'cancelled',
+          steps: 0,
+          reason: lease.signal.reason ?? error,
+        };
+        return result;
+      }
+      result = { type: 'failed', error, steps: 0 };
+      return result;
+    } finally {
+      // `ready` rejects with the turn's own outcome: the real failure error,
+      // the cancellation reason (control flow), or — for a turn that ended
+      // before any step produced a response — an internal placeholder.
+      if (result?.type === 'failed') {
+        ready.reject(result.error);
+      } else if (result?.type === 'cancelled') {
+        ready.reject(result.reason instanceof Error ? result.reason : abortError('Turn cancelled'));
+      } else {
+        ready.reject(new KimiError(ErrorCodes.INTERNAL, 'Turn ended before first step'));
+      }
+      if (this.activeTurn === turn) {
+        this.activeTurn = undefined;
+      }
+      const outcome = result?.type ?? 'failed';
+      lease.end(outcome, result?.type === 'failed' ? { error: result.error } : undefined);
+      if (result !== undefined) {
+        const error = result.type === 'failed' ? toKimiErrorPayload(result.error) : undefined;
+        this.eventBus.publish({
+          type: 'turn.ended',
+          turnId: turn.id,
+          reason: result.type,
+          error,
+          durationMs: Date.now() - startedAt,
+        });
+        if (error !== undefined) {
+          this.eventBus.publish({ type: 'error', ...error });
+        }
+        if (result.type !== 'completed') {
+          turnTelemetry.track('turn_interrupted', { at_step: result.steps });
+        }
+      }
+      // `turn.ended` is published to `IEventBus` above; subscribers (swarm /
+      // goal / externalHooks) react there — no hook slot to run here.
+    }
+  }
+
+  registerLoopErrorHandler(
+    handler: LoopErrorHandler,
+    options: LoopErrorHandlerRegistrationOptions = {},
+  ): IDisposable {
+    if (options.before !== undefined && options.after !== undefined) {
+      throw new Error('Loop error handler registration cannot specify both before and after');
+    }
+    this.deleteErrorHandler(handler.id);
+    const target = options.before ?? options.after;
+    if (target === undefined) {
+      this.errorHandlers.push(handler);
+    } else {
+      const targetIndex = this.errorHandlers.findIndex((entry) => entry.id === target);
+      if (targetIndex < 0) {
+        throw new Error(`Loop error handler target "${target}" is not registered`);
+      }
+      const insertAt = options.before !== undefined ? targetIndex : targetIndex + 1;
+      this.errorHandlers.splice(insertAt, 0, handler);
+    }
+    return toDisposable(() => {
+      this.deleteErrorHandler(handler.id);
+    });
+  }
+
+  private deleteErrorHandler(id: string): boolean {
+    const index = this.errorHandlers.findIndex((entry) => entry.id === id);
+    if (index < 0) return false;
+    this.errorHandlers.splice(index, 1);
+    return true;
+  }
+
+  /**
+   * Drain the step queue for one turn: each queued `StepRequest` drives (or
+   * merges into) one step, and the turn completes once the queue empties.
+   * Only `runTurn` calls this — turns start exclusively through `enqueue`.
+   */
+  private async run(options: LoopRunOptions): Promise<LoopRunResult> {
     const { turnId } = options;
     const signal = options.signal ?? new AbortController().signal;
 
     let steps = 0;
     let activeStep: number | undefined;
+    let resumeStep: number | undefined;
     let lastStopReason: FinishReason | undefined;
     try {
       while (true) {
         let failedDriver: StepRequest | undefined;
+        let stepUuid: string | undefined;
         try {
           activeStep = undefined;
           signal.throwIfAborted();
@@ -116,21 +311,30 @@ export class AgentLoopService implements IAgentLoopService {
             return { type: 'completed', steps, truncated: lastStopReason === 'truncated' };
           }
 
-          const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
-
-          if (maxSteps !== undefined && maxSteps > 0 && steps >= maxSteps) {
-            throw createMaxStepsExceededError(maxSteps);
+          // A handler that resumes the failed step (a loop-level retry) keeps
+          // the failed step's number: the counter does not increment and the
+          // maxSteps budget check is skipped.
+          if (resumeStep !== undefined) {
+            activeStep = resumeStep;
+            resumeStep = undefined;
+          } else {
+            const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
+            if (maxSteps !== undefined && maxSteps > 0 && steps >= maxSteps) {
+              throw createMaxStepsExceededError(maxSteps);
+            }
+            steps += 1;
+            activeStep = steps;
           }
 
-          steps += 1;
-          activeStep = steps;
           const batch = this.stepQueue.takeNextBatch()!;
           failedDriver = batch.driver;
+          stepUuid = randomUUID();
           this.materializeBatch(batch);
           const stepResult = await this.executeLoopStep(
             turnId,
             signal,
-            steps,
+            activeStep,
+            stepUuid,
             options.onStarted,
           );
           activeStep = undefined;
@@ -159,8 +363,9 @@ export class AgentLoopService implements IAgentLoopService {
           }
         } catch (error) {
           // ① Control flow first: cancellation is not an error. It never
-          // reaches the error events, the onError hook, or the failure path —
-          // `signal` is the single source of truth for turn cancellation.
+          // reaches the error events, the error handlers, or the failure
+          // path — `signal` is the single source of truth for turn
+          // cancellation.
           if (isAbortError(error) || signal.aborted) {
             const abortReason = signal.reason ?? error;
             this.emitStepInterrupted(
@@ -172,28 +377,52 @@ export class AgentLoopService implements IAgentLoopService {
             return { type: 'cancelled', reason: abortReason, steps };
           }
 
-          // ② Failures from down-stack arrive already coded (provider errors
-          // are translated at the model boundary). Report the interruption,
-          // then let onError handlers (e.g. full-compaction) opt into recovery.
+          // ② Recovery: the first registered handler that claims the error
+          // decides how (and whether) the turn continues — the loop knows
+          // nothing about concrete error types. Awaiting inside the handler
+          // suspends the loop here; an abort during it is still cancellation.
+          const context: LoopErrorContext = {
+            turnId,
+            step: activeStep,
+            stepId: stepUuid,
+            signal,
+            error,
+            failedDriver,
+          };
+          const handler = this.errorHandlers.find((entry) => entry.match(context));
+          if (handler !== undefined) {
+            let recovery: Awaited<ReturnType<LoopErrorHandler['handle']>>;
+            try {
+              recovery = await handler.handle(context);
+            } catch (handlerError) {
+              if (isAbortError(handlerError) || signal.aborted) {
+                const abortReason = signal.reason ?? handlerError;
+                this.emitStepInterrupted(
+                  turnId,
+                  activeStep,
+                  'aborted',
+                  isUserCancellation(abortReason) ? undefined : toErrorMessage(abortReason),
+                );
+                return { type: 'cancelled', reason: abortReason, steps };
+              }
+              this.emitStepInterrupted(turnId, activeStep, 'error', toErrorMessage(handlerError));
+              return { type: 'failed', error: handlerError, steps };
+            }
+            if (recovery !== undefined && recovery.requests.length > 0) {
+              if (recovery.resumeStep === true && activeStep !== undefined) {
+                resumeStep = activeStep;
+              }
+              this.stepQueue.enqueueFront(recovery.requests);
+              activeStep = undefined;
+              continue;
+            }
+          }
+
+          // ③ Terminal failure: the interruption is reported only once the
+          // error is known unrecoverable, so a recovered error never surfaces
+          // as an interruption.
           const reason: LoopInterruptReason = isMaxStepsExceededError(error) ? 'max_steps' : 'error';
           this.emitStepInterrupted(turnId, activeStep, reason, toErrorMessage(error));
-
-          const context = { turnId, step: activeStep, signal, error, retry: false };
-          try {
-            await this.hooks.onError.run(context);
-          } catch (hookError) {
-            return { type: 'failed', error: hookError, steps };
-          }
-
-          // ③ Recover by retrying the failed driver, or fail the turn.
-          if (context.retry && failedDriver !== undefined) {
-            // Retry jumps the queue: the failed driver re-runs as the very next
-            // step. It is already materialized, so its messages are not
-            // appended a second time.
-            this.stepQueue.enqueue(failedDriver, 'head');
-            activeStep = undefined;
-            continue;
-          }
           return { type: 'failed', error, steps };
         }
       }
@@ -228,6 +457,7 @@ export class AgentLoopService implements IAgentLoopService {
     turnId: number,
     signal: AbortSignal,
     currentStep: number,
+    stepUuid: string,
     onStarted: ((step: number) => void) | undefined,
   ): Promise<{
     readonly stopReason: FinishReason;
@@ -236,8 +466,6 @@ export class AgentLoopService implements IAgentLoopService {
   }> {
     await this.hooks.beforeStep.run({ turnId, step: currentStep, signal });
     signal.throwIfAborted();
-
-    const stepUuid = randomUUID();
 
     this.eventBus.publish({ type: 'turn.step.started', turnId, step: currentStep, stepId: stepUuid });
     this.context.appendLoopEvent({
@@ -257,24 +485,6 @@ export class AgentLoopService implements IAgentLoopService {
     const response = await this.llmRequester.request(
       {
         source: { type: 'turn', turnId, step: currentStep },
-        retry: {
-          maxAttempts: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxRetriesPerStep,
-          onRetry: (retry) => {
-            this.eventBus.publish({
-              type: 'turn.step.retrying',
-              turnId,
-              step: currentStep,
-              stepId: stepUuid,
-              failedAttempt: retry.failedAttempt,
-              nextAttempt: retry.nextAttempt,
-              maxAttempts: retry.maxAttempts,
-              delayMs: retry.delayMs,
-              errorName: retry.errorName,
-              errorMessage: retry.errorMessage,
-              statusCode: retry.statusCode,
-            });
-          },
-        },
       },
       emitStreamPart,
       signal,
@@ -498,6 +708,10 @@ function normalizeFinishReason(reason: FinishReason): string {
   if (reason === 'truncated') return 'max_tokens';
   return reason;
 }
+
+type MutableTurn = {
+  -readonly [K in keyof Turn]: Turn[K];
+};
 
 registerScopedService(
   LifecycleScope.Agent,

@@ -20,7 +20,7 @@ import { ErrorCodes, KimiError } from '#/errors';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
-import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn/turn';
+import { IAgentLoopService, type Turn, type TurnResult } from '#/agent/loop/loop';
 import {
   applyPromptMetadataUpdate,
   promptMetadataTextFromContentParts,
@@ -85,7 +85,7 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
 
   constructor(
     @IAgentPromptService private readonly prompt: IAgentPromptService,
-    @IAgentTurnService private readonly turnService: IAgentTurnService,
+    @IAgentLoopService private readonly loop: IAgentLoopService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
     @ISessionMetadata private readonly metadata: ISessionMetadata,
@@ -181,7 +181,7 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
       // clears `active`, starts the next queued prompt, and emits the
       // `prompt.aborted` lifecycle event (so we do not double-emit here).
       this.abortedPromptIds.add(promptId);
-      this.turnService.cancel(this.active.turn.id, userCancellationReason());
+      this.loop.cancel(this.active.turn.id, userCancellationReason());
       return { aborted: true };
     }
 
@@ -239,7 +239,7 @@ export class AgentPromptLegacyService implements IAgentPromptLegacyService {
       origin: { kind: 'user' },
     });
     if (turn === undefined) {
-      if (this.turnService.getActiveTurn() !== undefined) {
+      if (this.loop.getActiveTurn() !== undefined) {
         // Busy with a turn started outside the legacy service (e.g. via /api/v2);
         // keep the record queued so it runs once the agent is idle.
         this.queued.unshift(record);

@@ -43,7 +43,6 @@ import { IEventBus } from '#/app/event/eventBus';
 import type { ExecutableToolResult } from '#/agent/tool/toolContract';
 import type { ToolDidExecuteContext, ToolWillExecuteContext } from '#/agent/tool/toolHooks';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentTurnService } from '#/agent/turn/turn';
 import { toKimiErrorPayload } from '#/errors';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 
@@ -109,9 +108,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
       this.instantiation.invokeFunction((accessor) => accessor.get(IAgentPromptService)),
     );
 
-    this.registerTurnHooks(
-      this.instantiation.invokeFunction((accessor) => accessor.get(IAgentTurnService)),
-    );
+    this.registerTurnHooks();
 
     this.registerLoopHooks(
       this.instantiation.invokeFunction((accessor) => accessor.get(IAgentLoopService)),
@@ -172,7 +169,7 @@ export class AgentExternalHooksService extends Disposable implements IAgentExter
     );
   }
 
-  private registerTurnHooks(_turn: IAgentTurnService): void {
+  private registerTurnHooks(): void {
     this._register(
       this.eventBus.subscribe('turn.ended', (e) => this.notifyTurnEnded(e)),
     );

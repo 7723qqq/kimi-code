@@ -30,7 +30,6 @@ import { SessionExportErrors } from '#/app/sessionExport/errors';
 import { SessionErrors } from '#/session/errors';
 import { SkillErrors } from '#/app/skillCatalog/errors';
 import { TerminalErrors } from '#/os/interface/terminalErrors';
-import { TurnErrors } from '#/agent/turn/errors';
 import { UsageErrors } from '#/agent/usage/errors';
 import { WireRecordErrors } from '#/agent/wireRecord/errors';
 
@@ -61,7 +60,6 @@ export { SessionExportErrors } from '#/app/sessionExport/errors';
 export { SessionErrors } from '#/session/errors';
 export { SkillErrors } from '#/app/skillCatalog/errors';
 export { TerminalErrors } from '#/os/interface/terminalErrors';
-export { TurnErrors } from '#/agent/turn/errors';
 export { UsageErrors } from '#/agent/usage/errors';
 export { WireRecordErrors } from '#/agent/wireRecord/errors';
 
@@ -89,7 +87,6 @@ export const ErrorCodes = {
   ...SessionErrors.codes,
   ...SkillErrors.codes,
   ...TerminalErrors.codes,
-  ...TurnErrors.codes,
   ...UsageErrors.codes,
   ...WireRecordErrors.codes,
 } as const;

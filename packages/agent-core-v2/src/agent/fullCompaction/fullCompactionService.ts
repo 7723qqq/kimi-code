@@ -16,14 +16,13 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester/llmRequester';
-import { retryBackoffDelays, sleepForRetry } from '#/agent/llmRequester/retry';
-import { IAgentLoopService, type LoopErrorContext } from '#/agent/loop/loop';
+import { retryBackoffDelays, sleepForRetry } from '#/_base/utils/retry';
+import { IAgentLoopService, type LoopErrorContext, type LoopErrorRecovery } from '#/agent/loop/loop';
 import { isAbortError } from '#/_base/utils/abort';
 import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { stripDynamicToolContext } from '#/agent/toolSelect/dynamicTools';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
-import { IAgentTurnService } from '#/agent/turn/turn';
 import { IAgentActivityService } from '#/activity/activity';
 import { ISessionTodoService } from '#/session/todo/sessionTodo';
 import { renderTodoList, type TodoItem } from '#/session/todo/todoItem';
@@ -143,7 +142,6 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentWireService private readonly wire: IWireService,
     @IEventBus private readonly eventBus: IEventBus,
-    @IAgentTurnService private readonly turn: IAgentTurnService,
     @IAgentActivityService private readonly activity: IAgentActivityService,
     @ILogService private readonly log: ILogService,
     @IAgentLoopService loopService: IAgentLoopService,
@@ -167,8 +165,10 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
       }),
     );
     this._register(
-      loopService.hooks.onError.register('full-compaction', async (ctx, next) => {
-        await this.onLoopError(ctx, next);
+      loopService.registerLoopErrorHandler({
+        id: 'full-compaction',
+        match: (context) => this.shouldRecoverFromContextOverflow(context.error),
+        handle: (context) => this.recoverFromContextOverflow(context),
       }),
     );
   }
@@ -338,19 +338,10 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     this.consecutiveOverflowCompactions = 0;
   }
 
-  private async onLoopError(
+  private async recoverFromContextOverflow(
     context: LoopErrorContext,
-    next: () => Promise<void>,
-  ): Promise<void> {
+  ): Promise<LoopErrorRecovery | undefined> {
     const estimatedRequestTokens = this.estimateCurrentRequestTokens();
-    const isOverflow = this.shouldRecoverFromContextOverflow(
-      context.error,
-      estimatedRequestTokens,
-    );
-    if (!isOverflow) {
-      await next();
-      return;
-    }
     this.observeContextOverflow(estimatedRequestTokens);
     this.consecutiveOverflowCompactions += 1;
     const maxAttempts = this.strategy.maxOverflowCompactionAttempts;
@@ -363,11 +354,16 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     }
     const didStartCompaction = this.beginAutoCompaction();
     if (!didStartCompaction && !this._compacting) {
-      await next();
-      return;
+      return undefined;
     }
-    context.retry = true;
     await this.block(context.signal, context.turnId);
+    // The failed driver is already materialized, so re-running it does not
+    // append its messages a second time. Unlike `stepRetry`'s free re-attempt,
+    // an overflow recovery rides through the normal step numbering (no
+    // `resumeStep`): compacting must not reset the per-turn maxSteps budget.
+    return {
+      requests: context.failedDriver === undefined ? [] : [context.failedDriver],
+    };
   }
 
   private async beforeStep(signal: AbortSignal, turnId?: number): Promise<void> {
@@ -538,9 +534,6 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
                 messages,
                 maxOutputSize: compactionMaxOutputSize,
                 source: { type: 'operation', requestKind: 'full_compaction' },
-                retry: {
-                  maxAttempts: 1,
-                },
               },
               undefined,
               signal,
@@ -781,8 +774,8 @@ function compactionCancelledReason(active: ActiveCompaction | null): Error {
 }
 
 // Construct eagerly (not delayed): the service registers turn and loop hooks
-// (onLaunched / beforeStep / afterStep / onError) that drive auto
-// compaction. With delayed instantiation the eager `accessor.get(IAgentFullCompactionService)`
+// (onLaunched / beforeStep / afterStep) plus a loop error handler that drive
+// auto compaction. With delayed instantiation the eager `accessor.get(IAgentFullCompactionService)`
 // only realizes a proxy, so the hooks would not register until the first RPC —
 // after turns have already run without the auto-compaction gate.
 registerScopedService(

@@ -180,21 +180,27 @@ describe('Agent loop', () => {
     });
   });
 
-  it('lets onError recover a non-context loop error by retrying', async () => {
+  it('lets a loop error handler recover a non-context loop error by retrying', async () => {
     profile.update({ activeToolNames: [] });
     const seenErrors: Array<{ readonly step: number | undefined; readonly message: string }> = [];
 
-    loop.hooks.onError.register('test-recover-generate-error', async (hookCtx, next) => {
-      seenErrors.push({
-        step: hookCtx.step,
-        message: hookCtx.error instanceof Error ? hookCtx.error.message : String(hookCtx.error),
-      });
-      if (seenErrors.length === 1) {
-        ctx.mockNextResponse({ type: 'text', text: 'Recovered.' });
-        hookCtx.retry = true;
-        return;
-      }
-      await next();
+    loop.registerLoopErrorHandler({
+      id: 'test-recover-generate-error',
+      match: () => true,
+      handle: async (hookCtx) => {
+        seenErrors.push({
+          step: hookCtx.step,
+          message: hookCtx.error instanceof Error ? hookCtx.error.message : String(hookCtx.error),
+        });
+        if (seenErrors.length === 1) {
+          ctx.mockNextResponse({ type: 'text', text: 'Recovered.' });
+          return {
+            requests: hookCtx.failedDriver === undefined ? [] : [hookCtx.failedDriver],
+            resumeStep: true,
+          };
+        }
+        return undefined;
+      },
     });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
@@ -211,11 +217,15 @@ describe('Agent loop', () => {
     );
   });
 
-  it('does not run onError for aborted turns', async () => {
+  it('does not run loop error handlers for aborted turns', async () => {
     let called = false;
-    loop.hooks.onError.register('test-abort-not-recoverable', async (_hookCtx, next) => {
-      called = true;
-      await next();
+    loop.registerLoopErrorHandler({
+      id: 'test-abort-not-recoverable',
+      match: () => {
+        called = true;
+        return true;
+      },
+      handle: async () => undefined,
     });
     const controller = new AbortController();
     controller.abort(new Error('stop'));
@@ -226,10 +236,14 @@ describe('Agent loop', () => {
     expect(called).toBe(false);
   });
 
-  it('fails with the onError handler error when recovery throws', async () => {
+  it('fails with the error handler error when recovery throws', async () => {
     const recoveryError = new Error('recovery failed');
-    loop.hooks.onError.register('test-throw-recovery-error', async () => {
-      throw recoveryError;
+    loop.registerLoopErrorHandler({
+      id: 'test-throw-recovery-error',
+      match: () => true,
+      handle: async () => {
+        throw recoveryError;
+      },
     });
 
     loop.enqueue(new ContinuationStepRequest());

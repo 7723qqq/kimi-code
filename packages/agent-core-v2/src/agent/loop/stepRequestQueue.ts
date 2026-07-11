@@ -31,6 +31,13 @@ export class StepRequestQueue {
     }
   }
 
+  /** Head-insert a sequence preserving order: `requests[0]` is popped first. */
+  enqueueFront(requests: readonly StepRequest[]): void {
+    for (let index = requests.length - 1; index >= 0; index -= 1) {
+      this.items.unshift(requests[index]!);
+    }
+  }
+
   /** True while any non-aborted request is queued. */
   hasPendingRequests(): boolean {
     return this.items.some((item) => !item.aborted);

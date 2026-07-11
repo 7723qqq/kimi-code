@@ -25,7 +25,7 @@ import { ErrorCodes, KimiError } from '#/errors';
 import { isUserActivatableSkillType, type SkillDefinition } from '#/app/skillCatalog/types';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { Turn } from '#/agent/turn/turn';
+import type { Turn } from '#/agent/loop/loop';
 import { IAgentWireService } from '#/wire/tokens';
 import type { IWireService } from '#/wire/wireService';
 import { IAgentSkillService, type SkillActivationInput } from './skill';

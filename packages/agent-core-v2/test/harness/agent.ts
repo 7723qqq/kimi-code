@@ -86,6 +86,7 @@ import {
   ISessionContext,
   ISessionProcessRunner,
   IAgentScopeContext,
+  IAgentStepRetryService,
   IAgentSwarmService,
   AgentSwarmService,
   ITelemetryService,
@@ -1201,6 +1202,10 @@ export class AgentTestContext {
     // under a real Agent scope (see `AgentLifecycleService.create`).
     this.get(IAgentBuiltinToolsRegistrar);
     this.get(IAgentExternalHooksService);
+    // The step-retry plugin registers its loop error handler at construction;
+    // nothing pulls it lazily, so ignite it the way `AgentLifecycleService`
+    // does, or turns driven directly through `loop.run` would never retry.
+    this.get(IAgentStepRetryService);
     const tasks = this.get(IAgentTaskService);
     const permission = this.get(IAgentPermissionGate);
     const swarm = this.get(IAgentSwarmService);

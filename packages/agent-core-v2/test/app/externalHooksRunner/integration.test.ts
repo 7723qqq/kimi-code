@@ -167,6 +167,21 @@ function readHookLog(path: string): Array<Record<string, unknown>> {
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
+function stubSessionContext(): ISessionContext {
+  return {
+    _serviceBrand: undefined,
+    sessionId: 'session-1',
+    workspaceId: 'workspace-1',
+    sessionDir: '/tmp/session-1',
+    metaScope: 'sessions/workspace-1/session-1',
+    cwd: '/tmp',
+    scope: (subKey?: string) =>
+      subKey === undefined || subKey === ''
+        ? 'sessions/workspace-1/session-1'
+        : `sessions/workspace-1/session-1/${subKey}`,
+  };
+}
+
 function stubSessionLifecycle(): ISessionLifecycleService {
   return {
     _serviceBrand: undefined,
@@ -265,6 +280,7 @@ describe('IExternalHooksRunnerService integration', () => {
         strict: true,
         additionalServices: (reg) => {
           reg.defineInstance(IBootstrapService, stubBootstrap());
+          reg.defineInstance(ISessionContext, stubSessionContext());
           reg.definePartialInstance(IConfigService, {});
           reg.definePartialInstance(IPluginService, {});
           reg.defineInstance(IAgentContextMemoryService, context);
@@ -372,6 +388,7 @@ describe('IExternalHooksRunnerService integration', () => {
         strict: true,
         additionalServices: (reg) => {
           reg.defineInstance(IBootstrapService, stubBootstrap());
+          reg.defineInstance(ISessionContext, stubSessionContext());
           reg.definePartialInstance(IConfigService, {});
           reg.definePartialInstance(IPluginService, {});
           reg.defineInstance(IAgentContextMemoryService, stubContextMemory());
@@ -563,6 +580,7 @@ describe('IExternalHooksRunnerService integration', () => {
         strict: true,
         additionalServices: (reg) => {
           reg.defineInstance(IBootstrapService, stubBootstrap());
+          reg.defineInstance(ISessionContext, stubSessionContext());
           reg.definePartialInstance(IConfigService, {
             ready,
             get: <T = unknown>(domain: string): T =>

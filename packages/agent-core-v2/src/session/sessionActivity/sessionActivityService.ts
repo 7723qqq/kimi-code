@@ -3,7 +3,7 @@
  *
  * Derives the session's lifecycle phase from the pending interactions held by
  * the `interaction` kernel (awaiting approval / question) and each agent's
- * active turn (`turn`, reached through `agentLifecycle` handles). Bound at
+ * active turn (`loop`, reached through `agentLifecycle` handles). Bound at
  * Session scope.
  */
 
@@ -11,7 +11,7 @@ import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionInteractionService } from '#/session/interaction/interaction';
-import { IAgentTurnService } from '#/agent/turn/turn';
+import { IAgentLoopService } from '#/agent/loop/loop';
 
 import { ISessionActivity, type SessionStatus } from './sessionActivity';
 
@@ -36,8 +36,8 @@ export class SessionActivity implements ISessionActivity {
 
   private hasActiveTurn(): boolean {
     for (const handle of this.agents.list()) {
-      const turn = handle.accessor.get(IAgentTurnService);
-      if (turn.getActiveTurn() !== undefined) return true;
+      const loop = handle.accessor.get(IAgentLoopService);
+      if (loop.getActiveTurn() !== undefined) return true;
     }
     return false;
   }

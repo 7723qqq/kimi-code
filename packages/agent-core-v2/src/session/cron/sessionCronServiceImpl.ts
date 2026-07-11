@@ -42,7 +42,7 @@ import type { Op } from '#/wire/op';
 import { IAgentWireService } from '#/wire/tokens';
 import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IAgentTurnService, type Turn } from '#/agent/turn/turn';
+import { IAgentLoopService, type Turn } from '#/agent/loop/loop';
 
 import { CronCreateTool } from './tools/cron-create';
 import { CronListTool } from './tools/cron-list';
@@ -312,8 +312,8 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
     const mainHandle = this.agentLifecycle.getHandle('main');
     if (!mainHandle) return;
 
-    const turnService = mainHandle.accessor.get(IAgentTurnService);
-    if (turnService.getActiveTurn() !== undefined) return;
+    const loop = mainHandle.accessor.get(IAgentLoopService);
+    if (loop.getActiveTurn() !== undefined) return;
 
     const now = this.clocks.wallNow();
 
@@ -481,7 +481,7 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
       toolCalls: [],
       origin,
     };
-    const buffered = mainHandle.accessor.get(IAgentTurnService).getActiveTurn() !== undefined;
+    const buffered = mainHandle.accessor.get(IAgentLoopService).getActiveTurn() !== undefined;
 
     let launched: Promise<unknown>;
     try {

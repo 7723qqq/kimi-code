@@ -1,5 +1,7 @@
 /**
- * `llmRequester` retry helpers — shared LLM retry backoff and diagnostics.
+ * `_base` retry helpers — exponential backoff schedule, abortable retry
+ * sleeps, and error-field extraction shared by retry policies (the loop's
+ * `stepRetry` plugin, full-compaction's self-managed resends).
  */
 
 import { abortable } from '#/_base/utils/abort';

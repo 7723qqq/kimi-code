@@ -387,7 +387,7 @@ describe('ModelResolverService', () => {
       expect(authKeys).toEqual(['fresh-token', 'forced-refresh-token']);
     });
 
-    it('keeps non-OAuth 401 as the provider status error', async () => {
+    it('translates a non-OAuth 401 into a coded provider error without OAuth replay', async () => {
       providers['p'] = { type: 'kimi', baseUrl: 'https://example.test/v1', apiKey: 'sk-test' };
       models['m'] = { provider: 'p', model: 'wire-name', maxContextSize: 1000 };
       generateImpl = async () => {
@@ -399,14 +399,23 @@ describe('ModelResolverService', () => {
         tools: [],
         messages: [],
       });
+      // No OAuth material on the model, so there is no force-refresh/replay:
+      // the raw status error crosses the model boundary once, translated into
+      // a coded KimiError with the HTTP fields in `details` and the raw error
+      // preserved as `cause`.
       await expect(async () => {
         for await (const _event of events) {
           void _event;
         }
       }).rejects.toMatchObject({
+        code: 'provider.auth_error',
         name: 'APIStatusError',
-        statusCode: 401,
-        requestId: 'req-api-key-401',
+        details: { statusCode: 401, requestId: 'req-api-key-401' },
+        cause: expect.objectContaining({
+          name: 'APIStatusError',
+          statusCode: 401,
+          requestId: 'req-api-key-401',
+        }),
       });
     });
 

@@ -170,7 +170,7 @@ describe('AgentLLMRequesterService strict resend', () => {
       },
     });
 
-    const result = await service.request({ retry: { maxAttempts: 1 } });
+    const result = await service.request();
 
     expect(result.message.content).toEqual([{ type: 'text', text: 'ok' }]);
     expect(result.usage).toEqual(emptyUsage());
@@ -200,7 +200,7 @@ describe('AgentLLMRequesterService strict resend', () => {
       },
     });
 
-    await expect(service.request({ retry: { maxAttempts: 1 } })).rejects.toMatchObject({
+    await expect(service.request()).rejects.toMatchObject({
       statusCode: 401,
     });
     expect(strictCalls).toBe(0);

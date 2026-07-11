@@ -2,16 +2,17 @@
  * `prompt` domain (L4) — `IAgentPromptService` implementation.
  *
  * Ingests user input and turns it into `StepRequest`s on the `loop` queue
- * instead of holding any queue of its own: `prompt` seeds a fresh turn with a
- * `PromptStepRequest`, `steer` enqueues a mergeable `SteerStepRequest` into
- * the active turn (or delegates to `prompt` when no turn is active), and
- * `retry` seeds a message-less `RetryStepRequest`. Image-compression captions
- * are rerouted into hidden `systemReminder` injections when the request
- * materializes. `undo` / `clear` mutate `contextMemory` directly without any
- * request, and input arriving while a full compaction holds an idle agent is
- * deferred and replayed through `fullCompaction`'s finish hook. Consumes
- * tool-declared `delivery: steer` results from `toolExecutor`. Bound at Agent
- * scope.
+ * instead of holding any queue of its own: `prompt` / `retry` send `nextTurn`
+ * requests (`PromptStepRequest` / `RetryStepRequest`) so the loop starts a
+ * fresh turn around them, while `steer` enqueues a mergeable `tryInTurn`
+ * `SteerStepRequest` into the active turn (or delegates to `prompt` when no
+ * turn is active) and records `turn.steer` on the wire when it materializes.
+ * Image-compression captions are rerouted into hidden `systemReminder`
+ * injections when the request materializes. `undo` / `clear` mutate
+ * `contextMemory` directly without any request, and input arriving while a
+ * full compaction holds an idle agent is deferred and replayed through
+ * `fullCompaction`'s finish hook. Consumes tool-declared `delivery: steer`
+ * results from `toolExecutor`. Bound at Agent scope.
  */
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -27,10 +28,13 @@ import { IAgentSystemReminderService } from '#/agent/systemReminder/systemRemind
 import type { ExecutableToolResult } from '#/agent/tool/toolContract';
 import type { ToolDidExecuteContext } from '#/agent/tool/toolHooks';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentTurnService, type Turn } from '#/agent/turn/turn';
+import { type Turn } from '#/agent/loop/loop';
+import { steerTurn } from '#/agent/loop/turnOps';
 import type { ContentPart } from '#/app/llmProtocol/message';
 import { ErrorCodes, KimiError } from '#/errors';
 import { OrderedHookSlot } from '#/hooks';
+import { IAgentWireService } from '#/wire/tokens';
+import type { IWireService } from '#/wire/wireService';
 
 import { IAgentPromptService, type PromptSubmitContext, type PromptSteerHandle } from './prompt';
 import { PromptStepRequest, RetryStepRequest, SteerStepRequest } from './promptStepRequests';
@@ -47,11 +51,11 @@ export class AgentPromptService implements IAgentPromptService {
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-    @IAgentTurnService private readonly turnService: IAgentTurnService,
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IAgentLoopService private readonly loop: IAgentLoopService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
+    @IAgentWireService private readonly wire: IWireService,
   ) {
     toolExecutor.hooks.onDidExecuteTool.register('prompt-service-delivery', async (ctx, next) => {
       await this.deliverToolResult(ctx);
@@ -66,19 +70,14 @@ export class AgentPromptService implements IAgentPromptService {
       this.appendPrompt(rerouted, captions);
       return undefined;
     }
-    const request = new PromptStepRequest(rerouted, captions, this.reminders);
-    this.loop.enqueue(request);
-    try {
-      return this.turnService.launch({ input: rerouted.content, origin: rerouted.origin });
-    } catch (error) {
-      request.abort();
-      throw error;
-    }
+    // A `nextTurn` request: the loop starts the turn around it synchronously,
+    // so the receipt always carries the new turn (or `enqueue` threw on
+    // admission, before the request entered the queue).
+    return this.loop.enqueue(new PromptStepRequest(rerouted, captions, this.reminders)).turn;
   }
 
   steer(message: ContextMessage): PromptSteerHandle {
-    const activeTurn = this.turnService.getActiveTurn();
-    if (activeTurn === undefined) {
+    if (this.loop.getActiveTurn() === undefined) {
       return {
         removeFromQueue: () => {
           throw steerAlreadyEmittedError();
@@ -92,14 +91,20 @@ export class AgentPromptService implements IAgentPromptService {
       rerouted,
       captions,
       this.reminders,
-      (materialized) => this.turnService.recordSteer(materialized.content, materialized.origin),
+      (materialized) =>
+        this.wire.dispatch(
+          steerTurn({
+            input: materialized.content,
+            origin: materialized.origin ?? USER_PROMPT_ORIGIN,
+          }),
+        ),
       (settled) => this.pendingSteers.delete(settled),
     );
     return {
       removeFromQueue: () => {
         if (!request.abort()) throw steerAlreadyEmittedError();
       },
-      launched: this.enqueueSteer(activeTurn, request, message),
+      launched: this.enqueueSteer(request, message),
     };
   }
 
@@ -134,14 +139,7 @@ export class AgentPromptService implements IAgentPromptService {
       origin: { kind: 'retry' },
     };
     if (this.deferWhileCompacting(retryMessage)) return undefined;
-    const request = new RetryStepRequest();
-    this.loop.enqueue(request);
-    try {
-      return this.turnService.launch({ input: [], origin: { kind: 'retry' } });
-    } catch (error) {
-      request.abort();
-      throw error;
-    }
+    return this.loop.enqueue(new RetryStepRequest()).turn;
   }
 
   undo(count: number): number {
@@ -201,7 +199,7 @@ export class AgentPromptService implements IAgentPromptService {
    */
   private deferWhileCompacting(message: ContextMessage): boolean {
     if (this.fullCompaction.compacting === null) return false;
-    if (this.turnService.getActiveTurn() !== undefined) return false;
+    if (this.loop.getActiveTurn() !== undefined) return false;
     this.compactionDeferred.push(message);
     return true;
   }
@@ -279,7 +277,6 @@ export class AgentPromptService implements IAgentPromptService {
   }
 
   private async enqueueSteer(
-    activeTurn: Turn,
     request: SteerStepRequest,
     originalMessage: ContextMessage,
   ): Promise<Turn | undefined> {
@@ -287,8 +284,10 @@ export class AgentPromptService implements IAgentPromptService {
     if (request.aborted) return undefined;
 
     this.pendingSteers.add(request);
-    this.loop.enqueue(request);
-    return activeTurn;
+    // The turn that was active when `steer` ran may have ended while the
+    // submit hook awaited; the receipt reports the turn the steer actually
+    // joined (`undefined` when it parked and now rides the next turn).
+    return this.loop.enqueue(request).turn;
   }
 }
 

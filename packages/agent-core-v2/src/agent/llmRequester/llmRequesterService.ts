@@ -5,8 +5,9 @@
  * `LLMRequestInput` from `profile` (system prompt), `contextMemory` +
  * `contextProjector` (history), `toolRegistry` (tools), and `toolSelect`
  * (progressive-disclosure shaping of the tool and history views), applies the
- * completion-token budget, then drives `model.request(input, signal)` with
- * bounded retry. Forwards streamed `part` events to the caller's `onPart`
+ * completion-token budget, then drives a single `model.request(input, signal)`
+ * attempt — retry policy lives in the loop's `stepRetry` plugin, not here.
+ * Forwards streamed `part` events to the caller's `onPart`
  * handler, records `usage` through `IAgentUsageService`, resolves to an
  * `LLMRequestFinish` on the `finish` event, logs the request lifecycle
  * (config deduplicated by content, request/response/failure lines, plus
@@ -30,6 +31,7 @@ import {
   APIConnectionError,
   APIContextOverflowError,
   APIEmptyResponseError,
+  APIProviderOverloadedError,
   APIStatusError,
   APITimeoutError,
   isContextOverflowStatusError,
@@ -70,12 +72,7 @@ import {
 } from './llmRequestOps';
 import { isAbortError } from '#/_base/utils/abort';
 import { unwrapErrorCause } from '#/errors';
-import {
-  DEFAULT_MAX_RETRY_ATTEMPTS,
-  retryBackoffDelays,
-  retryErrorFields,
-  sleepForRetry,
-} from './retry';
+import { retryErrorFields } from '#/_base/utils/retry';
 
 const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
   type: 'object',
@@ -132,78 +129,24 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     signal?: AbortSignal,
   ): Promise<LLMRequestFinish> {
     signal?.throwIfAborted();
-    return this.requestWithRetry(overrides, onPart, signal);
-  }
-
-  private async requestWithRetry(
-    overrides: LLMRequestOverrides,
-    onPart: LLMRequestPartHandler,
-    signal: AbortSignal | undefined,
-  ): Promise<LLMRequestFinish> {
     const startedAt = Date.now();
-    const maxAttempts = Math.max(overrides.retry?.maxAttempts ?? DEFAULT_MAX_RETRY_ATTEMPTS, 1);
-
-    if (maxAttempts <= 1) {
-      try {
-        return await this.executeRequestAttempt(overrides, onPart, signal, 1, maxAttempts);
-      } catch (error) {
-        this.logRequestFailure(error, overrides, signal, 1, maxAttempts);
-        this.trackApiError(error, startedAt, signal);
-        throw error;
-      }
+    try {
+      return await this.runRequest(this.resolveRequest(overrides), onPart, signal);
+    } catch (error) {
+      this.logRequestFailure(error, overrides, signal);
+      this.trackApiError(error, startedAt, signal);
+      throw error;
     }
-
-    const delays = retryBackoffDelays(maxAttempts);
-    for (let attempt = 1; ; attempt += 1) {
-      try {
-        return await this.executeRequestAttempt(overrides, onPart, signal, attempt, maxAttempts);
-      } catch (error) {
-        if (attempt >= maxAttempts || !isRetryableGenerateError(unwrapErrorCause(error))) {
-          this.logRequestFailure(error, overrides, signal, attempt, maxAttempts);
-          this.trackApiError(error, startedAt, signal);
-          throw error;
-        }
-
-        signal?.throwIfAborted();
-        const delayMs = delays[attempt - 1] ?? 0;
-        await overrides.retry?.onRetry?.({
-          failedAttempt: attempt,
-          nextAttempt: attempt + 1,
-          maxAttempts,
-          delayMs,
-          ...retryErrorFields(error),
-        });
-        await sleepForRetry(delayMs, signal);
-      }
-    }
-  }
-
-  private async executeRequestAttempt(
-    overrides: LLMRequestOverrides,
-    onPart: LLMRequestPartHandler,
-    signal: AbortSignal | undefined,
-    attempt: number,
-    maxAttempts: number,
-  ): Promise<LLMRequestFinish> {
-    signal?.throwIfAborted();
-    const request = this.resolveRequest(
-      overrides,
-      attempt === 1 ? undefined : { attempt: `${String(attempt)}/${String(maxAttempts)}` },
-    );
-    return this.runRequest(request, onPart, signal);
   }
 
   private logRequestFailure(
     error: unknown,
     overrides: LLMRequestOverrides,
     signal: AbortSignal | undefined,
-    attempt: number,
-    maxAttempts: number,
   ): void {
     if (isAbortError(error) || signal?.aborted === true) return;
     const payload: LogContext = {
       ...logFieldsForSource(overrides.source),
-      attempt: `${String(attempt)}/${String(maxAttempts)}`,
       model: this.profile.data().modelAlias ?? 'unknown',
       ...retryErrorFields(error),
     };
@@ -316,10 +259,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     }
   }
 
-  private resolveRequest(
-    overrides: LLMRequestOverrides,
-    extraLogFields?: LLMRequestLogFields,
-  ): ResolvedLLMRequest {
+  private resolveRequest(overrides: LLMRequestOverrides): ResolvedLLMRequest {
     const resolved = this.profile.resolveModelContext();
     let model = this.profile.getProvider();
     model = applyCompletionBudget({
@@ -349,7 +289,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       tools: [...(overrides.tools ?? this.defaultTools())],
       messages: [...messages],
       source: overrides.source,
-      logFields: logFieldsForSource(overrides.source, extraLogFields),
+      logFields: logFieldsForSource(overrides.source),
     };
   }
 
@@ -461,10 +401,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   }
 }
 
-function logFieldsForSource(
-  source: LLMRequestSource | undefined,
-  extraFields?: LLMRequestLogFields,
-): LLMRequestLogFields {
+function logFieldsForSource(source: LLMRequestSource | undefined): LLMRequestLogFields {
   switch (source?.type) {
     case 'turn':
       return {
@@ -472,16 +409,14 @@ function logFieldsForSource(
         ...(source.step === undefined
           ? {}
           : { turnStep: `${String(source.turnId)}.${String(source.step)}` }),
-        ...extraFields,
       };
     case 'operation':
       return {
         ...source.logFields,
         ...(source.requestKind === undefined ? {} : { requestKind: source.requestKind }),
-        ...extraFields,
       };
     default:
-      return extraFields ?? {};
+      return {};
   }
 }
 
@@ -523,9 +458,11 @@ function apiErrorType(error: unknown): string {
   // provider error as `cause`; classify on the raw shape when available.
   const raw = unwrapErrorCause(error);
   if (raw instanceof APIContextOverflowError) return 'context_overflow';
+  if (raw instanceof APIProviderOverloadedError) return 'overloaded';
   if (raw instanceof APIStatusError) {
     if (isContextOverflowStatusError(raw.statusCode, raw.message)) return 'context_overflow';
     if (raw.statusCode === 429) return 'rate_limit';
+    if (raw.statusCode === 529) return 'overloaded';
     if (raw.statusCode === 401 || raw.statusCode === 403) return 'auth';
     if (raw.statusCode >= 500) return '5xx_server';
     if (raw.statusCode >= 400) return '4xx_client';

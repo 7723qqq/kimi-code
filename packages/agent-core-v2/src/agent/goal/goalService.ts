@@ -12,9 +12,9 @@
  * at a fork boundary; the `goal.*` record shapes stay declared in
  * `WireRecordMap` because they still ride the shared wire log read by
  * `getRecords()` and replayed into the Model. Injects reminders through
- * `contextInjector`, drives continuation turns through `turn`, orchestrates
- * step-level continuations by enqueueing `StepRequest`s onto `loop` (the
- * continuation message materializes when the loop pops it), accounts live
+ * `contextInjector`, drives continuation turns by
+ * enqueueing `nextTurn` `StepRequest`s onto `loop` (the continuation message
+ * materializes when the loop pops it), accounts live
  * turn usage through `usage`, writes system reminders through
  * `systemReminder`, registers model tools through `toolRegistry`, and reports
  * telemetry through `telemetry`. Bound at Agent scope.
@@ -40,14 +40,17 @@ import { ContinuationStepRequest, MessageStepRequest } from '#/agent/loop/stepRe
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import type { ExecutableToolResult } from '#/agent/tool/toolContract';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentTurnService } from '#/agent/turn/turn';
 import { IAgentUsageService, type UsageRecordedContext } from '#/agent/usage/usage';
-import { IAgentActivityService } from '#/activity/activity';
-import type { ActivityLease } from '#/activity/activity';
 import type { TelemetryProperties } from '#/app/telemetry/telemetry';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IConfigService } from '#/app/config/config';
-import { ErrorCodes, KimiError, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
+import {
+  ErrorCodes,
+  KimiError,
+  isKimiError,
+  toKimiErrorPayload,
+  type KimiErrorPayload,
+} from '#/errors';
 import { IAgentWireService } from '#/wire/tokens';
 import { defineDerivedModel } from '#/wire/model';
 import type { IWireService } from '#/wire/wireService';
@@ -218,8 +221,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
-    @IAgentTurnService private readonly turnService: IAgentTurnService,
-    @IAgentActivityService private readonly activity: IAgentActivityService,
     @IAgentLoopService private readonly loopService: IAgentLoopService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
     @IAgentUsageService usageService: IAgentUsageService,
@@ -590,15 +591,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     const state = this.goalState;
     if (state === null || state.status !== 'active') return;
     if (this.blockIfBudgetReached(state) !== null) return;
-    // Atomically acquire the turn lane BEFORE enqueueing the continuation
-    // request: if another activity holds the lane (race lost), `tryBegin`
-    // returns undefined and we skip. Because the request's message only
-    // materializes when the loop pops it, a skipped or aborted launch leaves
-    // no orphan continuation message in context, and the busy outcome is no
-    // longer swallowed by a `.catch(() => undefined)`.
-    const lease = this.activity.tryBegin('turn', { origin: GOAL_CONTINUATION_ORIGIN });
-    if (lease === undefined) return;
-    this.launchContinuationTurn(lease);
+    this.launchContinuationTurn();
   }
 
   // A rejected turn-ended handler (e.g. a continuation launch losing a race
@@ -618,22 +611,27 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     }
   }
 
-  private launchContinuationTurn(lease: ActivityLease): void {
+  // Drives the next goal turn the same way `prompt` drives user turns: hand
+  // the `loop` a `nextTurn` request and the loop owns admission — it takes
+  // the turn lane synchronously, so a lost admission race (another activity
+  // holds the lane, or the session is closing) throws before the request ever
+  // enters the queue and the continuation simply defers: the goal stays
+  // active and the next turn-ended event re-runs the admission check. Any
+  // other failure propagates so the goal settles instead of stranding with
+  // nothing driving it.
+  private launchContinuationTurn(): void {
     const message: ContextMessage = {
       role: 'user',
       content: [{ type: 'text', text: GOAL_CONTINUATION_PROMPT }],
       toolCalls: [],
       origin: GOAL_CONTINUATION_ORIGIN,
     };
-    const request = new MessageStepRequest(message, { kind: 'goal_continuation' });
-    this.loopService.enqueue(request);
     try {
-      this.turnService.launchWithLease(lease, {
-        input: message.content,
-        origin: GOAL_CONTINUATION_ORIGIN,
-      });
+      this.loopService.enqueue(
+        new MessageStepRequest(message, { kind: 'goal_continuation', priority: 'nextTurn' }),
+      );
     } catch (error) {
-      request.abort();
+      if (isActivityAdmissionError(error)) return;
       throw error;
     }
   }
@@ -872,6 +870,20 @@ function normalizeGoalErrorPayload(error: unknown): KimiErrorPayload {
 function pauseReasonWithMessage(prefix: string, message: string | undefined): string {
   const trimmed = message?.trim();
   return trimmed === undefined || trimmed.length === 0 ? prefix : `${prefix}: ${trimmed}`;
+}
+
+// The coded failures `activity.begin('turn')` can raise: each one means "the
+// turn lane could not be taken right now", never a real turn failure.
+const ACTIVITY_ADMISSION_CODES: ReadonlySet<string> = new Set<string>([
+  ErrorCodes.ACTIVITY_AGENT_BUSY,
+  ErrorCodes.ACTIVITY_DISPOSING,
+  ErrorCodes.ACTIVITY_DISPOSED,
+  ErrorCodes.ACTIVITY_INITIALIZING,
+  ErrorCodes.ACTIVITY_SESSION_REJECTED,
+]);
+
+function isActivityAdmissionError(error: unknown): boolean {
+  return isKimiError(error) && ACTIVITY_ADMISSION_CODES.has(error.code);
 }
 
 registerScopedService(

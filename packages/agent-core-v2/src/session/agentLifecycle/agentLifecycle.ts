@@ -32,7 +32,7 @@ import type { TokenUsage } from '#/app/llmProtocol/usage';
 import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import type { BindAgentInput } from '#/agent/profile/profile';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
-import type { Turn } from '#/agent/turn/turn';
+import type { Turn } from '#/agent/loop/loop';
 import type { Hooks } from '#/hooks';
 
 export interface CreateAgentOptions {

@@ -187,7 +187,7 @@ describe('OAuthService', () => {
     stubManagedModelsFetch();
     toolkit.login.mockImplementation((_provider, options) => {
       options.onDeviceCode(deviceAuth);
-      return { providerName: OAUTH_PROVIDER, ok: true };
+      return Promise.resolve({ providerName: OAUTH_PROVIDER, ok: true });
     });
     const svc = createService();
 
@@ -212,7 +212,7 @@ describe('OAuthService', () => {
     stubManagedModelsFetch();
     toolkit.login.mockImplementation((_provider, options) => {
       options.onDeviceCode(deviceAuth);
-      return { providerName: OAUTH_PROVIDER, ok: true };
+      return Promise.resolve({ providerName: OAUTH_PROVIDER, ok: true });
     });
     const svc = createService();
     await svc.startLogin(OAUTH_PROVIDER);
@@ -234,7 +234,7 @@ describe('OAuthService', () => {
     stubManagedModelsFetch();
     toolkit.login.mockImplementation((_provider, options) => {
       options.onDeviceCode(deviceAuth);
-      return { providerName: OAUTH_PROVIDER, ok: true };
+      return Promise.resolve({ providerName: OAUTH_PROVIDER, ok: true });
     });
     const svc = createService();
     await svc.startLogin(OAUTH_PROVIDER);
@@ -314,7 +314,7 @@ describe('OAuthService', () => {
     vi.stubGlobal('fetch', fetchMock);
     toolkit.login.mockImplementation((_provider, options) => {
       options.onDeviceCode(deviceAuth);
-      return { providerName: OAUTH_PROVIDER, ok: true };
+      return Promise.resolve({ providerName: OAUTH_PROVIDER, ok: true });
     });
     const svc = createService();
 
@@ -331,7 +331,7 @@ describe('OAuthService', () => {
     const fetchMock = stubManagedModelsFetch();
     toolkit.login.mockImplementation((_provider, options) => {
       options.onDeviceCode(deviceAuth);
-      return { providerName: OAUTH_PROVIDER, ok: true };
+      return Promise.resolve({ providerName: OAUTH_PROVIDER, ok: true });
     });
     const svc = createService();
 

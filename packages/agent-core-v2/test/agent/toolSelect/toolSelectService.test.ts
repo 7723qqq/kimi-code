@@ -11,7 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
+import { DisposableStore, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { createServices, type ServiceRegistration, type TestInstantiationService } from '#/_base/di/test';
 import { OrderedHookSlot } from '#/hooks';
 import { IEventBus, type DomainEvent } from '#/app/event/eventBus';
@@ -26,7 +26,6 @@ import {
   IAgentLoopService,
   type AfterStepContext,
   type BeforeStepContext,
-  type LoopErrorContext,
   type LoopRunOptions,
   type LoopRunResult,
   type StepEnqueueOptions,
@@ -201,8 +200,11 @@ class FakeLoopService implements IAgentLoopService {
   readonly hooks: IAgentLoopService['hooks'] = {
     beforeStep: new OrderedHookSlot<BeforeStepContext>(),
     afterStep: new OrderedHookSlot<AfterStepContext>(),
-    onError: new OrderedHookSlot<LoopErrorContext>(),
   };
+
+  registerLoopErrorHandler(): IDisposable {
+    throw new Error('unused in this suite');
+  }
 
   run(_options: LoopRunOptions): Promise<LoopRunResult> {
     throw new Error('unused in this suite');

@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TurnEndedEvent } from '@moonshot-ai/protocol';
 
-import { IAgentActivityService } from '#/activity/activity';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
 import { IAgentGoalService } from '#/agent/goal/goal';
@@ -839,8 +838,8 @@ describe('AgentGoalService core workflow hooks', () => {
 
   it('pauses the goal when the continuation launch fails', async () => {
     await goals.createGoal({ objective: 'finish the task' });
-    vi.spyOn(turnService, 'launchWithLease').mockImplementation(() => {
-      throw new Error('agent busy');
+    vi.spyOn(turnService, 'launch').mockImplementation(() => {
+      throw new Error('wire dispatch exploded');
     });
     const updates: GoalUpdatedEvent[] = [];
     eventBus.subscribe((event) => {
@@ -854,7 +853,7 @@ describe('AgentGoalService core workflow hooks', () => {
 
     await vi.waitFor(() => expect(goals.getGoal().goal?.status).toBe('paused'));
     expect(goals.getGoal().goal?.terminalReason).toBe(
-      'Paused after goal continuation failure: agent busy',
+      'Paused after goal continuation failure: wire dispatch exploded',
     );
     expect(updates.at(-1)?.snapshot).toMatchObject({ status: 'paused' });
   });
@@ -866,18 +865,27 @@ describe('AgentGoalService core workflow hooks', () => {
     eventBus.publish({ type: 'turn.started', turnId: goalTurn.id, origin: USER_PROMPT_ORIGIN });
     await runGoalStep(loopService, goalTurn);
 
-    // Hold the turn lane so the continuation cannot be admitted yet.
-    const busyLease = ctx!.get(IAgentActivityService).tryBegin('turn');
-    expect(busyLease).toBeDefined();
+    // The turn service owns admission: while another activity holds the lane
+    // its launch rejects with the coded busy error.
+    const busyLaunch = vi.spyOn(turnService, 'launch').mockImplementation(() => {
+      throw new KimiError(
+        ErrorCodes.ACTIVITY_AGENT_BUSY,
+        'Cannot begin a new turn while turn 32 is active',
+      );
+    });
     const busyTurn = makeTurn(32);
     eventBus.publish({ type: 'turn.started', turnId: busyTurn.id, origin: USER_PROMPT_ORIGIN });
     endTurn(eventBus, goalTurn);
 
+    // A lost admission race only defers the continuation: the goal stays
+    // active and the aborted request leaves nothing queued behind.
+    await vi.waitFor(() => expect(busyLaunch).toHaveBeenCalled());
     expect(goals.getGoal().goal?.status).toBe('active');
     expect(turnService.launches).toEqual([]);
+    expect(loopService.hasPendingRequests()).toBe(false);
 
     // Free the lane; the next turn end re-runs the continuation admission check.
-    busyLease!.end('completed');
+    busyLaunch.mockRestore();
     endTurn(eventBus, busyTurn);
 
     await vi.waitFor(() => expect(turnService.launches).toHaveLength(1));

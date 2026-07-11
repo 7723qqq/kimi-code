@@ -23,7 +23,7 @@ import { ErrorCodes, KimiError } from '#/errors';
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
 import type { PromptOrigin } from '#/agent/contextMemory/types';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { TurnModel } from '#/agent/turn/turnOps';
+import { TurnModel } from '#/agent/loop/turnOps';
 import { IAgentWireService } from '#/wire/tokens';
 import type { IWireService } from '#/wire/wireService';
 

@@ -20,25 +20,6 @@ export type LLMRequestSource =
       readonly logFields?: LLMRequestLogFields;
     };
 
-export interface LLMRequestRetryContext {
-  readonly failedAttempt: number;
-  readonly nextAttempt: number;
-  readonly maxAttempts: number;
-  readonly delayMs: number;
-  readonly errorName: string;
-  readonly errorMessage: string;
-  readonly statusCode?: number;
-}
-
-export type LLMRequestRetryHandler = (
-  context: LLMRequestRetryContext,
-) => void | Promise<void>;
-
-export interface LLMRequestRetryOptions {
-  readonly maxAttempts?: number;
-  readonly onRetry?: LLMRequestRetryHandler;
-}
-
 export interface LLMStreamTiming {
   readonly firstTokenLatencyMs: number;
   readonly streamDurationMs: number;
@@ -92,7 +73,6 @@ export interface LLMRequestOverrides {
   systemPrompt?: string;
   source?: LLMRequestSource;
   maxOutputSize?: number;
-  retry?: LLMRequestRetryOptions;
 }
 
 export interface IAgentLLMRequesterService {

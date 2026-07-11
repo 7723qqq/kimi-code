@@ -25,7 +25,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
-import { IAgentTurnService, type Turn, type TurnResult } from '#/agent/turn/turn';
+import { IAgentLoopService, type Turn, type TurnResult } from '#/agent/loop/loop';
 import { IAgentUsageService } from '#/agent/usage/usage';
 import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
 
@@ -93,9 +93,9 @@ async function awaitRun(
 ): Promise<{ summary: string; usage?: TokenUsage }> {
   const controller = new AbortController();
   const unlink = linkAbortSignal(options.signal, controller);
-  const turnService = target.accessor.get(IAgentTurnService);
+  const loop = target.accessor.get(IAgentLoopService);
   const cancelTurn = (reason: unknown): void => {
-    turnService.cancel(undefined, reason);
+    loop.cancel(undefined, reason);
   };
   let turnRef: Turn = turn;
   try {
