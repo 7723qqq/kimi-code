@@ -686,6 +686,7 @@ function scrollToTurn(turnId: string): void {
   if (!el) return;
   const target = el.querySelector<HTMLElement>(`.turn-anchor[data-turn-id="${attrEscape(turnId)}"]`);
   if (!target) return;
+  cancelActiveScrollWrites();
   following.value = false;
   showPill.value = distanceFromBottom() > BOTTOM_THRESHOLD;
   target.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -863,6 +864,7 @@ watch(
     if (oldKey && el) {
       scrollStateBySession.set(String(oldKey), { top: el.scrollTop, following: following.value });
     }
+    cancelActiveScrollWrites();
     await nextTick();
     const el2 = panesRef.value;
     const saved = newKey ? scrollStateBySession.get(String(newKey)) : undefined;
@@ -1012,17 +1014,12 @@ function cancelScheduledFollow(): void {
   }
 }
 
-// Wheel, touch, and scrollbar input arrive before the browser dispatches
-// `scroll`. Stop queued writers before they can overwrite the user's movement.
-function stopFollowingForUserIntent(): void {
+function cancelActiveScrollWrites(): void {
   const el = panesRef.value;
   const smoothInFlight = performance.now() < smoothScrollUntil;
 
   userActionFollowUntil = 0;
-  following.value = false;
   cancelScheduledFollow();
-
-  // A direct user scroll also takes precedence over a tool-card pin animation.
   pinUntil = 0;
   pinEl = null;
 
@@ -1033,10 +1030,18 @@ function stopFollowingForUserIntent(): void {
   }
   smoothScrollUntil = 0;
   lastSmoothScroll = Number.NEGATIVE_INFINITY;
-  if (el) {
-    lastScrollTop = el.scrollTop;
-    if (el.scrollHeight - el.clientHeight > 1) showPill.value = true;
-  }
+  if (el) lastScrollTop = el.scrollTop;
+}
+
+// Wheel, touch, and scrollbar input arrive before the browser dispatches
+// `scroll`. Stop queued writers before they can overwrite the user's movement.
+function stopFollowingForUserIntent(): void {
+  const el = panesRef.value;
+  if (!el || (el.scrollHeight - el.clientHeight <= 1 && !props.hasMoreMessages)) return;
+
+  following.value = false;
+  cancelActiveScrollWrites();
+  if (el.scrollHeight - el.clientHeight > 1) showPill.value = true;
 }
 
 function nestedScrollerCanMoveUp(event: Event): boolean {
