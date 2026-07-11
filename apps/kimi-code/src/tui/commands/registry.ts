@@ -4,6 +4,8 @@ import { basename, dirname, join, relative, resolve } from 'pathe';
 
 import type { AutocompleteItem } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
+
 import { completeLeadingArg, type ArgCompletionSpec } from './complete-args';
 import type { KimiSlashCommand, SlashCommandAvailability } from './types';
 
