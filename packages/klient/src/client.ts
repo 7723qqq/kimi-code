@@ -19,6 +19,8 @@ import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2/_base/di/inst
 import type { IChannel } from './channel.js';
 import { HttpChannel, type HttpChannelOptions } from './httpChannel.js';
 import { makeProxy } from './proxy.js';
+import { WsKlient } from './wsKlient.js';
+import type { WsLikeCtor } from './wsSocket.js';
 
 export interface KlientOptions {
   /** Base URL of the server, e.g. `http://127.0.0.1:58627`. */
@@ -27,17 +29,22 @@ export interface KlientOptions {
   readonly token?: string;
   /** `fetch` implementation; defaults to the global `fetch`. */
   readonly fetch?: typeof fetch;
+  /** WebSocket implementation for `ws()`; defaults to the global `WebSocket`. */
+  readonly WebSocketImpl?: WsLikeCtor;
 }
 
 export class Klient {
   private readonly url: string;
   private readonly token?: string;
   private readonly fetchImpl?: typeof fetch;
+  private readonly wsImpl?: WsLikeCtor;
+  private wsKlient?: WsKlient;
 
   constructor(opts: KlientOptions) {
     this.url = opts.url.replace(/\/$/, '');
     this.token = opts.token;
     this.fetchImpl = opts.fetch;
+    this.wsImpl = opts.WebSocketImpl;
   }
 
   private channelOptions(baseUrl: string): HttpChannelOptions {
@@ -54,6 +61,25 @@ export class Klient {
   /** Session scope entry point. */
   session(sessionId: string): SessionClient {
     return new SessionClient(this.url, this.token, this.fetchImpl, sessionId);
+  }
+
+  /**
+   * WebSocket counterpart of this client — same scopes and typed proxies over
+   * the persistent `/api/v2/ws` socket, plus event `listen`s. Lazily created
+   * on first call so one `Klient` holds at most one live socket; close it with
+   * `client.ws().close()`. After a close, the next `ws()` call lazily creates a
+   * fresh `WsKlient` (so React StrictMode's mount → unmount → mount cycle,
+   * whose cleanup closes the socket, recovers on the second mount).
+   */
+  ws(): WsKlient {
+    if (this.wsKlient === undefined || this.wsKlient.state === 'closed') {
+      this.wsKlient = new WsKlient({
+        url: this.url,
+        token: this.token,
+        WebSocketImpl: this.wsImpl,
+      });
+    }
+    return this.wsKlient;
   }
 }
 

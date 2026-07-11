@@ -36,7 +36,9 @@ export class HttpChannel implements IChannel {
   constructor(opts: HttpChannelOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/$/, '');
     this.token = opts.token;
-    this.fetchImpl = opts.fetch ?? fetch;
+    // Bind the global fetch: browsers throw "Illegal invocation" when the
+    // native function is invoked with a non-Window receiver.
+    this.fetchImpl = opts.fetch ?? fetch.bind(globalThis);
   }
 
   async call<T>(command: string, arg?: unknown): Promise<T> {

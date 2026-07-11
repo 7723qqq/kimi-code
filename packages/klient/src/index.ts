@@ -16,3 +16,20 @@ export {
   type KlientOptions,
 } from './client.js';
 export { SessionIndexClient } from './services/sessionIndex.js';
+export {
+  WsSocket,
+  type WsLike,
+  type WsLikeCtor,
+  type WsScopeIds,
+  type WsScopeKind,
+  type WsSocketOptions,
+  type WsSocketState,
+  type WsSubscription,
+} from './wsSocket.js';
+export { WsChannel, type WsChannelOptions } from './wsChannel.js';
+export {
+  WsAgentClient,
+  WsKlient,
+  WsSessionClient,
+  type WsKlientOptions,
+} from './wsKlient.js';
