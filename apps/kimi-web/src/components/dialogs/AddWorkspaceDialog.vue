@@ -1,9 +1,12 @@
 <!-- apps/kimi-web/src/components/dialogs/AddWorkspaceDialog.vue -->
-<!-- Daemon-driven folder browser for adding a workspace: starts at $HOME -->
-<!-- (fs:home), shows recent roots as quick-picks, a clickable breadcrumb, and -->
-<!-- the folder list (fs:browse). "Open this folder" adds the current path. -->
-<!-- Falls back to a paste-path escape hatch when the daemon can't browse. -->
-<!-- Built on the design-system Dialog / Field / Input / Button primitives. -->
+<!-- Daemon-driven folder browser for adding a workspace: starts at the path -->
+<!-- kimi-web is working in, with a clickable breadcrumb and the folder list -->
+<!-- (fs:browse). "Open this folder" adds the current path. The search box -->
+<!-- doubles as an absolute-path entry: input starting with "/" or "~" is -->
+<!-- validated live and the browser follows valid paths, so the existing -->
+<!-- "Open this folder" button submits them. When the daemon can't browse, -->
+<!-- the same box is the only way to add a path. -->
+<!-- Built on the design-system Dialog / Button / IconButton primitives. -->
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
@@ -11,8 +14,6 @@ import type { FsBrowseEntry, FsBrowseResult } from '../../api/types';
 import Dialog from '../ui/Dialog.vue';
 import Button from '../ui/Button.vue';
 import IconButton from '../ui/IconButton.vue';
-import Input from '../ui/Input.vue';
-import Field from '../ui/Field.vue';
 import Spinner from '../ui/Spinner.vue';
 import Badge from '../ui/Badge.vue';
 import Icon from '../ui/Icon.vue';
@@ -59,6 +60,22 @@ const searchResults = ref<SearchHit[]>([]);
 const isSearching = computed(() => filter.value.trim().length > 0);
 let searchToken = 0;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Absolute-path entry shares the same box: input starting with "/" or "~"
+// switches from fuzzy search to path mode. A valid path live-follows (the
+// browser jumps to it, so "Open this folder" submits it); an invalid one
+// shows a specific error plus prefix-matched candidates in the list.
+const PATH_LIKE = /^(?:\/|~(?:\/|$))/;
+const isPathMode = computed(() => PATH_LIKE.test(filter.value.trim()));
+type PathState = 'idle' | 'checking' | 'valid' | 'not-found' | 'bad-parent';
+const pathState = ref<PathState>('idle');
+const pathParent = ref('');
+const pathCandidates = ref<FsBrowseEntry[]>([]);
+/** $HOME for expanding "~" — fetched eagerly on mount. */
+const homePath = ref('');
+const filterEl = ref<HTMLInputElement | null>(null);
+let pathToken = 0;
+let pathTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Subsequence fuzzy match (query chars appear in order). */
 function fuzzyMatch(query: string, text: string): boolean {
@@ -115,19 +132,134 @@ async function runSearch(query: string): Promise<void> {
 
 watch(filter, (q) => {
   if (searchTimer) clearTimeout(searchTimer);
-  if (q.trim() === '') {
+  if (pathTimer) clearTimeout(pathTimer);
+  const t = q.trim();
+  if (t === '') {
     searchToken++; // cancel any in-flight walk
+    pathToken++;
     searchResults.value = [];
     searching.value = false;
+    pathState.value = 'idle';
+    pathCandidates.value = [];
     return;
   }
+  if (PATH_LIKE.test(t)) {
+    // Path mode — fuzzy search is off; validate unless browsing is down (then
+    // the box is format-only and Enter adds directly).
+    searchToken++;
+    searchResults.value = [];
+    searching.value = false;
+    if (browseFailed.value) {
+      pathToken++;
+      pathState.value = 'idle';
+      return;
+    }
+    pathTimer = setTimeout(() => void validatePathInput(t), 150);
+    return;
+  }
+  pathToken++;
+  pathState.value = 'idle';
+  pathCandidates.value = [];
   searchTimer = setTimeout(() => void runSearch(q), 220);
 });
 
-// Paste-path escape hatch — collapsed into a secondary "enter path" affordance.
-const pasteOpen = ref(false);
-const pathInput = ref('');
-const pathTrimmed = computed(() => pathInput.value.trim());
+function expandTilde(p: string): string {
+  if (p === '~') return homePath.value || p;
+  if (p.startsWith('~/')) return (homePath.value || '~') + p.slice(1);
+  return p;
+}
+
+/** Normalise typed input: expand ~, collapse slashes, drop trailing slash. */
+function normalizeTypedPath(raw: string): string {
+  let p = expandTilde(raw.trim());
+  p = p.replaceAll(/\/{2,}/g, '/');
+  if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
+  return p;
+}
+
+/**
+ * Debounced validation for path-mode input. `browseFs` defensively returns an
+ * empty path on failure, so a miss means "doesn't exist"; we then browse the
+ * parent for prefix-matched candidates. On a hit the browser live-follows.
+ */
+async function validatePathInput(raw: string): Promise<void> {
+  const token = ++pathToken;
+  pathState.value = 'checking';
+  const target = normalizeTypedPath(raw);
+  try {
+    const res = await props.browseFs(target);
+    if (token !== pathToken) return;
+    if (res.path) {
+      pathState.value = 'valid';
+      pathCandidates.value = [];
+      currentPath.value = res.path;
+      parentPath.value = res.parent;
+      entries.value = res.entries;
+      browseFailed.value = false;
+      return;
+    }
+  } catch {
+    // fall through to the not-found handling below
+  }
+  if (token !== pathToken) return;
+  const parent = target.slice(0, target.lastIndexOf('/')) || '/';
+  const base = target.slice(target.lastIndexOf('/') + 1).toLowerCase();
+  pathParent.value = parent;
+  try {
+    const res = await props.browseFs(parent);
+    if (token !== pathToken) return;
+    if (res.path) {
+      pathCandidates.value = res.entries.filter(
+        (e) => e.isDir && e.name.toLowerCase().startsWith(base),
+      );
+      pathState.value = 'not-found';
+      return;
+    }
+  } catch {
+    // fall through to bad-parent
+  }
+  if (token !== pathToken) return;
+  pathCandidates.value = [];
+  pathState.value = 'bad-parent';
+}
+
+/** Accept a completion candidate: put it in the box; the watcher re-validates. */
+function pickCandidate(path: string): void {
+  filter.value = path;
+  filterEl.value?.focus();
+}
+
+const filterPlaceholder = computed(() =>
+  browseFailed.value ? t('workspace.degradedPlaceholder') : t('workspace.searchPlaceholder'),
+);
+
+const footerHint = computed(() => {
+  if (browseFailed.value) return t('workspace.degradedHint');
+  if (isPathMode.value && pathState.value === 'valid') return t('workspace.pathFollowHint');
+  return t('workspace.browseHint');
+});
+
+function handleFilterKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') {
+    // First Esc clears the box (back to browsing); a second closes the dialog.
+    if (filter.value) filter.value = '';
+    else emit('close');
+    return;
+  }
+  if (event.key !== 'Enter') return;
+  const text = filter.value.trim();
+  if (!PATH_LIKE.test(text)) return; // fuzzy search: Enter keeps doing nothing
+  event.preventDefault();
+  if (browseFailed.value) {
+    const expanded = expandTilde(text);
+    if (expanded) emit('add', expanded);
+    return;
+  }
+  if (pathState.value === 'valid') openThisFolder();
+  else if (pathState.value === 'not-found' && pathCandidates.value[0]) {
+    pickCandidate(pathCandidates.value[0].path);
+  }
+}
 
 /** Split the current absolute path into clickable breadcrumb segments. */
 const crumbs = computed<{ label: string; path: string }[]>(() => {
@@ -149,8 +281,9 @@ async function navigate(path?: string): Promise<void> {
   loading.value = true;
   try {
     const result = await props.browseFs(path);
-    // A result with no path back means the daemon can't browse → fall back to
-    // the paste field (the adapter returns { path: '', parent: null, [] } on error).
+    // A result with no path back means the daemon can't browse → degraded
+    // mode, where the input box is the only way to add a path (the adapter
+    // returns { path: '', parent: null, [] } on error).
     if (!result.path) {
       browseFailed.value = true;
       return;
@@ -181,22 +314,19 @@ function openThisFolder(): void {
   emit('add', currentPath.value);
 }
 
-function handlePasteAdd(): void {
-  if (pathTrimmed.value.length === 0) return;
-  emit('add', pathTrimmed.value);
-}
-
 onMounted(async () => {
   loading.value = true;
   try {
+    // $HOME up-front: needed for "~" expansion and as the browse fallback.
+    const home = await props.getFsHome().catch(() => ({ home: '', recentRoots: [] as string[] }));
+    if (home.home) homePath.value = home.home;
     // Default to the path kimi-web is working in; fall back to $HOME.
     if (props.defaultPath) {
       await navigate(props.defaultPath);
       if (!browseFailed.value) return;
     }
-    const home = await props.getFsHome();
-    if (home.home) {
-      await navigate(home.home);
+    if (homePath.value) {
+      await navigate(homePath.value);
     } else {
       browseFailed.value = true;
     }
@@ -209,121 +339,123 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer);
+  if (pathTimer) clearTimeout(pathTimer);
 });
 </script>
 
 <template>
   <Dialog v-model:open="open" :title="t('workspace.addTitle')" size="lg" height="fixed" @close="emit('close')">
     <div class="aw">
-      <!-- Folder browser -->
-      <template v-if="!browseFailed">
-        <!-- Breadcrumb + up -->
-        <div class="crumbbar">
-          <IconButton
-            size="sm"
-            :disabled="!parentPath"
-            :label="t('workspace.up')"
-            @click="goUp"
-          >
-            <Icon name="arrow-up" size="md" />
-          </IconButton>
-          <div class="crumbs">
-            <template v-for="(c, i) in crumbs" :key="c.path">
-              <!-- crumbs[0] is the root "/" itself, so skip the separator before crumbs[1]. -->
-              <span v-if="i > 1" class="crumb-sep">/</span>
-              <button class="crumb" :class="{ last: i === crumbs.length - 1 }" @click="navigate(c.path)">{{ c.label }}</button>
-            </template>
-          </div>
-        </div>
-
-        <!-- fzf search across the whole current folder (recursive, fuzzy) -->
-        <div v-if="!loading" class="filterbar">
-          <Icon class="filter-icon" name="search" size="md" />
-          <input
-            v-model="filter"
-            class="filter-input"
-            type="text"
-            :placeholder="t('workspace.searchPlaceholder')"
-            autocomplete="off"
-            spellcheck="false"
-            @keydown.stop
-          />
-          <Spinner v-if="searching" size="sm" />
-        </div>
-
-        <!-- Folder list. Fixed height → the dialog never resizes while searching. -->
-        <div class="folder-list">
-          <div v-if="loading" class="fl-loading">{{ t('workspace.browsing') }}</div>
-
-          <!-- Search mode: recursive fuzzy hits (relative paths) -->
-          <template v-else-if="isSearching">
-            <button
-              v-for="hit in searchResults"
-              :key="hit.path"
-              class="folder-row"
-              @click="navigate(hit.path)"
-            >
-              <Icon class="dir-icon" name="folder-closed" size="sm" />
-              <span class="folder-name search-rel">{{ hit.rel }}</span>
-              <Badge v-if="hit.isGitRepo" variant="info" size="sm">
-                {{ t('workspace.gitTag') }}<span v-if="hit.branch" class="git-branch"> {{ hit.branch }}</span>
-              </Badge>
-            </button>
-            <div v-if="!searching && searchResults.length === 0" class="fl-empty">{{ t('workspace.noFilterMatch', { q: filter.trim() }) }}</div>
-            <div v-else-if="searching && searchResults.length === 0" class="fl-loading">{{ t('workspace.searching') }}</div>
-          </template>
-
-          <!-- Browse mode: the current folder's subfolders -->
-          <template v-else>
-            <button
-              v-for="entry in entries"
-              :key="entry.path"
-              class="folder-row"
-              @click="openEntry(entry)"
-            >
-              <Icon class="dir-icon" name="folder-closed" size="sm" />
-              <span class="folder-name">{{ entry.name }}</span>
-              <Badge v-if="entry.isGitRepo" variant="info" size="sm">
-                {{ t('workspace.gitTag') }}<span v-if="entry.branch" class="git-branch"> {{ entry.branch }}</span>
-              </Badge>
-            </button>
-            <div v-if="entries.length === 0" class="fl-empty">{{ t('workspace.noSubfolders') }}</div>
-          </template>
-        </div>
-      </template>
-
-      <!-- Paste an absolute path — secondary, collapsed behind a toggle (always
-           expanded when the daemon can't browse, since it's then the only way). -->
-      <div class="paste-section" :class="{ 'paste-only': browseFailed }">
-        <Button
-          v-if="!browseFailed && !pasteOpen"
-          variant="ghost"
+      <!-- Breadcrumb + up (hidden when the daemon can't browse) -->
+      <div v-if="!browseFailed" class="crumbbar">
+        <IconButton
           size="sm"
-          @click="pasteOpen = true"
+          :disabled="!parentPath"
+          :label="t('workspace.up')"
+          @click="goUp"
         >
-          {{ t('workspace.pasteToggle') }}
-        </Button>
-        <Field v-else :label="t('workspace.pathLabel')">
-          <div class="paste-row">
-            <div class="paste-input-wrap">
-              <Input
-                v-model="pathInput"
-                :placeholder="t('workspace.pathPlaceholder')"
-                autocomplete="off"
-                spellcheck="false"
-                @keydown.enter.stop="handlePasteAdd"
-              />
-            </div>
-            <IconButton
-              :disabled="pathTrimmed.length === 0"
-              :label="t('workspace.add')"
-              @click="handlePasteAdd"
-            >
-              <Icon name="plus" size="md" />
-            </IconButton>
-          </div>
-        </Field>
+          <Icon name="arrow-up" size="md" />
+        </IconButton>
+        <div class="crumbs">
+          <template v-for="(c, i) in crumbs" :key="c.path">
+            <!-- crumbs[0] is the root "/" itself, so skip the separator before crumbs[1]. -->
+            <span v-if="i > 1" class="crumb-sep">/</span>
+            <button class="crumb" :class="{ last: i === crumbs.length - 1 }" @click="navigate(c.path)">{{ c.label }}</button>
+          </template>
+        </div>
       </div>
+
+      <!-- One box for everything: fuzzy search across the whole current folder
+           normally; absolute-path entry when the input starts with "/" or "~".
+           Always visible — when the daemon can't browse it's the only way. -->
+      <div
+        v-if="!loading || browseFailed"
+        class="filterbar"
+        :class="{ 'has-error': pathState === 'not-found' || pathState === 'bad-parent' }"
+      >
+        <Icon class="filter-icon" name="search" size="md" />
+        <input
+          ref="filterEl"
+          v-model="filter"
+          class="filter-input"
+          type="text"
+          :placeholder="filterPlaceholder"
+          autocomplete="off"
+          spellcheck="false"
+          @keydown.stop="handleFilterKeydown"
+        />
+        <Spinner v-if="searching || pathState === 'checking'" size="sm" />
+      </div>
+
+      <!-- Folder list. Fixed height → the dialog never resizes while searching. -->
+      <div v-if="!browseFailed" class="folder-list">
+        <div v-if="loading" class="fl-loading">{{ t('workspace.browsing') }}</div>
+
+        <!-- Path mode: validation states. A valid path live-follows, so it falls
+             through to the browse rows below. -->
+        <template v-else-if="isPathMode && pathState !== 'valid'">
+          <div v-if="pathState === 'checking'" class="fl-loading">{{ t('workspace.checkingPath') }}</div>
+          <template v-else-if="pathState === 'not-found'">
+            <div v-if="pathCandidates.length > 0" class="fl-note">{{ t('workspace.pathPickHint') }}</div>
+            <button
+              v-for="c in pathCandidates"
+              :key="c.path"
+              class="folder-row"
+              @click="pickCandidate(c.path)"
+            >
+              <Icon class="dir-icon" name="folder-closed" size="sm" />
+              <span class="folder-name">{{ c.name }}</span>
+              <Badge v-if="c.isGitRepo" variant="info" size="sm">
+                {{ t('workspace.gitTag') }}<span v-if="c.branch" class="git-branch"> {{ c.branch }}</span>
+              </Badge>
+            </button>
+            <div v-if="pathCandidates.length === 0" class="fl-empty fl-error">
+              {{ t('workspace.noPathMatch', { parent: pathParent }) }}
+            </div>
+          </template>
+          <div v-else-if="pathState === 'bad-parent'" class="fl-empty fl-error">
+            {{ t('workspace.badParent', { parent: pathParent }) }}
+          </div>
+        </template>
+
+        <!-- Search mode: recursive fuzzy hits (relative paths) -->
+        <template v-else-if="isSearching && !isPathMode">
+          <button
+            v-for="hit in searchResults"
+            :key="hit.path"
+            class="folder-row"
+            @click="navigate(hit.path)"
+          >
+            <Icon class="dir-icon" name="folder-closed" size="sm" />
+            <span class="folder-name search-rel">{{ hit.rel }}</span>
+            <Badge v-if="hit.isGitRepo" variant="info" size="sm">
+              {{ t('workspace.gitTag') }}<span v-if="hit.branch" class="git-branch"> {{ hit.branch }}</span>
+            </Badge>
+          </button>
+          <div v-if="!searching && searchResults.length === 0" class="fl-empty">{{ t('workspace.noFilterMatch', { q: filter.trim() }) }}</div>
+          <div v-else-if="searching && searchResults.length === 0" class="fl-loading">{{ t('workspace.searching') }}</div>
+        </template>
+
+        <!-- Browse mode: the current folder's subfolders -->
+        <template v-else>
+          <button
+            v-for="entry in entries"
+            :key="entry.path"
+            class="folder-row"
+            @click="openEntry(entry)"
+          >
+            <Icon class="dir-icon" name="folder-closed" size="sm" />
+            <span class="folder-name">{{ entry.name }}</span>
+            <Badge v-if="entry.isGitRepo" variant="info" size="sm">
+              {{ t('workspace.gitTag') }}<span v-if="entry.branch" class="git-branch"> {{ entry.branch }}</span>
+            </Badge>
+          </button>
+          <div v-if="entries.length === 0" class="fl-empty">{{ t('workspace.noSubfolders') }}</div>
+        </template>
+      </div>
+
+      <!-- Degraded: the daemon can't browse — the box above is the only way. -->
+      <div v-else class="degraded-hint">{{ t('workspace.degradedHint') }}</div>
 
       <!-- Inline error from a failed add attempt. Shown inside the dialog so it
            is visible above the backdrop and persists until the next attempt. -->
@@ -342,7 +474,7 @@ onUnmounted(() => {
         <Button variant="secondary" @click="emit('close')">{{ t('workspace.cancel') }}</Button>
       </div>
 
-      <div class="footer-hint">{{ t('workspace.browseHint') }}</div>
+      <div class="footer-hint">{{ footerHint }}</div>
     </div>
   </Dialog>
 </template>
@@ -409,6 +541,10 @@ onUnmounted(() => {
 .filter-input::placeholder { color: var(--color-text-muted); }
 .search-rel { color: var(--color-text); }
 
+/* Path-mode error: tint the shared box's border + icon. */
+.filterbar.has-error { border-bottom-color: var(--color-danger); }
+.filterbar.has-error .filter-icon { color: var(--color-danger); }
+
 /* Folder list */
 .folder-list {
   height: 300px;
@@ -421,6 +557,12 @@ onUnmounted(() => {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
 }
+.fl-note {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.fl-error { color: var(--color-danger); }
 .folder-row {
   display: flex;
   align-items: center;
@@ -449,18 +591,13 @@ onUnmounted(() => {
 }
 .git-branch { color: var(--color-text-muted); }
 
-/* Paste-path escape hatch */
-.paste-section {
-  padding: var(--space-3) var(--space-5);
-  border-top: 1px solid var(--color-line);
+/* Degraded mode (daemon can't browse): compact hint under the input box. */
+.degraded-hint {
+  padding: var(--space-6) var(--space-5);
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
-.paste-section.paste-only { border-top: none; }
-.paste-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.paste-input-wrap { flex: 1; min-width: 0; }
 
 /* Actions */
 .add-error {
