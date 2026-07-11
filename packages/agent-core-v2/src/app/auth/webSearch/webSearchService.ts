@@ -5,12 +5,13 @@
  * provider. When `managed:kimi-code` is configured with an `oauth` ref (the
  * state after a successful Kimi login), this service builds a
  * `MoonshotWebSearchProvider` whose bearer token comes from
- * `IOAuthService.resolveTokenProvider(...)`; otherwise it yields `undefined`
- * so the self-registering `WebSearch` tool stays hidden. Owns no tool
- * registration — the `WebSearch` tool self-registers via `registerTool(...)`
- * and reads this service from the Agent-scope accessor. Tests and hosts that
- * need a custom backend bind `IWebSearchProviderService` directly. Bound at
- * App scope.
+ * `IOAuthService.resolveTokenProvider(...)` and whose default headers are the
+ * host's Kimi identity headers (`IHostRequestHeaders`, mirroring v1's
+ * `kimiRequestHeaders`); otherwise it yields `undefined` so the
+ * self-registering `WebSearch` tool stays hidden. Owns no tool registration —
+ * the `WebSearch` tool self-registers via `registerTool(...)` and reads this
+ * service from the Agent-scope accessor. Tests and hosts that need a custom
+ * backend bind `IWebSearchProviderService` directly. Bound at App scope.
  */
 
 import {
@@ -21,6 +22,7 @@ import {
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { IOAuthService } from '#/app/auth/auth';
+import { IHostRequestHeaders } from '#/app/model/hostRequestHeaders';
 import { IProviderService } from '#/app/provider/provider';
 
 import { MoonshotWebSearchProvider } from './providers/moonshot-web-search';
@@ -33,6 +35,7 @@ export class WebSearchProviderService implements IWebSearchProviderService {
   constructor(
     @IProviderService private readonly providers: IProviderService,
     @IOAuthService private readonly oauth: IOAuthService,
+    @IHostRequestHeaders private readonly hostHeaders: IHostRequestHeaders,
   ) {}
 
   getWebSearchProvider(): WebSearchProvider | undefined {
@@ -51,6 +54,7 @@ export class WebSearchProviderService implements IWebSearchProviderService {
     return new MoonshotWebSearchProvider({
       baseUrl,
       tokenProvider,
+      defaultHeaders: { ...this.hostHeaders.headers },
       customHeaders: provider.customHeaders,
     });
   }

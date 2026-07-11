@@ -20,6 +20,7 @@ import { AuthLegacyService } from '#/app/authLegacy/authLegacyService';
 import { IConfigService } from '#/app/config/config';
 import { type DomainEvent, IEventService } from '#/app/event/event';
 import { ILogService } from '#/_base/log/log';
+import { IHostRequestHeaders } from '#/app/model/hostRequestHeaders';
 import { MODELS_SECTION, type ModelAlias } from '#/app/model/model';
 import { IPlatformService, type PlatformConfig } from '#/app/platform/platform';
 import { IProviderService, type ProviderConfig, type ProvidersChangedEvent } from '#/app/provider/provider';
@@ -644,6 +645,12 @@ describe('WebSearchProviderService', () => {
           resolveTokenProvider:
             resolveTokenProvider as unknown as IOAuthService['resolveTokenProvider'],
         });
+        reg.definePartialInstance(IHostRequestHeaders, {
+          headers: {
+            'User-Agent': 'kimi-code-cli/test',
+            'X-Msh-Device-Id': 'device-test',
+          },
+        });
         reg.define(IWebSearchProviderService, WebSearchProviderService);
       },
     });
@@ -696,7 +703,7 @@ describe('WebSearchProviderService', () => {
     });
   });
 
-  it('searches against /search with the OAuth access token and custom headers', async () => {
+  it('searches against /search with the OAuth access token, host identity headers, and custom headers', async () => {
     providers = {
       [OAUTH_PROVIDER]: {
         type: 'kimi',
@@ -725,6 +732,8 @@ describe('WebSearchProviderService', () => {
     expect(url).toBe('https://api.example.com/v1/search');
     const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer access-token');
+    expect(headers['User-Agent']).toBe('kimi-code-cli/test');
+    expect(headers['X-Msh-Device-Id']).toBe('device-test');
     expect(headers['X-Custom']).toBe('yes');
     expect(JSON.parse(init.body as string)).toEqual({ text_query: 'hello' });
   });
