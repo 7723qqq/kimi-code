@@ -145,6 +145,35 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     ]);
   });
 
+  it('synchronously refreshes all providers before listing models', async () => {
+    const refreshProviderModels = vi.fn(async () => ({
+      changed: [],
+      unchanged: [],
+      failed: [],
+    }));
+    const seeds = [[IModelCatalogService, catalogStub(refreshProviderModels)]] as unknown as ScopeSeed;
+    await boot(CATALOG_TOML, seeds);
+
+    const { status, body } = await getJson<{ items: unknown[] }>('/api/v1/models');
+    expect(status).toBe(200);
+    expect(body.code).toBe(0);
+    expect(refreshProviderModels).toHaveBeenCalledWith({ scope: 'all' });
+  });
+
+  it('still lists models when the pre-list refresh fails', async () => {
+    const refreshProviderModels = vi.fn(async () => {
+      throw new Error('network down');
+    });
+    const seeds = [[IModelCatalogService, catalogStub(refreshProviderModels)]] as unknown as ScopeSeed;
+    await boot(CATALOG_TOML, seeds);
+
+    const { status, body } = await getJson<{ items: unknown[] }>('/api/v1/models');
+    expect(status).toBe(200);
+    expect(body.code).toBe(0);
+    expect(body.data.items).toEqual([]);
+    expect(refreshProviderModels).toHaveBeenCalledTimes(1);
+  });
+
   it('lists providers and returns a single provider by id', async () => {
     await boot(CATALOG_TOML);
     const list = await getJson<{ items: unknown[] }>('/api/v1/providers');
