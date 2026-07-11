@@ -19,4 +19,6 @@ export default {
   openDetail: 'Open',
   collapse: 'Collapse',
   expand: 'Expand',
+  copy: 'Copy',
+  copied: 'Copied',
 } as const;

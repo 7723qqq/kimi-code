@@ -1,7 +1,7 @@
 export default {
   tag: '任务',
   summary: '{run} 运行中 · {done} 完成',
-  stop: 'stop',
+  stop: '停止',
   defaultDescription: '后台任务',
   dockTasks: '后台任务',
   dockBash: '后台 Bash',
@@ -19,4 +19,6 @@ export default {
   openDetail: '查看',
   collapse: '折叠',
   expand: '展开',
+  copy: '复制',
+  copied: '已复制',
 } as const;

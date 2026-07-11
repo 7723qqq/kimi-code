@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
 import { testKaos } from '../fixtures/test-kaos';
-import { APIStatusError, type Message, type ToolCall } from '@moonshot-ai/kosong';
+import { APIConnectionError, APIStatusError, type Message, type ToolCall } from '@moonshot-ai/kosong';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Agent, AgentOptions } from '../../src/agent';
@@ -1060,6 +1060,76 @@ describe('SessionSubagentHost', () => {
     await expect(retryHandle.completion).resolves.toMatchObject({ result: summary.trim() });
     expect(generateCalls).toBe(2);
     expect(userTextMessages(histories[1] ?? [])).toEqual(['Implement the retry-safe change']);
+  });
+
+  it('runs a foreground subagent through queued retry so transient failures recover automatically', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    vi.useFakeTimers();
+    try {
+      const parent = testAgent();
+      parent.configure();
+      parent.newEvents();
+
+      const summary =
+        'Recovered the foreground subagent from a transient provider failure and completed the delegated work with a detailed enough summary for the parent to continue safely. '.repeat(
+          2,
+        );
+      let generateCalls = 0;
+      const generate: GenerateFn = async (_provider, _systemPrompt, _tools, _history, callbacks) => {
+        generateCalls += 1;
+        if (generateCalls === 1) {
+          throw new APIConnectionError('socket hang up');
+        }
+        await callbacks?.onMessagePart?.({ type: 'text', text: summary });
+        return textResult(summary);
+      };
+      const child = testAgent({
+        generate,
+        initialConfig: {
+          providers: {},
+          loopControl: { maxRetriesPerStep: 1 },
+        },
+      });
+      child.configure();
+
+      const session = fakeSession(parent.agent, child.agent);
+      const host = new SessionSubagentHost(session, 'main');
+
+      const running = host.runOne({
+        kind: 'spawn',
+        data: undefined,
+        profileName: 'coder',
+        parentToolCallId: 'call_agent',
+        prompt: 'Implement the retry-safe change',
+        description: 'Fix transient retry',
+        runInBackground: false,
+        signal,
+      });
+      void running.catch(() => {});
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(parent.allEvents).toContainEqual(
+        expect.objectContaining({
+          type: '[rpc]',
+          event: 'subagent.suspended',
+          args: expect.objectContaining({
+            subagentId: 'agent-0',
+            reason: 'Transient provider error; subagent requeued for retry.',
+          }),
+        }),
+      );
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(running).resolves.toMatchObject({
+        agentId: 'agent-0',
+        status: 'completed',
+        result: summary.trim(),
+      });
+      expect(generateCalls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
   });
 
   it('realigns a resumed subagent to the parent agent current model', async () => {

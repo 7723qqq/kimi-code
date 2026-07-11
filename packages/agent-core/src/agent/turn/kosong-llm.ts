@@ -64,13 +64,6 @@ export interface KosongLLMConfig {
    * providers to size the completion budget to the remaining context window.
    */
   readonly usedContextTokens?: (() => number) | undefined;
-  /**
-   * When true, the provider's HTTP client (SDK) already handles retry
-   * internally with its own backoff. chatWithRetry degrades to a single
-   * attempt — no additional retry layer. Set this for providers backed by
-   * SDKs with built‑in retry (Anthropic, OpenAI).
-   */
-  readonly providerHandlesRetry?: boolean | undefined;
 }
 
 export class KosongLLM implements LLM {

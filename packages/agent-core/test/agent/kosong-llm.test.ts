@@ -1,4 +1,5 @@
 import {
+  APIConnectionError,
   emptyUsage,
   UNKNOWN_CAPABILITY,
   type ChatProvider,
@@ -87,6 +88,18 @@ describe('KosongLLM streaming tool-call deltas', () => {
       { toolCallId: 'call_write', name: 'Write', argumentsPart: '{"path"' },
       { toolCallId: 'call_write', name: 'Write', argumentsPart: ':"a.txt"}' },
     ]);
+  });
+});
+
+describe('KosongLLM retry classification', () => {
+  it('keeps agent-level retry enabled even when the provider SDK also retries internally', () => {
+    const llm = new KosongLLM({
+      provider,
+      systemPrompt: 'system',
+      providerHandlesRetry: true,
+    });
+
+    expect(llm.isRetryableError(new APIConnectionError('socket hang up'))).toBe(true);
   });
 });
 
