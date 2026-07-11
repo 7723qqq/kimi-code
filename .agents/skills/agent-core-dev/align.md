@@ -223,7 +223,6 @@ Before submitting a port:
 - [ ] Registrations use `registerScopedService` with an explicit scope and domain name; no `registerSingleton` remains.
 - [ ] Imports use the `#/...` alias; no v1 relative (`../../di`, `../../errors`) imports remain.
 - [ ] Errors are co-located coded errors; flags go through `IFlagService`.
-- [ ] The DI × Scope dependency map (`.puml` + regenerated `.svg`) is updated for any new Service or changed dependency (verify.md).
 - [ ] Tests resolve the SUT by interface; scope behavior is asserted via `createScopedTestHost`; teardown goes through one `DisposableStore`.
 - [ ] v1 bootstrap overrides (`services.set(...)`) are preserved at the v2 composition root.
 
