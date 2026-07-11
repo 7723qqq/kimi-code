@@ -75,6 +75,11 @@ const pathCandidates = ref<FsBrowseEntry[]>([]);
 /** $HOME for expanding "~" — fetched eagerly on mount. */
 const homePath = ref('');
 const filterEl = ref<HTMLInputElement | null>(null);
+/** The lexical path the user typed, kept for the add action: the daemon's
+ *  browse result is canonicalized (realpath), but workspace ids are based on
+ *  the lexical root, so a typed symlink path must not be submitted as its
+ *  resolved target. Null outside path mode or when the input isn't valid. */
+const typedAddPath = ref<string | null>(null);
 let pathToken = 0;
 let pathTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -142,6 +147,7 @@ watch(filter, (q) => {
     searching.value = false;
     pathState.value = 'idle';
     pathCandidates.value = [];
+    typedAddPath.value = null;
     return;
   }
   if (PATH_LIKE.test(t)) {
@@ -161,6 +167,7 @@ watch(filter, (q) => {
   pathToken++;
   pathState.value = 'idle';
   pathCandidates.value = [];
+  typedAddPath.value = null;
   searchTimer = setTimeout(() => void runSearch(q), 220);
 });
 
@@ -187,6 +194,7 @@ function normalizeTypedPath(raw: string): string {
 async function validatePathInput(raw: string): Promise<void> {
   const token = ++pathToken;
   pathState.value = 'checking';
+  typedAddPath.value = null;
   const target = normalizeTypedPath(raw);
   try {
     const res = await props.browseFs(target);
@@ -194,6 +202,8 @@ async function validatePathInput(raw: string): Promise<void> {
     if (res.path) {
       pathState.value = 'valid';
       pathCandidates.value = [];
+      typedAddPath.value = target;
+      // Display follows the canonical target; the add action uses typedAddPath.
       currentPath.value = res.path;
       parentPath.value = res.parent;
       entries.value = res.entries;
@@ -255,7 +265,7 @@ function handleFilterKeydown(event: KeyboardEvent): void {
   if (!PATH_LIKE.test(text)) return; // fuzzy search: Enter keeps doing nothing
   event.preventDefault();
   if (browseFailed.value) {
-    const expanded = expandTilde(text);
+    const expanded = normalizeTypedPath(text);
     if (expanded) emit('add', expanded);
     return;
   }
@@ -321,7 +331,9 @@ function goUp(): void {
 
 function openThisFolder(): void {
   if (!canOpen.value) return;
-  emit('add', currentPath.value);
+  // Path mode submits the typed lexical root; browsing submits the (canonical)
+  // folder the browser sits in — matching the removed paste field's semantics.
+  emit('add', (isPathMode.value && typedAddPath.value) || currentPath.value);
 }
 
 onMounted(async () => {
