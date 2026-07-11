@@ -12,6 +12,7 @@ import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { t } from '#/i18n';
 import { printableChar } from '#/tui/utils/printable-key';
+import { SearchableList } from '#/tui/utils/searchable-list';
 
 const ELLIPSIS = '…';
 
@@ -67,10 +68,10 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
     const view = this.list.view();
     const titleSuffix =
       view.query.length === 0 ? currentTheme.fg('textMuted', `  ${t('tui.dialogs.modelSelector.searchHint')}`) : '';
-    const hintParts = ['↑↓ navigate'];
+    const hintParts = [t('tui.dialogs.experimentsSelector.hintNavigate')];
     if (view.page.pageCount > 1) hintParts.push(t('tui.dialogs.experimentsSelector.hintPage'));
-    hintParts.push(t('tui.dialogs.experimentsSelector.hintSpace'), t('tui.dialogs.experimentsSelector.hintEnter'), 'Esc cancel');
-    if (view.query.length > 0) hintParts.push('Backspace clear');
+    hintParts.push(t('tui.dialogs.experimentsSelector.hintSpace'), t('tui.dialogs.experimentsSelector.hintEnter'), t('tui.dialogs.experimentsSelector.hintCancel'));
+    if (view.query.length > 0) hintParts.push(t('tui.dialogs.experimentsSelector.hintBackspace'));
 
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
@@ -84,7 +85,7 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
     }
 
     if (view.items.length === 0) {
-      lines.push(currentTheme.fg('textMuted', '   No matches'));
+      lines.push(currentTheme.fg('textMuted', '   ' + t('tui.dialogs.modelSelector.noMatches')));
     }
 
     for (let i = view.page.start; i < view.page.end; i++) {
@@ -148,7 +149,14 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
     const count = changes.length;
     const label = t('tui.dialogs.experimentsSelector.applyButton');
     const summary =
-      count === 0 ? t('tui.dialogs.experimentsSelector.noChanges') : t('tui.dialogs.experimentsSelector.changeCount', { count });
+      count === 0
+        ? t('tui.dialogs.experimentsSelector.noChanges')
+        : t(
+            count === 1
+              ? 'tui.dialogs.experimentsSelector.changeCount_one'
+              : 'tui.dialogs.experimentsSelector.changeCount_other',
+            { count },
+          );
     const button = count === 0
       ? currentTheme.fg('textDim', label)
       : currentTheme.boldFg('primary', label);

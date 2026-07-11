@@ -1,3 +1,4 @@
+import { t } from '#/i18n';
 import {
   Container,
   Input,
@@ -130,7 +131,7 @@ export class PluginMcpSelectorComponent extends Container implements Focusable {
     const lines: string[] = [
       chalk.hex(colors.primary)('─'.repeat(width)),
       chalk.hex(colors.primary).bold(` MCP servers · ${info.displayName}`),
-      mutedHintLine(' ↑↓ navigate · Enter/Space enable/disable · Esc cancel', colors),
+      mutedHintLine(t('tui.dialogs.pluginsSelector.mcpNavHint'), colors),
       '',
       sectionLabel(`MCP servers (${info.enabledMcpServerCount}/${info.mcpServerCount} enabled)`, colors),
     ];
@@ -144,7 +145,7 @@ export class PluginMcpSelectorComponent extends Container implements Focusable {
     }
 
     lines.push('');
-    lines.push(sectionLabel('Actions', colors));
+    lines.push(sectionLabel(t('tui.dialogs.pluginsSelector.actionsSection'), colors));
     for (let i = 0; i < actionItems.length; i++) {
       lines.push(...this.renderItem(actionItems[i]!, serverItems.length + i, width));
     }
@@ -190,20 +191,20 @@ export interface PluginRemoveConfirmOptions {
 export class PluginRemoveConfirmComponent extends ChoicePickerComponent {
   constructor(opts: PluginRemoveConfirmOptions) {
     super({
-      title: `Remove ${opts.displayName} (${opts.id})?`,
-      hint: '↑↓ navigate · Enter/Space select · ←/Esc cancel',
+      title: t('tui.dialogs.pluginsSelector.removeConfirmTitle', { name: opts.displayName, id: opts.id }),
+      hint: t('tui.dialogs.pluginsSelector.removeConfirmHint'),
       formatHint: mutedHintLine,
       options: [
         {
           value: REMOVE_CONFIRM_CANCEL,
-          label: 'Cancel',
-          description: 'Keep this plugin installed.',
+          label: t('tui.dialogs.pluginsSelector.removeCancelLabel'),
+          description: t('tui.dialogs.pluginsSelector.removeCancelDesc'),
         },
         {
           value: REMOVE_CONFIRM_REMOVE,
-          label: 'Remove plugin',
+          label: t('tui.dialogs.pluginsSelector.removeConfirmLabel'),
           tone: 'danger',
-          description: 'Remove only the install record; plugin files are left in place.',
+          description: t('tui.dialogs.pluginsSelector.removeConfirmDesc'),
         },
       ],
       onSelect: (value) => {
@@ -234,25 +235,22 @@ export interface PluginInstallTrustConfirmOptions {
 export class PluginInstallTrustConfirmComponent extends ChoicePickerComponent {
   constructor(opts: PluginInstallTrustConfirmOptions) {
     super({
-      title: `Install third-party plugin ${opts.label}?`,
-      hint: '↑↓ navigate · Enter/Space select · ←/Esc cancel',
+      title: t('tui.dialogs.pluginsSelector.installTrustTitle', { label: opts.label }),
+      hint: t('tui.dialogs.pluginsSelector.installTrustHint'),
       formatHint: mutedHintLine,
-      notice:
-        '⚠️ This is a third-party plugin that Kimi has not reviewed. It can bundle MCP servers, ' +
-        'skills, or files that run code and access your workspace. Install it only if you ' +
-        'trust the source.',
+      notice: t('tui.dialogs.pluginsSelector.installTrustNotice'),
       noticeTone: 'warning',
       options: [
         {
           value: INSTALL_TRUST_EXIT,
-          label: 'Exit',
-          description: 'Cancel the installation.',
+          label: t('tui.dialogs.pluginsSelector.installTrustExitLabel'),
+          description: t('tui.dialogs.pluginsSelector.installTrustExitDesc'),
         },
         {
           value: INSTALL_TRUST_TRUST,
-          label: 'Trust and install',
+          label: t('tui.dialogs.pluginsSelector.installTrustTrustLabel'),
           tone: 'danger',
-          description: 'Install this third-party plugin anyway.',
+          description: t('tui.dialogs.pluginsSelector.installTrustTrustDesc'),
         },
       ],
       onSelect: (value) => {
@@ -348,10 +346,10 @@ type MarketState =
   | { readonly status: 'loaded'; readonly entries: readonly PluginMarketplaceEntry[]; readonly source: string };
 
 const PLUGINS_PANEL_TABS: readonly { id: PluginsPanelTabId; label: string }[] = [
-  { id: 'installed', label: 'Installed' },
-  { id: 'official', label: 'Official' },
-  { id: 'third-party', label: 'Third-party' },
-  { id: 'custom', label: 'Custom' },
+  { id: 'installed', label: t('tui.dialogs.pluginsSelector.tabInstalled') },
+  { id: 'official', label: t('tui.dialogs.pluginsSelector.tabOfficial') },
+  { id: 'third-party', label: t('tui.dialogs.pluginsSelector.tabThirdParty') },
+  { id: 'custom', label: t('tui.dialogs.pluginsSelector.tabCustom') },
 ];
 
 export class PluginsPanelComponent extends Container implements Focusable {
@@ -615,7 +613,7 @@ export class PluginsPanelComponent extends Container implements Focusable {
   private installedHint(): string {
     const plugin = this.opts.installed[this.selectedIndex];
     const hasUpdate = plugin !== undefined && this.installedUpdateStatus(plugin) !== undefined;
-    const enter = hasUpdate ? 'Enter update' : 'Enter details';
+    const enter = hasUpdate ? t('tui.dialogs.pluginsSelector.enterUpdate') : t('tui.dialogs.pluginsSelector.enterDetails');
     return ` Tab switch · Space toggle · D remove · M MCP · ${enter} · I details · R reload · Esc cancel`;
   }
 
@@ -750,14 +748,14 @@ function buildMcpItems(info: PluginInfo): PluginsOverviewItem[] {
   items.push({
     value: 'back',
     kind: 'action',
-    label: 'Back to installed plugins',
-    description: 'Return to the local plugin manager.',
+    label: t('tui.dialogs.pluginsSelector.backToInstalled'),
+    description: t('tui.dialogs.pluginsSelector.backToInstalledDesc'),
   });
   return items;
 }
 
 function mcpServerDescription(server: PluginMcpServerInfo): string {
-  const action = server.enabled ? 'Enter/Space disable' : 'Enter/Space enable';
+  const action = server.enabled ? t('tui.dialogs.pluginsSelector.mcpDisable') : t('tui.dialogs.pluginsSelector.mcpEnable');
   if (server.transport === 'http' || server.transport === 'sse') {
     return `${action} · ${server.transport.toUpperCase()} · ${server.url ?? server.runtimeName}`;
   }
@@ -785,9 +783,9 @@ function marketplaceEntryDescription(entry: PluginMarketplaceEntry): string {
 }
 
 function marketplaceTierLabel(tier: PluginMarketplaceEntry['tier']): string {
-  if (tier === 'official') return 'Official plugin';
-  if (tier === 'curated') return 'Curated plugin';
-  return 'Plugin';
+  if (tier === 'official') return t('tui.dialogs.pluginsSelector.marketplaceTierOfficial');
+  if (tier === 'curated') return t('tui.dialogs.pluginsSelector.marketplaceTierCurated');
+  return t('tui.dialogs.pluginsSelector.marketplaceTierUnknown');
 }
 
 function installStatus(entry: PluginMarketplaceEntry): string {

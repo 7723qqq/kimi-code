@@ -72,6 +72,7 @@ import { currentTheme } from '#/tui/theme';
 import type { ColorToken } from '#/tui/theme';
 import { errorReportHintLine } from '../constant/feedback';
 import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
+import { t } from '#/i18n';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
 import type { StreamingUIController } from './streaming-ui';
@@ -206,7 +207,7 @@ export class SessionEventHandler {
     } catch (error) {
       if (host.session !== session || host.aborted) return;
       const message = error instanceof Error ? error.message : String(error);
-      host.showError(`Failed to sync MCP server status: ${message}`);
+      host.showError(t('tui.statusMessages.failedToSyncMcp', { message }));
       return;
     }
     if (host.session !== session || host.state.appState.sessionId !== session.id) return;
@@ -335,7 +336,7 @@ export class SessionEventHandler {
       this.markActiveAgentSwarmsCancelled();
     }
     if (event.reason === 'filtered') {
-      this.host.showStatus('Turn stopped: provider safety policy blocked the response.', 'error');
+      this.host.showStatus(t('tui.statusMessages.turnStoppedFiltered'), 'error');
     }
     const todos = this.host.state.todoPanel.getTodos();
     if (todos.length > 0 && todos.every((t) => t.status === 'done')) {
@@ -354,7 +355,7 @@ export class SessionEventHandler {
     this.host.streamingUI.finalizeLiveTextBuffers('waiting');
     const delayS = Math.ceil(event.delayMs / 1000);
     this.host.showStatus(
-      `Retrying (${event.nextAttempt}/${event.maxAttempts}) in ${delayS}s — ${event.errorName}`,
+      t('tui.statusMessages.retryingStep', { attempt: String(event.nextAttempt), maxAttempts: String(event.maxAttempts), delayS: String(delayS), errorName: event.errorName }),
       'warning',
     );
     this.host.setAppState({
@@ -385,8 +386,8 @@ export class SessionEventHandler {
 
     if (event.providerFinishReason === 'filtered') {
       this.host.showNotice(
-        'Provider safety policy blocked the response.',
-        `The model output was filtered (${event.rawFinishReason ?? 'content_filter'}).`,
+        t('tui.statusMessages.policyBlocked'),
+        t('tui.statusMessages.outputFiltered', { reason: event.rawFinishReason ?? 'content_filter' }),
       );
       return;
     }
@@ -400,10 +401,10 @@ export class SessionEventHandler {
 
     const title =
       truncatedCount > 0
-        ? 'Model hit max_tokens — tool call was truncated before it could run.'
-        : 'Model hit max_tokens — no tool call was emitted.';
+        ? t('tui.statusMessages.maxTokensTruncated')
+        : t('tui.statusMessages.maxTokensNoToolCall');
     const detail = this.isAnthropicSessionActive()
-      ? 'If this limit is wrong for your model, set `max_output_size` on the model alias in your kimi-code config.'
+      ? t('tui.statusMessages.maxTokensHint')
       : undefined;
     this.host.showNotice(title, detail);
   }
@@ -441,13 +442,13 @@ export class SessionEventHandler {
     if (reason === 'error') return;
     if (reason === 'aborted' || reason === undefined || reason === '') {
       this.markActiveAgentSwarmsCancelled();
-      this.host.showStatus('Interrupted by user', 'error');
+      this.host.showStatus(t('tui.statusMessages.interruptedByUser'), 'error');
       return;
     }
     this.host.showError(
       reason === 'max_steps'
-        ? 'reached per-turn step limit (max_steps)'
-        : `step interrupted (${reason})`,
+        ? t('tui.statusMessages.stepMaxSteps')
+        : t('tui.statusMessages.stepInterrupted', { reason }),
     );
   }
 
@@ -845,8 +846,8 @@ export class SessionEventHandler {
     if (!hasQueuedGoal || host.session !== session || host.aborted) return;
 
     host.showNotice(
-      'Goal blocked.',
-      'The next queued goal will start only after this goal is complete.',
+      t('tui.statusMessages.goalBlocked'),
+      t('tui.statusMessages.goalBlockedDetail'),
     );
   }
 
@@ -874,7 +875,7 @@ export class SessionEventHandler {
   }
 
   private handleSessionWarning(event: WarningEvent): void {
-    this.host.showStatus(`Warning: ${event.message}`, 'warning');
+    this.host.showStatus(t('tui.statusMessages.warningPrefix', { message: event.message }), 'warning');
   }
 
   private renderMcpServerStatus(server: McpServerStatusSnapshot): void {
@@ -887,25 +888,26 @@ export class SessionEventHandler {
 
     switch (server.status) {
       case 'connected': {
-        const toolStr = `${server.toolCount} tool${server.toolCount === 1 ? '' : 's'}`;
-        const message = `MCP server "${server.name}" connected · ${toolStr} (${server.transport})`;
+        const message = t('tui.statusMessages.mcpServerConnected', { name: server.name, count: server.toolCount, transport: server.transport });
         this.finalizeMcpServerStatusRow(server.name, message, 'success');
         return;
       }
       case 'failed': {
-        const message = `MCP server "${server.name}" failed${server.error !== undefined ? `: ${server.error}` : ''}`;
+        const message = server.error !== undefined
+          ? t('tui.statusMessages.mcpServerFailedWithError', { name: server.name, error: server.error })
+          : t('tui.statusMessages.mcpServerFailed', { name: server.name });
         this.finalizeMcpServerStatusRow(server.name, message, 'error');
         return;
       }
       case 'needs-auth': {
-        const message = `MCP server "${server.name}" needs OAuth — run /mcp-config login ${server.name}`;
+        const message = t('tui.statusMessages.mcpServerNeedsAuth', { name: server.name });
         this.finalizeMcpServerStatusRow(server.name, message, 'warning');
         return;
       }
       case 'disabled':
         this.finalizeMcpServerStatusRow(
           server.name,
-          `MCP server "${server.name}" disabled`,
+          t('tui.statusMessages.mcpServerDisabled', { name: server.name }),
           'textMuted',
         );
         return;
@@ -917,7 +919,7 @@ export class SessionEventHandler {
 
   private showMcpServerStatusSpinner(name: string): void {
     const { state } = this.host;
-    const label = `MCP server "${name}" connecting…`;
+    const label = t('tui.statusMessages.mcpServerConnecting', { name });
     const existing = this.mcpServerStatusSpinners.get(name);
     if (existing !== undefined) {
       existing.setLabel(label);
@@ -959,7 +961,7 @@ export class SessionEventHandler {
       kind: 'skill_activation',
       turnId: undefined,
       renderMode: 'plain',
-      content: `Activated skill: ${event.skillName}`,
+      content: t('tui.statusMessages.activatedSkill', { skillName: event.skillName }),
       skillActivationId: event.activationId,
       skillName: event.skillName,
       skillArgs: event.skillArgs,

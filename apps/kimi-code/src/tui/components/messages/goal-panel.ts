@@ -126,7 +126,7 @@ export class GoalStatusMessageComponent implements Component {
 
 /** Box title, e.g. ` Goal · active `. */
 export function goalPanelTitle(goal: GoalSnapshot): string {
-  return t('tui.messages.goalPanel.title', { status: goal.status });
+  return t('tui.messages.goalPanel.title', { status: statusLabel(goal.status) });
 }
 
 export function buildGoalReportLines(goal: GoalSnapshot, wrapWidth: number = WRAP_WIDTH): string[] {
@@ -162,7 +162,7 @@ export function buildGoalReportLines(goal: GoalSnapshot, wrapWidth: number = WRA
     lines.push(
       row(
         t('tui.messages.goalPanel.statusLabel'),
-        currentTheme.fg(statusColor, goal.status) +
+        currentTheme.fg(statusColor, statusLabel(goal.status)) +
           (reason !== undefined ? muted(` — ${reason}`) : ''),
       ),
     );
@@ -220,6 +220,19 @@ function statusToken(status: GoalStatus): ColorToken {
       return 'warning';
     case 'paused':
       return 'textDim';
+  }
+}
+
+function statusLabel(status: GoalStatus): string {
+  switch (status) {
+    case 'active':
+      return t('tui.messages.goalPanel.statusActive');
+    case 'complete':
+      return t('tui.messages.goalPanel.statusComplete');
+    case 'blocked':
+      return t('tui.messages.goalPanel.statusBlocked');
+    case 'paused':
+      return t('tui.messages.goalPanel.statusPaused');
   }
 }
 

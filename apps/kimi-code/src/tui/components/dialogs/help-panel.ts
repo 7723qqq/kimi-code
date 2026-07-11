@@ -110,7 +110,8 @@ export class HelpPanelComponent extends Container implements Focusable {
     const cmdWidth = Math.max(12, ...cmdLabels.map((l) => l.length));
     const lines: string[] = [
       accent('─'.repeat(width)),
-      currentTheme.boldFg('primary', ' help ') + muted('· Esc / Enter / q to cancel · ↑↓ scroll'),
+      currentTheme.boldFg('primary', t('tui.dialogs.helpPanel.title')) +
+        muted(t('tui.dialogs.helpPanel.cancelHint')),
       '',
       // Greeting
       `  ${dim(t('tui.dialogs.helpPanel.greeting'))}`,

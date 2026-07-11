@@ -6,13 +6,13 @@ import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 const LOCALE_OPTIONS: readonly ChoiceOption[] = [
   {
     value: 'en',
-    label: 'English',
-    description: 'English interface language.',
+    label: t('tui.dialogs.localeSelector.enLabel'),
+    description: t('tui.dialogs.localeSelector.enDesc'),
   },
   {
     value: 'zh',
-    label: '中文',
-    description: '中文界面语言。',
+    label: t('tui.dialogs.localeSelector.zhLabel'),
+    description: t('tui.dialogs.localeSelector.zhDesc'),
   },
 ];
 
