@@ -2,10 +2,10 @@
 <!-- Daemon-driven folder browser for adding a workspace: starts at the path -->
 <!-- kimi-web is working in, with a clickable breadcrumb and the folder list -->
 <!-- (fs:browse). "Open this folder" adds the current path. The search box -->
-<!-- doubles as an absolute-path entry: input starting with "/" or "~" is -->
-<!-- validated live and the browser follows valid paths, so the existing -->
-<!-- "Open this folder" button submits them. When the daemon can't browse, -->
-<!-- the same box is the only way to add a path. -->
+<!-- doubles as an absolute-path entry: absolute-looking input (POSIX, "~", -->
+<!-- Windows drive or UNC) is validated live and the browser follows valid -->
+<!-- paths, so the existing "Open this folder" button submits them. When the -->
+<!-- daemon can't browse, the same box is the only way to add a path. -->
 <!-- Built on the design-system Dialog / Button / IconButton primitives. -->
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -61,11 +61,12 @@ const isSearching = computed(() => filter.value.trim().length > 0);
 let searchToken = 0;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
-// Absolute-path entry shares the same box: input starting with "/" or "~"
-// switches from fuzzy search to path mode. A valid path live-follows (the
+// Absolute-path entry shares the same box: absolute-looking input switches
+// from fuzzy search to path mode — POSIX ("/x"), home ("~" / "~/x"), Windows
+// drive ("C:\x" / "C:/x") and UNC ("\\srv\x"). A valid path live-follows (the
 // browser jumps to it, so "Open this folder" submits it); an invalid one
 // shows a specific error plus prefix-matched candidates in the list.
-const PATH_LIKE = /^(?:\/|~(?:\/|$))/;
+const PATH_LIKE = /^(?:\/|~(?:\/|$)|[A-Za-z]:[\\/]|\\\\)/;
 const isPathMode = computed(() => PATH_LIKE.test(filter.value.trim()));
 type PathState = 'idle' | 'checking' | 'valid' | 'not-found' | 'bad-parent';
 const pathState = ref<PathState>('idle');
@@ -169,11 +170,12 @@ function expandTilde(p: string): string {
   return p;
 }
 
-/** Normalise typed input: expand ~, collapse slashes, drop trailing slash. */
+/** Normalise typed input: expand ~, collapse slashes, drop trailing
+ *  separator (never the root itself: "/" or a drive root like "C:\"). */
 function normalizeTypedPath(raw: string): string {
   let p = expandTilde(raw.trim());
   p = p.replaceAll(/\/{2,}/g, '/');
-  if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
+  if (p.length > 1 && /[\\/]$/.test(p) && !/^[A-Za-z]:[\\/]$/.test(p)) p = p.slice(0, -1);
   return p;
 }
 
@@ -202,8 +204,10 @@ async function validatePathInput(raw: string): Promise<void> {
     // fall through to the not-found handling below
   }
   if (token !== pathToken) return;
-  const parent = target.slice(0, target.lastIndexOf('/')) || '/';
-  const base = target.slice(target.lastIndexOf('/') + 1).toLowerCase();
+  // Split on whichever separator the path uses (Windows paths use "\").
+  const lastSep = Math.max(target.lastIndexOf('/'), target.lastIndexOf('\\'));
+  const parent = (lastSep > 0 ? target.slice(0, lastSep) : '') || '/';
+  const base = target.slice(lastSep + 1).toLowerCase();
   pathParent.value = parent;
   try {
     const res = await props.browseFs(parent);
@@ -275,7 +279,13 @@ const crumbs = computed<{ label: string; path: string }[]>(() => {
   return out;
 });
 
-const canOpen = computed(() => currentPath.value.length > 0);
+const canOpen = computed(() => {
+  if (currentPath.value.length === 0) return false;
+  // In path mode only a validated target may be opened — otherwise the button
+  // would submit the stale prefix the browser last followed to.
+  if (isPathMode.value && pathState.value !== 'valid') return false;
+  return true;
+});
 
 async function navigate(path?: string): Promise<void> {
   loading.value = true;
@@ -366,8 +376,9 @@ onUnmounted(() => {
       </div>
 
       <!-- One box for everything: fuzzy search across the whole current folder
-           normally; absolute-path entry when the input starts with "/" or "~".
-           Always visible — when the daemon can't browse it's the only way. -->
+           normally; absolute-path entry when the input looks absolute (POSIX,
+           "~", Windows drive or UNC). Always visible — when the daemon can't
+           browse it's the only way. -->
       <div
         v-if="!loading || browseFailed"
         class="filterbar"

@@ -43,7 +43,7 @@ export default {
   badParent: 'Parent directory does not exist: {parent}',
   pathFollowHint: 'Folder located — press Enter or "Open this folder" to add it.',
   degradedPlaceholder: 'Type an absolute path, press Enter to add…',
-  degradedHint: 'File browsing is unavailable — type an absolute path (starting with / or ~) and press Enter to add.',
+  degradedHint: 'File browsing is unavailable — type an absolute path and press Enter to add.',
   // Attention marker
   attentionTitle: '{count} item needs your attention | {count} items need your attention',
   // Per-session pending tags (sidebar)
