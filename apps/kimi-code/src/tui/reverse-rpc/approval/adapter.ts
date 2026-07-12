@@ -220,6 +220,11 @@ function describeApproval(display: ToolInputDisplay, action: string): string {
         taskId: display.task_id ?? '',
         description: display.description ?? '',
       }).trim();
+      return `update todo list (${String(display.items?.length ?? 0)} items)`;
+    case 'task':
+      return `${display.status ?? 'background'} task ${display.task_id ?? ''}: ${
+        display.description ?? ''
+      }`.trim();
     default:
       return action;
   }
@@ -355,7 +360,7 @@ function adaptDisplay(display: ToolInputDisplay): DisplayBlock[] {
       return [];
     case 'todo_list':
       return [];
-    case 'background_task':
+    case 'task':
       return [];
     default:
       return [];

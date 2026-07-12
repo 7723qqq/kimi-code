@@ -5,6 +5,7 @@ export default {
   authPageMessage: 'Connect your Kimi Code account before starting or continuing conversations.',
   authPageLogin: 'Sign in',
   connecting: 'Connecting…',
+  connectRetrying: 'Cannot reach the server — retrying…',
   internalBuildBanner: 'Internal testing only',
   serverAuthTitle: 'Server token required',
   serverAuthHint: 'This server is protected. Enter the bearer token printed when the server started (or the password set via KIMI_CODE_PASSWORD).',
