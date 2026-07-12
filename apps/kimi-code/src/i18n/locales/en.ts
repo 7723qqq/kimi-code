@@ -1190,6 +1190,11 @@ export default {
       // config.ts
       invalidTuiConfig: 'Invalid TUI config in ~/.kimi-code/tui.toml; using defaults.',
 
+      // tool-renderers/media.ts
+      mediaUploaded: 'uploaded',
+      // tool-renderers/summary.ts
+      more: 'more',
+
       // main.ts
       mainError: 'error: {{message}}',
     },
