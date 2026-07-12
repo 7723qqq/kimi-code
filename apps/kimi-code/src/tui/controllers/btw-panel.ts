@@ -196,14 +196,17 @@ export class BtwPanelController {
 }
 
 function formatBtwTurnEnd(event: TurnEndedEvent): string {
-  if (event.error !== undefined) {
-    return `[${event.error.code}] ${event.error.message}`;
-  }
   if (event.reason === 'cancelled') {
     return t("tui.statusMessages.btwInterrupted");
   }
-  if (event.reason === 'filtered') {
+  if (event.error?.code === 'provider.filtered') {
     return t("tui.statusMessages.btwFiltered");
+  }
+  if (event.error !== undefined) {
+    return `[${event.error.code}] ${event.error.message}`;
+  }
+  if (event.reason === 'blocked') {
+    return 'Prompt hook blocked the request.';
   }
   return `BTW turn ended with reason: ${event.reason}`;
 }
