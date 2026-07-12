@@ -272,7 +272,7 @@ async function resolvePromptSession(
     const sessions = await harness.listSessions({ sessionId: opts.session, workDir });
     const target = sessions[0];
     if (target === undefined) {
-      throw new Error(`Session "${opts.session}" not found.`);
+      throw new Error(t('tui.statusMessages.sessionNotFound', { sessionId: opts.session ?? '' }));
     }
     if (resolve(target.workDir) !== resolve(workDir)) {
       stderr.write(
@@ -379,7 +379,7 @@ function requireConfiguredModel(...models: readonly (string | undefined)[]): str
   const model = configuredModel(...models);
   if (model === undefined) {
     throw new Error(
-      'No model configured. Run `kimi` and use /login to sign in, then retry; or set default_model in config.toml.',
+      t('tui.statusMessages.noModelPrompt'),
     );
   }
   return model;
@@ -502,9 +502,7 @@ function runPromptTurn(
           return;
         case 'turn.step.retrying':
           outputWriter.discardAssistant();
-          outputWriter.writeStatus(
-            `Retrying (${event.nextAttempt}/${event.maxAttempts}) in ${Math.ceil(event.delayMs / 1000)}s — ${event.errorName}`,
-          );
+          outputWriter.writeRetrying(event);
           return;
         case 'assistant.delta':
           outputWriter.writeAssistantDelta(event.delta);
@@ -616,7 +614,7 @@ interface PromptTurnWriter {
     argumentsPart: string | undefined,
   ): void;
   writeToolResult(toolCallId: string, output: unknown): void;
-  writeStatus(message: string): void;
+  writeRetrying(event: Extract<Event, { type: 'turn.step.retrying' }>): void;
   flushAssistant(): void;
   discardAssistant(): void;
   finish(): void;
@@ -625,12 +623,10 @@ interface PromptTurnWriter {
 class PromptTranscriptWriter implements PromptTurnWriter {
   private readonly assistantWriter: PromptBlockWriter;
   private readonly thinkingWriter: PromptBlockWriter;
-  private readonly stderr: PromptOutput;
 
   constructor(stdout: PromptOutput, stderr: PromptOutput) {
     this.assistantWriter = new PromptBlockWriter(stdout);
     this.thinkingWriter = new PromptBlockWriter(stderr);
-    this.stderr = stderr;
   }
 
   writeAssistantDelta(delta: string): void {
@@ -790,9 +786,22 @@ class PromptJsonWriter implements PromptTurnWriter {
     });
   }
 
-  writeStatus(message: string): void {
-    this.flushAssistant();
-    this.writeJsonLine({ role: 'meta', type: 'status', content: message } as PromptJsonMetaMessage);
+  writeRetrying(event: Extract<Event, { type: 'turn.step.retrying' }>): void {
+    // Emit a machine-readable meta line so stream-json consumers can observe
+    // provider retries. The failed attempt's partial assistant text was already
+    // discarded by the caller, so no half-formed assistant message leaks.
+    const message: PromptJsonRetryMetaMessage = {
+      role: 'meta',
+      type: 'turn.step.retrying',
+      failed_attempt: event.failedAttempt,
+      next_attempt: event.nextAttempt,
+      max_attempts: event.maxAttempts,
+      delay_ms: event.delayMs,
+      error_name: event.errorName,
+      error_message: event.errorMessage,
+      status_code: event.statusCode,
+    };
+    this.writeJsonLine(message);
   }
 
   flushAssistant(): void {
