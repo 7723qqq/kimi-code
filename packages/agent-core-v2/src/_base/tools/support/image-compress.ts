@@ -285,6 +285,14 @@ export async function compressImageForModel(
   // from an MCP tool) that would be loaded just to be dropped downstream.
   if (bytes.length > maxDecodeBytes) return finish('passthrough_guard', passthrough());
 
+  // NOTE: image compression stays on jimp deliberately. The Rust native codec
+  // (`tryNativeCompressImage`) is EXIF-correct and available, but it cannot
+  // reproduce jimp's exact output: (1) the `image` crate's JPEG encoder emits
+  // different bytes than jimp's mozjpeg, so byte-budget quality-ladder results
+  // differ; (2) jimp's "keep PNG, drop alpha → JPEG only as a last resort"
+  // strategy is not mirrored by the native pipeline. Swapping encoders would
+  // change the actual quality/bytes the model sees — a product behaviour change,
+  // not a drop-in. See rust-migration-analysis.md §6.5.
   try {
     const { Jimp } = await import('jimp');
     const image = await Jimp.fromBuffer(Buffer.from(bytes));
@@ -643,6 +651,46 @@ export async function cropImageForModel(
   }
   if (bytes.length > maxDecodeBytes) {
     return fail('too_large', 'The image is too large to decode for cropping.');
+  }
+
+  // Preferred path: the Rust native crop codec (when the module is built). It
+  // applies EXIF orientation on decode, so the crop region — which is in the
+  // display (EXIF-rotated) coordinate space — lands in the same place jimp
+  // would crop. A successful outcome is returned directly; an explicit failure
+  // is surfaced to the caller. When native is absent the wrapper returns
+  // `undefined` and we fall back to the jimp pipeline below.
+  const nativeCrop = await tryNativeCropImage(bytes, mimeType, region, {
+    maxEdge,
+    byteBudget,
+    skipResize: options.skipResize === true,
+    fallbackEdges: FALLBACK_EDGES_PX,
+    jpegQualitySteps: JPEG_QUALITY_STEPS,
+  });
+  if (nativeCrop !== undefined) {
+    if (nativeCrop.ok) {
+      return succeed({
+        ok: true,
+        data: nativeCrop.data,
+        mimeType: nativeCrop.mimeType,
+        width: nativeCrop.width,
+        height: nativeCrop.height,
+        originalWidth: nativeCrop.originalWidth,
+        originalHeight: nativeCrop.originalHeight,
+        region: {
+          x: nativeCrop.regionX,
+          y: nativeCrop.regionY,
+          width: nativeCrop.regionWidth,
+          height: nativeCrop.regionHeight,
+        },
+        resized: nativeCrop.resized,
+        originalByteLength: nativeCrop.originalByteLength,
+        finalByteLength: nativeCrop.finalByteLength,
+      });
+    }
+    return fail(
+      nativeCrop.errorKind as CropErrorKind,
+      nativeCrop.error.length > 0 ? nativeCrop.error : 'The image could not be cropped.',
+    );
   }
 
   try {
