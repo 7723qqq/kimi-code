@@ -214,7 +214,7 @@ function describeApproval(display: ToolInputDisplay, action: string): string {
       return t('tui.approvalDescriptions.updateTodoList', {
         count: String(display.items?.length ?? 0),
       });
-    case 'background_task':
+    case 'task':
       return t('tui.approvalDescriptions.backgroundTask', {
         status: display.status ?? 'background',
         taskId: display.task_id ?? '',
@@ -355,7 +355,7 @@ function adaptDisplay(display: ToolInputDisplay): DisplayBlock[] {
       return [];
     case 'todo_list':
       return [];
-    case 'background_task':
+    case 'task':
       return [];
     default:
       return [];
