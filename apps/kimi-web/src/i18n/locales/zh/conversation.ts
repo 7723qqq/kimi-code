@@ -1,6 +1,12 @@
 export default {
   jumpToLatestAria: '跳到最新消息',
   toc: '对话目录',
+  roleUser: '用户',
+  roleAssistant: '助手',
+  tocUser: '用户',
+  tocAssistant: 'kimi',
+  tocTools: '{count} 个工具调用',
+  noDirectory: '无目录',
   newMessages: '最新消息',
   loading: '加载中…',
   starting: '正在创建对话…',

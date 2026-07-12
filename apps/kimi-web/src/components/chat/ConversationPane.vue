@@ -352,12 +352,12 @@ function tocTitle(turn: ChatTurn): string {
     if (turn.skillActivation) return `/${turn.skillActivation.name}`;
     if (turn.pluginCommand) return `/${turn.pluginCommand.pluginId}:${turn.pluginCommand.commandName}`;
     const text = turn.text.trim().replaceAll(/\s+/g, ' ');
-    return text.length > 0 ? text : 'user';
+    return text.length > 0 ? text : t('conversation.tocUser');
   }
   const text = (turn.text || turn.thinking || '').trim().replaceAll(/\s+/g, ' ');
   if (text.length > 0) return text;
-  if ((turn.tools?.length ?? 0) > 0) return `${turn.tools!.length} tools`;
-  return 'kimi';
+  if ((turn.tools?.length ?? 0) > 0) return t('conversation.tocTools', { count: String(turn.tools!.length) });
+  return t('conversation.tocAssistant');
 }
 
 // The TOC is keyed by user query: one entry per user turn, not per turn/block.
