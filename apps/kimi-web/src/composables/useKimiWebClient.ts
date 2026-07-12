@@ -610,6 +610,10 @@ const fileDiffLoading = ref(false);
 // False until the very first load() settles (success OR failure). Gates the
 // global connecting-splash so a page refresh doesn't flash a half-empty app.
 const initialized = ref(false);
+// Short diagnostic shown on the connecting splash while the first-load /auth
+// gate keeps retrying (e.g. the daemon's error message). Null when no attempt
+// has failed yet or the last attempt got through.
+const connectIssue = ref<string | null>(null);
 
 /**
  * Fetch GET /sessions/{id}/status and fold the live model + context usage back
@@ -2391,6 +2395,7 @@ const workspaceState = useWorkspaceState(rawState, {
   goalErrorMessage,
   resetFastMoon: appearance.resetFastMoon,
   initialized,
+  connectIssue,
   selectedDiffPath,
   fileDiffLines,
   fileDiffLoading,
@@ -2561,6 +2566,7 @@ export function useKimiWebClient() {
     dangerousBypassAuth,
     clearDangerousBypassAuth,
     initialized,
+    connectIssue,
     permission,
     thinking,
     planMode,
