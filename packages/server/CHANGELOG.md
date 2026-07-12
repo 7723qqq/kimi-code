@@ -1,5 +1,19 @@
 # @moonshot-ai/server
 
+## 0.2.5
+
+### Patch Changes
+
+- [`809badf`](https://github.com/MoonshotAI/kimi-code/commit/809badf403eb3dbd5acab3bd9e7ad7c4c8e9b71a) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Fix the local server failing to start on Windows after the first run because the persistent token file's synthesized mode was rejected as too permissive.
+
+- [`bb07e3e`](https://github.com/MoonshotAI/kimi-code/commit/bb07e3ed1444ca5ecec69a65de30892aaa919c07) Thanks [@sailist](https://github.com/sailist)! - Add a --allowed-host flag to kimi server run that lets extra Host header values pass the DNS-rebinding check, and include allow guidance in the 403 error message. Pass --allowed-host <host> to allow an extra host.
+
+- [`061c160`](https://github.com/MoonshotAI/kimi-code/commit/061c160843078e044e645f8e6cbde46111ce1ec9) Thanks [@sailist](https://github.com/sailist)! - Sync session title changes across all connected clients in server mode.
+
+- Updated dependencies [[`ceb158d`](https://github.com/MoonshotAI/kimi-code/commit/ceb158dc54586f254819edbc83c27e21dca1ecf6), [`06556e4`](https://github.com/MoonshotAI/kimi-code/commit/06556e4a350e56807b133c8be2bcdb0a91409991), [`c58880a`](https://github.com/MoonshotAI/kimi-code/commit/c58880a3fb76af21d6d4f2fbb30b1ee38a64a5e5)]:
+  - @moonshot-ai/protocol@0.4.0
+  - @moonshot-ai/agent-core@0.15.4
+
 ## 0.2.4
 
 ### Patch Changes
