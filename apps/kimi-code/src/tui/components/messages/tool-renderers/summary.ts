@@ -14,6 +14,7 @@ import type { Component } from '@moonshot-ai/pi-tui';
 import { Text } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
+import { t } from '#/i18n';
 import { renderTruncated } from './truncated';
 import type { ResultRenderer } from './types';
 
@@ -62,7 +63,7 @@ const grepGlance: GlanceFn = (_toolCall, result) => {
   if (lines.length === 0) return '';
   const samples = lines.slice(0, GLANCE_SAMPLES).map(pathFromGrepLine);
   const remaining = lines.length - samples.length;
-  const tail = remaining > 0 ? `, +${String(remaining)} more` : '';
+  const tail = remaining > 0 ? `, +${String(remaining)} ${t('tui.statusMessages.more')}` : '';
   return `${samples.join(', ')}${tail}`;
 };
 
@@ -71,7 +72,7 @@ const globGlance: GlanceFn = (_toolCall, result) => {
   if (lines.length === 0) return '';
   const samples = lines.slice(0, GLANCE_SAMPLES);
   const remaining = lines.length - samples.length;
-  const tail = remaining > 0 ? `, +${String(remaining)} more` : '';
+  const tail = remaining > 0 ? `, +${String(remaining)} ${t('tui.statusMessages.more')}` : '';
   return `${samples.join(', ')}${tail}`;
 };
 
