@@ -1,5 +1,18 @@
 # @moonshot-ai/agent-core
 
+## 0.15.4
+
+### Patch Changes
+
+- [`06556e4`](https://github.com/MoonshotAI/kimi-code/commit/06556e4a350e56807b133c8be2bcdb0a91409991) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Cap completion tokens to the remaining context window for chat-completions providers, avoiding context-overflow and invalid max_tokens errors.
+
+- [`c58880a`](https://github.com/MoonshotAI/kimi-code/commit/c58880a3fb76af21d6d4f2fbb30b1ee38a64a5e5) - Move native bash, grep, and structured grep execution to a background thread pool to avoid blocking the Node event loop, add an experimental flag for microtask-scheduled in-process RPC, remove redundant session-existence checks before prompt/skill/message operations, and parallelize per-agent state queries during session resume.
+
+- Updated dependencies [[`ceb158d`](https://github.com/MoonshotAI/kimi-code/commit/ceb158dc54586f254819edbc83c27e21dca1ecf6), [`06556e4`](https://github.com/MoonshotAI/kimi-code/commit/06556e4a350e56807b133c8be2bcdb0a91409991), [`dcf51dd`](https://github.com/MoonshotAI/kimi-code/commit/dcf51dd7947af9354da451f6eb2520347529959e), [`c58880a`](https://github.com/MoonshotAI/kimi-code/commit/c58880a3fb76af21d6d4f2fbb30b1ee38a64a5e5)]:
+  - @moonshot-ai/protocol@0.4.0
+  - @moonshot-ai/kosong@0.6.0
+  - @moonshot-ai/kimi-native-tools@0.2.0
+
 ## 0.15.3
 
 ### Patch Changes

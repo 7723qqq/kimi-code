@@ -1,5 +1,11 @@
 # @moonshot-ai/kosong
 
+## 0.6.0
+
+### Minor Changes
+
+- [`06556e4`](https://github.com/MoonshotAI/kimi-code/commit/06556e4a350e56807b133c8be2bcdb0a91409991) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Cap completion tokens to the remaining context window for chat-completions providers, avoiding context-overflow and invalid max_tokens errors.
+
 ## 0.5.4
 
 ### Patch Changes
