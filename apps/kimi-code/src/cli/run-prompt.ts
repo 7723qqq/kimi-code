@@ -20,6 +20,7 @@ import {
 import { resolve } from 'pathe';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, PROMPT_CLEANUP_TIMEOUT_MS } from '#/constant/app';
+import { t } from '#/i18n';
 
 import type { CLIOptions, PromptOutputFormat } from './options';
 import {
@@ -160,7 +161,7 @@ export async function runPrompt(
     await harness.ensureConfigFile();
     const config = await harness.getConfig();
     for (const warning of (await harness.getConfigDiagnostics()).warnings) {
-      stderr.write(`Warning: ${warning}\n`);
+      stderr.write(`${t('tui.statusMessages.promptWarning', { warning })}\n`);
     }
     const { session, restorePermission, telemetryModel, goalModel } =
       await resolvePromptSession(
@@ -333,7 +334,7 @@ async function resolvePromptSession(
         goalModel: configuredModel(opts.model, status.model),
       };
     }
-    stderr.write(`No sessions to continue under "${workDir}"; starting a fresh session.\n`);
+    stderr.write(`${t('tui.statusMessages.noSessionsToContinue', { workDir })}\n`);
   }
 
   const model = requireConfiguredModel(opts.model, defaultModel);
@@ -501,7 +502,9 @@ function runPromptTurn(
           return;
         case 'turn.step.retrying':
           outputWriter.discardAssistant();
-          outputWriter.writeRetrying(event);
+          outputWriter.writeStatus(
+            `Retrying (${event.nextAttempt}/${event.maxAttempts}) in ${Math.ceil(event.delayMs / 1000)}s — ${event.errorName}`,
+          );
           return;
         case 'assistant.delta':
           outputWriter.writeAssistantDelta(event.delta);
@@ -613,7 +616,7 @@ interface PromptTurnWriter {
     argumentsPart: string | undefined,
   ): void;
   writeToolResult(toolCallId: string, output: unknown): void;
-  writeRetrying(event: Extract<Event, { type: 'turn.step.retrying' }>): void;
+  writeStatus(message: string): void;
   flushAssistant(): void;
   discardAssistant(): void;
   finish(): void;
@@ -622,10 +625,12 @@ interface PromptTurnWriter {
 class PromptTranscriptWriter implements PromptTurnWriter {
   private readonly assistantWriter: PromptBlockWriter;
   private readonly thinkingWriter: PromptBlockWriter;
+  private readonly stderr: PromptOutput;
 
   constructor(stdout: PromptOutput, stderr: PromptOutput) {
     this.assistantWriter = new PromptBlockWriter(stdout);
     this.thinkingWriter = new PromptBlockWriter(stderr);
+    this.stderr = stderr;
   }
 
   writeAssistantDelta(delta: string): void {
@@ -650,10 +655,11 @@ class PromptTranscriptWriter implements PromptTurnWriter {
 
   writeToolResult(): void {}
 
-  // Text `-p` keeps retries silent: only the failed attempt's partial assistant
-  // text is discarded (handled by the caller). No human-readable retry line is
-  // emitted, matching the prior behavior.
-  writeRetrying(): void {}
+  writeStatus(message: string): void {
+    this.assistantWriter.finish();
+    this.thinkingWriter.finish();
+    this.stderr.write(`${message}\n`);
+  }
 
   flushAssistant(): void {
     this.assistantWriter.finish();
@@ -696,16 +702,10 @@ interface PromptJsonResumeMetaMessage {
   content: string;
 }
 
-interface PromptJsonRetryMetaMessage {
+interface PromptJsonMetaMessage {
   role: 'meta';
-  type: 'turn.step.retrying';
-  failed_attempt: number;
-  next_attempt: number;
-  max_attempts: number;
-  delay_ms: number;
-  error_name: string;
-  error_message: string;
-  status_code?: number;
+  type: string;
+  content: string;
 }
 
 function writeResumeHint(
@@ -715,7 +715,7 @@ function writeResumeHint(
   stderr: PromptOutput,
 ): void {
   const command = `kimi -r ${sessionId}`;
-  const content = `To resume this session: ${command}`;
+  const content = t('tui.statusMessages.shellResumeHint', { sessionId });
   if (outputFormat === 'stream-json') {
     const message: PromptJsonResumeMetaMessage = {
       role: 'meta',
@@ -790,6 +790,11 @@ class PromptJsonWriter implements PromptTurnWriter {
     });
   }
 
+  writeStatus(message: string): void {
+    this.flushAssistant();
+    this.writeJsonLine({ role: 'meta', type: 'status', content: message } as PromptJsonMetaMessage);
+  }
+
   flushAssistant(): void {
     if (this.assistantText.length === 0 && this.toolCalls.length === 0) return;
     const message: PromptJsonAssistantMessage = {
@@ -804,24 +809,6 @@ class PromptJsonWriter implements PromptTurnWriter {
   discardAssistant(): void {
     this.assistantText = '';
     this.toolCalls.length = 0;
-  }
-
-  writeRetrying(event: Extract<Event, { type: 'turn.step.retrying' }>): void {
-    // Emit a machine-readable meta line so stream-json consumers can observe
-    // provider retries. The failed attempt's partial assistant text was already
-    // discarded by the caller, so no half-formed assistant message leaks.
-    const message: PromptJsonRetryMetaMessage = {
-      role: 'meta',
-      type: 'turn.step.retrying',
-      failed_attempt: event.failedAttempt,
-      next_attempt: event.nextAttempt,
-      max_attempts: event.maxAttempts,
-      delay_ms: event.delayMs,
-      error_name: event.errorName,
-      error_message: event.errorMessage,
-      status_code: event.statusCode,
-    };
-    this.writeJsonLine(message);
   }
 
   finish(): void {
@@ -843,9 +830,7 @@ class PromptJsonWriter implements PromptTurnWriter {
     return toolCall;
   }
 
-  private writeJsonLine(
-    message: PromptJsonAssistantMessage | PromptJsonToolMessage | PromptJsonRetryMetaMessage,
-  ): void {
+  private writeJsonLine(message: PromptJsonAssistantMessage | PromptJsonToolMessage | PromptJsonMetaMessage): void {
     this.stdout.write(`${JSON.stringify(message)}\n`);
   }
 }
@@ -946,7 +931,7 @@ function hasTurnId(event: Event): event is Event & { readonly turnId: number } {
 function formatTurnEndedFailure(event: Extract<Event, { type: 'turn.ended' }>): string {
   if (event.error !== undefined) return `${event.error.code}: ${event.error.message}`;
   if (event.reason === 'filtered') {
-    return 'Provider safety policy blocked the response.';
+    return t('tui.statusMessages.policyBlocked');
   }
-  return `Prompt turn ended with reason: ${event.reason}`;
+  return t('tui.statusMessages.promptTurnEnded', { reason: event.reason });
 }

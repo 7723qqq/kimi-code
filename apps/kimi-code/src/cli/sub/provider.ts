@@ -36,6 +36,7 @@ import {
 import type { Command } from 'commander';
 
 import { createKimiCodeHostIdentity } from '#/cli/version';
+import { t } from '#/i18n';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -77,14 +78,14 @@ export async function handleProviderAdd(
   const apiKey = resolveApiKey(opts.apiKey, deps.env);
   if (apiKey === undefined) {
     deps.stderr.write(
-      'Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.\n',
+      t('tui.statusMessages.providerMissingApiKey') + '\n',
     );
     deps.exit(1);
   }
 
   const trimmedUrl = url.trim();
   if (trimmedUrl.length === 0) {
-    deps.stderr.write('Registry URL is required.\n');
+    deps.stderr.write(t('tui.statusMessages.providerUrlRequired') + '\n');
     deps.exit(1);
   }
 
@@ -102,13 +103,13 @@ export async function handleProviderAdd(
     entries = await fetchCustomRegistry(source);
   } catch (error) {
     const suffix = error instanceof CustomRegistryApiError ? ` (HTTP ${String(error.status)})` : '';
-    deps.stderr.write(`Failed to fetch registry${suffix}: ${errorMessage(error)}\n`);
+    deps.stderr.write(t('tui.statusMessages.providerFetchFailed', { suffix, error: errorMessage(error) }) + '\n');
     deps.exit(1);
   }
 
   const entryList = Object.values(entries);
   if (entryList.length === 0) {
-    deps.stderr.write(`Registry at ${trimmedUrl} contained no usable providers.\n`);
+    deps.stderr.write(t('tui.statusMessages.providerNoUsable', { url: trimmedUrl }) + '\n');
     deps.exit(1);
   }
 
@@ -155,11 +156,11 @@ export async function handleProviderRemove(
   await harness.ensureConfigFile();
   const config = await harness.getConfig();
   if (config.providers[providerId] === undefined) {
-    deps.stderr.write(`Provider "${providerId}" not found.\n`);
+    deps.stderr.write(t('tui.statusMessages.providerNotFound', { id: providerId }) + '\n');
     deps.exit(1);
   }
   await harness.removeProvider(providerId);
-  deps.stdout.write(`Removed provider "${providerId}".\n`);
+  deps.stdout.write(t('tui.statusMessages.providerRemoved', { id: providerId }) + '\n');
 }
 
 export async function handleProviderList(
@@ -186,7 +187,7 @@ export async function handleProviderList(
 
   const providerIds = Object.keys(config.providers).toSorted();
   if (providerIds.length === 0) {
-    deps.stdout.write('No providers configured.\n');
+    deps.stdout.write(t('tui.statusMessages.providerNoneConfigured') + '\n');
     return;
   }
 
@@ -199,7 +200,7 @@ export async function handleProviderList(
     );
   }
   if (config.defaultModel !== undefined) {
-    deps.stdout.write(`\nDefault model: ${config.defaultModel}\n`);
+    deps.stdout.write('\n' + t('tui.statusMessages.providerDefaultModel', { model: config.defaultModel }) + '\n');
   }
 }
 
@@ -219,7 +220,7 @@ export async function handleCatalogList(
   if (providerId !== undefined) {
     const entry = catalog[providerId];
     if (entry === undefined) {
-      deps.stderr.write(`Provider "${providerId}" not found in catalog at ${url}.\n`);
+      deps.stderr.write(t('tui.statusMessages.providerCatalogNotFound', { id: providerId, url }) + '\n');
       deps.exit(1);
     }
     const models = catalogProviderModels(entry);
@@ -230,7 +231,7 @@ export async function handleCatalogList(
       return;
     }
     if (models.length === 0) {
-      deps.stdout.write(`Provider "${providerId}" lists no usable models in this catalog.\n`);
+      deps.stdout.write(t('tui.statusMessages.providerCatalogNoModels', { id: providerId }) + '\n');
       return;
     }
     deps.stdout.write(`${entry.name ?? providerId} (${providerId})\n`);
@@ -267,9 +268,9 @@ export async function handleCatalogList(
 
   if (entries.length === 0) {
     if (filter !== undefined) {
-      deps.stdout.write(`No providers in catalog match "${filter}".\n`);
+      deps.stdout.write(t('tui.statusMessages.providerCatalogNoMatch', { filter }) + '\n');
     } else {
-      deps.stdout.write('Catalog is empty.\n');
+      deps.stdout.write(t('tui.statusMessages.providerCatalogEmpty') + '\n');
     }
     return;
   }
@@ -296,7 +297,7 @@ export async function handleCatalogAdd(
   const apiKey = resolveApiKey(opts.apiKey, deps.env);
   if (apiKey === undefined) {
     deps.stderr.write(
-      'Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.\n',
+      t('tui.statusMessages.providerMissingApiKey') + '\n',
     );
     deps.exit(1);
   }
@@ -306,25 +307,25 @@ export async function handleCatalogAdd(
 
   const entry = catalog[providerId];
   if (entry === undefined) {
-    deps.stderr.write(`Provider "${providerId}" not found in catalog at ${url}.\n`);
+    deps.stderr.write(t('tui.statusMessages.providerCatalogNotFound', { id: providerId, url }) + '\n');
     deps.exit(1);
   }
 
   const wire = inferWireType(entry);
   if (wire === undefined) {
-    deps.stderr.write(`Provider "${providerId}" has an unsupported wire type in the catalog.\n`);
+    deps.stderr.write(t('tui.statusMessages.providerCatalogUnsupported', { id: providerId }) + '\n');
     deps.exit(1);
   }
 
   const models = catalogProviderModels(entry);
   if (models.length === 0) {
-    deps.stderr.write(`Provider "${providerId}" lists no usable models in this catalog.\n`);
+    deps.stderr.write(t('tui.statusMessages.providerCatalogNoModels', { id: providerId }) + '\n');
     deps.exit(1);
   }
 
   if (opts.defaultModel !== undefined && !models.some((m) => m.id === opts.defaultModel)) {
     deps.stderr.write(
-      `Model "${opts.defaultModel}" is not in provider "${providerId}". Run "kimi provider catalog list ${providerId}" to see available ids.\n`,
+      t('tui.statusMessages.providerCatalogModelNotInProvider', { model: opts.defaultModel, id: providerId }) + '\n',
     );
     deps.exit(1);
   }
@@ -389,10 +390,10 @@ export async function handleCatalogAdd(
 
   const displayName = entry.name ?? providerId;
   deps.stdout.write(
-    `Imported ${displayName} (${providerId}) with ${String(models.length)} model${models.length === 1 ? '' : 's'} from ${url}.\n`,
+    t('tui.statusMessages.providerImported', { name: displayName, id: providerId, count: String(models.length) }) + '\n',
   );
   if (opts.defaultModel !== undefined) {
-    deps.stdout.write(`Default model set to ${providerId}/${opts.defaultModel}.\n`);
+    deps.stdout.write(t('tui.statusMessages.providerDefaultSet', { id: providerId, model: opts.defaultModel }) + '\n');
   }
 }
 
@@ -401,7 +402,7 @@ async function loadCatalogOrExit(deps: ProviderDeps, url: string): Promise<Catal
     return await fetchCatalog(url);
   } catch (error) {
     const suffix = error instanceof CatalogFetchError ? ` (HTTP ${String(error.status)})` : '';
-    deps.stderr.write(`Failed to fetch catalog from ${url}${suffix}: ${errorMessage(error)}\n`);
+    deps.stderr.write(t('tui.statusMessages.providerCatalogFetchFailed', { url, suffix, error: errorMessage(error) }) + '\n');
     deps.exit(1);
   }
 }
@@ -409,7 +410,7 @@ async function loadCatalogOrExit(deps: ProviderDeps, url: string): Promise<Catal
 export function registerProviderCommand(parent: Command, deps?: Partial<ProviderDeps>): void {
   const provider = parent
     .command('provider')
-    .description('Manage LLM providers non-interactively.');
+    .description(t('cli.commandDescriptions.provider'));
 
   // Last-resort boundary: handlers report expected failures themselves, but
   // anything that escapes (e.g. a config write rejected because config.toml
@@ -426,8 +427,8 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
 
   provider
     .command('add <url>')
-    .description('Import every provider listed in a custom registry (api.json).')
-    .option('--api-key <key>', 'Registry API key. Falls back to KIMI_REGISTRY_API_KEY.')
+    .description(t('cli.commandDescriptions.providerAdd'))
+    .option('--api-key <key>', t('cli.optionDescriptions.providerApiKey'))
     .action(async (url: string, options: { apiKey?: string }) => {
       const resolved = resolveDeps(deps);
       await runAction(resolved, () => handleProviderAdd(resolved, url, { apiKey: options.apiKey }));
@@ -435,7 +436,7 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
 
   provider
     .command('remove <providerId>')
-    .description('Remove a provider and every model alias that referenced it.')
+    .description(t('cli.commandDescriptions.providerRemove'))
     .action(async (providerId: string) => {
       const resolved = resolveDeps(deps);
       await runAction(resolved, () => handleProviderRemove(resolved, providerId));
@@ -443,8 +444,8 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
 
   provider
     .command('list')
-    .description('Show configured providers and their model counts.')
-    .option('--json', 'Emit the raw providers/models config as JSON.', false)
+    .description(t('cli.commandDescriptions.providerList'))
+    .option('--json', t('cli.optionDescriptions.providerListJson'), false)
     .action(async (options: { json?: boolean }) => {
       const resolved = resolveDeps(deps);
       await runAction(resolved, () => handleProviderList(resolved, { json: options.json === true }));
@@ -452,14 +453,14 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
 
   const catalog = provider
     .command('catalog')
-    .description('Discover and import providers from the public models.dev catalog.');
+    .description(t('cli.commandDescriptions.providerCatalog'));
 
   catalog
     .command('list [providerId]')
-    .description('List providers in the catalog, or models when a providerId is given.')
-    .option('--filter <substring>', 'Case-insensitive id/name substring filter.')
-    .option('--url <url>', `Override catalog URL. Defaults to ${DEFAULT_CATALOG_URL}.`)
-    .option('--json', 'Emit the matching catalog slice as JSON.', false)
+    .description(t('cli.commandDescriptions.providerCatalogList'))
+    .option('--filter <substring>', t('cli.optionDescriptions.providerCatalogFilter'))
+    .option('--url <url>', t('cli.optionDescriptions.providerCatalogUrl', { url: DEFAULT_CATALOG_URL }))
+    .option('--json', t('cli.optionDescriptions.providerCatalogJson'), false)
     .action(
       async (
         providerId: string | undefined,
@@ -478,10 +479,10 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
 
   catalog
     .command('add <providerId>')
-    .description('Import a known provider from the catalog by id.')
-    .option('--api-key <key>', 'API key for the provider. Falls back to KIMI_REGISTRY_API_KEY.')
-    .option('--default-model <modelId>', 'Mark the imported model as default_model after import.')
-    .option('--url <url>', `Override catalog URL. Defaults to ${DEFAULT_CATALOG_URL}.`)
+    .description(t('cli.commandDescriptions.providerCatalogAdd'))
+    .option('--api-key <key>', t('cli.optionDescriptions.providerCatalogApiKey'))
+    .option('--default-model <modelId>', t('cli.optionDescriptions.providerCatalogDefaultModel'))
+    .option('--url <url>', t('cli.optionDescriptions.providerCatalogUrl', { url: DEFAULT_CATALOG_URL }))
     .action(
       async (
         providerId: string,

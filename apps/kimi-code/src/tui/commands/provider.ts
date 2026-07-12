@@ -27,6 +27,7 @@ import {
 } from '../components/dialogs/provider-manager';
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
 import { DEFAULT_OAUTH_PROVIDER_NAME } from '../constant/kimi-tui';
+import { t } from '#/i18n';
 import { formatErrorMessage } from '../utils/event-payload';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import {
@@ -53,12 +54,12 @@ function buildProviderManagerOptions(host: SlashCommandHost): ProviderManagerOpt
     activeProviderId,
     onAdd: () => {
       void handleProviderAdd(host).catch((error: unknown) => {
-        host.showError(`Add provider failed: ${formatErrorMessage(error)}`);
+        host.showError(t('tui.statusMessages.addProviderFailed', { error: formatErrorMessage(error) }));
       });
     },
     onDeleteSource: (providerIds) => {
       void handleProviderManagerDeleteSource(host, providerIds).catch((error: unknown) => {
-        host.showError(`Remove provider failed: ${formatErrorMessage(error)}`);
+        host.showError(t('tui.statusMessages.removeProviderFailedGeneric', { error: formatErrorMessage(error) }));
       });
     },
     onClose: () => {
@@ -76,7 +77,7 @@ async function handleProviderManagerDeleteSource(
       await handleProviderDelete(host, providerId);
     } catch (error) {
       const msg = formatErrorMessage(error);
-      host.showError(`Failed to delete provider ${providerId}: ${msg}`);
+      host.showError(t('tui.statusMessages.removeProviderFailed', { providerId, error: msg }));
     }
   }
   reopenProviderManager(host);
@@ -132,10 +133,10 @@ function promptProviderAddSource(
 ): Promise<'known' | 'custom' | undefined> {
   return new Promise((resolve) => {
     const picker = new ChoicePickerComponent({
-      title: 'Add provider',
+      title: t('tui.statusMessages.addProviderTitle'),
       options: [
-        { value: 'known', label: 'Known third-party provider' },
-        { value: 'custom', label: 'Custom registry (api.json)' },
+        { value: 'known', label: t('tui.statusMessages.knownThirdPartyProvider') },
+        { value: 'custom', label: t('tui.statusMessages.customRegistryOption') },
       ],
       onSelect: (value) => {
         host.restoreEditor();
@@ -157,18 +158,20 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
   };
   host.cancelInFlight = cancel;
 
-  const spinner = host.showLoginProgressSpinner(`Fetching catalog from ${DEFAULT_CATALOG_URL}`);
+  const spinner = host.showLoginProgressSpinner(
+    t('tui.statusMessages.fetchingCatalog', { url: DEFAULT_CATALOG_URL }),
+  );
   let catalog: Catalog | undefined;
   try {
     catalog = await fetchCatalog(DEFAULT_CATALOG_URL, controller.signal);
-    spinner.stop({ ok: true, label: 'Catalog loaded.' });
+    spinner.stop({ ok: true, label: t('tui.statusMessages.catalogLoaded') });
   } catch (error) {
     if (controller.signal.aborted) {
-      spinner.stop({ ok: false, label: 'Aborted.' });
+      spinner.stop({ ok: false, label: t('tui.statusMessages.catalogAborted') });
     } else {
       const hint = error instanceof CatalogFetchError ? ` (HTTP ${error.status})` : '';
-      spinner.stop({ ok: false, label: 'Failed to load catalog.' });
-      host.showError(`Failed to fetch catalog${hint}: ${formatErrorMessage(error)}`);
+      spinner.stop({ ok: false, label: t('tui.statusMessages.catalogFailedToLoad') });
+      host.showError(t('tui.statusMessages.catalogFetchFailed', { hint, error: formatErrorMessage(error) }));
     }
   } finally {
     if (host.cancelInFlight === cancel) host.cancelInFlight = undefined;
@@ -183,7 +186,7 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
 
   const models = catalogProviderModels(entry);
   if (models.length === 0) {
-    host.showError(`Provider "${providerId}" has no usable models in this catalog.`);
+    host.showError(t('tui.statusMessages.providerNoUsableModels', { providerId }));
     return;
   }
 
@@ -192,7 +195,7 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
 
   const wire = inferWireType(entry);
   if (wire === undefined) {
-    host.showError(`Provider "${providerId}" has unsupported wire type.`);
+    host.showError(t('tui.statusMessages.providerUnsupportedWire', { providerId }));
     return;
   }
   const baseUrl = catalogBaseUrl(entry, wire);
@@ -223,7 +226,7 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
 
   await host.authFlow.refreshConfigAfterLogin();
   host.track('connect', { provider: providerId, method: 'catalog' });
-  host.showStatus(`Provider added: ${entry.name ?? providerId}`);
+  host.showStatus(t('tui.statusMessages.providerAdded', { providerName: entry.name ?? providerId }));
 
   // Build a merged model dictionary that includes existing models plus the
   // newly-persisted provider's models, so the tabbed selector shows every
@@ -240,7 +243,7 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
     onSelect: ({ alias, thinking }) => {
       host.restoreEditor();
       void setDefaultModel(host, alias, thinking).catch((error: unknown) => {
-        host.showError(`Set default model failed: ${formatErrorMessage(error)}`);
+        host.showError(t('tui.statusMessages.setDefaultModelFailed', { error: formatErrorMessage(error) }));
       });
     },
     onCancel: () => {
@@ -261,7 +264,7 @@ async function setDefaultModel(
   });
   await host.authFlow.refreshConfigAfterLogin();
   host.track('model_switch', { model: alias });
-  host.showStatus(`Default model set to ${alias} with thinking ${effort}.`);
+  host.showStatus(t('tui.statusMessages.defaultModelSet', { alias, effort }));
 }
 
 async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise<boolean> {
@@ -278,7 +281,7 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
   try {
     entries = await fetchCustomRegistry(source);
   } catch (error) {
-    host.showError(`Failed to import registry: ${formatErrorMessage(error)}`);
+    host.showError(t('tui.statusMessages.failedToImportRegistry', { error: formatErrorMessage(error) }));
     return false;
   }
 
@@ -296,19 +299,19 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
     });
     await host.authFlow.refreshConfigAfterLogin();
   } catch (error) {
-    host.showError(`Failed to apply registry: ${formatErrorMessage(error)}`);
+    host.showError(t('tui.statusMessages.failedToApplyRegistry', { error: formatErrorMessage(error) }));
     return false;
   }
 
   const count = addedProviderIds.length;
   if (count === 0) {
-    host.showStatus('Registry contained no providers.');
+    host.showStatus(t('tui.statusMessages.registryNoProviders'));
     return false;
   }
   host.showStatus(
     count === 1
-      ? 'Imported 1 provider from registry.'
-      : `Imported ${String(count)} providers from registry.`,
+      ? t('tui.statusMessages.importedOneProvider')
+      : t('tui.statusMessages.importedProviders', { count }),
     'success',
   );
 
@@ -330,7 +333,7 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
     onSelect: ({ alias, thinking }) => {
       host.restoreEditor();
       void setDefaultModel(host, alias, thinking).catch((error: unknown) => {
-        host.showError(`Set default model failed: ${formatErrorMessage(error)}`);
+        host.showError(t('tui.statusMessages.setDefaultModelFailed', { error: formatErrorMessage(error) }));
       });
     },
     onCancel: () => {
