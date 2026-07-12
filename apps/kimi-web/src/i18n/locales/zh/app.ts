@@ -5,6 +5,7 @@ export default {
   authPageMessage: '先连接 Kimi Code 账号，然后再开始或继续对话。',
   authPageLogin: '登录',
   connecting: '连接中…',
+  connectRetrying: '无法连接服务器，正在重试…',
   internalBuildBanner: '仅供内部测试',
   serverAuthTitle: '需要服务器令牌',
   serverAuthHint: '此服务器受保护。请输入服务器启动时打印的 Bearer 令牌（或通过 KIMI_CODE_PASSWORD 设置的密码）。',

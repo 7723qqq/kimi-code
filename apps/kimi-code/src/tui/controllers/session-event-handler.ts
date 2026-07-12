@@ -337,6 +337,11 @@ export class SessionEventHandler {
     }
     if (event.reason === 'filtered') {
       this.host.showStatus(t('tui.statusMessages.turnStoppedFiltered'), 'error');
+    if (event.reason === 'failed' && event.error?.code === 'provider.filtered') {
+      this.host.showStatus('Turn stopped: provider safety policy blocked the response.', 'error');
+    }
+    if (event.reason === 'blocked') {
+      this.host.showStatus('Turn stopped: prompt hook blocked the request.', 'error');
     }
     const todos = this.host.state.todoPanel.getTodos();
     if (todos.length > 0 && todos.every((t) => t.status === 'done')) {
@@ -443,6 +448,11 @@ export class SessionEventHandler {
     if (reason === 'aborted' || reason === undefined || reason === '') {
       this.markActiveAgentSwarmsCancelled();
       this.host.showStatus(t('tui.statusMessages.interruptedByUser'), 'error');
+      if (event.message === undefined || event.message === '') {
+        this.host.showStatus('Interrupted by user', 'error');
+      } else {
+        this.host.showError(event.message);
+      }
       return;
     }
     this.host.showError(
