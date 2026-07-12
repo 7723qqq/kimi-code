@@ -1,6 +1,12 @@
 export default {
   jumpToLatestAria: 'Jump to latest message',
   toc: 'Conversation outline',
+  roleUser: 'User',
+  roleAssistant: 'Assistant',
+  tocUser: 'user',
+  tocAssistant: 'kimi',
+  tocTools: '{count} tools',
+  noDirectory: 'No directory',
   newMessages: 'Latest messages',
   loading: 'Loading…',
   starting: 'Starting conversation…',

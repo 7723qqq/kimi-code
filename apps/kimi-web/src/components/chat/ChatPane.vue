@@ -368,7 +368,7 @@ function copyConversation(): void {
   const lines: string[] = [];
   for (const turn of props.turns) {
     if (turn.role === 'compaction' || turn.role === 'cron') continue; // dividers / cron notices don't copy
-    const roleLabel = turn.role === 'user' ? 'User' : 'Assistant';
+    const roleLabel = turn.role === 'user' ? t('conversation.roleUser') : t('conversation.roleAssistant');
     const content = turnToMarkdown(turn);
     if (content.trim()) {
       lines.push(`**${roleLabel}**\n\n${content}`);

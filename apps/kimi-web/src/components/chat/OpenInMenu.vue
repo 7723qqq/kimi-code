@@ -51,7 +51,7 @@ function compactPath(path: string, maxLength = 22): string {
 }
 
 const hasWorkDir = computed(() => Boolean(props.workDir && props.workDir.trim().length > 0));
-const displayPath = computed(() => (hasWorkDir.value ? compactPath(props.workDir!) : 'No directory'));
+const displayPath = computed(() => (hasWorkDir.value ? compactPath(props.workDir!) : t('conversation.noDirectory')));
 
 const TARGETS: Array<{ id: TargetId; label: string; macOnly?: boolean }> = [
   { id: 'finder', label: 'Finder', macOnly: true },
