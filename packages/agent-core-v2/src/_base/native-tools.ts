@@ -96,14 +96,12 @@ export function tryNativeQualifyMcpToolName(
   return callNativeSync<string>('nativeQualifyMcpToolName', serverName, toolName);
 }
 
-// ── Image compression (NOT yet wired — see note) ───────────────────
-// These wrappers exist and are correct, but `image-compress.ts` deliberately
-// keeps the jimp pipeline as primary. The Rust codec in `kimi-native-tools`
-// (`image_compress.rs`) does NOT apply EXIF orientation, whereas jimp does —
-// so native reports raw (unrotated) dimensions and would crop in the wrong
-// coordinate space for EXIF images. Wire these in only after the crate gains
-// orientation handling (or after the caller pre-rotates). Keeping the wrappers
-// ready makes that a one-line change.
+// ── Image compression (async; reused by image-compress.ts) ──────────
+// Wired into `image-compress.ts` as the preferred path. The Rust codec in
+// `kimi-native-tools` (`image_compress.rs`) applies EXIF orientation on decode
+// (see `decode_with_orientation`), so its reported dimensions and crop regions
+// live in the same display (EXIF-rotated) space as jimp — behaviour matches
+// the TS fallback, just faster.
 export interface NativeCompressImageConfig {
   readonly maxEdge: number;
   readonly byteBudget: number;
