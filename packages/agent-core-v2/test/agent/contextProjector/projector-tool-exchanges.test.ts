@@ -327,6 +327,26 @@ describe('projector tool-exchange normalization', () => {
     ]);
   });
 
+  it('passes raw media parts through as the tool_result output', () => {
+    // ReadMediaFile-style result: the live tool.result event carries the raw
+    // kosong content-part array, so the protocol projection must emit the same
+    // shape — otherwise media rendering is lost after reload/resume.
+    const result: ContextMessage = {
+      role: 'tool',
+      content: [
+        { type: 'text', text: 'image result' },
+        { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
+      ],
+      toolCalls: [],
+      toolCallId: 'call_media',
+    };
+
+    const protocol = toProtocolMessage('session_1', 0, result, 0);
+    expect(protocol.content).toEqual([
+      { type: 'tool_result', tool_call_id: 'call_media', output: result.content },
+    ]);
+  });
+
   it('renders v1 tool-result status at the model projection boundary', () => {
     const history = [
       assistant('', ['call_error', 'call_empty']),

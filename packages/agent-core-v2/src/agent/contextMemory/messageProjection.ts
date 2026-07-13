@@ -7,6 +7,12 @@
  * message objects. Lives in agent-core-v2 (next to the `ContextMessage` data it
  * projects) so the `sessionLegacy` edge adapter can own the v1 `:undo` response
  * shape without duplicating the projection in the server layer.
+ *
+ * Tool results project to a single `tool_result` part: plain-text results keep
+ * the historical flattened-text output, while a result carrying media parts
+ * (image/video/audio — e.g. ReadMediaFile) passes the raw kosong content-part
+ * array through, the same shape the live `tool.result` event stream carries,
+ * so REST consumers can still render the media after reload/resume.
  */
 
 import type { Message, MessageContent, MessageRole, ToolUseContent } from '@moonshot-ai/protocol';
@@ -58,21 +64,24 @@ function buildProtocolContent(msg: ContextMessage): MessageContent[] {
     if (msg.toolCallId === undefined) {
       return msg.content.map((p) => mapContentPart(p));
     }
-    const flattenedOutput = msg.content
-      .map((p) => (p.type === 'text' ? p.text : ''))
-      .join('');
+    const hasMediaPart = msg.content.some(
+      (p) => p.type === 'image_url' || p.type === 'video_url' || p.type === 'audio_url',
+    );
+    const output: unknown = hasMediaPart
+      ? msg.content
+      : msg.content.map((p) => (p.type === 'text' ? p.text : '')).join('');
     const part: MessageContent =
       msg.isError === true
         ? {
             type: 'tool_result',
             tool_call_id: msg.toolCallId,
-            output: flattenedOutput,
+            output,
             is_error: true,
           }
         : {
             type: 'tool_result',
             tool_call_id: msg.toolCallId,
-            output: flattenedOutput,
+            output,
           };
     return [part];
   }
