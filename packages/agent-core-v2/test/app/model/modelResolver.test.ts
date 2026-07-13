@@ -816,7 +816,11 @@ describe('ModelResolverService', () => {
       );
     });
 
-    function resolveBaseUrl(protocol: string, providerType: string, baseUrl: string): string {
+    function resolveBaseUrl(
+      protocol: string,
+      providerType: string,
+      baseUrl: string,
+    ): string | undefined {
       providers['p'] = { type: providerType, baseUrl, apiKey: 'sk' } as ProviderConfig;
       models['m'] = { provider: 'p', model: 'wire-name', maxContextSize: 1000, protocol } as ModelConfig;
       return ix.get(IModelResolver).resolve('m').baseUrl;
@@ -850,6 +854,36 @@ describe('ModelResolverService', () => {
     it('does not strip /v1 for non-anthropic protocols', () => {
       expect(resolveBaseUrl('kimi', 'kimi', 'https://example.test/coding/v1')).toBe(
         'https://example.test/coding/v1',
+      );
+    });
+
+    it.each(['anthropic', 'openai', 'openai_responses', 'kimi', 'google-genai'] as const)(
+      'resolves a %s provider without base_url to an undefined baseUrl (protocol default applies)',
+      (type) => {
+        providers['p'] = { type, apiKey: 'sk' };
+        models['m'] = { provider: 'p', model: 'wire-name', maxContextSize: 1000 };
+
+        expect(ix.get(IModelResolver).resolve('m').baseUrl).toBeUndefined();
+      },
+    );
+
+    it('resolves an anthropic-protocol override without base_url without stripping', () => {
+      providers['p'] = { type: 'kimi', apiKey: 'sk' };
+      models['m'] = {
+        provider: 'p',
+        model: 'wire-name',
+        maxContextSize: 1000,
+        protocol: 'anthropic',
+      };
+
+      expect(ix.get(IModelResolver).resolve('m').baseUrl).toBeUndefined();
+    });
+
+    it('still rejects a flat model with neither providerId nor baseUrl', () => {
+      models['m'] = { model: 'wire-name', maxContextSize: 1000 };
+
+      expect(() => ix.get(IModelResolver).resolve('m')).toThrow(
+        'Model "m" must set either providerId or baseUrl in config.toml.',
       );
     });
   });

@@ -39,7 +39,7 @@ export interface ModelImplInit {
   readonly name: string;
   readonly aliases: readonly string[];
   readonly protocol: Protocol;
-  readonly baseUrl: string;
+  readonly baseUrl?: string;
   readonly headers: Readonly<Record<string, string>>;
   readonly capabilities: ModelCapability;
   readonly maxContextSize: number;
@@ -60,7 +60,7 @@ export class ModelImpl implements Model {
   readonly name: string;
   readonly aliases: readonly string[];
   readonly protocol: Protocol;
-  readonly baseUrl: string;
+  readonly baseUrl: string | undefined;
   readonly headers: Readonly<Record<string, string>>;
   readonly capabilities: ModelCapability;
   readonly maxContextSize: number;
