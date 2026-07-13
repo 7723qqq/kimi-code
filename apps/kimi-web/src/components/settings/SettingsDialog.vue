@@ -589,7 +589,7 @@ function archiveTime(iso: string): string {
         <!-- Archived sessions -->
         <section v-show="activeTab === 'archived'" class="panel">
           <div class="panel-head">
-            <div class="panel-kicker">Archived sessions</div>
+            <div class="panel-kicker">{{ t('settings.archivedTitle') }}</div>
             <h4 class="panel-title">{{ t('settings.archivedTitle') }}</h4>
             <p class="panel-desc">{{ t('settings.archivedDesc') }}</p>
           </div>
