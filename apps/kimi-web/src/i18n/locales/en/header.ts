@@ -20,4 +20,5 @@ export default {
   renameSession: 'Rename',
   forkSession: 'Fork session',
   archiveSession: 'Archive',
+  lastUsed: 'Last used',
 };
