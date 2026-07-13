@@ -74,7 +74,7 @@ export class WSBroadcastService extends Disposable implements IWSBroadcastServic
     state.queue = state.queue
       .then(() => this._dispatch(sid, state, event))
       .catch((err: unknown) => {
-        this.logger.warn({ sid, eventType: evType, err: String(err) }, 'wsBroadcast dispatch failed');
+        this.logger.warn({ sid, eventType: evType, err }, 'wsBroadcast dispatch failed');
       });
   }
 

@@ -122,7 +122,7 @@ export class SessionMetadata extends Disposable implements ISessionMetadata {
     } catch (error) {
       this.log.warn('failed to mirror session metadata to read model', {
         sessionId: this.ctx.sessionId,
-        error: String(error),
+        error,
       });
     }
   }

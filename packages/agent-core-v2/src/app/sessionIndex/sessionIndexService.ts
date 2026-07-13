@@ -158,7 +158,7 @@ export class FileSessionIndex implements ISessionIndex {
       if (!isStorageError(error, StorageErrors.codes.STORAGE_LOCKED)) throw error;
       this.readModelDisabled = true;
       this.log.warn('query-store locked by another process; disabling read model', {
-        error: String(error),
+        error,
       });
       return legacy();
     }

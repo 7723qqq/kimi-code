@@ -226,7 +226,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     const stats = await new SessionStore(envService.homeDir).reindex();
     pinoLogger.info(stats, 'session index rebuilt');
   } catch (error) {
-    pinoLogger.warn({ err: String(error) }, 'session index rebuild failed (best-effort)');
+    pinoLogger.warn({ err: error }, 'session index rebuild failed (best-effort)');
   }
 
   // Token auth (ROADMAP M5.1). The real `IAuthTokenService` needs an

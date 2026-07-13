@@ -99,7 +99,7 @@ export class SessionEventJournal {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT') {
         logger.warn(
-          { filePath, err: String(error) },
+          { filePath, err: error },
           'event journal unreadable; starting a fresh epoch',
         );
       }
@@ -192,7 +192,7 @@ export class SessionEventJournal {
       await appendFile(this.filePath, lines.join('\n') + '\n', 'utf8');
     } catch (error) {
       this.logger.warn(
-        { filePath: this.filePath, err: String(error) },
+        { filePath: this.filePath, err: error },
         'event journal write failed; events remain live-only this round',
       );
     }

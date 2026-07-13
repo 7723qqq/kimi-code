@@ -81,6 +81,9 @@ export function tryNativeEscapeXmlTags(input: string): string | undefined {
 export function tryNativeEstimateTokens(text: string): number | undefined {
   return callNativeSync<number>('nativeEstimateTokens', text);
 }
+export function tryNativeEstimateTokensBatch(texts: readonly string[]): number | undefined {
+  return callNativeSync<number>('nativeEstimateTokensBatch', [...texts]);
+}
 export function tryNativeTruncateTextToTokens(text: string, maxTokens: number): string | undefined {
   return callNativeSync<string>('nativeTruncateTextToTokens', text, maxTokens);
 }

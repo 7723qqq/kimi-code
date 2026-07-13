@@ -11,6 +11,7 @@ import type { BuiltinTool, ToolExecution } from '#/agent/tool/toolContract';
 import { registerTool } from '#/agent/toolRegistry/toolContribution';
 
 import { IAgentGoalService } from '#/agent/goal/goal';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import DESCRIPTION from './get-goal.md?raw';
 import { goalResultForModel } from './serialize';
 
@@ -36,4 +37,6 @@ export class GetGoalTool implements BuiltinTool<GetGoalToolInput> {
   }
 }
 
-registerTool(GetGoalTool);
+registerTool(GetGoalTool, {
+  when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
+});

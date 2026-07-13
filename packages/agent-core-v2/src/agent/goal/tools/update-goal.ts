@@ -15,6 +15,7 @@ import type { BuiltinTool, ToolExecution } from '#/agent/tool/toolContract';
 import { registerTool } from '#/agent/toolRegistry/toolContribution';
 
 import { IAgentGoalService } from '#/agent/goal/goal';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import {
   buildGoalBlockedReasonPrompt,
   buildGoalCompletionSummaryPrompt,
@@ -91,4 +92,6 @@ function isUpdateGoalStatus(status: unknown): status is UpdateGoalToolInput['sta
   return status === 'active' || status === 'complete' || status === 'blocked';
 }
 
-registerTool(UpdateGoalTool);
+registerTool(UpdateGoalTool, {
+  when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
+});

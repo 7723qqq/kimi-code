@@ -39,7 +39,9 @@ function buildCompactionConfigMeta(
 ): NativeCompactionConfigMeta {
   return {
     maxSize,
-    maxRecentMessages: config.maxRecentMessages,
+    maxRecentMessages: config.maxRecentMessages === Infinity
+      ? 0xFFFFFFFF // u32::MAX, matches Rust CompactionConfigMeta's stand-in for Infinity
+      : config.maxRecentMessages,
     maxRecentUserMessages: config.maxRecentUserMessages === Infinity
       ? 0xFFFFFFFF // u32::MAX, matches Rust CompactionConfigMeta's stand-in for Infinity
       : config.maxRecentUserMessages,
@@ -66,7 +68,7 @@ export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
   reservedContextSize: 50_000,
   maxCompactionPerTurn: Infinity,
   maxOverflowCompactionAttempts: 3,
-  maxRecentMessages: 4,
+  maxRecentMessages: Infinity,
   maxRecentUserMessages: Infinity,
   maxRecentSizeRatio: 0.2,
   minOverflowReductionRatio: 0.05,

@@ -4,9 +4,6 @@ import { homedir } from 'node:os';
 import { ErrorCodes, KimiError } from '#/errors';
 import { getRootLogger, log } from '#/logging/logger';
 import { PluginManager } from '#/plugin';
-import { LocalFetchURLProvider } from '#/tools/providers/local-fetch-url';
-import { MoonshotFetchURLProvider } from '#/tools/providers/moonshot-fetch-url';
-import { MoonshotWebSearchProvider } from '#/tools/providers/moonshot-web-search';
 import { ImageLimits } from '#/tools/support/image-limits';
 import { setConfiguredMaxImageEdgePx, setConfiguredReadImageByteBudget } from '#/tools/support/image-compress';
 import type { PromisableMethods } from '#/utils/types';
@@ -1161,6 +1158,13 @@ async function createRuntimeConfig(input: {
   readonly kimiRequestHeaders?: Record<string, string> | undefined;
   readonly resolveOAuthTokenProvider?: OAuthTokenProviderResolver | undefined;
 }): Promise<ToolServices> {
+  // Dynamic import: these providers pull in linkedom + @mozilla/readability
+  // (~300KB) that's only needed when fetching URLs. Loading them lazily keeps
+  // the startup bundle small.
+  const { LocalFetchURLProvider } = await import('#/tools/providers/local-fetch-url');
+  const { MoonshotFetchURLProvider } = await import('#/tools/providers/moonshot-fetch-url');
+  const { MoonshotWebSearchProvider } = await import('#/tools/providers/moonshot-web-search');
+
   const localFetcher = new LocalFetchURLProvider();
   const searchService = input.config.services?.moonshotSearch;
   const fetchService = input.config.services?.moonshotFetch;
