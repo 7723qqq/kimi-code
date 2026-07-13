@@ -84,7 +84,7 @@ class SessionEntry implements IDisposable {
     }
     void this.watcher.close().catch((error) => {
       this.logger.warn(
-        { sessionId: this.sessionId, err: String(error) },
+        { sessionId: this.sessionId, err: error },
         'fs-watcher close failed',
       );
     });
@@ -279,7 +279,7 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
     );
     watcher.on('error', (err) => {
       this.logger.warn(
-        { sessionId, err: String(err) },
+        { sessionId, err },
         'fs-watcher chokidar error',
       );
     });
@@ -361,7 +361,7 @@ export class FsWatcherService extends Disposable implements IFsWatcher {
         sink.send(frame);
       } catch (error) {
         this.logger.warn(
-          { connectionId, err: String(error) },
+          { connectionId, err: error },
           'fs-watcher send failed',
         );
       }

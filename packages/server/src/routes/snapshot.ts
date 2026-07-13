@@ -108,7 +108,7 @@ export function registerSnapshotRoutes(
         if (err instanceof SyntaxError) {
           ix.invokeFunction((a) => {
             a.get(ILogService).warn(
-              { sid: session_id, err: String(err) },
+              { sid: session_id, err },
               'snapshot.json_parse_error',
             );
           });

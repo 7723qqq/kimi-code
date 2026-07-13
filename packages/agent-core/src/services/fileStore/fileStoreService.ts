@@ -173,7 +173,7 @@ export class FileStore extends Disposable implements IFileStore {
       parsed = JSON.parse(raw) as IndexFile;
     } catch (err) {
       this.logger.warn(
-        { err: String(err) },
+        { err },
         'file-store index.json malformed; starting empty',
       );
       this.indexCache = new Map();

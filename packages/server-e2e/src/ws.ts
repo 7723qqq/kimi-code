@@ -188,7 +188,7 @@ export class WsClient {
       const raw = typeof data === 'string' ? data : String(data);
       frame = JSON.parse(raw) as AnyFrame;
     } catch (err) {
-      this.opts.logger('warn', 'ws: dropped non-JSON frame', { err: String(err) });
+      this.opts.logger('warn', 'ws: dropped non-JSON frame', { err });
       recordReportEvent(
         {
           kind: 'ws',
@@ -216,7 +216,7 @@ export class WsClient {
       try {
         sub(frame);
       } catch (err) {
-        this.opts.logger('warn', 'ws: subscriber threw', { err: String(err) });
+        this.opts.logger('warn', 'ws: subscriber threw', { err });
       }
     }
 
@@ -228,7 +228,7 @@ export class WsClient {
       try {
         matches = w.match(frame);
       } catch (err) {
-        this.opts.logger('warn', 'ws: waiter predicate threw', { err: String(err) });
+        this.opts.logger('warn', 'ws: waiter predicate threw', { err });
       }
       if (matches) {
         this._waiters.splice(i, 1);

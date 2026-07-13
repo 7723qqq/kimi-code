@@ -71,10 +71,6 @@ importers:
         version: 4.1.4(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
   apps/kimi-code:
-    dependencies:
-      '@moonshot-ai/kimi-code':
-        specifier: 'link:'
-        version: 'link:'
     devDependencies:
       '@moonshot-ai/acp-adapter':
         specifier: workspace:^
@@ -512,6 +508,9 @@ importers:
       '@moonshot-ai/kimi-code-oauth':
         specifier: workspace:^
         version: link:../oauth
+      '@moonshot-ai/kimi-native-tools':
+        specifier: workspace:^
+        version: link:../kimi-native-tools
       '@moonshot-ai/minidb':
         specifier: workspace:^
         version: link:../minidb
@@ -573,8 +572,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.2
       undici:
-        specifier: ^7.27.1
-        version: 7.27.1
+        specifier: ^8.5.0
+        version: 8.7.0
       yauzl:
         specifier: ^3.3.0
         version: 3.3.0
@@ -7951,10 +7950,6 @@ packages:
 
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
-
-  undici@7.27.1:
-    resolution: {integrity: sha512-UDdpiex+mzigiyrXrGbiUaF4HzTNhKbh2vRNFaTMzcqmLIPrZxaCtwo/1TMSuWoM1Xz3WiTo9KdgI3kRqYzJGg==}
-    engines: {node: '>=20.18.1'}
 
   undici@8.7.0:
     resolution: {integrity: sha512-N7iQtfyLhIMOFgQubvmLV26svHpO0bqKnAiWotTQCVKCmWrcGbBotPuW1x+xwYZ2VHdSTVUfPQQnlEt1/LouTQ==}
@@ -16108,8 +16103,6 @@ snapshots:
   undici-types@5.26.5: {}
 
   undici-types@6.21.0: {}
-
-  undici@7.27.1: {}
 
   undici@8.7.0: {}
 

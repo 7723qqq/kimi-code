@@ -96,7 +96,7 @@ export class MiniDbQueryStore extends Disposable implements IQueryStore {
         onRebuild: (err) => {
           this.log.warn('minidb query-store rebuilt after corruption', {
             dir: this.dir,
-            error: String(err),
+            err,
           });
         },
       },

@@ -56,7 +56,7 @@ export function installReverseRpcHandler<Req, Res>(
       })
       .catch((err) => {
         opts.logger('warn', `reverse-rpc: ${opts.requestEventType} resolve failed`, {
-          err: String(err),
+          err,
           sessionId,
           id,
         });

@@ -313,7 +313,7 @@ export class WorkspaceRegistryService extends Disposable implements IWorkspaceRe
       parsed = JSON.parse(raw);
     } catch (err) {
       this.logger.warn(
-        { path: this.registryPath, err: String(err) },
+        { path: this.registryPath, err },
         'workspaces.json malformed; treating as empty',
       );
       return { version: WORKSPACE_REGISTRY_VERSION, workspaces: {}, deleted_workspace_ids: [] };

@@ -791,7 +791,7 @@ export class Session {
       // metadata rather than crashing the caller.
       this.log.warn(
         'session.state_json_parse_failed',
-        { path: this.metadataPath, err: String(error) },
+        { path: this.metadataPath, err: error },
       );
     }
     return this.metadata;

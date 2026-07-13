@@ -188,7 +188,7 @@ export class WsConnection {
 
     this.socket.on('message', (data) => this.onMessage(data));
     this.socket.on('close', (code, reason) => this.onClose(code, String(reason)));
-    this.socket.on('error', (err) => this.logger.warn({ err: String(err) }, 'ws socket error'));
+    this.socket.on('error', (err) => this.logger.warn({ err }, 'ws socket error'));
 
     this.startPingTimer();
   }
@@ -221,7 +221,7 @@ export class WsConnection {
     switch (msg.type) {
       case 'client_hello':
         void this.onClientHello(msg).catch((err: unknown) => {
-          this.logger.warn({ err: String(err) }, 'client_hello handler failed');
+          this.logger.warn({ err }, 'client_hello handler failed');
         });
         break;
       case 'pong':
@@ -229,7 +229,7 @@ export class WsConnection {
         break;
       case 'subscribe':
         void this.onSubscribe(msg).catch((err: unknown) => {
-          this.logger.warn({ err: String(err) }, 'subscribe handler failed');
+          this.logger.warn({ err }, 'subscribe handler failed');
         });
         break;
       case 'unsubscribe':
@@ -343,7 +343,7 @@ export class WsConnection {
       try {
         serverCursors[sid] = await this.wsBroadcast.getCursor(sid);
       } catch (err) {
-        this.logger.warn({ sid, err: String(err) }, 'getCursor failed for ack');
+        this.logger.warn({ sid, err }, 'getCursor failed for ack');
       }
     }
 
@@ -375,7 +375,7 @@ export class WsConnection {
           })
           .catch((err: unknown) => {
             this.logger.warn(
-              { sid, err: String(err) },
+              { sid, err },
               'subscribe.watch_fs add threw',
             );
           });
@@ -403,7 +403,7 @@ export class WsConnection {
         const handler = this.fsWatchHandler;
         void handler.remove(sid, this.id, []).catch((err: unknown) => {
           this.logger.warn(
-            { sid, err: String(err) },
+            { sid, err },
             'unsubscribe watch_fs drop threw',
           );
         });
@@ -442,7 +442,7 @@ export class WsConnection {
         );
       })
       .catch((err: unknown) => {
-        this.logger.warn({ err: String(err) }, 'watch_fs_add handler threw');
+        this.logger.warn({ err }, 'watch_fs_add handler threw');
         this.send(
           buildAck(msg.id, ErrorCode.INTERNAL_ERROR, 'watch_fs_add failed', {}),
         );
@@ -473,7 +473,7 @@ export class WsConnection {
         );
       })
       .catch((err: unknown) => {
-        this.logger.warn({ err: String(err) }, 'watch_fs_remove handler threw');
+        this.logger.warn({ err }, 'watch_fs_remove handler threw');
         this.send(
           buildAck(msg.id, ErrorCode.INTERNAL_ERROR, 'watch_fs_remove failed', {}),
         );
@@ -533,7 +533,7 @@ export class WsConnection {
           );
           return;
         }
-        this.logger.warn({ err: String(err) }, 'ws abort handler error');
+        this.logger.warn({ err }, 'ws abort handler error');
         this.send(
           buildAck(msg.id, ErrorCode.INTERNAL_ERROR, 'abort failed', {}),
         );
@@ -630,7 +630,7 @@ export class WsConnection {
       this.send(buildAck(id, ErrorCode.SESSION_NOT_FOUND, 'session not found', {}));
       return;
     }
-    this.logger.warn({ err: String(err) }, fallback);
+    this.logger.warn({ err }, fallback);
     this.send(buildAck(id, ErrorCode.INTERNAL_ERROR, fallback, {}));
   }
 
@@ -687,7 +687,7 @@ export class WsConnection {
         this.fsWatchHandler.cleanupConnection(this.id);
       } catch (err) {
         this.logger.warn(
-          { err: String(err) },
+          { err },
           'fsWatchHandler.cleanupConnection threw',
         );
       }
@@ -697,7 +697,7 @@ export class WsConnection {
         this.terminalHandler.cleanupConnection(this.id);
       } catch (err) {
         this.logger.warn(
-          { err: String(err) },
+          { err },
           'terminalHandler.cleanupConnection threw',
         );
       }
@@ -710,10 +710,10 @@ export class WsConnection {
     if (this.socket.readyState !== this.socket.OPEN) return;
     try {
       this.socket.send(JSON.stringify(message), (err) => {
-        if (err) this.logger.warn({ err: String(err) }, 'ws send failed');
+        if (err) this.logger.warn({ err }, 'ws send failed');
       });
     } catch (err) {
-      this.logger.warn({ err: String(err) }, 'ws send threw');
+      this.logger.warn({ err }, 'ws send threw');
     }
   }
 

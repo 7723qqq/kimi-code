@@ -100,7 +100,7 @@ if (String(pb) !== '[id nil]') {
       const path = value ? ObjC.unwrap(value) : '';
       if (path) out.push(path);
     }
-  } catch (error) {}
+  } catch (error) { /* best-effort: no file URLs on clipboard */ }
 
   if (out.length === 0) {
     try {
@@ -112,7 +112,7 @@ if (String(pb) !== '[id nil]') {
       } else if (files) {
         out.push(String(files));
       }
-    } catch (error) {}
+    } catch (error) { /* best-effort: no file URLs on clipboard */ }
   }
 }
 out.join('\n');

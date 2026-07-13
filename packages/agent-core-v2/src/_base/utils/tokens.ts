@@ -5,13 +5,26 @@
 import type { ContentPart, Message } from '#/app/llmProtocol/message';
 import type { Tool } from '#/app/llmProtocol/tool';
 
-import { tryNativeEstimateTokens } from '#/_base/native-tools';
+import { tryNativeEstimateTokens, tryNativeEstimateTokensBatch } from '#/_base/native-tools';
 
 const messageTokenEstimateCache = new WeakMap<Message, number>();
+
+/**
+ * JSON/structured content tends to have more tokens per character than
+ * natural language — short identifiers, brackets, colons, and commas each
+ * tokenize into individual tokens. The raw heuristic (ascii/4) under-counts
+ * these. A 1.3× multiplier on JSON-stringified content closes most of the
+ * gap without paying for a real tokenizer.
+ */
+const JSON_TOKEN_MULTIPLIER = 1.3;
 
 export function estimateTokens(text: string): number {
   const native = tryNativeEstimateTokens(text);
   if (native !== undefined) return native;
+  return tsEstimateTokens(text);
+}
+
+function tsEstimateTokens(text: string): number {
   let asciiCount = 0;
   let nonAsciiCount = 0;
   for (const char of text) {
@@ -24,6 +37,14 @@ export function estimateTokens(text: string): number {
   return Math.ceil(asciiCount / 4) + nonAsciiCount;
 }
 
+/**
+ * Estimate tokens for JSON-serialized content. The multiplier compensates
+ * for the heuristic's under-counting of JSON's dense punctuation.
+ */
+function estimateTokensForJson(text: string): number {
+  return Math.ceil(tsEstimateTokens(text) * JSON_TOKEN_MULTIPLIER);
+}
+
 export function estimateTokensForMessages(messages: readonly Message[]): number {
   let total = 0;
   for (const message of messages) {
@@ -33,11 +54,24 @@ export function estimateTokensForMessages(messages: readonly Message[]): number 
 }
 
 export function estimateTokensForTools(tools: readonly Tool[]): number {
+  const batch = tryNativeEstimateTokensBatch;
+  if (batch !== undefined) {
+    const texts: string[] = [];
+    for (const tool of tools) {
+      texts.push(tool.name);
+      texts.push(tool.description);
+      texts.push(JSON.stringify(tool.parameters));
+    }
+    const result = batch(texts);
+    if (result !== undefined) {
+      return Math.ceil(result * JSON_TOKEN_MULTIPLIER);
+    }
+  }
   let total = 0;
   for (const tool of tools) {
     total += estimateTokens(tool.name);
     total += estimateTokens(tool.description);
-    total += estimateTokens(JSON.stringify(tool.parameters));
+    total += estimateTokensForJson(JSON.stringify(tool.parameters));
   }
   return total;
 }
@@ -53,8 +87,14 @@ export function estimateTokensForMessage(message: Message): number {
   if (message.toolCalls !== undefined) {
     for (const call of message.toolCalls) {
       total += estimateTokens(call.name);
-      total += estimateTokens(JSON.stringify(call.arguments));
+      total += estimateTokensForJson(JSON.stringify(call.arguments));
     }
+  }
+  // Dynamic tool schema messages carry full tool definitions; without this the
+  // injected schemas are invisible to every compaction budget and the context
+  // overflows before compaction ever triggers.
+  if (message.tools !== undefined) {
+    total += estimateTokensForTools(message.tools);
   }
   messageTokenEstimateCache.set(message, total);
   return total;

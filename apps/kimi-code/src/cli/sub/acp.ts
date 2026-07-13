@@ -21,11 +21,9 @@
 
 import type { Command } from 'commander';
 
-import {
-  ACP_BUILTIN_SLASH_COMMANDS,
-  runAcpServer,
-  type AvailableCommand,
-  type SlashCommandsSnapshot,
+import type {
+  AvailableCommand,
+  SlashCommandsSnapshot,
 } from '@moonshot-ai/acp-adapter';
 import { createKimiHarness, type Session, type SkillSummary } from '@moonshot-ai/kimi-code-sdk';
 
@@ -50,6 +48,7 @@ export function registerAcpCommand(parent: Command): void {
         await runLoginFlow();
         return;
       }
+      const { ACP_BUILTIN_SLASH_COMMANDS, runAcpServer } = await import('@moonshot-ai/acp-adapter');
       const identity = createKimiCodeHostIdentity();
       const harness = createKimiHarness({
         identity,

@@ -14,7 +14,7 @@
 import { join } from 'node:path';
 
 import { shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
-import { startServer, type ServerLogger } from '@moonshot-ai/server';
+import type { ServerLogger } from '@moonshot-ai/server';
 import chalk from 'chalk';
 import { Option, type Command } from 'commander';
 
@@ -454,6 +454,7 @@ async function runServerInProcess(
       close: () => v2.close(),
     };
   } else {
+    const { startServer } = await import('@moonshot-ai/server');
     running = await startServer({
       host: options.host,
       port: options.port,

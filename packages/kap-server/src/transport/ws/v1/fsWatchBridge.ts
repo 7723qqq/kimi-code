@@ -237,7 +237,7 @@ export class FsWatchBridge {
       try {
         conn.send(frame as EventEnvelope);
       } catch (error) {
-        this.logger?.warn({ sessionId, err: String(error) }, 'fs-watch send failed');
+        this.logger?.warn({ sessionId, err: error }, 'fs-watch send failed');
       }
     }
   }
