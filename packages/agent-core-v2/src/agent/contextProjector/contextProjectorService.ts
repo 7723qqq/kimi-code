@@ -499,6 +499,6 @@ registerScopedService(
   LifecycleScope.Agent,
   IAgentContextProjectorService,
   AgentContextProjectorService,
-  InstantiationType.Delayed,
+  InstantiationType.Eager,
   'contextProjector',
 );

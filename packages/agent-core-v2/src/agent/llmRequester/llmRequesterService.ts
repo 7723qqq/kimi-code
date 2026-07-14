@@ -614,6 +614,6 @@ registerScopedService(
   LifecycleScope.Agent,
   IAgentLLMRequesterService,
   AgentLLMRequesterService,
-  InstantiationType.Delayed,
+  InstantiationType.Eager,
   'llmRequester',
 );
