@@ -615,11 +615,12 @@ describe('turn telemetry', () => {
 
       expect(records).toContainEqual({
         event: 'turn_started',
-        properties: { mode: 'agent', provider_type: 'kimi', protocol: 'kimi' },
+        properties: { turn_id: 0, mode: 'agent', provider_type: 'kimi', protocol: 'kimi' },
       });
       expect(records).toContainEqual({
         event: 'turn_ended',
         properties: expect.objectContaining({
+          turn_id: 0,
           reason: 'completed',
           duration_ms: expect.any(Number),
           mode: 'agent',
@@ -647,6 +648,7 @@ describe('turn telemetry', () => {
       expect(records).toContainEqual({
         event: 'turn_interrupted',
         properties: expect.objectContaining({
+          turn_id: 0,
           at_step: 1,
           mode: 'agent',
           interrupt_reason: 'filtered',
@@ -694,7 +696,7 @@ describe('turn telemetry', () => {
 
         expect(records).toContainEqual({
           event: 'turn_interrupted',
-          properties: expect.objectContaining({ interrupt_reason: expected, mode: 'agent' }),
+          properties: expect.objectContaining({ turn_id: 0, interrupt_reason: expected, mode: 'agent' }),
         });
         expect(records).toContainEqual({
           event: 'turn_ended',
