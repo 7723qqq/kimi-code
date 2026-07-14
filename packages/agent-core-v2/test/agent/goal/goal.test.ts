@@ -1042,13 +1042,36 @@ describe('AgentGoalService core workflow hooks', () => {
     expect(JSON.stringify(context.get().at(-1)?.content)).toContain('Continue working toward');
   });
 
-  it('blocks at the turn budget instead of launching a continuation', async () => {
+  it('blocks the next continuation only after the final allowed turn ends', async () => {
     await goals.createGoal({ objective: 'finish the task' });
     await goals.setBudgetLimits({ budgetLimits: { turnBudget: 1 } }, 'model');
 
     const turn = makeTurn(11);
     eventBus.publish({ type: 'turn.started', turnId: turn.id, origin: USER_PROMPT_ORIGIN });
-    await runGoalStep(loopService, turn);
+    await loopService.hooks.onWillBeginStep.run({
+      turnId: turn.id,
+      step: 1,
+      signal: turn.signal,
+    });
+
+    expect(goals.getGoal().goal).toMatchObject({
+      status: 'active',
+      turnsUsed: 1,
+    });
+
+    const afterStep: AfterStepContext = {
+      turnId: turn.id,
+      step: 1,
+      signal: turn.signal,
+      usage: zeroUsage,
+      finishReason: 'completed',
+      stopTurn: false,
+    };
+    await loopService.hooks.onDidFinishStep.run(afterStep);
+
+    expect(afterStep.stopTurn).toBe(false);
+    expect(goals.getGoal().goal?.status).toBe('active');
+
     endTurn(eventBus, turn);
 
     expect(goals.getGoal().goal).toMatchObject({
@@ -1057,6 +1080,64 @@ describe('AgentGoalService core workflow hooks', () => {
       terminalReason: 'Blocked after goal budget reached: turn budget 1',
     });
     expect(loopService.launches).toEqual([]);
+  });
+
+  it('completes on the final allowed continuation without applying the turn budget block', async () => {
+    await goals.createGoal({ objective: 'finish the task' });
+    await goals.setBudgetLimits({ budgetLimits: { turnBudget: 2 } }, 'model');
+
+    const firstTurn = makeTurn(14);
+    eventBus.publish({ type: 'turn.started', turnId: firstTurn.id, origin: USER_PROMPT_ORIGIN });
+    await runGoalStep(loopService, firstTurn);
+    endTurn(eventBus, firstTurn);
+
+    await vi.waitFor(() => expect(loopService.launches).toHaveLength(1));
+    const continuation = makeTurn(loopService.launches[0]!);
+    eventBus.publish({
+      type: 'turn.started',
+      turnId: continuation.id,
+      origin: { kind: 'system_trigger', name: 'goal_continuation' },
+    });
+    await loopService.hooks.onWillBeginStep.run({
+      turnId: continuation.id,
+      step: 1,
+      signal: continuation.signal,
+    });
+
+    const completed = await goals.markComplete({ reason: 'done' }, 'model');
+    endTurn(eventBus, continuation);
+
+    expect(completed).toMatchObject({ status: 'complete', turnsUsed: 2 });
+    expect(goals.getGoal().goal).toBeNull();
+    expect(loopService.launches).toHaveLength(1);
+  });
+
+  it('requests a blocked outcome step when the final allowed turn blocks the goal', async () => {
+    await goals.createGoal({ objective: 'finish the task' });
+    await goals.setBudgetLimits({ budgetLimits: { turnBudget: 1 } }, 'model');
+
+    const turn = makeTurn(15);
+    eventBus.publish({ type: 'turn.started', turnId: turn.id, origin: USER_PROMPT_ORIGIN });
+    await loopService.hooks.onWillBeginStep.run({
+      turnId: turn.id,
+      step: 1,
+      signal: turn.signal,
+    });
+    await goals.markBlocked({}, 'model');
+    await runTerminalUpdateGoalResult(toolExecutor, turn, 'blocked', 'outcome prompt');
+
+    const afterStep: AfterStepContext = {
+      turnId: turn.id,
+      step: 1,
+      signal: turn.signal,
+      usage: zeroUsage,
+      finishReason: 'completed',
+      stopTurn: false,
+    };
+    await loopService.hooks.onDidFinishStep.run(afterStep);
+
+    expect(loopService.hasPendingRequests()).toBe(true);
+    expect(goals.getGoal().goal).toMatchObject({ status: 'blocked', turnsUsed: 1 });
   });
 
   it('accounts recorded turn usage for active goal turns', async () => {
@@ -1133,6 +1214,7 @@ describe('AgentGoalService core workflow hooks', () => {
     await goals.setBudgetLimits({ budgetLimits: { turnBudget: 1 } }, 'model');
     endTurn(eventBus, turn);
 
+    await vi.waitFor(() => expect(goals.getGoal().goal?.status).toBe('blocked'));
     expect(goals.getGoal().goal).toMatchObject({
       status: 'blocked',
       turnsUsed: 1,
@@ -1557,7 +1639,47 @@ describe('AgentGoalService mid-turn budget stop', () => {
     }
   });
 
-  it('blocks an over-budget goal at turn launch and runs the prompt as a normal turn', async () => {
+  it('rejects goal tool calls when an exhausted turn budget is resumed during a prompt', async () => {
+    const ctx = createTestAgent();
+    try {
+      ctx.configure({ tools: ['UpdateGoal', 'SetGoalBudget'] });
+      const goals = ctx.get(IAgentGoalService) as GoalServiceTestManager;
+      await goals.createGoal({ objective: 'work' });
+      await goals.setBudgetLimits({ budgetLimits: { turnBudget: 1 } }, 'model');
+      await goals.incrementTurn();
+      await goals.setBudgetLimits({ budgetLimits: { turnBudget: 1 } }, 'model');
+
+      ctx.mockNextResponse({
+        type: 'function',
+        id: 'resume',
+        name: 'UpdateGoal',
+        arguments: JSON.stringify({ status: 'active' }),
+      });
+      ctx.mockNextResponse({
+        type: 'function',
+        id: 'raise-budget',
+        name: 'SetGoalBudget',
+        arguments: JSON.stringify({ value: 5, unit: 'turns' }),
+      });
+      ctx.mockNextResponse({ type: 'text', text: 'This step should never run.' });
+
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'resume the goal' }] });
+      await ctx.untilTurnEnd();
+
+      expect(ctx.llmCalls).toHaveLength(2);
+      const history = ctx.get(IAgentContextMemoryService).get();
+      expect(JSON.stringify(history)).toContain(
+        'Goal budget exhausted; tool calls are rejected. Write your final message.',
+      );
+      expect(JSON.stringify(history)).not.toContain('This step should never run.');
+      await vi.waitFor(() => expect(goals.getGoal().goal?.status).toBe('blocked'));
+      expect(goals.getGoal().goal?.budget.turnBudget).toBe(1);
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  it("runs the prompt as a normal turn when the goal's turn budget was reached at launch", async () => {
     const telemetry: TelemetryRecord[] = [];
     const ctx = createTestAgent(telemetryServices(recordingTelemetry(telemetry)));
     try {
@@ -1566,10 +1688,7 @@ describe('AgentGoalService mid-turn budget stop', () => {
       await goals.createGoal({ objective: 'work' });
       await goals.setBudgetLimits({ budgetLimits: { turnBudget: 1 } }, 'model');
       await goals.incrementTurn();
-      expect(goals.getGoal().goal?.status).toBe('blocked');
-
-      const resumed = await goals.resumeGoal();
-      expect(resumed.status).toBe('active');
+      expect(goals.getGoal().goal?.status).toBe('active');
       const telemetryAfterResume = telemetry.length;
 
       ctx.mockNextResponse({ type: 'text', text: 'Answering the prompt normally.' });
