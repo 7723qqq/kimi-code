@@ -116,7 +116,7 @@ function isEffectivelyEmptyContent(parts: ContentPart[]): boolean {
   return true;
 }
 
-function convertMessage(message: Message): OpenAIMessage {
+function convertMessage(message: Message, preservedThinkingEnabled: boolean): OpenAIMessage {
   let reasoningContent = '';
   let hasReasoningPart = false;
   const nonThinkParts: ContentPart[] = [];
@@ -170,7 +170,7 @@ function convertMessage(message: Message): OpenAIMessage {
     result.tool_call_id = message.toolCallId;
   }
 
-  if (hasReasoningPart) {
+  if (hasReasoningPart || (preservedThinkingEnabled && message.role === 'assistant')) {
     result.reasoning_content = reasoningContent;
   }
 
@@ -483,9 +483,12 @@ export class KimiChatProvider implements ChatProvider {
     if (systemPrompt) {
       messages.push({ role: 'system', content: systemPrompt });
     }
+    const thinking = this._generationKwargs.extra_body?.thinking;
+    const preservedThinkingEnabled =
+      thinking?.keep === 'all' && thinking.type !== 'disabled';
     const normalizedHistory = normalizeToolCallIdsForProvider(history, KIMI_TOOL_CALL_ID_POLICY);
     for (const msg of normalizedHistory) {
-      messages.push(convertMessage(msg));
+      messages.push(convertMessage(msg, preservedThinkingEnabled));
     }
 
     const kwargs: Record<string, unknown> = {

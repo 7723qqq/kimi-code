@@ -74,6 +74,36 @@ async function captureRequestBody(
   return capturedBody;
 }
 
+async function captureKimiMessages(
+  history: Message[],
+  configure?: (provider: KimiChatProvider) => KimiChatProvider,
+): Promise<Array<Record<string, unknown>>> {
+  let captured: Record<string, unknown> | undefined;
+  const create = vi.fn().mockImplementation((params: unknown) => {
+    captured = params as Record<string, unknown>;
+    return Promise.resolve(makeChatCompletionResponse('kimi-k2'));
+  });
+  let provider = new KimiChatProvider({
+    model: 'kimi-k2',
+    apiKey: 'test-key',
+    stream: false,
+    clientFactory: () => ({ chat: { completions: { create } } }) as never,
+  });
+  if (configure !== undefined) {
+    provider = configure(provider);
+  }
+
+  const response = await provider.generate('', [], history);
+  for await (const part of response) {
+    void part;
+  }
+
+  if (captured === undefined) {
+    throw new Error('Expected Kimi provider to send a request.');
+  }
+  return captured['messages'] as Array<Record<string, unknown>>;
+}
+
 const ADD_TOOL: Tool = {
   name: 'add',
   description: 'Add two integers.',
@@ -605,6 +635,127 @@ describe('KimiChatProvider', () => {
           ],
         },
       ]);
+    });
+
+    it('backfills an assistant tool-call message when preserved thinking is active', async () => {
+      const history: Message[] = [
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [
+            { type: 'function', id: 'call_1', name: 'lookup', arguments: '{"q":"test"}' },
+          ],
+        },
+      ];
+
+      const messages = await captureKimiMessages(history, (provider) =>
+        provider.withExtraBody({ thinking: { type: 'enabled', keep: 'all' } }),
+      );
+
+      expect(messages[0]).toHaveProperty('reasoning_content', '');
+    });
+
+    it('backfills a text assistant message when keep=all omits thinking.type', async () => {
+      const history: Message[] = [
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Done.' }],
+          toolCalls: [],
+        },
+      ];
+
+      const messages = await captureKimiMessages(history, (provider) =>
+        provider.withExtraBody({ thinking: { keep: 'all' } }),
+      );
+
+      expect(messages[0]).toHaveProperty('reasoning_content', '');
+    });
+
+    it.each([
+      ['empty', ''],
+      ['non-empty', 'reasoning text'],
+    ])(
+      'sends an existing %s ThinkPart verbatim when preserved thinking is active',
+      async (_kind, think) => {
+        const history: Message[] = [
+          {
+            role: 'assistant',
+            content: [{ type: 'think', think }],
+            toolCalls: [],
+          },
+        ];
+
+        const messages = await captureKimiMessages(history, (provider) =>
+          provider.withExtraBody({ thinking: { type: 'enabled', keep: 'all' } }),
+        );
+
+        expect(messages[0]).toHaveProperty('reasoning_content', think);
+      },
+    );
+
+    it.each([
+      ['missing', undefined],
+      ['null', null],
+      ['false', false],
+      ['off', 'off'],
+    ])(
+      'does not backfill reasoning_content when thinking.keep is %s',
+      async (_kind, keep) => {
+        const history: Message[] = [
+          {
+            role: 'assistant',
+            content: [],
+            toolCalls: [
+              { type: 'function', id: 'call_1', name: 'lookup', arguments: '{"q":"test"}' },
+            ],
+          },
+        ];
+
+        const messages = await captureKimiMessages(history, (provider) =>
+          provider.withExtraBody({ thinking: { type: 'enabled', keep } }),
+        );
+
+        expect(messages[0]).not.toHaveProperty('reasoning_content');
+      },
+    );
+
+    it('does not backfill reasoning_content when thinking is disabled', async () => {
+      const history: Message[] = [
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [
+            { type: 'function', id: 'call_1', name: 'lookup', arguments: '{"q":"test"}' },
+          ],
+        },
+      ];
+
+      const messages = await captureKimiMessages(history, (provider) =>
+        provider.withExtraBody({ thinking: { type: 'disabled', keep: 'all' } }),
+      );
+
+      expect(messages[0]).not.toHaveProperty('reasoning_content');
+    });
+
+    it('does not backfill reasoning_content on non-assistant messages', async () => {
+      const history: Message[] = [
+        { role: 'system', content: [{ type: 'text', text: 'System.' }], toolCalls: [] },
+        { role: 'user', content: [{ type: 'text', text: 'User.' }], toolCalls: [] },
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'Tool result.' }],
+          toolCalls: [],
+          toolCallId: 'call_1',
+        },
+      ];
+
+      const messages = await captureKimiMessages(history, (provider) =>
+        provider.withExtraBody({ thinking: { type: 'enabled', keep: 'all' } }),
+      );
+
+      for (const message of messages) {
+        expect(message).not.toHaveProperty('reasoning_content');
+      }
     });
   });
 
