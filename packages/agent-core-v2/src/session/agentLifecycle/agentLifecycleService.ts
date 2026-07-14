@@ -55,6 +55,7 @@ import { IImageConfigBridge } from '#/agent/media/imageConfigBridge';
 import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { IAgentExternalHooksService } from '#/agent/externalHooks/externalHooks';
 import { IAgentPluginService } from '#/agent/plugin/agentPlugin';
+import { IAgentWireRecordService } from '#/agent/wireRecord/wireRecord';
 import { ISessionInteractionService } from '#/session/interaction/interaction';
 import {
   type AgentListFilter,
@@ -168,6 +169,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     ) as IAgentScopeHandle;
     this.handles.set(agentId, handle);
     try {
+      await handle.accessor.get(IAgentWireRecordService).seal();
       await this.sessionMetadata.registerAgent(agentId, {
         homedir: agentHomedir,
         type: agentId === 'main' ? 'main' : 'sub',
@@ -182,10 +184,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       // Bootstrap (profile binding and the force-instantiated observer
       // services) is complete: drive the activity kernel `initializing → idle`
       // so the agent can admit turns. Until this point `begin` rejects with
-      // `activity.initializing`. The wire log's metadata envelope is NOT
-      // seeded here — `wireRecord.restore()` heals envelope-less logs on
-      // resume (prepend + rewrite), so creation stays free of log-format
-      // concerns.
+      // `activity.initializing`.
       handle.accessor.get(IAgentActivityService).markReady();
       return handle;
     } catch (error) {
