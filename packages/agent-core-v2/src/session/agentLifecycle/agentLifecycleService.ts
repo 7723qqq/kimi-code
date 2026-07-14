@@ -34,6 +34,7 @@ import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
 import { ErrorCodes, Error2 } from '#/errors';
 import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
+import { PermissionModeConfiguredModel } from '#/agent/permissionMode/permissionModeOps';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentToolDedupeService } from '#/agent/toolDedupe/toolDedupe';
 import { IAgentTaskService } from '#/agent/task/task';
@@ -49,14 +50,19 @@ import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IAgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSelectAnnouncements';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import { IAgentGoalService } from '#/agent/goal/goal';
+import { IAgentPlanService } from '#/agent/plan/plan';
+import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { IAgentBuiltinToolsRegistrar } from '#/agent/toolRegistry/builtinToolsRegistrar';
 import { IAgentMediaToolsRegistrar } from '#/agent/media/mediaTools';
 import { IImageConfigBridge } from '#/agent/media/imageConfigBridge';
 import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { IAgentExternalHooksService } from '#/agent/externalHooks/externalHooks';
 import { IAgentPluginService } from '#/agent/plugin/agentPlugin';
-import { IAgentWireRecordService } from '#/agent/wireRecord/wireRecord';
 import { ISessionInteractionService } from '#/session/interaction/interaction';
+import { IWireService } from '#/wire/wire';
 import {
   type AgentListFilter,
   type CreateAgentOptions,
@@ -144,9 +150,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
 
   private async doCreate(agentId: string, opts: CreateAgentOptions): Promise<IAgentScopeHandle> {
     const mcpReady = this.sessionMcp.ensureMcpReady();
-    // Per-agent homedir → the wire-record persistence key (`hashKey(homedir)`).
-    // Bootstrap computes it under the session dir, mirroring v1's
-    // `<sessionDir>/agents/<id>`; business code never assembles the path itself.
     const agentHomedir = this.bootstrap.agentHomedir(
       this.ctx.workspaceId,
       this.ctx.sessionId,
@@ -163,13 +166,14 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       agentId,
       // The only per-agent seed: identity facts. Every other agent-scope
       // service either derives its configuration from `IAgentScopeContext`
-      // (wire, wireRecord, blob) or resolves it through the scope tree (the
+      // (wire, blob) or resolves it through the scope tree (the
       // session's shared MCP manager via `ISessionMcpService`).
       { extra: [[IAgentScopeContext, makeAgentScopeContext({ agentId, agentScope })]] },
     ) as IAgentScopeHandle;
     this.handles.set(agentId, handle);
     try {
-      await handle.accessor.get(IAgentWireRecordService).seal();
+      const wire = handle.accessor.get(IWireService);
+      await wire.seal();
       await this.sessionMetadata.registerAgent(agentId, {
         homedir: agentHomedir,
         type: agentId === 'main' ? 'main' : 'sub',
@@ -180,6 +184,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       this.onDidCreateEmitter.fire(handle);
       this.igniteEagerServices(handle);
       await mcpReady;
+      await wire.restore();
       await this.bindBootstrap(handle, opts);
       // Bootstrap (profile binding and the force-instantiated observer
       // services) is complete: drive the activity kernel `initializing → idle`
@@ -232,6 +237,13 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     handle.accessor.get(IAgentToolSelectAnnouncementsService);
     handle.accessor.get(IAgentStepRetryService);
     handle.accessor.get(IAgentLoopContinuationService);
+    handle.accessor.get(IAgentContextMemoryService);
+    handle.accessor.get(IAgentContextInjectorService);
+    handle.accessor.get(IAgentGoalService);
+    handle.accessor.get(IAgentPlanService);
+    handle.accessor.get(IAgentTaskService);
+    handle.accessor.get(IAgentUserToolService);
+    handle.accessor.get(IAgentFullCompactionService);
   }
 
   private async bindBootstrap(
@@ -241,12 +253,14 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     if (opts.binding !== undefined) {
       await handle.accessor.get(IAgentProfileService).bind(opts.binding);
     }
-    // Every fresh agent starts from the configured default permission posture;
-    // dispatchers that want a specific mode (subagent inheritance) set it on
-    // the child themselves after creation. On resume the wire replay
-    // overwrites this with the persisted mode.
+    // Apply the configured default only when restore found no persisted mode.
+    // A resumed Agent's journal owns its permission posture; callers that need
+    // an explicit override (for example subagent inheritance) do so after
+    // creation through the permission service.
+    const wire = handle.accessor.get(IWireService);
     const permissionMode = this.config.get<PermissionMode>(DEFAULT_PERMISSION_MODE_SECTION);
-    if (permissionMode !== undefined) {
+    const hasRestoredPermissionMode = wire.getModel(PermissionModeConfiguredModel);
+    if (permissionMode !== undefined && !hasRestoredPermissionMode) {
       handle.accessor.get(IAgentPermissionModeService).setMode(permissionMode);
     }
   }

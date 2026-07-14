@@ -5,13 +5,14 @@
  * `GoalModel` (`GoalState | null`) through the `goal.create` / `goal.update` /
  * `goal.clear` Ops (`wire.dispatch`), reads it through `wire.getModel`,
  * publishes `goal.updated` live to `IEventBus`, and forces a replayed `active`
- * goal back to `paused` via `wire.onRestored`. The accumulated `wallClockMs`
- * lives in the Model (set from each Op payload, never by `Date.now()` inside
- * `apply`); the `wallClockResumedAt` cursor is a live-only field, reset on
- * replay and (re)started on the live path. A `forked` wire Op clears the Model
+ * goal back to `paused` via `wire.hooks.onDidRestore`. The accumulated
+ * `wallClockMs` lives in the Model (set from each Op payload, never by
+ * `Date.now()` inside `apply`); the `wallClockResumedAt` cursor is a live-only
+ * field, reset on replay and (re)started on the live path. A `forked` wire Op
+ * clears the Model
  * at a fork boundary; the `goal.*` payload shapes are registered in
  * `PersistedOpMap` (`#/wire/types`) inside `goalOps` because they still ride
- * the shared wire log read by `getRecords()` and replayed into the Model.
+ * the Agent wire journal restored into the Model.
  * Injects reminders through
  * `contextInjector`, drives continuation turns by enqueueing `newTurn`
  * `StepRequest`s onto `loop` (the continuation message materializes when the
@@ -52,9 +53,8 @@ import {
   toKimiErrorPayload,
   type KimiErrorPayload,
 } from '#/errors';
-import { IAgentWireService } from '#/wire/tokens';
-import { defineDerivedModel } from '#/wire/model';
-import type { IWireService } from '#/wire/wireService';
+import { IWireService } from '#/wire/wire';
+import { defineModel } from '#/wire/model';
 import { IEventBus } from '#/app/event/eventBus';
 
 import { IAgentGoalService, type GoalReasonInput, type ResumeGoalInput } from './goal';
@@ -157,20 +157,22 @@ interface PendingContinuation {
   turnId?: number;
 }
 
-const GoalForkNoticeModel = defineDerivedModel<GoalForkNoticeState>(
+const GoalForkNoticeModel = defineModel<GoalForkNoticeState>(
   'goalForkNotice',
   () => ({ goalPresent: false, reminderPending: false }),
   {
-    'goal.create': (state) => ({ ...state, goalPresent: true }),
-    'goal.clear': (state) => ({ ...state, goalPresent: false }),
-    forked: (state) => ({
-      goalPresent: false,
-      reminderPending: state.goalPresent || state.reminderPending,
-    }),
-    'context.append_message': (state, payload: { message?: ContextMessage }) =>
-      state.reminderPending && isGoalForkClearedReminder(payload.message)
-        ? { ...state, reminderPending: false }
-        : state,
+    reducers: {
+      'goal.create': (state) => ({ ...state, goalPresent: true }),
+      'goal.clear': (state) => ({ ...state, goalPresent: false }),
+      forked: (state) => ({
+        goalPresent: false,
+        reminderPending: state.goalPresent || state.reminderPending,
+      }),
+      'context.append_message': (state, payload: { message?: ContextMessage }) =>
+        state.reminderPending && isGoalForkClearedReminder(payload.message)
+          ? { ...state, reminderPending: false }
+          : state,
+    },
   },
 );
 
@@ -195,7 +197,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   private pendingContinuation?: PendingContinuation;
 
   constructor(
-    @IAgentWireService private readonly wire: IWireService,
+    @IWireService private readonly wire: IWireService,
     @IEventBus private readonly eventBus: IEventBus,
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -214,8 +216,12 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
         dynamicInjector,
       ),
     );
-    this._register(this.wire.attach(GoalForkNoticeModel));
-    this._register(this.wire.onRestored(() => this.normalizeAfterReplay()));
+    this._register(
+      this.wire.hooks.onDidRestore.register('goal', async (_ctx, next) => {
+        this.normalizeAfterReplay();
+        await next();
+      }),
+    );
     this._register(
       this.eventBus.subscribe('turn.started', (e) => this.handleTurnLaunched(e.turnId)),
     );
