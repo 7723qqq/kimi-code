@@ -1,6 +1,6 @@
 import { uniq } from '@antfu/utils';
 import type { ChatProvider, Tool } from '@moonshot-ai/kosong';
-import picomatch from 'picomatch';
+import { tryNativeGlobMatch } from '../../tools/support/native-glob-match';
 
 import type { Agent } from '..';
 import {
@@ -528,7 +528,7 @@ export class ToolManager {
   }
 
   private isMcpToolEnabled(name: string): boolean {
-    return this.mcpAccessPatterns.some((pattern) => picomatch.isMatch(name, pattern));
+    return this.mcpAccessPatterns.some((pattern) => tryNativeGlobMatch(name, pattern));
   }
 
   /**
