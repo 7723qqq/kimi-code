@@ -189,6 +189,19 @@ function formatContextStatus(usage: number, tokens?: number, maxTokens?: number)
   return t('tui.chrome.footer.context', { pct });
 }
 
+function formatTokenRate(
+  phase: AppState['streamingPhase'],
+  outputTokens: number,
+  startTime: number,
+): string | null {
+  if (phase === 'idle' || startTime === 0) return null;
+  if (outputTokens === 0) return null;
+  const elapsed = Math.max((Date.now() - startTime) / 1000, 0.1);
+  const rate = Math.round(outputTokens / elapsed);
+  if (rate < 1) return null;
+  return `${rate}t/s`;
+}
+
 export function formatFooterGitBadge(status: GitStatus, colors: ColorPalette): string {
   const base = chalk.hex(colors.textDim)(formatGitBadgeBase(status));
   if (status.pullRequest === null) return base;
@@ -361,29 +374,35 @@ export class FooterComponent implements Component {
       line1 = truncateToWidth(leftLine, width, '…');
     }
 
-    // ── Line 2: transient hint (bottom-left) + context (right) ──
+    // ── Line 2: transient hint (bottom-left) + token rate + context (right) ──
     const contextText = formatContextStatus(
       state.contextUsage,
       state.contextTokens,
       state.maxContextTokens,
     );
-    const contextWidth = visibleWidth(contextText);
+    const rateText = formatTokenRate(
+      state.streamingPhase,
+      state.outputTokens,
+      state.streamingStartTime,
+    );
+    const rightText = rateText ? `${rateText}  ${contextText}` : contextText;
+    const rightWidth = visibleWidth(rightText);
     let line2: string;
     if (this.transientHint) {
-      const maxHintWidth = Math.max(0, width - contextWidth - 1);
+      const maxHintWidth = Math.max(0, width - rightWidth - 1);
       const shownHint =
         visibleWidth(this.transientHint) <= maxHintWidth
           ? this.transientHint
           : truncateToWidth(this.transientHint, maxHintWidth, '…');
       const hintWidth = visibleWidth(shownHint);
-      const pad = Math.max(0, width - hintWidth - contextWidth);
+      const pad = Math.max(0, width - hintWidth - rightWidth);
       line2 =
         chalk.hex(colors.warning).bold(shownHint) +
         ' '.repeat(pad) +
-        chalk.hex(colors.text)(contextText);
+        chalk.hex(colors.text)(rightText);
     } else {
-      const leftPad = Math.max(0, width - contextWidth);
-      line2 = ' '.repeat(leftPad) + chalk.hex(colors.text)(contextText);
+      const leftPad = Math.max(0, width - rightWidth);
+      line2 = ' '.repeat(leftPad) + chalk.hex(colors.text)(rightText);
     }
 
     return [truncateToWidth(line1, width), truncateToWidth(line2, width)];
