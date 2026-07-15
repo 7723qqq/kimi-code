@@ -17,7 +17,6 @@
 import { z } from 'zod';
 
 import { addUsage, type TokenUsage } from '#/app/llmProtocol/usage';
-import type { AgentPhase } from '#/agent/runtime/runtime';
 import { defineModel } from '#/wire/model';
 
 import type { UsageStatus } from './usage';
@@ -34,7 +33,6 @@ declare module '#/app/event/eventBus' {
       thinkingEffort?: string;
       maxContextTokens?: number;
       contextTokens?: number;
-      phase?: AgentPhase;
     };
   }
 }

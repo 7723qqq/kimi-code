@@ -521,9 +521,6 @@ importers:
       '@moonshot-ai/minidb':
         specifier: workspace:^
         version: link:../minidb
-      '@moonshot-ai/protocol':
-        specifier: workspace:^
-        version: link:../protocol
       '@mozilla/readability':
         specifier: ^0.6.0
         version: 0.6.0
@@ -673,9 +670,6 @@ importers:
       '@moonshot-ai/agent-core-v2':
         specifier: workspace:^
         version: link:../agent-core-v2
-      '@moonshot-ai/protocol':
-        specifier: workspace:^
-        version: link:../protocol
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3

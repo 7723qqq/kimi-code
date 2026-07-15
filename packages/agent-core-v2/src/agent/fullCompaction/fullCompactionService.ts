@@ -1,4 +1,4 @@
-import { Disposable, type IDisposable } from "#/_base/di/lifecycle";
+import { Disposable } from "#/_base/di/lifecycle";
 import { InstantiationType } from '#/_base/di/extensions';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
@@ -23,7 +23,6 @@ import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { stripDynamicToolContext } from '#/agent/toolSelect/dynamicTools';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
-import { IAgentActivityService } from '#/activity/activity';
 import { ISessionTodoService } from '#/session/todo/sessionTodo';
 import { renderTodoList, type TodoItem } from '#/session/todo/todoItem';
 import {
@@ -39,8 +38,7 @@ import { IEventBus } from '#/app/event/eventBus';
 import type { CompactionFinishedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2, isCodedError, isError2, toKimiErrorPayload, unwrapErrorCause } from "#/errors";
-import { IAgentWireService } from '#/wire/tokens';
-import type { IWireService } from '#/wire/wireService';
+import { IWireService } from '#/wire/wire';
 import compactionInstructionTemplate from './compaction-instruction.md?raw';
 import {
   IAgentFullCompactionService,
@@ -82,7 +80,6 @@ type CompactionTelemetryProperties = Pick<
 
 interface ActiveCompaction extends FullCompactionTask {
   blockedByTurn: boolean;
-  bgRegistration?: IDisposable;
 }
 
 interface CompactionAttemptResult {
@@ -123,15 +120,19 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @ISessionTodoService private readonly todo: ISessionTodoService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IAgentWireService private readonly wire: IWireService,
+    @IWireService private readonly wire: IWireService,
     @IEventBus private readonly eventBus: IEventBus,
-    @IAgentActivityService private readonly activity: IAgentActivityService,
     @ILogService private readonly log: ILogService,
     @IAgentLoopService private readonly loopService: IAgentLoopService,
   ) {
     super();
     this.strategy = new RuntimeCompactionStrategy(() => this.resolveModelContextWithEffectiveMax());
-    this._register(this.wire.onRestored(() => this.normalizeAfterReplay()));
+    this._register(
+      this.wire.hooks.onDidRestore.register('full-compaction', async (_ctx, next) => {
+        this.normalizeAfterReplay();
+        await next();
+      }),
+    );
     this._register(
       this.eventBus.subscribe('turn.started', () => this.resetForTurn()),
     );
@@ -266,7 +267,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     if (history.length === 0) {
       throw new Error2(ErrorCodes.COMPACTION_UNABLE, 'No messages to compact in current history.');
     }
-    if (source === 'manual' && this.activity.lane() !== 'idle') {
+    if (source === 'manual' && this.loopService.status().state !== 'idle') {
       throw new Error2(
         ErrorCodes.COMPACTION_UNABLE,
         'Cannot compact while a turn is active. Wait for it to finish, then retry.',
@@ -297,18 +298,25 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         trigger,
         tokenCount,
         blockedByTurn: false,
-        bgRegistration: this.activity.registerBackground('compaction', abortController),
       },
       resolve,
       reject,
     };
   }
 
+  /** Scope disposal is the fallback abort path; normal agent teardown aborts
+   *  and awaits the exposed task before disposing the scope. */
+  override dispose(): void {
+    if (this._compacting !== null && !this._compacting.abortController.signal.aborted) {
+      this._compacting.abortController.abort();
+    }
+    super.dispose();
+  }
+
   private cancelActive(active: ActiveCompaction): boolean {
     if (this._compacting !== active) return false;
     this.wire.dispatch(fullCompactionCancel({}));
     this._compacting = null;
-    active.bgRegistration?.dispose();
     if (!active.abortController.signal.aborted) {
       active.abortController.abort();
     }
@@ -320,7 +328,6 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
     if (this._compacting !== active) return false;
     this.wire.dispatch(fullCompactionComplete({}));
     this._compacting = null;
-    active.bgRegistration?.dispose();
     return true;
   }
 
@@ -530,7 +537,14 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
               {
                 messages,
                 maxOutputSize: compactionMaxOutputSize,
-                source: { type: 'operation', requestKind: 'full_compaction' },
+                source: {
+                  type: 'operation',
+                  requestKind: 'full_compaction',
+                  // Per-attempt count of messages dropped by overflow/empty
+                  // shrinks so far; recorded on the llm.request wire op so a
+                  // replay can see how much history each retry round blinded.
+                  logFields: { droppedCount },
+                },
               },
               undefined,
               signal,

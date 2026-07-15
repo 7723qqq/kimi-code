@@ -2,11 +2,12 @@
  * `loop` domain (L4) — `IAgentLoopService` implementation.
  *
  * Owns a FIFO of Turn jobs, each with its own `StepRequestQueue`. Admission
- * reserves a stable Turn handle immediately; the head job alone takes the
- * activity lease, records `turn.prompt`, publishes `turn.started`, and drains
- * its Steps. Ending publishes `turn.ended` after `lease.end()` and pumps the
- * next queued Turn. Requests without an active Turn remain in the Loop-owned
- * pending-input queue and bind to the next admitted Turn.
+ * reserves a stable Turn handle immediately; the head job alone books the
+ * agent's work span with the session lifecycle, records `turn.prompt`,
+ * publishes `turn.started`, and drains its Steps. Ending unbooks the work span,
+ * then publishes `turn.ended` and pumps the next queued Turn. Requests without
+ * an active Turn remain in the Loop-owned pending-input queue and bind to the
+ * next admitted Turn.
  *
  * The run drains the queue one batch per step: each batch's driver request
  * (plus any mergeable requests folded into it) materializes its context
@@ -36,16 +37,6 @@ import { Disposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
 import { abortError, isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import { toErrorMessage } from '#/_base/errors/errorMessage';
-import type {
-  AssistantDeltaEvent,
-  ThinkingDeltaEvent,
-  ToolCallDeltaEvent,
-  TurnEndedEvent,
-  TurnStartedEvent,
-  TurnStepCompletedEvent,
-  TurnStepInterruptedEvent,
-  TurnStepStartedEvent,
-} from '@moonshot-ai/protocol';
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IConfigService } from '#/app/config/config';
@@ -56,8 +47,6 @@ import { type TokenUsage } from '#/app/llmProtocol/usage';
 import { BugIndicatingError, ErrorCodes, Error2, isError2, toKimiErrorPayload } from '#/errors';
 import { OrderedHookSlot } from '#/hooks';
 
-import type { ActivityLease } from '#/activity/activity';
-import { IAgentActivityService } from '#/activity/activity';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import type {
@@ -66,8 +55,7 @@ import type {
   TurnStartedEvent as TurnStartedTelemetryEvent,
 } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentWireService } from '#/wire/tokens';
-import type { IWireService } from '#/wire/wireService';
+import { IWireService } from '#/wire/wire';
 import { LOOP_CONTROL_SECTION, type LoopControl } from './configSection';
 import {
   createMaxStepsExceededError,
@@ -93,19 +81,10 @@ import {
 } from './stepRequest';
 import { StepRequestQueue, type StepRequestBatch } from './stepRequestQueue';
 import { cancelTurn, promptTurn, TurnModel } from './turnOps';
-
-declare module '#/app/event/eventBus' {
-  interface DomainEventMap {
-    'turn.started': TurnStartedEvent;
-    'turn.ended': TurnEndedEvent;
-    'turn.step.started': TurnStepStartedEvent;
-    'turn.step.completed': TurnStepCompletedEvent;
-    'turn.step.interrupted': TurnStepInterruptedEvent;
-    'assistant.delta': AssistantDeltaEvent;
-    'thinking.delta': ThinkingDeltaEvent;
-    'tool.call.delta': ToolCallDeltaEvent;
-  }
-}
+// Loads the `DomainEventMap` augmentation for the `turn.*` / delta events this
+// service publishes (the augmentation lives with the event definitions;
+// without an import it would not enter every consumer's program).
+import './turnEvents';
 
 export type LoopInterruptReason = 'aborted' | 'max_steps' | 'error';
 
@@ -123,6 +102,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   private readonly pendingTurns: TurnJob[] = [];
   private activeTurnJob: TurnJob | undefined;
   private nextReservedTurnId: number | undefined;
+  private readonly settleWaiters: Array<() => void> = [];
   private disposing = false;
 
   constructor(
@@ -131,8 +111,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @IEventBus private readonly eventBus: IEventBus,
     @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
     @IConfigService private readonly config: IConfigService,
-    @IAgentActivityService private readonly activity: IAgentActivityService,
-    @IAgentWireService private readonly wire: IWireService,
+    @IWireService private readonly wire: IWireService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentTelemetryContextService private readonly telemetryContext: IAgentTelemetryContextService,
   ) {
@@ -149,6 +128,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       request.abort();
       this.rejectAssignment(request, reason);
     }
+    this.maybeSettle();
     super.dispose();
   }
 
@@ -216,10 +196,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   private cancelActiveTurn(turnId: number | undefined, cancellation: unknown): boolean {
-    const turn = this.activeTurnJob?.turn;
-    if (turn === undefined || (turnId !== undefined && turn.id !== turnId)) return false;
+    const job = this.activeTurnJob;
+    if (job === undefined || (turnId !== undefined && job.turn.id !== turnId)) return false;
     this.wire.dispatch(cancelTurn({ turnId }));
-    return this.activity.cancel(cancellation);
+    job.controller.abort(cancellation);
+    return true;
   }
 
   private cancelQueuedTurn(turnId: number, cancellation: unknown): boolean {
@@ -233,6 +214,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     job.turn.state = 'cancelled';
     job.ready.reject(cancellation instanceof Error ? cancellation : abortError('Turn cancelled'));
     job.result.resolve({ type: 'cancelled', steps: 0, reason: cancellation });
+    this.maybeSettle();
     return true;
   }
 
@@ -242,6 +224,22 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       this.standaloneStepQueue.hasPendingRequests() ||
       this.pendingTurns.length > 0
     );
+  }
+
+  settled(): Promise<void> {
+    if (this.activeTurnJob === undefined && this.pendingTurns.length === 0) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.settleWaiters.push(resolve);
+    });
+  }
+
+  private maybeSettle(): void {
+    if (this.activeTurnJob !== undefined || this.pendingTurns.length > 0) return;
+    if (this.settleWaiters.length === 0) return;
+    const waiters = this.settleWaiters.splice(0);
+    for (const resolve of waiters) resolve();
   }
 
   private createPendingTurn(request: StepRequest, seed: TurnSeed): TurnJob {
@@ -344,23 +342,26 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   private pumpTurns(): void {
     if (this.disposing || this.activeTurnJob !== undefined) return;
     const job = this.pendingTurns.shift();
-    if (job === undefined) return;
+    if (job === undefined) {
+      this.maybeSettle();
+      return;
+    }
     this.startTurn(job);
   }
 
   private startTurn(job: TurnJob): void {
-    const lease = this.activity.begin('turn', { origin: job.seed.origin, turnId: job.turn.id });
-    this.wire.dispatch(promptTurn({ input: job.seed.input, origin: lease.origin }));
+    const origin = job.seed.origin;
+    // The loop owns the turn's abort channel outright (job.controller) and
+    // reports to no one — busy is derived from its events, never registered.
+    this.wire.dispatch(promptTurn({ input: job.seed.input, origin }));
     job.turn.state = 'running';
-    job.turn.signal = lease.signal;
     this.activeTurnJob = job;
-    this.eventBus.publish({ type: 'turn.started', turnId: job.turn.id, origin: lease.origin });
-    void this.runTurn(job.turn, lease, job.ready).then(job.result.resolve, job.result.reject);
+    this.eventBus.publish({ type: 'turn.started', turnId: job.turn.id, origin });
+    void this.runTurn(job.turn, job.ready).then(job.result.resolve, job.result.reject);
   }
 
   private async runTurn(
     turn: Turn,
-    lease: ActivityLease,
     ready: ReturnType<typeof createControlledPromise<void>>,
   ): Promise<TurnResult> {
     const startedAt = Date.now();
@@ -369,22 +370,20 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const { mode, provider_type, protocol } = telemetryContext;
     let result: TurnResult | undefined;
     try {
-      const started: TurnStartedTelemetryEvent = { mode, provider_type, protocol };
+      const started: TurnStartedTelemetryEvent = { turn_id: turn.id, mode, provider_type, protocol };
       turnTelemetry.track2('turn_started', started);
       result = await this.run({
         turnId: turn.id,
-        signal: lease.signal,
+        signal: turn.signal,
         onStarted: () => ready.resolve(),
       });
       return result;
     } catch (error) {
-      result = this.resultFromTurnError(lease, error);
+      result = this.resultFromTurnError(turn, error);
       return result;
     } finally {
       this.settleTurnReady(ready, result);
       this.releaseActiveTurn(turn, result);
-      const outcome = result?.type ?? 'failed';
-      lease.end(outcome, result?.type === 'failed' ? { error: result.error } : undefined);
       if (result !== undefined) {
         const error = result.type === 'failed' ? toKimiErrorPayload(result.error) : undefined;
         this.eventBus.publish({
@@ -397,6 +396,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         if (error !== undefined) this.eventBus.publish({ type: 'error', ...error });
         if (result.type !== 'completed') {
           const interrupted: TurnInterruptedEvent = {
+            turn_id: turn.id,
             at_step: result.steps,
             mode,
             interrupt_reason: interruptReasonFor(result),
@@ -407,6 +407,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         }
       }
       const ended: TurnEndedTelemetryEvent = {
+        turn_id: turn.id,
         reason: result?.type ?? 'failed',
         duration_ms: Date.now() - startedAt,
         mode,
@@ -418,9 +419,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     }
   }
 
-  private resultFromTurnError(lease: ActivityLease, error: unknown): TurnResult {
-    if (!lease.signal.aborted) return { type: 'failed', error, steps: 0 };
-    return { type: 'cancelled', steps: 0, reason: lease.signal.reason ?? error };
+  private resultFromTurnError(turn: Turn, error: unknown): TurnResult {
+    const signal = turn.signal;
+    if (!signal?.aborted) return { type: 'failed', error, steps: 0 };
+    return { type: 'cancelled', steps: 0, reason: signal.reason ?? error };
   }
 
   private settleTurnReady(

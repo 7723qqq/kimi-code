@@ -7,8 +7,8 @@
  * per-agent wire records and the wire state machine, the blob store, and MCP,
  * and registers the agent in the session registry. New logs receive a metadata
  * envelope while non-empty unversioned logs are rejected. Removal awaits the
- * agent task manager's graceful exit policy before draining activity and
- * disposing the child scope. Bound at Session scope.
+ * agent task manager's graceful exit policy before draining turns and full
+ * compaction, then disposing the child scope. Bound at Session scope.
  *
  * No agent id is special here: the main agent is simply the agent created
  * with the conventional `MAIN_AGENT_ID`, and `fork` requires its source to
@@ -32,8 +32,8 @@ import {
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
-import { ErrorCodes, Error2 } from '#/errors';
 import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
+import { PermissionModeConfiguredModel } from '#/agent/permissionMode/permissionModeOps';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentToolDedupeService } from '#/agent/toolDedupe/toolDedupe';
 import { IAgentTaskService } from '#/agent/task/task';
@@ -41,14 +41,21 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionMcpService } from '#/session/mcp/sessionMcp';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentActivityService, ISessionActivityKernel } from '#/activity/activity';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentActivityView } from '#/agent/activityView/activityView';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { abortError } from '#/_base/utils/abort';
 import { IAgentLoopContinuationService } from '#/agent/loop/loopContinuation';
 import { IAgentStepRetryService } from '#/agent/stepRetry/stepRetry';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IAgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSelectAnnouncements';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import { IAgentGoalService } from '#/agent/goal/goal';
+import { IAgentPlanService } from '#/agent/plan/plan';
+import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { IAgentBuiltinToolsRegistrar } from '#/agent/toolRegistry/builtinToolsRegistrar';
 import { IAgentMediaToolsRegistrar } from '#/agent/media/mediaTools';
 import { IImageConfigBridge } from '#/agent/media/imageConfigBridge';
@@ -56,6 +63,7 @@ import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { IAgentExternalHooksService } from '#/agent/externalHooks/externalHooks';
 import { IAgentPluginService } from '#/agent/plugin/agentPlugin';
 import { ISessionInteractionService } from '#/session/interaction/interaction';
+import { IWireService } from '#/wire/wire';
 import {
   type AgentListFilter,
   type CreateAgentOptions,
@@ -90,7 +98,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IConfigService private readonly config: IConfigService,
     @ISessionMcpService private readonly sessionMcp: ISessionMcpService,
-    @ISessionActivityKernel private readonly activityKernel: ISessionActivityKernel,
     @ISessionInteractionService private readonly interaction: ISessionInteractionService,
   ) {
     super();
@@ -130,7 +137,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       const existing = this.handles.get(opts.agentId);
       if (existing !== undefined) return existing;
     }
-    this.assertCanCreate();
     const agentId = opts.agentId ?? `agent-${nextAgentId++}`;
     const promise = this.doCreate(agentId, opts);
     this.creating.set(agentId, promise);
@@ -143,9 +149,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
 
   private async doCreate(agentId: string, opts: CreateAgentOptions): Promise<IAgentScopeHandle> {
     const mcpReady = this.sessionMcp.ensureMcpReady();
-    // Per-agent homedir → the wire-record persistence key (`hashKey(homedir)`).
-    // Bootstrap computes it under the session dir, mirroring v1's
-    // `<sessionDir>/agents/<id>`; business code never assembles the path itself.
     const agentHomedir = this.bootstrap.agentHomedir(
       this.ctx.workspaceId,
       this.ctx.sessionId,
@@ -162,12 +165,14 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       agentId,
       // The only per-agent seed: identity facts. Every other agent-scope
       // service either derives its configuration from `IAgentScopeContext`
-      // (wire, wireRecord, blob) or resolves it through the scope tree (the
+      // (wire, blob) or resolves it through the scope tree (the
       // session's shared MCP manager via `ISessionMcpService`).
       { extra: [[IAgentScopeContext, makeAgentScopeContext({ agentId, agentScope })]] },
     ) as IAgentScopeHandle;
     this.handles.set(agentId, handle);
     try {
+      const wire = handle.accessor.get(IWireService);
+      await wire.seal();
       await this.sessionMetadata.registerAgent(agentId, {
         homedir: agentHomedir,
         type: agentId === 'main' ? 'main' : 'sub',
@@ -178,15 +183,8 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       this.onDidCreateEmitter.fire(handle);
       this.igniteEagerServices(handle);
       await mcpReady;
+      await wire.restore();
       await this.bindBootstrap(handle, opts);
-      // Bootstrap (profile binding and the force-instantiated observer
-      // services) is complete: drive the activity kernel `initializing → idle`
-      // so the agent can admit turns. Until this point `begin` rejects with
-      // `activity.initializing`. The wire log's metadata envelope is NOT
-      // seeded here — `wireRecord.restore()` heals envelope-less logs on
-      // resume (prepend + rewrite), so creation stays free of log-format
-      // concerns.
-      handle.accessor.get(IAgentActivityService).markReady();
       return handle;
     } catch (error) {
       // Startup failed: drop the half-built agent so the next `create` starts
@@ -197,16 +195,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       } catch { }
       this.onDidDisposeEmitter.fire(agentId);
       throw error;
-    }
-  }
-
-  private assertCanCreate(): void {
-    if (!this.activityKernel.canAccept('agent.create')) {
-      throw new Error2(
-        ErrorCodes.ACTIVITY_SESSION_REJECTED,
-        `Session is ${this.activityKernel.lane()}; agent creation rejected`,
-        { details: { lane: this.activityKernel.lane() } },
-      );
     }
   }
 
@@ -233,6 +221,17 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     handle.accessor.get(IAgentToolSelectAnnouncementsService);
     handle.accessor.get(IAgentStepRetryService);
     handle.accessor.get(IAgentLoopContinuationService);
+    handle.accessor.get(IAgentContextMemoryService);
+    handle.accessor.get(IAgentContextInjectorService);
+    handle.accessor.get(IAgentGoalService);
+    handle.accessor.get(IAgentPlanService);
+    handle.accessor.get(IAgentTaskService);
+    handle.accessor.get(IAgentUserToolService);
+    handle.accessor.get(IAgentFullCompactionService);
+    // The activity view publishes `agent.activity.updated` from its constructor
+    // subscriptions; without an explicit resolve nothing injects it and the
+    // wire would never see the projection.
+    handle.accessor.get(IAgentActivityView);
   }
 
   private async bindBootstrap(
@@ -242,12 +241,14 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     if (opts.binding !== undefined) {
       await handle.accessor.get(IAgentProfileService).bind(opts.binding);
     }
-    // Every fresh agent starts from the configured default permission posture;
-    // dispatchers that want a specific mode (subagent inheritance) set it on
-    // the child themselves after creation. On resume the wire replay
-    // overwrites this with the persisted mode.
+    // Apply the configured default only when restore found no persisted mode.
+    // A resumed Agent's journal owns its permission posture; callers that need
+    // an explicit override (for example subagent inheritance) do so after
+    // creation through the permission service.
+    const wire = handle.accessor.get(IWireService);
     const permissionMode = this.config.get<PermissionMode>(DEFAULT_PERMISSION_MODE_SECTION);
-    if (permissionMode !== undefined) {
+    const hasRestoredPermissionMode = wire.getModel(PermissionModeConfiguredModel);
+    if (permissionMode !== undefined && !hasRestoredPermissionMode) {
       handle.accessor.get(IAgentPermissionModeService).setMode(permissionMode);
     }
   }
@@ -303,9 +304,18 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     if (handle === undefined) return;
     this.handles.delete(agentId);
     await handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed');
-    const activity = handle.accessor.get(IAgentActivityService);
-    activity.beginDisposal();
-    await activity.settled();
+    const loop = handle.accessor.get(IAgentLoopService);
+    const compaction = handle.accessor.get(IAgentFullCompactionService).compacting;
+    const compactionSettled = compaction?.promise.catch(() => undefined) ?? Promise.resolve();
+    const reason = abortError('Agent removed');
+    for (const turnId of loop.status().pendingTurnIds) {
+      loop.cancel(turnId, reason);
+    }
+    loop.cancel(undefined, reason);
+    if (compaction !== null && !compaction.abortController.signal.aborted) {
+      compaction.abortController.abort(reason);
+    }
+    await Promise.all([loop.settled(), compactionSettled]);
     handle.dispose();
     this.onDidDisposeEmitter.fire(agentId);
   }
