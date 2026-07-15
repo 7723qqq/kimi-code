@@ -119,6 +119,21 @@ export interface SessionEventHost {
   readonly tasksBrowserController: TasksBrowserController;
 }
 
+/**
+ * Estimate token count from text content. Matches the heuristic used by
+ * the native token estimator in tokens.rs: ASCII chars ≈ 4/token,
+ * non-ASCII (CJK, emoji) ≈ 1/token.
+ */
+function estimateTokensFromText(text: string): number {
+  let ascii = 0;
+  let nonAscii = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) < 128) ascii++;
+    else nonAscii++;
+  }
+  return Math.ceil(ascii / 4 + nonAscii);
+}
+
 export class SessionEventHandler {
   readonly subAgentEventHandler: SubAgentEventHandler;
 
@@ -472,8 +487,9 @@ export class SessionEventHandler {
     streamingUI.appendThinkingDelta(event.delta);
     this.host.patchLivePane({ mode: 'idle' });
     if (state.appState.streamingPhase !== 'thinking') {
-      this.host.setAppState({ streamingPhase: 'thinking', streamingStartTime: Date.now() });
+      this.host.setAppState({ streamingPhase: 'thinking', streamingStartTime: Date.now(), outputTokens: 0 });
     }
+    this.host.setAppState({ outputTokens: state.appState.outputTokens + estimateTokensFromText(event.delta) });
     streamingUI.scheduleFlush();
   }
 
@@ -495,8 +511,9 @@ export class SessionEventHandler {
       pendingQuestion: null,
     });
     if (state.appState.streamingPhase !== 'composing') {
-      this.host.setAppState({ streamingPhase: 'composing', streamingStartTime: Date.now() });
+      this.host.setAppState({ streamingPhase: 'composing', streamingStartTime: Date.now(), outputTokens: 0 });
     }
+    this.host.setAppState({ outputTokens: state.appState.outputTokens + estimateTokensFromText(event.delta) });
     streamingUI.scheduleFlush();
   }
 
