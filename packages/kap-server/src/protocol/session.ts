@@ -6,7 +6,6 @@ import {
   sessionAgentConfigPartialSchema,
   sessionAgentConfigSchema,
   sessionMetadataSchema,
-  sessionStatusSchema,
 } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 
 import { workspaceIdSchema } from './workspace';
@@ -37,13 +36,23 @@ export function emptySessionUsage(): SessionUsage {
   };
 }
 
+export const sessionPendingInteractionSchema = z.enum(['none', 'approval', 'question']);
+export type SessionPendingInteraction = z.infer<typeof sessionPendingInteractionSchema>;
+
 export const sessionSchema = z.object({
   id: z.string().min(1),
   workspace_id: workspaceIdSchema,
   title: z.string(),
   created_at: isoDateTimeSchema,
   updated_at: isoDateTimeSchema,
-  status: sessionStatusSchema,
+  /** Any agent in the session holds an active turn or background lease. */
+  busy: z.boolean(),
+  /** Whether the main agent currently owns an active turn. */
+  main_turn_active: z.boolean().optional(),
+  /** Highest-priority pending human interaction. */
+  pending_interaction: sessionPendingInteractionSchema.optional(),
+  /** Outcome of the main agent's most recent turn. */
+  last_turn_reason: z.enum(['completed', 'cancelled', 'failed']).optional(),
   archived: z.boolean().optional(),
   current_prompt_id: z.string().min(1).optional(),
   /** Text of the most recent user prompt, for search/preview. Absent for empty sessions. */

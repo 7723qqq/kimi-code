@@ -24,7 +24,6 @@ import { join } from 'node:path';
 import {
   IAgentLifecycleService,
   IAgentPromptService,
-  ISessionActivity,
   ISessionIndex,
   ISessionInteractionService,
   ISessionLifecycleService,
@@ -36,11 +35,10 @@ import {
   type Scope,
   type SessionMeta,
 } from '@moonshot-ai/agent-core-v2';
-import type { SessionStatus } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 
 import { toWireApproval } from '../../routes/approvals';
 import { toWireQuestion } from '../../routes/questions';
-import { toWireSession } from '../../routes/sessions';
+import { resolveSessionFacts, toWireSession } from '../../routes/sessions';
 import { type SessionEventBroadcaster } from '../../transport/ws/v1/sessionEventBroadcaster';
 import type { InFlightTurn, SessionSnapshotResponse } from '../../protocol/rest-snapshot';
 import { SnapshotNotFoundError } from './snapshot';
@@ -118,11 +116,10 @@ export class SnapshotReader implements ISnapshotReader {
     });
 
     const live = core.accessor.get(ISessionLifecycleService).get(sid);
-    const status = this.resolveStatus(live);
     const session = toWireSession(
       { ...located.meta, workspaceId: located.workspaceId },
       located.cwd,
-      status,
+      resolveSessionFacts(core, sid),
     );
 
     const inFlightTurn = this.attachCurrentPromptId(sid, live, snapState.inFlightTurn);
@@ -226,13 +223,6 @@ export class SnapshotReader implements ISnapshotReader {
       this.transcriptCache.delete(oldest);
     }
     return { messages, times, tag, wireBytes: info.size };
-  }
-
-  private resolveStatus(
-    live: ReturnType<ISessionLifecycleService['get']>,
-  ): SessionStatus {
-    if (live === undefined) return 'idle';
-    return live.accessor.get(ISessionActivity).status();
   }
 
   private attachCurrentPromptId(

@@ -18,11 +18,9 @@ import type {
   ProviderRefreshChange,
   ProviderRefreshFailure,
 } from '@moonshot-ai/agent-core-v2/app/modelCatalog/modelCatalog';
-import type { SessionStatus } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
-
 import type { AgentPhase } from '../../../services/legacyStatus/legacyStatus';
 import type { ConfigResponse } from '../../../protocol/rest-config';
-import type { Session } from '../../../protocol/session';
+import type { Session, SessionPendingInteraction } from '../../../protocol/session';
 import type { Workspace } from '../../../protocol/workspace';
 
 export interface AgentStatusUpdatedEvent {
@@ -66,10 +64,25 @@ export interface WorkspaceDeletedEvent {
   readonly root: string;
 }
 
+export interface SessionWorkChangedEvent {
+  readonly type: 'event.session.work_changed';
+  readonly busy: boolean;
+  readonly main_turn_active?: boolean;
+  readonly pending_interaction?: SessionPendingInteraction;
+  readonly last_turn_reason?: 'completed' | 'cancelled' | 'failed';
+}
+
+type LegacySessionStatus =
+  | 'idle'
+  | 'running'
+  | 'awaiting_approval'
+  | 'awaiting_question'
+  | 'aborted';
+
 export interface SessionStatusChangedEvent {
   readonly type: 'event.session.status_changed';
-  readonly status: SessionStatus;
-  readonly previous_status: SessionStatus;
+  readonly status: LegacySessionStatus;
+  readonly previous_status: LegacySessionStatus;
   readonly current_prompt_id?: string;
 }
 
@@ -169,6 +182,7 @@ export type AgentEvent =
   | WorkspaceCreatedEvent
   | WorkspaceUpdatedEvent
   | WorkspaceDeletedEvent
+  | SessionWorkChangedEvent
   | SessionStatusChangedEvent
   | ConfigChangedEvent
   | ModelCatalogChangedEvent

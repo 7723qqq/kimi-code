@@ -57,6 +57,7 @@ const MAIN_AGENT_TRANSCRIPT_FRAMES = new Set<string>([
   'tool.result',
   'agent.status.updated',
   'prompt.completed',
+  'prompt.aborted',
   'error',
 ]);
 
@@ -126,6 +127,10 @@ interface SessionState {
   // Subagent lifecycle deltas after spawned only carry subagentId. Keep the
   // spawned metadata here so later updates can replace the full AppTask.
   subagentMeta: Map<string, AppTask>;
+
+  // Bubble cleared by turn.step.retrying, to be reused by the retried
+  // step.started (same turn) instead of stacking a new bubble.
+  retryReuseMsgId: string | undefined;
 }
 
 function createSessionState(): SessionState {
@@ -146,6 +151,7 @@ function createSessionState(): SessionState {
     model: '',
     messages: [],
     subagentMeta: new Map(),
+    retryReuseMsgId: undefined,
   };
 }
 
@@ -696,12 +702,11 @@ export function createAgentProjector(): AgentProjector {
       // -----------------------------------------------------------------------
       case 'turn.started': {
         // Bind turnId → promptId. Generate a synthetic one if none was pre-bound.
-        // Session status is intentionally NOT projected here — the daemon's
-        // `event.session.status_changed` is the single source of status
-        // transitions (it carries the authoritative previousStatus /
-        // currentPromptId and dedupes per real transition); projecting a
-        // second running/idle event per turn from the raw stream made every
-        // turn-end consumer (notifications, sounds) fire twice.
+        // Session busy is intentionally NOT projected here — the daemon's
+        // `event.session.work_changed` is the single source of the busy fact
+        // (it re-reads the authoritative drain registry and dedupes per real
+        // transition); projecting a second busy flip per turn from the raw
+        // stream made every turn-end consumer fire twice.
         const turnId: number = p?.turnId;
         const existingPromptId = s.currentPromptId ?? ulid('pr_');
         s.currentPromptId = existingPromptId;
@@ -711,6 +716,9 @@ export function createAgentProjector(): AgentProjector {
         // Fresh turn → fresh step stream offsets.
         s.turnTextLen = 0;
         s.turnThinkLen = 0;
+        // Main-conversation liveness (the moon) keys off the main agent's turn
+        // boundary directly — only main-agent frames reach this switch arm.
+        out.push({ type: 'turnActiveChanged', sessionId, active: true });
         break;
       }
 
@@ -732,6 +740,17 @@ export function createAgentProjector(): AgentProjector {
         // silently skipped or misread as a gap.
         s.turnTextLen = 0;
         s.turnThinkLen = 0;
+
+        // A retry continuation: refill the bubble turn.step.retrying cleared,
+        // instead of creating a second bubble with the same step's content.
+        if (s.retryReuseMsgId !== undefined) {
+          const reuseId = s.retryReuseMsgId;
+          s.retryReuseMsgId = undefined;
+          if (getMsgById(s, reuseId) !== undefined) {
+            s.currentAssistantMsgId = reuseId;
+            break;
+          }
+        }
 
         // Create a new pending assistant message
         const msg = startAssistantMessage(s, sessionId, promptId);
@@ -953,6 +972,16 @@ export function createAgentProjector(): AgentProjector {
         const reason: string = p?.reason ?? 'completed';
         const durationMs = numberField(p ?? {}, 'durationMs');
 
+        // Main-conversation liveness: the prompt this turn served is done.
+        // This — not the session-busy status — is what ends the working moon.
+        // It MUST be emitted first in this arm: the onMainTurnEnd side effect
+        // gates on `seq > lastSeqBySession`, and sibling events in this arm
+        // advance that cursor — emitted after them, this event would compare
+        // equal and the prompt-finish cleanup (moon, queue drain) would never
+        // fire (observed: moon stuck when a turn ends with background tasks
+        // still running, where no work_changed(busy:false) fallback exists).
+        out.push({ type: 'turnActiveChanged', sessionId, active: false, reason: p?.reason });
+
         if (msgId) {
           finishAssistantMessage(s, msgId);
           const msg = getMsgById(s, msgId);
@@ -972,30 +1001,86 @@ export function createAgentProjector(): AgentProjector {
         const usageSnapshot = buildUsageSnapshot(s);
         out.push({ type: 'sessionUsageUpdated', sessionId, usage: usageSnapshot });
 
-        // No sessionStatusChanged here — see turn.started. The daemon's
-        // `event.session.status_changed` flips the session to idle/aborted.
+        // No busy projection here — see turn.started. The daemon's
+        // `event.session.work_changed` flips the session busy fact.
 
         // Clear per-turn state. Reset the stream offsets too so a stale length
         // from this turn can't wedge the next turn's delta alignment into a
-        // silent skip if its turn.started is missed across a reconnect.
+        // silent skip if its turn.started is missed across a reconnect. The
+        // retry reuse target is per-turn as well: if the turn died between
+        // turn.step.retrying and the retried step.started, the next prompt
+        // must open a fresh bubble, not refill this turn's emptied one.
         s.currentAssistantMsgId = undefined;
         s.currentPromptId = undefined;
         s.turnTextLen = 0;
         s.turnThinkLen = 0;
+        s.retryReuseMsgId = undefined;
         break;
       }
 
       // -----------------------------------------------------------------------
       case 'prompt.completed': {
-        // No-op at AppEvent level — turn.ended already handles the transition to idle
+        // No state change at AppEvent level — turn.ended / the session
+        // status_changed ahead of this event already finished the prompt. The
+        // event rides along so the web layer can spot the one case that has no
+        // turn-level signal: a prompt blocked before any turn started (reason
+        // 'blocked'), which would otherwise pin the in-flight state forever.
+        const promptId: string | undefined = p?.promptId;
+        if (typeof promptId === 'string' && promptId.length > 0) {
+          out.push({ type: 'promptCompleted', sessionId, promptId, reason: p?.reason ?? 'completed' });
+        }
         break;
       }
 
       // -----------------------------------------------------------------------
-      case 'turn.step.retrying':
+      case 'prompt.aborted': {
+        // Fires both for an active-turn abort (a turn.ended + status_changed
+        // precede it — the prompt is already finished) and for a QUEUED prompt
+        // that never started a turn (no turn events, no status flip). The web
+        // layer keys on promptId to clear the in-flight state in the latter case.
+        const promptId: string | undefined = p?.promptId;
+        if (typeof promptId === 'string' && promptId.length > 0) {
+          out.push({ type: 'promptAborted', sessionId, promptId });
+        }
+        break;
+      }
+
+      // -----------------------------------------------------------------------
+      case 'turn.step.retrying': {
+        // The step's stream restarts from offset 0. Reuse the abandoned
+        // bubble instead of stacking a new one: strip its streamed parts and
+        // keep the id in retryReuseMsgId so the retried step.started refills
+        // it in place. Otherwise the failed attempt's partial bubble stays
+        // rendered next to the retry's full stream — the "text/tool shown
+        // twice" duplication (far more visible since the retry budget grew).
+        const msgId = s.currentAssistantMsgId;
+        if (msgId !== undefined) {
+          const msg = getMsgById(s, msgId);
+          if (msg !== undefined) {
+            msg.content = msg.content.filter(
+              (c) => c.type !== 'text' && c.type !== 'thinking' && c.type !== 'toolUse',
+            );
+            out.push({
+              type: 'messageUpdated',
+              sessionId,
+              messageId: msgId,
+              content: msg.content.map((c) => ({ ...c })),
+              status: 'pending',
+            });
+            s.retryReuseMsgId = msgId;
+          }
+        }
+        s.turnTextLen = 0;
+        s.turnThinkLen = 0;
+        s.toolStartTimes.clear();
+        break;
+      }
+
       case 'turn.step.interrupted': {
-        // Discard current assistant message; next step.started will create a new one
+        // Discard current assistant message; next step.started will create a
+        // new one. Drop any pending retry reuse target for the same reason.
         s.currentAssistantMsgId = undefined;
+        s.retryReuseMsgId = undefined;
         break;
       }
 
@@ -1366,6 +1451,7 @@ const KNOWN_AGENT_CORE_TYPES = new Set([
   'agent.status.updated',
   'prompt.submitted',
   'prompt.completed',
+  'prompt.aborted',
   'session.meta.updated',
   'compaction.started',
   'compaction.completed',

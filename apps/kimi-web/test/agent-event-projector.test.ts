@@ -185,18 +185,18 @@ describe('classifyFrame cron.fired', () => {
   });
 });
 
-// Session status has a single source: the daemon's event.session.status_changed
+// Session busy has a single source: the daemon's event.session.work_changed
 // (mapped by toAppEvent). The raw turn stream must NOT project a second
-// sessionStatusChanged per transition — when it did, every turn end fired
+// sessionWorkChanged per transition — when it did, every turn end fired
 // turn-end consumers (completion notification, sound) twice.
 describe('session status single-sourcing', () => {
-  it('turn.started projects no sessionStatusChanged', () => {
+  it('turn.started projects no sessionWorkChanged', () => {
     const projector = createAgentProjector();
     const events = projector.project('turn.started', { turnId: 1 }, 's1');
-    expect(events.some((e) => e.type === 'sessionStatusChanged')).toBe(false);
+    expect(events.some((e) => e.type === 'sessionWorkChanged')).toBe(false);
   });
 
-  it('turn.ended finalizes the message and usage but projects no sessionStatusChanged', () => {
+  it('turn.ended finalizes the message and usage but projects no sessionWorkChanged', () => {
     const projector = createAgentProjector();
     projector.project('turn.started', { turnId: 1 }, 's1');
     projector.project('turn.step.started', { turnId: 1, step: 1 }, 's1');
@@ -205,7 +205,7 @@ describe('session status single-sourcing', () => {
       { turnId: 1, reason: 'completed', durationMs: 123 },
       's1',
     );
-    expect(events.some((e) => e.type === 'sessionStatusChanged')).toBe(false);
+    expect(events.some((e) => e.type === 'sessionWorkChanged')).toBe(false);
     expect(events).toContainEqual(
       expect.objectContaining({ type: 'messageUpdated', status: 'completed', durationMs: 123 }),
     );
@@ -220,13 +220,80 @@ describe('session status single-sourcing', () => {
       thinkingText: '',
       runningTools: [],
     });
-    expect(events.some((e) => e.type === 'sessionStatusChanged')).toBe(false);
+    expect(events.some((e) => e.type === 'sessionWorkChanged')).toBe(false);
     expect(events).toContainEqual(
       expect.objectContaining({
         type: 'messageCreated',
         message: expect.objectContaining({ role: 'assistant' }),
       }),
     );
+  });
+});
+
+describe('main-turn liveness projection', () => {
+  it('turn.started marks the main conversation active', () => {
+    const projector = createAgentProjector();
+    const events = projector.project('turn.started', { agentId: 'main', turnId: 1 }, 's1');
+    expect(events).toContainEqual({ type: 'turnActiveChanged', sessionId: 's1', active: true });
+  });
+
+  it('turn.ended clears it and carries the reason', () => {
+    const projector = createAgentProjector();
+    projector.project('turn.started', { agentId: 'main', turnId: 1 }, 's1');
+    const events = projector.project('turn.ended', { agentId: 'main', turnId: 1, reason: 'cancelled' }, 's1');
+    expect(events).toContainEqual({
+      type: 'turnActiveChanged',
+      sessionId: 's1',
+      active: false,
+      reason: 'cancelled',
+    });
+  });
+
+  it('subagent turn boundaries never touch main-conversation liveness', () => {
+    const projector = createAgentProjector();
+    const started = projector.project('turn.started', { agentId: 'agent-2', turnId: 1 }, 's1');
+    const ended = projector.project('turn.ended', { agentId: 'agent-2', turnId: 1, reason: 'completed' }, 's1');
+    expect([...started, ...ended].some((e) => e.type === 'turnActiveChanged')).toBe(false);
+  });
+});
+
+describe('prompt-level lifecycle projection', () => {
+  it('prompt.completed carries promptId and reason for the sending-flag cleanup', () => {
+    const projector = createAgentProjector();
+    const events = projector.project(
+      'prompt.completed',
+      { agentId: 'main', promptId: 'msg_1', reason: 'blocked', finishedAt: '2026-01-01T00:00:00Z' },
+      's1',
+    );
+    expect(events).toContainEqual({
+      type: 'promptCompleted',
+      sessionId: 's1',
+      promptId: 'msg_1',
+      reason: 'blocked',
+    });
+  });
+
+  it('prompt.aborted projects a promptAborted keyed by promptId', () => {
+    const projector = createAgentProjector();
+    const events = projector.project(
+      'prompt.aborted',
+      { agentId: 'main', promptId: 'msg_2', abortedAt: '2026-01-01T00:00:00Z' },
+      's1',
+    );
+    expect(events).toContainEqual({ type: 'promptAborted', sessionId: 's1', promptId: 'msg_2' });
+  });
+
+  it('subagent-scoped prompt.aborted stays out of the main prompt channel', () => {
+    const projector = createAgentProjector();
+    const events = projector.project('prompt.aborted', { agentId: 'agent-2', promptId: 'msg_3' }, 's1');
+    expect(events.some((e) => e.type === 'promptAborted')).toBe(false);
+  });
+
+  it('classifyFrame routes prompt.aborted to the agent projector', () => {
+    expect(classifyFrame('prompt.aborted', { promptId: 'msg_1' })).toEqual({
+      route: 'agent',
+      agentType: 'prompt.aborted',
+    });
   });
 });
 
@@ -307,6 +374,69 @@ describe('step-boundary delta alignment', () => {
   });
 });
 
+describe('turn.step.retrying bubble reuse', () => {
+  it('refills the abandoned bubble instead of stacking a duplicate one', () => {
+    const projector = createAgentProjector();
+    const sid = 's1';
+    projector.project('turn.started', { type: 'turn.started', turnId: 1, origin: { kind: 'user' }, agentId: 'main', sessionId: sid }, sid);
+    projector.project('turn.step.started', { type: 'turn.step.started', turnId: 1, step: 1, agentId: 'main', sessionId: sid }, sid);
+    projector.project('assistant.delta', { type: 'assistant.delta', turnId: 1, delta: 'AB', agentId: 'main', sessionId: sid }, sid, { offset: 0 });
+    projector.project('tool.call.started', { type: 'tool.call.started', turnId: 1, toolCallId: 'tc1', name: 'Bash', agentId: 'main', sessionId: sid }, sid);
+
+    const retryEvents = projector.project('turn.step.retrying', { type: 'turn.step.retrying', turnId: 1, step: 1, failedAttempt: 1, nextAttempt: 2, maxAttempts: 10, delayMs: 100, agentId: 'main', sessionId: sid }, sid);
+    expect(retryEvents).toContainEqual(expect.objectContaining({ type: 'messageUpdated' }));
+
+    const restarted = projector.project('turn.step.started', { type: 'turn.step.started', turnId: 1, step: 1, agentId: 'main', sessionId: sid }, sid);
+    // No new messageCreated for the retried step — the cleared bubble is reused.
+    expect(restarted.filter((e) => e.type === 'messageCreated')).toEqual([]);
+
+    const deltas = projector.project('assistant.delta', { type: 'assistant.delta', turnId: 1, delta: 'ABC', agentId: 'main', sessionId: sid }, sid, { offset: 0 });
+    const toolEvents = projector.project('tool.call.started', { type: 'tool.call.started', turnId: 1, toolCallId: 'tc1', name: 'Bash', agentId: 'main', sessionId: sid }, sid);
+
+    // The same bubble receives the retried stream: exactly one assistant
+    // message id across the whole attempt→retry sequence.
+    const messageIds = new Set(
+      [...deltas, ...toolEvents]
+        .map((e) => (e as { messageId?: string }).messageId)
+        .filter((id): id is string => typeof id === 'string'),
+    );
+    expect(messageIds.size).toBe(1);
+  });
+
+  it('drops the reuse target when the turn ends before the retried step starts', () => {
+    const projector = createAgentProjector();
+    const sid = 's1';
+    projector.project('turn.started', { type: 'turn.started', turnId: 1, origin: { kind: 'user' }, agentId: 'main', sessionId: sid }, sid);
+    projector.project('turn.step.started', { type: 'turn.step.started', turnId: 1, step: 1, agentId: 'main', sessionId: sid }, sid);
+    projector.project('assistant.delta', { type: 'assistant.delta', turnId: 1, delta: 'AB', agentId: 'main', sessionId: sid }, sid, { offset: 0 });
+    projector.project('turn.step.retrying', { type: 'turn.step.retrying', turnId: 1, step: 1, failedAttempt: 1, nextAttempt: 2, maxAttempts: 10, delayMs: 100, agentId: 'main', sessionId: sid }, sid);
+
+    // The user aborts before the retried step.started ever arrives.
+    projector.project('turn.ended', { type: 'turn.ended', turnId: 1, reason: 'interrupted', agentId: 'main', sessionId: sid }, sid);
+
+    // The next prompt must open a fresh bubble — not refill the emptied one,
+    // which would render the new response under the previous prompt.
+    projector.project('turn.started', { type: 'turn.started', turnId: 2, origin: { kind: 'user' }, agentId: 'main', sessionId: sid }, sid);
+    const started = projector.project('turn.step.started', { type: 'turn.step.started', turnId: 2, step: 1, agentId: 'main', sessionId: sid }, sid);
+    expect(started.filter((e) => e.type === 'messageCreated')).toHaveLength(1);
+  });
+
+  it('drops the reuse target when the step is interrupted before the retry restarts', () => {
+    const projector = createAgentProjector();
+    const sid = 's1';
+    projector.project('turn.started', { type: 'turn.started', turnId: 1, origin: { kind: 'user' }, agentId: 'main', sessionId: sid }, sid);
+    projector.project('turn.step.started', { type: 'turn.step.started', turnId: 1, step: 1, agentId: 'main', sessionId: sid }, sid);
+    projector.project('assistant.delta', { type: 'assistant.delta', turnId: 1, delta: 'AB', agentId: 'main', sessionId: sid }, sid, { offset: 0 });
+    projector.project('turn.step.retrying', { type: 'turn.step.retrying', turnId: 1, step: 1, failedAttempt: 1, nextAttempt: 2, maxAttempts: 10, delayMs: 100, agentId: 'main', sessionId: sid }, sid);
+
+    projector.project('turn.step.interrupted', { type: 'turn.step.interrupted', turnId: 1, step: 1, agentId: 'main', sessionId: sid }, sid);
+
+    // The next step.started creates a new bubble instead of reusing the
+    // emptied one left by the interrupted retry attempt.
+    const started = projector.project('turn.step.started', { type: 'turn.step.started', turnId: 1, step: 2, agentId: 'main', sessionId: sid }, sid);
+    expect(started.filter((e) => e.type === 'messageCreated')).toHaveLength(1);
+  });
+});
 
 describe('background subagent task registration', () => {
   it('folds task.started (kind agent) into the spawned row instead of adding a second row', () => {

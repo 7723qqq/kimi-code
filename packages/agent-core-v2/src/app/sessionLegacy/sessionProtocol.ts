@@ -13,15 +13,6 @@ import { z } from 'zod';
 
 import { isoDateTimeSchema } from '#/_base/utils/isoDateTime';
 
-export const sessionStatusSchema = z.enum([
-  'idle',
-  'running',
-  'awaiting_approval',
-  'awaiting_question',
-  'aborted',
-]);
-export type SessionStatus = z.infer<typeof sessionStatusSchema>;
-
 export const sessionWarningSchema = z.object({
   code: z.string(),
   message: z.string(),
@@ -89,7 +80,7 @@ export const updateSessionProfileRequestSchema = z.object({
 export type UpdateSessionProfileRequest = z.infer<typeof updateSessionProfileRequestSchema>;
 
 export const sessionStatusResponseSchema = z.object({
-  status: sessionStatusSchema,
+  busy: z.boolean(),
   model: z.string().optional(),
   thinking_level: z.string(),
   permission: z.string(),

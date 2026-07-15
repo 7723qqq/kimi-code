@@ -22,7 +22,6 @@ import {
   sessionStatusResponseSchema,
   sessionWarningSchema,
   sessionWarningsResponseSchema,
-  sessionStatusSchema,
   updateSessionProfileRequestSchema,
   type UpdateSessionProfileRequest,
 } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
@@ -38,13 +37,11 @@ import {
 
 export {
   sessionStatusResponseSchema,
-  sessionStatusSchema,
   sessionWarningSchema,
   sessionWarningsResponseSchema,
   updateSessionProfileRequestSchema,
 };
 export type {
-  SessionStatus,
   SessionStatusResponse,
   SessionWarning,
   SessionWarningsResponse,
@@ -68,7 +65,7 @@ const booleanQueryParam = z.preprocess(
 
 export const listSessionsQuerySchema = cursorQuerySchema.and(
   z.object({
-    status: sessionStatusSchema.optional(),
+    busy: booleanQueryParam,
     include_archive: booleanQueryParam,
     archived_only: booleanQueryParam,
     exclude_empty: booleanQueryParam,
@@ -131,7 +128,7 @@ export type StartBtwSessionResponse = z.infer<typeof startBtwSessionResponseSche
 // does not filter by it, so advertising it would mislead generated clients.
 export const listSessionChildrenQuerySchema = cursorQuerySchema.and(
   z.object({
-    status: sessionStatusSchema.optional(),
+    busy: booleanQueryParam,
     include_archive: booleanQueryParam,
   }),
 );

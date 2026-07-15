@@ -9,7 +9,7 @@
 import { z } from 'zod';
 
 import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
-import type { TurnEndReason } from '@moonshot-ai/agent-core-v2/activity/activity';
+import type { TurnEndReason } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
 import type {
   CompactionSummaryOrigin,
   CronJobOrigin,
@@ -81,7 +81,6 @@ import {
   providerRefreshChangeSchema,
   providerRefreshFailureSchema,
 } from '@moonshot-ai/agent-core-v2/app/modelCatalog/modelCatalog';
-import { sessionStatusSchema } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 import type {
   SubagentCompletedEvent,
   SubagentFailedEvent,
@@ -93,7 +92,7 @@ import type { ToolUpdate } from '@moonshot-ai/agent-core-v2/tool/toolContract';
 
 import { ToolInputDisplaySchema } from './display';
 import { configResponseSchema } from './rest-config';
-import { sessionSchema } from './session';
+import { sessionPendingInteractionSchema, sessionSchema } from './session';
 import { workspaceSchema } from './workspace';
 
 export const tokenUsageSchema = z.object({
@@ -564,10 +563,26 @@ export const workspaceDeletedEventSchema = z.object({
   root: z.string().min(1),
 });
 
+export const sessionWorkChangedEventSchema = z.object({
+  type: z.literal('event.session.work_changed'),
+  busy: z.boolean(),
+  main_turn_active: z.boolean().optional(),
+  pending_interaction: sessionPendingInteractionSchema.optional(),
+  last_turn_reason: z.enum(['completed', 'cancelled', 'failed']).optional(),
+});
+
+const legacySessionStatusSchema = z.enum([
+  'idle',
+  'running',
+  'awaiting_approval',
+  'awaiting_question',
+  'aborted',
+]);
+
 export const sessionStatusChangedEventSchema = z.object({
   type: z.literal('event.session.status_changed'),
-  status: sessionStatusSchema,
-  previous_status: sessionStatusSchema,
+  status: legacySessionStatusSchema,
+  previous_status: legacySessionStatusSchema,
   current_prompt_id: z.string().min(1).optional(),
 });
 
@@ -894,6 +909,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   workspaceCreatedEventSchema,
   workspaceUpdatedEventSchema,
   workspaceDeletedEventSchema,
+  sessionWorkChangedEventSchema,
   sessionStatusChangedEventSchema,
   modelCatalogChangedEventSchema,
   goalUpdatedEventSchema,
