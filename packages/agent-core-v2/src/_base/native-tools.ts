@@ -288,3 +288,21 @@ export async function tryNativeCropImage(
   );
   return result ?? undefined;
 }
+
+export interface NativeImageDimensions {
+  readonly width: number;
+  readonly height: number;
+  readonly transposed: boolean;
+}
+
+export function tryNativeSniffImageDimensions(data: Uint8Array): NativeImageDimensions | undefined {
+  const m = getNativeModule();
+  if (m) {
+    try {
+      return (m as any).nativeSniffImageDimensions(new Uint8Array(data)) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
