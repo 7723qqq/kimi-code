@@ -19,7 +19,6 @@ import type {
   AppInFlightTurn,
   AppMessage,
   AppSession,
-  AppSessionStatus,
   AppWorkspace,
   ApprovalDecision,
   ApprovalResponse,
@@ -83,7 +82,7 @@ function isTaskAlreadyFinishedError(err: unknown): boolean {
  * action kind. Drives the card's loading state and guards against a duplicate
  * submit while the first request is still in flight (the server would reject
  * the second resolve with 40902). Module-level singleton — matches
- * `inFlightPromptSessions` in the facade.
+ * `inFlightBySession` on rawState.
  */
 const pendingQuestionActions = reactive<Record<string, 'answer' | 'dismiss'>>({});
 /** Approval ids with an in-flight respond, keyed by approvalId. */
@@ -94,8 +93,8 @@ const pendingTaskCancellations = reactive<Record<string, true>>({});
  * Workspace ids whose empty-session first prompt is currently being created +
  * submitted. The empty-composer path (`startSessionAndSendPrompt`) awaits
  * `createDraftSession` (addWorkspace + createSession + selectSession) before
- * the session id exists, so the per-session `inFlightPromptSessions` guard
- * cannot cover that window — a second Enter / send-button click during it
+ * the session id exists, so the per-session prompt-in-flight guard cannot
+ * cover that window — a second Enter / send-button click during it
  * would otherwise fire a second concurrent POST and trip the daemon's
  * `turn.agent_busy` race. Module-level singleton — matches the other
  * `pending*Actions` guards above.
@@ -111,7 +110,7 @@ const startingFirstPromptWorkspaces = reactive(new Set<string>());
  *  - pending: set while the start request (POST /prompts or skill
  *    activation) has not been acknowledged by the daemon — a snapshot
  *    requested in that window cannot reflect the turn server-side either.
- * Module-level singleton — matches `inFlightPromptSessions` in the facade.
+ * Module-level singleton — matches `inFlightBySession` on rawState.
  */
 const promptGenerationBySession = new Map<string, number>();
 const pendingLocalTurnStarts = new Map<string, Set<number>>();
@@ -200,7 +199,6 @@ export interface UseWorkspaceStateDeps {
     opts?: { title?: string; message?: string; sessionId?: string },
   ) => void;
   activity: ComputedRef<ActivityState>;
-  inFlightPromptSessions: Set<string>;
   sessionsKnownEmpty: Set<string>;
   // rawState.sessions mutation funnel, owned by the facade. This module never
   // assigns rawState.sessions directly — it goes through these.
@@ -258,7 +256,6 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     modelProvider,
     pushOperationFailure,
     activity,
-    inFlightPromptSessions,
     sessionsKnownEmpty,
     setSessions,
     updateSession,
@@ -1124,7 +1121,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
   ): Promise<void> {
     // Guard the whole "create draft session + submit first prompt" flow: the
     // session id doesn't exist until `createDraftSession` resolves, so the
-    // per-session `inFlightPromptSessions` guard can't cover this window. A
+    // per-session in-flight guard can't cover this window. A
     // second Enter / send-button click in that window would otherwise fire a
     // concurrent first POST for the same new session and trip the daemon's
     // `turn.agent_busy` race.
@@ -1411,13 +1408,12 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       Returns true when the daemon accepted the prompt. */
   async function submitPromptInternal(sid: string, text: string, attachments?: PromptAttachment[]): Promise<boolean> {
     // Mark this session as having a prompt in flight BEFORE any await, so a racing
-    // sendPrompt sees it and enqueues. Cleared when activity returns to idle.
-    // beginLocalTurn also bumps the snapshot generation and marks the submit
-    // pending, so a racing terminal snapshot can't clear this prompt (see
-    // handleSessionSnapshot).
+    // sendPrompt sees it and enqueues. Cleared when the main turn ends (or the
+    // prompt dies without one). beginLocalTurn also bumps the snapshot generation
+    // and marks the submit pending, so a racing terminal snapshot can't clear
+    // this prompt (see handleSessionSnapshot).
     const localTurnToken = beginLocalTurn(sid);
-    inFlightPromptSessions.add(sid);
-    rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: true };
+    rawState.inFlightBySession = { ...rawState.inFlightBySession, [sid]: true };
     const tempId = nextOptimisticMsgId();
     try {
       const api = getKimiWebApi();
@@ -1436,8 +1432,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         } else content.push({ type: 'image', source: { kind: 'file', fileId: att.fileId } });
       }
       if (content.length === 0) {
-        inFlightPromptSessions.delete(sid);
-        rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: false };
+        rawState.inFlightBySession = { ...rawState.inFlightBySession, [sid]: false };
         return false;
       }
 
@@ -1475,8 +1470,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
           await api.updateSession(sid, { goalObjective: text.trim() });
         } catch (err) {
           pushOperationFailure('createGoal', err, { sessionId: sid });
-          inFlightPromptSessions.delete(sid);
-          rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: false };
+          rawState.inFlightBySession = { ...rawState.inFlightBySession, [sid]: false };
           updateSessionMessages(sid, (msgs) =>
             msgs.some((m) => m.id === tempId) ? msgs.filter((m) => m.id !== tempId) : msgs,
           );
@@ -1535,8 +1529,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // queued forever (turn.ended will never arrive), and roll back the
       // optimistic user message so the transcript doesn't show a delivered-
       // looking message the daemon never received.
-      inFlightPromptSessions.delete(sid);
-      rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: false };
+      rawState.inFlightBySession = { ...rawState.inFlightBySession, [sid]: false };
       updateSessionMessages(sid, (msgs) =>
         msgs.some((m) => m.id === tempId) ? msgs.filter((m) => m.id !== tempId) : msgs,
       );
@@ -1554,10 +1547,10 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     if (!sid) return;
 
     // If the session is not idle OR a prompt is already in flight (submitted but
-    // the WS turn.started hasn't flipped activity to 'running' yet), enqueue
-    // instead of submitting directly. Gating on inFlightPromptSessions closes the
-    // window where two rapid prompts would both submit and race.
-    if (activity.value !== 'idle' || inFlightPromptSessions.has(sid)) {
+    // the WS turn.started hasn't arrived yet), enqueue instead of submitting
+    // directly. The in-flight flag closes the window where two rapid prompts
+    // would both submit and race.
+    if (activity.value !== 'idle' || rawState.inFlightBySession[sid]) {
       enqueue(text, attachments);
       return;
     }
@@ -1595,7 +1588,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     const merged = parts.join('\n\n');
 
     // Idle and nothing in flight — there is no turn to steer into; normal send.
-    if (activity.value === 'idle' && !inFlightPromptSessions.has(sid)) {
+    if (activity.value === 'idle' && !rawState.inFlightBySession[sid]) {
       await submitPromptInternal(sid, merged, mergedAttachments);
       return;
     }
@@ -1707,12 +1700,12 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
   }
 
   /**
-   * Shared prompt-finish cleanup, used by BOTH the WS idle/aborted event path
-   * (facade `onSessionIdle`) and the authoritative-snapshot path
+   * Shared prompt-finish cleanup, used by BOTH the main-turn-ended path
+   * (facade `onMainTurnEnd`) and the authoritative-snapshot path
    * (handleSessionSnapshot below). Returns whether this call actually flipped
    * an in-flight prompt to finished.
    *
-   * Clears the local in-flight/sending/prompt-id state and drains exactly ONE
+   * Clears the local in-flight/prompt-id state and drains exactly ONE
    * queued message — the resubmitted prompt re-arms the in-flight flag, and
    * its own finish drains the following one. Repeat calls (e.g. a late
    * duplicate idle event) therefore cannot drain more than one message per
@@ -1720,8 +1713,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
    * unread) on top; the snapshot path deliberately adds none.
    */
   function finishPromptLocal(sid: string): boolean {
-    const wasInFlight = inFlightPromptSessions.delete(sid);
-    rawState.sendingBySession = { ...rawState.sendingBySession, [sid]: false };
+    const wasInFlight = rawState.inFlightBySession[sid] === true;
+    rawState.inFlightBySession = { ...rawState.inFlightBySession, [sid]: false };
     // Drop any cached prompt_id so a later skill activation (which has no
     // prompt_id) doesn't accidentally reuse this stale id for :abort.
     if (rawState.promptIdBySession[sid] !== undefined) {
@@ -1767,10 +1760,13 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
    */
   function handleSessionSnapshot(
     sid: string,
-    snapshot: { inFlightTurn: AppInFlightTurn | null; status: AppSessionStatus },
+    snapshot: { inFlightTurn: AppInFlightTurn | null; busy: boolean },
   ): void {
-    if (snapshot.inFlightTurn !== null) return;
-    if (snapshot.status !== 'idle' && snapshot.status !== 'aborted') return;
+    // inFlightTurn tracks only the main agent, while busy aggregates all
+    // agents and background work. Keep the local prompt alive only when both
+    // facts still support a running main turn. Either terminal fact may also
+    // reconcile the other tracker when a snapshot catches it stale.
+    if (snapshot.inFlightTurn !== null && snapshot.busy) return;
     finishPromptLocal(sid);
   }
 

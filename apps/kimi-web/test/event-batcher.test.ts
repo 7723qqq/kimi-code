@@ -786,7 +786,7 @@ describe('isRenderEvent (queue classification)', () => {
     },
   );
 
-  it.each(['messageCreated', 'messageUpdated', 'sessionStatusChanged', 'approvalRequested', 'configChanged'])(
+  it.each(['messageCreated', 'messageUpdated', 'sessionWorkChanged', 'approvalRequested', 'configChanged'])(
     'classifies %s as a control event',
     (type) => {
       expect(isRenderEvent({ type } as AppEvent)).toBe(false);

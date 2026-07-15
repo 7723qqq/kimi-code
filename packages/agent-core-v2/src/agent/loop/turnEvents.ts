@@ -8,7 +8,9 @@ import type { KimiErrorPayload } from '#/_base/errors/serialize';
 import type { PromptOrigin } from '#/agent/contextMemory/types';
 import type { FinishReason } from '#/app/llmProtocol/finishReason';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
-import type { TurnEndReason } from '#/activity/activity';
+
+/** Why a turn ended. `blocked` folds into `failed` at the wire edge. */
+export type TurnEndReason = 'completed' | 'cancelled' | 'failed' | 'blocked';
 
 export interface TurnStartedEvent {
   readonly type: 'turn.started';
