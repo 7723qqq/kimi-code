@@ -6,6 +6,32 @@ outline: 2
 
 本页记录 Kimi Code CLI 每个版本的变更内容。
 
+## Fork 自定义变更（2026-07-16）
+
+在 upstream v0.24.2 基础上的定制修改。
+
+### 性能与 Rust 原生
+
+- **移除 jimp 和 @jsquash/webp**：用 Rust `image` crate（原生 `image_compress.rs`）替代纯 JS 图片处理。每张图片提速 10-100 倍，节省约 8 MB 包体积。
+- **移除 picomatch**：用原生 `glob_matches_any()`（Rust `globset` crate）替代 glob 匹配器。节省约 30 KB，支持原生并行匹配。
+- **sniffImageDimensions 走原生**：PNG/JPEG/GIF/BMP/WebP/HEIC 尺寸检测全部通过 Rust `native_sniff_image_dimensions` 处理。
+- **新增 native detectFileType napi 绑定**：新增 `native_detect_file_type` Rust 函数及 `resolve_mime` 辅助函数，所有文件读取分类走原生代码。
+
+### Bug 修复
+
+- **Node v24 原生兼容**：修复 napi 绑定 `Vec<u8>` → `Uint8Array` 参数类型，兼容 Node.js v24（NAPI v10）。
+- **Server 模块懒加载**：将 `getLiveLock` 改为动态 import，避免 `@moonshot-ai/server` 硬依赖阻塞 CLI 启动。
+- **reasoning_content thinking 修复**：cherry-pick 上游 Anthropic 模型能力对齐（#1746），修复 DeepSeek 兼容后端 "reasoning_content must be passed back" 错误。
+
+### 国际化
+
+- **CLI i18n 覆盖率扩展**：将 `commands/config.ts` 中 20+ 处硬编码字符串迁移为 `t()` 调用。新增 `cannotSwitchModelsWhileStreaming` 和 `unknownPlanSubcommand` 键。
+
+### 基础设施
+
+- 合并上游 v0.23.6 → v0.24.2（158 个提交，2205 个文件，+277K/-32K 行）。
+- 保留 fork 自定义修改：packages/server/、i18n、Rust 优化、WSL 兼容。
+
 ## 0.24.2（2026-07-15）
 
 ### 新功能

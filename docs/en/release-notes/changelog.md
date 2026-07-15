@@ -6,6 +6,32 @@ outline: 2
 
 This page documents the changes in each Kimi Code CLI release.
 
+## Fork Changes (2026-07-16)
+
+These are custom modifications on top of upstream 0.24.2.
+
+### Performance & Rust Native
+
+- **Remove jimp & @jsquash/webp**: Replace pure-JS image processing with Rust `image` crate (native `image_compress.rs`). 10-100× faster per image, saves ~8 MB bundle size.
+- **Remove picomatch**: Replace glob matcher with native `glob_matches_any()` using Rust `globset` crate. Saves ~30 KB, enables native parallel matching.
+- **Route sniffImageDimensions through native**: All PNG/JPEG/GIF/BMP/WebP/HEIC dimension sniffing now goes through Rust `native_sniff_image_dimensions`.
+- **Add native detectFileType napi binding**: New `native_detect_file_type` Rust function with `resolve_mime` helper. All file reads now classify via native code.
+
+### Bug Fixes
+
+- **Node v24 native compatibility**: Fix `Vec<u8>` → `Uint8Array` parameter type for napi bindings on Node.js v24 (NAPI v10).
+- **Lazy server import**: Convert `getLiveLock` from static to dynamic import to avoid `@moonshot-ai/server` hard dependency blocking CLI startup.
+- **`reasoning_content` thinking fix**: Cherry-pick upstream Anthropic model capability alignment (#1746) to fix "reasoning_content must be passed back" errors on DeepSeek-compatible backends.
+
+### i18n
+
+- **Expand CLI i18n coverage**: Migrate 20+ hardcoded strings in `commands/config.ts` to `t()` calls. Add missing keys `cannotSwitchModelsWhileStreaming` and `unknownPlanSubcommand`.
+
+### Infrastructure
+
+- Merge upstream v0.23.6 → v0.24.2 (158 commits, 2205 files, +277K/-32K lines).
+- Keep fork customizations: packages/server/, i18n, Rust optimizations, WSL compatibility.
+
 ## 0.24.2 (2026-07-15)
 
 ### Features
