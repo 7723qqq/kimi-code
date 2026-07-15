@@ -12,7 +12,7 @@
  */
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
-import { DisposableStore } from '#/_base/di/lifecycle';
+import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
@@ -31,19 +31,22 @@ import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IAgentUsageService } from '#/agent/usage/usage';
 import { IConfigService } from '#/app/config/config';
+import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
 import { IFlagService } from '#/app/flag/flag';
 import { APIRequestTooLargeError, APIStatusError } from '#/app/llmProtocol/errors';
 import { emptyUsage } from '#/app/llmProtocol/usage';
 import type { Message } from '#/app/llmProtocol/message';
+import type { ThinkingEffort } from '#/app/llmProtocol/thinkingEffort';
 import type { ModelCapability } from '#/app/llmProtocol/capability';
 import type { LLMEvent, LLMRequestInput, Model } from '#/app/model/modelInstance';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ILogService } from '#/_base/log/log';
 import { Error2, ErrorCodes } from '#/errors';
-import { IAgentWireService } from '#/wire/tokens';
-import type { PersistedRecord } from '#/wire/wireService';
-import { WireService } from '#/wire/wireServiceImpl';
+import { IWireService } from '#/wire/wire';
+import type { WireRecord } from '#/wire/record';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { recordingWireLog, registerTestAgentWire } from '../../wire/stubs';
 
 const capabilities: ModelCapability = {
   image_in: false,
@@ -126,16 +129,20 @@ function createService(
           >
         >)
     | undefined,
-  options: { readonly flagEnabled?: boolean } = {},
+  options: {
+    readonly flagEnabled?: boolean;
+    readonly thinkingLevel?: ThinkingEffort;
+  } = {},
 ) {
   const ix = disposables.add(new TestInstantiationService());
+  const thinkingLevel = options.thinkingLevel ?? 'off';
   const profile: Partial<IAgentProfileService> = {
     resolveModelContext: () => ({
       modelAlias: 'm',
       modelCapabilities: capabilities,
       maxOutputSize: undefined,
       alwaysThinking: undefined,
-      thinkingLevel: 'off',
+      thinkingLevel,
       reservedContextSize: undefined,
       compactionTriggerRatio: undefined,
     }),
@@ -145,7 +152,7 @@ function createService(
       cwd: '',
       modelAlias: 'm',
       modelCapabilities: capabilities,
-      thinkingLevel: 'off',
+      thinkingLevel,
       systemPrompt: 'system',
     }),
     isToolActive: () => true,
@@ -169,6 +176,12 @@ function createService(
   };
   const flagEnabled = options.flagEnabled ?? true;
   const testSnapshot = Object.freeze({}) as MediaStripSnapshot;
+  const events: DomainEvent[] = [];
+  const eventBus: IEventBus = {
+    _serviceBrand: undefined,
+    publish: (event) => events.push(event),
+    subscribe: () => toDisposable(() => {}),
+  };
 
   ix.stub(IAgentContextMemoryService, context);
   ix.stub(IAgentToolSelectService, toolSelect);
@@ -193,24 +206,45 @@ function createService(
   ix.stub(IConfigService, config);
   ix.stub(ILogService, log);
   ix.stub(ITelemetryService, telemetry);
-  ix.set(
-    IAgentWireService,
-    new SyncDescriptor(WireService, [{ logScope: 'wire', logKey: 'strict-resend' }]),
-  );
+  const records: WireRecord[] = [];
+  registerTestAgentWire(ix, 'wire/llm-requester', {
+    log: recordingWireLog(records),
+    eventBus,
+  });
   ix.set(IFaultInjectionService, new SyncDescriptor(FaultInjectionService));
   ix.set(IAgentLLMRequesterService, new SyncDescriptor(AgentLLMRequesterService));
-
-  const records: PersistedRecord[] = [];
-  disposables.add(
-    ix.get(IAgentWireService).onEmission((emission) => records.push(emission.record)),
-  );
 
   return {
     service: ix.get(IAgentLLMRequesterService),
     faultInjection: ix.get(IFaultInjectionService),
+    wire: ix.get(IWireService),
     records,
+    events,
   };
 }
+
+describe('AgentLLMRequesterService Anthropic effort diagnostics', () => {
+  it('warns and sends when the effort is not listed by the model', async () => {
+    const calls = { value: 0 };
+    const model = createModel(calls, null);
+    Object.defineProperty(model, 'supportEfforts', { value: ['max'] });
+    Object.defineProperty(model, 'withMaxCompletionTokens', { value: () => model });
+    const { service, events } = createService(model, undefined, { thinkingLevel: 'high' });
+
+    const result = await service.request();
+
+    expect(result.message.content).toEqual([{ type: 'text', text: 'ok' }]);
+    expect(calls.value).toBe(1);
+    expect(events.filter((event) => event.type === 'warning')).toEqual([
+      {
+        type: 'warning',
+        code: 'anthropic-thinking-effort-not-listed',
+        message:
+          'Thinking effort "high" is not listed for model "wire-model" (known: max). The configured value will be sent unchanged to the Anthropic-compatible backend.',
+      },
+    ]);
+  });
+});
 
 describe('AgentLLMRequesterService strict resend', () => {
   it('resends once with strict projection after a recoverable structural 400', async () => {
@@ -424,7 +458,7 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
 
   it('records repeated-413 recovery projections on the sticky later request', async () => {
     const calls = { value: 0 };
-    const { service, records } = createService(
+    const { service, wire, records } = createService(
       createModel(calls, BODY_TOO_LARGE_413, [BODY_TOO_LARGE_413]),
       {
         project: (messages: readonly ContextMessage[]) => messages,
@@ -436,6 +470,7 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
 
     await service.request({ source: { type: 'turn', turnId: 1, step: 1 } });
     await service.request({ source: { type: 'turn', turnId: 1, step: 2 } });
+    await wire.flush();
 
     expect(
       records

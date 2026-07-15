@@ -18,7 +18,6 @@
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path';
 
 import {
-  ErrorCode,
   type FsDiffRequest,
   type FsDiffResponse,
   type FsEntry,
@@ -43,7 +42,22 @@ import {
   type FsStatManyResponse,
   type FsStatRequest,
   type FsStatResponse,
-} from '@moonshot-ai/protocol';
+} from './fs';
+
+/**
+ * The v1 numeric wire codes this edge surface throws inside its
+ * `{ code, msg }` wire errors (`toWireError`). Mirrors the envelope error
+ * table owned by the transport (kap-server); kept as local literals because
+ * they are part of this service's v1 edge contract.
+ */
+const FsWireErrorCode = {
+  FS_PATH_NOT_FOUND: 40409,
+  FS_IS_DIRECTORY: 40906,
+  FS_IS_BINARY: 40907,
+  FS_TOO_LARGE: 41302,
+  FS_TOO_MANY_RESULTS: 41303,
+  INTERNAL_ERROR: 50001,
+} as const;
 import ignore, { type Ignore } from 'ignore';
 
 import { InstantiationType } from '#/_base/di/extensions';
@@ -986,19 +1000,19 @@ function toWireError(err: unknown): { code: number; msg: string } {
   if (err instanceof Error2) {
     switch (err.code) {
       case ErrorCodes.FS_PATH_NOT_FOUND:
-        return { code: ErrorCode.FS_PATH_NOT_FOUND, msg: err.message };
+        return { code: FsWireErrorCode.FS_PATH_NOT_FOUND, msg: err.message };
       case ErrorCodes.FS_IS_DIRECTORY:
-        return { code: ErrorCode.FS_IS_DIRECTORY, msg: err.message };
+        return { code: FsWireErrorCode.FS_IS_DIRECTORY, msg: err.message };
       case ErrorCodes.FS_IS_BINARY:
-        return { code: ErrorCode.FS_IS_BINARY, msg: err.message };
+        return { code: FsWireErrorCode.FS_IS_BINARY, msg: err.message };
       case ErrorCodes.FS_TOO_LARGE:
-        return { code: ErrorCode.FS_TOO_LARGE, msg: err.message };
+        return { code: FsWireErrorCode.FS_TOO_LARGE, msg: err.message };
       case ErrorCodes.FS_TOO_MANY_RESULTS:
-        return { code: ErrorCode.FS_TOO_MANY_RESULTS, msg: err.message };
+        return { code: FsWireErrorCode.FS_TOO_MANY_RESULTS, msg: err.message };
     }
   }
   return {
-    code: ErrorCode.INTERNAL_ERROR,
+    code: FsWireErrorCode.INTERNAL_ERROR,
     msg: err instanceof Error ? err.message : 'internal error',
   };
 }
