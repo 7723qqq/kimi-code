@@ -36,7 +36,7 @@ import {
   normalizeRequestedThinkingEffort,
   resolveKimiThinkingEffortOverride,
 } from '#/app/model/thinking';
-import picomatch from 'picomatch';
+import { tryNativeGlobMatch } from '../../tool/native-glob-match';
 
 import { ErrorCodes, Error2 } from "#/errors";
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -379,7 +379,7 @@ export class AgentProfileService implements IAgentProfileService {
     if (source !== 'mcp') return activeToolNames.includes(name);
     return activeToolNames
       .filter((pattern) => isMcpToolName(pattern))
-      .some((pattern) => picomatch.isMatch(name, pattern));
+      .some((pattern) => tryNativeGlobMatch(name, pattern));
   }
 
   addActiveTool(name: string): void {
