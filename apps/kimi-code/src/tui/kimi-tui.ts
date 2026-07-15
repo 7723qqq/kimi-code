@@ -218,6 +218,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     isReplaying: false,
     streamingPhase: 'idle',
     streamingStartTime: 0,
+    outputTokens: 0,
     theme: input.tuiConfig.theme,
     version: input.version,
     locale: input.tuiConfig.locale,
@@ -1056,7 +1057,7 @@ export class KimiTUI {
     // When the last shell command finishes, leave the shell streaming phase,
     // release one queued message (if any), and refresh the activity pane.
     if (this.shellOutputStreams.size === 0) {
-      this.setAppState({ streamingPhase: 'idle' });
+      this.setAppState({ streamingPhase: 'idle', outputTokens: 0 });
       this.drainOneQueuedMessage();
     }
   }
@@ -1202,7 +1203,7 @@ export class KimiTUI {
   }
 
   failSessionRequest(message: string): void {
-    this.setAppState({ streamingPhase: 'idle' });
+    this.setAppState({ streamingPhase: 'idle', outputTokens: 0 });
     this.resetLivePane();
     this.showError(message);
   }
