@@ -1,6 +1,10 @@
 /**
  * file-type — magic-byte + extension detection. No npm dependency.
+ * Image dimensions are sniffed via the Rust native module when available,
+ * falling back to pure-TS parsing for PNG/JPEG/GIF/BMP/WebP/HEIC/etc.
  */
+
+import { tryNativeSniffImageDimensions } from '../builtin/native-tools';
 
 export const MEDIA_SNIFF_BYTES = 512;
 
@@ -260,6 +264,12 @@ export interface ImageDimensions {
  */
 export function sniffImageDimensions(data: Buffer | Uint8Array): ImageDimensions | null {
   const buf = toBuffer(data);
+
+  // Try the Rust native codec first (PNG/JPEG/GIF/BMP/WebP/HEIC).
+  const native = tryNativeSniffImageDimensions(new Uint8Array(buf));
+  if (native) {
+    return { width: native.width, height: native.height, transposed: native.transposed };
+  }
 
   // PNG — IHDR is the first chunk; width/height are big-endian uint32
   // at offsets 16 and 20.

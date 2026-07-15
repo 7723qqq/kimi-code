@@ -3,8 +3,10 @@
  *
  * Classifies a file as text / image / video from its first bytes and
  * extension, and resolves a MIME type, with no npm dependency. Pure helper;
- * no scoped service.
+ * image dimensions are sniffed via the Rust native module when available.
  */
+
+import { tryNativeSniffImageDimensions } from '../../_base/native-tools';
 
 export const MEDIA_SNIFF_BYTES = 512;
 
@@ -243,6 +245,11 @@ export interface ImageDimensions {
 
 export function sniffImageDimensions(data: Buffer | Uint8Array): ImageDimensions | null {
   const buf = toBuffer(data);
+
+  const native = tryNativeSniffImageDimensions(new Uint8Array(buf));
+  if (native) {
+    return { width: native.width, height: native.height, transposed: native.transposed };
+  }
 
   if (startsWith(buf, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) && buf.length >= 24) {
     return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
