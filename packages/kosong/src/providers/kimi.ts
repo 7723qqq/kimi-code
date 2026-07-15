@@ -112,7 +112,7 @@ function isEffectivelyEmptyContent(parts: ContentPart[]): boolean {
   return true;
 }
 
-function convertMessage(message: Message): OpenAIMessage {
+function convertMessage(message: Message, preservedThinkingEnabled: boolean): OpenAIMessage {
   let reasoningContent = '';
   let hasReasoningPart = false;
   const nonThinkParts: ContentPart[] = [];
@@ -166,8 +166,13 @@ function convertMessage(message: Message): OpenAIMessage {
     result.tool_call_id = message.toolCallId;
   }
 
-  if (hasReasoningPart) {
-    result.reasoning_content = reasoningContent;
+  if (hasReasoningPart || (preservedThinkingEnabled && message.role === 'assistant')) {
+    // Keep the non-empty replay placeholder on the wire; canonical history
+    // continues to retain the original empty reasoning value.
+    result.reasoning_content =
+      preservedThinkingEnabled && message.role === 'assistant' && reasoningContent.length === 0
+        ? ' '
+        : reasoningContent;
   }
 
   // Message-level tool declarations: a system message carrying `tools` loads
@@ -423,7 +428,6 @@ export class KimiChatProvider implements ChatProvider {
             apiKey: this._apiKey,
             baseURL: this._baseUrl,
             defaultHeaders: this._defaultHeaders,
-            maxRetries: 5,
           });
   }
 
@@ -478,9 +482,12 @@ export class KimiChatProvider implements ChatProvider {
     if (systemPrompt) {
       messages.push({ role: 'system', content: systemPrompt });
     }
+    const thinking = this._generationKwargs.extra_body?.thinking;
+    const preservedThinkingEnabled =
+      thinking?.keep === 'all' && thinking.type !== 'disabled';
     const normalizedHistory = normalizeToolCallIdsForProvider(history, KIMI_TOOL_CALL_ID_POLICY);
     for (const msg of normalizedHistory) {
-      messages.push(convertMessage(msg));
+      messages.push(convertMessage(msg, preservedThinkingEnabled));
     }
 
     const kwargs: Record<string, unknown> = {
