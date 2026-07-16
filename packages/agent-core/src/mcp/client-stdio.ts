@@ -82,7 +82,7 @@ export class StdioMcpClient implements MCPClient {
     this.toolCallTimeoutMs = options.toolCallTimeoutMs;
   }
 
-  async connect(): Promise<void> {
+  async connect(signal?: AbortSignal): Promise<void> {
     if (this.closed) {
       throw new Error('MCP stdio client is closed');
     }
@@ -94,7 +94,7 @@ export class StdioMcpClient implements MCPClient {
     // the handshake still flows through `client.connect()` rejecting.
     this.installTransportHooks();
     try {
-      await this.client.connect(this.transport);
+      await this.client.connect(this.transport, signal ? { signal } : undefined);
     } catch (error) {
       await this.closeStartedClient();
       throw error;
@@ -139,8 +139,8 @@ export class StdioMcpClient implements MCPClient {
     return this.stderrBuffer.snapshot();
   }
 
-  async listTools(): Promise<MCPToolDefinition[]> {
-    const result = await this.client.listTools();
+  async listTools(signal?: AbortSignal): Promise<MCPToolDefinition[]> {
+    const result = await this.client.listTools(undefined, signal ? { signal } : undefined);
     return result.tools.map(toMcpToolDefinition);
   }
 
@@ -206,18 +206,29 @@ export class StdioMcpClient implements MCPClient {
  * stderr around without unbounded growth.
  */
 class BoundedTail {
-  private buffer = '';
+  private chunks: string[] = [];
+  private total = 0;
+  private cached: string | undefined;
   constructor(private readonly capacity: number) {}
 
   push(chunk: string): void {
-    this.buffer += chunk;
-    if (this.buffer.length > this.capacity) {
-      this.buffer = this.buffer.slice(this.buffer.length - this.capacity);
+    this.chunks.push(chunk);
+    this.total += chunk.length;
+    while (this.total > this.capacity && this.chunks.length > 1) {
+      const dropped = this.chunks.shift()!;
+      this.total -= dropped.length;
     }
+    if (this.total > this.capacity) {
+      const overflow = this.total - this.capacity;
+      this.chunks[0] = this.chunks[0]!.slice(overflow);
+      this.total = this.capacity;
+    }
+    this.cached = undefined;
   }
 
   snapshot(): string {
-    return this.buffer;
+    if (this.cached === undefined) this.cached = this.chunks.join('');
+    return this.cached;
   }
 }
 
@@ -246,11 +257,42 @@ function isWindowsAbsolutePath(value: string): boolean {
 // MERGED env so a proxy declared only in `config.env` is honored too.
 // `reconcileChildNoProxy` then mirrors a single-casing `NO_PROXY` override onto
 // both casings so it isn't shadowed by the injected value.
-const SENSITIVE_ENV_KEYWORDS = ['TOKEN', 'API_KEY', 'SECRET', 'PASSWORD', 'CREDENTIAL'];
+//
+// Only an allowlisted set of parent-process environment variables are propagated
+// to spawned MCP stdio servers. Everything else is dropped unless the server
+// config explicitly declares it via ``env`` — this prevents leaking cloud
+// credentials, database URLs, signing keys, and other secrets from the user's
+// shell into untrusted MCP servers installed via ``.mcp.json``.
+const ALLOWED_PARENT_ENV_KEYS = new Set<string>([
+  'PATH',
+  'PATHEXT',
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'SHELL',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'TERM',
+  'TERM_PROGRAM',
+  'TERM_PROGRAM_VERSION',
+  'TZ',
+  'SYSTEMROOT',
+  'WINDIR',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'PROGRAMDATA',
+  'COMSPEC',
+  'TEMP',
+  'TMP',
+  'TMPDIR',
+  'XDG_CONFIG_HOME',
+  'XDG_DATA_HOME',
+  'XDG_CACHE_HOME',
+]);
 
-function isSensitiveEnvKey(key: string): boolean {
-  const upper = key.toUpperCase();
-  return SENSITIVE_ENV_KEYWORDS.some((kw) => upper.includes(kw));
+function isAllowedParentEnvKey(key: string): boolean {
+  return ALLOWED_PARENT_ENV_KEYS.has(key.toUpperCase());
 }
 
 export function mergeStdioEnv(
@@ -259,7 +301,7 @@ export function mergeStdioEnv(
 ): Record<string, string> {
   const merged: Record<string, string> = {};
   for (const [key, value] of Object.entries(parentEnv)) {
-    if (value !== undefined && !isSensitiveEnvKey(key)) merged[key] = value;
+    if (value !== undefined && isAllowedParentEnvKey(key)) merged[key] = value;
   }
   if (configEnv !== undefined) Object.assign(merged, configEnv);
   Object.assign(merged, proxyEnvForChild(merged));
