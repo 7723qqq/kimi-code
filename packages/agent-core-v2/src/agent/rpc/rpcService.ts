@@ -145,7 +145,10 @@ export class AgentRPCService implements IAgentRPCService {
 
   cancel({ turnId }: CancelPayload): void {
     if (this.loop.status().state === 'running') {
-      this.telemetry.track2('cancel', { from: 'streaming' });
+      this.telemetry.track2('cancel', {
+        from: 'streaming',
+        trace_id: this.loop.status().activeTraceId,
+      });
     }
     this.loop.cancel(turnId);
   }
@@ -217,7 +220,10 @@ export class AgentRPCService implements IAgentRPCService {
   cancelCompaction(_payload: EmptyPayload): void {
     const active = this.fullCompaction.compacting;
     if (active !== null) {
-      this.telemetry.track2('cancel', { from: 'compacting' });
+      this.telemetry.track2('cancel', {
+        from: 'compacting',
+        trace_id: active.traceId,
+      });
     }
     active?.abortController.abort();
   }
