@@ -76,14 +76,14 @@ describe('args-validator (Ajv, format support)', () => {
 
   it('validates minLength and maxLength on strings', () => {
     expect(validate({ type: 'string', minLength: 2 }, 'ab')).toBeNull();
-    expect(validate({ type: 'string', minLength: 2 }, 'a')).toContain('minLength');
-    expect(validate({ type: 'string', maxLength: 3 }, 'abcd')).toContain('maxLength');
+    expect(validate({ type: 'string', minLength: 2 }, 'a')).toContain('fewer than');
+    expect(validate({ type: 'string', maxLength: 3 }, 'abcd')).toContain('longer than');
   });
 
   it('validates minimum and maximum on numbers', () => {
     expect(validate({ type: 'number', minimum: 0, maximum: 100 }, 50)).toBeNull();
-    expect(validate({ type: 'number', minimum: 0 }, -1)).toContain('minimum');
-    expect(validate({ type: 'number', maximum: 100 }, 101)).toContain('maximum');
+    expect(validate({ type: 'number', minimum: 0 }, -1)).toContain('>= 0');
+    expect(validate({ type: 'number', maximum: 100 }, 101)).toContain('<= 100');
   });
 
   it('validates pattern on strings', () => {
@@ -144,7 +144,7 @@ describe('args-validator (Ajv, format support)', () => {
       items: { type: 'string' },
       minItems: 1,
     };
-    expect(validate(schema, [])).toContain('minItems');
+    expect(validate(schema, [])).toContain('fewer than');
     expect(validate(schema, ['x'])).toBeNull();
   });
 });
