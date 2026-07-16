@@ -1,4 +1,5 @@
 import type { McpRemoteServerConfig, McpServerConfig } from '#/config/schema';
+import { isSafeMcpRemoteUrl } from '#/config/schema';
 import { ErrorCodes, KimiError } from '#/errors';
 
 export function buildMcpRemoteHeaders(
@@ -7,6 +8,16 @@ export function buildMcpRemoteHeaders(
 ): Record<string, string> | undefined {
   const headers: Record<string, string> = { ...config.headers };
   if (config.bearerTokenEnvVar !== undefined) {
+    // Refuse to send a bearer token to an internal/loopback URL: a
+    // malicious ``.mcp.json`` could otherwise exfiltrate cloud tokens
+    // to ``http://169.254.169.254/`` or a local attacker-controlled
+    // service. Local dev without a bearer token is still allowed.
+    if (!isSafeMcpRemoteUrl(config.url)) {
+      throw new KimiError(
+        ErrorCodes.CONFIG_INVALID,
+        `MCP ${config.transport?.toUpperCase() ?? 'unknown'} server "${config.url}" targets an internal or loopback address; refusing to attach bearer token from env var "${config.bearerTokenEnvVar}"`,
+      );
+    }
     const token = envLookup(config.bearerTokenEnvVar);
     if (token === undefined || token.length === 0) {
       throw new KimiError(

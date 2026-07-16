@@ -83,7 +83,7 @@ export class HttpMcpClient implements MCPClient {
     this.toolCallTimeoutMs = options.toolCallTimeoutMs;
   }
 
-  async connect(): Promise<void> {
+  async connect(signal?: AbortSignal): Promise<void> {
     if (this.closed) {
       throw new Error('MCP HTTP client is closed');
     }
@@ -92,7 +92,7 @@ export class HttpMcpClient implements MCPClient {
     // Install hooks BEFORE the SDK handshake; see StdioMcpClient.connect.
     this.installTransportHooks();
     try {
-      await this.client.connect(this.transport);
+      await this.client.connect(this.transport, signal ? { signal } : undefined);
     } catch (error) {
       await this.closeStartedClient();
       throw error;
@@ -125,8 +125,8 @@ export class HttpMcpClient implements MCPClient {
     }
   }
 
-  async listTools(): Promise<MCPToolDefinition[]> {
-    const result = await this.client.listTools();
+  async listTools(signal?: AbortSignal): Promise<MCPToolDefinition[]> {
+    const result = await this.client.listTools(undefined, signal ? { signal } : undefined);
     return result.tools.map(toMcpToolDefinition);
   }
 
