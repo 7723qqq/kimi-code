@@ -62,6 +62,7 @@ interface RuntimeRig {
   readonly runtime: KimiRuntime;
   readonly broadcasts: BroadcastRecord[];
   readonly logs: LogRecord[];
+  readonly version: string;
   closeProvider(): Promise<void>;
 }
 
@@ -129,6 +130,7 @@ async function createRuntimeRig(): Promise<RuntimeRig> {
     broadcasts,
     logs,
     closeProvider,
+    version,
   };
 }
 
@@ -340,7 +342,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
     await expect(session.prompt("hello")).resolves.toEqual({ status: "finished" });
 
     expect(rig.provider.requests[0]?.headers["user-agent"]).toBe(
-      "kimi-code-vscode/0.6.0",
+      `kimi-code-vscode/${rig.version}`,
     );
   });
 
