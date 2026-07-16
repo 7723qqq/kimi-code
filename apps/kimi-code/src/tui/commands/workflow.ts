@@ -1,0 +1,50 @@
+import { t } from '#/i18n';
+import { getLlmNotSetMessage, getNoActiveSessionMessage } from '../constant/kimi-tui';
+import type { SlashCommandHost } from './dispatch';
+
+/**
+ * `/workflow` slash command — CLI entry point for the Workflow tool.
+ */
+export async function handleWorkflowCommand(host: SlashCommandHost, args: string): Promise<void> {
+  if (host.session === undefined) {
+    host.showError(getNoActiveSessionMessage());
+    return;
+  }
+  const trimmed = args.trim();
+  if (trimmed.length === 0) {
+    const wf = t('tui.slashCommands.workflowHelp') as Record<string, string>;
+    host.showNotice(
+      t('tui.slashCommands.workflow'),
+      [wf.usage, wf.list, wf.run, wf.status, wf.cancel, '', wf.example, '  /workflow deep-research "latest advances in RAG"'].join('\n'),
+    );
+    return;
+  }
+  const lower = trimmed.toLowerCase();
+  if (lower === 'list') {
+    if (host.state.appState.model.trim().length === 0) { host.showError(getLlmNotSetMessage()); return; }
+    host.sendNormalUserInput('Use the Workflow tool to list all available built-in workflows. Show their names, descriptions, and when to use them.');
+    return;
+  }
+  if (lower.startsWith('status ')) {
+    const runId = trimmed.slice(7).trim();
+    if (runId.length === 0) { host.showError(t('tui.slashCommands.workflowStatusUsage')); return; }
+    if (host.state.appState.model.trim().length === 0) { host.showError(getLlmNotSetMessage()); return; }
+    host.sendNormalUserInput(`Use the Workflow tool to check the status of workflow run "${runId}".`);
+    return;
+  }
+  if (lower.startsWith('cancel ')) {
+    const runId = trimmed.slice(7).trim();
+    if (runId.length === 0) { host.showError(t('tui.slashCommands.workflowCancelUsage')); return; }
+    if (host.state.appState.model.trim().length === 0) { host.showError(getLlmNotSetMessage()); return; }
+    host.sendNormalUserInput(`Use the Workflow tool to cancel workflow run "${runId}".`);
+    return;
+  }
+  if (host.state.appState.model.trim().length === 0) { host.showError(getLlmNotSetMessage()); return; }
+  const spaceIdx = trimmed.indexOf(' ');
+  const workflowName = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
+  const workflowArgs = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim();
+  const prompt = workflowArgs.length > 0
+    ? `Use the Workflow tool to run the "${workflowName}" workflow with these args: ${workflowArgs}`
+    : `Use the Workflow tool to run the "${workflowName}" workflow.`;
+  host.sendNormalUserInput(prompt);
+}
