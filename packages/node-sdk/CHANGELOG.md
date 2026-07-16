@@ -1,14 +1,10 @@
 # @moonshot-ai/kimi-code-sdk
 
-## 0.14.0
-
-### Minor Changes
-
-- [`a83aa30`](https://github.com/MoonshotAI/kimi-code/commit/a83aa30fe99736d4a289023bc9fbfe692408008f) Thanks [@7Sageer](https://github.com/7Sageer)! - Add optional feedback attachments for diagnostic logs and codebase context.
+## 0.13.4
 
 ### Patch Changes
 
-- [`ac1dfef`](https://github.com/MoonshotAI/kimi-code/commit/ac1dfef1119122c3610592d11726c5536b9cf549) Thanks [@liruifengv](https://github.com/liruifengv)! - Display Extra Usage (fuel pack) balance in `/usage` and `/status` commands.
+- [#1769](https://github.com/MoonshotAI/kimi-code/pull/1769) [`d1ca65e`](https://github.com/MoonshotAI/kimi-code/commit/d1ca65e1de189617e9edbc54010e62d472a1de3d) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Support in-process editor hosts with session lifecycle, context, MCP configuration, and cross-platform session storage APIs.
 
 ## 0.13.3
 

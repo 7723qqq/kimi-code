@@ -16,8 +16,10 @@ catalog:
   tsx: ^4.21.0
 
 overrides:
+  "kimi-code>@tailwindcss/vite": "4.1.18"
   "ssh2@1.17.0>cpu-features": "-"
   "ssh2@1.17.0>nan": "-"
+  "kimi-code>tailwindcss": "4.1.18"
 
 # Allow Electron's postinstall to extract its prebuilt binary (needed by
 # apps/kimi-desktop). Other native deps stay unbuilt and rely on their own

@@ -1,6 +1,6 @@
 import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
+import { formatTokenCount } from '#/utils/usage/usage-format';
 
 interface GoalCompletionStats {
   readonly terminalReason?: string | undefined;
@@ -19,9 +19,9 @@ export function buildGoalCompletionMessage(goal: GoalSnapshot): string {
 }
 
 export function buildGoalCompletionMessageFromStats(goal: GoalCompletionStats): string {
-  const head = t('tui.messages.goalComplete', { reason: goal.terminalReason ? ` — ${goal.terminalReason}` : '' });
-  const turns = t('tui.messages.goalCompleteTurns', { count: goal.turnsUsed, plural: goal.turnsUsed === 1 ? '' : 's' });
-  const stats = t('tui.messages.goalCompleteSummary', { turns, elapsed: formatElapsed(goal.wallClockMs), tokens: formatTokens(goal.tokensUsed) });
+  const head = `✓ Goal complete${goal.terminalReason ? ` — ${goal.terminalReason}` : ''}.`;
+  const turns = `${goal.turnsUsed} turn${goal.turnsUsed === 1 ? '' : 's'}`;
+  const stats = `Worked ${turns} over ${formatElapsed(goal.wallClockMs)}, using ${formatTokenCount(goal.tokensUsed)} tokens.`;
   return `${head}\n${stats}`;
 }
 
@@ -33,10 +33,4 @@ function formatElapsed(ms: number): string {
   if (minutes < 60) return `${minutes}m${seconds.toString().padStart(2, '0')}s`;
   const hours = Math.floor(minutes / 60);
   return `${hours}h${(minutes % 60).toString().padStart(2, '0')}m`;
-}
-
-function formatTokens(tokens: number): string {
-  if (tokens < 1000) return String(tokens);
-  if (tokens < 1_000_000) return `${(tokens / 1000).toFixed(1)}k`;
-  return `${(tokens / 1_000_000).toFixed(1)}M`;
 }

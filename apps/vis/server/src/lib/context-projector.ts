@@ -218,6 +218,9 @@ export function projectContext(
         }
         break;
       }
+      case 'context.update_token_count':
+        contextTokens = rec.tokenCount;
+        break;
       case 'context.clear':
         if (mode === 'model') {
           messages = [];

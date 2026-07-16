@@ -6,31 +6,31 @@ outline: 2
 
 本页记录 Kimi Code CLI 每个版本的变更内容。
 
-## Fork 自定义变更（2026-07-16）
+## 0.25.0（2026-07-16）
 
-在 upstream v0.25.0 基础上的定制修改。
+### 新功能
 
-### 性能与 Rust 原生
+- web: 聊天支持附加任意类型文件，可直接将文件拖放到窗口任意位置；发送的文件、图片、视频都会以附件标签显示在消息气泡中。
 
-- **移除 jimp 和 @jsquash/webp**：用 Rust `image` crate（原生 `image_compress.rs`）替代纯 JS 图片处理。每张图片提速 10-100 倍，节省约 8 MB 包体积。
-- **移除 picomatch**：用原生 `glob_matches_any()`（Rust `globset` crate）替代 glob 匹配器。节省约 30 KB，支持原生并行匹配。
-- **sniffImageDimensions 走原生**：PNG/JPEG/GIF/BMP/WebP/HEIC 尺寸检测全部通过 Rust `native_sniff_image_dimensions` 处理。
-- **新增 native detectFileType napi 绑定**：新增 `native_detect_file_type` Rust 函数及 `resolve_mime` 辅助函数，所有文件读取分类走原生代码。
+### 优化
 
-### Bug 修复
+- web: 模型请求失败时展示完整诊断信息。
+- 应用 Anthropic 官方 effort 配置，未知模型回退到 128k 输出上限。
 
-- **Node v24 原生兼容**：修复 napi 绑定 `Vec<u8>` → `Uint8Array` 参数类型，兼容 Node.js v24（NAPI v10）。
-- **Server 模块懒加载**：将 `getLiveLock` 改为动态 import，避免 `@moonshot-ai/server` 硬依赖阻塞 CLI 启动。
-- **reasoning_content thinking 修复**：cherry-pick 上游 Anthropic 模型能力对齐（#1746），修复 DeepSeek 兼容后端 "reasoning_content must be passed back" 错误。
+### 修复
 
-### 国际化
-
-- **CLI i18n 覆盖率扩展**：将 `commands/config.ts` 中 20+ 处硬编码字符串迁移为 `t()` 调用。新增 `cannotSwitchModelsWhileStreaming` 和 `unknownPlanSubcommand` 键。
-
-### 基础设施
-
-- 合并上游 v0.23.6 → v0.25.0（一次 merge commit，在已 cherry-pick 的修复之上仅新增 1 个上游提交）。
-- 保留 fork 自定义修改：packages/server/、i18n、Rust 优化、WSL 兼容。
+- 修复 Web 服务器 bearer token 校验可被百分号编码的 API 路径绕过、导致所有 API 路由可被未认证访问的问题。
+- 修复会话文件系统 API 可跟随指向工作区外的符号链接、导致宿主机文件被越权访问的问题。
+- web: 会话活动指示器现与 Agent 实际工作保持同步；修复会话激活竞争或 LLM 重试后流式内容重复的问题。
+- 修复 Anthropic 兼容供应商中自定义命名模型新会话思考强度被错误关闭、且 ACP 客户端不显示思考强度控件的问题。
+- Anthropic 兼容模型现在正确遵循 `adaptive_thinking = false`，请求中不再携带 effort 参数。
+- web: 修复服务器绑定非回环地址时 CSP 阻止 Web UI 主题初始化脚本与内置字体加载的问题。
+- 修复工作区目录通过符号链接给出时会话创建失败的问题。
+- 修复剪贴板图片读取失败导致 CLI 意外退出的问题，现在会回退为粘贴文本。
+- web: 修复已完成的后台子 Agent 在会话重新加载后丢失最终输出的问题。
+- web: 修复开发构建中 Enter 键无法确认模态对话框的问题。
+- web: 修复流式输出期间后台子 Agent 在 agents dock 面板中显示为两行相同记录的问题。
+- 修复 CLI 意外退出时诊断日志缺少实际错误信息的问题。
 
 ## 0.24.2（2026-07-15）
 

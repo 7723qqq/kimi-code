@@ -28,7 +28,7 @@ import type { TokenUsage } from '@moonshot-ai/kimi-code-sdk';
 import { appendStreamingArgsPreview } from '#/tui/utils/event-payload';
 import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
-import { t } from '#/i18n';
+import { formatTokenCount } from '#/utils/usage/usage-format';
 
 import { agentSwarmResultSummaryFromOutput } from './agent-swarm-progress';
 import { PlanBoxComponent } from './plan-box';
@@ -51,7 +51,7 @@ const MAX_LIVE_OUTPUT_CHARS = 50_000;
 
 /** Delay before a long-running foreground Bash/Agent card advertises Ctrl+B. */
 const DETACH_HINT_DELAY_MS = 10_000;
-const DETACH_HINT_TEXT = t('tui.messages.toolCall.detachHint');
+const DETACH_HINT_TEXT = 'Press Ctrl+B to run in background';
 
 type SubagentTextKind = 'thinking' | 'text';
 type SubagentPhase = 'queued' | 'spawning' | 'running' | 'done' | 'failed' | 'backgrounded';
@@ -120,13 +120,13 @@ function backgroundFailureMessage(
 ): string | undefined {
   switch (status) {
     case 'lost':
-      return t('tui.messages.toolCall.backgroundLost');
+      return 'Background agent lost (session restarted before completion)';
     case 'killed':
-      return t('tui.messages.toolCall.backgroundKilled');
+      return 'Background agent killed';
     case 'timed_out':
-      return t('tui.messages.toolCall.backgroundTimedOut');
+      return 'Background agent timed out';
     case 'failed':
-      return t('tui.messages.toolCall.backgroundFailed');
+      return 'Background agent failed';
     case 'completed':
     case undefined:
       return undefined;
@@ -139,8 +139,7 @@ function str(v: unknown): string {
 
 function formatSubagentContextTokens(contextTokens: number | undefined): string | undefined {
   if (contextTokens === undefined || contextTokens <= 0) return undefined;
-  const formatted = contextTokens >= 1000 ? `${(contextTokens / 1000).toFixed(1)}k` : String(contextTokens);
-  return t('tui.messages.toolCall.tokenCount', { count: formatted });
+  return `${formatTokenCount(contextTokens)} tok`;
 }
 
 function usageInputTotal(usage: TokenUsage): number {
@@ -155,21 +154,20 @@ function usageTotal(usage: TokenUsage | undefined): number {
 function formatSubagentTokens(usage: TokenUsage | undefined): string | undefined {
   const total = usageTotal(usage);
   if (total <= 0) return undefined;
-  const formatted = total >= 1000 ? `${(total / 1000).toFixed(1)}k` : String(total);
-  return t('tui.messages.toolCall.tokenCount', { count: formatted });
+  return `${formatTokenCount(total)} tok`;
 }
 
 function formatByteSize(bytes: number): string {
-  if (bytes < 1024) return t('tui.messages.toolCall.byteSizeB', { count: bytes });
-  if (bytes < 1024 * 1024) return t('tui.messages.toolCall.byteSizeKB', { count: (bytes / 1024).toFixed(1) });
-  return t('tui.messages.toolCall.byteSizeMB', { count: (bytes / 1024 / 1024).toFixed(1) });
+  if (bytes < 1024) return `${String(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function formatElapsed(seconds: number): string {
-  if (seconds < 60) return t('tui.messages.toolCall.elapsedSeconds', { count: seconds });
+  if (seconds < 60) return `${String(seconds)}s`;
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
-  return t('tui.messages.toolCall.elapsedMinutes', { minutes, seconds: remainder });
+  return `${String(minutes)}m ${String(remainder)}s`;
 }
 
 function extractApprovedPlan(output: string): string {
@@ -395,7 +393,7 @@ function makeWorkspaceRelativePath(filePath: string, workspaceDir: string | unde
   ) {
     return filePath;
   }
-  return relativePath.replaceAll('\\', '/');
+  return relativePath;
 }
 
 function formatKeyArgument(
@@ -441,7 +439,7 @@ function extractKeyArgument(
       summary += ` · ${makeWorkspaceRelativePath(path, workspaceDir)}`;
     }
     if (args['include_ignored'] === true) {
-      summary += ` · ${t('tui.messages.toolCall.includeIgnored')}`;
+      summary += ' · include ignored';
     }
     return truncateArgValue('pattern', summary);
   }
@@ -461,14 +459,14 @@ function extractKeyArgument(
 
 function formatSubagentLabel(agentName: string | undefined): string {
   const raw = agentName?.trim();
-  if (raw === undefined || raw.length === 0) return t('tui.messages.toolCall.subAgentDefault');
+  if (raw === undefined || raw.length === 0) return 'SubAgent';
   const label = raw
     .split(/[-_\s]+/)
     .filter((part) => part.length > 0)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
   if (/\bagent$/i.test(label)) return label;
-  return `${label} ${t('tui.messages.toolCall.subAgentSuffix')}`;
+  return `${label} Agent`;
 }
 
 function tailNonEmptyLines(text: string, maxLines: number): string[] {
@@ -775,7 +773,7 @@ export class ToolCallComponent extends Container {
     if (this.result !== undefined || text.length === 0) return;
     this.liveOutput += text;
     if (this.liveOutput.length > MAX_LIVE_OUTPUT_CHARS) {
-      this.liveOutput = `${t('tui.messages.toolCall.truncatedMarker')}\n${this.liveOutput.slice(
+      this.liveOutput = `[...truncated]\n${this.liveOutput.slice(
         this.liveOutput.length - MAX_LIVE_OUTPUT_CHARS,
       )}`;
     }
@@ -1345,13 +1343,12 @@ export class ToolCallComponent extends Container {
       delta.argumentsPart,
     );
     const parsed = parseArgsPreview(nextArgsText);
-    const fallbackName = t('tui.messages.toolCall.toolDefault');
     this.ongoingSubCalls.set(delta.id, {
-      name: delta.name ?? existing?.name ?? fallbackName,
+      name: delta.name ?? existing?.name ?? 'Tool',
       args: parsed,
       streamingArguments: nextArgsText,
     });
-    this.upsertSubToolActivity(delta.id, delta.name ?? existing?.name ?? fallbackName, parsed, 'ongoing');
+    this.upsertSubToolActivity(delta.id, delta.name ?? existing?.name ?? 'Tool', parsed, 'ongoing');
     if (
       this.subagentPhase === undefined ||
       this.subagentPhase === 'queued' ||
@@ -1370,13 +1367,12 @@ export class ToolCallComponent extends Container {
     const activity = this.subToolActivities.get(id);
     const ongoing = this.ongoingSubCalls.get(id);
     if (activity === undefined && ongoing === undefined) return;
-    const fallbackName = t('tui.messages.toolCall.toolDefault');
-    const name = activity?.name ?? ongoing?.name ?? fallbackName;
+    const name = activity?.name ?? ongoing?.name ?? 'Tool';
     const args = activity?.args ?? ongoing?.args ?? {};
     const existingOutput = activity?.output ?? '';
     let output = existingOutput + text;
     if (output.length > MAX_LIVE_OUTPUT_CHARS) {
-      output = `${t('tui.messages.toolCall.truncatedMarker')}\n${output.slice(output.length - MAX_LIVE_OUTPUT_CHARS)}`;
+      output = `[...truncated]\n${output.slice(output.length - MAX_LIVE_OUTPUT_CHARS)}`;
     }
     this.upsertSubToolActivity(id, name, args, activity?.phase ?? 'ongoing', output);
     this.rebuildContent();
@@ -1433,7 +1429,7 @@ export class ToolCallComponent extends Container {
     }
 
     if (toolCall.name === 'ExitPlanMode') {
-      const label = currentTheme.boldFg('primary', t('tui.messages.toolCall.currentPlan'));
+      const label = currentTheme.boldFg('primary', 'Current plan');
       if (!isFinished || result === undefined || result.is_error === true) {
         return label;
       }
@@ -1441,8 +1437,8 @@ export class ToolCallComponent extends Container {
       if (outcome.kind === 'approved') {
         const chipText =
           outcome.chosen !== undefined && outcome.chosen.length > 0
-            ? t('tui.messages.toolCall.approvedWithOption', { option: outcome.chosen })
-            : t('tui.messages.toolCall.approved');
+            ? `Approved: ${outcome.chosen}`
+            : 'Approved';
         return `${label}${currentTheme.fg('success', ` · ${chipText}`)}`;
       }
       if (outcome.kind === 'auto_approved') {
@@ -1457,13 +1453,13 @@ export class ToolCallComponent extends Container {
       const isBackgroundAsk = toolCall.args['background'] === true;
       const label = isFinished
         ? isError
-          ? t('tui.messages.toolCall.couldNotCollectInput')
+          ? 'Could not collect your input'
           : isBackgroundAsk
-            ? t('tui.messages.toolCall.startedBackgroundQuestion')
-          : t('tui.messages.toolCall.collectedAnswers')
+            ? 'Started background question'
+          : 'Collected your answers'
         : isBackgroundAsk
-          ? t('tui.messages.toolCall.startingBackgroundQuestion')
-          : t('tui.messages.toolCall.waitingForInput');
+          ? 'Starting background question'
+          : 'Waiting for your input';
       const tone = isError ? 'error' : 'primary';
       return `${bullet}${currentTheme.boldFg(tone, label)}`;
     }
@@ -1474,11 +1470,9 @@ export class ToolCallComponent extends Container {
       // would duplicate the body. Wording mirrors the other label-only headers
       // (e.g. AskUserQuestion): the whole label takes the tone colour.
       if (isTruncated) {
-        return `${bullet}${currentTheme.fg('error', t('tui.messages.toolCall.truncated'))} ${currentTheme.boldFg('primary', 'Bash')}`;
+        return `${bullet}${currentTheme.fg('error', 'Truncated')} ${currentTheme.boldFg('primary', 'Bash')}`;
       }
-      const label = isFinished
-        ? t('tui.messages.toolCall.ranCommand')
-        : t('tui.messages.toolCall.runningCommand');
+      const label = isFinished ? 'Ran a command' : 'Running a command';
       const tone = isError ? 'error' : 'primary';
       const chipStr = isFinished && result !== undefined ? this.buildHeaderChip(result) : '';
       return `${bullet}${currentTheme.boldFg(tone, label)}${chipStr}`;
@@ -1496,11 +1490,7 @@ export class ToolCallComponent extends Container {
       return this.buildSingleSubagentHeader();
     }
 
-    const verb = isFinished
-      ? t('tui.messages.toolCall.used')
-      : isTruncated
-        ? t('tui.messages.toolCall.truncated')
-        : t('tui.messages.toolCall.using');
+    const verb = isFinished ? 'Used' : isTruncated ? 'Truncated' : 'Using';
     const keyArg = extractKeyArgument(toolCall.name, toolCall.args, this.workspaceDir);
     const decoded = decodeMcpToolName(toolCall.name);
     const verbStyled = isTruncated
@@ -1617,26 +1607,15 @@ export class ToolCallComponent extends Container {
     const phaseChip = this.formatPhaseChip();
     const headerLabel =
       this.subagentAgentName !== undefined
-        ? t('tui.messages.toolCall.subagentWithName', {
-            name: this.subagentAgentName,
-            id: this.formatAgentId(),
-          })
-        : t('tui.messages.toolCall.subagentNoName', { id: this.formatAgentId() });
+        ? `subagent ${this.subagentAgentName} (${this.formatAgentId()})`
+        : `subagent (${this.formatAgentId()})`;
     this.addChild(new Text(`  ${currentTheme.dim(`↳ ${headerLabel}`)}${phaseChip}`, 0, 0));
 
     if (this.hiddenSubCallCount > 0) {
+      const suffix = this.hiddenSubCallCount > 1 ? 's' : '';
       this.addChild(
         new Text(
-          currentTheme.italic(
-            currentTheme.dim(
-              `    ${t(
-                this.hiddenSubCallCount === 1
-                  ? 'tui.messages.toolCall.moreToolCalls_one'
-                  : 'tui.messages.toolCall.moreToolCalls_other',
-                { count: this.hiddenSubCallCount },
-              )} ...`,
-            ),
-          ),
+          currentTheme.italic(currentTheme.dim(`    ${String(this.hiddenSubCallCount)} more tool call${suffix} ...`)),
           0,
           0,
         ),
@@ -1650,7 +1629,7 @@ export class ToolCallComponent extends Container {
       const keyArg = extractKeyArgument(sub.name, sub.args, this.workspaceDir);
       const nameCol = currentTheme.fg('primary', sub.name);
       const argCol = keyArg ? currentTheme.dim(` (${keyArg})`) : '';
-      this.addChild(new Text(`    ${mark} ${t('tui.messages.toolCall.used')} ${nameCol}${argCol}`, 0, 0));
+      this.addChild(new Text(`    ${mark} Used ${nameCol}${argCol}`, 0, 0));
     }
 
     for (const [id, call] of this.ongoingSubCalls) {
@@ -1658,9 +1637,7 @@ export class ToolCallComponent extends Container {
       const nameCol = currentTheme.fg('primary', call.name);
       const argCol = keyArg ? currentTheme.dim(` (${keyArg})`) : '';
       void id;
-      this.addChild(
-        new Text(`    ${currentTheme.dim('…')} ${t('tui.messages.toolCall.using')} ${nameCol}${argCol}`, 0, 0),
-      );
+      this.addChild(new Text(`    ${currentTheme.dim('…')} Using ${nameCol}${argCol}`, 0, 0));
     }
 
     if (this.subagentText.length > 0) {
@@ -1701,27 +1678,18 @@ export class ToolCallComponent extends Container {
     const parts: string[] = [];
     switch (this.subagentPhase) {
       case 'queued':
-        parts.push(`○ ${t('tui.messages.toolCall.phaseQueued')}`);
+        parts.push('○ queued');
         break;
       case 'spawning':
-        parts.push(`↻ ${t('tui.messages.toolCall.phaseStarting')}`);
+        parts.push('↻ starting…');
         break;
       case 'running':
-        parts.push(`↻ ${t('tui.messages.toolCall.phaseRunning')}`);
+        parts.push('↻ running');
         break;
       case 'done': {
-        parts.push(currentTheme.fg('success', `✓ ${t('tui.messages.toolCall.phaseDone')}`));
+        parts.push(currentTheme.fg('success', '✓ done'));
         const toolCount = this.finishedSubCalls.length + this.hiddenSubCallCount;
-        if (toolCount > 0) {
-          parts.push(
-            t(
-              toolCount === 1
-                ? 'tui.messages.toolCall.toolCount_one'
-                : 'tui.messages.toolCall.toolCount_other',
-              { count: toolCount },
-            ),
-          );
-        }
+        if (toolCount > 0) parts.push(`${String(toolCount)} tool${toolCount > 1 ? 's' : ''}`);
         const tokens =
           formatSubagentContextTokens(this.subagentContextTokens) ??
           formatSubagentTokens(this.subagentUsage);
@@ -1729,10 +1697,10 @@ export class ToolCallComponent extends Container {
         break;
       }
       case 'failed':
-        parts.push(currentTheme.fg('error', `✗ ${t('tui.messages.toolCall.phaseFailed')}`));
+        parts.push(currentTheme.fg('error', '✗ failed'));
         break;
       case 'backgrounded':
-        parts.push(`◐ ${t('tui.messages.toolCall.phaseBackgrounded')}`);
+        parts.push('◐ backgrounded');
         break;
     }
     return parts.length > 0 ? currentTheme.dim(` · ${parts.join(' · ')}`) : '';
@@ -1792,7 +1760,7 @@ export class ToolCallComponent extends Container {
     const descriptionText = descriptionPlain.length > 0 ? currentTheme.dim(descriptionPlain) : '';
     const statsText = this.formatSingleSubagentStatsText();
     if (isDone) {
-      return `${marker}${currentTheme.boldFg('success', labelText)} ${currentTheme.fg('success', t('tui.messages.toolCall.singleSubagentCompleted', { description: descriptionPlain, stats: statsText }))}`;
+      return `${marker}${currentTheme.boldFg('success', labelText)} ${currentTheme.fg('success', `Completed${descriptionPlain}${statsText}`)}`;
     }
     const stats = currentTheme.dim(statsText);
     return `${marker}${label} ${status}${descriptionText}${stats}`;
@@ -1801,30 +1769,24 @@ export class ToolCallComponent extends Container {
   private formatSingleSubagentStatus(phase: SubagentPhase | undefined): string {
     switch (phase) {
       case 'done':
-        return currentTheme.fg('success', t('tui.messages.toolCall.statusCompleted'));
+        return currentTheme.fg('success', 'Completed');
       case 'failed':
-        return currentTheme.fg('error', t('tui.messages.toolCall.statusFailed'));
+        return currentTheme.fg('error', 'Failed');
       case 'running':
-        return currentTheme.fg('primary', t('tui.messages.toolCall.statusRunning'));
+        return currentTheme.fg('primary', 'Running');
       case 'backgrounded':
-        return t('tui.messages.toolCall.statusBackgrounded');
+        return 'Backgrounded';
       case 'queued':
-        return currentTheme.fg('primary', t('tui.messages.toolCall.statusQueued'));
+        return currentTheme.fg('primary', 'Queued');
       case 'spawning':
       case undefined:
-        return currentTheme.fg('primary', t('tui.messages.toolCall.statusStarting'));
+        return currentTheme.fg('primary', 'Starting');
     }
   }
 
   private formatSingleSubagentStatsText(): string {
-    const toolCount = this.subToolActivities.size;
     const parts = [
-      t(
-        toolCount === 1
-          ? 'tui.messages.toolCall.toolCount_one'
-          : 'tui.messages.toolCall.toolCount_other',
-        { count: toolCount },
-      ),
+      `${String(this.subToolActivities.size)} tool${this.subToolActivities.size === 1 ? '' : 's'}`,
     ];
     const elapsed = this.getSubagentElapsedSeconds();
     if (elapsed !== undefined) parts.push(formatElapsed(elapsed));
@@ -1918,20 +1880,12 @@ export class ToolCallComponent extends Container {
 
   private buildSingleSubagentSummaryLine(): string {
     const toolCount = this.subToolActivities.size;
-    const countLabel = t(
-      toolCount === 1
-        ? 'tui.messages.toolCall.toolCount_one'
-        : 'tui.messages.toolCall.toolCount_other',
-      { count: toolCount },
-    );
+    const countLabel = `${String(toolCount)} tool${toolCount === 1 ? '' : 's'}`;
     const current = this.getCurrentSubToolActivity();
     if (current === undefined) {
       return currentTheme.dim(`  · ${countLabel}`);
     }
-    const verb =
-      current.phase === 'ongoing'
-        ? t('tui.messages.toolCall.using')
-        : t('tui.messages.toolCall.used');
+    const verb = current.phase === 'ongoing' ? 'Using' : 'Used';
     const keyArg = extractKeyArgument(current.name, current.args, this.workspaceDir);
     const nameCol = currentTheme.fg('primary', current.name);
     const argCol = keyArg ? currentTheme.dim(` (${keyArg})`) : '';
@@ -1990,7 +1944,7 @@ export class ToolCallComponent extends Container {
     if (this.result === undefined && this.toolCall.truncated === true) {
       this.addChild(
         new Text(
-          currentTheme.dim(t('tui.messages.toolCall.argumentsTruncated')),
+          currentTheme.dim('Tool call arguments truncated by max_tokens — call never executed.'),
           2,
           0,
         ),
@@ -2030,10 +1984,7 @@ export class ToolCallComponent extends Container {
         this.addChild(
           new Text(
             currentTheme.dim(
-              t('tui.messages.toolCall.moreLinesHint', {
-                remaining,
-                total: allLines.length,
-              }),
+              `... (${String(remaining)} more lines, ${String(allLines.length)} total, ctrl+o to expand)`,
             ),
             2,
             0,
@@ -2119,15 +2070,10 @@ export class ToolCallComponent extends Container {
       const startedAtMs = this.toolCall.streamingStartedAtMs;
       const elapsedSeconds =
         startedAtMs === undefined ? 0 : Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
-      const target =
-        filePath.length > 0
-          ? t('tui.messages.toolCall.preparingChangesTarget', { filePath })
-          : '';
-      const progress = t('tui.messages.toolCall.preparingChanges', {
-        target,
-        size: formatByteSize(bytes),
-        elapsed: formatElapsed(elapsedSeconds),
-      });
+      const target = filePath.length > 0 ? ` for ${filePath}` : '';
+      const progress = `Preparing changes${target}... ${formatByteSize(bytes)} · ${formatElapsed(
+        elapsedSeconds,
+      )} elapsed`;
       this.addChild(new Text(currentTheme.dim(progress), 2, 0));
       return;
     }
@@ -2186,7 +2132,7 @@ export class ToolCallComponent extends Container {
     if (!isExitPlanModeOutcomeOutput(result.output)) return undefined;
     const outcome = interpretExitPlanModeOutcome(result.output);
     if (outcome.kind !== 'rejected') return undefined;
-    return { label: t('tui.messages.toolCall.rejected'), colorHex: currentTheme.color('error') };
+    return { label: 'Rejected', colorHex: currentTheme.color('error') };
   }
 
   private buildContent(): void {
@@ -2195,11 +2141,6 @@ export class ToolCallComponent extends Container {
 
     if (this.toolCall.name === 'AgentSwarm') {
       this.buildAgentSwarmResultSummary(result);
-      return;
-    }
-
-    if (this.toolCall.name === 'SwarmDiscussion') {
-      this.buildDiscussionResultSummary(result);
       return;
     }
 
@@ -2229,7 +2170,7 @@ export class ToolCallComponent extends Container {
         const trimmed = outcome.feedback.trim();
         if (trimmed.length > 0) {
           const labelTone = (text: string) => currentTheme.boldFg('warning', text);
-          this.addChild(new Text(labelTone(t('tui.messages.toolCall.suggestionLabel')), 2, 0));
+          this.addChild(new Text(labelTone('↪ Suggestion'), 2, 0));
           for (const line of trimmed.split('\n')) {
             this.addChild(new Text(line, 4, 0));
           }
@@ -2267,43 +2208,6 @@ export class ToolCallComponent extends Container {
     }
   }
 
-  private buildDiscussionResultSummary(result: ToolResultBlockData): void {
-    const dim = (s: string): string => currentTheme.fg('textDim', s);
-    const accent = (s: string): string => currentTheme.fg('primary', s);
-
-    // Parse <discussion_result> XML
-    const summaryMatch = result.output.match(/<summary>([^<]+)<\/summary>/);
-    const transcriptMatch = result.output.match(/<transcript>([\s\S]*?)<\/transcript>/);
-    const summaryTextMatch = result.output.match(/<final_summary>([\s\S]*?)<\/final_summary>/);
-
-    const speechCount = result.is_error === true ? 0 : (transcriptMatch?.[1]?.split('\n\n').filter(l => l.trim().startsWith('[')).length ?? 0);
-
-    const segments: string[] = [];
-    if (speechCount > 0) {
-      segments.push(`${String(speechCount)} speeches`);
-    }
-
-    if (result.is_error === true) {
-      segments.push(`${FAILURE_MARK.trimEnd()} ${t('tui.messages.toolCall.failedPeriod')}`);
-    } else {
-      segments.push(`${SUCCESS_MARK.trimEnd()} ${t('tui.messages.toolCall.completedPeriod')}`);
-    }
-
-    this.addChild(new Text(
-      `${dim(t('tui.messages.toolCall.discussionLabel'))}${segments.join(dim(' · '))}`,
-      2, 0,
-    ));
-
-    const summaryText = summaryTextMatch?.[1];
-    if (summaryText != null && summaryText.trim().length > 0) {
-      this.addChild(new Text('', 2, 0));
-      this.addChild(new Text(accent(t('tui.messages.toolCall.discussionSummary')), 2, 0));
-      for (const line of summaryText.trim().split('\n')) {
-        this.addChild(new Text(line, 4, 0));
-      }
-    }
-  }
-
   private buildAgentSwarmResultSummary(result: ToolResultBlockData): void {
     const summary = agentSwarmResultSummaryFromOutput(result.output);
     const dim = (s: string): string => currentTheme.fg('textDim', s);
@@ -2311,42 +2215,33 @@ export class ToolCallComponent extends Container {
 
     if (summary.completed > 0) {
       segments.push(
-        currentTheme.fg(
-          'success',
-          `${SUCCESS_MARK.trimEnd()} ${t('tui.messages.toolCall.completedStatus', { count: summary.completed })}`,
-        ),
+        currentTheme.fg('success', `${SUCCESS_MARK.trimEnd()} ${String(summary.completed)} completed`),
       );
     }
     if (summary.failed > 0) {
       segments.push(
-        currentTheme.fg(
-          'error',
-          `${FAILURE_MARK.trimEnd()} ${t('tui.messages.toolCall.failedStatus', { count: summary.failed })}`,
-        ),
+        currentTheme.fg('error', `${FAILURE_MARK.trimEnd()} ${String(summary.failed)} failed`),
       );
     }
     if (summary.aborted > 0) {
       segments.push(
-        currentTheme.fg(
-          'warning',
-          `${ABORTED_MARK} ${t('tui.messages.toolCall.abortedStatus', { count: summary.aborted })}`,
-        ),
+        currentTheme.fg('warning', `${ABORTED_MARK} ${String(summary.aborted)} aborted`),
       );
     }
 
     if (segments.length > 0) {
-      this.addChild(new Text(`${dim(t('tui.messages.toolCall.agentSwarmLabel'))}${segments.join(dim(' · '))}`, 2, 0));
+      this.addChild(new Text(`${dim('Agent swarm: ')}${segments.join(dim(' · '))}`, 2, 0));
       return;
     }
 
     const isAborted = result.is_error === true && /\b(?:aborted|cancelled)\b/i.test(result.output);
     const colorToken = isAborted ? 'warning' : result.is_error === true ? 'error' : 'success';
     const label = isAborted
-      ? `${ABORTED_MARK} ${t('tui.messages.toolCall.abortedPeriod')}`
+      ? `${ABORTED_MARK} Aborted.`
       : result.is_error === true
-        ? `${FAILURE_MARK.trimEnd()} ${t('tui.messages.toolCall.failedPeriod')}`
-        : `${SUCCESS_MARK.trimEnd()} ${t('tui.messages.toolCall.completedPeriod')}`;
-    this.addChild(new Text(`${dim(t('tui.messages.toolCall.agentSwarmLabel'))}${currentTheme.fg(colorToken, label)}`, 2, 0));
+        ? `${FAILURE_MARK.trimEnd()} Failed.`
+        : `${SUCCESS_MARK.trimEnd()} Completed.`;
+    this.addChild(new Text(`${dim('Agent swarm: ')}${currentTheme.fg(colorToken, label)}`, 2, 0));
   }
 
   /**
@@ -2373,7 +2268,7 @@ export class ToolCallComponent extends Container {
 
     if (!hasAnswers) {
       const noteText =
-        typeof note === 'string' && note.length > 0 ? note : t('tui.messages.toolCall.userDismissedQuestion');
+        typeof note === 'string' && note.length > 0 ? note : 'User dismissed the question.';
       this.addChild(new Text(currentTheme.dim(`  ${noteText}`), 0, 0));
       return true;
     }
@@ -2402,18 +2297,13 @@ function computeLatestActivity(
   if (ongoing.size > 0) {
     const lastOngoing = [...ongoing.values()].at(-1);
     if (lastOngoing !== undefined) {
-      return formatActivityLine(
-        translateActivityVerb('Using'),
-        lastOngoing.name,
-        lastOngoing.args,
-        workspaceDir,
-      );
+      return formatActivityLine('Using', lastOngoing.name, lastOngoing.args, workspaceDir);
     }
   }
   if (finished.length > 0) {
     const last = finished.at(-1);
     if (last !== undefined) {
-      return formatActivityLine(translateActivityVerb('Used'), last.name, last.args, workspaceDir);
+      return formatActivityLine('Used', last.name, last.args, workspaceDir);
     }
   }
   if (text.length > 0) {
@@ -2427,9 +2317,7 @@ function computeLatestActivity(
 }
 
 function formatTokens(n: number): string {
-  if (n >= 1_000_000) return t('tui.messages.toolCall.tokenCount', { count: (n / 1_000_000).toFixed(1) });
-  if (n >= 1_000) return t('tui.messages.toolCall.tokenCount', { count: (n / 1_000).toFixed(1) });
-  return t('tui.messages.toolCall.tokenCount', { count: n });
+  return `${formatTokenCount(n)} tok`;
 }
 
 function formatActivityLine(
@@ -2440,10 +2328,4 @@ function formatActivityLine(
 ): string {
   const keyArg = extractKeyArgument(toolName, args, workspaceDir);
   return keyArg ? `${verb} ${toolName} (${keyArg})` : `${verb} ${toolName}`;
-}
-
-function translateActivityVerb(verb: 'Using' | 'Used'): string {
-  return verb === 'Using'
-    ? t('tui.messages.toolCall.using')
-    : t('tui.messages.toolCall.used');
 }

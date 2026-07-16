@@ -1,6 +1,6 @@
 {
   "name": "@moonshot-ai/kimi-code",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "The Starting Point for Next-Gen Agents",
   "license": "MIT",
   "author": "Moonshot AI",
@@ -35,7 +35,6 @@
   ],
   "type": "module",
   "imports": {
-    "#/i18n": "./src/i18n/index.ts",
     "#/tui/theme": "./src/tui/theme/index.ts",
     "#/tui/commands": "./src/tui/commands/index.ts",
     "#/cli/sub/server": "./src/cli/sub/server/index.ts",
@@ -99,6 +98,7 @@
     "chalk": "^5.4.1",
     "cli-highlight": "^2.1.11",
     "commander": "^13.1.0",
+    "jimp": "^1.6.1",
     "pathe": "^2.0.3",
     "postject": "1.0.0-alpha.6",
     "semver": "^7.7.4",
@@ -109,8 +109,5 @@
   },
   "engines": {
     "node": ">=22.19.0"
-  },
-  "dependencies": {
-    "@moonshot-ai/kimi-code": "link:"
   }
 }

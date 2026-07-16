@@ -181,6 +181,7 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
           duration_ms: Date.now() - startedAt,
           session_cache_written: false,
           has_feedback: false,
+          trace_id: context.trace?.traceId,
         });
         this.eventBus.publish({
           type: 'permission.approval.resolved',
@@ -227,6 +228,7 @@ export class AgentPermissionGate extends Disposable implements IAgentPermissionG
       duration_ms: Date.now() - startedAt,
       session_cache_written: sessionApprovalRule !== undefined,
       has_feedback: response.feedback !== undefined && response.feedback.length > 0,
+      trace_id: context.trace?.traceId,
     });
 
     const resolved = result.resolveApproval?.(response);

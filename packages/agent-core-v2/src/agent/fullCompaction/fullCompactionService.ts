@@ -16,6 +16,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester/llmRequester';
+import type { LLMRequestTrace } from '#/app/llmProtocol/requestTrace';
 import { retryBackoffDelays, sleepForRetry } from '#/_base/utils/retry';
 import { IAgentLoopService, type LoopErrorContext } from '#/agent/loop/loop';
 import { isAbortError } from '#/_base/utils/abort';
@@ -35,7 +36,7 @@ import { createUserMessage, type Message } from '#/app/llmProtocol/message';
 import type { Tool } from '#/app/llmProtocol/tool';
 import { inputTotal, type TokenUsage } from '#/app/llmProtocol/usage';
 import { IEventBus } from '#/app/event/eventBus';
-import type { CompactionFinishedEvent } from '#/app/telemetry/events';
+import type { CompactionFailedEvent, CompactionFinishedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2, isCodedError, isError2, toKimiErrorPayload, unwrapErrorCause } from "#/errors";
 import { IWireService } from '#/wire/wire';
@@ -79,12 +80,14 @@ type CompactionTelemetryProperties = Pick<
 >;
 
 interface ActiveCompaction extends FullCompactionTask {
+  trace?: LLMRequestTrace;
   blockedByTurn: boolean;
 }
 
 interface CompactionAttemptResult {
   readonly summary: string;
   readonly usage: TokenUsage | null;
+  readonly traceId?: string;
 }
 
 class CompactionTruncatedError extends Error {
@@ -297,6 +300,9 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         promise,
         trigger,
         tokenCount,
+        get traceId() {
+          return this.trace?.traceId;
+        },
         blockedByTurn: false,
       },
       resolve,
@@ -532,24 +538,21 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         const estimatedCompactionRequestTokens = this.estimateRequestTokens(messages);
 
         try {
-          attempt = collectSummary(
-            await this.llmRequester.request(
-              {
-                messages,
-                maxOutputSize: compactionMaxOutputSize,
-                source: {
-                  type: 'operation',
-                  requestKind: 'full_compaction',
-                  // Per-attempt count of messages dropped by overflow/empty
-                  // shrinks so far; recorded on the llm.request wire op so a
-                  // replay can see how much history each retry round blinded.
-                  logFields: { droppedCount },
-                },
+          const request = this.llmRequester.start(
+            {
+              messages,
+              maxOutputSize: compactionMaxOutputSize,
+              source: {
+                type: 'operation',
+                requestKind: 'full_compaction',
+                logFields: { droppedCount },
               },
-              undefined,
-              signal,
-            ),
+            },
+            undefined,
+            signal,
           );
+          active.trace = request.trace;
+          attempt = collectSummary(await request.result);
           break;
         } catch (error) {
           const isContextOverflow = this.shouldRecoverFromContextOverflow(
@@ -632,13 +635,14 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         retry_count: retryCount,
         round: 1,
         thinking_effort: thinkingEffort,
+        trace_id: attempt.traceId,
         ...usageTelemetry(attempt.usage),
       };
       this.telemetry.track2('compaction_finished', properties);
       return result;
     } catch (error) {
       if (isAbortError(error)) throw error;
-      this.telemetry.track2('compaction_failed', {
+      const properties: CompactionFailedEvent = {
         source: data.source,
         tokens_before: tokensBefore,
         duration_ms: Date.now() - startedAt,
@@ -646,7 +650,9 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
         retry_count: retryCount,
         thinking_effort: thinkingEffort,
         error_type: error instanceof Error ? error.name : 'Unknown',
-      });
+        trace_id: findAPIStatusError(error)?.traceId ?? active.traceId,
+      };
+      this.telemetry.track2('compaction_failed', properties);
       if (
         isError2(error) &&
         (error.code === ErrorCodes.AUTH_LOGIN_REQUIRED ||
@@ -711,7 +717,7 @@ function collectSummary(finish: LLMRequestFinish): CompactionAttemptResult {
     );
   }
 
-  return { summary, usage: finish.usage };
+  return { summary, usage: finish.usage, traceId: finish.traceId };
 }
 
 function historySafeToCompact(

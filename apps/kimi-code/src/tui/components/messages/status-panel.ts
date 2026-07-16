@@ -13,7 +13,6 @@ import {
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
 import { PRODUCT_NAME } from '#/constant/app';
 import { currentTheme } from '#/tui/theme';
 import {
@@ -21,6 +20,7 @@ import {
   ratioSeverity,
   renderProgressBar,
   safeUsageRatio,
+  usagePercent,
 } from '#/utils/usage/usage-format';
 
 import {
@@ -64,13 +64,10 @@ function displayModelName(alias: string, models: Record<string, ModelAlias>): st
 
 function formatModelStatus(options: StatusReportOptions): string {
   const model = options.status?.model ?? options.model;
-  if (model.trim().length === 0) return t('tui.messages.statusPanel.modelNotSet');
+  if (model.trim().length === 0) return 'not set';
 
   const effort = options.status?.thinkingEffort ?? options.thinkingEffort;
-  return t('tui.messages.statusPanel.modelStatus', {
-    model: displayModelName(model, options.availableModels),
-    effort,
-  });
+  return `${displayModelName(model, options.availableModels)} (thinking ${effort})`;
 }
 
 function addFieldRows(
@@ -109,57 +106,39 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
 
   const permission = options.status?.permission ?? options.permissionMode;
   const planMode = options.status?.planMode ?? options.planMode;
-  const sessionId =
-    options.sessionId.trim().length > 0
-      ? options.sessionId
-      : t('tui.messages.statusPanel.sessionNone');
+  const sessionId = options.sessionId.trim().length > 0 ? options.sessionId : 'none';
   const rows: FieldRow[] = [
-    { label: t('tui.messages.statusPanel.modelLabel'), value: formatModelStatus(options) },
-    { label: t('tui.messages.statusPanel.directoryLabel'), value: options.workDir },
-    { label: t('tui.messages.statusPanel.permissionsLabel'), value: permission },
-    {
-      label: t('tui.messages.statusPanel.planModeLabel'),
-      value: planMode
-        ? t('tui.messages.statusPanel.planModeOn')
-        : t('tui.messages.statusPanel.planModeOff'),
-    },
-    { label: t('tui.messages.statusPanel.sessionLabel'), value: sessionId },
+    { label: 'Model', value: formatModelStatus(options) },
+    { label: 'Directory', value: options.workDir },
+    { label: 'Permissions', value: permission },
+    { label: 'Plan mode', value: planMode ? 'on' : 'off' },
+    { label: 'Session', value: sessionId },
   ];
   const title = options.sessionTitle?.trim();
-  if (title !== undefined && title.length > 0) {
-    rows.push({ label: t('tui.messages.statusPanel.titleLabel'), value: title });
-  }
+  if (title !== undefined && title.length > 0) rows.push({ label: 'Title', value: title });
   if (options.statusError !== undefined) {
-    rows.push({
-      label: t('tui.messages.statusPanel.warningLabel'),
-      value: options.statusError,
-      severity: 'error',
-    });
+    rows.push({ label: 'Warning', value: options.statusError, severity: 'error' });
   }
 
   const lines: string[] = [
-    `${accent(t('tui.messages.statusPanel.titlePrefix', { productName: PRODUCT_NAME }))} ${muted(t('tui.messages.statusPanel.titleVersion', { version: options.version }))}`,
+    `${accent(`>_ ${PRODUCT_NAME}`)} ${muted(`(v${options.version})`)}`,
     '',
   ];
   addFieldRows(lines, rows, muted, value, errorStyle);
 
   const { ratio, tokens, maxTokens } = contextValues(options);
   lines.push('');
-  lines.push(accent(t('tui.messages.statusPanel.contextWindow')));
+  lines.push(accent('Context window'));
   if (maxTokens > 0) {
     const safeRatio = safeUsageRatio(ratio);
     const bar = renderProgressBar(safeRatio, 20);
     const barColoured = currentTheme.fg(severityToken(ratioSeverity(safeRatio)), bar);
-    const pct = (safeRatio * 100).toFixed(1);
     lines.push(
-      `  ${barColoured}  ${t('tui.messages.usagePanel.contextBar', {
-        pct: value(`${pct}`.padStart(5, ' ')),
-        tokens: muted(formatTokenCount(tokens)),
-        maxTokens: muted(formatTokenCount(maxTokens)),
-      })}`,
+      `  ${barColoured}  ${value(`${String(usagePercent(tokens, maxTokens))}%`.padStart(6, ' '))}  ` +
+        muted(`(${formatTokenCount(tokens)} / ${formatTokenCount(maxTokens)})`),
     );
   } else {
-    lines.push(`  ${muted(t('tui.messages.statusPanel.noContextData'))}`);
+    lines.push(`  ${muted('No context window data available.')}`);
   }
 
   const managedSection = buildManagedUsageReportLines({
