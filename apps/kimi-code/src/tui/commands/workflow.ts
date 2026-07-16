@@ -22,16 +22,17 @@ export async function handleWorkflowCommand(host: SlashCommandHost, args: string
 
   // No args → show usage.
   if (trimmed.length === 0) {
+    const wf = t('tui.slashCommands.workflowHelp') as Record<string, string>;
     host.showNotice(
       t('tui.slashCommands.workflow'),
       [
-        'Usage:',
-        '  /workflow list              — list available workflows',
-        '  /workflow <name> [args...]  — run a workflow by name',
-        '  /workflow status <runId>    — check status of a workflow run',
-        '  /workflow cancel <runId>    — cancel a running workflow',
+        wf.usage,
+        wf.list,
+        wf.run,
+        wf.status,
+        wf.cancel,
         '',
-        'Example:',
+        wf.example,
         '  /workflow deep-research "latest advances in RAG"',
       ].join('\n'),
     );
@@ -53,7 +54,7 @@ export async function handleWorkflowCommand(host: SlashCommandHost, args: string
   if (lower.startsWith('status ')) {
     const runId = trimmed.slice(7).trim();
     if (runId.length === 0) {
-      host.showError('Usage: /workflow status <runId>');
+      host.showError(t('tui.slashCommands.workflowStatusUsage'));
       return;
     }
     if (host.state.appState.model.trim().length === 0) {
@@ -67,7 +68,7 @@ export async function handleWorkflowCommand(host: SlashCommandHost, args: string
   if (lower.startsWith('cancel ')) {
     const runId = trimmed.slice(7).trim();
     if (runId.length === 0) {
-      host.showError('Usage: /workflow cancel <runId>');
+      host.showError(t('tui.slashCommands.workflowCancelUsage'));
       return;
     }
     if (host.state.appState.model.trim().length === 0) {
