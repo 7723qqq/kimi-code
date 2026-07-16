@@ -65,7 +65,14 @@ async function captureKimiMessages(
   let captured: Record<string, unknown> | undefined;
   const create = vi.fn().mockImplementation((params: unknown) => {
     captured = params as Record<string, unknown>;
-    return Promise.resolve(chatCompletionResponse({ role: 'assistant', content: 'done' }));
+    return {
+      withResponse: () =>
+        Promise.resolve({
+          data: chatCompletionResponse({ role: 'assistant', content: 'done' }),
+          response: new Response(null),
+          request_id: null,
+        }),
+    };
   });
   let provider = new KimiChatProvider({
     model: 'kimi-k2',
@@ -150,7 +157,7 @@ describe('empty thinking round-trip', () => {
     expect(messages[0]).toHaveProperty('reasoning_content', '');
   });
 
-  it('Kimi backfills an assistant tool-call message when preserved thinking is active', async () => {
+  it('Kimi sends empty reasoning_content for an assistant tool-call message when preserved thinking is active', async () => {
     const history: Message[] = [
       {
         role: 'assistant',
@@ -165,10 +172,10 @@ describe('empty thinking round-trip', () => {
       provider.withExtraBody({ thinking: { type: 'enabled', keep: 'all' } }),
     );
 
-    expect(messages[0]).toHaveProperty('reasoning_content', ' ');
+    expect(messages[0]).toHaveProperty('reasoning_content', '');
   });
 
-  it('Kimi backfills a text assistant message when keep=all omits thinking.type', async () => {
+  it('Kimi sends empty reasoning_content for a text assistant message when keep=all omits thinking.type', async () => {
     const history: Message[] = [
       {
         role: 'assistant',
@@ -181,15 +188,15 @@ describe('empty thinking round-trip', () => {
       provider.withExtraBody({ thinking: { keep: 'all' } }),
     );
 
-    expect(messages[0]).toHaveProperty('reasoning_content', ' ');
+    expect(messages[0]).toHaveProperty('reasoning_content', '');
   });
 
-  it('Kimi replaces an existing empty ThinkPart when preserved thinking is active', async () => {
+  it('Kimi replays an existing empty ThinkPart unchanged when preserved thinking is active', async () => {
     const messages = await captureKimiMessages(EMPTY_THINKING_TOOL_HISTORY, (provider) =>
       provider.withExtraBody({ thinking: { type: 'enabled', keep: 'all' } }),
     );
 
-    expect(messages[0]).toHaveProperty('reasoning_content', ' ');
+    expect(messages[0]).toHaveProperty('reasoning_content', '');
   });
 
   it('Kimi sends existing non-empty thinking verbatim when preserved thinking is active', async () => {
@@ -286,13 +293,18 @@ describe('empty thinking round-trip', () => {
   });
 
   it('Kimi keeps an explicitly empty response reasoning_content as a ThinkPart', async () => {
-    const create = vi.fn().mockResolvedValue(
-      chatCompletionResponse({
-        role: 'assistant',
-        content: null,
-        reasoning_content: '',
-      }),
-    );
+    const create = vi.fn().mockImplementation(() => ({
+      withResponse: () =>
+        Promise.resolve({
+          data: chatCompletionResponse({
+            role: 'assistant',
+            content: null,
+            reasoning_content: '',
+          }),
+          response: new Response(null),
+          request_id: null,
+        }),
+    }));
     const provider = new KimiChatProvider({
       model: 'kimi-k2',
       apiKey: '',
@@ -419,7 +431,7 @@ describe('empty thinking round-trip', () => {
     });
   });
 
-  it('Anthropic-compatible providers replace only the last empty unsigned thinking block', async () => {
+  it('Anthropic-compatible providers preserve all empty unsigned thinking blocks unchanged', async () => {
     const history: Message[] = [
       {
         role: 'assistant',
@@ -445,7 +457,7 @@ describe('empty thinking round-trip', () => {
 
     expect(messages[0]!.content).toEqual([
       { type: 'thinking', thinking: '' },
-      { type: 'thinking', thinking: ' ' },
+      { type: 'thinking', thinking: '' },
       { type: 'text', text: 'Done.' },
     ]);
   });
@@ -494,7 +506,7 @@ describe('empty thinking round-trip', () => {
     ]);
   });
 
-  it('Anthropic-compatible providers replace the last empty unsigned block after empty signed thinking', async () => {
+  it('Anthropic-compatible providers preserve an empty unsigned block after empty signed thinking', async () => {
     const history: Message[] = [
       {
         role: 'assistant',
@@ -514,7 +526,7 @@ describe('empty thinking round-trip', () => {
 
     expect(messages[0]!.content).toEqual([
       { type: 'thinking', thinking: '', signature: 'signed-thinking' },
-      { type: 'thinking', thinking: ' ' },
+      { type: 'thinking', thinking: '' },
     ]);
   });
 

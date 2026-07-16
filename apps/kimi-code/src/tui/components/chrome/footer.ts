@@ -3,15 +3,13 @@
  *
  * Layout:
  *   Line 1: [yolo] [plan] <model> <cwd>  <git-badge>  <shortcut hints>
- *   Line 2: context: XX.X% (tokens/max)
+ *   Line 2: context: N% (tokens/max)
  */
 
 import type { Component } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
-
-import { t } from '#/i18n';
 
 import { ALL_TIPS, type ToolbarTip } from '#/tui/constant/tips';
 import { isRainbowDancing, renderDanceFooterModel } from '#/tui/easter-eggs/dance';
@@ -25,7 +23,11 @@ import {
   type GitStatus,
   type GitStatusCache,
 } from '#/utils/git/git-status';
-import { safeUsageRatio } from '#/utils/usage/usage-format';
+import {
+  formatTokenCount,
+  usagePercent,
+  usagePercentFromRatio,
+} from '#/utils/usage/usage-format';
 
 const MAX_CWD_SEGMENTS = 3;
 const GOAL_TIMER_INTERVAL_MS = 1_000;
@@ -112,22 +114,11 @@ function formatGoalBadge(
       : goal.status === 'blocked'
         ? colors.warning
         : colors.textMuted;
-  const turnCount = goal.turnsUsed;
-  const turnBudget = goal.budget.turnBudget;
   const turns =
-    turnBudget !== null
-      ? `${turnCount}/${turnBudget} ${t('tui.chrome.footer.turnPlural')}`
-      : t(
-          turnCount === 1 ? 'tui.chrome.footer.turn_one' : 'tui.chrome.footer.turn_other',
-          { count: turnCount },
-        );
-  const statusKey =
-    goal.status === 'active'
-      ? 'tui.chrome.footer.statusActive'
-      : goal.status === 'blocked'
-        ? 'tui.chrome.footer.statusBlocked'
-        : 'tui.chrome.footer.statusPaused';
-  const label = `${t(statusKey)} · ${formatBadgeElapsed(wallClockMs ?? goal.wallClockMs)} · ${turns}`;
+    goal.budget.turnBudget !== null
+      ? `${goal.turnsUsed}/${goal.budget.turnBudget} turns`
+      : `${goal.turnsUsed} ${goal.turnsUsed === 1 ? 'turn' : 'turns'}`;
+  const label = `${goal.status} · ${formatBadgeElapsed(wallClockMs ?? goal.wallClockMs)} · ${turns}`;
   return (
     chalk.hex(colors.textMuted)('[goal ') +
     chalk.hex(dotColor)('●') +
@@ -137,11 +128,11 @@ function formatGoalBadge(
 
 function formatBadgeElapsed(ms: number): string {
   const totalSeconds = Math.round(ms / 1000);
-  if (totalSeconds < 60) return t('tui.chrome.footer.elapsedSeconds', { count: totalSeconds });
+  if (totalSeconds < 60) return `${totalSeconds}s`;
   const minutes = Math.floor(totalSeconds / 60);
-  if (minutes < 60) return t('tui.chrome.footer.elapsedMinutes', { count: minutes });
+  if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
-  return t('tui.chrome.footer.elapsedHours', { hours, minutes: minutes % 60 });
+  return `${hours}h${minutes % 60}m`;
 }
 
 function modelDisplayName(state: AppState): string {
@@ -167,39 +158,18 @@ function shortenCwd(path: string): string {
   return `…/${tail}`;
 }
 
-function formatTokenCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
-}
-
-function safeUsage(usage: number): number {
-  return safeUsageRatio(usage);
-}
-
+/**
+ * Footer context readout. Percent comes from the exact token counts when
+ * both are known (the ratio can lag a step behind); otherwise it falls
+ * back to the precomputed ratio. Counts use the shared 1024-based
+ * formatter.
+ */
 function formatContextStatus(usage: number, tokens?: number, maxTokens?: number): string {
-  const pct = `${(safeUsage(usage) * 100).toFixed(1)}%`;
-  if (maxTokens && maxTokens > 0 && tokens !== undefined) {
-    return t('tui.chrome.footer.contextWithTokens', {
-      pct,
-      tokens: formatTokenCount(tokens),
-      maxTokens: formatTokenCount(maxTokens),
-    });
+  if (maxTokens !== undefined && maxTokens > 0 && tokens !== undefined) {
+    const pct = String(usagePercent(tokens, maxTokens));
+    return `context: ${pct}% (${formatTokenCount(tokens)}/${formatTokenCount(maxTokens)})`;
   }
-  return t('tui.chrome.footer.context', { pct });
-}
-
-function formatTokenRate(
-  phase: AppState['streamingPhase'],
-  outputTokens: number,
-  startTime: number,
-): string | null {
-  if (phase === 'idle' || startTime === 0) return null;
-  if (outputTokens === 0) return null;
-  const elapsed = Math.max((Date.now() - startTime) / 1000, 0.1);
-  const rate = Math.round(outputTokens / elapsed);
-  if (rate < 1) return null;
-  return `${rate}t/s`;
+  return `context: ${String(usagePercentFromRatio(usage))}%`;
 }
 
 export function formatFooterGitBadge(status: GitStatus, colors: ColorPalette): string {
@@ -303,8 +273,8 @@ export class FooterComponent implements Component {
       const thinkingLabel =
         effort !== 'off'
           ? hasEfforts && effort !== 'on'
-            ? t('tui.chrome.footer.thinkingEffort', { effort })
-            : t('tui.chrome.footer.thinking')
+            ? ` thinking: ${effort}`
+            : ' thinking'
           : '';
       const modelLabel = `${model}${thinkingLabel}`;
       let renderedModelLabel = chalk.hex(colors.text)(modelLabel);
@@ -318,27 +288,15 @@ export class FooterComponent implements Component {
     // (shell processes) and `agent-*` tasks (background subagents) get
     // separate badges so the user can distinguish them at a glance.
     if (this.backgroundBashTaskCount > 0) {
+      const noun = this.backgroundBashTaskCount === 1 ? 'task' : 'tasks';
       left.push(
-        chalk.hex(colors.primary)(
-          `[${t(
-            this.backgroundBashTaskCount === 1
-              ? 'tui.chrome.footer.task_one'
-              : 'tui.chrome.footer.task_other',
-            { count: this.backgroundBashTaskCount },
-          )}]`,
-        ),
+        chalk.hex(colors.primary)(`[${String(this.backgroundBashTaskCount)} ${noun} running]`),
       );
     }
     if (this.backgroundAgentCount > 0) {
+      const noun = this.backgroundAgentCount === 1 ? 'agent' : 'agents';
       left.push(
-        chalk.hex(colors.primary)(
-          `[${t(
-            this.backgroundAgentCount === 1
-              ? 'tui.chrome.footer.agent_one'
-              : 'tui.chrome.footer.agent_other',
-            { count: this.backgroundAgentCount },
-          )}]`,
-        ),
+        chalk.hex(colors.primary)(`[${String(this.backgroundAgentCount)} ${noun} running]`),
       );
     }
 
@@ -374,35 +332,29 @@ export class FooterComponent implements Component {
       line1 = truncateToWidth(leftLine, width, '…');
     }
 
-    // ── Line 2: transient hint (bottom-left) + token rate + context (right) ──
+    // ── Line 2: transient hint (bottom-left) + context (right) ──
     const contextText = formatContextStatus(
       state.contextUsage,
       state.contextTokens,
       state.maxContextTokens,
     );
-    const rateText = formatTokenRate(
-      state.streamingPhase,
-      state.outputTokens,
-      state.streamingStartTime,
-    );
-    const rightText = rateText ? `${rateText}  ${contextText}` : contextText;
-    const rightWidth = visibleWidth(rightText);
+    const contextWidth = visibleWidth(contextText);
     let line2: string;
     if (this.transientHint) {
-      const maxHintWidth = Math.max(0, width - rightWidth - 1);
+      const maxHintWidth = Math.max(0, width - contextWidth - 1);
       const shownHint =
         visibleWidth(this.transientHint) <= maxHintWidth
           ? this.transientHint
           : truncateToWidth(this.transientHint, maxHintWidth, '…');
       const hintWidth = visibleWidth(shownHint);
-      const pad = Math.max(0, width - hintWidth - rightWidth);
+      const pad = Math.max(0, width - hintWidth - contextWidth);
       line2 =
         chalk.hex(colors.warning).bold(shownHint) +
         ' '.repeat(pad) +
-        chalk.hex(colors.text)(rightText);
+        chalk.hex(colors.text)(contextText);
     } else {
-      const leftPad = Math.max(0, width - rightWidth);
-      line2 = ' '.repeat(leftPad) + chalk.hex(colors.text)(rightText);
+      const leftPad = Math.max(0, width - contextWidth);
+      line2 = ' '.repeat(leftPad) + chalk.hex(colors.text)(contextText);
     }
 
     return [truncateToWidth(line1, width), truncateToWidth(line2, width)];

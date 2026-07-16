@@ -654,6 +654,64 @@ describe('turn telemetry', () => {
     }
   });
 
+  it('attaches the latest request trace id to turn_ended', async () => {
+    const records: TelemetryRecord[] = [];
+    const local = createTestAgent({ telemetry: recordingTelemetry(records) });
+    try {
+      local.get(IAgentProfileService).update({ activeToolNames: [] });
+      local.mockNextProviderResponse({
+        parts: [{ type: 'text', text: 'hi' }],
+        traceId: 'trace-turn-1',
+      });
+      await local.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+      await local.untilTurnEnd();
+
+      expect(records).toContainEqual({
+        event: 'turn_ended',
+        properties: expect.objectContaining({
+          turn_id: 0,
+          reason: 'completed',
+          trace_id: 'trace-turn-1',
+        }),
+      });
+    } finally {
+      await local.dispose();
+    }
+  });
+
+  it('does not reuse the previous step trace when a step hook fails before a request', async () => {
+    const records: TelemetryRecord[] = [];
+    const local = createTestAgent({ telemetry: recordingTelemetry(records) });
+    try {
+      const localLoop = local.get(IAgentLoopService);
+      local.get(IAgentProfileService).update({ activeToolNames: [] });
+      localLoop.hooks.onDidFinishStep.register('test-continue-after-first-step', async (hookCtx, next) => {
+        if (hookCtx.step === 1) {
+          localLoop.enqueue(new ContinuationStepRequest());
+          return;
+        }
+        await next();
+      });
+      localLoop.hooks.onWillBeginStep.register('test-fail-before-second-request', async (hookCtx, next) => {
+        if (hookCtx.step === 2) throw new Error('before step failed');
+        await next();
+      });
+      local.mockNextProviderResponse({
+        parts: [{ type: 'text', text: 'first' }],
+        traceId: 'trace-step-1',
+      });
+
+      await local.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+      await local.untilTurnEnd();
+
+      expect(local.llmCalls).toHaveLength(1);
+      expect(records.find((record) => record.event === 'turn_interrupted')?.properties?.['trace_id']).toBeUndefined();
+      expect(records.find((record) => record.event === 'turn_ended')?.properties?.['trace_id']).toBeUndefined();
+    } finally {
+      await local.dispose();
+    }
+  });
+
   it('emits turn_interrupted with interrupt_reason filtered and turn_ended failed', async () => {
     const records: TelemetryRecord[] = [];
     const local = createTestAgent({ telemetry: recordingTelemetry(records) });
@@ -661,6 +719,7 @@ describe('turn telemetry', () => {
       local.mockNextProviderResponse({
         parts: [{ type: 'text', text: 'blocked' }],
         finishReason: 'filtered',
+        traceId: 'trace-turn-2',
       });
       await local.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
       await local.untilTurnEnd();
@@ -674,11 +733,17 @@ describe('turn telemetry', () => {
           interrupt_reason: 'filtered',
           provider_type: 'kimi',
           protocol: 'kimi',
+          trace_id: 'trace-turn-2',
         }),
       });
       expect(records).toContainEqual({
         event: 'turn_ended',
-        properties: expect.objectContaining({ reason: 'failed', mode: 'agent' }),
+        properties: expect.objectContaining({
+          turn_id: 0,
+          reason: 'failed',
+          mode: 'agent',
+          trace_id: 'trace-turn-2',
+        }),
       });
     } finally {
       await local.dispose();
@@ -859,7 +924,7 @@ function createTimingRequester(): IAgentLLMRequesterService {
     clientConsumeMs: 50,
   };
 
-  return {
+  const requester: IAgentLLMRequesterService = {
     _serviceBrand: undefined,
     async request(_overrides, onPart = () => {}) {
       await onPart({ type: 'text', text: 'answer' });
@@ -874,7 +939,11 @@ function createTimingRequester(): IAgentLLMRequesterService {
         timing,
       };
     },
+    start(overrides, onPart, signal) {
+      return { trace: { traceId: undefined }, result: this.request(overrides, onPart, signal) };
+    },
   };
+  return requester;
 }
 
 function createAbortedStepGenerate(): GenerateFn {

@@ -243,6 +243,12 @@ export const McpServerHttpConfigSchema = z.object({
   transport: z.literal('http'),
   url: z.string().url(),
   headers: StringRecordSchema.optional(),
+  // Backward-compatible UI marker. OAuth is still discovered from a remote
+  // server's 401 response; this flag only records that the user explicitly
+  // chose OAuth and lets hosts expose login/reset controls before connecting.
+  auth: z.literal('oauth').optional(),
+  // Indirect secret reference: the bearer token is looked up from
+  // `process.env[bearerTokenEnvVar]` at connection time, never committed.
   bearerTokenEnvVar: z.string().min(1).optional(),
   env: StringRecordSchema.optional(),
   ...McpServerCommonFields,
@@ -254,6 +260,9 @@ export const McpServerSseConfigSchema = z.object({
   transport: z.literal('sse'),
   url: z.string().url(),
   headers: StringRecordSchema.optional(),
+  auth: z.literal('oauth').optional(),
+  // Indirect secret reference: the bearer token is looked up from
+  // `process.env[bearerTokenEnvVar]` at connection time, never committed.
   bearerTokenEnvVar: z.string().min(1).optional(),
   env: StringRecordSchema.optional(),
   ...McpServerCommonFields,

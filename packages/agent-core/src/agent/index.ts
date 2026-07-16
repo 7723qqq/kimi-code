@@ -509,7 +509,10 @@ export class Agent {
       },
       cancel: (payload) => {
         if (this.turn.hasActiveTurn) {
-          this.telemetry.track('cancel', { from: 'streaming' });
+          this.telemetry.track('cancel', {
+            from: 'streaming',
+            trace_id: this.turn.activeRequestTraceId(),
+          });
         }
         this.turn.cancel(payload.turnId);
       },
@@ -580,7 +583,10 @@ export class Agent {
       },
       cancelCompaction: () => {
         if (this.fullCompaction.isCompacting) {
-          this.telemetry.track('cancel', { from: 'compacting' });
+          this.telemetry.track('cancel', {
+            from: 'compacting',
+            trace_id: this.fullCompaction.lastTraceId,
+          });
         }
         this.fullCompaction.cancel();
       },
@@ -599,6 +605,15 @@ export class Agent {
       detachBackground: (payload) => this.background.detach(payload.taskId),
       clearContext: () => {
         this.context.clear();
+      },
+      importContext: (payload) => {
+        if (this.turn.hasActiveTurn || this.fullCompaction.isCompacting) {
+          throw new KimiError(
+            ErrorCodes.TURN_AGENT_BUSY,
+            'Cannot import context while the agent is busy',
+          );
+        }
+        this.context.importContext(payload.content, payload.source);
       },
       activateSkill: (payload) => {
         if (this.skills === null) {
