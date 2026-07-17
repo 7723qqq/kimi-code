@@ -1,6 +1,7 @@
 export {
   ErrorCodes,
   KIMI_ERROR_INFO,
+  resolveErrorTitle,
   type KimiErrorCode,
   type KimiErrorInfo,
 } from './codes';

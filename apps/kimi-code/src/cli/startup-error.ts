@@ -1,4 +1,4 @@
-import { KIMI_ERROR_INFO, isKimiError } from '@moonshot-ai/kimi-code-sdk';
+import { isKimiError, resolveErrorTitle } from '@moonshot-ai/kimi-code-sdk';
 import { chalkStderr } from 'chalk';
 
 import { STARTUP_ERROR_COLOR } from '#/constant/startup-error';
@@ -29,9 +29,8 @@ export function formatStartupError(
     )}\n`;
   }
 
-  const info = KIMI_ERROR_INFO[error.code];
   const lines = [
-    errorStyle(t('startup.error.title', { title: info.title })),
+    errorStyle(t('startup.error.title', { title: resolveErrorTitle(error.code) })),
     '',
     errorStyle(t('startup.error.messageLabel')),
     errorStyle(error.message),

@@ -1,3 +1,5 @@
+import { t } from './i18n';
+
 /**
  * Error codes for Kimi Core's public error protocol.
  *
@@ -84,375 +86,323 @@ export const ErrorCodes = {
 export type KimiErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
 
 export interface KimiErrorInfo {
-  readonly title: string;
+  readonly titleKey: string;
   readonly retryable: boolean;
   /**
    * Whether the code is a stable public contract. `false` reserves the
    * right to rename or remove without a major version bump.
    */
   readonly public: boolean;
-  readonly action?: string;
 }
 
 export const KIMI_ERROR_INFO = {
   'config.invalid': {
-    title: 'Invalid configuration',
+    titleKey: 'errors.configInvalid',
     retryable: false,
     public: true,
-    action: 'Check config.toml and provider/model settings.',
   },
 
   'session.not_found': {
-    title: 'Session not found',
+    titleKey: 'errors.sessionNotFound',
     retryable: false,
     public: true,
-    action: 'Check the session id or list available sessions.',
   },
   'session.already_exists': {
-    title: 'Session already exists',
+    titleKey: 'errors.sessionAlreadyExists',
     retryable: false,
     public: true,
-    action: 'Use a different session id or remove the existing session first.',
   },
   'session.id_invalid': {
-    title: 'Invalid session id',
+    titleKey: 'errors.sessionIdInvalid',
     retryable: false,
     public: true,
-    action: 'Use a session id without path-traversal characters.',
   },
   'session.id_required': {
-    title: 'Session id required',
+    titleKey: 'errors.sessionIdRequired',
     retryable: false,
     public: true,
-    action: 'Provide a session id when calling this method.',
   },
   'session.id_empty': {
-    title: 'Session id is empty',
+    titleKey: 'errors.sessionIdEmpty',
     retryable: false,
     public: true,
-    action: 'Provide a non-empty session id.',
   },
   'session.title_empty': {
-    title: 'Session title is empty',
+    titleKey: 'errors.sessionTitleEmpty',
     retryable: false,
     public: true,
-    action: 'Provide a non-empty session title.',
   },
   'session.state_not_found': {
-    title: 'Session state missing',
+    titleKey: 'errors.sessionStateNotFound',
     retryable: false,
     public: true,
-    action: 'The session directory is corrupted or missing state.json.',
   },
   'session.state_invalid': {
-    title: 'Session state invalid',
+    titleKey: 'errors.sessionStateInvalid',
     retryable: false,
     public: true,
-    action: 'The session state.json is corrupted; remove the session or repair the file.',
   },
   'session.fork_active_turn': {
-    title: 'Cannot fork session during active turn',
+    titleKey: 'errors.sessionForkActiveTurn',
     retryable: true,
     public: true,
-    action: 'Wait for the active turn to complete before forking.',
   },
   'session.export_not_found': {
-    title: 'Session export directory missing',
+    titleKey: 'errors.sessionExportNotFound',
     retryable: false,
     public: true,
-    action: 'The session has not been persisted to disk yet.',
   },
   'session.export_missing_version': {
-    title: 'Export version is missing',
+    titleKey: 'errors.sessionExportMissingVersion',
     retryable: false,
     public: true,
-    action: 'Provide a version when exporting the session.',
   },
   'session.closed': {
-    title: 'Session is closed',
+    titleKey: 'errors.sessionClosed',
     retryable: false,
     public: true,
-    action: 'Create a new session.',
   },
   'session.permission_mode_invalid': {
-    title: 'Invalid permission mode',
+    titleKey: 'errors.sessionPermissionModeInvalid',
     retryable: false,
     public: true,
-    action: 'Use one of: yolo / manual / auto.',
   },
   'session.thinking_empty': {
-    title: 'Thinking value is empty',
+    titleKey: 'errors.sessionThinkingEmpty',
     retryable: false,
     public: true,
-    action: 'Provide a non-empty thinking option.',
   },
   'session.model_empty': {
-    title: 'Model is empty',
+    titleKey: 'errors.sessionModelEmpty',
     retryable: false,
     public: true,
-    action: 'Provide a non-empty model identifier.',
   },
   'session.plan_mode_invalid': {
-    title: 'Invalid plan mode',
+    titleKey: 'errors.sessionPlanModeInvalid',
     retryable: false,
     public: true,
-    action: 'Provide a boolean plan mode.',
   },
   'session.approval_handler_error': {
-    title: 'Approval handler threw',
+    titleKey: 'errors.sessionApprovalHandlerError',
     retryable: false,
     public: true,
-    action: 'Inspect the SDK approval handler for an unhandled exception.',
   },
   'session.question_handler_error': {
-    title: 'Question handler threw',
+    titleKey: 'errors.sessionQuestionHandlerError',
     retryable: false,
     public: true,
-    action: 'Inspect the SDK question handler for an unhandled exception.',
   },
   'session.init_failed': {
-    title: 'Session init failed',
+    titleKey: 'errors.sessionInitFailed',
     retryable: false,
     public: false,
-    action: 'Review the init failure details and try again.',
   },
 
   'agent.not_found': {
-    title: 'Agent not found',
+    titleKey: 'errors.agentNotFound',
     retryable: false,
     public: true,
-    action: 'Check the agent id or list available agents.',
   },
   'turn.agent_busy': {
-    title: 'Agent is busy',
+    titleKey: 'errors.turnAgentBusy',
     retryable: true,
     public: true,
-    action: 'Wait for the current turn to finish or steer it.',
   },
 
   'goal.already_exists': {
-    title: 'A goal is already active',
+    titleKey: 'errors.goalAlreadyExists',
     retryable: false,
     public: true,
-    action: 'Use `/goal replace <objective>` to replace the current goal.',
   },
   'goal.not_found': {
-    title: 'No goal found',
+    titleKey: 'errors.goalNotFound',
     retryable: false,
     public: true,
-    action: 'Start a goal with `/goal <objective>` first.',
   },
   'goal.objective_empty': {
-    title: 'Goal objective is empty',
+    titleKey: 'errors.goalObjectiveEmpty',
     retryable: false,
     public: true,
-    action: 'Provide a non-empty objective.',
   },
   'goal.objective_too_long': {
-    title: 'Goal objective is too long',
+    titleKey: 'errors.goalObjectiveTooLong',
     retryable: false,
     public: true,
-    action: 'Keep the objective under 4000 characters; reference long details by file path.',
   },
   'goal.status_invalid': {
-    title: 'Invalid goal status transition',
+    titleKey: 'errors.goalStatusInvalid',
     retryable: false,
     public: true,
-    action: 'Use a status allowed for this actor (complete, blocked, or impossible).',
   },
   'goal.metadata_reserved': {
-    title: 'Goal metadata is reserved',
+    titleKey: 'errors.goalMetadataReserved',
     retryable: false,
     public: true,
-    action: 'Do not write metadata.custom.goal directly; use the goal lifecycle methods.',
   },
   'goal.not_resumable': {
-    title: 'Goal is not resumable',
+    titleKey: 'errors.goalNotResumable',
     retryable: false,
     public: true,
-    action: 'Only paused goals can be resumed.',
   },
 
   'model.not_configured': {
-    title: 'No model configured',
+    titleKey: 'errors.modelNotConfigured',
     retryable: false,
     public: true,
-    action: 'Set a default model in config.toml or via setModel.',
   },
   'model.config_invalid': {
-    title: 'Invalid model configuration',
+    titleKey: 'errors.modelConfigInvalid',
     retryable: false,
     public: true,
-    action: 'Check the model and provider entries in config.toml.',
   },
   'auth.login_required': {
-    title: 'Login required',
+    titleKey: 'errors.authLoginRequired',
     retryable: false,
     public: true,
-    action: 'Run the login flow for the provider before retrying.',
   },
 
   'context.overflow': {
-    title: 'Context window overflow',
+    titleKey: 'errors.contextOverflow',
     retryable: true,
     public: true,
-    action: 'Compact the conversation or start a new session.',
   },
   'loop.max_steps_exceeded': {
-    title: 'Turn exceeded max steps',
+    titleKey: 'errors.loopMaxStepsExceeded',
     retryable: false,
     public: true,
-    action: 'Increase loop_control.max_steps_per_turn in config.toml or split the task.',
   },
   'provider.api_error': {
-    title: 'Provider API error',
+    titleKey: 'errors.providerApiError',
     retryable: false,
     public: true,
-    action: 'Inspect details.statusCode / details.requestId; check provider status.',
   },
   'provider.filtered': {
-    title: 'Provider filtered response',
+    titleKey: 'errors.providerFiltered',
     retryable: false,
     public: true,
-    action: 'Revise the prompt or model configuration to avoid provider safety filtering.',
   },
   'provider.rate_limit': {
-    title: 'Provider rate limit',
+    titleKey: 'errors.providerRateLimit',
     retryable: true,
     public: true,
-    action: 'Retry after a delay or reduce request frequency.',
   },
   'provider.auth_error': {
-    title: 'Provider authentication error',
+    titleKey: 'errors.providerAuthError',
     retryable: false,
     public: true,
-    action: 'Re-authenticate with the provider.',
   },
   'provider.connection_error': {
-    title: 'Provider connection error',
+    titleKey: 'errors.providerConnectionError',
     retryable: true,
     public: true,
-    action: 'Check network connectivity and retry.',
   },
 
   'skill.not_found': {
-    title: 'Skill not found',
+    titleKey: 'errors.skillNotFound',
     retryable: false,
     public: true,
-    action: 'List available skills via the skill registry.',
   },
   'skill.type_unsupported': {
-    title: 'Skill type not supported',
+    titleKey: 'errors.skillTypeUnsupported',
     retryable: false,
     public: true,
-    action: 'Only inline skills can be activated by the user.',
   },
   'skill.name_empty': {
-    title: 'Skill name is empty',
+    titleKey: 'errors.skillNameEmpty',
     retryable: false,
     public: true,
-    action: 'Provide a non-empty skill name.',
   },
 
   'records.write_failed': {
-    title: 'Failed to write records',
+    titleKey: 'errors.recordsWriteFailed',
     retryable: true,
     public: true,
-    action: 'Check disk space and permissions on the session directory.',
   },
   'compaction.failed': {
-    title: 'Compaction failed',
+    titleKey: 'errors.compactionFailed',
     retryable: false,
     public: true,
-    action: 'Inspect logs and consider increasing compaction limits.',
   },
   'compaction.unable': {
-    title: 'Unable to compact',
+    titleKey: 'errors.compactionUnable',
     retryable: false,
     public: true,
-    action: 'The current history has no prefix that can be compacted (e.g. only a pending user message). Start a new turn or session instead.',
   },
 
   'task.task_id_empty': {
-    title: 'Background task id is empty',
+    titleKey: 'errors.taskTaskIdEmpty',
     retryable: false,
     public: true,
-    action: 'Provide a non-empty task id.',
   },
   'mcp.server_not_found': {
-    title: 'MCP server not found',
+    titleKey: 'errors.mcpServerNotFound',
     retryable: false,
     public: true,
-    action: 'List configured MCP servers and check the requested name.',
   },
   'mcp.server_disabled': {
-    title: 'MCP server is disabled',
+    titleKey: 'errors.mcpServerDisabled',
     retryable: false,
     public: true,
-    action: 'Enable the MCP server entry in config before reconnecting.',
   },
   'mcp.startup_failed': {
-    title: 'MCP server startup failed',
+    titleKey: 'errors.mcpStartupFailed',
     retryable: true,
     public: true,
-    action: 'Inspect the MCP server log or call reconnect once the server is healthy.',
   },
   'mcp.tool_name_collision': {
-    title: 'MCP tool name collision',
+    titleKey: 'errors.mcpToolNameCollision',
     retryable: false,
     public: true,
-    action: 'Rename one of the colliding MCP tools or servers so their qualified names are unique.',
   },
 
   'plugin.not_found': {
-    title: 'Plugin not found',
+    titleKey: 'errors.pluginNotFound',
     retryable: false,
     public: true,
-    action: 'List installed plugins via /plugins and check the requested id.',
   },
   'plugin.load_failed': {
-    title: 'Plugin state failed to load',
+    titleKey: 'errors.pluginLoadFailed',
     retryable: true,
     public: true,
-    action: 'Fix the installed.json file under $KIMI_CODE_HOME/plugins/ and run /plugins reload.',
   },
 
   'request.invalid': {
-    title: 'Invalid request',
+    titleKey: 'errors.requestInvalid',
     retryable: false,
     public: true,
-    action: 'Check the input shape matches the API contract.',
   },
   'request.work_dir_required': {
-    title: 'workDir is required',
+    titleKey: 'errors.requestWorkDirRequired',
     retryable: false,
     public: true,
-    action: 'Provide workDir in the request payload.',
   },
   'request.prompt_input_empty': {
-    title: 'Prompt input is empty',
+    titleKey: 'errors.requestPromptInputEmpty',
     retryable: false,
     public: true,
-    action: 'Provide non-empty prompt input.',
   },
 
   'shell.git_bash_not_found': {
-    title: 'Git Bash not found',
+    titleKey: 'errors.shellGitBashNotFound',
     retryable: false,
     public: true,
-    action: 'Install Git for Windows from https://gitforwindows.org/ or set KIMI_SHELL_PATH to a bash.exe.',
   },
 
   not_implemented: {
-    title: 'Not implemented',
+    titleKey: 'errors.notImplemented',
     retryable: false,
     public: true,
-    action: 'This feature is not implemented yet.',
   },
   internal: {
-    title: 'Internal error',
+    titleKey: 'errors.internal',
     retryable: false,
     public: true,
-    action: 'Inspect logs or report the issue with diagnostics.',
   },
 } as const satisfies Record<KimiErrorCode, KimiErrorInfo>;
+
+/** Resolve the localized title for an error code. */
+export function resolveErrorTitle(code: KimiErrorCode): string {
+  const info = KIMI_ERROR_INFO[code];
+  return info ? t(info.titleKey) : code;
+}
+

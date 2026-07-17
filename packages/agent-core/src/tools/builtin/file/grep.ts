@@ -18,6 +18,7 @@
  */
 
 import type { Kaos } from '@moonshot-ai/kaos';
+import { t } from '../../i18n';
 import { normalize, resolve } from 'pathe';
 import { z } from 'zod';
 
@@ -220,7 +221,7 @@ export class GrepTool implements BuiltinTool<GrepInput> {
       }
     } catch (error) {
       if (isAbortError(error)) {
-        return { isError: true, output: 'Grep aborted' };
+        return { isError: true, output: t('tools.grepAborted') };
       }
       this.telemetry.track('grep_tool_rg_fallback', { outcome: 'failed' });
       return { isError: true, output: rgUnavailableMessage(error) };
@@ -230,7 +231,7 @@ export class GrepTool implements BuiltinTool<GrepInput> {
       this.kaos,
       buildRgArgs(rgPath, args, searchPaths),
       signal,
-      { abortedMessage: 'Grep aborted' },
+      { abortedMessage: t('tools.grepAborted') },
     );
     if (runResult.kind === 'tool-error') return runResult.result;
     if (shouldRetryRipgrepEagain(runResult)) {
@@ -238,7 +239,7 @@ export class GrepTool implements BuiltinTool<GrepInput> {
         this.kaos,
         buildRgArgs(rgPath, args, searchPaths, true),
         signal,
-        { abortedMessage: 'Grep aborted' },
+        { abortedMessage: t('tools.grepAborted') },
       );
       if (runResult.kind === 'tool-error') return runResult.result;
     }
@@ -262,11 +263,11 @@ export class GrepTool implements BuiltinTool<GrepInput> {
     if (timedOut && stdoutText.trim() === '') {
       return {
         isError: true,
-        output: `Grep timed out after ${String(DEFAULT_TIMEOUT_MS / 1000)}s. Try a more specific path or pattern.`,
+        output: t('tools.grepTimedOut', { seconds: String(DEFAULT_TIMEOUT_MS / 1000) }),
       };
     }
     if (signal.aborted) {
-      return { isError: true, output: 'Grep aborted' };
+      return { isError: true, output: t('tools.grepAborted') };
     }
 
     const rawLines = parseRipgrepOutput(stdoutText, mode);
@@ -287,7 +288,7 @@ export class GrepTool implements BuiltinTool<GrepInput> {
           : keptLines;
     } catch (error) {
       if (error instanceof GrepAbortedError) {
-        return { isError: true, output: 'Grep aborted' };
+        return { isError: true, output: t('tools.grepAborted') };
       }
       throw error;
     }

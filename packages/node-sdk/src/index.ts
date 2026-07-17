@@ -45,6 +45,7 @@ export {
   KIMI_ERROR_INFO,
   fromKimiErrorPayload,
   isKimiError,
+  resolveErrorTitle,
   toKimiErrorPayload,
 } from '@moonshot-ai/agent-core';
 

@@ -1,4 +1,5 @@
 import { parseBooleanEnv } from '#/config/resolve';
+import { t } from './i18n';
 
 import { FLAG_DEFINITIONS, type FlagId } from './registry';
 import type {
@@ -79,8 +80,8 @@ export class FlagResolver {
   ): ExperimentalFeatureState {
     return {
       id: def.id as FlagId,
-      title: def.title,
-      description: def.description,
+      title: def.titleKey ? t(def.titleKey) : def.title ?? def.id,
+      description: def.descKey ? t(def.descKey) : def.description ?? '',
       surface: def.surface,
       env: def.env,
       defaultEnabled: def.default,

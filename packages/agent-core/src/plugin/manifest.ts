@@ -1,6 +1,7 @@
 import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 
+import { t } from '../i18n';
 import {
   HookDefSchema,
   McpServerConfigSchema,
@@ -50,7 +51,7 @@ export async function parseManifest(pluginRoot: string): Promise<ParsedManifestR
       diagnostics: [
         {
           severity: 'error',
-          message: `No manifest at ${KIMI_PLUGIN_ROOT_PATH} or ${KIMI_PLUGIN_DIR_PATH}`,
+          message: t('plugin.manifestNotFound', { path: `${KIMI_PLUGIN_ROOT_PATH} or ${KIMI_PLUGIN_DIR_PATH}` }),
         },
       ],
     };
@@ -71,7 +72,7 @@ export async function parseManifest(pluginRoot: string): Promise<ParsedManifestR
       diagnostics: [
         {
           severity: 'error',
-          message: `Failed to parse ${path.relative(pluginRoot, manifestPath)}: ${(error as Error).message}`,
+          message: t('plugin.manifestParseFailed', { name: path.relative(pluginRoot, manifestPath), error: (error as Error).message }),
         },
       ],
     };
@@ -82,7 +83,7 @@ export async function parseManifest(pluginRoot: string): Promise<ParsedManifestR
       manifestKind,
       manifestPath,
       shadowedManifestPath,
-      diagnostics: [{ severity: 'error', message: 'manifest must be a JSON object' }],
+      diagnostics: [{ severity: 'error', message: t('plugin.manifestMustBeObject') }],
     };
   }
 
@@ -90,13 +91,13 @@ export async function parseManifest(pluginRoot: string): Promise<ParsedManifestR
 
   const name = typeof raw['name'] === 'string' ? raw['name'].trim() : '';
   if (name.length === 0) {
-    diagnostics.push({ severity: 'error', message: '"name" is required' });
+    diagnostics.push({ severity: 'error', message: t('plugin.nameRequired') });
     return { manifestKind, manifestPath, shadowedManifestPath, diagnostics };
   }
   if (!PLUGIN_NAME_REGEX.test(name)) {
     diagnostics.push({
       severity: 'error',
-      message: `"name" must match ${PLUGIN_NAME_REGEX} (got "${name}")`,
+      message: t('plugin.nameMustMatch', { regex: PLUGIN_NAME_REGEX, name }),
     });
     return { manifestKind, manifestPath, shadowedManifestPath, diagnostics };
   }
@@ -142,7 +143,7 @@ function recordUnsupportedRuntimeFields(
     if (raw[field] === undefined) continue;
     diagnostics.push({
       severity: 'info',
-      message: `"${field}" is present but not supported by Kimi plugins`,
+      message: t('plugin.unsupportedField', { field }),
     });
   }
 }
@@ -159,7 +160,7 @@ async function resolveSkillsField(
   } else if (Array.isArray(raw) && raw.every((entry) => typeof entry === 'string')) {
     entries.push(...raw);
   } else {
-    diagnostics.push({ severity: 'error', message: '"skills" must be a string or string[]' });
+    diagnostics.push({ severity: 'error', message: t('plugin.skillsMustBeStringOrArray') });
     return [];
   }
 
@@ -168,7 +169,7 @@ async function resolveSkillsField(
     if (!entry.startsWith('./')) {
       diagnostics.push({
         severity: 'error',
-        message: `"skills" path must start with "./" (got "${entry}")`,
+        message: t('plugin.skillsPathDotSlash', { entry }),
       });
       continue;
     }
@@ -183,14 +184,14 @@ async function resolveSkillsField(
     if (!isWithin(real, rootReal)) {
       diagnostics.push({
         severity: 'error',
-        message: `"skills" path resolves outside the plugin (${entry})`,
+        message: t('plugin.skillsPathOutside', { entry }),
       });
       continue;
     }
     if (!(await isDir(real))) {
       diagnostics.push({
         severity: 'warn',
-        message: `"skills" path is not a directory (${entry})`,
+        message: t('plugin.skillsPathNotDir', { entry }),
       });
       continue;
     }
@@ -208,7 +209,7 @@ async function resolvePluginPathField(input: {
   if (!input.value.startsWith('./')) {
     input.diagnostics.push({
       severity: 'warn',
-      message: `"${input.field}" path must start with "./" (got "${input.value}")`,
+      message: t('plugin.fieldPathDotSlash', { field: input.field, value: input.value }),
     });
     return undefined;
   }
@@ -223,7 +224,7 @@ async function resolvePluginPathField(input: {
   if (!isWithin(real, rootReal)) {
     input.diagnostics.push({
       severity: 'warn',
-      message: `"${input.field}" path resolves outside the plugin (${input.value})`,
+      message: t('plugin.fieldPathOutside', { field: input.field, value: input.value }),
     });
     return undefined;
   }
@@ -236,14 +237,14 @@ function readSessionStart(
 ): PluginManifest['sessionStart'] {
   if (raw === undefined) return undefined;
   if (!isObject(raw)) {
-    diagnostics.push({ severity: 'warn', message: '"sessionStart" must be an object' });
+    diagnostics.push({ severity: 'warn', message: t('plugin.sessionStartMustBeObject') });
     return undefined;
   }
   const skill = typeof raw['skill'] === 'string' ? raw['skill'].trim() : '';
   if (skill.length === 0) {
     diagnostics.push({
       severity: 'warn',
-      message: '"sessionStart.skill" is required when sessionStart is present',
+      message: t('plugin.sessionStartSkillRequired'),
     });
     return undefined;
   }
@@ -257,7 +258,7 @@ async function readMcpServers(
 ): Promise<PluginManifest['mcpServers']> {
   if (raw === undefined) return undefined;
   if (!isObject(raw)) {
-    diagnostics.push({ severity: 'warn', message: '"mcpServers" must be an object' });
+    diagnostics.push({ severity: 'warn', message: t('plugin.mcpServersMustBeObject') });
     return undefined;
   }
 
@@ -267,7 +268,7 @@ async function readMcpServers(
     if (trimmedName.length === 0) {
       diagnostics.push({
         severity: 'warn',
-        message: '"mcpServers" entries must have a non-empty name',
+        message: t('plugin.mcpServersNameRequired'),
       });
       continue;
     }
@@ -275,7 +276,7 @@ async function readMcpServers(
     if (!parsed.success) {
       diagnostics.push({
         severity: 'warn',
-        message: `Invalid MCP server "${trimmedName}": ${parsed.error.message}`,
+        message: t('plugin.mcpServerInvalid', { name: trimmedName, error: parsed.error.message }),
       });
       continue;
     }
@@ -296,7 +297,7 @@ function readHooks(
 ): readonly HookDefConfig[] | undefined {
   if (raw === undefined) return undefined;
   if (!Array.isArray(raw)) {
-    diagnostics.push({ severity: 'warn', message: '"hooks" must be an array' });
+    diagnostics.push({ severity: 'warn', message: t('plugin.hooksMustBeArray') });
     return undefined;
   }
   const out: HookDefConfig[] = [];
@@ -305,7 +306,7 @@ function readHooks(
     if (!parsed.success) {
       diagnostics.push({
         severity: 'warn',
-        message: `Invalid hook at index ${i}: ${parsed.error.message}`,
+        message: t('plugin.hookInvalid', { index: i, error: parsed.error.message }),
       });
     } else {
       out.push(parsed.data);
@@ -326,7 +327,7 @@ async function readCommands(
   } else if (Array.isArray(raw) && raw.every((entry) => typeof entry === 'string')) {
     entries.push(...raw);
   } else {
-    diagnostics.push({ severity: 'warn', message: '"commands" must be a string or string[]' });
+    diagnostics.push({ severity: 'warn', message: t('plugin.commandsMustBeStringOrArray') });
     return undefined;
   }
 
@@ -346,7 +347,7 @@ async function readCommands(
     } else {
       diagnostics.push({
         severity: 'warn',
-        message: `"commands" entry must be a directory or .md file (${entry})`,
+        message: t('plugin.commandsEntryInvalid', { entry }),
       });
     }
   }
@@ -407,7 +408,7 @@ async function normalizePluginMcpServer(input: {
   } else if (command.includes('/') || path.isAbsolute(command)) {
     input.diagnostics.push({
       severity: 'warn',
-      message: `"mcpServers.${input.name}.command" must be a PATH command or start with "./"`,
+      message: t('plugin.mcpServerCommandPath', { name: input.name }),
     });
     return undefined;
   }
