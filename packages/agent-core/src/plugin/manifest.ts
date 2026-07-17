@@ -1,7 +1,7 @@
 import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 
-import { t } from '../i18n/index';
+import { t } from '../i18n';
 import {
   HookDefSchema,
   McpServerConfigSchema,
@@ -97,7 +97,7 @@ export async function parseManifest(pluginRoot: string): Promise<ParsedManifestR
   if (!PLUGIN_NAME_REGEX.test(name)) {
     diagnostics.push({
       severity: 'error',
-      message: t('plugin.nameMustMatch', { regex: PLUGIN_NAME_REGEX, name }),
+      message: t('plugin.nameMustMatch', { regex: PLUGIN_NAME_REGEX.source.source, name }),
     });
     return { manifestKind, manifestPath, shadowedManifestPath, diagnostics };
   }

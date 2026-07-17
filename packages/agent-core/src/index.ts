@@ -1,5 +1,5 @@
-export { t, setLocale, getLocale } from './i18n/index';
-export type { Locale, TranslationKey } from './i18n/index';
+export { t, setLocale, getLocale } from './i18n';
+export type { Locale, TranslationKey } from './i18n';
 export * from './agent';
 export * from './session';
 export * from './rpc';
