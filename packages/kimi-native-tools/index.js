@@ -134,6 +134,18 @@ async function nativeWrite(path, content, options = {}) {
     options.mode ?? null,
   );
 }
+// ============================================================================
+// File cache
+// ============================================================================
+
+/**
+ * Invalidate the file read cache entry for a path (call after write/edit).
+ *
+ * @param {string} path - Path to the file that was written or edited.
+ */
+function nativeFileCacheInvalidate(path) {
+  return binding.nativeFileCacheInvalidate(path);
+}
 
 // ============================================================================
 // Edit tool
@@ -696,6 +708,7 @@ module.exports = {
   // Tools
   nativeRead,
   nativeBatchRead,
+  nativeFileCacheInvalidate,
   nativeWrite,
   nativeEdit,
   nativeGrep,

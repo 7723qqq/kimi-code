@@ -14,7 +14,6 @@ import { buildCompactionSummaryText, isRealUserInput } from '#/agent/contextMemo
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentContextSizeService } from '#/agent/contextSize/contextSize';
 import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import type { LLMRequestTrace } from '#/app/llmProtocol/requestTrace';
 import { retryBackoffDelays, sleepForRetry } from '#/_base/utils/retry';
@@ -115,7 +114,6 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-    @IAgentContextSizeService private readonly contextSize: IAgentContextSizeService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
@@ -186,7 +184,11 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   }
 
   private estimateCurrentRequestTokens(): number {
-    return this.estimateRequestTokens(this.context.get());
+    return (
+      estimateTokens(this.profile.getSystemPrompt()) +
+      estimateTokensForTools(this.defaultTools().filter((tool) => tool.deferred !== true)) +
+      this.context.contextTokenEstimate
+    );
   }
 
   private estimateRequestTokens(messages: readonly Message[]): number {
@@ -677,7 +679,7 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
   }
 
   private tokenCountWithPending(): number {
-    return this.contextSize.get().size;
+    return this.context.contextTokenEstimate;
   }
 
   private get contextInjector(): IAgentContextInjectorService {

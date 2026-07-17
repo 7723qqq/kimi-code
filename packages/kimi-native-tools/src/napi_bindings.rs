@@ -35,11 +35,25 @@ pub async fn native_read(
     line_offset: Option<i64>,
     n_lines: Option<u32>,
 ) -> ReadResult {
-    tokio::task::spawn_blocking(move || {
+    // Only cache full-file reads (no offset/limit)
+    if line_offset.is_none() && n_lines.is_none() {
+        if let Some((content, line_count)) = crate::file_cache::FILE_CACHE.get(&path) {
+            return ReadResult {
+                content,
+                line_count,
+                error: None,
+            };
+        }
+    }
+
+    let path_clone = path.clone();
+    let ol = line_offset;
+    let nl = n_lines;
+    let result = tokio::task::spawn_blocking(move || {
         read::read_file(&ReadConfig {
-            path,
-            line_offset,
-            n_lines,
+            path: path_clone,
+            line_offset: ol,
+            n_lines: nl,
         })
     })
     .await
@@ -47,7 +61,14 @@ pub async fn native_read(
         content: String::new(),
         line_count: 0,
         error: Some(format!("read panicked: {e}")),
-    })
+    });
+
+    // Cache full-file reads
+    if result.error.is_none() && line_offset.is_none() && n_lines.is_none() {
+        crate::file_cache::FILE_CACHE.put(path, result.content.clone(), result.line_count);
+    }
+
+    result
 }
 
 // ============================================================================
@@ -102,6 +123,16 @@ pub async fn native_batch_read(
 }
 
 // ============================================================================
+// File cache — invalidation
+// ============================================================================
+
+/// Invalidate the file read cache entry for a path (call after write/edit).
+#[napi]
+pub fn native_file_cache_invalidate(path: String) {
+    crate::file_cache::FILE_CACHE.invalidate(&path);
+}
+
+// ============================================================================
 // Write tool
 // ============================================================================
 
@@ -121,14 +152,20 @@ pub async fn native_write(
         Some("append") => WriteMode::Append,
         _ => WriteMode::Overwrite,
     };
-    tokio::task::spawn_blocking(move || {
-        write::write_file(&path, &content, write_mode)
+    let path_clone = path.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        write::write_file(&path_clone, &content, write_mode)
     })
     .await
     .unwrap_or_else(|e| WriteResult {
         bytes_written: 0,
         error: Some(format!("write panicked: {e}")),
-    })
+    });
+
+    if result.error.is_none() {
+        crate::file_cache::FILE_CACHE.invalidate(&path);
+    }
+    result
 }
 
 // ============================================================================
@@ -149,7 +186,11 @@ pub fn native_edit(
     new_string: String,
     replace_all: Option<bool>,
 ) -> EditResult {
-    edit::edit_file(&path, &old_string, &new_string, replace_all.unwrap_or(false))
+    let result = edit::edit_file(&path, &old_string, &new_string, replace_all.unwrap_or(false));
+    if result.error.is_none() {
+        crate::file_cache::FILE_CACHE.invalidate(&path);
+    }
+    result
 }
 
 // ============================================================================

@@ -24,7 +24,7 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { estimateTokensForMessages } from '#/_base/utils/tokens';
+import { estimateTokensForMessage, estimateTokensForMessages } from '#/_base/utils/tokens';
 import { IEventBus } from '#/app/event/eventBus';
 import { ContextSizeModel, contextSizeMeasured } from '#/agent/contextSize/contextSizeOps';
 import { IWireService } from '#/wire/wire';
@@ -64,6 +64,14 @@ declare module '#/app/event/eventBus' {
 export class AgentContextMemoryService extends Disposable implements IAgentContextMemoryService {
   declare readonly _serviceBrand: undefined;
 
+  /** Running total of tokens across all context messages. Reset on clear(). */
+  private contextTokenTotal = 0;
+
+  /** Estimated total tokens across all context messages (O(1)). */
+  get contextTokenEstimate(): number {
+    return this.contextTokenTotal;
+  }
+
   constructor(
     @IWireService private readonly wire: IWireService,
     @IEventBus private readonly eventBus: IEventBus,
@@ -79,6 +87,9 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
     if (messages.length === 0) return;
     const start = this.get().length;
     this.wire.dispatch(...messages.map((message) => contextAppendMessage({ message })));
+    for (const message of messages) {
+      this.contextTokenTotal += estimateTokensForMessage(message);
+    }
     this.publishSplice({ start, deleteCount: 0, messages: [...messages] });
   }
 
@@ -90,6 +101,7 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
     const deleteCount = this.get().length;
     if (deleteCount === 0) return;
     this.wire.dispatch(contextClear({}), contextSizeMeasured({ length: 0, tokens: 0 }));
+    this.contextTokenTotal = 0;
     this.publishSplice({ start: 0, deleteCount, messages: [] });
   }
 
@@ -98,6 +110,7 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
     const cut = computeUndoCut(history, count);
     if (isFullyUndoable(cut, count)) {
       this.wire.dispatch(contextUndo({ count }), ...this.sizeOpsForCut(cut.cutIndex, history));
+      this.contextTokenTotal = estimateTokensForMessages(history.slice(0, cut.cutIndex));
       this.publishSplice({
         start: cut.cutIndex,
         deleteCount: history.length - cut.cutIndex,
@@ -123,6 +136,7 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
       }),
       contextSizeMeasured({ length: result.messages.length, tokens: result.tokensAfter }),
     );
+    this.contextTokenTotal = result.tokensAfter;
     this.publishSplice({
       start: 0,
       deleteCount: history.length,
