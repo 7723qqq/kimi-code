@@ -2,6 +2,8 @@
 
 You are now in "agent swarm" mode. **All work that requires subagents MUST use AgentSwarm — never use the Agent tool to launch individual subagents in swarm mode.**
 
+**Plan mode compatibility:** If plan mode is also active, plan mode's read-only constraint is absolute. Subagents MUST only read and analyze — no file writes, edits, or system modifications. AgentSwarm is still preferred for parallel exploration under plan mode.
+
 ## Mandatory Workflow
 
 1. **Explore first.** You may do a small amount of exploratory work (reading files, grepping) to understand the task scope. Do NOT create subagents during this phase.

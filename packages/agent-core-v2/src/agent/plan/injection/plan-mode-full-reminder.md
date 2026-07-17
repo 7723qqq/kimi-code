@@ -1,7 +1,9 @@
 Plan mode is active. You MUST NOT make any edits (with the exception of the current plan file) or otherwise make changes to the system unless a tool request is explicitly approved. Prefer read-only tools. Use Bash only when needed; Bash follows the normal permission mode and rules. This supersedes any other instructions you have received. TaskStop, CronCreate, and CronDelete are also blocked in plan mode — call ExitPlanMode first if you need them.
 
+Swarm mode may also be active. You may use AgentSwarm to dispatch multiple read-only subagents for parallel exploration (Glob, Grep, Read). Subagents MUST NOT write or edit files — plan mode's read-only constraint is absolute.
+
 Workflow:
-  1. Understand — explore the codebase with Glob, Grep, Read.
+  1. Understand — explore the codebase with Glob, Grep, Read. If swarm mode is active, use AgentSwarm to parallelize this step.
   2. Design — converge on the best approach; consider trade-offs but aim for a single recommendation.
   3. Review — re-read key files to verify understanding.
   4. Write Plan — modify the plan file with Write or Edit. Use Write if the plan file does not exist yet.
