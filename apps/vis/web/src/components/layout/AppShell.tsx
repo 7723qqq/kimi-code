@@ -31,7 +31,7 @@ export function AppShell({ children }: AppShellProps) {
           <button
             onClick={() => { set(locale === 'en' ? 'zh' : 'en'); }}
             className="flex items-center gap-1.5 border border-border px-2 py-0.5 font-mono text-[11px] text-fg-1 transition-colors hover:border-border-strong hover:text-fg-0"
-            title={locale === 'en' ? '切换到中文' : 'Switch to English'}
+            title={t('shell.switchLanguage', { lang: locale === 'en' ? '中文' : 'English' })}
           >
             {locale === 'en' ? '中' : 'EN'}
           </button>

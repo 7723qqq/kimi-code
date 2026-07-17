@@ -7,6 +7,7 @@
 
 import chalk from 'chalk';
 
+import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 
 export type DiffLineKind = 'context' | 'add' | 'delete';
@@ -143,7 +144,7 @@ export function renderDiffLines(
   if (hidden > 0) {
     output.push(
       s.meta(
-        `     … ${String(hidden)} more change${hidden > 1 ? 's' : ''} hidden (ctrl+o to expand)`,
+        `     … ${t('tui.diffPreview.moreChangesHidden', { n: hidden })}`,
       ),
     );
   }
@@ -280,7 +281,7 @@ export function renderDiffLinesClustered(
           truncated = true;
           break;
         }
-        output.push(s.meta(`     … ${String(gap)} unchanged line${gap > 1 ? 's' : ''} …`));
+        output.push(s.meta(`     … ${t('tui.diffPreview.unchangedLines', { n: gap })}`));
         body++;
       }
     }
@@ -307,7 +308,7 @@ export function renderDiffLinesClustered(
       const hint = opts.expandKeyHint ?? 'ctrl+o';
       output.push(
         s.meta(
-          `     … ${String(hidden)} more change${hidden > 1 ? 's' : ''} hidden (${hint} to expand)`,
+          `     … ${t('tui.diffPreview.moreChangesHiddenWithHint', { n: hidden, hint })}`,
         ),
       );
     }

@@ -140,8 +140,13 @@ export async function handleProviderAdd(
   });
 
   deps.stdout.write(
-    `Imported ${String(addedProviderIds.length)} provider${addedProviderIds.length === 1 ? '' : 's'} ` +
-      `(${String(modelCount)} model${modelCount === 1 ? '' : 's'}) from ${trimmedUrl}:\n`,
+    t('tui.statusMessages.providerMultipleImported', {
+      count: String(addedProviderIds.length),
+      plural: addedProviderIds.length === 1 ? '' : 's',
+      modelCount: String(modelCount),
+      modelPlural: modelCount === 1 ? '' : 's',
+      url: trimmedUrl,
+    }) + '\n',
   );
   for (const id of addedProviderIds) {
     deps.stdout.write(`  - ${id}\n`);

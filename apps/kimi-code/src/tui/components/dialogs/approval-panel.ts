@@ -85,14 +85,14 @@ function renderShellDisplayBlock(
 ): string[] {
   const lines: string[] = [];
   if (block.cwd !== undefined && block.cwd.length > 0) {
-    lines.push(s.dim(`cwd: ${block.cwd}`));
+    lines.push(s.dim(t('tui.approvalPanel.shellCwd', { dir: block.cwd })));
   }
   if (block.danger !== undefined) {
-    lines.push(s.errorBold(`Dangerous: ${block.danger}`));
+    lines.push(s.errorBold(t('tui.approvalPanel.shellDangerous', { reason: block.danger })));
   }
   const cmdLines = block.command.length > 0 ? block.command.split('\n') : [''];
   cmdLines.forEach((cmdLine, idx) => {
-    const prefix = idx === 0 ? `${s.accent('$')} ` : `${s.dim('·')} `;
+    const prefix = idx === 0 ? s.accent(t('tui.approvalPanel.shellPrompt')) : s.dim(t('tui.approvalPanel.shellContinuation'));
     appendWrappedLine(lines, prefix, '  ', s.strong(cmdLine), width);
   });
   if (block.description !== undefined && block.description.length > 0) {
@@ -151,9 +151,9 @@ function renderDisplayBlock(
       return [`${method} ${s.strong(block.url)}`];
     }
     case 'search': {
-      const lines = [`${s.accent('search')} ${s.strong(block.query)}`];
+      const lines = [`${s.accent(t('tui.approvalPanel.searchPrefix'))} ${s.strong(block.query)}`];
       if (block.scope !== undefined && block.scope.length > 0) {
-        lines.push(s.dim(`scope: ${block.scope}`));
+        lines.push(s.dim(t('tui.approvalPanel.searchScope', { scope: block.scope })));
       }
       return lines;
     }

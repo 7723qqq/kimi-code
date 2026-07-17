@@ -1,3 +1,5 @@
+import { t } from '#/i18n';
+
 // Use U+25CF instead of U+23FA to avoid emoji/fallback rendering in terminals.
 export const STATUS_BULLET = '● ';
 
@@ -11,4 +13,4 @@ export const FAILURE_MARK = '✗ ';
 // SELECT_POINTER marks the highlighted row; CURRENT_MARK is appended to the
 // row that is the currently-active value. See .agents/skills/write-tui/DESIGN.md.
 export const SELECT_POINTER = '❯';
-export const CURRENT_MARK = '← current';
+export const CURRENT_MARK = t('tui.labels.current');

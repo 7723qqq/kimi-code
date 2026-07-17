@@ -1,3 +1,4 @@
+import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 
 // Captured command output can contain terminal control sequences — colours,
@@ -61,11 +62,11 @@ export function formatBashOutputForDisplay(stdout: string, stderr: string, isErr
       // successful command are not mistaken for errors).
       parts.push(isError ? currentTheme.fg('error', cleanStderr) : dim(cleanStderr));
     }
-    return parts.length > 0 ? parts.join('\n') : dim('(no output)');
+    return parts.length > 0 ? parts.join('\n') : dim(t('tui.shellOutput.noOutput'));
   } catch {
     const plain = [sanitizeShellOutput(String(stdout ?? '')), sanitizeShellOutput(String(stderr ?? ''))]
       .filter((s) => s.length > 0)
       .join('\n');
-    return plain.length > 0 ? plain : '(no output)';
+    return plain.length > 0 ? plain : t('tui.shellOutput.noOutput');
   }
 }

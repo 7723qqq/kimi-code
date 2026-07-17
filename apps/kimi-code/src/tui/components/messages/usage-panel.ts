@@ -15,6 +15,7 @@ import {
   safeUsageRatio,
   usagePercent,
 } from '#/utils/usage/usage-format';
+import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import type { ColorToken } from '#/tui/theme';
 
@@ -84,7 +85,7 @@ function buildSessionUsageSection(
   const byModel = (usage as { readonly byModel?: Record<string, TokenUsage> } | undefined)
     ?.byModel;
   const entries = Object.entries(byModel ?? {});
-  if (entries.length === 0) return [muted('  No token usage recorded yet.')];
+  if (entries.length === 0) return [muted(`  ${t('tui.messages.usagePanel.noTokenUsage')}`)];
 
   const lines: string[] = [];
   let totalInput = 0;
@@ -95,16 +96,16 @@ function buildSessionUsageSection(
     totalInput += input;
     totalOutput += output;
     lines.push(
-      `  ${muted(model)}  input ${value(formatTokenCount(input))}  output ${value(
+      `  ${muted(model)}  ${t('tui.messages.usagePanel.input')} ${value(formatTokenCount(input))}  ${t('tui.messages.usagePanel.output')} ${value(
         formatTokenCount(output),
-      )}  total ${value(formatTokenCount(input + output))}`,
+      )}  ${t('tui.messages.usagePanel.total')} ${value(formatTokenCount(input + output))}`,
     );
   }
   if (entries.length > 1) {
     lines.push(
-      `  ${muted('total')}  input ${value(formatTokenCount(totalInput))}  output ${value(
+      `  ${muted(t('tui.messages.usagePanel.total'))}  ${t('tui.messages.usagePanel.input')} ${value(formatTokenCount(totalInput))}  ${t('tui.messages.usagePanel.output')} ${value(
         formatTokenCount(totalOutput),
-      )}  total ${value(formatTokenCount(totalInput + totalOutput))}`,
+      )}  ${t('tui.messages.usagePanel.total')} ${value(formatTokenCount(totalInput + totalOutput))}`,
     );
   }
   return lines;
@@ -118,11 +119,11 @@ function buildManagedUsageSection(
   muted: Colorize,
   errorStyle: Colorize,
 ): string[] {
-  if (error !== undefined) return [accent('Plan usage'), errorStyle(`  ${error}`)];
+  if (error !== undefined) return [accent(t('tui.messages.usagePanel.planUsage')), errorStyle(`  ${error}`)];
   if (usage === undefined) return [];
   const { summary, limits } = usage;
   if (summary === null && limits.length === 0) {
-    return [accent('Plan usage'), muted('  No usage data available.')];
+    return [accent(t('tui.messages.usagePanel.planUsage')), muted(`  ${t('tui.messages.usagePanel.noUsageData')}`)];
   }
 
   const rows: ManagedUsageRow[] = [];
@@ -133,7 +134,7 @@ function buildManagedUsageSection(
   const labelWidth = Math.max(10, ...rows.map((r) => r.label.length));
   const pctWidth = Math.max(...rows.map((r) => `${Math.round(usedRatio(r) * 100)}% used`.length));
 
-  const out: string[] = [accent('Plan usage')];
+  const out: string[] = [accent(t('tui.messages.usagePanel.planUsage'))];
   for (const row of rows) {
     const ratioUsed = usedRatio(row);
     const bar = renderProgressBar(ratioUsed, 20);
@@ -199,13 +200,13 @@ export function buildExtraUsageSection(
     const bar = renderProgressBar(ratio, 20);
     barLine = `  ${currentTheme.fg(severityColor(ratioSeverity(ratio)), bar)}`;
     const limit = formatCurrencyParts(extraUsage.monthlyChargeLimitCents, extraUsage.currency);
-    rows.push({ label: 'Used this month', ...used });
-    rows.push({ label: 'Monthly limit', ...limit });
-    rows.push({ label: 'Balance', ...balance });
+    rows.push({ label: t('tui.messages.usagePanel.usedThisMonth'), ...used });
+    rows.push({ label: t('tui.messages.usagePanel.monthlyLimit'), ...limit });
+    rows.push({ label: t('tui.messages.usagePanel.balance'), ...balance });
   } else {
-    rows.push({ label: 'Used this month', ...used });
-    rows.push({ label: 'Monthly limit', symbol: '', number: 'Unlimited' });
-    rows.push({ label: 'Balance', ...balance });
+    rows.push({ label: t('tui.messages.usagePanel.usedThisMonth'), ...used });
+    rows.push({ label: t('tui.messages.usagePanel.monthlyLimit'), symbol: '', number: t('tui.messages.usagePanel.unlimited') });
+    rows.push({ label: t('tui.messages.usagePanel.balance'), ...balance });
   }
 
   // `Used this month` is the longest label; size the column to the widest label
@@ -224,7 +225,7 @@ export function buildExtraUsageSection(
     return `  ${muted(label.padEnd(labelWidth, ' '))}  ${value(cell)}`;
   };
 
-  const lines: string[] = [accent('Extra Usage')];
+  const lines: string[] = [accent(t('tui.messages.usagePanel.extraUsage'))];
   if (barLine !== null) lines.push(barLine);
   for (const r of rows) lines.push(row(r.label, r.symbol, r.number));
 
@@ -254,7 +255,7 @@ export function buildUsageReportLines(options: UsageReportOptions): string[] {
   const errorStyle = (text: string) => currentTheme.fg('error', text);
 
   const lines: string[] = [
-    accent('Session usage'),
+    accent(t('tui.messages.usagePanel.sessionUsage')),
     ...buildSessionUsageSection(
       options.sessionUsage,
       options.sessionUsageError,
@@ -270,7 +271,7 @@ export function buildUsageReportLines(options: UsageReportOptions): string[] {
     const pct = `${String(usagePercent(options.contextTokens, options.maxContextTokens))}%`;
     const barColoured = currentTheme.fg(severityColor(ratioSeverity(ratio)), bar);
     lines.push('');
-    lines.push(accent('Context window'));
+    lines.push(accent(t('tui.messages.usagePanel.contextWindow')));
     lines.push(
       `  ${barColoured}  ${value(pct.padStart(6, ' '))}  ` +
         muted(
@@ -311,7 +312,7 @@ export class UsagePanelComponent implements Component {
   constructor(
     private readonly buildLines: () => readonly string[],
     private readonly borderToken: ColorToken,
-    private readonly title: string = ' Usage ',
+    private readonly title: string = t('tui.messages.usagePanel.title'),
   ) {
     this.lines = buildLines();
   }
