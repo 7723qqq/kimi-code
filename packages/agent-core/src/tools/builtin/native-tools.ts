@@ -8,6 +8,7 @@
  */
 
 import type { Kaos } from '@moonshot-ai/kaos';
+import { t } from '../../i18n';
 import { z } from 'zod';
 
 import type { BackgroundManager } from '../../agent/background';
@@ -417,7 +418,7 @@ export class NativeGrepTool implements BuiltinTool {
           );
         }
         if (result.timedOut) {
-          notices.push(`Grep timed out; partial results returned.`);
+          notices.push(t('tools.grepAborted'));
         }
         const output =
           notices.length > 0
@@ -559,7 +560,7 @@ export class NativeBashTool extends BashTool {
           output += `[stderr]\n${result.stderr}`;
         }
         if (result.timedOut) {
-          output += `\n\nCommand timed out after ${args.timeout ?? 60}s.`;
+          output += `\n\n${t('tools.agentResumeTimedOut', { timeout: `${args.timeout ?? 60}s` })}`;
         }
         if (result.exitCode !== 0) {
           output += `\n\nExit code: ${result.exitCode}`;

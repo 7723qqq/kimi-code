@@ -6,8 +6,14 @@ export type FlagSurface = 'core' | 'tui' | 'both';
 /** Shape of a registry entry (id is a loose string so `as const satisfies` can validate it). */
 export interface FlagDefinitionInput {
   readonly id: string;
-  readonly title: string;
-  readonly description: string;
+  /** @deprecated Use titleKey for i18n. Prefer titleKey for new flags. */
+  readonly title?: string;
+  /** @deprecated Use descKey for i18n. Prefer descKey for new flags. */
+  readonly description?: string;
+  /** i18n key for the flag title. Takes precedence over title if both are set. */
+  readonly titleKey?: string;
+  /** i18n key for the flag description. Takes precedence over description if both are set. */
+  readonly descKey?: string;
   /** Full environment variable name, e.g. `KIMI_CODE_EXPERIMENTAL_MY_FEATURE`. Read directly by the resolver. */
   readonly env: string;
   readonly default: boolean;

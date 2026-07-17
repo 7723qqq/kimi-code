@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import type { FlagDefinitionInput } from './types';
 
 /**
@@ -25,25 +26,24 @@ export const FLAG_DEFINITIONS = [
   // },
   {
     id: 'tool-select',
-    title: 'Tool select (progressive tool disclosure)',
-    description:
-      'Keep MCP tool schemas out of the immutable top-level tools[]; the model loads them on demand via the select_tools tool. Only takes effect on models whose capability catalog declares dynamically loaded tools.',
+    titleKey: 'flags.toolSelectTitle',
+    descKey: 'flags.toolSelectDesc',
     env: 'KIMI_CODE_EXPERIMENTAL_TOOL_SELECT',
     default: false,
     surface: 'core',
   },
   {
     id: 'native_tools',
-    title: 'Native tools',
-    description: 'Use Rust-native implementations for Read, Write, Edit, Grep, Glob and Bash tools.',
+    titleKey: 'flags.nativeToolsTitle',
+    descKey: 'flags.nativeToolsDesc',
     env: 'KIMI_CODE_EXPERIMENTAL_NATIVE_TOOLS',
     default: true,
     surface: 'core',
   },
   {
     id: 'rpc_microtask',
-    title: 'RPC microtask scheduling',
-    description: 'Use queueMicrotask instead of setTimeout(0) for in-process RPC simulation, reducing per-call latency.',
+    titleKey: 'flags.rpcMicrotaskTitle',
+    descKey: 'flags.rpcMicrotaskDesc',
     env: 'KIMI_CODE_EXPERIMENTAL_RPC_MICROTASK',
     default: false,
     surface: 'core',

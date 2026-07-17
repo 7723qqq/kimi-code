@@ -24,6 +24,7 @@ import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
 import { KimiTUI } from '#/tui/index';
+import { setLocale as setAgentCoreLocale } from '@moonshot-ai/agent-core';
 import { currentTheme, getColorPalette } from '#/tui/theme';
 import { combineStartupNotice } from '#/tui/utils/startup';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
@@ -102,6 +103,9 @@ export async function runShell(
     configWarning = combineStartupNotice(configWarning, warning);
   }
   const configMs = Date.now() - configStartedAt;
+  // Propagate locale to agent-core for i18n
+  setAgentCoreLocale(getLocale());
+
   const tui = new KimiTUI(harness, {
     cliOptions: opts,
     additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,

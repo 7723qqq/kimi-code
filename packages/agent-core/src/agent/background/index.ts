@@ -21,6 +21,7 @@ import { resettableTimeoutOutcome, timeoutOutcome, type ResettableTimeoutPromise
 import { escapeXml, escapeXmlAttr } from '../../utils/xml-escape';
 import type { BackgroundTaskOrigin } from '../context';
 import { renderNotificationXml } from '../context/notification-xml';
+import { t } from '../i18n';
 import { type BackgroundTaskPersistence } from './persist';
 import {
   TERMINAL_STATUSES,
@@ -136,11 +137,7 @@ const MAX_TASK_OUTPUT_BYTES = 16 * 1024 * 1024; // 16 MiB
 /** Terminal `stopReason` recorded when a command trips the output ceiling. */
 function outputLimitReason(): string {
   const mib = Math.floor(MAX_TASK_OUTPUT_BYTES / (1024 * 1024));
-  return (
-    `Output limit exceeded: the command produced more than ${mib} MiB and was ` +
-    'terminated. Redirect large output to a file (e.g. `command > out.txt`) and ' +
-    'inspect it in slices instead.'
-  );
+  return t('background.outputLimitExceeded', { mib: String(mib) });
 }
 
 const SIGTERM_GRACE_MS = 5_000;
@@ -812,7 +809,7 @@ export class BackgroundManager {
       source_kind: 'background_task',
       source_id: info.taskId,
       agent_id: info.kind === 'agent' ? info.agentId : undefined,
-      title: `Background ${info.kind} ${info.status}`,
+      title: t('background.taskStarted', { kind: info.kind }),
       severity: info.status === 'completed' ? 'info' : 'warning',
       body: buildBackgroundTaskNotificationBody(info),
       children: backgroundTaskNotificationChildren(output),
@@ -1024,7 +1021,7 @@ function backgroundTaskNotificationChildren(
 function renderOutputFileBlock(outputPath: string, outputSizeBytes: number): string {
   return [
     `<output-file path="${escapeXmlAttr(outputPath)}" bytes="${String(outputSizeBytes)}">`,
-    `Read the output file to retrieve the result: ${escapeXml(outputPath)}`,
+    t('background.outputFile', { path: escapeXml(outputPath) }),
     '</output-file>',
   ].join('\n');
 }
@@ -1033,8 +1030,8 @@ function renderOutputPreviewBlock(output: BackgroundTaskOutputSnapshot): string 
   return [
     `<output-preview bytes="${String(output.previewBytes)}" total_bytes="${String(output.outputSizeBytes)}" truncated="${String(output.truncated)}">`,
     output.truncated
-      ? `Showing the last ${String(output.previewBytes)} bytes. No persisted full output is available.`
-      : 'No persisted full output is available; this preview is the currently buffered task output.',
+      ? t('background.outputPreviewTruncated', { bytes: String(output.previewBytes) })
+      : t('background.outputPreviewBuffered'),
     escapeXml(output.preview),
     '</output-preview>',
   ].join('\n');
@@ -1047,11 +1044,12 @@ function notificationKey(origin: BackgroundTaskOrigin): string {
 function buildBackgroundTaskNotificationBody(info: BackgroundTaskInfo): string {
   const baseLine =
     info.status === 'timed_out'
-      ? `${info.description} timed out.`
+      ? t('background.taskTimedOut', { description: info.description })
       : info.stopReason
-        ? `${info.description} ${info.status === 'killed' ? 'was killed' : info.status}: ${info.stopReason
-        }.`
-        : `${info.description} ${info.status}.`;
+        ? info.status === 'killed'
+          ? t('background.taskWasKilled', { description: info.description, reason: info.stopReason })
+          : t('background.taskFailed', { description: info.description, reason: info.stopReason })
+        : t('background.taskStatus', { description: info.description, status: info.status });
 
   if (info.kind !== 'agent') return baseLine;
   if (info.status === 'completed') return baseLine;
@@ -1060,10 +1058,10 @@ function buildBackgroundTaskNotificationBody(info: BackgroundTaskInfo): string {
 
   const recovery = [
     '',
-    `To recover or continue this subagent, call Agent(resume="${agentId}", prompt="Pick up where you left off; redo the last tool call if its result was never observed.").`,
-    `Use agent_id ("${agentId}"), NOT source_id / task_id ("${info.taskId}") — the two look alike but only agent_id is accepted by the resume parameter.`,
-    'Add run_in_background=true to keep it backgrounded, or omit it to take the result inline in the current turn.',
-    'The subagent retains its full prior context across the restart, but any in-flight tool call lost its result and may need to be redone.',
+    t('background.recoverPrompt', { agentId }),
+    t('background.recoverAgentId', { agentId, taskId: info.taskId }),
+    t('background.recoverBackground'),
+    t('background.recoverContext'),
   ].join('\n');
 
   return `${baseLine}${recovery}`;

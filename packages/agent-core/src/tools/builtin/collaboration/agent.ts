@@ -15,6 +15,7 @@
  * runtime.
  */
 
+import { t } from '../../i18n';
 import { z } from 'zod';
 
 import type { BuiltinTool } from '../../../agent/tool';
@@ -300,7 +301,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
     const timedOut = info?.status === 'timed_out';
     const message =
       timedOut
-        ? `Agent timed out after ${formatSubagentTimeoutDescription(this.subagentTimeoutMs ?? DEFAULT_SUBAGENT_TIMEOUT_MS)}.`
+        ? t('tools.agentResumeTimedOut', { timeout: formatSubagentTimeoutDescription(this.subagentTimeoutMs ?? DEFAULT_SUBAGENT_TIMEOUT_MS) })
         : info?.stopReason === 'Interrupted by user'
           ? USER_INTERRUPTED_SUBAGENT_MESSAGE
           : info?.stopReason !== undefined
