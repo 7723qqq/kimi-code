@@ -89,12 +89,11 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     newSession: '新会话',
   },
   background: {
-    taskStarted: '后台 {{kind}} 已启动',
+    taskStatus: '后台 {{kind}} {{status}}',
     taskTimedOut: '{{description}} 已超时。',
     taskWasKilled: '{{description}} 被终止: {{reason}}。',
     taskCompleted: '{{description}} 已完成。',
     taskFailed: '{{description}} 失败: {{reason}}。',
-    taskStatus: '{{description}} {{status}}。',
     outputLimitExceeded:
       '超出输出限制: 命令产生了超过 {{mib}} MiB 的输出并被终止。请将大量输出重定向到文件（例如 `command > out.txt`）并分片查看。',
     outputFile: '读取输出文件以获取结果: {{path}}',
@@ -130,6 +129,8 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     statusLabel: 'status: {{status}}',
     automaticNotification: 'automatic_notification: true',
     humanShellHint: 'human_shell_hint: 告诉用户在终端运行 /tasks 打开交互式后台任务面板。',
+    nextStepWithTaskOutput: '不要等待、轮询或调用 TaskOutput',
+    nextStepAwaitNoTaskOutput: '不要等待或轮询',
     nextStepForegroundDetached: 'next_step: 任务现在在后台运行。完成后你会自动收到通知——不要等待、轮询或调用 TaskOutput；继续当前工作。\n',
     nextStepForegroundDetachedNoBg: 'next_step: 任务现在在后台运行。完成后你会自动收到通知——不要等待或轮询；继续当前工作。\n',
     nextStepBackgroundStarted: 'next_step: 完成结果会在后续轮次自动到达——不要等待、轮询或调用 TaskOutput；继续当前工作。\nnext_step: 仅在需要取消任务时使用 TaskStop。\n',

@@ -21,7 +21,7 @@ import { resettableTimeoutOutcome, timeoutOutcome, type ResettableTimeoutPromise
 import { escapeXml, escapeXmlAttr } from '../../utils/xml-escape';
 import type { BackgroundTaskOrigin } from '../context';
 import { renderNotificationXml } from '../context/notification-xml';
-import { t } from '../i18n';
+import { t } from '../../i18n';
 import { type BackgroundTaskPersistence } from './persist';
 import {
   TERMINAL_STATUSES,
@@ -809,7 +809,7 @@ export class BackgroundManager {
       source_kind: 'background_task',
       source_id: info.taskId,
       agent_id: info.kind === 'agent' ? info.agentId : undefined,
-      title: t('background.taskStarted', { kind: info.kind }),
+      title: t('background.taskStatus', { kind: info.kind, status: info.status }),
       severity: info.status === 'completed' ? 'info' : 'warning',
       body: buildBackgroundTaskNotificationBody(info),
       children: backgroundTaskNotificationChildren(output),
@@ -1049,7 +1049,9 @@ function buildBackgroundTaskNotificationBody(info: BackgroundTaskInfo): string {
         ? info.status === 'killed'
           ? t('background.taskWasKilled', { description: info.description, reason: info.stopReason })
           : t('background.taskFailed', { description: info.description, reason: info.stopReason })
-        : t('background.taskStatus', { description: info.description, status: info.status });
+        : info.status === 'completed'
+          ? t('background.taskCompleted', { description: info.description })
+          : t('background.taskStatus', { kind: info.kind, status: info.status });
 
   if (info.kind !== 'agent') return baseLine;
   if (info.status === 'completed') return baseLine;

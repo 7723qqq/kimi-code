@@ -87,12 +87,11 @@ export const en = {
     newSession: 'New Session',
   },
   background: {
-    taskStarted: 'Background {{kind}} started',
+    taskStatus: 'Background {{kind}} {{status}}',
     taskTimedOut: '{{description}} timed out.',
     taskWasKilled: '{{description}} was killed: {{reason}}.',
     taskCompleted: '{{description}} completed.',
     taskFailed: '{{description}} failed: {{reason}}.',
-    taskStatus: '{{description}} {{status}}.',
     outputLimitExceeded:
       'Output limit exceeded: the command produced more than {{mib}} MiB and was terminated. Redirect large output to a file (e.g. `command > out.txt`) and inspect it in slices instead.',
     outputFile: 'Read the output file to retrieve the result: {{path}}',
@@ -128,6 +127,8 @@ export const en = {
     statusLabel: 'status: {{status}}',
     automaticNotification: 'automatic_notification: true',
     humanShellHint: 'human_shell_hint: Tell the human to run /tasks to open the interactive background-task panel.',
+    nextStepWithTaskOutput: 'do NOT wait, poll, or call TaskOutput on it',
+    nextStepAwaitNoTaskOutput: 'do NOT wait or poll',
     nextStepForegroundDetached: 'next_step: The task now runs in the background. You will be automatically notified when it completes — do NOT wait, poll, or call TaskOutput on it; continue with your current work.\n',
     nextStepForegroundDetachedNoBg: 'next_step: The task now runs in the background. You will be automatically notified when it completes — do NOT wait or poll; continue with your current work.\n',
     nextStepBackgroundStarted: 'next_step: The completion arrives automatically in a later turn — do NOT wait, poll, or call TaskOutput on it; continue with your current work.\nnext_step: Use TaskStop only if the task must be cancelled.\n',
