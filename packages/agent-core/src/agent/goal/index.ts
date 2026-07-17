@@ -151,6 +151,10 @@ interface GoalState {
   terminalReason?: string;
   /** Consecutive goal turns that encountered blocking conditions. Reset on resume. */
   blockedStreak?: number;
+  /** Epoch milliseconds when the goal was created. */
+  createdAt: number;
+  /** Epoch milliseconds when the goal was last updated. */
+  updatedAt: number;
 }
 
 /** Computed budget view exposed through snapshots and tools. */
@@ -179,6 +183,10 @@ export interface GoalSnapshot {
   readonly budget: GoalBudgetReport;
   readonly terminalReason?: string;
   readonly blockedStreak?: number;
+  /** Epoch milliseconds when the goal was created. */
+  readonly createdAt: number;
+  /** Epoch milliseconds when the goal was last updated. */
+  readonly updatedAt: number;
 }
 
 /** Wrapper returned by goal read operations and tools. */
@@ -292,6 +300,8 @@ export class GoalMode {
       tokensUsed: 0,
       wallClockMs: 0,
       budgetLimits: {},
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
     this.state = state;
     this.agent.replayBuilder.push({
@@ -414,6 +424,8 @@ export class GoalMode {
       wallClockMs: 0,
       wallClockResumedAt: Date.now(),
       budgetLimits: {},
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
 
     this.persistState(state);
@@ -821,6 +833,8 @@ export class GoalMode {
       budget: computeBudgetReport(state, Date.now()),
       terminalReason: state.terminalReason,
       blockedStreak: state.blockedStreak,
+      createdAt: state.createdAt,
+      updatedAt: state.updatedAt,
     };
   }
 }

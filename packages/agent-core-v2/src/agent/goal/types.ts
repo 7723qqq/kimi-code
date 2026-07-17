@@ -6,6 +6,14 @@ export type GoalStatus = 'active' | 'paused' | 'blocked' | 'complete' | 'budget_
 
 export type GoalActor = 'user' | 'model' | 'runtime' | 'system';
 
+/** Controls which goal statuses are eligible for usage accounting.
+ *  Mirrors Codex `GoalAccountingMode`. */
+export type GoalAccountingMode =
+  | 'active_status_only'    // only active (current behavior)
+  | 'active_only'           // active + budget_limited
+  | 'active_or_complete'    // active + budget_limited + complete
+  | 'active_or_stopped';    // all except complete (active + paused + blocked + budget_limited + usage_limited)
+
 export interface GoalBudgetLimits {
   readonly tokenBudget?: number;
   readonly turnBudget?: number;
@@ -36,6 +44,10 @@ export interface GoalSnapshot {
   readonly budget: GoalBudgetReport;
   readonly terminalReason?: string;
   readonly blockedStreak?: number;
+  /** Epoch milliseconds when the goal was created. */
+  readonly createdAt: number;
+  /** Epoch milliseconds when the goal was last updated. */
+  readonly updatedAt: number;
 }
 
 export interface GoalToolResult {

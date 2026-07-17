@@ -188,6 +188,8 @@ export interface GoalSnapshot {
   readonly tokensUsed: number;
   readonly wallClockMs: number;
   readonly budget: GoalBudgetReport;
+  readonly createdAt: number;
+  readonly updatedAt: number;
   readonly terminalReason?: string;
 }
 
@@ -1104,6 +1106,8 @@ export const goalSnapshotSchema = z.object({
   tokensUsed: z.number(),
   wallClockMs: z.number(),
   budget: goalBudgetReportSchema,
+  createdAt: z.number(),
+  updatedAt: z.number(),
   terminalReason: z.string().optional(),
 }) satisfies z.ZodType<GoalSnapshot>;
 

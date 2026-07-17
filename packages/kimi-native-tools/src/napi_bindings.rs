@@ -1119,6 +1119,11 @@ pub fn native_goal_apply_update(goal_json: String, update_json: String) -> Strin
                 })
                 .to_string())
             }
+            state::GoalUpdateOutcome::InvalidTransition { current, target } => {
+                Err(format!(
+                    "invalid transition: cannot go from {current} to {target}",
+                ))
+            }
         }
     })();
 
@@ -1210,6 +1215,8 @@ fn parse_goal(v: &serde_json::Value) -> Result<state::GoalState, String> {
         terminal_reason: v
             .get("terminalReason")
             .and_then(|x| x.as_str().map(|s| s.to_string())),
+        created_at: v.get("createdAt").and_then(|x| x.as_i64()).unwrap_or(0),
+        updated_at: v.get("updatedAt").and_then(|x| x.as_i64()).unwrap_or(0),
     })
 }
 

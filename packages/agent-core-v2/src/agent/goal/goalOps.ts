@@ -50,6 +50,8 @@ export interface GoalState {
   readonly budgetLimits: GoalBudgetLimits;
   readonly terminalReason?: string;
   readonly blockedStreak?: number;
+  readonly createdAt: number;
+  readonly updatedAt: number;
 }
 
 export type GoalModelState = GoalState | null;
@@ -98,17 +100,22 @@ export const createGoal = GoalModel.defineOp('goal.create', {
       budgetLimits: GoalBudgetLimitsSchema.optional(),
     })
     .strip(),
-  apply: (_s, p) => ({
-    goalId: p.goalId,
-    objective: p.objective,
-    completionCriterion: p.completionCriterion,
-    status: 'active',
-    turnsUsed: 0,
-    tokensUsed: 0,
-    wallClockMs: 0,
-    wallClockResumedAt: p.wallClockResumedAt,
-    budgetLimits: {},
-  }),
+  apply: (_s, p) => {
+    const now = Date.now();
+    return {
+      goalId: p.goalId,
+      objective: p.objective,
+      completionCriterion: p.completionCriterion,
+      status: 'active',
+      turnsUsed: 0,
+      tokensUsed: 0,
+      wallClockMs: 0,
+      wallClockResumedAt: p.wallClockResumedAt,
+      budgetLimits: {},
+      createdAt: now,
+      updatedAt: now,
+    };
+  },
 });
 
 export const updateGoal = GoalModel.defineOp('goal.update', {
@@ -160,7 +167,7 @@ export const updateGoal = GoalModel.defineOp('goal.update', {
     if (p.blockedStreak !== undefined && p.blockedStreak !== s.blockedStreak) {
       next = { ...(next ?? s), blockedStreak: p.blockedStreak };
     }
-    return next ?? s;
+    return next !== undefined ? { ...next, updatedAt: Date.now() } : s;
   },
 });
 

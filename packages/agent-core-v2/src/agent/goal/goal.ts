@@ -39,6 +39,7 @@ export interface IAgentGoalService {
   markComplete(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot | null>;
   markBlocked(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot | null>;
   markBudgetLimited(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot | null>;
+  usageLimitActiveGoal(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot | null>;
   recordBlockedAttempt(): Promise<GoalSnapshot | null>;
 }
 

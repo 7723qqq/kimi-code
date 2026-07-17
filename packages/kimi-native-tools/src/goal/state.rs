@@ -97,11 +97,16 @@ pub struct GoalState {
     pub wall_clock_resumed_at: Option<i64>,
     /// Reason for the terminal/blocked/paused state (model-readable).
     pub terminal_reason: Option<String>,
+    /// Epoch milliseconds when the goal was created.
+    pub created_at: i64,
+    /// Epoch milliseconds when the goal was last updated.
+    pub updated_at: i64,
 }
 
 impl GoalState {
     /// Create a new active goal.
     pub fn new(goal_id: String, objective: String, token_budget: Option<i64>) -> Self {
+        let now = chrono_now_ms();
         Self {
             goal_id,
             objective,
@@ -112,6 +117,8 @@ impl GoalState {
             blocked_streak: 0,
             wall_clock_resumed_at: None,
             terminal_reason: None,
+            created_at: now,
+            updated_at: now,
         }
     }
 
@@ -158,6 +165,8 @@ pub enum GoalUpdateOutcome {
     Unchanged,
     /// expected_goal_id did not match.
     GoalIdMismatch { current: String, expected: String },
+    /// The requested status transition is not allowed.
+    InvalidTransition { current: GoalStatus, target: GoalStatus },
 }
 
 impl GoalState {
@@ -186,6 +195,13 @@ impl GoalState {
         }
         if let Some(status) = update.status {
             if status != self.status {
+                // Validate transition
+                if !is_valid_transition(self.status, status) {
+                    return GoalUpdateOutcome::InvalidTransition {
+                        current: self.status,
+                        target: status,
+                    };
+                }
                 // On resume: reset blocked_streak and start wall clock
                 if status == GoalStatus::Active {
                     self.blocked_streak = 0;
@@ -246,11 +262,44 @@ impl GoalState {
         }
 
         if changed {
+            self.updated_at = chrono_now_ms();
             GoalUpdateOutcome::Updated(self)
         } else {
             GoalUpdateOutcome::Unchanged
         }
     }
+}
+
+/// Returns true if the transition from `current` to `target` is valid.
+pub fn is_valid_transition(current: GoalStatus, target: GoalStatus) -> bool {
+    use GoalStatus::*;
+    matches!(
+        (current, target),
+        // No-op (identical status)
+        (Active, Active)
+            | (Paused, Paused)
+            | (Blocked, Blocked)
+            | (Complete, Complete)
+            | (BudgetLimited, BudgetLimited)
+            | (UsageLimited, UsageLimited)
+            // Resume: paused or blocked -> active
+            | (Paused, Active)
+            | (Blocked, Active)
+            // Pause: active, budget_limited, usage_limited -> paused
+            | (Active, Paused)
+            | (BudgetLimited, Paused)
+            | (UsageLimited, Paused)
+            // Block: active -> blocked
+            | (Active, Blocked)
+            // Complete: active -> complete
+            | (Active, Complete)
+            // Budget limit: active, usage_limited -> budget_limited
+            | (Active, BudgetLimited)
+            | (UsageLimited, BudgetLimited)
+            // Usage limit: active, budget_limited -> usage_limited
+            | (Active, UsageLimited)
+            | (BudgetLimited, UsageLimited)
+    )
 }
 
 /// Returns the current time in epoch milliseconds.
