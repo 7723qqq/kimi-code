@@ -789,6 +789,16 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     if (response.message.toolCalls.length === 0) {
       return finishReason === 'tool_calls' ? 'other' : finishReason;
     }
+
+    // Emit speculative hint so the model can pre-plan while tools run.
+    const toolNames = response.message.toolCalls.map((tc) => tc.function.name);
+    this.context.appendLoopEvent({
+      type: 'tools.dispatched',
+      stepUuid,
+      toolNames,
+      count: toolNames.length,
+    });
+
     const toolCallUuids = new Map<string, string>();
     let stopTurn = false;
     for await (const toolResult of this.toolExecutor.execute(response.message.toolCalls, {

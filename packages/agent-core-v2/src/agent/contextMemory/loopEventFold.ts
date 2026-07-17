@@ -103,6 +103,12 @@ export type LoopRecordedEvent =
         readonly note?: string;
       };
       readonly parentUuid?: string;
+    }
+  | {
+      readonly type: 'tools.dispatched';
+      readonly stepUuid: string;
+      readonly toolNames: readonly string[];
+      readonly count: number;
     };
 
 interface FoldCtx {
@@ -185,6 +191,15 @@ export function foldLoopEvent(
       };
       ctx.pending.delete(event.toolCallId);
       return bind(flushDeferred([...state, toolMessage], ctx), ctx);
+    }
+    case 'tools.dispatched': {
+      const names = [...new Set(event.toolNames)];
+      const list = names.join(', ');
+      const count = event.count;
+      const toolWord = count === 1 ? 'tool is' : 'tools are';
+      const message = `[Speculative] ${count} ${toolWord} running: ${list}. Based on what you expect to find, start preparing your analysis while results arrive.`;
+      const systemMessage: ContextMessage = { role: 'system', content: message };
+      return bind([...state, systemMessage], ctx);
     }
     default:
       return state;
