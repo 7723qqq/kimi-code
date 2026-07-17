@@ -81,3 +81,4 @@ This is a TypeScript monorepo built for agent-assisted development. Keep the roo
   - Agent working notes or handoff/summary documents (e.g. `HANDOVER-*.md`, `HANDOFF-*.md`, `handoff.md`).
   - Throwaway UI/UX prototypes or design mockups (e.g. `*-designs.html`, `*-mockup.html`, `*-demo(s).html`) at the repo root or under a `design/` folder. The only tracked `.html` files should be Vite `index.html` entrypoints.
   Before committing or opening a PR, run `git status` and `git diff --staged --stat` and remove anything matching these patterns. Put scratch work under `.tmp/` (gitignored) instead of the repo root or the source tree.
+- **每次提交必须同步远程仓库。** 禁止只提交到本地而不推送。每次 `git commit` 之后必须立即执行 `git push`，确保本地和远程（`origin`）始终保持一致。任何分支上的工作（包括功能分支、修复分支、实验性分支）在提交后都应推送，避免本地代码丢失或远程仓库落后。
