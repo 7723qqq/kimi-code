@@ -28,7 +28,7 @@ function parseDiscussArgs(args: string): { topic: string; roles: string[] } | st
     return t('tui.messages.discussNeedTopic');
   }
   if (roles.length < 2) {
-    return 'Please specify at least 2 roles for the discussion.';
+    return t('tui.messages.discussNeedRoles');
   }
 
   return { topic, roles };

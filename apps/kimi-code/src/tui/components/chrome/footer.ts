@@ -14,6 +14,7 @@ import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import { ALL_TIPS, type ToolbarTip } from '#/tui/constant/tips';
 import { isRainbowDancing, renderDanceFooterModel } from '#/tui/easter-eggs/dance';
 import { currentTheme } from '#/tui/theme';
+import { t } from '#/i18n';
 import type { ColorPalette } from '#/tui/theme/colors';
 import type { AppState } from '#/tui/types';
 import {
@@ -116,9 +117,17 @@ function formatGoalBadge(
         : colors.textMuted;
   const turns =
     goal.budget.turnBudget !== null
-      ? `${goal.turnsUsed}/${goal.budget.turnBudget} turns`
-      : `${goal.turnsUsed} ${goal.turnsUsed === 1 ? 'turn' : 'turns'}`;
-  const label = `${goal.status} · ${formatBadgeElapsed(wallClockMs ?? goal.wallClockMs)} · ${turns}`;
+      ? `${goal.turnsUsed}/${goal.budget.turnBudget} ${t('tui.chrome.footer.turns')}`
+      : goal.turnsUsed === 1
+        ? t('tui.chrome.footer.turn_one', { count: String(goal.turnsUsed) })
+        : t('tui.chrome.footer.turn_other', { count: String(goal.turnsUsed) });
+  const statusLabel =
+    goal.status === 'active'
+      ? t('tui.chrome.footer.statusActive')
+      : goal.status === 'blocked'
+        ? t('tui.chrome.footer.statusBlocked')
+        : t('tui.chrome.footer.statusPaused');
+  const label = `${statusLabel} · ${formatBadgeElapsed(wallClockMs ?? goal.wallClockMs)} · ${turns}`;
   return (
     chalk.hex(colors.textMuted)('[goal ') +
     chalk.hex(dotColor)('●') +
@@ -167,9 +176,9 @@ function shortenCwd(path: string): string {
 function formatContextStatus(usage: number, tokens?: number, maxTokens?: number): string {
   if (maxTokens !== undefined && maxTokens > 0 && tokens !== undefined) {
     const pct = String(usagePercent(tokens, maxTokens));
-    return `context: ${pct}% (${formatTokenCount(tokens)}/${formatTokenCount(maxTokens)})`;
+    return t('tui.chrome.footer.contextWithTokens', { pct, tokens: formatTokenCount(tokens), maxTokens: formatTokenCount(maxTokens) });
   }
-  return `context: ${String(usagePercentFromRatio(usage))}%`;
+  return t('tui.chrome.footer.context', { pct: String(usagePercentFromRatio(usage)) });
 }
 
 export function formatFooterGitBadge(status: GitStatus, colors: ColorPalette): string {
@@ -253,10 +262,10 @@ export class FooterComponent implements Component {
     // ── Line 1: mode badges + model + [N task(s) running] + [N agent(s) running] + cwd + git + hints ──
     const left: string[] = [];
     const modes: string[] = [];
-    if (state.permissionMode === 'auto') modes.push(chalk.hex(colors.warning).bold('auto'));
-    if (state.permissionMode === 'yolo') modes.push(chalk.hex(colors.warning).bold('yolo'));
-    if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));
-    if (state.swarmMode) modes.push(chalk.hex(colors.accent).bold('swarm'));
+    if (state.permissionMode === 'auto') modes.push(chalk.hex(colors.warning).bold(t('tui.chrome.footer.auto')));
+    if (state.permissionMode === 'yolo') modes.push(chalk.hex(colors.warning).bold(t('tui.chrome.footer.yolo')));
+    if (state.planMode) modes.push(chalk.hex(colors.primary).bold(t('tui.chrome.footer.plan')));
+    if (state.swarmMode) modes.push(chalk.hex(colors.accent).bold(t('tui.chrome.footer.swarm')));
     if (modes.length > 0) left.push(modes.join(' '));
 
     const goalBadge = formatGoalBadge(state.goal, colors, this.goalWallClockMs(state.goal));
@@ -273,8 +282,8 @@ export class FooterComponent implements Component {
       const thinkingLabel =
         effort !== 'off'
           ? hasEfforts && effort !== 'on'
-            ? ` thinking: ${effort}`
-            : ' thinking'
+            ? t('tui.chrome.footer.thinkingEffort', { effort })
+            : t('tui.chrome.footer.thinking')
           : '';
       const modelLabel = `${model}${thinkingLabel}`;
       let renderedModelLabel = chalk.hex(colors.text)(modelLabel);
@@ -288,15 +297,25 @@ export class FooterComponent implements Component {
     // (shell processes) and `agent-*` tasks (background subagents) get
     // separate badges so the user can distinguish them at a glance.
     if (this.backgroundBashTaskCount > 0) {
-      const noun = this.backgroundBashTaskCount === 1 ? 'task' : 'tasks';
+      const noun = t(
+        this.backgroundBashTaskCount === 1
+          ? 'tui.chrome.footer.task_one'
+          : 'tui.chrome.footer.task_other',
+        { count: String(this.backgroundBashTaskCount) },
+      );
       left.push(
-        chalk.hex(colors.primary)(`[${String(this.backgroundBashTaskCount)} ${noun} running]`),
+        chalk.hex(colors.primary)(`[${noun}]`),
       );
     }
     if (this.backgroundAgentCount > 0) {
-      const noun = this.backgroundAgentCount === 1 ? 'agent' : 'agents';
+      const noun = t(
+        this.backgroundAgentCount === 1
+          ? 'tui.chrome.footer.agent_one'
+          : 'tui.chrome.footer.agent_other',
+        { count: String(this.backgroundAgentCount) },
+      );
       left.push(
-        chalk.hex(colors.primary)(`[${String(this.backgroundAgentCount)} ${noun} running]`),
+        chalk.hex(colors.primary)(`[${noun}]`),
       );
     }
 

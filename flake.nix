@@ -76,6 +76,7 @@
         ./packages/oauth
         ./packages/pi-tui
         ./packages/protocol
+        ./packages/server
         ./packages/telemetry
         ./apps/kimi-code
         ./apps/kimi-desktop
@@ -102,6 +103,7 @@
         "@moonshot-ai/klient"
         "@moonshot-ai/pi-tui"
         "@moonshot-ai/protocol"
+        "@moonshot-ai/server"
         "@moonshot-ai/kimi-telemetry"
         "@moonshot-ai/kimi-code"
         "@moonshot-ai/kimi-desktop"

@@ -220,10 +220,10 @@ function TokenBar({ usage, contextTokens }: { usage: TokenUsage; contextTokens: 
         <div
           className="flex h-[3px] w-full"
           title={
-            `cache_read ${usage.inputCacheRead.toLocaleString()} · ` +
-            `input ${usage.inputOther.toLocaleString()} · ` +
-            `output ${usage.output.toLocaleString()} · ` +
-            `cache_create ${usage.inputCacheCreation.toLocaleString()}`
+            `${t('context.cacheRead')} ${usage.inputCacheRead.toLocaleString()} · ` +
+            `${t('context.input')} ${usage.inputOther.toLocaleString()} · ` +
+            `${t('context.output')} ${usage.output.toLocaleString()} · ` +
+            `${t('context.cacheCreate')} ${usage.inputCacheCreation.toLocaleString()}`
           }
         >
           {usage.inputCacheRead > 0 ? (

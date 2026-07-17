@@ -32,7 +32,7 @@ const trimmed = args.trim();
         wf.cancel,
         '',
         wf.example,
-        '  /workflow deep-research "latest advances in RAG"',
+                t('tui.messages.workflowSearchExample'),
       ].join('\n'),
     );
     return;
@@ -46,7 +46,7 @@ const trimmed = args.trim();
       host.showError(getLlmNotSetMessage());
       return;
     }
-    host.sendNormalUserInput('Use the Workflow tool to list all available built-in workflows. Show their names, descriptions, and when to use them.');
+    host.sendNormalUserInput(t('tui.messages.workflowListHint'));
     return;
   }
 
@@ -60,7 +60,7 @@ const trimmed = args.trim();
       host.showError(getLlmNotSetMessage());
       return;
     }
-    host.sendNormalUserInput(`Use the Workflow tool to check the status of workflow run "${runId}".`);
+    host.sendNormalUserInput(t('tui.messages.workflowStatusHintPattern', { runId }));
     return;
   }
 
@@ -74,7 +74,7 @@ const trimmed = args.trim();
       host.showError(getLlmNotSetMessage());
       return;
     }
-    host.sendNormalUserInput(`Use the Workflow tool to cancel workflow run "${runId}".`);
+    host.sendNormalUserInput(t('tui.messages.workflowCancelHintPattern', { runId }));
     return;
   }
 
@@ -89,8 +89,8 @@ const trimmed = args.trim();
   const workflowArgs = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim();
 
   const prompt = workflowArgs.length > 0
-    ? `Use the Workflow tool to run the "${workflowName}" workflow with these args: ${workflowArgs}`
-    : `Use the Workflow tool to run the "${workflowName}" workflow.`;
+    ? t('tui.messages.workflowRunHintPattern', { name: workflowName }) + ` ${workflowArgs}`
+    : t('tui.messages.workflowRunHintPattern', { name: workflowName });
 
   host.sendNormalUserInput(prompt);
 }

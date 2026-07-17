@@ -155,7 +155,7 @@ export function parseLogLevel(raw: string | undefined): ServerLogLevel {
     return raw as ServerLogLevel;
   }
   throw new Error(
-    `error: invalid --log-level value: ${raw} (allowed: ${VALID_LOG_LEVELS.join(', ')})`,
+    t('tui.statusMessages.serverInvalidLogLevel', { raw: raw ?? '<none>', allowed: VALID_LOG_LEVELS.join(', ') }),
   );
 }
 
@@ -260,7 +260,7 @@ export function resolveServerToken(homeDir: string): string {
     return readFileSync(tokenPath, 'utf8').trim();
   } catch (error) {
     throw new Error(
-      `unable to read server token at ${tokenPath}; has the server been started at least once?`,
+      t('tui.statusMessages.serverTokenNotFound', { path: tokenPath }),
       { cause: error },
     );
   }

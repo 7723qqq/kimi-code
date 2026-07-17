@@ -74,6 +74,8 @@ import { createKimiCodeHostIdentity } from '../version';
 
 import { resolveOutputFormat } from '../options';
 import type { CLIOptions, PromptOutputFormat } from '../options';
+import { t } from '#/i18n';
+
 import {
   type PromptOutput,
   PromptJsonWriter,
@@ -134,7 +136,7 @@ export async function runV2Print(
   }
   for (const diagnostic of configService.diagnostics()) {
     if (diagnostic.severity === 'warning') {
-      stderr.write(`Warning: ${diagnostic.message}\n`);
+      stderr.write(`${t('tui.statusMessages.promptWarning', { warning: diagnostic.message })}\n`);
     }
   }
 
@@ -239,7 +241,7 @@ async function resolveNativeSession(
   const resumeById = async (id: string): Promise<ISessionScopeHandle> => {
     const session = await lifecycle.resume(id);
     if (session === undefined) {
-      throw new Error(`Session "${id}" not found.`);
+      throw new Error(t('tui.statusMessages.sessionNotFound', { sessionId: id }));
     }
     return session;
   };
@@ -261,14 +263,16 @@ async function resolveNativeSession(
     const page = await index.list({});
     const target = page.items.find((summary) => summary.id === opts.session);
     if (target === undefined) {
-      throw new Error(`Session "${opts.session}" not found.`);
+      throw new Error(t('tui.statusMessages.sessionNotFound', { sessionId: opts.session! }));
     }
     if (target.cwd !== undefined && resolve(target.cwd) !== resolve(workDir)) {
       stderr.write(
-        `Session "${opts.session}" was created under a different directory.\n` +
-          `  cd "${target.cwd}" && kimi -r ${opts.session}\n\n`,
+        t('tui.statusMessages.sessionDifferentDir', {
+          sessionId: opts.session!,
+          cwd: target.cwd,
+        }),
       );
-      throw new Error(`Session "${opts.session}" was created under a different directory.`);
+      throw new Error(t('tui.statusMessages.sessionNotFound', { sessionId: opts.session! }));
     }
     const session = await resumeById(opts.session);
     const agent = await ensureMainAgent(session);
@@ -307,7 +311,7 @@ async function resolveNativeSession(
         goalModel: configuredModel(opts.model, currentModel),
       };
     }
-    stderr.write(`No sessions to continue under "${workDir}"; starting a fresh session.\n`);
+    stderr.write(t('tui.statusMessages.noSessionsToContinue', { workDir }));
   }
 
   const model = requireConfiguredModel(opts.model, defaultModel);
@@ -367,8 +371,8 @@ async function runNativeTurn(
       const completion = await handle.completion;
       throw new Error(
         completion.state === 'blocked'
-          ? 'Prompt hook blocked the request.'
-          : 'Prompt turn could not be started',
+          ? t('tui.statusMessages.promptBlocked')
+          : t('tui.statusMessages.promptTurnCannotStart'),
       );
     }
     const result = await turn.result;
@@ -391,7 +395,7 @@ async function runNativeTurn(
           drain: () => drainBackgroundTasks(session, taskConfig?.printWaitCeilingS),
           turnEndings,
           skipTurnId: turn.id,
-          warn: (message) => stderr.write(`Warning: ${message}\n`),
+          warn: (message) => stderr.write(t('tui.statusMessages.promptWarning', { warning: message }) + '\n'),
           now: () => Date.now(),
           goalActive: () => goalService.getGoal().goal?.status === 'active',
         });
@@ -404,9 +408,11 @@ async function runNativeTurn(
           throw error;
         }
         stderr.write(
-          `Warning: print background policy failed: ${
-            error instanceof Error ? error.message : String(error)
-          }\n`,
+          t('tui.statusMessages.promptWarning', {
+            warning: `print background policy failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          }) + '\n',
         );
       }
       writer.finish();
@@ -621,7 +627,7 @@ export async function applyPrintBackgroundPolicy(
         input.skipTurnId,
       );
       if (ended === null && input.now() >= goalDeadline) {
-        input.warn(`print goal wait ceiling reached (${input.ceilingS}s), finishing`);
+        input.warn(t('tui.statusMessages.printGoalWaitCeiling', { ceilingS: String(input.ceilingS) }));
         return;
       }
       // A continuation turn that does not complete pauses/blocks the goal, so
@@ -640,11 +646,11 @@ export async function applyPrintBackgroundPolicy(
   for (;;) {
     turns += 1;
     if (input.now() >= deadline) {
-      input.warn(`print steer ceiling reached (${input.ceilingS}s), finishing`);
+      input.warn(t('tui.statusMessages.printSteerCeiling', { ceilingS: String(input.ceilingS) }));
       return;
     }
     if (turns > input.maxTurns) {
-      input.warn(`print steer max turns reached (${input.maxTurns}), finishing`);
+      input.warn(t('tui.statusMessages.printSteerMaxTurns', { maxTurns: String(input.maxTurns) }));
       return;
     }
     if (input.countPending() === 0) return;
@@ -658,13 +664,13 @@ export async function applyPrintBackgroundPolicy(
 
 function formatTurnEndingFailure(ending: PrintTurnEnding): string {
   if (ending.error?.code === 'provider.filtered') {
-    return 'Provider safety policy blocked the response.';
+    return t('tui.statusMessages.btwFiltered');
   }
   if (ending.error !== undefined) return `${ending.error.code}: ${ending.error.message}`;
   if (ending.reason === 'blocked') {
-    return 'Prompt hook blocked the request.';
+    return t('tui.statusMessages.promptBlocked');
   }
-  return `Prompt turn ended with reason: ${ending.reason}`;
+  return t('tui.statusMessages.promptTurnEnded', { reason: ending.reason });
 }
 
 function countPendingBackgroundTasks(session: ISessionScopeHandle): number {
@@ -715,7 +721,7 @@ function formatNativeTurnFailure(result: LoopRunResult): string {
   if (result.type === 'failed') {
     const error = result.error as { readonly code?: string; readonly message?: string } | undefined;
     if (error?.code === 'provider.filtered') {
-      return 'Provider safety policy blocked the response.';
+      return t('tui.statusMessages.btwFiltered');
     }
     if (error?.code !== undefined) {
       return `${error.code}: ${error.message ?? ''}`.trimEnd();
@@ -724,5 +730,5 @@ function formatNativeTurnFailure(result: LoopRunResult): string {
       return result.error.message;
     }
   }
-  return `Prompt turn ended with reason: ${result.type}`;
+  return t('tui.statusMessages.promptTurnEnded', { reason: result.type });
 }

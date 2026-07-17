@@ -59,9 +59,7 @@ export function registerPsCommand(server: Command): void {
 async function handlePsCommand(opts: { json?: boolean }): Promise<void> {
   const lock = await getLiveLock();
   if (!lock) {
-    throw new Error(
-      'No running Kimi server. Start one with `kimi server run` or `kimi web`.',
-    );
+    throw new Error(t('tui.statusMessages.serverNoRunning'));
   }
 
   const origin = serverOrigin(lockConnectHost(lock), lock.port);
@@ -112,17 +110,24 @@ async function fetchConnections(origin: string, token: string): Promise<Connecti
 
 function formatTable(connections: ConnectionInfo[]): string {
   if (connections.length === 0) {
-    return 'No active clients.\n';
+    return t('tui.statusMessages.serverNoActiveClients');
   }
 
-  const header = ['ID', 'CONNECTED', 'REMOTE', 'USER_AGENT', 'SESSIONS', 'HELLO'];
+  const header = [
+    t('tui.statusMessages.serverTableHeaderId'),
+    t('tui.statusMessages.serverTableHeaderConnected'),
+    t('tui.statusMessages.serverTableHeaderRemote'),
+    t('tui.statusMessages.serverTableHeaderUserAgent'),
+    t('tui.statusMessages.serverTableHeaderSessions'),
+    t('tui.statusMessages.serverTableHeaderHello'),
+  ];
   const rows = connections.map((c) => [
     c.id,
     formatAge(c.connected_at),
     c.remote_address ?? '-',
     truncate(c.user_agent ?? '-', USER_AGENT_MAX_WIDTH),
     String(c.subscriptions.length),
-    c.has_client_hello ? 'yes' : 'no',
+    c.has_client_hello ? t('common.yes') : t('common.no'),
   ]);
 
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i]!.length)));

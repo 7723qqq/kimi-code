@@ -7,6 +7,7 @@ export default {
     refreshTitle: 'Refresh — re-read all session data from disk',
     themeTitle: 'Theme: {{label}}. Click to cycle (auto → light → dark → auto).',
     themeLabel: 'Theme {{label}}',
+    switchLanguage: 'Switch to {{lang}}',
   },
   session: {
     noWorkspace: '(no workspace)',
@@ -153,6 +154,19 @@ export default {
     kindActivePlanMode: 'plan mode active',
     kindRejectedApproval: 'approval rejected',
     kindWireWarning: 'wire warning',
+  },
+  wireRowDetail: {
+    copyRaw: 'copy raw',
+    copyProjected: 'copy projected',
+    rawTitle: 'What this line looks like on disk (no vis-side transforms)',
+    hideRaw: '[ hide raw ]',
+    showRaw: '[ {…} raw ]',
+    projectedTitle: 'Same line after vis applied the agent-core migration chain',
+    hideProjected: '[ hide projected ]',
+    showProjected: '[ {…} projected ]',
+    asWrittenOnDisk: 'as written on disk',
+    afterVisMigration: 'after vis migration',
+    differsFromProjected: '— differs from projected',
   },
   logs: {
     noLogs: 'No logs available.',
@@ -387,6 +401,10 @@ export default {
     audio: '[audio: {{url}}]',
     video: '[video: {{url}}]',
     image: '[image]',
+    cacheRead: 'cache_read',
+    input: 'input',
+    output: 'output',
+    cacheCreate: 'cache_create',
     empty: '(empty)',
   },
 } as const;

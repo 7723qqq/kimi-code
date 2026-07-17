@@ -20,13 +20,11 @@ import { Container, Spacer, Text } from '@moonshot-ai/pi-tui';
 
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import { formatTokenCount } from '#/utils/usage/usage-format';
+import { t } from '#/i18n';
 
 import type { ToolCallComponent, ToolCallSubagentSnapshot } from './tool-call';
 
 const THROTTLE_MS = 200;
-
-const DETACH_HINT_TEXT = 'Press Ctrl+B to run in background';
 
 interface AgentEntry {
   readonly toolCallId: string;
@@ -135,7 +133,7 @@ export class AgentGroupComponent extends Container {
       this.appendLines(snap, isLast);
     });
     if (this.shouldShowDetachHint(snapshots)) {
-      this.bodyContainer.addChild(new Text(currentTheme.dim(DETACH_HINT_TEXT), 2, 0));
+      this.bodyContainer.addChild(new Text(currentTheme.dim(t('tui.messages.agentGroup.detachHint')), 2, 0));
     }
 
     this.lastFlushPhases.clear();
@@ -161,8 +159,8 @@ export class AgentGroupComponent extends Container {
       const types = new Set(snapshots.map((s) => s.agentName).filter((n) => n !== undefined));
       const headerLabel =
         types.size === 1
-          ? `${String(total)} ${[...types][0]} agents finished`
-          : `${String(total)} agents finished`;
+          ? t('tui.messages.agentGroup.finishedWithType', { count: total, type: [...types][0] ?? '' })
+          : t('tui.messages.agentGroup.finished', { count: total });
       const totalTools = snapshots.reduce((acc, s) => acc + s.toolCount, 0);
       const totalTokens = snapshots.reduce((acc, s) => acc + s.tokens, 0);
       const tail = formatHeaderTail({ toolCount: totalTools, tokens: totalTokens, elapsedSeconds });
@@ -171,8 +169,8 @@ export class AgentGroupComponent extends Container {
 
     const parts = formatBreakdownParts(counts);
     const headerText = parts.length > 0
-      ? `Running ${String(total)} agents (${parts.join(', ')})`
-      : `Running ${String(total)} agents`;
+      ? t('tui.messages.agentGroup.runningWithBreakdown', { count: total, breakdown: parts.join(', ') })
+      : t('tui.messages.agentGroup.running', { count: total });
     const tail = formatHeaderTail({ toolCount: 0, tokens: 0, elapsedSeconds });
     return `${bullet}${currentTheme.boldFg('primary', headerText)}${tail}`;
   }
@@ -182,8 +180,8 @@ export class AgentGroupComponent extends Container {
 
     // First-level branch line.
     const branch1 = isLast ? '└─' : '├─';
-    const agentType = snap.agentName ?? 'agent';
-    const desc = snap.toolCallDescription || '(no description)';
+    const agentType = snap.agentName ?? t('tui.messages.agentGroup.agentDefault');
+    const desc = snap.toolCallDescription || t('tui.messages.agentGroup.noDescription');
     const tail = formatLineTail(snap);
     const namePart = currentTheme.fg('primary', agentType);
     const descPart = dim(`· ${desc}`);
@@ -195,8 +193,8 @@ export class AgentGroupComponent extends Container {
     const branch2 = isLast ? '   ' : '│  ';
     if (snap.phase === 'failed') {
       // Show one error line; error messages can be long.
-      const errLine = (snap.errorText ?? 'Failed').split('\n').at(0) ?? 'Failed';
-      const errStr = currentTheme.fg('error', `Error: ${errLine}`);
+      const errLine = (snap.errorText ?? t('tui.messages.agentGroup.failed')).split('\n').at(0) ?? t('tui.messages.agentGroup.failed');
+      const errStr = currentTheme.fg('error', t('tui.messages.agentGroup.errorPrefix', { error: errLine }));
       this.bodyContainer.addChild(new Text(`  ${branch2}    ${errStr}`, 0, 0));
       return;
     }
@@ -291,17 +289,20 @@ function countPhases(snapshots: readonly ToolCallSubagentSnapshot[]): PhaseCount
 
 function formatBreakdownParts(counts: PhaseCounts): string[] {
   const parts: string[] = [];
-  if (counts.done > 0) parts.push(`${String(counts.done)} done`);
-  if (counts.failed > 0) parts.push(`${String(counts.failed)} failed`);
-  if (counts.backgrounded > 0) parts.push(`${String(counts.backgrounded)} backgrounded`);
-  if (counts.running > 0) parts.push(`${String(counts.running)} running`);
-  if (counts.waiting > 0) parts.push(`${String(counts.waiting)} waiting`);
-  if (counts.starting > 0) parts.push(`${String(counts.starting)} starting`);
+  if (counts.done > 0) parts.push(t('tui.messages.agentGroup.breakdown.done', { n: counts.done }));
+  if (counts.failed > 0) parts.push(t('tui.messages.agentGroup.breakdown.failed', { n: counts.failed }));
+  if (counts.backgrounded > 0) parts.push(t('tui.messages.agentGroup.breakdown.backgrounded', { n: counts.backgrounded }));
+  if (counts.running > 0) parts.push(t('tui.messages.agentGroup.breakdown.running', { n: counts.running }));
+  if (counts.waiting > 0) parts.push(t('tui.messages.agentGroup.breakdown.waiting', { n: counts.waiting }));
+  if (counts.starting > 0) parts.push(t('tui.messages.agentGroup.breakdown.starting', { n: counts.starting }));
   return parts;
 }
 
 function formatStats(snap: ToolCallSubagentSnapshot): string {
-  const parts = [`${String(snap.toolCount)} tool${snap.toolCount === 1 ? '' : 's'}`];
+  const toolCountStr = snap.toolCount === 1
+    ? t('tui.messages.agentGroup.tool_one', { count: snap.toolCount })
+    : t('tui.messages.agentGroup.tool_other', { count: snap.toolCount });
+  const parts = [toolCountStr];
   if (snap.elapsedSeconds !== undefined) parts.push(formatElapsed(snap.elapsedSeconds));
   if (snap.tokens > 0) parts.push(formatTokens(snap.tokens));
   return currentTheme.dim(` · ${parts.join(' · ')}`);
@@ -311,30 +312,30 @@ function formatLineTail(snap: ToolCallSubagentSnapshot): string {
   const separator = currentTheme.dim(' · ');
   switch (snap.phase) {
     case 'done':
-      return separator + currentTheme.fg('success', '✓ Completed');
+      return separator + currentTheme.fg('success', t('tui.messages.agentGroup.completed'));
     case 'failed':
-      return separator + currentTheme.fg('error', '✗ Failed');
+      return separator + currentTheme.fg('error', t('tui.messages.agentGroup.failed'));
     case 'backgrounded':
-      return separator + currentTheme.dim('◐ backgrounded');
+      return separator + currentTheme.dim(t('tui.messages.agentGroup.backgrounded'));
     case 'queued':
-      return separator + currentTheme.fg('primary', 'Waiting');
+      return separator + currentTheme.fg('primary', t('tui.messages.agentGroup.waiting'));
     case 'running':
-      return separator + currentTheme.fg('primary', 'Running');
+      return separator + currentTheme.fg('primary', t('tui.messages.agentGroup.runningLabel'));
     case 'spawning':
     case undefined:
-      return separator + currentTheme.fg('primary', 'Starting');
+      return separator + currentTheme.fg('primary', t('tui.messages.agentGroup.starting'));
   }
 }
 
 function fallbackActivityForPhase(phase: ToolCallSubagentSnapshot['phase']): string {
   switch (phase) {
     case 'queued':
-      return 'Waiting to start…';
+      return t('tui.messages.agentGroup.fallbackWaiting');
     case 'running':
-      return 'Still working…';
+      return t('tui.messages.agentGroup.fallbackRunning');
     case 'spawning':
     case undefined:
-      return 'Starting…';
+      return t('tui.messages.agentGroup.fallbackStarting');
     case 'done':
     case 'failed':
     case 'backgrounded':
@@ -348,7 +349,13 @@ function formatHeaderTail(args: {
   readonly elapsedSeconds: number | undefined;
 }): string {
   const parts: string[] = [];
-  if (args.toolCount > 0) parts.push(`${String(args.toolCount)} tool${args.toolCount === 1 ? '' : 's'}`);
+  if (args.toolCount > 0) {
+    parts.push(
+      args.toolCount === 1
+        ? t('tui.messages.agentGroup.tool_one', { count: args.toolCount })
+        : t('tui.messages.agentGroup.tool_other', { count: args.toolCount }),
+    );
+  }
   if (args.tokens > 0) parts.push(formatTokens(args.tokens));
   if (args.elapsedSeconds !== undefined) parts.push(formatElapsed(args.elapsedSeconds));
   return parts.length > 0 ? currentTheme.dim(` · ${parts.join(' · ')}`) : '';
@@ -365,12 +372,28 @@ function maxElapsedSeconds(snapshots: readonly ToolCallSubagentSnapshot[]): numb
 }
 
 function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${String(seconds)}s`;
+  if (seconds < 60) return t('tui.messages.agentGroup.elapsedSeconds', { count: seconds });
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
-  return `${String(minutes)}m ${String(remainder)}s`;
+  return t('tui.messages.agentGroup.elapsedMinutes', { minutes, seconds: remainder });
 }
 
 function formatTokens(n: number): string {
-  return `${formatTokenCount(n)} tok`;
+  if (!Number.isFinite(n) || n < 0) return t('tui.messages.agentGroup.tokens', { count: 0 });
+  if (n >= 1024 * 1024) {
+    const m = n / (1024 * 1024);
+    const count = m >= 100 ? Math.round(m) : Number(trimTokenDecimal(m));
+    return t('tui.messages.agentGroup.tokensM', { count });
+  }
+  if (n >= 1024) {
+    const k = n / 1024;
+    const count = k >= 100 ? Math.round(k) : Number(trimTokenDecimal(k));
+    return t('tui.messages.agentGroup.tokensK', { count });
+  }
+  return t('tui.messages.agentGroup.tokens', { count: n });
+}
+
+function trimTokenDecimal(v: number): string {
+  const s = v.toFixed(1);
+  return s.endsWith('.0') ? s.slice(0, -2) : s;
 }

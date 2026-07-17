@@ -7,6 +7,7 @@ export default {
     refreshTitle: '刷新——从磁盘重新读取所有会话数据',
     themeTitle: '主题：{{label}}。点击切换（自动 → 浅色 → 深色 → 自动）。',
     themeLabel: '主题 {{label}}',
+    switchLanguage: '切换到{{lang}}',
   },
   session: {
     noWorkspace: '（无工作区）',
@@ -153,6 +154,19 @@ export default {
     kindActivePlanMode: '计划模式活跃',
     kindRejectedApproval: '审批被拒绝',
     kindWireWarning: 'Wire 警告',
+  },
+  wireRowDetail: {
+    copyRaw: '复制原始',
+    copyProjected: '复制投影',
+    rawTitle: '此行在磁盘上的原始内容（无 vis 端转换）',
+    hideRaw: '[ 隐藏原始 ]',
+    showRaw: '[ {…} 原始 ]',
+    projectedTitle: 'vis 应用 agent-core 迁移链后的同一行',
+    hideProjected: '[ 隐藏投影 ]',
+    showProjected: '[ {…} 投影 ]',
+    asWrittenOnDisk: '磁盘原始内容',
+    afterVisMigration: 'vis 迁移后',
+    differsFromProjected: '— 与投影不同',
   },
   logs: {
     noLogs: '无可用日志。',
@@ -387,6 +401,10 @@ export default {
     audio: '[音频：{{url}}]',
     video: '[视频：{{url}}]',
     image: '[图片]',
+    cacheRead: '缓存读取',
+    input: '输入',
+    output: '输出',
+    cacheCreate: '缓存创建',
     empty: '（空）',
   },
 } as const;

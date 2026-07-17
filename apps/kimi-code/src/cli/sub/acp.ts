@@ -119,7 +119,7 @@ export function registerAcpCommand(parent: Command): void {
         });
         process.exit(0);
       } catch (err) {
-        process.stderr.write(`acp server: fatal error: ${String(err)}\n`);
+        process.stderr.write(t('tui.statusMessages.acpFatalError', { error: String(err) }) + '\n');
         process.exit(1);
       }
     });
