@@ -4,6 +4,7 @@ mod bash;
 mod compaction;
 mod edit;
 mod escape;
+mod file_cache;
 mod file_type;
 mod glob;
 mod goal;

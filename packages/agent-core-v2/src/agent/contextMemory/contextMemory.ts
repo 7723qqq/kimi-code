@@ -29,6 +29,9 @@ export interface ContextCompactionResult {
 export interface IAgentContextMemoryService {
   readonly _serviceBrand: undefined;
 
+  /** Estimated total tokens across all context messages (O(1)). */
+  readonly contextTokenEstimate: number;
+
   get(): readonly ContextMessage[];
 
   append(...messages: readonly ContextMessage[]): void;
