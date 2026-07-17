@@ -8,7 +8,7 @@
  */
 
 import type { Kaos } from '@moonshot-ai/kaos';
-import { t } from '../../i18n/index';
+import { t } from '../../i18n';
 import { z } from 'zod';
 
 import type { BackgroundManager } from '../../agent/background';

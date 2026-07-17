@@ -1,4 +1,4 @@
-import { t } from '../i18n/index';
+import { t } from '../i18n';
 import { homedir } from 'node:os';
 import { join } from 'pathe';
 import type { Kaos } from '@moonshot-ai/kaos';
