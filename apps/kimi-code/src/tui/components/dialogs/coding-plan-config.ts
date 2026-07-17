@@ -1,5 +1,6 @@
 import { Container, Key, matchesKey, type Focusable } from '@moonshot-ai/pi-tui';
 import { currentTheme } from '#/tui/theme';
+import { t } from '#/i18n';
 
 export interface CodingPlanConfigOptions {
   readonly currentConfig: Record<string, unknown>;
@@ -44,7 +45,7 @@ export class CodingPlanConfigComponent extends Container implements Focusable {
         if (schema !== undefined) {
           const parsed = schema.parse(raw);
           if (schema.validate !== undefined && !schema.validate(parsed)) {
-            this.errorMsg = `"${key}" 的值无效: ${raw}`;
+            this.errorMsg = t('codingPlan.invalidValue', { key, raw });
             return;
           }
           config[key] = parsed;
@@ -80,12 +81,12 @@ export class CodingPlanConfigComponent extends Container implements Focusable {
   override render(width: number): string[] {
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg('primary', ' Coding Plan 配置'),
+      currentTheme.boldFg('primary', t('codingPlan.title')),
       '',
     ];
     for (let i = 0; i < this.fieldOrder.length; i++) {
       const key = this.fieldOrder[i]!;
-      const label = FIELD_LABELS[key] ?? key;
+      const label = fieldLabel(key);
       const value = this.fields[key];
       const isSelected = i === this.selectedField;
       const pointer = isSelected ? '>' : ' ';
@@ -98,23 +99,26 @@ export class CodingPlanConfigComponent extends Container implements Focusable {
     if (this.errorMsg.length > 0) {
       lines.push(currentTheme.fg('error', ` ${this.errorMsg}`));
     }
-    lines.push(currentTheme.fg('textMuted', ' ↑↓ 选择字段 · 输入修改 · Enter 保存 · Esc 取消'));
+    lines.push(currentTheme.fg('textMuted', t('codingPlan.navHint')));
     lines.push(currentTheme.fg('primary', '─'.repeat(width)));
     return lines.map((line) => line.slice(0, width));
   }
 }
 
-const FIELD_LABELS: Record<string, string> = {
-  protocol: '协议 (openai/anthropic/response)',
-  stream: '流式 (true/false)',
-  temperature: '温度 (0.0-2.0)',
-  maxTokens: '最大Token数',
-  enableThinking: '思考开关 (true/false)',
-  searchDisable: '关闭搜索 (true/false)',
-  showRefLabel: '显示信源 (true/false)',
-  loraId: '微调模型ID',
-  reasoningEffort: '思考强度 (off/low/medium/high/max)',
-};
+function fieldLabel(key: string): string {
+  const labels: Record<string, string> = {
+    protocol: t('codingPlan.fieldProtocol'),
+    stream: t('codingPlan.fieldStream'),
+    temperature: t('codingPlan.fieldTemperature'),
+    maxTokens: t('codingPlan.fieldMaxTokens'),
+    enableThinking: t('codingPlan.fieldEnableThinking'),
+    searchDisable: t('codingPlan.fieldSearchDisable'),
+    showRefLabel: t('codingPlan.fieldShowRefLabel'),
+    loraId: t('codingPlan.fieldLoraId'),
+    reasoningEffort: t('codingPlan.fieldReasoningEffort'),
+  };
+  return labels[key] ?? key;
+}
 
 interface FieldSchema {
   parse: (raw: string) => unknown;
