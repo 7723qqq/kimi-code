@@ -16,6 +16,7 @@ import chalk from 'chalk';
 
 import type { ColorPalette } from '#/tui/theme/colors';
 import { currentTheme } from '#/tui/theme';
+import { t } from '#/i18n';
 import {
   resolveMigrationScope,
   runMigration as realRunMigration,
@@ -36,12 +37,14 @@ const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', 
 /** Spinner frame cadence — one full braille cycle every ~800ms. */
 const SPINNER_INTERVAL_MS = 80;
 
-const STEP_LABELS: ReadonlyArray<readonly [string, string]> = [
-  ['config', 'Config'],
-  ['mcp', 'MCP'],
-  ['user-history', 'REPL history'],
-  ['sessions', 'Sessions'],
-];
+function stepLabels(): ReadonlyArray<readonly [string, string]> {
+  return [
+    ['config', t('migration.stepLabelConfig')],
+    ['mcp', t('migration.stepLabelMcp')],
+    ['user-history', t('migration.stepLabelReplHistory')],
+    ['sessions', t('migration.stepLabelSessions')],
+  ];
+}
 
 export interface MigrationScreenOptions {
   readonly plan: MigrationPlan;
@@ -282,26 +285,26 @@ export class MigrationScreenComponent extends Container implements Focusable {
     const colors = this.opts.colors ?? currentTheme.palette;
     const lines: string[] = [chalk.hex(colors.primary)('─'.repeat(width))];
     if (this.migrationFailed) {
-      lines.push(chalk.hex(colors.error).bold(' Migration failed'));
+      lines.push(chalk.hex(colors.error).bold(t('migration.failed')));
       if (this.migrationFailureReason !== undefined) {
         lines.push('');
-        lines.push(chalk.hex(colors.text)(` Reason: ${this.migrationFailureReason}`));
+        lines.push(chalk.hex(colors.text)(t('migration.reason', { reason: this.migrationFailureReason })));
       }
       lines.push('');
-      lines.push(chalk.hex(colors.text)(' You can retry later by running "kimi migrate".'));
+      lines.push(chalk.hex(colors.text)(t('migration.retryHint')));
       lines.push('');
-      lines.push(chalk.hex(colors.textMuted)(' ⏎ continue to kimi-code'));
+      lines.push(chalk.hex(colors.textMuted)(t('migration.continueHint')));
       lines.push(chalk.hex(colors.primary)('─'.repeat(width)));
       return lines.map((l) => truncateToWidth(l, width));
     }
     const r = this.report;
-    lines.push(chalk.hex(colors.primary).bold(' Migration complete'));
+    lines.push(chalk.hex(colors.primary).bold(t('migration.complete')));
     lines.push('');
     if (r !== undefined) {
       const sum = r.summary;
       if (sum.sessions.sessionsMigrated > 0) {
         lines.push(
-          chalk.hex(colors.success)(`  ✓ ${sum.sessions.sessionsMigrated} sessions migrated`),
+          chalk.hex(colors.success)(t('migration.sessionsMigrated', { count: String(sum.sessions.sessionsMigrated) })),
         );
       }
       // Only claim a data class was migrated when the summary says it was —
@@ -313,49 +316,36 @@ export class MigrationScreenComponent extends Container implements Focusable {
       if (sum.userHistory.copied > 0) migratedKinds.push('REPL history');
       if (sum.skills.copied > 0) migratedKinds.push('skills');
       if (migratedKinds.length > 0) {
-        lines.push(chalk.hex(colors.success)(`  ✓ ${migratedKinds.join(' · ')}`));
+        lines.push(chalk.hex(colors.success)(t('migration.kindsMigrated', { kinds: migratedKinds.join(' · ') })));
       }
       if (sum.sessions.sessionsMigrated === 0 && migratedKinds.length === 0) {
-        lines.push(chalk.hex(colors.textMuted)('  Nothing needed migrating.'));
+        lines.push(chalk.hex(colors.textMuted)(t('migration.skipped')));
       }
       if (r.notices.detectedPlugins.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            `  ⚠ ${r.notices.detectedPlugins.length} kimi-cli plugins — not yet supported for migration`,
+            t('migration.pluginsNotSupported', { count: String(r.notices.detectedPlugins.length) }),
           ),
         );
       }
-      // OAuth credentials are deliberately not migrated (refresh tokens cannot
-      // safely be held by two installs at once). kimi-code's normal auth flow
-      // will prompt for /login when the user first picks a model — surfacing a
-      // separate notice here reads as a migration limitation, which it is not.
       if (sum.config.droppedHooks > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            `  ⚠ ${sum.config.droppedHooks} hooks dropped (incompatible)`,
+            t('migration.hooksDropped', { count: String(sum.config.droppedHooks) }),
           ),
         );
       }
-      // Conflicts and partial failures: the report records them, so surface
-      // them here too — otherwise "✓ config / MCP" hides that the data only
-      // landed in a *.migrated-from-kimi-cli.* sibling or that sessions failed.
       if (sum.config.configConflicts.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            `  ⚠ ${sum.config.configConflicts.length} config conflicts kept yours: ${sum.config.configConflicts.join(' · ')}`,
+            t('migration.configConflicts', { count: String(sum.config.configConflicts.length), keys: sum.config.configConflicts.join(' · ') }),
           ),
         );
       }
       if (sum.config.wroteSiblingDueToConflict) {
-        // Sibling mode: the live config.toml could not be parsed, so the
-        // migrated content went to `config.migrated-from-kimi-cli.toml` and
-        // the user must merge it by hand. Show the enumeration of contents
-        // on a SEPARATE line below — a single-line message with the contents
-        // appended would overflow 80 columns and be truncated, silently
-        // hiding the very info we want users to see.
         lines.push(
           chalk.hex(colors.warning)(
-            '  ⚠ config.toml could not be parsed — review config.migrated-from-kimi-cli.toml',
+            t('migration.configParseError'),
           ),
         );
         const sc = sum.config.siblingContents;
@@ -370,41 +360,41 @@ export class MigrationScreenComponent extends Container implements Focusable {
           items.push(`${sc.hooks} hook${sc.hooks === 1 ? '' : 's'}`);
         }
         if (items.length > 0) {
-          lines.push(chalk.hex(colors.warning)(`     contains: ${items.join(', ')}`));
+          lines.push(chalk.hex(colors.warning)(t('migration.contains', { items: items.join(', ') })));
         }
       }
       if (sum.config.wroteTuiSibling) {
         lines.push(
           chalk.hex(colors.warning)(
-            '  ⚠ tui.toml conflicted — review tui.migrated-from-kimi-cli.toml',
+            t('migration.tuiConflict'),
           ),
         );
       }
       if (sum.mcp.wroteSiblingDueToConflict) {
         lines.push(
           chalk.hex(colors.warning)(
-            '  ⚠ mcp.json unreadable — review mcp.migrated-from-kimi-cli.json',
+            t('migration.mcpUnreadable'),
           ),
         );
       }
       if (r.notices.mcpOauthServersRequiringReauth.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            `  ⚠ ${r.notices.mcpOauthServersRequiringReauth.length} MCP servers need re-authentication`,
+            t('migration.mcpNeedsAuth', { count: String(r.notices.mcpOauthServersRequiringReauth.length) }),
           ),
         );
       }
       if (sum.sessions.sessionsFailed.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            `  ⚠ ${sum.sessions.sessionsFailed.length} sessions failed to migrate`,
+            t('migration.sessionsFailed', { count: String(sum.sessions.sessionsFailed.length) }),
           ),
         );
       }
       if (sum.sessions.sessionsConflicts.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            `  ⚠ ${sum.sessions.sessionsConflicts.length} sessions skipped (target already occupied)`,
+            t('migration.sessionsSkipped', { count: String(sum.sessions.sessionsConflicts.length) }),
           ),
         );
       }
@@ -413,17 +403,17 @@ export class MigrationScreenComponent extends Container implements Focusable {
       if (sum.sessions.sessionsSkippedEmpty > 0) {
         lines.push(
           chalk.hex(colors.textMuted)(
-            `  ${sum.sessions.sessionsSkippedEmpty} empty sessions skipped`,
+            t('migration.emptySessionsSkipped', { count: String(sum.sessions.sessionsSkippedEmpty) }),
           ),
         );
       }
       lines.push('');
       lines.push(
-        chalk.hex(colors.textMuted)(' Old data kept at ~/.kimi/ — kimi-cli still works.'),
+        chalk.hex(colors.textMuted)(t('migration.oldDataKept')),
       );
     }
     lines.push('');
-    lines.push(chalk.hex(colors.textMuted)(' ⏎ continue to kimi-code'));
+    lines.push(chalk.hex(colors.textMuted)(t('migration.continueHint')));
     lines.push(chalk.hex(colors.primary)('─'.repeat(width)));
     return lines.map((l) => truncateToWidth(l, width));
   }
@@ -433,19 +423,19 @@ export class MigrationScreenComponent extends Container implements Focusable {
     const spinner = SPINNER_FRAMES[this.spinnerFrame] ?? SPINNER_FRAMES[0];
     const lines: string[] = [
       chalk.hex(colors.primary)('─'.repeat(width)),
-      chalk.hex(colors.primary).bold(' Migrating from kimi-cli'),
+      chalk.hex(colors.primary).bold(t('migration.progressTitle')),
       '',
     ];
     if (this.progressTotal > 0) {
       lines.push(
         chalk.hex(colors.accent)(`  ${spinner}  `) +
           chalk.hex(colors.text)(
-            `Translating sessions…  ${this.progressDone} / ${this.progressTotal}`,
+            t('migration.progressTranslating', { done: String(this.progressDone), total: String(this.progressTotal) }),
           ),
       );
       lines.push('');
     }
-    for (const [key, label] of STEP_LABELS) {
+    for (const [key, label] of stepLabels()) {
       const status = this.stepStatus.get(key) ?? 'pending';
       const mark =
         status === 'done'
@@ -463,11 +453,11 @@ export class MigrationScreenComponent extends Container implements Focusable {
     const step = this.currentStep();
     const lines: string[] = [
       chalk.hex(colors.primary)('─'.repeat(width)),
-      chalk.hex(colors.primary).bold(' Migrate from kimi-cli'),
+      chalk.hex(colors.primary).bold(t('migration.title')),
       '',
     ];
     if (this.phase === 'ask1') {
-      lines.push(chalk.hex(colors.text)(' Found an existing kimi-cli installation:'));
+      lines.push(chalk.hex(colors.text)(t('migration.foundExisting')));
       lines.push(chalk.hex(colors.textMuted)(`   ${summarizePlan(this.opts.plan)}`));
       lines.push('');
     }
@@ -486,7 +476,7 @@ export class MigrationScreenComponent extends Container implements Focusable {
     lines.push('');
     lines.push(
       chalk.hex(colors.textMuted)(
-        ` ↑/↓ move · ⏎ select · esc ${this.opts.skipDecisionStep === true ? 'cancel' : 'later'}`,
+        t('migration.navHintAsk', { action: this.opts.skipDecisionStep === true ? 'cancel' : 'later' }),
       ),
     );
     lines.push(chalk.hex(colors.primary)('─'.repeat(width)));
@@ -545,11 +535,11 @@ function summarizePlan(plan: MigrationPlan): string {
 function stepFor(phase: Phase, plan: MigrationPlan): StepDef {
   if (phase === 'ask1') {
     return {
-      title: 'Migrate this data to kimi-code?',
+      title: t('migration.ask1Title'),
       options: [
-        { label: 'Migrate now', value: 'now' satisfies Prompt1Choice },
-        { label: 'Ask me later', value: 'later' satisfies Prompt1Choice },
-        { label: 'Never ask again', value: 'never' satisfies Prompt1Choice },
+        { label: t('migration.migrateNow'), value: 'now' satisfies Prompt1Choice },
+        { label: t('migration.askLater'), value: 'later' satisfies Prompt1Choice },
+        { label: t('migration.neverAgain'), value: 'never' satisfies Prompt1Choice },
       ],
     };
   }
@@ -558,12 +548,12 @@ function stepFor(phase: Phase, plan: MigrationPlan): StepDef {
   // word only (no count) when no sessions were detected.
   const sessionsLabel =
     plan.totalSessions > 0
-      ? `Config + ${plan.totalSessions} sessions`
-      : 'Config + all sessions';
+      ? t('migration.configPlusSessions', { count: String(plan.totalSessions) })
+      : t('migration.configPlusAllSessions');
   return {
-    title: 'Migrate chat sessions too? (they are bulky and slower)',
+    title: t('migration.ask2Title'),
     options: [
-      { label: 'Config only', value: 'config-only' satisfies Prompt2Choice },
+      { label: t('migration.configOnly'), value: 'config-only' satisfies Prompt2Choice },
       { label: sessionsLabel, value: 'all-sessions' satisfies Prompt2Choice },
     ],
   };

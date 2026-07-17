@@ -11,7 +11,7 @@ import type { SlashCommandHost } from './dispatch';
 function parseDiscussArgs(args: string): { topic: string; roles: string[] } | string {
   const trimmed = args.trim();
   if (trimmed.length === 0) {
-    return 'Usage: /discuss <topic> with <role1>,<role2>,...';
+    return t('tui.messages.discussUsage');
   }
 
   // Split on " with " (case-insensitive)
@@ -25,7 +25,7 @@ function parseDiscussArgs(args: string): { topic: string; roles: string[] } | st
   const roles = match[2]!.split(',').map((r) => r.trim()).filter(Boolean);
 
   if (topic.length === 0) {
-    return 'Please provide a discussion topic.';
+    return t('tui.messages.discussNeedTopic');
   }
   if (roles.length < 2) {
     return 'Please specify at least 2 roles for the discussion.';
