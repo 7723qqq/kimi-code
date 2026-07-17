@@ -71,6 +71,7 @@ import { IGoalDeadlineScheduler } from './goalDeadlineScheduler';
 import { clearGoal, createGoal, GoalModel, updateGoal, type GoalState } from './goalOps';
 import type {
   CreateGoalInput,
+  GoalAccountingMode,
   GoalActor,
   GoalBudgetLimits,
   GoalBudgetReport,
@@ -229,6 +230,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   private readonly exhaustedTurnBudgetGoals = new Map<number, string>();
   /** In-memory blocked streak counter per goal. Resets on resume. */
   private readonly blockedStreakMap = new Map<string, number>();
+  private readonly accountingMode: GoalAccountingMode = 'active_status_only';
   private readonly wallClockDeadline = this._register(new MutableDisposable<IDisposable>());
   private liveWallClockStartedAt?: number;
   private pendingContinuation?: PendingContinuation;
@@ -421,8 +423,22 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   ): Promise<GoalSnapshot | null> {
     this.assertSupportedAgent();
     const state = this.goalState;
-    if (state === null || state.status !== 'active') return null;
+    const pausable: GoalStatus[] = ['active', 'budget_limited', 'usage_limited'];
+    if (state === null || !pausable.includes(state.status)) return null;
     return this.applyLifecycle(state, 'paused', input.reason, actor);
+  }
+
+  /** Transition goal to `usage_limited` — API usage cap reached.
+   *  Allowed from: active, budget_limited (Codex compat). */
+  async usageLimitActiveGoal(
+    input: GoalReasonInput = {},
+    actor: GoalActor = 'runtime',
+  ): Promise<GoalSnapshot | null> {
+    this.assertSupportedAgent();
+    const state = this.goalState;
+    const limitable: GoalStatus[] = ['active', 'budget_limited'];
+    if (state === null || !limitable.includes(state.status)) return null;
+    return this.applyLifecycle(state, 'usage_limited', input.reason, actor, { preserveLiveContinuation: true });
   }
 
   async resumeGoal(input: ResumeGoalInput = {}, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
@@ -568,9 +584,38 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     return this.accountTokenUsage(tokenDelta);
   }
 
+  /**
+   * Returns true when the goal state is eligible for usage accounting
+   * under the current {@link accountingMode}.
+   */
+  private isAccountingActive(state: GoalState | null): boolean {
+    if (state === null) return false;
+    switch (this.accountingMode) {
+      case 'active_status_only':
+        return state.status === 'active';
+      case 'active_only':
+        return state.status === 'active' || state.status === 'budget_limited';
+      case 'active_or_complete':
+        return state.status === 'active' || state.status === 'budget_limited' || state.status === 'complete';
+      case 'active_or_stopped':
+        return state.status !== 'complete';
+      default:
+        return state.status === 'active';
+    }
+  }
+
+  /** Temporarily set the accounting mode (returns a restore function). */
+  private withAccountingMode(mode: GoalAccountingMode): () => void {
+    const prev = this.accountingMode;
+    (this as { accountingMode: GoalAccountingMode }).accountingMode = mode;
+    return () => {
+      (this as { accountingMode: GoalAccountingMode }).accountingMode = prev;
+    };
+  }
+
   private accountTokenUsage(tokenDelta: number, goalId?: string): GoalSnapshot | null {
     const state = this.goalState;
-    if (state === null || state.status !== 'active' || !matchesGoal(state, goalId)) return null;
+    if (!this.isAccountingActive(state) || !matchesGoal(state, goalId)) return null;
     const tokensUsed = state.tokensUsed + Math.max(0, tokenDelta);
     this.wire.dispatch(updateGoal({ tokensUsed }));
     const next = this.requireState();
@@ -585,7 +630,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   async recordBlockedAttempt(): Promise<GoalSnapshot | null> {
     this.assertSupportedAgent();
     const state = this.goalState;
-    if (state === null || state.status !== 'active') return null;
+    if (!this.isAccountingActive(state)) return null;
     // blockedStreak is tracked via a local in-memory counter because wire
     // model dispatches are append-log based and don't update the model
     // synchronously for subsequent reads in the same turn.
@@ -601,7 +646,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
 
   private incrementGoalTurn(goalId?: string): GoalSnapshot | null {
     const state = this.goalState;
-    if (state === null || state.status !== 'active' || !matchesGoal(state, goalId)) return null;
+    if (!this.isAccountingActive(state) || !matchesGoal(state, goalId)) return null;
     const turnsUsed = state.turnsUsed + 1;
     this.wire.dispatch(updateGoal({ turnsUsed }));
     const next = this.requireState();
@@ -749,15 +794,25 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       result.reason === 'cancelled' ||
       result.reason === 'failed'
     ) {
+      const restore = this.withAccountingMode('active_or_stopped');
       await this.settleAbnormalTurn(result, lifecycleGoalId);
+      restore();
       return;
     }
+    const restore = this.withAccountingMode('active_or_complete');
     if (starterTurn) this.incrementGoalTurn(goalId);
 
     const state = this.goalState;
-    if (state === null || state.status !== 'active' || state.goalId !== lifecycleGoalId) return;
-    if (this.blockIfBudgetReached(state) !== null) return;
+    if (state === null || state.status !== 'active' || state.goalId !== lifecycleGoalId) {
+      restore();
+      return;
+    }
+    if (this.blockIfBudgetReached(state) !== null) {
+      restore();
+      return;
+    }
     this.launchContinuationTurn(lifecycleGoalId);
+    restore();
   }
 
   private clearTurnTracking(
@@ -1076,6 +1131,8 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       wallClockMs,
       budget: computeBudgetReport(state, wallClockMs),
       terminalReason: state.terminalReason,
+      createdAt: state.createdAt,
+      updatedAt: state.updatedAt,
     };
   }
 
