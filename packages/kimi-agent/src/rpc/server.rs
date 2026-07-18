@@ -125,6 +125,7 @@ impl RpcServer {
     }
 
     /// Send a notification to the host (JS side).
+    #[allow(dead_code)]
     pub fn notify(method: &str, params: &impl serde::Serialize) -> anyhow::Result<()> {
         let notification = serde_json::json!({
             "jsonrpc": "2.0",

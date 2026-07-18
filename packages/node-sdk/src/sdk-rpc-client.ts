@@ -43,6 +43,12 @@ export interface SDKRpcClientOptions {
    * `'print'`.
    */
   readonly uiMode?: string;
+  /**
+   * Optional override for the turn loop runner. When set, every session created
+   * by this client will use the provided function instead of the built-in JS
+   * turn loop. Used by the Rust agent engine (kimi-agent).
+   */
+  readonly runTurnOverride?: import('@moonshot-ai/agent-core').RunTurnOverride;
 }
 
 export class SDKRpcClient extends SDKRpcClientBase {
@@ -85,6 +91,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
       telemetry: this.telemetry,
       appVersion: this.identity?.version,
       uiMode: options.uiMode,
+      runTurnOverride: options.runTurnOverride,
     });
     this.ready = sdkRpc(new ClientAPI(this));
   }

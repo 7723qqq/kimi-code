@@ -14,6 +14,7 @@ pub type RequestId = serde_json::Value;
 
 /// A JSON-RPC 2.0 request.
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct JsonRpcRequest {
     pub jsonrpc: String,
     pub id: RequestId,
@@ -24,6 +25,7 @@ pub struct JsonRpcRequest {
 
 /// A JSON-RPC 2.0 response (success).
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct JsonRpcResponse {
     pub jsonrpc: String,
     pub id: RequestId,
@@ -32,6 +34,7 @@ pub struct JsonRpcResponse {
 
 /// A JSON-RPC 2.0 error response.
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct JsonRpcErrorResponse {
     pub jsonrpc: String,
     pub id: RequestId,
@@ -49,6 +52,7 @@ pub struct JsonRpcError {
 
 /// A JSON-RPC 2.0 notification (no response expected).
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct JsonRpcNotification {
     pub jsonrpc: String,
     pub method: String,
@@ -59,6 +63,7 @@ pub struct JsonRpcNotification {
 // ── Agent RPC method names ─────────────────────────────────────────────────
 
 /// RPC method names for the kimi-agent protocol.
+#[allow(dead_code)]
 pub mod methods {
     /// Run a single turn. Corresponds to `runTurn()` in the JS loop.
     pub const RUN_TURN: &str = "agent/run_turn";
@@ -83,6 +88,7 @@ pub mod methods {
 
 /// Input for a run_turn RPC call.
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct RunTurnParams {
     pub turn_id: String,
     pub system_prompt: String,
@@ -163,6 +169,7 @@ pub struct ToolExecuteRequest {
 
 /// Response from the host/execute_tool RPC call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct ToolExecuteResponse {
     pub content: String,
     pub is_error: bool,
@@ -213,6 +220,7 @@ impl JsonRpcErrorResponse {
 }
 
 impl JsonRpcError {
+    #[allow(dead_code)]
     pub fn parse_error() -> Self {
         Self {
             code: -32700,
@@ -220,6 +228,7 @@ impl JsonRpcError {
             data: None,
         }
     }
+    #[allow(dead_code)]
     pub fn invalid_request() -> Self {
         Self {
             code: -32600,
@@ -227,6 +236,7 @@ impl JsonRpcError {
             data: None,
         }
     }
+    #[allow(dead_code)]
     pub fn method_not_found(method: &str) -> Self {
         Self {
             code: -32601,

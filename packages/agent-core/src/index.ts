@@ -10,6 +10,7 @@ export * from './telemetry';
 export * from './errors';
 export * from './plugin';
 export { buildReplay } from './agent/replay/build';
+export type { LoopTurnStopReason } from './loop';
 export {
   flushDiagnosticLogs,
   flushDiagnosticLogsSync,

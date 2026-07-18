@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /// Core type definitions for the stateless turn loop.
 ///
 /// These correspond to the types in `packages/agent-core/src/loop/types.ts`.
@@ -68,6 +70,7 @@ pub struct ToolInfo {
 
 /// The LLM's response to a chat call.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct LLMChatResponse {
     pub tool_calls: Vec<ToolCall>,
     pub finish_reason: Option<String>,

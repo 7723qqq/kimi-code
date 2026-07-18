@@ -1,0 +1,13 @@
+{
+  "name": "@moonshot-ai/kimi-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Rust agent engine for Kimi Code",
+  "type": "module",
+  "exports": {
+    "./rust-loop": {
+      "types": "./rust-loop.ts",
+      "default": "./rust-loop.ts"
+    }
+  }
+}

@@ -9,7 +9,7 @@ import { setConfiguredMaxImageEdgePx, setConfiguredReadImageByteBudget } from '#
 import type { PromisableMethods } from '#/utils/types';
 import { getCoreVersion } from '#/version';
 import { resolveThinkingEffort } from '../agent/config/thinking';
-import { Agent } from '../agent';
+import { Agent, type RunTurnOverride } from '../agent';
 import {
   applyPrintModeConfigDefaults,
   ensureKimiHome,
@@ -185,6 +185,12 @@ export interface KimiCoreOptions {
    * `applyPrintModeConfigDefaults` (user-set values still win).
    */
   readonly uiMode?: string | undefined;
+  /**
+   * Optional override for the turn loop runner across all sessions in this core.
+   * When the session's config has `agent.engine = "rust"`, this should be set to
+   * the Rust engine adapter's `runTurnRust` from `packages/kimi-agent/rust-loop`.
+   */
+  readonly runTurnOverride?: RunTurnOverride;
 }
 
 export class KimiCore implements PromisableMethods<CoreAPI> {
@@ -218,6 +224,9 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
   /** Owner-scoped [image] limits; reload pushes the new config via setConfig. */
   readonly imageLimits: ImageLimits;
 
+  /** Turn loop override; see KimiCoreOptions.runTurnOverride. */
+  private readonly runTurnOverride?: RunTurnOverride;
+
   constructor(
     protected readonly rpcClient: CoreRPCClient,
     options: KimiCoreOptions = {},
@@ -236,6 +245,7 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
     this.telemetry = options.telemetry ?? noopTelemetryClient;
     this.appVersion = options.appVersion;
     this.printMode = options.uiMode === 'print';
+    this.runTurnOverride = options.runTurnOverride;
     ensureKimiHome(this.homeDir);
     // Schema errors degrade (invalid sections are dropped with warnings) so a
     // typo cannot prevent startup, but a file that cannot be used at all —
@@ -377,6 +387,7 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
       appVersion: this.appVersion,
       additionalDirs,
       drainAgentTasksOnStop: options.drainAgentTasksOnStop,
+      runTurnOverride: this.runTurnOverride,
     });
     try {
       session.metadata = {
@@ -527,6 +538,7 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
       pluginCommands,
       appVersion: this.appVersion,
       additionalDirs,
+      runTurnOverride: this.runTurnOverride,
     });
     let warning: string | undefined;
     try {

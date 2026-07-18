@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /// Tool scheduling — parallel and serial execution of tool calls.
 ///
 /// Corresponds to `packages/agent-core/src/loop/tool-scheduler.ts`.
