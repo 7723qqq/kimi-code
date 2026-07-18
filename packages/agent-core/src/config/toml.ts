@@ -8,6 +8,7 @@ import {
   KimiConfigSchema,
   formatConfigValidationError,
   getDefaultConfig,
+  type AgentConfig,
   type BackgroundConfig,
   type ExperimentalConfig,
   type HookDefConfig,
@@ -321,6 +322,8 @@ export function transformTomlData(data: Record<string, unknown>): Record<string,
       result[targetKey] = cloneRecord(value);
     } else if (targetKey === 'subagent' && isPlainObject(value)) {
       result[targetKey] = transformPlainObject(value);
+    } else if (targetKey === 'agent' && isPlainObject(value)) {
+      result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'modelCatalog' && isPlainObject(value)) {
       result[targetKey] = transformPlainObject(value);
     } else if (!isPlainObject(value)) {
@@ -499,6 +502,7 @@ export function configToTomlData(config: KimiConfig): Record<string, unknown> {
   setSection(out, 'loop_control', config.loopControl, loopControlToToml);
   setSection(out, 'background', config.background, backgroundToToml);
   setSection(out, 'subagent', config.subagent, subagentToToml);
+  setSection(out, 'agent', config.agent, agentToToml);
   setSection(out, 'image', config.image, imageToToml);
   setSection(out, 'model_catalog', config.modelCatalog, modelCatalogToToml);
   setSection(out, 'experimental', config.experimental, experimentalToToml);
@@ -694,6 +698,14 @@ function subagentToToml(subagent: SubagentConfig, rawSubagent: unknown): Record<
 function imageToToml(image: ImageConfig, rawImage: unknown): Record<string, unknown> {
   const out = cloneRecord(rawImage);
   for (const [key, value] of Object.entries(image)) {
+    setDefined(out, camelToSnake(key), value);
+  }
+  return out;
+}
+
+function agentToToml(agent: AgentConfig, rawAgent: unknown): Record<string, unknown> {
+  const out = cloneRecord(rawAgent);
+  for (const [key, value] of Object.entries(agent)) {
     setDefined(out, camelToSnake(key), value);
   }
   return out;

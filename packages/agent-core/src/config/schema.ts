@@ -158,6 +158,17 @@ export const SubagentConfigSchema = z.object({
 
 export type SubagentConfig = z.infer<typeof SubagentConfigSchema>;
 
+export const AgentConfigSchema = z.object({
+  /**
+   * Which agent engine to use.
+   * - `"js"` (default): the existing TypeScript agent engine
+   * - `"rust"`: the Rust agent engine (kimi-agent binary via stdio JSON-RPC)
+   */
+  engine: z.enum(['js', 'rust']).default('js'),
+});
+
+export type AgentConfig = z.infer<typeof AgentConfigSchema>;
+
 export const ImageConfigSchema = z.object({
   /**
    * Longest-edge ceiling (px) applied when compressing images for the model.
@@ -375,6 +386,7 @@ export const KimiConfigSchema = z.object({
   loopControl: LoopControlSchema.optional(),
   background: BackgroundConfigSchema.optional(),
   subagent: SubagentConfigSchema.optional(),
+  agent: AgentConfigSchema.optional(),
   image: ImageConfigSchema.optional(),
   modelCatalog: ModelCatalogConfigSchema.optional(),
   experimental: ExperimentalConfigSchema.optional(),
