@@ -803,7 +803,8 @@ export class TurnFlow {
       const loopControl = this.agent.kimiConfig?.loopControl;
       let stopForGoalBudget = false;
       try {
-        const result = await runTurn({
+        const runTurnFn = this.agent.runTurnOverride ?? runTurn;
+        const result = await runTurnFn({
           turnId: String(turnId),
           signal,
           llm: this.agent.llm,
