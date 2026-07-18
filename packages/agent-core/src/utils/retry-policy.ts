@@ -1,9 +1,6 @@
-export const DEFAULT_AGENT_RETRY_ATTEMPTS = 5;
+import { BASE_DELAY_MS, JITTER_FACTOR, MAX_DELAY_MS, RETRY_FACTOR } from '../loop/retry';
 
-const AGENT_RETRY_BASE_DELAY_MS = 500;
-const AGENT_RETRY_MAX_DELAY_MS = 32_000;
-const AGENT_RETRY_FACTOR = 2;
-const AGENT_RETRY_JITTER_FACTOR = 0.25;
+export const DEFAULT_AGENT_RETRY_ATTEMPTS = 5;
 
 export const SUBAGENT_RATE_LIMIT_RETRY_BASE_MS = 3_000;
 export const SUBAGENT_RATE_LIMIT_RETRY_FACTOR = 2;
@@ -29,10 +26,10 @@ export function retryBackoffDelays(maxAttempts: number): number[] {
   const delays: number[] = [];
   for (let i = 0; i < count; i += 1) {
     const base = Math.min(
-      AGENT_RETRY_BASE_DELAY_MS * Math.pow(AGENT_RETRY_FACTOR, i),
-      AGENT_RETRY_MAX_DELAY_MS,
+      BASE_DELAY_MS * Math.pow(RETRY_FACTOR, i),
+      MAX_DELAY_MS,
     );
-    delays.push(base + Math.random() * AGENT_RETRY_JITTER_FACTOR * base);
+    delays.push(base + Math.random() * JITTER_FACTOR * base);
   }
   return delays;
 }

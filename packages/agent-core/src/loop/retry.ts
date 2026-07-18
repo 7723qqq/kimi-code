@@ -10,12 +10,13 @@ import { isAbortError } from './errors';
 import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
 
 // Default retry budget per step: 10 attempts (9 retries).
+// Kept in sync with agent-core-v2/src/_base/utils/retry.ts
 export const DEFAULT_MAX_RETRY_ATTEMPTS = 10;
 
-const BASE_DELAY_MS = 500;
-const MAX_DELAY_MS = 32_000;
-const RETRY_FACTOR = 2;
-const JITTER_FACTOR = 0.25;
+export const BASE_DELAY_MS = 500;
+export const MAX_DELAY_MS = 32_000;
+export const RETRY_FACTOR = 2;
+export const JITTER_FACTOR = 0.25;
 
 // Overload backoff (503, "system busy", stream interrupted). Start at 5s
 // with a 30s cap, factor 2 — gentler than rate-limit but much longer than

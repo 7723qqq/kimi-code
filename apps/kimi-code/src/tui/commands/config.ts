@@ -13,6 +13,7 @@ import {
   ExperimentsSelectorComponent,
   type ExperimentalFeatureDraftChange,
 } from '../components/dialogs/experiments-selector';
+import { LocaleSelectorComponent } from '../components/dialogs/locale-selector';
 import { modelDisplayName, segmentsFor } from '../components/dialogs/model-selector';
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
 import { PermissionSelectorComponent } from '../components/dialogs/permission-selector';
@@ -22,6 +23,8 @@ import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-
 import { DEFAULT_TUI_CONFIG, saveTuiConfig, type TuiConfig } from '../config';
 import type { ThemeName } from '#/tui/theme';
 import { currentTheme, isBuiltInTheme, lightColors, loadCustomThemeMerged } from '#/tui/theme';
+import type { Locale } from '#/i18n';
+import { getLocale, setLocale } from '#/i18n';
 import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
@@ -53,6 +56,7 @@ function hasConversationHistory(host: SlashCommandHost): boolean {
 function currentTuiConfig(host: SlashCommandHost): TuiConfig {
   return {
     theme: host.state.appState.theme,
+    locale: host.state.appState.locale as Locale,
     editorCommand: host.state.appState.editorCommand,
     disablePasteBurst: host.state.appState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
     notifications: host.state.appState.notifications,
@@ -596,6 +600,45 @@ async function applyThemeChoice(host: SlashCommandHost, theme: ThemeName): Promi
   host.showStatus(`Theme set to "${theme}"${detail}.`);
 }
 
+export function showLocalePicker(host: SlashCommandHost): void {
+  host.mountEditorReplacement(
+    new LocaleSelectorComponent({
+      currentValue: getLocale(),
+      onSelect: (locale) => {
+        host.restoreEditor();
+        void applyLocaleChoice(host, locale);
+      },
+      onCancel: () => {
+        host.restoreEditor();
+      },
+    }),
+  );
+}
+
+async function applyLocaleChoice(host: SlashCommandHost, locale: Locale): Promise<void> {
+  if (locale === host.state.appState.locale) {
+    host.showStatus(`Language unchanged: "${locale}".`);
+    return;
+  }
+
+  try {
+    await saveTuiConfig({
+      ...currentTuiConfig(host),
+      locale,
+    });
+  } catch (error) {
+    host.showStatus(
+      `Failed to save language preference: ${formatErrorMessage(error)}`,
+      'error',
+    );
+    return;
+  }
+
+  setLocale(locale);
+  host.setAppState({ locale });
+  host.showStatus(`Language set to "${locale}". Restart to apply fully.`);
+}
+
 export function showPermissionPicker(host: SlashCommandHost): void {
   host.mountEditorReplacement(
     new PermissionSelectorComponent({
@@ -771,6 +814,7 @@ function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelectio
     case 'theme': showThemePicker(host); return;
     case 'editor': showEditorPicker(host); return;
     case 'experiments': void showExperimentsPanel(host); return;
+    case 'language': showLocalePicker(host); return;
     case 'upgrade': showUpdatePreferencePicker(host); return;
     case 'usage': void showUsage(host); return;
   }

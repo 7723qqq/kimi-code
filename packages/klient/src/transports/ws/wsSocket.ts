@@ -94,6 +94,8 @@ interface ServerFrame {
 
 const WS_BEARER_PROTOCOL_PREFIX = 'kimi-code.bearer.';
 const DEFAULT_CALL_TIMEOUT_MS = 30_000;
+/** Max delay for the exponential reconnect backoff (500ms × 2^n, capped here). */
+const WS_RECONNECT_MAX_DELAY_MS = 10_000;
 
 export class WsSocket {
   private readonly wsUrl: string;
@@ -379,7 +381,7 @@ export class WsSocket {
       return;
     }
     this.reconnectAttempt += 1;
-    const delay = Math.min(this.reconnectDelayMs * 2 ** (this.reconnectAttempt - 1), 10_000);
+    const delay = Math.min(this.reconnectDelayMs * 2 ** (this.reconnectAttempt - 1), WS_RECONNECT_MAX_DELAY_MS);
     this.setState('connecting');
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined;

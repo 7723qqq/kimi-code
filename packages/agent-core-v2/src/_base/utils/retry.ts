@@ -17,6 +17,8 @@ import { abortable } from '#/_base/utils/abort';
 
 export const DEFAULT_MAX_RETRY_ATTEMPTS = 10;
 
+// Kept in sync with agent-core/src/loop/retry.ts
+
 const BASE_DELAY_MS = 500;
 const MAX_DELAY_MS = 32_000;
 const RETRY_FACTOR = 2;

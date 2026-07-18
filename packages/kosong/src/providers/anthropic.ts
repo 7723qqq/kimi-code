@@ -12,6 +12,11 @@ import {
 } from '#/errors';
 import { createSharedFetch } from '../http/undici-agent';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
+
+// SDK-level retry count for transient network glitches. Set to 3 so quick
+// connection drops are absorbed at the SDK level without reaching the
+// heavier agent-core retry loop (chatWithRetry / stepRetry).
+const ANTHROPIC_SDK_MAX_RETRIES = 3;
 import { isToolDeclarationOnlyMessage } from '#/message';
 import type {
   ChatProvider,
@@ -1208,9 +1213,9 @@ export class AnthropicChatProvider implements ChatProvider {
       // SDK-level retries handle transient connection errors efficiently;
       // agent-core retries (chatWithRetry) cover provider overload and
       // rate-limit backoff with Xunfei-aware tiers (5-30s / 15-60s).
-      // Set to 2 so quick network glitches are absorbed at SDK level
-      // without reaching the heavier agent-core retry loop.
-      maxRetries: 2,
+      // Set to ANTHROPIC_SDK_MAX_RETRIES so quick network glitches are
+      // absorbed at SDK level without reaching the heavier agent-core retry loop.
+      maxRetries: ANTHROPIC_SDK_MAX_RETRIES,
     });
   }
 
