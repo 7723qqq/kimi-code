@@ -1,17 +1,22 @@
 /// Tool call execution within a step.
 ///
-/// Proxies tool execution to the JS host via `host/execute_tool` JSON-RPC.
+/// Proxies tool execution to the JS host via `host/execute_tool` JSON-RPC
+/// and returns the results so they can be appended to the message list.
 
 use crate::rpc::server::RpcServer;
 use crate::rpc::types::{self, ToolExecuteRequest, ToolExecuteResponse};
+use super::types::ExecutableToolResult;
 
 /// Execute a batch of tool calls by proxying to the JS host.
+/// Returns the results so the caller can append them to the message list.
 pub fn execute_tool_calls(
     turn_id: &str,
     _step: u32,
     tool_calls: &[super::types::ToolCall],
     _tools: &[&dyn super::types::ExecutableTool],
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<Vec<ExecutableToolResult>, Box<dyn std::error::Error>> {
+    let mut results = Vec::new();
+
     for tc in tool_calls {
         let request = ToolExecuteRequest {
             turn_id: turn_id.to_string(),
@@ -33,6 +38,12 @@ pub fn execute_tool_calls(
                 tc.name, tc.id, response.content
             );
         }
+
+        results.push(ExecutableToolResult {
+            content: response.content,
+            is_error: response.is_error,
+        });
     }
-    Ok(())
+
+    Ok(results)
 }
