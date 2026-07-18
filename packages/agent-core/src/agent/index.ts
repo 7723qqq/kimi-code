@@ -102,7 +102,21 @@ export interface AgentOptions {
   readonly replay?: ReplayBuilderOptions;
   readonly additionalDirs?: readonly string[];
   readonly systemPromptContextProvider?: (() => Promise<PreparedSystemPromptContext>) | undefined;
+  /**
+   * Optional override for the turn loop runner.
+   * When set, the TurnFlow will use this function instead of the built-in `runTurn`.
+   * Used by the Rust agent engine (kimi-agent) to run turns in a separate process.
+   */
+  readonly runTurnOverride?: RunTurnOverride;
 }
+
+/**
+ * Type for the runTurn override function.
+ * Matches the signature of `runTurn()` from `#/loop/index.ts`.
+ */
+export type RunTurnOverride = (
+  input: import('#/loop/index').RunTurnInput,
+) => Promise<import('#/loop/index').TurnResult>;
 
 export class Agent {
   readonly type: AgentType;
@@ -172,6 +186,7 @@ export class Agent {
     readonly knownEfforts: string | undefined;
   }> = [];
   private readonly systemPromptContextProvider?: (() => Promise<PreparedSystemPromptContext>) | undefined;
+  readonly runTurnOverride?: RunTurnOverride;
 
   constructor(options: AgentOptions) {
     this.type = options.type ?? 'main';
@@ -194,6 +209,7 @@ export class Agent {
     this.imageLimits = options.imageLimits ?? new ImageLimits();
     this.additionalDirs = normalizeAdditionalDirs(options.additionalDirs ?? []);
     this.systemPromptContextProvider = options.systemPromptContextProvider;
+    this.runTurnOverride = options.runTurnOverride;
 
     this.llmRequestLogger = new LlmRequestLogger(this.log);
     this.llmRequestRecorder = new LlmRequestRecorder(this);

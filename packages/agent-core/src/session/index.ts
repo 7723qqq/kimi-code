@@ -10,7 +10,7 @@ import type { Logger, SessionLogHandle } from '#/logging/types';
 import type { KimiConfig, SDKSessionRPC } from '#/rpc';
 import { proxyWithExtraPayload } from '#/rpc/types';
 
-import { Agent, type AgentOptions, type AgentType } from '../agent';
+import { Agent, type AgentOptions, type AgentType, type RunTurnOverride } from '../agent';
 import { renderPluginSessionStartReminder } from '../agent/injection/plugin-session-start';
 import { HookEngine, type HookDef } from './hooks';
 import type { PermissionManagerOptions, PermissionRule } from '../agent/permission';
@@ -88,6 +88,12 @@ export interface SessionOptions {
    * finish before the run exits. Set via the SDK `createSession` option.
    */
   readonly drainAgentTasksOnStop?: boolean;
+  /**
+   * Optional override for the turn loop runner across all agents in this session.
+   * When the agent's config has `agent.engine = "rust"`, this should be set to
+   * the Rust engine adapter's `runTurnRust` call.
+   */
+  readonly runTurnOverride?: RunTurnOverride;
 }
 
 export interface SessionSkillConfig {
@@ -180,6 +186,7 @@ export class Session {
   readonly hookEngine: HookEngine;
   readonly experimentalFlags: ExperimentalFlagResolver;
   readonly imageLimits: ImageLimits;
+  readonly runTurnOverride?: RunTurnOverride;
   private toolKaos: Kaos;
   private persistenceKaos: Kaos;
   private additionalDirs: readonly string[];
@@ -217,6 +224,7 @@ export class Session {
     this.rpc = options.rpc;
     this.experimentalFlags = options.experimentalFlags ?? new FlagResolver();
     this.imageLimits = options.imageLimits ?? new ImageLimits();
+    this.runTurnOverride = options.runTurnOverride;
     this.hookEngine = new HookEngine(options.hooks, {
       cwd: options.kaos.getcwd(),
       sessionId: options.id,
@@ -958,6 +966,7 @@ export class Session {
       pluginCommands: type === 'main' ? this.options.pluginCommands : undefined,
       experimentalFlags: this.experimentalFlags,
       imageLimits: this.imageLimits,
+      runTurnOverride: config.runTurnOverride ?? this.runTurnOverride,
       additionalDirs: parentAgent?.getAdditionalDirs() ?? this.additionalDirs,
       systemPromptContextProvider: () =>
         prepareSystemPromptContext(
