@@ -120,7 +120,7 @@ kimi -p "List changed files" --output-format stream-json
 
 ## 子命令
 
-`kimi` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`server`（运行并管理本地 REST/WebSocket/web 服务）、`web`（`kimi server run --open` 的别名）、`doctor`（校验配置文件）、`export`（导出会话）、`migrate`（迁移旧版数据）、`upgrade`（检查更新）、`provider`（管理供应商）。
+`kimi` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`server`（运行并管理本地 REST/WebSocket/web 服务）、`web`（打开 web UI，默认前台运行服务）、`doctor`（校验配置文件）、`export`（导出会话）、`migrate`（迁移旧版数据）、`upgrade`（检查更新）、`provider`（管理供应商）。
 
 ### `kimi login`
 
@@ -203,15 +203,17 @@ kimi server status             # 查看安装与运行状态
 
 在浏览器中打开 Kimi 的图形会话界面，作为终端 TUI 的替代入口。
 
-等价于 `kimi server run --open`：在后台启动本地 Kimi 服务（若已运行则复用），用默认浏览器打开 web UI，随后命令返回，服务驻留后台。与 `kimi server run` 的唯一区别是默认启用 `--open`（自动打开浏览器），其余行为一致。
+`kimi web` 在前台运行本地 Kimi 服务——命令保持挂在当前终端，按 `Ctrl-C` 即停止服务——服务健康后用默认浏览器打开 web UI。如果已有服务在运行，则直接复用：打印其地址、打开浏览器并返回，不会再绑定新端口。加 `--background` 则启动后台守护进程并立即释放终端；守护进程在最后一个 web 客户端断开后自行关闭。
+
+被复用的服务保持启动它时的版本：升级后，旧版本的服务会被原样复用，输出中会提示版本不一致。升级后运行一次 `kimi server kill`，下次启动即使用新版本。
 
 ```sh
-kimi web                 # 后台启动服务并打开浏览器（已运行则复用）
-kimi web --no-open       # 不打开浏览器，等同 `kimi server run`
-kimi web --foreground    # 在当前终端前台运行，同时打开浏览器
+kimi web                 # 前台运行服务并打开浏览器（已运行则复用）
+kimi web --background    # 启动后台守护进程，打开浏览器后立即释放终端
+kimi web --no-open       # 不打开浏览器，服务保持挂在当前终端
 ```
 
-停止服务使用 `kimi server kill`，查看活动连接使用 `kimi server ps`；`--port`、`--log-level` 等选项与 `kimi server run` 一致。
+前台服务按 `Ctrl-C` 停止，后台守护进程用 `kimi server kill` 停止，查看活动连接用 `kimi server ps`。`--port`、`--log-level`、`--foreground` 等选项与 `kimi server run` 一致；`--background` 仅 `kimi web` 支持。
 
 ### `kimi doctor`
 
