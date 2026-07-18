@@ -65,3 +65,64 @@ fn is_macho(data: &[u8]) -> bool {
 fn is_elf(data: &[u8]) -> bool {
     data.len() >= 4 && data[0] == 0x7F && data[1] == b'E' && data[2] == b'L' && data[3] == b'F'
 }
+
+/// After the NODE_SEA_BLOB resource/section is injected, flip the sentinel
+/// fuse byte from '0' to '1' so Node.js recognises the binary as a SEA app.
+///
+/// Node.js embeds the sentinel fuse string in its binary:
+///   "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2:0"
+/// The last byte is '0' before injection, '1' after. This function finds
+/// the sentinel in the binary and flips the flag byte.
+pub fn set_sentinel_fuse_flag(output: &str) -> anyhow::Result<()> {
+    const SENTINEL_FUSE: &[u8] = b"NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
+
+    let mut binary = std::fs::read(output)
+        .map_err(|e| anyhow::anyhow!("Failed to read back '{}': {}", output, e))?;
+
+    let pos = binary
+        .windows(SENTINEL_FUSE.len())
+        .position(|window| window == SENTINEL_FUSE)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Sentinel fuse not found in '{}'. Is this a Node.js SEA-enabled binary?",
+                output
+            )
+        })?;
+
+    let colon_pos = pos + SENTINEL_FUSE.len();
+    if colon_pos >= binary.len() || binary[colon_pos] != b':' {
+        anyhow::bail!(
+            "Expected ':' after sentinel fuse at offset {} in '{}', got byte {:02x}",
+            colon_pos,
+            output,
+            binary.get(colon_pos).copied().unwrap_or(0),
+        );
+    }
+
+    let flag_pos = colon_pos + 1;
+    if flag_pos >= binary.len() {
+        anyhow::bail!("Unexpected EOF after sentinel fuse colon in '{}'", output);
+    }
+
+    match binary[flag_pos] {
+        b'1' => {
+            println!("  Sentinel fuse already active");
+        }
+        b'0' => {
+            binary[flag_pos] = b'1';
+            std::fs::write(output, &binary)
+                .map_err(|e| anyhow::anyhow!("Failed to write back '{}': {}", output, e))?;
+            println!("  Sentinel fuse activated");
+        }
+        other => {
+            anyhow::bail!(
+                "Unexpected sentinel fuse value {:02x} at offset {} in '{}'",
+                other,
+                flag_pos,
+                output,
+            );
+        }
+    }
+
+    Ok(())
+}

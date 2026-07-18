@@ -1,6 +1,6 @@
-/// macOS Mach-O injection using goblin library.
+/// macOS Mach-O injection using llvm-objcopy.
 ///
-/// On macOS, the SEA blob is injected as a new Mach-O segment/section.
+/// On macOS, the SEA blob is injected as a new Mach-O section.
 /// After injection, the code signature is invalidated and needs to be
 /// removed with codesign.
 
@@ -8,13 +8,11 @@
 pub fn inject(input: &str, blob_data: &[u8], output: &str) -> anyhow::Result<()> {
     use std::process::Command;
 
-    // Copy input to output first
     if input != output {
         std::fs::copy(input, output)
             .map_err(|e| anyhow::anyhow!("Failed to copy '{}' to '{}': {}", input, output, e))?;
     }
 
-    // Remove existing code signature so the section injection doesn't break it
     let status = Command::new("codesign")
         .args(["--remove-signature", output])
         .status()
@@ -24,31 +22,33 @@ pub fn inject(input: &str, blob_data: &[u8], output: &str) -> anyhow::Result<()>
         anyhow::bail!("codesign --remove-signature failed");
     }
 
-    // Use postject for the actual Mach-O section injection on macOS
-    // This is a temporary measure until we implement Mach-O section manipulation
-    // in pure Rust. The postject WASM binary handles the complex Mach-O layout.
-    let status = Command::new("postject")
+    let blob_path = format!("{}.blob.tmp", output);
+    std::fs::write(&blob_path, blob_data)
+        .map_err(|e| anyhow::anyhow!("Failed to write temp blob: {}", e))?;
+
+    let status = Command::new("llvm-objcopy")
         .args([
+            "--add-section",
+            &format!("NODE_SEA_BLOB={}", blob_path),
+            "--set-section-flags",
+            "NODE_SEA_BLOB=readonly",
             output,
-            "NODE_SEA_BLOB",
-            blob_data,
-            "--macho-segment-name",
-            "NODE_SEA",
-            "--sentinel-fuse",
-            "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2",
         ])
         .status()
-        .map_err(|e| anyhow::anyhow!("Failed to run postject: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to run llvm-objcopy: {}", e))?;
+
+    let _ = std::fs::remove_file(&blob_path);
 
     if !status.success() {
-        anyhow::bail!("postject injection failed");
+        anyhow::bail!("llvm-objcopy --add-section failed");
     }
 
     println!("  Injected NODE_SEA_BLOB section ({})", blob_data.len());
+    super::set_sentinel_fuse_flag(output)?;
     Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]
 pub fn inject(_input: &str, _blob_data: &[u8], _output: &str) -> anyhow::Result<()> {
-    anyhow::bail!("Mach-O injection is only supported on macOS");
+    Err(anyhow::Error::msg(String::from("Mach-O injection is only supported on macOS")))
 }
