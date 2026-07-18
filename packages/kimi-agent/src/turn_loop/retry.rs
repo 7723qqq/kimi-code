@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /// Retry logic for LLM calls and tool executions.
 ///
 /// Corresponds to `packages/agent-core/src/loop/retry.ts`.

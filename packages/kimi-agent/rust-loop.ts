@@ -11,7 +11,8 @@
 import { ChildProcess, spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 
-import { appRoot } from '../../scripts/native/paths.mjs';
+// Project root: packages/kimi-agent/rust-loop.ts → ../../ (project root)
+const projectRoot = resolve(import.meta.dirname!, '..', '..');
 
 // ── Types matching the Rust agent protocol ─────────────────────────────────
 
@@ -89,9 +90,13 @@ class AgentProcess {
 
   private static findBinary(): string | null {
     const ext = process.platform === 'win32' ? '.exe' : '';
+    const arch = `${process.platform}-${process.arch}`;
     const candidates = [
-      resolve(appRoot, 'packages/kimi-agent/target/release/kimi-agent' + ext),
-      resolve(appRoot, 'packages/kimi-agent/target/debug/kimi-agent' + ext),
+      // Development: directly from Rust build output
+      resolve(projectRoot, 'packages/kimi-agent/target/release/kimi-agent' + ext),
+      resolve(projectRoot, 'packages/kimi-agent/target/debug/kimi-agent' + ext),
+      // Production: bundled alongside the SEA binary
+      resolve(projectRoot, 'dist-native', 'bin', arch, 'kimi-agent' + ext),
     ];
     try {
       const fs = require('node:fs');
@@ -294,6 +299,176 @@ export async function runTurnRust(
   } catch (err) {
     console.error('[kimi-agent] RPC call failed:', err);
     return null;
+  }
+}
+
+/**
+ * Create a `RunTurnOverride` function compatible with the agent-core turn loop.
+ *
+ * This adapter bridges between the JS `RunTurnInput` (from agent-core) and the
+ * Rust kimi-agent binary. It:
+ * 1. Extracts messages, tools, and system prompt from the JS input
+ * 2. Sends the turn to the Rust binary via `agent/run_turn`
+ * 3. Handles `host/llm_chat` callbacks by forwarding to `input.llm.chat()`
+ * 4. Handles `host/execute_tool` callbacks by resolving and executing tools
+ * 5. Maps the Rust response back to the JS `TurnResult` type
+ *
+ * Returns `undefined` when the Rust binary is not available (falls back to JS).
+ */
+export function createRunTurnOverride(): import('@moonshot-ai/agent-core').RunTurnOverride | undefined {
+  if (!isRustEngineAvailable()) return undefined;
+
+  return async (input) => {
+    const agent = getAgent();
+    if (!agent) {
+      throw new Error('Rust engine unavailable');
+    }
+
+    // Build messages and tools from the input
+    const messages = input.buildMessages();
+    const tools = input.buildTools();
+
+    // Set up the LLM chat handler — forwards to the JS LLM provider
+    agent.setLlmChatHandler(async (req) => {
+      // Build the LLM params from the Rust request
+      const llmMessages = req.messages.map((m) => ({
+        role: m.role as 'user' | 'assistant' | 'system' | 'tool',
+        content: m.content,
+      }));
+
+      const llmTools = tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema,
+      }));
+
+      const response = await input.llm.chat({
+        messages: llmMessages,
+        tools: llmTools as never[],
+        signal: input.signal,
+      });
+
+      return {
+        tool_calls: response.toolCalls?.map((tc) => ({
+          id: tc.id,
+          name: tc.name,
+          // LLM returns arguments as a JSON string; Rust expects a parsed value
+          arguments: tc.arguments ? tryParseJson(tc.arguments) : null,
+        })) ?? [],
+        finish_reason: response.providerFinishReason ?? 'stop',
+        usage: {
+          input_tokens: response.usage?.inputOther ?? 0,
+          output_tokens: response.usage?.output ?? 0,
+          total_tokens: (response.usage?.inputOther ?? 0) + (response.usage?.output ?? 0),
+        },
+      };
+    });
+
+    // Set up the tool execution handler — resolves and executes tools via JS
+    agent.setToolExecuteHandler(async (req) => {
+      const tool = tools.find((t) => t.name === req.tool_name);
+      if (!tool) {
+        return {
+          content: JSON.stringify({ error: `Tool not found: ${req.tool_name}` }),
+          is_error: true,
+        };
+      }
+
+      try {
+        const execution = await tool.resolveExecution(req.arguments);
+
+        if ('isError' in execution && execution.isError) {
+          const output = typeof execution.output === 'string'
+            ? execution.output
+            : JSON.stringify(execution.output);
+          return { content: output, is_error: true };
+        }
+
+        if ('execute' in execution) {
+          const result = await execution.execute({
+            turnId: req.turn_id,
+            toolCallId: req.tool_call_id,
+            signal: input.signal,
+          });
+
+          const output = typeof result.output === 'string'
+            ? result.output
+            : JSON.stringify(result.output);
+          return { content: output, is_error: 'isError' in result && result.isError === true };
+        }
+
+        return { content: 'Tool execution resolved without executable', is_error: true };
+      } catch (err) {
+        return {
+          content: err instanceof Error ? err.message : String(err),
+          is_error: true,
+        };
+      }
+    });
+
+    // Send the turn to the Rust binary
+    const result = await agent.request('agent/run_turn', {
+      turn_id: input.turnId,
+      system_prompt: input.llm.systemPrompt,
+      model_name: input.llm.modelName,
+      messages: messages.map((m) => ({
+        role: m.role,
+        content: typeof m.content === 'string'
+          ? m.content
+          : m.content.map((p) => ('text' in p ? p.text : '')).join('\n'),
+      })),
+      tools: tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.inputSchema ?? {},
+      })),
+      max_steps: input.maxSteps ?? 10,
+    });
+
+    if (!result) {
+      throw new Error('Rust engine returned null result');
+    }
+
+    const rustResult = result as RunTurnResult;
+
+    // Map Rust stop reason to JS LoopTurnStopReason
+    const stopReason = mapStopReason(rustResult.stop_reason);
+
+    return {
+      stopReason,
+      steps: rustResult.steps,
+      usage: {
+        inputOther: rustResult.usage.input_tokens,
+        output: rustResult.usage.output_tokens,
+        inputCacheRead: 0,
+        inputCacheCreation: 0,
+      },
+    };
+  };
+}
+
+/**
+ * Map Rust-style stop reason to JS LoopTurnStopReason.
+ */
+function mapStopReason(reason: string): import('@moonshot-ai/agent-core').LoopTurnStopReason {
+  switch (reason) {
+    case 'EndTurn': return 'end_turn' as never;
+    case 'MaxTokens': return 'max_tokens' as never;
+    case 'Filtered': return 'filtered' as never;
+    case 'Paused': return 'paused' as never;
+    case 'Aborted': return 'aborted' as never;
+    default: return 'unknown' as never;
+  }
+}
+
+/**
+ * Try to parse a JSON string into a value. Returns the original string if parsing fails.
+ */
+function tryParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
   }
 }
 

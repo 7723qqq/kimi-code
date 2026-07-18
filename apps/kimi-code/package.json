@@ -89,6 +89,7 @@
     "@moonshot-ai/agent-core-v2": "workspace:^",
     "@moonshot-ai/i18n-shared": "workspace:^",
     "@moonshot-ai/kap-server": "workspace:^",
+    "@moonshot-ai/kimi-agent": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-code-sdk": "workspace:^",
     "@moonshot-ai/kimi-telemetry": "workspace:^",

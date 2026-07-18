@@ -176,6 +176,7 @@ fn run_self_test() -> anyhow::Result<()> {
 }
 
 /// A mock LLM that returns a fixed response without tool calls.
+#[allow(dead_code)]
 struct MockLlm {
     system_prompt: String,
     model_name: String,

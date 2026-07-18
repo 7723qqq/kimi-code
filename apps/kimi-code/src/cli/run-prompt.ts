@@ -33,6 +33,7 @@ import type { PromptHarness, PromptSession } from './prompt-session';
 import { PromptJsonWriter, PromptTranscriptWriter, writeResumeHint } from './prompt-render';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
 import { createKimiCodeHostIdentity } from './version';
+import { maybeLoadRustEngine } from './rust-engine';
 
 /**
  * Await `promise`, but stop waiting after `timeoutMs`.
@@ -228,6 +229,11 @@ async function createPromptHarness(
 ): Promise<PromptHarness> {
   // The v2 engine is dispatched earlier in `runPrompt` (see the
   // `isKimiV2Enabled()` branch) and never reaches here; this is the v1 path.
+  // Wire the Rust agent engine if config has `agent.engine = "rust"`.
+  const runTurnOverride = await maybeLoadRustEngine(options.homeDir, options.configPath);
+  if (runTurnOverride !== undefined) {
+    (options as Record<string, unknown>).runTurnOverride = runTurnOverride;
+  }
   return createKimiHarness(options);
 }
 
