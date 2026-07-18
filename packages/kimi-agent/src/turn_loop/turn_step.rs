@@ -3,20 +3,16 @@
 use super::types::*;
 use crate::rpc::types::TokenUsage;
 
-/// Execute a single LLM step: call the LLM, return the result.
+/// Execute a single LLM step: call the LLM using the current messages,
+/// return the response with any tool calls.
 pub fn execute_loop_step(
     _turn_id: &str,
     _step: u32,
     llm: &dyn LLM,
-    _messages: &[LLMMessage],
+    messages: &[LLMMessage],
     _tools: &[&dyn ExecutableTool],
 ) -> Result<StepResult, Box<dyn std::error::Error>> {
-    let mut messages = vec![LLMMessage {
-        role: "system".into(),
-        content: llm.system_prompt().to_string(),
-    }];
-    messages.extend_from_slice(_messages);
-
+    // Build tool info for the LLM
     let tools: Vec<ToolInfo> = _tools
         .iter()
         .map(|t| ToolInfo {
@@ -26,12 +22,14 @@ pub fn execute_loop_step(
         })
         .collect();
 
-    let params = LLMChatParams { messages, tools };
+    let params = LLMChatParams {
+        messages: messages.to_vec(),
+        tools,
+    };
 
     match llm.chat(params) {
         Ok(response) => {
             let usage = response.usage.clone();
-
             if response.tool_calls.is_empty() {
                 Ok(StepResult {
                     usage,
