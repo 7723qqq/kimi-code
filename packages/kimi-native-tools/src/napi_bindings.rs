@@ -7,6 +7,7 @@ use crate::compaction::{self, CompactionConfigMeta, CompactionMessageMeta, Hando
 use crate::edit::{self, EditResult};
 use crate::escape;
 use crate::glob::{self, GlobConfig, GlobResult, MAX_MATCHES};
+use crate::github;
 use crate::grep::{self, GrepConfig, GrepResult, GrepStructuredConfig, GrepStructuredResult, OutputMode, DEFAULT_HEAD_LIMIT};
 use crate::image_compress;
 use crate::list_directory::{self, ListDirectoryConfig, ListDirectoryResult};
@@ -1801,6 +1802,67 @@ pub fn native_path_is_within_directory(candidate: String, base: String, path_cla
 pub fn native_path_is_within_workspace(candidate: String, roots: Vec<String>, path_class: String) -> bool {
     let class = path_access::PathClass::from_str(&path_class).unwrap_or(path_access::PathClass::Posix);
     path_access::is_within_workspace(&candidate, &roots, class)
+}
+
+// ============================================================================
+// GitHub — REST API transport
+// ============================================================================
+
+/// Normalized GitHub REST response handed back to JS. `body` is the raw
+/// response text (or an aggregated JSON array when paginating).
+#[napi(object)]
+pub struct NativeGithubResponse {
+    pub status: u32,
+    pub ok: bool,
+    pub body: String,
+    pub error: Option<String>,
+    pub rate_remaining: Option<i64>,
+}
+
+/// Perform an authenticated GitHub REST request. The blocking HTTP call runs on
+/// a worker thread (spawn_blocking) so it never blocks the Node event loop.
+///
+/// @param method - HTTP method ("GET", "POST", "PATCH", "PUT", "DELETE").
+/// @param path - API path ("/repos/o/r/issues") or absolute URL.
+/// @param query_json - JSON object of query params, or null.
+/// @param body_json - JSON request body, or null.
+/// @param paginate - When true and the response is a JSON array, follow
+///                   `Link: rel="next"` and return the concatenated array.
+/// @param accept - Override the `Accept` header (e.g. diff media type).
+#[napi]
+pub async fn native_github_request(
+    method: String,
+    path: String,
+    query_json: Option<String>,
+    body_json: Option<String>,
+    paginate: Option<bool>,
+    accept: Option<String>,
+) -> NativeGithubResponse {
+    tokio::task::spawn_blocking(move || {
+        let resp = github::request(
+            &method,
+            &path,
+            query_json.as_deref(),
+            body_json.as_deref(),
+            paginate.unwrap_or(false),
+            accept.as_deref(),
+        );
+        NativeGithubResponse {
+            status: u32::from(resp.status),
+            ok: resp.ok,
+            body: resp.body,
+            error: resp.error,
+            rate_remaining: resp.rate_remaining,
+        }
+    })
+    .await
+    .unwrap_or_else(|e| NativeGithubResponse {
+        status: 0,
+        ok: false,
+        body: String::new(),
+        error: Some(format!("github request panicked: {e}")),
+        rate_remaining: None,
+    })
 }
 
 // ============================================================================

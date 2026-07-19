@@ -80,6 +80,9 @@ const nativeTranslateClearCache = binding.nativeTranslateClearCache;
 const nativeTranslateBatch = binding.nativeTranslateBatch;
 const nativeTranslateBatchCached = binding.nativeTranslateBatchCached;
 
+// GitHub REST transport — authenticated request core (auth/headers/pagination in Rust).
+const nativeGithubRequest = binding.nativeGithubRequest;
+
 // ============================================================================
 // Read tool
 // ============================================================================
@@ -1051,4 +1054,7 @@ module.exports = {
   nativeTranslateClearCache,
   nativeTranslateBatch,
   nativeTranslateBatchCached,
+
+  // GitHub
+  nativeGithubRequest,
 };

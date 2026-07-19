@@ -981,3 +981,45 @@ export function tryNativePathCanonicalizeForGlob(
 export function tryNativeParsePermissionPattern(pattern: string): string | undefined {
   return callNativeSync<string>('nativeParsePermissionPattern', pattern);
 }
+
+// ============================================================================
+// GitHub — REST API transport
+// ============================================================================
+
+export interface NativeGithubResponse {
+  readonly status: number;
+  readonly ok: boolean;
+  readonly body: string;
+  readonly error?: string;
+  readonly rateRemaining?: number;
+}
+
+export interface NativeGithubRequestOptions {
+  query?: Record<string, unknown>;
+  body?: unknown;
+  paginate?: boolean;
+  accept?: string;
+}
+
+/**
+ * Perform an authenticated GitHub REST request via the Rust transport core
+ * (auth, headers, TLS, pagination). Returns undefined when the native module
+ * is unavailable (there is no TS fallback for network calls).
+ */
+export async function tryNativeGithubRequest(
+  method: string,
+  path: string,
+  options?: NativeGithubRequestOptions,
+): Promise<NativeGithubResponse | undefined> {
+  const queryJson = options?.query !== undefined ? JSON.stringify(options.query) : null;
+  const bodyJson = options?.body !== undefined ? JSON.stringify(options.body) : null;
+  return callNative<NativeGithubResponse>(
+    'nativeGithubRequest',
+    method,
+    path,
+    queryJson,
+    bodyJson,
+    options?.paginate ?? false,
+    options?.accept ?? null,
+  );
+}
