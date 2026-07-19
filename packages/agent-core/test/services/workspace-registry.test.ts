@@ -743,7 +743,6 @@ describe('touchWorkspaceRegistry', () => {
     expect(second.created).toBe(true);
     expect(second.workspaceId).not.toBe(first.workspaceId);
   });
-  });
 });
 
 async function setupEmptyRegistry(): Promise<{ ctx: TestContext }> {
