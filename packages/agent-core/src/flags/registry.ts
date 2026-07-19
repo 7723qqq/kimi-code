@@ -48,6 +48,15 @@ export const FLAG_DEFINITIONS = [
     default: false,
     surface: 'core',
   },
+  {
+    id: 'github_tools',
+    title: 'GitHub tools',
+    description:
+      'Built-in GitHub REST tools (repos, files, issues, pull requests, search) backed by the native engine. Requires a GITHUB_TOKEN or GH_TOKEN environment variable.',
+    env: 'KIMI_CODE_EXPERIMENTAL_GITHUB_TOOLS',
+    default: false,
+    surface: 'core',
+  },
 ] as const satisfies readonly FlagDefinitionInput[];
 
 /** Literal union of registered flag ids. */

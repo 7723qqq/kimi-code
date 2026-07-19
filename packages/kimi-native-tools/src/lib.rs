@@ -8,6 +8,7 @@ mod escape;
 mod file_cache;
 mod file_type;
 mod glob;
+mod github;
 mod goal;
 mod grep;
 mod image_compress;

@@ -14,6 +14,7 @@ import { mcpResultToExecutableOutput } from '../../mcp/output';
 import { isMcpToolName, qualifyMcpToolName } from '../../mcp/tool-naming';
 import type { MCPClient, MCPToolDefinition } from '../../mcp/types';
 import { DEFAULT_AGENT_PROFILES } from '../../profile';
+import { flags } from '../../flags';
 import { resolveSubagentTimeoutMs } from '../../session/subagent-host';
 import { extendWorkspaceWithSkillRoots } from '../../skill';
 import { fingerprint } from '../llm-request-logger';
@@ -766,6 +767,7 @@ export class ToolManager {
           ),
         toolServices?.webSearcher && new b.WebSearchTool(toolServices.webSearcher),
         toolServices?.urlFetcher && new b.FetchURLTool(toolServices.urlFetcher),
+        ...(flags.enabled('github_tools') ? b.createGitHubTools() : []),
       ]
         .filter((tool) => !!tool)
         .map((tool) => [tool.name, tool] as const),
