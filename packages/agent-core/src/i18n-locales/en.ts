@@ -145,7 +145,7 @@ export const en = {
     grepTimedOut: 'Grep timed out after {{seconds}}s. Try a more specific path or pattern.',
     grepPartial: 'Grep timed out after {{seconds}}s; partial results returned',
     grepAborted: 'Grep aborted',
-    agentResumeTimedOut: 'Agent resume timed out after {{timeout}}.',
+    agentResumeTimedOut: 'Agent timed out after {{timeout}}.',
     listingBackgroundTasks: 'Listing background tasks',
     creatingGoal: 'Creating a goal',
     readingTodoList: 'Reading todo list',
