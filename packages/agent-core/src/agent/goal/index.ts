@@ -687,7 +687,7 @@ export class GoalMode {
     const state = this.state;
     if (state === undefined || state.status !== 'active') return null;
     const result = tryNativeGoalEngineApplyUsage(
-      JSON.stringify({ goal: state, tokenDelta, turnDelta: 0, nowMs: Date.now() }),
+      JSON.stringify({ goal: engineGoalShape(state), tokenDelta, turnDelta: 0, nowMs: Date.now() }),
     );
     if (result !== undefined) {
       this.syncStateFromEngine(state, result.goal);
@@ -704,7 +704,7 @@ export class GoalMode {
     const state = this.state;
     if (state === undefined || state.status !== 'active') return null;
     const result = tryNativeGoalEngineApplyUsage(
-      JSON.stringify({ goal: state, tokenDelta: 0, turnDelta: 1, nowMs: Date.now() }),
+      JSON.stringify({ goal: engineGoalShape(state), tokenDelta: 0, turnDelta: 1, nowMs: Date.now() }),
     );
     if (result !== undefined) {
       this.syncStateFromEngine(state, result.goal);
@@ -784,7 +784,7 @@ export class GoalMode {
     const state = this.state;
     if (state === undefined) return;
     const result = tryNativeGoalEngineDecideStatusTransition(
-      JSON.stringify({ goal: state, targetStatus, expectedGoalId: state.goalId }),
+      JSON.stringify({ goal: engineGoalShape(state), targetStatus, expectedGoalId: state.goalId }),
     );
     if (result !== undefined && result.ok) {
       this.syncStateFromEngine(state, result.goal);
@@ -909,13 +909,27 @@ function liveWallClockMs(state: GoalState, now: number = Date.now()): number {
   return state.wallClockMs;
 }
 
+/**
+ * Shape a GoalState into the JSON the native engine expects: budget limits are
+ * flattened to top-level `tokenBudget` / `turnBudget` / `wallClockBudgetMs`
+ * fields (the engine does not read the nested `budgetLimits` object).
+ */
+function engineGoalShape(state: GoalState): Record<string, unknown> {
+  return {
+    ...state,
+    tokenBudget: state.budgetLimits.tokenBudget ?? null,
+    turnBudget: state.budgetLimits.turnBudget ?? null,
+    wallClockBudgetMs: state.budgetLimits.wallClockBudgetMs ?? null,
+  };
+}
+
 function computeBudgetReport(
   state: GoalState,
   now: number = Date.now(),
 ): GoalBudgetReport {
   // Engine owns the budget math.
   const result = tryNativeGoalEngineComputeBudgetReport(
-    JSON.stringify({ goal: state, nowMs: now }),
+    JSON.stringify({ goal: engineGoalShape(state), nowMs: now }),
   );
   if (result !== undefined) {
     return {
