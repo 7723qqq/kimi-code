@@ -1,4 +1,12 @@
 /**
+ * @deprecated Use `apps/kimi-code/src/i18n/index.ts` (the `createI18n()` factory)
+ * instead. This module is no longer exported from the package and exists only for
+ * reference. The Rust-backed i18n factory has been consolidated into the kimi-code
+ * package, which provides the same `t`, `setLocale`, `getLocale` API plus batch
+ * translation via `translateBatch`.
+ *
+ * --- Original docs below ---
+ *
  * Node.js i18n factory — uses the compiled Rust translation engine.
  *
  * The Rust engine (`@moonshot-ai/kimi-native-tools`) provides:
@@ -56,20 +64,8 @@ export interface CreateI18nNodeOptions {
 }
 
 /**
- * Create an i18n instance backed by the Rust translation engine.
- *
- * @param messages - Locale message trees, e.g. `{ en: {...}, zh: {...} }`.
- * @param options - Optional configuration.
- *
- * @example
- * ```ts
- * import { createI18n } from '@moonshot-ai/i18n-shared/node';
- * import en from './locales/en';
- * import zh from './locales/zh';
- *
- * const { t, setLocale, getLocale } = createI18n({ en, zh });
- * console.log(t('common.ok')); // → 'OK'
- * ```
+ * @deprecated Use `createI18n` from `apps/kimi-code/src/i18n/index.ts` instead.
+ * This function will be removed in a future version.
  */
 export function createI18n<M extends Record<Locale, MessageValue>>(
   messages: M,
@@ -116,6 +112,7 @@ export function createI18n<M extends Record<Locale, MessageValue>>(
     }
 
     // Last-resort pure-JS fallback (if the native module failed to load).
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { translate } = require('./core.js') as typeof import('./core.js');
     return translate(
       messages[currentLocale],

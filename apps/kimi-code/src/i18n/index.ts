@@ -4,9 +4,17 @@
  * Uses `nativeTranslateCached` (process-wide `CachedTranslator` singleton) so
  * that repeated calls with the same locale JSON skip re-parsing entirely.
  * The cache is invalidated on locale switch via `nativeTranslateClearCache`.
+ *
+ * Provides both a module-level singleton (backward-compatible `t`, `setLocale`,
+ * `getLocale`) and a `createI18n()` factory for multi-instance use, plus batch
+ * translation via `translateBatch`.
  */
 
-import type { Locale, TranslationKey } from '@moonshot-ai/i18n-shared';
+import type {
+  Locale,
+  TranslationKey,
+  I18nInstance as SharedI18nInstance,
+} from '@moonshot-ai/i18n-shared';
 import { detectLocaleNode } from '@moonshot-ai/i18n-shared';
 
 import en from './locales/en';
@@ -15,6 +23,7 @@ import zh from './locales/zh';
 // Re-export shared types for consumers.
 export type { Locale };
 export type TranslationKey = TranslationKey<typeof en>;
+export type Engine = 'rust' | 'js';
 
 // In a SEA binary, @moonshot-ai/kimi-native-tools is excluded from the JS
 // bundle and shipped as a native asset. The Module._load hook approach
@@ -23,29 +32,31 @@ export type TranslationKey = TranslationKey<typeof en>;
 // loading the module from the native asset cache via getNativePackageRoot.
 import { getNativePackageRoot } from '../native/native-assets';
 
-const messages = { en, zh };
+const messages = { en, zh } as const;
 
-let currentLocale: Locale = detectLocaleNode();
+// ── I18nInstance with batch support ────────────────────────────────────────────
 
-export function setLocale(locale: Locale): void {
-  if (locale in messages) {
-    currentLocale = locale;
-    // Invalidate the Rust-side cache so stale parsed JSON is evicted.
-    localeJsonCurrent = undefined;
-    try {
-      const native = ensureNative();
-      native.nativeTranslateClearCache?.();
-    } catch {
-      /* native module may not be loaded yet */
-    }
-  }
+export interface I18nInstance extends SharedI18nInstance<typeof messages> {
+  /**
+   * Returns whether the native Rust engine is active.
+   * Always `'rust'` in kimi-code — the engine throws if unavailable.
+   */
+  getEngine: () => Engine;
+
+  /**
+   * Translate multiple keys in a single native call, parsing the JSON only once.
+   *
+   * Falls back to the cached engine when available. If neither batch variant is
+   * available in the native module, iterates individual `t()` calls as a last
+   * resort.
+   */
+  translateBatch: (
+    keys: string[],
+    params?: Record<string, string | number>,
+  ) => { key: string; message: string }[];
 }
 
-export function getLocale(): Locale {
-  return currentLocale;
-}
-
-// ── Native Rust engine (compiled, no fallback) ───────────────────────────────
+// ── Native Rust engine (compiled, no fallback) ────────────────────────────────
 // The Rust module is compiled into the binary via napi-rs. If it's not available
 // the error is thrown immediately — no silent fallback, because the compiled
 // engine is the only canonical implementation.
@@ -64,12 +75,22 @@ interface NativeModule {
     params: Record<string, string> | null | undefined,
   ) => string;
   nativeTranslateClearCache?: () => void;
+  nativeTranslateBatch?: (
+    localeJson: string,
+    fallbackJson: string,
+    keys: string[],
+    params: Record<string, string> | null | undefined,
+  ) => { key: string; message: string }[];
+  nativeTranslateBatchCached?: (
+    localeJson: string,
+    fallbackJson: string,
+    keys: string[],
+    params: Record<string, string> | null | undefined,
+  ) => { key: string; message: string }[];
 }
 
 let nativeModule: NativeModule | undefined;
-
 let localeJsonEn: string | undefined;
-let localeJsonCurrent: string | undefined;
 
 function ensureNative(): NativeModule {
   if (nativeModule) return nativeModule;
@@ -78,7 +99,6 @@ function ensureNative(): NativeModule {
     const mod = require('@moonshot-ai/kimi-native-tools') as NativeModule;
     nativeModule = mod;
     localeJsonEn = JSON.stringify(en);
-    localeJsonCurrent = JSON.stringify(messages[currentLocale]);
     return mod;
   } catch {
     // In a SEA binary the module is a native asset, not a bundled JS module.
@@ -93,41 +113,128 @@ function ensureNative(): NativeModule {
     const mod = cacheRequire(pkgRoot) as NativeModule;
     nativeModule = mod;
     localeJsonEn = JSON.stringify(en);
-    localeJsonCurrent = JSON.stringify(messages[currentLocale]);
     return mod;
   }
 }
 
-// ── Public API ───────────────────────────────────────────────────────────────
-
-export function t(
-  key: TranslationKey | (string & {}),
-  params?: Record<string, string | number>,
-): string {
-  const native = ensureNative();
-  if (localeJsonCurrent === undefined) {
-    localeJsonCurrent = JSON.stringify(messages[currentLocale]);
-  }
-  const stringParams: Record<string, string> | undefined = params
+function toNativeParams(params?: Record<string, string | number>): Record<string, string> | undefined {
+  return params
     ? Object.fromEntries(
         Object.entries(params).map(([k, v]) => [k, String(v)]),
       )
     : undefined;
-
-  // Use the cached translator (skips JSON re-parsing on repeated calls).
-  // Falls back to uncached `nativeTranslate` if the .node file predates it.
-  if (native.nativeTranslateCached) {
-    return native.nativeTranslateCached(
-      localeJsonCurrent!,
-      localeJsonEn!,
-      key,
-      stringParams,
-    );
-  }
-  return native.nativeTranslate(
-    localeJsonCurrent!,
-    localeJsonEn!,
-    key,
-    stringParams,
-  );
 }
+
+// ── Factory ───────────────────────────────────────────────────────────────────
+
+export interface CreateI18nOptions {
+  /** Initial locale. Defaults to env-based detection. */
+  initialLocale?: Locale;
+  /** Skip auto-detection even in Node.js. */
+  noDetect?: boolean;
+}
+
+/**
+ * Create an i18n instance backed by the Rust translation engine.
+ *
+ * @example
+ * const { t, setLocale } = createI18n();
+ * console.log(t('errors.sessionNotFound'));
+ */
+export function createI18n(options: CreateI18nOptions = {}): I18nInstance {
+  let currentLocale: Locale = options.noDetect
+    ? 'en'
+    : (options.initialLocale ?? detectLocaleNode());
+
+  let localeCurrentJson = JSON.stringify(messages[currentLocale]);
+
+  return {
+    t(
+      key: TranslationKey | (string & {}),
+      params?: Record<string, string | number>,
+    ): string {
+      const native = ensureNative();
+      const stringParams = toNativeParams(params);
+
+      if (native.nativeTranslateCached) {
+        return native.nativeTranslateCached(
+          localeCurrentJson,
+          localeJsonEn!,
+          key,
+          stringParams,
+        );
+      }
+      return native.nativeTranslate(
+        localeCurrentJson,
+        localeJsonEn!,
+        key,
+        stringParams,
+      );
+    },
+
+    setLocale(locale: Locale): void {
+      if (locale in messages) {
+        currentLocale = locale;
+        localeCurrentJson = JSON.stringify(messages[currentLocale]);
+        try {
+          const native = ensureNative();
+          native.nativeTranslateClearCache?.();
+        } catch {
+          /* native module may not be loaded yet */
+        }
+      }
+    },
+
+    getLocale(): Locale {
+      return currentLocale;
+    },
+
+    getEngine(): Engine {
+      return 'rust';
+    },
+
+    getMessages(): typeof messages {
+      return messages;
+    },
+
+    translateBatch(
+      keys: string[],
+      params?: Record<string, string | number>,
+    ): { key: string; message: string }[] {
+      const native = ensureNative();
+      const stringParams = toNativeParams(params);
+
+      // Prefer cached batch, fall back to uncached batch.
+      if (native.nativeTranslateBatchCached) {
+        return native.nativeTranslateBatchCached(
+          localeCurrentJson,
+          localeJsonEn!,
+          keys,
+          stringParams,
+        );
+      }
+      if (native.nativeTranslateBatch) {
+        return native.nativeTranslateBatch(
+          localeCurrentJson,
+          localeJsonEn!,
+          keys,
+          stringParams,
+        );
+      }
+      // Last-resort: translate each key individually.
+      return keys.map((key) => ({
+        key,
+        message: this.t(key, params),
+      }));
+    },
+  };
+}
+
+// ── Module-level default singleton (backward-compatible API) ─────────────────
+
+const defaultI18n = createI18n();
+
+export const t = defaultI18n.t.bind(defaultI18n);
+export const setLocale = defaultI18n.setLocale.bind(defaultI18n);
+export const getLocale = defaultI18n.getLocale.bind(defaultI18n);
+export const getEngine = defaultI18n.getEngine.bind(defaultI18n);
