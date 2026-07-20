@@ -52,7 +52,7 @@ export const FLAG_DEFINITIONS = [
     id: 'github_tools',
     title: 'GitHub tools',
     description:
-      'Built-in GitHub REST tools (repos, files, issues, pull requests, search) backed by the native engine. Requires a GITHUB_TOKEN or GH_TOKEN environment variable.',
+      'Built-in GitHub REST tools (repos, files, issues, pull requests, search) backed by the native engine. Requires a GITHUB_TOKEN or GH_TOKEN environment variable, or set github_token in the [experimental] config section.',
     env: 'KIMI_CODE_EXPERIMENTAL_GITHUB_TOOLS',
     default: false,
     surface: 'core',

@@ -463,6 +463,8 @@ export default {
         upgradeDesc: '开启或关闭 CLI 自动更新。',
         usage: '用量',
         usageDesc: '查看会话令牌数、上下文窗口和计划配额。',
+        githubToken: 'GitHub Token',
+        githubTokenDesc: '设置内置 GitHub 工具的 Personal Access Token。',
       },
       permissionSelector: {
         title: '选择权限模式',

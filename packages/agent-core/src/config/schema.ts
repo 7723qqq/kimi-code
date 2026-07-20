@@ -197,7 +197,7 @@ export const ModelCatalogConfigSchema = z.object({
 
 export type ModelCatalogConfig = z.infer<typeof ModelCatalogConfigSchema>;
 
-export const ExperimentalConfigSchema = z.record(z.string(), z.boolean());
+export const ExperimentalConfigSchema = z.record(z.string(), z.union([z.boolean(), z.string()]));
 
 export type ExperimentalConfig = z.infer<typeof ExperimentalConfigSchema>;
 

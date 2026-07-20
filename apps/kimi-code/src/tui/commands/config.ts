@@ -30,6 +30,7 @@ import { formatErrorMessage } from '../utils/event-payload';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import { showUsage } from './info';
 import { setExperimentalFeatures } from './experimental-flags';
+import { promptApiKey } from './prompts';
 import type { SlashCommandHost } from './dispatch';
 
 // ---------------------------------------------------------------------------
@@ -830,5 +831,21 @@ function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelectio
     case 'language': showLocalePicker(host); return;
     case 'upgrade': showUpdatePreferencePicker(host); return;
     case 'usage': void showUsage(host); return;
+    case 'github_token': void handleGitHubTokenInput(host); return;
+  }
+}
+
+async function handleGitHubTokenInput(host: SlashCommandHost): Promise<void> {
+  const token = await promptApiKey(
+    host,
+    'GitHub',
+    ['Enter your GitHub personal access token (classic).'],
+  );
+  if (token === undefined) return;
+  try {
+    await host.harness.setConfig({ experimental: { github_token: token } });
+    host.showStatus('GitHub token saved.', 'success');
+  } catch (error) {
+    host.showError(`Failed to save GitHub token: ${formatErrorMessage(error)}`);
   }
 }
