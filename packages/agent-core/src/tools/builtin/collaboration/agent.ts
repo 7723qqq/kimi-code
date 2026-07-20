@@ -59,7 +59,13 @@ export const AgentToolInputSchema = z.preprocess(
     return normalized;
   },
   z.object({
-    prompt: z.string().describe('Full task prompt for the subagent'),
+    prompt: z
+      .string()
+      .min(1)
+      .refine((value) => value.trim().length > 0, {
+        message: 'prompt must not be empty or whitespace-only',
+      })
+      .describe('Full task prompt for the subagent'),
     description: z.string().describe('Short task description (3-5 words) for UI display'),
     subagent_type: z
       .string()
@@ -69,6 +75,7 @@ export const AgentToolInputSchema = z.preprocess(
       ),
     resume: z
       .string()
+      .min(1)
       .optional()
       .describe(
         'Optional agent ID to resume instead of creating a new instance. When set, do not also pass subagent_type — the resumed agent keeps its own type, and supplying both is rejected.',
@@ -281,6 +288,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
       }
       return await this.formatForegroundResult(taskId, handle);
     } catch (error) {
+      if (isAbortError(error)) throw error;
       return { output: `subagent error: ${launchErrorMessage(error, signal)}`, isError: true };
     }
   }

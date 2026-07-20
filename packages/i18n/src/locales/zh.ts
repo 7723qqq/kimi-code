@@ -151,7 +151,7 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     grepTimedOut: 'Grep 在 {{seconds}}s 后超时。请尝试更具体的路径或模式。',
     grepPartial: 'Grep 在 {{seconds}}s 后超时；返回部分结果',
     grepAborted: 'Grep 已中止',
-    agentResumeTimedOut: 'Agent 恢复在 {{timeout}} 后超时。',
+    agentResumeTimedOut: 'Agent 在 {{timeout}} 后超时。',
     listingBackgroundTasks: '列出后台任务',
     creatingGoal: '创建目标',
     readingTodoList: '读取待办列表',
