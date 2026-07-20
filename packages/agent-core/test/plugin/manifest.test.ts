@@ -509,7 +509,7 @@ describe('parseManifest', () => {
     });
     const result = await parseManifest(root);
     expect(result.manifest?.name).toBe('demo');
-    expect(result.manifest?.version).toBe(1);
+    expect(result.manifest?.version).toBe('1');
   });
 
   it('accepts unicode plugin name', async () => {

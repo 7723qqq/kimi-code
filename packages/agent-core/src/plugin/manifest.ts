@@ -20,17 +20,25 @@ import {
 const KIMI_PLUGIN_ROOT_PATH = 'kimi.plugin.json';
 const KIMI_PLUGIN_DIR_PATH = '.kimi-plugin/plugin.json';
 
-// Fields that look like third-party runtime extensions (Claude / Codex / old
-// Kimi CLI). We do not run them; emit an info diagnostic so plugin authors and
-// users can see why a field is silently ignored.
-const UNSUPPORTED_RUNTIME_FIELDS = [
-  'tools',
-  'apps',
-  'inject',
-  'configFile',
-  'config_file',
-  'bootstrap',
-] as const;
+// The set of manifest fields Kimi plugins understand. Any other top-level
+// field (e.g. third-party runtime extensions like `tools` / `apps` / `inject`,
+// or typos) gets an info diagnostic so authors see why it is ignored.
+const KNOWN_MANIFEST_FIELDS = new Set([
+  'name',
+  'version',
+  'description',
+  'keywords',
+  'homepage',
+  'license',
+  'author',
+  'skills',
+  'skillInstructions',
+  'sessionStart',
+  'mcpServers',
+  'hooks',
+  'commands',
+  'interface',
+]);
 
 export interface ParsedManifestResult {
   readonly manifest?: PluginManifest;
@@ -113,11 +121,11 @@ export async function parseManifest(pluginRoot: string): Promise<ParsedManifestR
   const skillInstructions =
     typeof raw['skillInstructions'] === 'string' ? raw['skillInstructions'] : undefined;
 
-  recordUnsupportedRuntimeFields(raw, diagnostics);
+  recordUnknownFields(raw, diagnostics);
 
   const manifest: PluginManifest = {
     name,
-    version: stringField(raw, 'version'),
+    version: versionField(raw),
     description: stringField(raw, 'description'),
     keywords: stringArrayField(raw, 'keywords'),
     homepage: stringField(raw, 'homepage'),
@@ -135,17 +143,24 @@ export async function parseManifest(pluginRoot: string): Promise<ParsedManifestR
   return { manifest, manifestKind, manifestPath, shadowedManifestPath, diagnostics };
 }
 
-function recordUnsupportedRuntimeFields(
+function recordUnknownFields(
   raw: Record<string, unknown>,
   diagnostics: PluginDiagnostic[],
 ): void {
-  for (const field of UNSUPPORTED_RUNTIME_FIELDS) {
-    if (raw[field] === undefined) continue;
+  for (const field of Object.keys(raw)) {
+    if (KNOWN_MANIFEST_FIELDS.has(field)) continue;
     diagnostics.push({
       severity: 'info',
       message: t('plugin.unsupportedField', { field }),
     });
   }
+}
+
+/** Read the `version` field, coercing a numeric value (from JSON) to a string. */
+function versionField(raw: Record<string, unknown>): string | undefined {
+  const value = raw['version'];
+  if (typeof value === 'number') return String(value);
+  return stringField(raw, 'version');
 }
 
 async function resolveSkillsField(
@@ -332,6 +347,7 @@ async function readCommands(
   }
 
   const files: PluginCommandEntry[] = [];
+  let anyResolved = false;
   for (const entry of entries) {
     const resolved = await resolvePluginPathField({
       pluginRoot,
@@ -340,6 +356,7 @@ async function readCommands(
       diagnostics,
     });
     if (resolved === undefined) continue;
+    anyResolved = true;
     if (await isDir(resolved)) {
       files.push(...(await listMarkdownFilesRecursive(resolved)));
     } else if ((await isFile(resolved)) && resolved.endsWith('.md')) {
@@ -351,7 +368,9 @@ async function readCommands(
       });
     }
   }
-  return files.length === 0 ? undefined : files.toSorted((a, b) => a.name.localeCompare(b.name));
+  // A declared-but-empty commands dir yields []; entries that all failed to
+  // resolve (e.g. outside the plugin) leave commands unset.
+  return anyResolved ? files.toSorted((a, b) => a.name.localeCompare(b.name)) : undefined;
 }
 
 async function listMarkdownFilesRecursive(root: string): Promise<readonly PluginCommandEntry[]> {
