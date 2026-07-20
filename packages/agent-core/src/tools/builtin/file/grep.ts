@@ -49,7 +49,7 @@ import GREP_DESCRIPTION from './grep.md?raw';
 export { GREP_DESCRIPTION };
 
 export const GrepInputSchema = z.object({
-  pattern: z.string().describe('Regular expression to search for.'),
+  pattern: z.string().min(1).describe('Regular expression to search for.'),
   path: z
     .string()
     .optional()

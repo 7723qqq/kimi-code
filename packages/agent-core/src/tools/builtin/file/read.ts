@@ -24,6 +24,7 @@ const TailLineOffsetSchema = z.number().int().min(-MAX_LINES).max(-1);
 export const ReadInputSchema = z.object({
   path: z
     .string()
+    .min(1)
     .describe(
       'Path to a text file. Relative paths resolve against the working directory; a path outside the working directory must be absolute. Directories are not supported; use `ls` via Bash for a known directory, or Glob for pattern search.',
     ),

@@ -24,11 +24,13 @@ export { WRITE_DESCRIPTION };
 export const WriteInputSchema = z.object({
   path: z
     .string()
+    .min(1)
     .describe(
       'Path to the file to create, append to, or completely overwrite. Relative paths resolve against the working directory; a path outside the working directory must be absolute. Missing parent directories are created automatically.',
     ),
   content: z
     .string()
+    .min(1)
     .describe(
       'Raw full file content to write exactly as provided. This does not use the Read/Edit text view.',
     ),
