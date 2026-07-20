@@ -531,6 +531,13 @@ export const GITHUB_READONLY_TOOL_NAMES: readonly string[] = [
 ];
 
 /** Instantiate the full set of built-in GitHub tools. */
-export function createGitHubTools(): BuiltinTool[] {
+export function createGitHubTools(token?: string): BuiltinTool[] {
+  // When a token is provided via config, set it as the env var so the Rust
+  // native code (which reads from GITHUB_TOKEN / GH_TOKEN) can pick it up.
+  // Only set it when the env var is not already set, so the env var takes
+  // priority over the config value.
+  if (token !== undefined && token.length > 0 && !process.env['GITHUB_TOKEN'] && !process.env['GH_TOKEN']) {
+    process.env['GITHUB_TOKEN'] = token;
+  }
   return githubToolSpecs();
 }

@@ -463,6 +463,8 @@ export default {
         upgradeDesc: 'Turn automatic CLI updates on or off.',
         usage: 'Usage',
         usageDesc: 'Show session tokens, context window, and plan quotas.',
+        githubToken: 'GitHub Token',
+        githubTokenDesc: 'Set the GitHub personal access token for built-in GitHub tools.',
       },
       permissionSelector: {
         title: 'Select permission mode',
