@@ -220,26 +220,22 @@ describe('goal session end-to-end', () => {
     await agent.turn.waitForCurrentTurn();
     await session.flushMetadata();
 
-    // One turn, then the turn budget blocks the goal (resumable) — no second turn.
-    expect((await api.getGoal({ agentId: 'main' })).goal?.status).toBe('blocked');
+    // One turn, then the turn budget limits the goal (not resumable without a
+    // new budget) — no second turn.
+    expect((await api.getGoal({ agentId: 'main' })).goal?.status).toBe('budget_limited');
     expect(scripted.calls.length).toBe(1);
   });
 
-  it('continues goal mode after the model resumes a paused goal', async () => {
+  it('continues goal mode after a paused goal is resumed', async () => {
     const sessionDir = await makeTempDir();
     const events: Array<Record<string, unknown>> = [];
     const { session, agent, scripted } = await setupSession(sessionDir, events, ['GetGoal', 'UpdateGoal']);
     const api = new SessionAPIImpl(session);
     await api.createGoal({ agentId: 'main', objective: 'work' });
     await api.pauseGoal({ agentId: 'main' });
+    // Resuming is a user action — UpdateGoal intentionally rejects `active`.
+    await api.resumeGoal({ agentId: 'main' });
 
-    scripted.mockNextResponse({
-      type: 'function',
-      id: 'resume',
-      name: 'UpdateGoal',
-      arguments: JSON.stringify({ status: 'active' }),
-    });
-    scripted.mockNextResponse({ type: 'text', text: 'Resumed the goal.' });
     scripted.mockNextResponse({
       type: 'function',
       id: 'complete',
@@ -251,10 +247,9 @@ describe('goal session end-to-end', () => {
     agent.turn.prompt([{ type: 'text', text: 'Keep working on the goal' }]);
     await agent.turn.waitForCurrentTurn();
 
-    expect(scripted.calls.length).toBeGreaterThanOrEqual(4);
-    expect(JSON.stringify(scripted.calls[0]?.history ?? [])).toContain('currently paused');
-    expect(JSON.stringify(scripted.calls[2]?.history ?? [])).toContain('Continue working toward the active goal');
-    expect(JSON.stringify(scripted.calls[3]?.history ?? [])).toContain('Write a concise final message for the user');
+    // The resumed (active) goal drives continuation: the model completes it and
+    // the durable record is cleared.
+    expect(JSON.stringify(scripted.calls[1]?.history ?? [])).toContain('Write a concise final message for the user');
     expect((await api.getGoal({ agentId: 'main' })).goal).toBeNull();
   });
 
@@ -335,7 +330,7 @@ describe('goal session end-to-end', () => {
     await agent.turn.waitForCurrentTurn();
 
     const goal = (await api.getGoal({ agentId: 'main' })).goal;
-    expect(goal?.status).toBe('blocked');
+    expect(goal?.status).toBe('budget_limited');
     expect(goal?.turnsUsed).toBe(1);
     expect(scripted.calls).toHaveLength(3);
     expect(events.filter((e) => e['type'] === 'turn.started')).toHaveLength(1);
@@ -397,12 +392,16 @@ describe('goal session end-to-end', () => {
     const api = new SessionAPIImpl(session);
     await api.createGoal({ agentId: 'main', objective: 'work' });
 
-    scripted.mockNextResponse({
-      type: 'function',
-      id: 'blocked',
-      name: 'UpdateGoal',
-      arguments: JSON.stringify({ status: 'blocked' }),
-    });
+    // The 3-turn blocked audit requires three consecutive UpdateGoal(blocked)
+    // attempts before the goal is actually marked blocked.
+    for (const id of ['blocked1', 'blocked2', 'blocked3']) {
+      scripted.mockNextResponse({
+        type: 'function',
+        id,
+        name: 'UpdateGoal',
+        arguments: JSON.stringify({ status: 'blocked' }),
+      });
+    }
     scripted.mockNextResponse({
       type: 'text',
       text: 'I blocked the goal because credentials are required before I can continue.',
@@ -411,13 +410,13 @@ describe('goal session end-to-end', () => {
     agent.turn.prompt([{ type: 'text', text: 'work' }]);
     await agent.turn.waitForCurrentTurn();
 
-    expect(scripted.calls).toHaveLength(2);
+    expect(scripted.calls).toHaveLength(4);
     const blockedToolResult = events.find(
-      (event) => event['type'] === 'tool.result' && event['toolCallId'] === 'blocked',
+      (event) => event['type'] === 'tool.result' && event['toolCallId'] === 'blocked3',
     );
     expect(String(blockedToolResult?.['output'])).toContain('Goal blocked.');
     expect(String(blockedToolResult?.['output'])).toContain('concrete blocker');
-    const reasonHistory = JSON.stringify(scripted.calls[1]?.history ?? []);
+    const reasonHistory = JSON.stringify(scripted.calls[3]?.history ?? []);
     expect(reasonHistory).toContain('Goal blocked.');
     expect(reasonHistory).toContain('State that the goal is blocked');
     const lastContextMessage = agent.context.history.at(-1);
@@ -654,7 +653,7 @@ describe('goal session end-to-end', () => {
 
     const goal = (await api.getGoal({ agentId: 'main' })).goal;
     expect(scripted.calls).toHaveLength(0);
-    expect(goal?.status).toBe('blocked');
+    expect(goal?.status).toBe('budget_limited');
     expect(goal?.turnsUsed).toBe(1);
   });
 
@@ -679,7 +678,7 @@ describe('goal session end-to-end', () => {
 
     const goal = (await api.getGoal({ agentId: 'main' })).goal;
     expect(scripted.calls).toHaveLength(1);
-    expect(goal?.status).toBe('blocked');
+    expect(goal?.status).toBe('budget_limited');
     expect(goal?.tokensUsed).toBeGreaterThan(1);
   });
 
@@ -822,7 +821,7 @@ describe('goal session end-to-end', () => {
     const goal = (await api.getGoal({ agentId: 'main' })).goal;
     // Only the first step ran; the Stop-hook continuation was suppressed.
     expect(scripted.calls).toHaveLength(1);
-    expect(goal?.status).toBe('blocked');
+    expect(goal?.status).toBe('budget_limited');
   });
 
   it('preserves buffered steered input when the goal budget is reached', async () => {
@@ -872,7 +871,7 @@ describe('goal session end-to-end', () => {
     await agent.turn.waitForCurrentTurn();
 
     expect(calls).toBe(1);
-    expect((await api.getGoal({ agentId: 'main' })).goal?.status).toBe('blocked');
+    expect((await api.getGoal({ agentId: 'main' })).goal?.status).toBe('budget_limited');
     expect(JSON.stringify(agent.context.history)).toContain('urgent user steer');
   });
 
@@ -944,34 +943,29 @@ describe('goal session end-to-end', () => {
     expect((await api.getGoal({ agentId: 'main' })).goal).toBeNull();
   });
 
-  it('cancelling a non-existent goal does not throw', async () => {
+  it('cancelling a non-existent goal rejects', async () => {
     const sessionDir = await makeTempDir();
     const events: Array<Record<string, unknown>> = [];
     const { session, agent } = await setupSession(sessionDir, events, ['GetGoal']);
     const api = new SessionAPIImpl(session);
 
-    await expect(api.cancelGoal({ agentId: 'main' })).resolves.not.toThrow();
+    await expect(api.cancelGoal({ agentId: 'main' })).rejects.toThrow();
   });
 
-  it('handles an empty objective string', async () => {
+  it('rejects an empty objective string', async () => {
     const sessionDir = await makeTempDir();
     const events: Array<Record<string, unknown>> = [];
-    const { session, agent, scripted } = await setupSession(sessionDir, events, ['GetGoal', 'UpdateGoal']);
+    const { session, agent } = await setupSession(sessionDir, events, ['GetGoal', 'UpdateGoal']);
     const api = new SessionAPIImpl(session);
 
-    await api.createGoal({ agentId: 'main', objective: '' });
-    scripted.mockNextResponse({ type: 'text', text: 'Working on empty objective.' });
-    agent.turn.prompt([{ type: 'text', text: 'work' }]);
-    await agent.turn.waitForCurrentTurn();
-
-    const goal = (await api.getGoal({ agentId: 'main' })).goal;
-    expect(goal?.objective).toBe('');
+    await expect(api.createGoal({ agentId: 'main', objective: '' })).rejects.toThrow();
   });
 
   it('handles a very long objective string', async () => {
     const sessionDir = await makeTempDir();
     const events: Array<Record<string, unknown>> = [];
-    const longObjective = 'x'.repeat(10_000);
+    // Objectives are capped at 4000 characters; use exactly the max length.
+    const longObjective = 'x'.repeat(4000);
     const { session, agent, scripted } = await setupSession(sessionDir, events, ['GetGoal', 'UpdateGoal']);
     const api = new SessionAPIImpl(session);
 
@@ -1023,6 +1017,7 @@ describe('goal session end-to-end', () => {
     const sessionDir = await makeTempDir();
     const events: Array<Record<string, unknown>> = [];
     const { agent } = await setupSession(sessionDir, events, ['GetGoal']);
+    await agent.goal.createGoal({ objective: 'work' });
     await expect(
       agent.goal.setBudgetLimits({ budgetLimits: { turnBudget: 0, tokenBudget: 0 } }, 'model'),
     ).resolves.not.toThrow();
