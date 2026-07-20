@@ -38,5 +38,8 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@moonshot-ai/kimi-native-tools": "workspace:^"
   }
 }

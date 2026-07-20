@@ -4,8 +4,8 @@
  * The main entry re-exports pure-JS utilities that work in both
  * Node.js and browser environments.
  *
- * For environment-specific factories, import from:
- * - `@moonshot-ai/i18n-shared/node` — Rust-backed Node.js factory
+ * For the Rust-backed Node.js factory, see `apps/kimi-code/src/i18n/index.ts`.
+ * For the browser factory, import from:
  * - `@moonshot-ai/i18n-shared/web`  — Pure-JS browser factory (with React hook)
  */
 

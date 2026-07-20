@@ -1,2 +1,2 @@
-export { t, setLocale, getLocale } from './i18n';
-export type { Locale, TranslationKey } from './i18n';
+export { t, setLocale, getLocale, getEngine } from './i18n';
+export type { Locale, TranslationKey, Engine } from './i18n';
