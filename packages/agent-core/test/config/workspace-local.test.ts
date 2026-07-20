@@ -203,12 +203,14 @@ describe('workspace local config', () => {
   });
 
   it('returns empty arrays when project has no .git directory', async () => {
-    // A project root without .git should still resolve gracefully.
+    // A project root without .git should still resolve gracefully, falling
+    // back to the working directory as the project root.
     const root = await mkdtemp(join(tmpdir(), 'kimi-no-git-'));
     tempDirs.push(root);
     await mkdir(join(root, 'subdir'), { recursive: true });
-    const result = await loadWorkspaceLocalConfig(testKaos, join(root, 'subdir'));
-    expect(result.projectRoot).toBe(root);
+    const workDir = join(root, 'subdir');
+    const result = await loadWorkspaceLocalConfig(testKaos, workDir);
+    expect(result.projectRoot).toBe(workDir);
     expect(result.additionalDirs).toEqual([]);
   });
 

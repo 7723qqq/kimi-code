@@ -1,5 +1,5 @@
 import type { Kaos } from '@moonshot-ai/kaos';
-import { dirname, isAbsolute, join, normalize, resolve } from 'pathe';
+import { dirname, isAbsolute, join, normalize, relative, resolve } from 'pathe';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import { z } from 'zod';
 
@@ -74,6 +74,7 @@ export async function appendWorkspaceAdditionalDir(
   const projectRoot = await findProjectRoot(kaos, workDir);
   const configPath = getWorkspaceLocalConfigPath(projectRoot);
   const additionalDir = await resolveAdditionalDir(kaos, workDir, inputPath);
+  assertWithinWorkspace(kaos, projectRoot, additionalDir);
   const file = (await readWorkspaceLocalToml(kaos, configPath)) ?? { raw: {}, parsed: {} };
   const fileAdditionalDirs = file.parsed.workspace?.additional_dir ?? [];
   const fileExistingDirs = resolveExistingAdditionalDirs(kaos, projectRoot, fileAdditionalDirs);
@@ -97,7 +98,11 @@ export function normalizeAdditionalDirs(additionalDirs: readonly string[]): stri
   const normalizedDirs: string[] = [];
 
   for (const additionalDir of additionalDirs) {
-    const normalized = normalize(additionalDir);
+    let normalized = normalize(additionalDir);
+    // pathe keeps trailing separators ('shared/' stays 'shared/'); drop them so
+    // trailing-slash variants normalize to the same entry (a bare root stays).
+    const stripped = normalized.replace(/[/\\]+$/, '');
+    if (stripped.length > 0) normalized = stripped;
     if (seen.has(normalized)) continue;
     seen.add(normalized);
     normalizedDirs.push(normalized);
@@ -225,6 +230,21 @@ async function resolveAdditionalDir(
   const resolvedDir = resolvePath(kaos, projectRoot, normalizedInput);
   await assertDirectory(kaos, resolvedDir);
   return resolvedDir;
+}
+
+function assertWithinWorkspace(kaos: Kaos, projectRoot: string, resolvedDir: string): void {
+  if (isWithinRoot(resolvedDir, projectRoot)) return;
+  const homeDir = kaos.gethome();
+  if (homeDir !== undefined && homeDir !== '' && isWithinRoot(resolvedDir, homeDir)) return;
+  throw new KimiError(
+    ErrorCodes.CONFIG_INVALID,
+    'workspace.additional_dir must exist and be a directory inside the project root',
+  );
+}
+
+function isWithinRoot(dir: string, root: string): boolean {
+  const rel = relative(root, dir);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
 function normalizeAdditionalDirInput(additionalDir: string): string {
