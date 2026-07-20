@@ -11,15 +11,15 @@ import {
   approvalToBrokerRequest as toBrokerRequest,
 } from '../../src/services';
 
-describe('approval-adapter · toBrokerRequest (in-process → protocol)', () => {
-  const inProc: InProcessApprovalRequest = {
-    turnId: 7,
-    toolCallId: 'tc_abc',
-    toolName: 'shell.run',
-    action: 'Run `rm -rf foo/`',
-    display: { kind: 'command', command: 'rm -rf foo/', summary: 'rm' } as never,
-  };
+const inProc: InProcessApprovalRequest = {
+  turnId: 7,
+  toolCallId: 'tc_abc',
+  toolName: 'shell.run',
+  action: 'Run `rm -rf foo/`',
+  display: { kind: 'command', command: 'rm -rf foo/', summary: 'rm' } as never,
+};
 
+describe('approval-adapter · toBrokerRequest (in-process → protocol)', () => {
   it('maps camelCase → snake_case', () => {
     const protoReq = toBrokerRequest(inProc, {
       approvalId: '01J_APPROVAL',
