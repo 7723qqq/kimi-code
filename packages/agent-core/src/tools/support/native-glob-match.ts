@@ -30,15 +30,21 @@ function simpleGlobMatch(value: string, pattern: string): boolean {
 export function tryNativeGlobMatch(
   value: string,
   pattern: string,
-  _options?: { nocase?: boolean },
+  options?: { nocase?: boolean },
 ): boolean {
+  // Neither the native matcher nor the simple fallback is case-insensitive on
+  // its own, so fold both sides when nocase is requested. This keeps case-only
+  // path variants from slipping past permission rules.
+  const nocase = options?.nocase === true;
+  const v = nocase ? value.toLowerCase() : value;
+  const p = nocase ? pattern.toLowerCase() : pattern;
   const m = getNative();
   if (m?.['nativeGlobMatchesAny'] != null) {
     try {
-      return (m['nativeGlobMatchesAny'] as (globs: string[], path: string) => boolean)([pattern], value);
+      return (m['nativeGlobMatchesAny'] as (globs: string[], path: string) => boolean)([p], v);
     } catch {
       // fall through
     }
   }
-  return simpleGlobMatch(value, pattern);
+  return simpleGlobMatch(v, p);
 }
