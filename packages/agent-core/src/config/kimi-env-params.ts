@@ -7,6 +7,7 @@ import {
 import { AnthropicChatProvider } from '@moonshot-ai/kosong/providers/anthropic';
 
 import { parseFloatEnv } from '#/config/resolve';
+import { ErrorCodes, KimiError } from '#/errors';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -30,7 +31,15 @@ export function applyKimiEnvSamplingParams(
 
   const kwargs: GenerationKwargs = {};
   const temperature = parseFloatEnv(env['KIMI_MODEL_TEMPERATURE'], 'KIMI_MODEL_TEMPERATURE');
-  if (temperature !== undefined) kwargs.temperature = temperature;
+  if (temperature !== undefined) {
+    if (temperature < 0) {
+      throw new KimiError(
+        ErrorCodes.CONFIG_INVALID,
+        `KIMI_MODEL_TEMPERATURE must be non-negative, got "${env['KIMI_MODEL_TEMPERATURE']}".`,
+      );
+    }
+    kwargs.temperature = temperature;
+  }
   const topP = parseFloatEnv(env['KIMI_MODEL_TOP_P'], 'KIMI_MODEL_TOP_P');
   if (topP !== undefined) kwargs.top_p = topP;
 
