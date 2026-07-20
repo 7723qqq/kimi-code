@@ -12,7 +12,7 @@ import chalk from 'chalk';
 import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
 
 import { ALL_TIPS, type ToolbarTip } from '#/tui/constant/tips';
-import { isRainbowDancing, renderDanceFooterModel } from '#/tui/easter-eggs/dance';
+import { isRainbowDancing, renderDanceFooterModel, rainbowText, getDanceRainbowPalette } from '#/tui/easter-eggs/dance';
 import { currentTheme } from '#/tui/theme';
 import { t } from '#/i18n';
 import type { ColorPalette } from '#/tui/theme/colors';
@@ -168,6 +168,15 @@ function shortenCwd(path: string): string {
 }
 
 /**
+ * Render the combined swarm-plan badge with a rainbow gradient effect.
+ * Each character gets a different color from the theme-appropriate palette.
+ */
+function renderSwarmPlanBadge(text: string): string {
+  const palette = getDanceRainbowPalette();
+  return rainbowText(text, palette, 0, true);
+}
+
+/**
  * Footer context readout. Percent comes from the exact token counts when
  * both are known (the ratio can lag a step behind); otherwise it falls
  * back to the precomputed ratio. Counts use the shared 1024-based
@@ -264,8 +273,12 @@ export class FooterComponent implements Component {
     const modes: string[] = [];
     if (state.permissionMode === 'auto') modes.push(chalk.hex(colors.warning).bold(t('tui.chrome.footer.auto')));
     if (state.permissionMode === 'yolo') modes.push(chalk.hex(colors.warning).bold(t('tui.chrome.footer.yolo')));
-    if (state.planMode) modes.push(chalk.hex(colors.primary).bold(t('tui.chrome.footer.plan')));
-    if (state.swarmMode) modes.push(chalk.hex(colors.accent).bold(t('tui.chrome.footer.swarm')));
+    if (state.planMode && state.swarmMode) {
+      modes.push(renderSwarmPlanBadge(t('tui.chrome.footer.swarmPlan')));
+    } else {
+      if (state.planMode) modes.push(chalk.hex(colors.primary).bold(t('tui.chrome.footer.plan')));
+      if (state.swarmMode) modes.push(chalk.hex(colors.accent).bold(t('tui.chrome.footer.swarm')));
+    }
     if (modes.length > 0) left.push(modes.join(' '));
 
     const goalBadge = formatGoalBadge(state.goal, colors, this.goalWallClockMs(state.goal));

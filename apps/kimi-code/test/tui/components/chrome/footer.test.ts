@@ -188,3 +188,65 @@ describe('FooterComponent displayName override', () => {
     expect(footer.render(120).join('\n')).not.toContain('Remote Name');
   });
 });
+
+describe('FooterComponent swarm-plan badge', () => {
+  const prevLevel = chalk.level;
+
+  beforeEach(() => {
+    chalk.level = 3;
+  });
+
+  afterEach(() => {
+    chalk.level = prevLevel;
+    setRainbowDance(undefined);
+  });
+  it('renders a single swarm-plan badge with rainbow gradient when both modes are active', () => {
+    const state: AppState = { ...appState, planMode: true, swarmMode: true };
+    const footer = new FooterComponent(state);
+
+    const rendered = footer.render(120).join('\n');
+
+    // Strip ANSI to check plain text
+    const plain = rendered.replaceAll(/\u001b\[[0-9;]*m/g, '');
+    expect(plain).toContain('swarm-plan');
+
+    // Rainbow gradient uses multiple different truecolor codes
+    const codes = Array.from(truecolorCodes(rendered));
+    expect(codes.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('renders plan badge alone when only planMode is active', () => {
+    const state: AppState = { ...appState, planMode: true, swarmMode: false };
+    const footer = new FooterComponent(state);
+
+    const rendered = footer.render(120).join('\n');
+
+    expect(rendered).toContain('plan');
+    expect(rendered).not.toContain('swarm-plan');
+    // When plan alone, should NOT have rainbow colors (single color)
+    const envCodes = Array.from(truecolorCodes(rendered));
+    // The rendered line will have multiple color codes from other elements
+    // (model, cwd, etc.), but the 'plan' text itself uses a single color.
+    // We verify swarm-plan text is absent as the strongest signal.
+  });
+
+  it('renders swarm badge alone when only swarmMode is active', () => {
+    const state: AppState = { ...appState, planMode: false, swarmMode: true };
+    const footer = new FooterComponent(state);
+
+    const rendered = footer.render(120).join('\n');
+
+    expect(rendered).toContain('swarm');
+    expect(rendered).not.toContain('swarm-plan');
+  });
+
+  it('renders neither badge when both modes are off', () => {
+    const state: AppState = { ...appState, planMode: false, swarmMode: false };
+    const footer = new FooterComponent(state);
+
+    const rendered = footer.render(120).join('\n');
+
+    expect(rendered).not.toContain('plan');
+    expect(rendered).not.toContain('swarm-plan');
+  });
+});

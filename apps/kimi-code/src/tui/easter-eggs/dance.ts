@@ -49,6 +49,8 @@ function getDanceRainbowPalette(): readonly [string, ...string[]] {
   return currentTheme.palette.text === '#1A1A1A' ? LIGHT_RAINBOW : DARK_RAINBOW;
 }
 
+export { getDanceRainbowPalette };
+
 /** Paint a string character-by-character through a palette, skipping spaces. */
 export function rainbowText(
   text: string,
