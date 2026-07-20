@@ -139,8 +139,8 @@ export default {
   tui: {
     chrome: {
       footer: {
-        context: 'context: {{pct}}',
-        contextWithTokens: 'context: {{pct}} ({{tokens}}/{{maxTokens}})',
+        context: 'context: {{pct}}%',
+        contextWithTokens: 'context: {{pct}}% ({{tokens}}/{{maxTokens}})',
         goalBadge: '[goal {{dot}} {{status}} · {{elapsed}} · {{turns}}]',
         statusActive: 'active',
         statusPaused: 'paused',
@@ -161,6 +161,7 @@ export default {
         yolo: 'yolo',
         plan: 'plan',
         swarm: 'swarm',
+        swarmPlan: 'swarm-plan',
         turn: 'turn',
         turns: 'turns',
       },
@@ -979,6 +980,7 @@ export default {
       replayYoloModeOff: 'YOLO mode: OFF',
       replayPermissionMode: 'Permission mode: {{mode}}',
       replaySkillActivated: 'Activated skill: {{skillName}}',
+      replayFeedback: 'Feedback: {{feedback}}',
       noModelsConfigured: 'No models configured',
       noModelsConfiguredSub: 'Run /login to sign in to Kimi, or /provider to add another provider from a model catalog.',
       experimentalUpdated: 'Experimental features updated.',
@@ -1669,10 +1671,33 @@ export default {
       configLanguageSet: 'Language set to {{locale}}. Restart required for full effect.',
       configSkippedRefreshing: 'Skipped refreshing {{provider}}: {{reason}}',
       configSkippedRefreshingModels: 'Skipped refreshing models: {{error}}',
+      configGithubTokenInput: 'Enter your GitHub personal access token (classic).',
+      configGithubTokenSaved: 'GitHub token saved.',
+      configGithubTokenSaveFailed: 'Failed to save GitHub token: {{error}}',
       // tui/commands/dispatch.ts
       configInvalidSlashCommand: 'Invalid slash command: /{{name}}',
       configVersionDisplay: 'Kimi Code v{{version}}',
       configUnknownSlashCommand: 'Unknown slash command: /{{name}}',
+      // tui/commands/config.ts
+      configUnknownPlanSubcommand: 'Unknown plan subcommand: {{subcmd}}',
+      configPlanPath: 'Plan will be created here: {{path}}',
+      configUnknownModelAlias: 'Unknown model alias: {{alias}}',
+      configUnsupportedEffort: 'Unsupported thinking effort "{{arg}}" for {{alias}}. Available: {{segments}}',
+      configCannotSwitchWhileStreaming: 'Cannot switch models while streaming — press Esc or Ctrl-C first.',
+      configModelSwitchedSaveFailed: 'Switched to {{name}}, but failed to save default: {{msg}}',
+      // tui/commands/copy.ts
+      configCopyNoMessage: 'No assistant message to copy.',
+      configCopyNative: 'Copied to clipboard ({{count}} characters).',
+      configCopyEscape: 'Copied via terminal escape sequence (unverified, {{count}} characters).',
+      configCopyFailed: 'Failed to copy to clipboard: {{error}}',
+      // tui/commands/web.ts
+      configWebNewServer: 'Start a new server',
+      configWebNewServerDesc: 'Run a new server in the foreground on this terminal after the TUI exits (stop with Ctrl+C), then open the session deep link in your browser.',
+      configWebServerNotResponding: 'Kimi server at {{origin}} is not responding.',
+      configWebVersionUnknown: 'version unknown (registered by an older build) · id {{id}}',
+      configWebVersionMismatch: 'version {{hostVersion}} (this CLI: {{cliVersion}}) · id {{id}}',
+      configWebVersion: 'version {{hostVersion}} · id {{id}}',
+      configWebSessionLabel: 'Session:  ',
       // tui/commands/resolve.ts
       resolveCannotWhileStreaming: 'Cannot /{{name}} while streaming — press Esc or Ctrl-C first.',
       resolveCannotWhileCompacting: 'Cannot /{{name}} while compacting — wait for compaction to finish first.',

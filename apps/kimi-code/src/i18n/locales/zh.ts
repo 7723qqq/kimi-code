@@ -139,8 +139,8 @@ export default {
   tui: {
     chrome: {
       footer: {
-        context: '上下文：{{pct}}',
-        contextWithTokens: '上下文：{{pct}}（{{tokens}}/{{maxTokens}}）',
+        context: '上下文：{{pct}}%',
+        contextWithTokens: '上下文：{{pct}}%（{{tokens}}/{{maxTokens}}）',
         goalBadge: '[目标 {{dot}} {{status}} · {{elapsed}} · {{turns}}]',
         statusActive: '进行中',
         statusPaused: '已暂停',
@@ -161,6 +161,7 @@ export default {
         yolo: 'yolo',
         plan: 'plan',
         swarm: 'swarm',
+        swarmPlan: 'swarm-plan',
         turn: 'turn',
         turns: 'turns',
       },
@@ -969,6 +970,7 @@ export default {
       replayYoloModeOff: 'YOLO 模式：关',
       replayPermissionMode: '权限模式：{{mode}}',
       replaySkillActivated: '已激活技能：{{skillName}}',
+      replayFeedback: '反馈：{{feedback}}',
       noModelsConfigured: '未配置模型',
       noModelsConfiguredSub: '运行 /login 登录 Kimi，或 /provider 从模型目录中添加另一个提供商。',
       experimentalUpdated: '实验功能已更新。',
@@ -1664,10 +1666,33 @@ export default {
       configLanguageSet: '语言已设置为 {{locale}}。需重启以完全生效。',
       configSkippedRefreshing: '跳过刷新 {{provider}}：{{reason}}',
       configSkippedRefreshingModels: '跳过刷新模型：{{error}}',
+      configGithubTokenInput: '输入你的 GitHub Personal Access Token（经典版）。',
+      configGithubTokenSaved: 'GitHub Token 已保存。',
+      configGithubTokenSaveFailed: '保存 GitHub Token 失败：{{error}}',
       // tui/commands/dispatch.ts
       configInvalidSlashCommand: '无效的斜杠命令：/{{name}}',
       configVersionDisplay: 'Kimi Code v{{version}}',
       configUnknownSlashCommand: '未知的斜杠命令：/{{name}}',
+      // tui/commands/config.ts
+      configUnknownPlanSubcommand: '未知的计划子命令：{{subcmd}}',
+      configPlanPath: '计划将在以下位置创建：{{path}}',
+      configUnknownModelAlias: '未知的模型别名：{{alias}}',
+      configUnsupportedEffort: '不支持的思考强度 "{{arg}}"（{{alias}}）。可用：{{segments}}',
+      configCannotSwitchWhileStreaming: '无法在流式传输时切换模型——请先按 Esc 或 Ctrl-C。',
+      configModelSwitchedSaveFailed: '已切换到 {{name}}，但保存默认设置失败：{{msg}}',
+      // tui/commands/copy.ts
+      configCopyNoMessage: '没有可复制的助手消息。',
+      configCopyNative: '已复制到剪贴板（{{count}} 个字符）。',
+      configCopyEscape: '已通过终端转义序列复制（未验证，{{count}} 个字符）。',
+      configCopyFailed: '复制到剪贴板失败：{{error}}',
+      // tui/commands/web.ts
+      configWebNewServer: '启动新服务器',
+      configWebNewServerDesc: '在 TUI 退出后，在前台终端上运行一个新服务器（按 Ctrl+C 停止），然后在浏览器中打开会话深度链接。',
+      configWebServerNotResponding: '{{origin}} 的 Kimi 服务器无响应。',
+      configWebVersionUnknown: '版本未知（由旧版本注册）· id {{id}}',
+      configWebVersionMismatch: '版本 {{hostVersion}}（本 CLI：{{cliVersion}}）· id {{id}}',
+      configWebVersion: '版本 {{hostVersion}} · id {{id}}',
+      configWebSessionLabel: '会话：  ',
       // tui/commands/resolve.ts
       resolveCannotWhileStreaming: '流式传输时无法使用 /{{name}}——请先按 Esc 或 Ctrl-C。',
       resolveCannotWhileCompacting: '压缩时无法使用 /{{name}}——请等待压缩完成。',
