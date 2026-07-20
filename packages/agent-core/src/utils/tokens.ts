@@ -121,11 +121,14 @@ export function estimateTokensForMessage(message: TokenEstimatableMessage): numb
   const mod = getNative();
   if (mod?.nativeEstimateTokensBatch) {
     const texts: string[] = [message.role];
+    let mediaCount = 0;
     for (const part of message.content) {
       if (part.type === 'text') {
         texts.push(part.text);
       } else if (part.type === 'think') {
         texts.push(part.think);
+      } else if (isMediaPart(part)) {
+        mediaCount += 1;
       }
     }
     if (message.toolCalls !== undefined) {
@@ -135,7 +138,9 @@ export function estimateTokensForMessage(message: TokenEstimatableMessage): numb
         texts.push(JSON.stringify(call.arguments));
       }
     }
-    total = Math.ceil(mod.nativeEstimateTokensBatch(texts) * (1 + (JSON_TOKEN_MULTIPLIER - 1) * 0.5));
+    total =
+      Math.ceil(mod.nativeEstimateTokensBatch(texts) * (1 + (JSON_TOKEN_MULTIPLIER - 1) * 0.5)) +
+      mediaCount * MEDIA_TOKEN_ESTIMATE;
   } else {
     total = tsEstimateTokens(message.role);
     for (const part of message.content) {
@@ -143,6 +148,8 @@ export function estimateTokensForMessage(message: TokenEstimatableMessage): numb
         total += tsEstimateTokens(part.text);
       } else if (part.type === 'think') {
         total += tsEstimateTokens(part.think);
+      } else if (isMediaPart(part)) {
+        total += MEDIA_TOKEN_ESTIMATE;
       }
     }
     if (message.toolCalls !== undefined) {
@@ -198,6 +205,10 @@ export function estimateTokensForContentParts(parts: readonly ContentPart[]): nu
  * media parts as free.
  */
 export const MEDIA_TOKEN_ESTIMATE = 2000;
+
+function isMediaPart(part: ContentPart): boolean {
+  return part.type === 'image_url' || part.type === 'audio_url' || part.type === 'video_url';
+}
 
 export function estimateTokensForContentPart(part: ContentPart): number {
   switch (part.type) {
