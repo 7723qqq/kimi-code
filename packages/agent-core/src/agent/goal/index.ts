@@ -384,7 +384,20 @@ export class GoalMode {
 
   async createGoal(input: CreateGoalInput, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
     const objective = input.objective.trim();
-    // Engine owns validation (objective empty/length, criterion truncation).
+    // Enforce the hard empty/length limits in TS: the native engine does not
+    // apply the max-length bound, so validating only there would let an
+    // over-long objective through.
+    if (objective.length === 0) {
+      throw new KimiError(ErrorCodes.GOAL_OBJECTIVE_EMPTY, 'Goal objective cannot be empty');
+    }
+    if (objective.length > MAX_GOAL_OBJECTIVE_LENGTH) {
+      throw new KimiError(
+        ErrorCodes.GOAL_OBJECTIVE_TOO_LONG,
+        `Goal objective cannot exceed ${MAX_GOAL_OBJECTIVE_LENGTH} characters`,
+      );
+    }
+    // Engine owns criterion normalization (truncation); fall back to TS when
+    // the native module is unavailable.
     const nativeResult = tryNativeGoalEngineValidateCreateInput(
       JSON.stringify({ objective, completionCriterion: input.completionCriterion }),
     );
@@ -392,16 +405,6 @@ export class GoalMode {
     if (nativeResult !== undefined && nativeResult.ok) {
       completionCriterion = nativeResult.completionCriterion ?? undefined;
     } else if (nativeResult === undefined) {
-      // Native unavailable — fall back to TS validation.
-      if (objective.length === 0) {
-        throw new KimiError(ErrorCodes.GOAL_OBJECTIVE_EMPTY, 'Goal objective cannot be empty');
-      }
-      if (objective.length > MAX_GOAL_OBJECTIVE_LENGTH) {
-        throw new KimiError(
-          ErrorCodes.GOAL_OBJECTIVE_TOO_LONG,
-          `Goal objective cannot exceed ${MAX_GOAL_OBJECTIVE_LENGTH} characters`,
-        );
-      }
       completionCriterion = normalizeCompletionCriterion(input.completionCriterion);
     } else {
       // Native returned an explicit error.
@@ -838,7 +841,7 @@ export class GoalMode {
       state.blockedStreak = (engine['blockedStreak'] as number) || 0;
     }
     if (engine['status'] !== undefined) {
-      state.status = engine['status'] as GoalStatus;
+      state.status = normalizeEngineStatus(engine['status'] as string);
     }
   }
 
@@ -921,6 +924,17 @@ function engineGoalShape(state: GoalState): Record<string, unknown> {
     turnBudget: state.budgetLimits.turnBudget ?? null,
     wallClockBudgetMs: state.budgetLimits.wallClockBudgetMs ?? null,
   };
+}
+
+/**
+ * Map the native engine's status back to the TS {@link GoalStatus}. The Rust
+ * engine serializes `budget_limited` / `usage_limited` in camelCase
+ * (`budgetLimited` / `usageLimited`); the other statuses match verbatim.
+ */
+function normalizeEngineStatus(status: string): GoalStatus {
+  if (status === 'budgetLimited') return 'budget_limited';
+  if (status === 'usageLimited') return 'usage_limited';
+  return status as GoalStatus;
 }
 
 function computeBudgetReport(
