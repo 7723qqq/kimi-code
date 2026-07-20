@@ -14,7 +14,6 @@ import { mcpResultToExecutableOutput } from '../../mcp/output';
 import { isMcpToolName, qualifyMcpToolName } from '../../mcp/tool-naming';
 import type { MCPClient, MCPToolDefinition } from '../../mcp/types';
 import { DEFAULT_AGENT_PROFILES } from '../../profile';
-import { flags } from '../../flags';
 import { resolveSubagentTimeoutMs } from '../../session/subagent-host';
 import { extendWorkspaceWithSkillRoots } from '../../skill';
 import { fingerprint } from '../llm-request-logger';
@@ -525,7 +524,7 @@ export class ToolManager {
     // When the github_tools flag is on, ensure all GitHub tool names are
     // in the enabled set so they are visible to the model even though the
     // default profile does not list them explicitly.
-    if (flags.enabled('github_tools')) {
+    if (this.agent.experimentalFlags.enabled('github_tools')) {
       for (const name of b.GITHUB_READONLY_TOOL_NAMES) {
         this.enabledTools.add(name);
       }
@@ -789,7 +788,7 @@ export class ToolManager {
           ),
         toolServices?.webSearcher && new b.WebSearchTool(toolServices.webSearcher),
         toolServices?.urlFetcher && new b.FetchURLTool(toolServices.urlFetcher),
-        ...(flags.enabled('github_tools') ? b.createGitHubTools(this.agent.kimiConfig?.experimental?.github_token as string | undefined) : []),
+        ...(this.agent.experimentalFlags.enabled('github_tools') ? b.createGitHubTools(this.agent.kimiConfig?.experimental?.github_token as string | undefined) : []),
       ]
         .filter((tool) => !!tool)
         .map((tool) => [tool.name, tool] as const),
