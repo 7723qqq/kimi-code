@@ -54,7 +54,7 @@ import GLOB_DESCRIPTION from './glob.md?raw';
 export { GLOB_DESCRIPTION };
 
 export const GlobInputSchema = z.object({
-  pattern: z.string().describe('Glob pattern to match files.'),
+  pattern: z.string().min(1).describe('Glob pattern to match files.'),
   path: z
     .string()
     .optional()
