@@ -159,7 +159,7 @@ export interface ReloadSummary {
   readonly errors: ReadonlyArray<{ readonly id: string; readonly message: string }>;
 }
 
-export const PLUGIN_NAME_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+export const PLUGIN_NAME_REGEX = /^[\p{L}\p{N}][\p{L}\p{N}_-]{0,63}$/u;
 
 export function normalizePluginId(name: string): string {
   return name.toLowerCase();
