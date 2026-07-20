@@ -85,6 +85,22 @@ function callNativeSync<T>(fnName: string, ...args: unknown[]): T | undefined {
   }
 }
 
+/**
+ * Synchronous native call for JSON-in/JSON-out functions. The Rust side
+ * returns a JSON *string*, so parse it into an object. Returns `undefined`
+ * when the native module is unavailable or the result is not valid JSON,
+ * letting callers fall back to the TS implementation.
+ */
+function callNativeSyncJson<T>(fnName: string, ...args: unknown[]): T | undefined {
+  const raw = callNativeSync<string>(fnName, ...args);
+  if (typeof raw !== 'string') return undefined;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return undefined;
+  }
+}
+
 function joinSearchPath(base: string, relativePath: string, pathClass: 'posix' | 'win32'): string {
   if (relativePath === '') return base;
   const separator = pathClass === 'win32' ? '\\' : '/';
@@ -795,7 +811,7 @@ export function tryNativeGoalApplyUpdate(
   goalJson: string,
   updateJson: string,
 ): { ok: boolean; goal?: Record<string, unknown>; error?: string } | undefined {
-  return callNativeSync('nativeGoalApplyUpdate', goalJson, updateJson);
+  return callNativeSyncJson('nativeGoalApplyUpdate', goalJson, updateJson);
 }
 
 /** Compute the chargeable token delta between two usage snapshots. */
@@ -835,49 +851,49 @@ export function tryNativeGoalRenderObjectiveUpdated(
 export function tryNativeGoalEngineValidateCreateInput(
   json: string,
 ): { ok: true; objective: string; completionCriterion?: string } | { ok: false; error: string } | undefined {
-  return callNativeSync('nativeGoalEngineValidateCreateInput', json);
+  return callNativeSyncJson('nativeGoalEngineValidateCreateInput', json);
 }
 
 /** Validate a budget input into a limits patch. */
 export function tryNativeGoalEngineValidateBudgetInput(
   json: string,
 ): { ok: true; budgetLimits: Record<string, unknown> } | { ok: false; error: string } | undefined {
-  return callNativeSync('nativeGoalEngineValidateBudgetInput', json);
+  return callNativeSyncJson('nativeGoalEngineValidateBudgetInput', json);
 }
 
 /** Compute the full budget report. */
 export function tryNativeGoalEngineComputeBudgetReport(
   json: string,
 ): Record<string, unknown> | undefined {
-  return callNativeSync('nativeGoalEngineComputeBudgetReport', json);
+  return callNativeSyncJson('nativeGoalEngineComputeBudgetReport', json);
 }
 
 /** Apply token + turn deltas to a goal. */
 export function tryNativeGoalEngineApplyUsage(
   json: string,
 ): { goal: Record<string, unknown>; overBudget: boolean } | undefined {
-  return callNativeSync('nativeGoalEngineApplyUsage', json);
+  return callNativeSyncJson('nativeGoalEngineApplyUsage', json);
 }
 
 /** Decide whether the goal driver should continue. */
 export function tryNativeGoalEngineDecideContinuation(
   json: string,
 ): { action: 'continue'; steeringPrompt: string } | { action: 'stop_budget'; reason: string; steeringPrompt: string } | { action: 'stop_inactive' } | undefined {
-  return callNativeSync('nativeGoalEngineDecideContinuation', json);
+  return callNativeSyncJson('nativeGoalEngineDecideContinuation', json);
 }
 
 /** Apply the 3-turn blocked audit. */
 export function tryNativeGoalEngineDecideBlockedAudit(
   json: string,
 ): { action: 'record_attempt'; streak: number; attemptsNeeded: number; message: string } | { action: 'mark_blocked'; streak: number } | undefined {
-  return callNativeSync('nativeGoalEngineDecideBlockedAudit', json);
+  return callNativeSyncJson('nativeGoalEngineDecideBlockedAudit', json);
 }
 
 /** Attempt a status transition. */
 export function tryNativeGoalEngineDecideStatusTransition(
   json: string,
 ): { ok: true; goal: Record<string, unknown> } | { ok: false; error: string } | undefined {
-  return callNativeSync('nativeGoalEngineDecideStatusTransition', json);
+  return callNativeSyncJson('nativeGoalEngineDecideStatusTransition', json);
 }
 
 /** Render the full active-goal reminder. */
