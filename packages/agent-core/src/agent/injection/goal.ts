@@ -20,7 +20,9 @@ export class GoalInjector extends DynamicInjector {
     const goal = store.getGoal().goal;
     if (goal === null) return undefined;
     // Prompt rendering is engine-owned; TS only selects which renderer to call.
-    const goalJson = JSON.stringify({ goal, nowMs: Date.now() });
+    // The native renderer reads budget fields at the top level, so flatten the
+    // snapshot's nested budget report into the goal object.
+    const goalJson = JSON.stringify({ goal: { ...goal, ...goal.budget }, nowMs: Date.now() });
     if (goal.status === 'active') {
       return tryNativeGoalEngineRenderGoalReminder(goalJson) ?? buildGoalReminder(goal);
     }
