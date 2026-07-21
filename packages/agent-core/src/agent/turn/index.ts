@@ -128,7 +128,17 @@ function renderGoalContinuationPrompt(
   if (result?.action === 'stop_budget') {
     return { action: 'stop_budget', prompt: result.steeringPrompt };
   }
-  return null; // stop_inactive or engine unavailable
+  // Native engine returned stop_inactive, an error, or is unavailable. When the
+  // goal is still active (not genuinely stopped), fall back to a TS continuation
+  // prompt so the goal driver does not silently drop the turn and leave the TUI
+  // stuck at the `>` prompt with no model response.
+  if (goal.status === 'active') {
+    return {
+      action: 'continue',
+      prompt: `Continue working toward the active goal: ${goal.objective}`,
+    };
+  }
+  return null;
 }
 
 export class TurnFlow {
@@ -426,7 +436,7 @@ export class TurnFlow {
         const decision = renderGoalContinuationPrompt(goal);
         const prompt = decision?.prompt
           ?? goal?.objective
-          ? `Continue working toward the active goal: ${goal.objective}`
+          ? `Continue working toward the active goal: ${goal!.objective}`
           : 'Continue working toward the active goal.';
         return await this.driveGoal(
           this.allocateTurnId(),

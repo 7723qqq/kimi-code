@@ -188,6 +188,8 @@ pub fn render_goal_reminder(goal: &crate::goal::state::GoalState, now_ms: i64) -
             "<untrusted_completion_criterion>\n{}\n</untrusted_completion_criterion>",
             escape_xml(criterion)
         ));
+    } else {
+        lines.push("No completion criterion was provided — how \"done\" is judged is unclear. Before doing significant work, use AskUserQuestion to ask the user what \"done\" concretely means and how to verify it. Do not invent a criterion on your own.".to_string());
     }
     lines.push(String::new());
     lines.push(format!("Status: {}", goal.status.as_str()));
