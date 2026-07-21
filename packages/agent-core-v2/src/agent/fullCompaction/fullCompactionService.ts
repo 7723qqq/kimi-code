@@ -536,8 +536,10 @@ export class AgentFullCompactionService extends Disposable implements IAgentFull
           : undefined;
       const compactionMaxOutputSize = resolvedModel.maxOutputSize ?? defaultCompactionCap;
 
+      const customInstruction = data.instruction?.trim() ?? '';
       const instruction = renderPrompt(compactionInstructionTemplate, {
-        customInstruction: data.instruction?.trim() ?? '',
+        custom_instruction_block:
+          customInstruction.length > 0 ? `\nOptional user instruction:\n${customInstruction}\n` : '',
       }).trimEnd();
 
       const delays = retryBackoffDelays(MAX_COMPACTION_RETRY_ATTEMPTS);

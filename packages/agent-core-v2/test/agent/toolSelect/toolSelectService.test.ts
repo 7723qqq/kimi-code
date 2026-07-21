@@ -33,6 +33,7 @@ import {
 } from '#/agent/loop/loop';
 import type { StepRequest } from '#/agent/loop/stepRequest';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
@@ -69,12 +70,14 @@ let disposables: DisposableStore;
 let capabilities: ModelCapability;
 let flagEnabled: boolean;
 let activeToolNames: ReadonlySet<string> | undefined;
+let disclosureToolActive: boolean;
 
 beforeEach(() => {
   disposables = new DisposableStore();
   capabilities = makeCapabilities({ tool_use: true, dynamically_loaded_tools: true });
   flagEnabled = false;
   activeToolNames = undefined;
+  disclosureToolActive = true;
 });
 
 afterEach(() => disposables.dispose());
@@ -296,7 +299,10 @@ function registerSharedServices(
   reg.defineInstance(IAgentContextMemoryService, contextMemory);
   reg.definePartialInstance(IAgentProfileService, {
     getModelCapabilities: () => capabilities,
+  });
+  reg.definePartialInstance(IAgentToolPolicyService, {
     isToolActive: (name: string) => activeToolNames === undefined || activeToolNames.has(name),
+    isToolActiveForDisclosure: () => disclosureToolActive,
   });
   reg.definePartialInstance(IFlagService, {
     enabled: (id: string) => (id === TOOL_SELECT_FLAG_ID ? flagEnabled : false),
@@ -543,6 +549,19 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
       MCP_ALPHA,
       SELECT_TOOLS_TOOL_NAME,
     ]);
+  });
+
+  it('hides select_tools when an explicit policy disables disclosure', () => {
+    const h = createHarness();
+    registerMcp(h, new StubMcpTool(MCP_ALPHA));
+    const selectTools = h.ix.createInstance(SelectToolsTool);
+    disposables.add(h.registry.register(selectTools, { source: 'builtin' }));
+    activeToolNames = new Set([MCP_ALPHA]);
+    disclosureToolActive = false;
+
+    const shaped = h.sut.shapeTools(h.registry.list());
+
+    expect(shaped.map((entry) => entry.name)).not.toContain(SELECT_TOOLS_TOOL_NAME);
   });
 
   it('shapeHistory returns the identical array', () => {

@@ -44,9 +44,11 @@ import {
   type RunAgentOptions,
 } from '#/session/subagent/subagent';
 import { IEventBus, type DomainEvent } from '#/app/event/eventBus';
+import type { AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
 import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import type {
   ISessionSwarmService,
   SessionSwarmRunArgs,
@@ -467,6 +469,135 @@ describe('Agent tool description', () => {
     expect(description).toContain('Tools: Agent, AgentSwarm, Bash');
   });
 
+  it('renders global tool restrictions in subagent type descriptions', () => {
+    ctx = createTestAgent(
+      configServices(() => ({
+        providers: {},
+        tools: { disabled: ['Bash'] },
+      })),
+    );
+
+    const description = agentDescription();
+    const coderTools = description
+      .split('\n')
+      .find((line) => line.startsWith('  Tools:') && line.includes('ReadMediaFile'));
+
+    expect(coderTools).toBeDefined();
+    expect(coderTools).not.toContain('Bash');
+  });
+
+  it('renders effective tools after applying disallowedTools', () => {
+    const restricted: AgentProfile = {
+      name: 'restricted',
+      description: 'Restricted agent',
+      tools: ['Bash', 'Read', 'mcp__github__*'],
+      disallowedTools: ['Bash', 'mcp__github__*'],
+      systemPrompt: () => 'restricted',
+    };
+    const allowAllExcept: AgentProfile = {
+      name: 'allow-all-except',
+      description: 'Allow all except one',
+      disallowedTools: ['Bash'],
+      systemPrompt: () => 'allow all except',
+    };
+    const profiles = [restricted, allowAllExcept];
+    const catalog: ISessionAgentProfileCatalog = {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      onDidChange: Event.None as ISessionAgentProfileCatalog['onDidChange'],
+      get: (name) => profiles.find((profile) => profile.name === name),
+      getDefault: () => restricted,
+      list: () => profiles,
+      load: async () => {},
+      reload: async () => {},
+    };
+    ctx = createTestAgent(sessionService(ISessionAgentProfileCatalog, catalog));
+
+    const description = agentDescription();
+
+    expect(description).toContain('- restricted: Restricted agent\n  Tools: Read');
+    expect(description).toContain('- allow-all-except: Allow all except one\n  Tools: all except Bash');
+    expect(description).not.toContain('Tools: Bash, Read, mcp__github__*');
+  });
+
+  it('lists only subagent types allowed by the caller profile', () => {
+    const caller: AgentProfile = {
+      name: 'orchestrator',
+      description: 'Orchestrator',
+      subagents: ['explore'],
+      systemPrompt: () => 'orchestrator',
+    };
+    const coder: AgentProfile = {
+      name: 'coder',
+      description: 'Coder',
+      systemPrompt: () => 'coder',
+    };
+    const explore: AgentProfile = {
+      name: 'explore',
+      description: 'Explorer',
+      systemPrompt: () => 'explore',
+    };
+    const profiles = [caller, coder, explore];
+    const catalog: ISessionAgentProfileCatalog = {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      onDidChange: Event.None as ISessionAgentProfileCatalog['onDidChange'],
+      get: (name) => profiles.find((profile) => profile.name === name),
+      getDefault: () => caller,
+      list: () => [coder, explore],
+      load: async () => {},
+      reload: async () => {},
+    };
+    ctx = createTestAgent(sessionService(ISessionAgentProfileCatalog, catalog));
+
+    const description = agentDescription();
+
+    expect(description).toContain('- explore: Explorer');
+    expect(description).not.toContain('- coder: Coder');
+  });
+
+  it('lists subagent types from the persisted binding instead of the current catalog profile', () => {
+    const caller: AgentProfile = {
+      name: 'orchestrator',
+      description: 'Orchestrator',
+      subagents: ['coder'],
+      systemPrompt: () => 'orchestrator',
+    };
+    const coder: AgentProfile = {
+      name: 'coder',
+      description: 'Coder',
+      systemPrompt: () => 'coder',
+    };
+    const explore: AgentProfile = {
+      name: 'explore',
+      description: 'Explorer',
+      systemPrompt: () => 'explore',
+    };
+    const catalog: ISessionAgentProfileCatalog = {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      onDidChange: Event.None as ISessionAgentProfileCatalog['onDidChange'],
+      get: (name) => [caller, coder, explore].find((profile) => profile.name === name),
+      getDefault: () => caller,
+      list: () => [coder, explore],
+      load: async () => {},
+      reload: async () => {},
+    };
+    ctx = createTestAgent(sessionService(ISessionAgentProfileCatalog, catalog));
+    ctx.get(IAgentProfileService).applyBindingSnapshot({
+      cwd: '',
+      profileName: 'deleted-profile',
+      thinkingLevel: 'off',
+      systemPrompt: 'persisted prompt',
+      subagents: ['explore'],
+    });
+
+    const description = agentDescription();
+
+    expect(description).toContain('- explore: Explorer');
+    expect(description).not.toContain('- coder: Coder');
+  });
+
   it('mentions resume preference and result visibility', () => {
     ctx = createTestAgent();
 
@@ -513,6 +644,105 @@ describe('Agent tool execution contract', () => {
     lifecycle.addHandle('main', 'agent');
     return ctx;
   }
+
+  function allowlistCatalog(allowlist: readonly string[]): ISessionAgentProfileCatalog {
+    const caller: AgentProfile = {
+      name: 'orchestrator',
+      description: 'Orchestrator',
+      subagents: allowlist,
+      systemPrompt: () => 'orchestrator',
+    };
+    const coder: AgentProfile = {
+      name: 'coder',
+      description: 'Coder',
+      systemPrompt: () => 'coder',
+    };
+    const explore: AgentProfile = {
+      name: 'explore',
+      description: 'Explorer',
+      systemPrompt: () => 'explore',
+    };
+    const profiles = [caller, coder, explore];
+    return {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      onDidChange: Event.None as ISessionAgentProfileCatalog['onDidChange'],
+      get: (name) => profiles.find((profile) => profile.name === name),
+      getDefault: () => caller,
+      list: () => [coder, explore],
+      load: async () => {},
+      reload: async () => {},
+    };
+  }
+
+  it('rejects a subagent type outside the caller allowlist', async () => {
+    const lifecycle = createAgentLifecycleStub();
+    const context = createAgentToolContext(
+      lifecycle,
+      sessionService(ISessionAgentProfileCatalog, allowlistCatalog(['explore'])),
+    );
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+      subagent_type: 'coder',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('Subagent type "coder" is not allowed for this agent');
+    expect(result.output).toContain('explore');
+    expect(lifecycle.create).not.toHaveBeenCalled();
+  });
+
+  it('enforces the persisted subagent allowlist instead of the current catalog profile', async () => {
+    const lifecycle = createAgentLifecycleStub();
+    const context = createAgentToolContext(
+      lifecycle,
+      sessionService(ISessionAgentProfileCatalog, allowlistCatalog(['coder'])),
+    );
+    context.get(IAgentProfileService).applyBindingSnapshot({
+      cwd: '',
+      profileName: 'deleted-profile',
+      thinkingLevel: 'off',
+      systemPrompt: 'persisted prompt',
+      subagents: ['explore'],
+    });
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+      subagent_type: 'coder',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('Subagent type "coder" is not allowed for this agent');
+    expect(result.output).toContain('explore');
+    expect(lifecycle.create).not.toHaveBeenCalled();
+  });
+
+  it('spawns a subagent type inside the caller allowlist', async () => {
+    const lifecycle = createAgentLifecycleStub({
+      createAgentIds: ['agent-child'],
+      runCompletion: async () => ({ summary: 'child result' }),
+    });
+    const context = createAgentToolContext(
+      lifecycle,
+      sessionService(ISessionAgentProfileCatalog, allowlistCatalog(['explore'])),
+    );
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+      subagent_type: 'explore',
+    });
+
+    expect(lifecycle.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        binding: expect.objectContaining({ profile: 'explore' }),
+      }),
+    );
+    expect(result.output).toContain('actual_subagent_type: explore');
+  });
 
   it('declares no resource accesses so concurrent Agent calls can run in parallel', async () => {
     const context = createAgentToolContext();
