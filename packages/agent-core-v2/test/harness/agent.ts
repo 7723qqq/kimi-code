@@ -996,6 +996,9 @@ export class AgentTestContext {
 
     const bootstrap = this.root.accessor.get(IBootstrapService);
     const workspaceId = 'test-workspace';
+    const agentTelemetry = this.root.accessor
+      .get(ITelemetryService)
+      .withContext({ agent_id: agentId });
     const sessionScope = bootstrap.sessionScope(workspaceId, sessionId);
     this.session = this.root.createChild(LifecycleScope.Session, sessionId, {
       extra: collectScopeSeed(
@@ -1093,6 +1096,7 @@ export class AgentTestContext {
               scope: (subKey?: string): string =>
                 subKey === undefined || subKey === '' ? agentScope : `${agentScope}/${subKey}`,
             });
+            reg.defineInstance(ITelemetryService, agentTelemetry);
           },
         ],
         this.serviceOverrides,
