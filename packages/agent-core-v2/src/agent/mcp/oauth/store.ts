@@ -9,15 +9,57 @@
  *
  * Read semantics: missing or corrupt JSON resolves to `undefined` (never
  * throws). The provider treats `undefined` as "not stored".
+ *
+ * Security: tokens are encrypted at rest with AES-256-GCM, keyed from the
+ * host machine identity. Legacy plain-text records are still readable.
  */
 
-import { createHash } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { hostname } from 'node:os';
 
 import { basename } from 'pathe';
 
 import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 
 const CREDENTIALS_SCOPE = 'credentials/mcp';
+const ALGORITHM = 'aes-256-gcm';
+const IV_LENGTH = 12;
+
+/** Derive a 32-byte encryption key from hostname + fixed salt. */
+function deriveKey(): Buffer {
+  const raw = `${hostname()}:kimi-code-mcp-oauth-v1`;
+  return createHash('sha256').update(raw).digest();
+}
+
+interface EncryptedBlob {
+  iv: string;
+  tag: string;
+  data: string;
+}
+
+function encrypt(value: string): EncryptedBlob {
+  const key = deriveKey();
+  const iv = randomBytes(IV_LENGTH);
+  const cipher = createCipheriv(ALGORITHM, key, iv);
+  const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return {
+    iv: iv.toString('hex'),
+    tag: tag.toString('hex'),
+    data: encrypted.toString('hex'),
+  };
+}
+
+function decrypt(blob: EncryptedBlob): string {
+  const key = deriveKey();
+  const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(blob.iv, 'hex'));
+  decipher.setAuthTag(Buffer.from(blob.tag, 'hex'));
+  const decrypted = Buffer.concat([
+    decipher.update(Buffer.from(blob.data, 'hex')),
+    decipher.final(),
+  ]);
+  return decrypted.toString('utf8');
+}
 
 export function sanitizeStoreKey(name: string): string {
   const safe = basename(name).replaceAll(/[^a-zA-Z0-9_-]/g, '_').replaceAll(/_+/g, '_');
@@ -55,13 +97,20 @@ export function createMcpOAuthStore(docs: IAtomicDocumentStore): McpOAuthStore {
   return {
     async read<T>(key: string): Promise<T | undefined> {
       try {
-        return await docs.get<T>(CREDENTIALS_SCOPE, key);
+        const raw = await docs.get<EncryptedBlob | T>(CREDENTIALS_SCOPE, key);
+        if (raw === undefined) return undefined;
+        // Support both encrypted (new) and plain (legacy) storage.
+        if (typeof raw === 'object' && raw !== null && 'iv' in raw && 'tag' in raw && 'data' in raw) {
+          return JSON.parse(decrypt(raw as EncryptedBlob)) as T;
+        }
+        return raw as T;
       } catch {
         return undefined;
       }
     },
     write(key, data) {
-      return docs.set(CREDENTIALS_SCOPE, key, data);
+      const encrypted = encrypt(JSON.stringify(data));
+      return docs.set(CREDENTIALS_SCOPE, key, encrypted);
     },
     remove(key) {
       return docs.delete(CREDENTIALS_SCOPE, key);

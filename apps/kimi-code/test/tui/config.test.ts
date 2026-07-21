@@ -64,6 +64,7 @@ auto_install = false
       editorCommand: 'code --wait',
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
+      astron: { stream: true, temperature: 0.7, maxTokens: 4096, searchDisable: false },
     });
   });
 
@@ -89,6 +90,7 @@ command = "   "
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
+      astron: { stream: true, temperature: 0.7, maxTokens: 4096, searchDisable: false },
     });
   });
 
@@ -122,6 +124,7 @@ command = "   "
         editorCommand: 'vim',
         notifications: { enabled: false, condition: 'always' },
         upgrade: { autoInstall: false },
+        astron: { stream: true, temperature: 0.7, maxTokens: 4096, searchDisable: false },
       },
       filePath,
     );
@@ -133,6 +136,7 @@ command = "   "
       editorCommand: 'vim',
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
+      astron: { stream: true, temperature: 0.7, maxTokens: 4096, searchDisable: false },
     });
   });
 
@@ -146,6 +150,7 @@ command = "   "
         editorCommand: null,
         notifications: DEFAULT_TUI_CONFIG.notifications,
         upgrade: DEFAULT_TUI_CONFIG.upgrade,
+        astron: DEFAULT_TUI_CONFIG.astron,
       },
       filePath,
     );

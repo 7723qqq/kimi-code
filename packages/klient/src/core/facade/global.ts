@@ -263,10 +263,16 @@ export function createGlobalFacade(scoped: ScopedCaller): GlobalFacade {
           { workDir, additionalDirs },
         ])) as { id: string };
         const scope = { sessionId: handle.id };
-        if (title !== undefined) {
-          await scoped(scope, 'sessionMetadata', 'setTitle', [title]);
+        try {
+          if (title !== undefined) {
+            await scoped(scope, 'sessionMetadata', 'setTitle', [title]);
+          }
+          return scoped(scope, 'sessionMetadata', 'read', []) as Promise<SessionMeta>;
+        } catch (error) {
+          // Clean up the created session on partial failure.
+          await scoped(scope, 'sessionLifecycleService', 'delete', [{ id: handle.id }]).catch(() => {});
+          throw error;
         }
-        return scoped(scope, 'sessionMetadata', 'read', []) as Promise<SessionMeta>;
       },
     },
 

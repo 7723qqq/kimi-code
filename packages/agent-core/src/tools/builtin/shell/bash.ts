@@ -44,6 +44,7 @@ const MAX_TIMEOUT_S = 5 * 60;
 const DEFAULT_BACKGROUND_TIMEOUT_S = 10 * 60;
 const MAX_BACKGROUND_TIMEOUT_S = 24 * 60 * 60;
 const USER_INTERRUPT_REASON = 'Interrupted by user';
+const DANGEROUS_COMMAND_MARKER = '__dangerous__';
 
 export const BashInputSchema = z
   .object({
@@ -253,8 +254,29 @@ export class BashTool implements BuiltinTool<BashInput> {
         : toInputJsonSchema(BashInputSchema);
   }
 
+  /** Patterns that indicate potentially destructive or privilege-escalating commands.
+   *  These should always require explicit user confirmation via the approval system. */
+  private static readonly DANGEROUS_PATTERNS: readonly RegExp[] = [
+    /\brm\s+(-[rRf]+\s+)*[/~]/,
+    /\bsudo\b/,
+    /\bchmod\s+777\b/,
+    /\bcurl\s+.*\|\s*(ba)?sh\b/,
+    /\bwget\s+.*\|\s*(ba)?sh\b/,
+    /\bdd\s+if=/,
+    /\bmkfs\./,
+    /\b>:?\s*\/dev\/(sd|nvme|hd)/,
+    /\bchown\s+(-R\s+)?[^:]+\s+\//,
+    /\bgit\s+push\s+.*--force/,
+    /\bfork\s+bomb|:\s*\(\)|:\s*\{\s*:\s*\|:/,
+  ];
+
+  private static isDangerousCommand(command: string): boolean {
+    return BashTool.DANGEROUS_PATTERNS.some((p) => p.test(command));
+  }
+
   resolveExecution(args: BashInput): ToolExecution {
     const preview = args.command.length > 50 ? `${args.command.slice(0, 50)}…` : args.command;
+    const dangerous = BashTool.isDangerousCommand(args.command);
     return {
       description: args.run_in_background
         ? `Starting background: ${preview}`
@@ -266,7 +288,9 @@ export class BashTool implements BuiltinTool<BashInput> {
         description: args.description,
         language: 'bash',
       },
-      approvalRule: literalRulePattern(this.name, args.command),
+      approvalRule: dangerous
+        ? `${this.name}(${DANGEROUS_COMMAND_MARKER})`
+        : literalRulePattern(this.name, args.command),
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.command),
       execute: ({ signal, onUpdate, onForegroundTaskStart }) =>
         this.execution(args, signal, onUpdate, onForegroundTaskStart),

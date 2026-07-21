@@ -126,9 +126,7 @@ export class BridgeHandler {
 
   private async dispatch(method: RpcMethod, params: unknown, webviewId: string): Promise<unknown> {
     if (!Object.hasOwn(handlers, method)) throw new Error(`Unknown method: ${method}`);
-    const handler = handlers[method];
-    if (!handler) throw new Error(`Unknown method: ${method}`);
-    return handler(params, this.createContext(webviewId));
+    return handlers[method](params, this.createContext(webviewId));
   }
 
   private createContext(webviewId: string): HandlerContext {

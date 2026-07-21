@@ -1,5 +1,7 @@
 import {
   applyOpenPlatformConfig,
+  ASTRON_PLATFORM_MODELS,
+  capabilitiesForModel,
   fetchOpenPlatformModels,
   filterModelsByPrefix,
   getOpenPlatformById,
@@ -104,6 +106,11 @@ async function handleOpenPlatformLogin(
   host: SlashCommandHost,
   platform: OpenPlatformDefinition,
 ): Promise<void> {
+  if (platform.id === 'astron') {
+    await handleAstronPlatformLogin(host, platform);
+    return;
+  }
+
   const consoleHost = platform.consoleUrl?.replace(/^https?:\/\//, '') ?? '';
   const platformName = consoleHost.length > 0
         ? t('tui.statusMessages.kimiPlatformDisplayWithHost', { host: consoleHost })
@@ -167,6 +174,117 @@ async function handleOpenPlatformLogin(
         : undefined,
     apiKey,
   });
+
+  await host.harness.setConfig({
+    providers: config.providers,
+    models: config.models,
+    defaultModel: config.defaultModel,
+    thinking: config.thinking,
+  });
+
+  await host.authFlow.refreshConfigAfterLogin();
+  host.track('login', { provider: platform.id, method: 'api_key' });
+  host.showStatus(t('tui.statusMessages.setupComplete', { platformName: platform.name, modelId: selection.model.id }));
+}
+
+async function handleAstronPlatformLogin(
+  host: SlashCommandHost,
+  platform: OpenPlatformDefinition,
+): Promise<void> {
+  const consoleHost = platform.consoleUrl?.replace(/^https?:\/\//, '') ?? '';
+  const platformName = consoleHost.length > 0
+        ? t('tui.statusMessages.kimiPlatformDisplayWithHost', { host: consoleHost })
+        : t('tui.statusMessages.kimiPlatformDisplay');
+  const subtitleLines = [
+    `${'base_url'.padEnd(12)}${platform.baseUrl}`,
+    `${t('tui.statusMessages.savedToLabel').padEnd(12)}~/.kimi-code/config.toml`,
+  ];
+  const apiKey = await promptApiKey(host, platformName, subtitleLines);
+  if (apiKey === undefined) return;
+
+  const controller = new AbortController();
+  const cancelLogin = (): void => {
+    controller.abort();
+  };
+  host.cancelInFlight = cancelLogin;
+
+  // Validate API key with a test GET to /models
+  try {
+    const res = await fetch(`${platform.baseUrl.replace(/\/+$/, '')}/models`, {
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new OpenPlatformApiError(
+        `Failed to verify API key (HTTP ${res.status}).`,
+        res.status,
+      );
+    }
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    const msg = formatErrorMessage(error);
+    host.showError(t('tui.statusMessages.failedToVerifyApiKey', { error: msg }));
+    if (
+      error instanceof OpenPlatformApiError &&
+      error.status === 401
+    ) {
+      host.showStatus(t('tui.statusMessages.hintUseKimiCodeInstead'));
+    }
+    return;
+  } finally {
+    if (host.cancelInFlight === cancelLogin) {
+      host.cancelInFlight = undefined;
+    }
+  }
+
+  // Convert AstronPlatformModelInfo to ManagedKimiCodeModelInfo for the
+  // model selector.
+  const models: ManagedKimiCodeModelInfo[] = ASTRON_PLATFORM_MODELS.map((m) => ({
+    id: m.id,
+    contextLength: m.contextLength,
+    supportsReasoning: false,
+    supportsImageIn: false,
+    supportsVideoIn: false,
+  }));
+
+  if (models.length === 0) {
+    host.showError(t('tui.statusMessages.noModelsForPlatform'));
+    return;
+  }
+
+  const selection = await promptModelSelectionForOpenPlatform(host, models, platform);
+  if (selection === undefined) return;
+
+  const existingConfig = await host.harness.getConfig();
+  if (existingConfig.providers[platform.id] !== undefined) {
+    await host.harness.removeProvider(platform.id);
+  }
+
+  const config = await host.harness.getConfig();
+  const providerKey = platform.id;
+  const modelKey = `${providerKey}/${selection.model.id}`;
+
+  // Write the Astron provider config.
+  config.providers[providerKey] = {
+    type: 'astron',
+    baseUrl: platform.baseUrl,
+    apiKey,
+  };
+
+  // Write model aliases so the v1 harness can resolve them.
+  const existingModels = config.models ?? {};
+  for (const model of models) {
+    const aliasKey = `${providerKey}/${model.id}`;
+    existingModels[aliasKey] = {
+      provider: providerKey,
+      model: model.id,
+      maxContextSize: model.contextLength,
+      capabilities: capabilitiesForModel(model),
+    };
+  }
+
+  config.models = existingModels;
+  config.defaultModel = modelKey;
 
   await host.harness.setConfig({
     providers: config.providers,

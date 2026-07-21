@@ -1647,8 +1647,8 @@ export class MiniDb<V = unknown> {
 
   async close(): Promise<void> {
     if (this.closed) return;
-    if (this.compacting) await this._compactDone;
     this.closed = true;
+    if (this.compacting) await this._compactDone;
     for (const ti of this.text.values()) ti.close();
     this.store.close();
     this.valueReader?.close();

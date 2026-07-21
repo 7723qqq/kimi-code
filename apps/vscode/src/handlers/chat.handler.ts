@@ -158,7 +158,8 @@ const respondApproval: Handler<RespondApprovalParams, { ok: boolean }> = async (
 };
 
 const respondQuestion: Handler<RespondQuestionParams, { ok: boolean }> = async (params, ctx) => {
-  const id = params.questionRequestId || params.rpcRequestId;
+  const id = params.questionRequestId;
+  if (!id) throw new Error('Missing questionRequestId');
   return { ok: ctx.getSession()?.respondQuestion(id, params.answers) ?? false };
 };
 

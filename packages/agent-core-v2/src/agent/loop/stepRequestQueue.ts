@@ -66,8 +66,8 @@ export class StepRequestQueue {
   }
 
   private discardAborted(): void {
-    for (let index = this.items.length - 1; index >= 0; index -= 1) {
-      if (this.items[index]!.aborted) this.items.splice(index, 1);
-    }
+    const filtered = this.items.filter(item => !item.aborted);
+    this.items.length = 0;
+    for (const item of filtered) this.items.push(item);
   }
 }

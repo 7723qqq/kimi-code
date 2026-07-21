@@ -321,6 +321,19 @@ function toKosongProviderConfig(
           ...provider.customHeaders,
         }),
       };
+    case 'astron':
+      return {
+        type: 'astron',
+        model,
+        baseUrl: providerValue(provider.baseUrl, provider.env, 'ASTRON_BASE_URL'),
+        apiKey: providerApiKey(provider),
+        generationKwargs: { prompt_cache_key: promptCacheKey },
+        ...defaultHeadersField({
+          ...envCustomHeaders,
+          ...kimiRequestHeaders,
+          ...provider.customHeaders,
+        }),
+      };
     case 'google-genai':
       return {
         type: 'google-genai',
@@ -410,6 +423,8 @@ function providerApiKey(provider: ProviderConfig): string | undefined {
       return providerValue(provider.apiKey, provider.env, 'OPENAI_API_KEY');
     case 'kimi':
       return providerValue(provider.apiKey, provider.env, 'KIMI_API_KEY');
+    case 'astron':
+      return providerValue(provider.apiKey, provider.env, 'ASTRON_API_KEY');
     case 'google-genai':
       return providerValue(provider.apiKey, provider.env, 'GOOGLE_API_KEY');
     case 'vertexai':

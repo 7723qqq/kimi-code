@@ -100,6 +100,14 @@ export interface OpenAILegacyOptions {
   defaultHeaders?: Record<string, string>;
   toolMessageConversion?: ToolMessageConversion | undefined;
   clientFactory?: (auth: ProviderRequestAuth) => OpenAI;
+  /** Encode thinking via extra_body.enable_thinking instead of top-level reasoning_effort. */
+  astronThinking?: boolean | undefined;
+  /** Model IDs that also accept reasoning_effort alongside enable_thinking (astron only). */
+  astronReasoningEffortModelIds?: readonly string[] | undefined;
+  /** Astron runtime settings: search_disable. Stream/temperature/maxTokens applied via constructor. */
+  astronSettings?: {
+    searchDisable?: boolean;
+  } | undefined;
 }
 
 export interface OpenAILegacyGenerationKwargs {
@@ -484,6 +492,9 @@ export class OpenAILegacyChatProvider implements ChatProvider {
   private _defaultHeaders: Record<string, string> | undefined;
   private _reasoningKey: string | undefined;
   private _thinkingEffort: ThinkingEffort | undefined;
+  private _astronThinking: boolean;
+  private _astronReasoningEffortModelIds: readonly string[] | undefined;
+  private _astronSettings: OpenAILegacyOptions['astronSettings'] | undefined;
   private _generationKwargs: OpenAILegacyGenerationKwargs;
   private _toolMessageConversion: ToolMessageConversion;
   private _client: OpenAI | undefined;
@@ -507,6 +518,9 @@ export class OpenAILegacyChatProvider implements ChatProvider {
         ? normalizedReasoningKey
         : undefined;
     this._thinkingEffort = undefined;
+    this._astronThinking = options.astronThinking ?? false;
+    this._astronReasoningEffortModelIds = options.astronReasoningEffortModelIds;
+    this._astronSettings = options.astronSettings;
     this._generationKwargs =
       options.maxTokens !== undefined ? completionTokenKwargs(this._model, options.maxTokens) : {};
     this._toolMessageConversion = options.toolMessageConversion ?? null;
@@ -614,7 +628,35 @@ export class OpenAILegacyChatProvider implements ChatProvider {
       createParams['stream_options'] = { include_usage: true };
     }
 
-    if (reasoningEffort !== undefined) {
+    if (this._astronThinking) {
+      // Coding Plan: encode thinking via extra_body.enable_thinking + reasoning_effort
+      const extraBody: Record<string, unknown> =
+        typeof createParams['extra_body'] === 'object' && createParams['extra_body'] !== null
+          ? { ...(createParams['extra_body'] as Record<string, unknown>) }
+          : {};
+      if (effort === 'off') {
+        extraBody['enable_thinking'] = false;
+      } else if (effort !== undefined) {
+        extraBody['enable_thinking'] = true;
+        const ids = this._astronReasoningEffortModelIds;
+        if (ids?.includes(this._model)) {
+          const re =
+            effort === 'low' || effort === 'medium' ? 'high'
+            : effort === 'xhigh' ? 'max'
+            : effort;
+          if (re === 'high' || re === 'max') {
+            extraBody['reasoning_effort'] = re;
+          }
+        }
+      }
+      // Inject search_disable from astron settings.
+      if (this._astronSettings?.searchDisable !== undefined) {
+        extraBody['search_disable'] = this._astronSettings.searchDisable;
+      }
+      if (Object.keys(extraBody).length > 0) {
+        createParams['extra_body'] = extraBody;
+      }
+    } else if (reasoningEffort !== undefined) {
       createParams['reasoning_effort'] = reasoningEffort;
     }
 

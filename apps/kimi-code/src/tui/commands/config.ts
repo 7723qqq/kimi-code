@@ -19,6 +19,7 @@ import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model
 import { PermissionSelectorComponent } from '../components/dialogs/permission-selector';
 import { SettingsSelectorComponent, type SettingsSelection } from '../components/dialogs/settings-selector';
 import { ThemeSelectorComponent } from '../components/dialogs/theme-selector';
+import { AstronSettingsComponent } from '../components/dialogs/astron-settings';
 import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-preference-selector';
 import { DEFAULT_TUI_CONFIG, saveTuiConfig, type TuiConfig } from '../config';
 import type { ThemeName } from '#/tui/theme';
@@ -57,6 +58,7 @@ function currentTuiConfig(host: SlashCommandHost): TuiConfig {
     disablePasteBurst: host.state.appState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
     notifications: host.state.appState.notifications,
     upgrade: host.state.appState.upgrade,
+    astron: DEFAULT_TUI_CONFIG.astron,
   };
 }
 
@@ -689,6 +691,16 @@ export async function showExperimentsPanel(host: SlashCommandHost): Promise<void
   mountExperimentsPanel(host, features);
 }
 
+export async function showAstronSettingsPanel(host: SlashCommandHost): Promise<void> {
+  host.mountEditorReplacement(
+    new AstronSettingsComponent({
+      onCancel: () => {
+        host.restoreEditor();
+      },
+    }),
+  );
+}
+
 export async function applyExperimentalFeatureChanges(
   host: SlashCommandHost,
   changes: readonly ExperimentalFeatureDraftChange[],
@@ -827,6 +839,7 @@ function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelectio
     case 'upgrade': showUpdatePreferencePicker(host); return;
     case 'usage': void showUsage(host); return;
     case 'github_token': void handleGitHubTokenInput(host); return;
+    case 'astron': void showAstronSettingsPanel(host); return;
   }
 }
 

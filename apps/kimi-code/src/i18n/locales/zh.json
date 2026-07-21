@@ -462,7 +462,25 @@
         "usage": "用量",
         "usageDesc": "查看会话令牌数、上下文窗口和计划配额。",
         "githubToken": "GitHub Token",
-        "githubTokenDesc": "设置内置 GitHub 工具的 Personal Access Token。"
+        "githubTokenDesc": "设置内置 GitHub 工具的 Personal Access Token。",
+        "astron": "Astron",
+        "astronDesc": "配置 Astron 模型参数。"
+      },
+      "astronSettings": {
+        "title": "Astron 设置",
+        "hintNavigate": "↑↓ 导航",
+        "hintEnter": "Enter 编辑/切换",
+        "hintSave": "Ctrl+S 保存",
+        "hintCancel": "Esc 取消",
+        "hintBackspace": "Backspace 删除",
+        "saveButton": "[ 保存 ]",
+        "saved": "已保存",
+        "statusEnabled": "已启用",
+        "statusDisabled": "已禁用",
+        "fieldStream": "流式输出",
+        "fieldTemperature": "温度",
+        "fieldMaxTokens": "最大 Token 数",
+        "fieldSearchDisable": "禁用搜索"
       },
       "permissionSelector": {
         "title": "选择权限模式",
@@ -1627,6 +1645,7 @@
       "configGithubTokenInput": "输入你的 GitHub Personal Access Token（经典版）。",
       "configGithubTokenSaved": "GitHub Token 已保存。",
       "configGithubTokenSaveFailed": "保存 GitHub Token 失败：{{error}}",
+      "configAstronSaveFailed": "保存 Astron 设置失败：{{error}}",
       "configInvalidSlashCommand": "无效的斜杠命令：/{{name}}",
       "configVersionDisplay": "Kimi Code v{{version}}",
       "configUnknownSlashCommand": "未知的斜杠命令：/{{name}}",

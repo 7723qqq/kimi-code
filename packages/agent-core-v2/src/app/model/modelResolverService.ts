@@ -354,6 +354,7 @@ function buildProtocolProviderOptions(
       break;
     }
     case 'kimi':
+    case 'astron':
       break;
     case 'vertexai': {
       const project = vertexAIProject(provider);
@@ -389,6 +390,7 @@ function providerBaseUrlEnvFallback(
     case 'openai_responses':
       return envValue(env, 'OPENAI_BASE_URL');
     case 'kimi':
+    case 'astron':
       return envValue(env, 'KIMI_BASE_URL');
     case 'google-genai':
       return envValue(env, 'GOOGLE_GEMINI_BASE_URL');

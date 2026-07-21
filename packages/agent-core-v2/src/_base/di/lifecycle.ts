@@ -123,8 +123,7 @@ export function isDisposable<E>(thing: E): thing is E & IDisposable {
   return (
     typeof thing === 'object' &&
     thing !== null &&
-    typeof (thing as unknown as IDisposable).dispose === 'function' &&
-    (thing as unknown as IDisposable).dispose.length === 0
+    typeof (thing as unknown as IDisposable).dispose === 'function'
   );
 }
 

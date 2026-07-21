@@ -382,7 +382,7 @@ export function formatReadyBanner(
     // Set the token off with surrounding whitespace rather than color, so it is
     // easy to spot without being highlighted.
     lines.push('');
-    lines.push(`  ${label('Token:    ')}${opts.token}`);
+    lines.push(`  ${label('Token:    ')}${opts.token.slice(0, 8)}...${opts.token.slice(-4)}  ${dim('(use --token to customize)')}`);
     lines.push('');
   }
 

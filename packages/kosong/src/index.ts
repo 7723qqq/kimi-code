@@ -37,6 +37,10 @@ export type { ExtraBody, GenerationKwargs, KimiOptions, ThinkingConfig } from '.
 export { isUnknownCapability, UNKNOWN_CAPABILITY } from './capability';
 export type { ModelCapability } from './capability';
 
+// Astron (xunfei coding plan) model definitions
+export { ASTRON_MODEL_DEFS, ASTRON_PROVIDER_KEY } from './providers/astron-models';
+export type { AstronModelDef } from './providers/astron-models';
+
 // Model catalog (models.dev-style) metadata
 export {
   catalogBaseUrl,

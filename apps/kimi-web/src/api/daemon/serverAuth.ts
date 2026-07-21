@@ -35,11 +35,8 @@ function readFragmentToken(): string | undefined {
   if (typeof window === 'undefined') return undefined;
   const hash = window.location.hash ?? '';
   if (!hash.startsWith('#')) return undefined;
-  const params = new URLSearchParams(hash.slice(1));
-  const token = params.get(FRAGMENT_PARAM);
-  if (!token) return undefined;
-  // Scrub the fragment (keep path + query) so the token is not left in the
-  // address bar, browser history, or any screenshot of the window.
+  // Scrub the fragment immediately, before any async work, so the token
+  // does not linger in the address bar, browser history, or screenshots.
   const url = new URL(window.location.href);
   url.hash = '';
   window.history.replaceState(
@@ -47,6 +44,9 @@ function readFragmentToken(): string | undefined {
     '',
     `${url.pathname}${url.search}`,
   );
+  const params = new URLSearchParams(hash.slice(1));
+  const token = params.get(FRAGMENT_PARAM);
+  if (!token) return undefined;
   return token;
 }
 

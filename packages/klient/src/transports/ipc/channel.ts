@@ -134,13 +134,13 @@ export class IpcChannel implements KlientChannel {
         : { ...base, service: source.service, event: source.event };
     void this.ready.then(() => {
       this.send(frame);
-    });
+    }).catch(() => {});
     return {
       dispose: () => {
         if (!this.listens.delete(id)) return;
         void this.ready.then(() => {
           this.send({ type: 'unlisten', id });
-        });
+        }).catch(() => {});
       },
     };
   }

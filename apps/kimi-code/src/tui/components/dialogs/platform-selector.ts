@@ -2,11 +2,16 @@ import { OPEN_PLATFORMS } from '@moonshot-ai/kimi-code-oauth';
 
 import { t } from '#/i18n';
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
+import { isExperimentalFlagEnabled } from '../../commands/experimental-flags';
 
-const PLATFORM_OPTIONS: readonly ChoiceOption[] = [
-  { value: 'kimi-code', label: t('tui.dialogs.platformSelector.kimiCode') },
-  ...OPEN_PLATFORMS.map((platform) => ({ value: platform.id, label: platform.name })),
-];
+function getPlatformOptions(): readonly ChoiceOption[] {
+  return [
+    { value: 'kimi-code', label: t('tui.dialogs.platformSelector.kimiCode') },
+    ...OPEN_PLATFORMS
+      .filter((p) => p.id !== 'astron' || isExperimentalFlagEnabled('xunfei_coding_plan'))
+      .map((platform) => ({ value: platform.id, label: platform.name })),
+  ];
+}
 
 export interface PlatformSelectorOptions {
   readonly onSelect: (platformId: string) => void;
@@ -17,7 +22,7 @@ export class PlatformSelectorComponent extends ChoicePickerComponent {
   constructor(opts: PlatformSelectorOptions) {
     super({
       title: t('tui.dialogs.platformSelector.title'),
-      options: [...PLATFORM_OPTIONS],
+      options: [...getPlatformOptions()],
       onSelect: opts.onSelect,
       onCancel: opts.onCancel,
     });

@@ -710,6 +710,9 @@ importers:
       '@moonshot-ai/kimi-native-tools':
         specifier: workspace:^
         version: link:../kimi-native-tools
+      '@moonshot-ai/kosong':
+        specifier: workspace:^
+        version: link:../kosong
       '@moonshot-ai/minidb':
         specifier: workspace:^
         version: link:../minidb
