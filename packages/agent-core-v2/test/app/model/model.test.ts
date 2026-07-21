@@ -42,7 +42,43 @@ describe('effectiveModelConfig', () => {
     });
   });
 
-  it('infers Anthropic effort metadata for an unknown model on a non-Kimi Anthropic provider', () => {
+  it('infers Anthropic effort metadata for an unknown Claude-marked model on a non-Kimi Anthropic provider', () => {
+    expect(
+      effectiveModelConfig(
+        {
+          provider: 'custom',
+          model: 'custom-claude-model',
+          maxContextSize: 200000,
+          protocol: 'anthropic',
+        },
+        'anthropic',
+      ),
+    ).toMatchObject({
+      capabilities: ['thinking'],
+      supportEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'high',
+    });
+  });
+
+  it('infers Anthropic effort metadata for a bare Claude family alias on a non-Kimi Anthropic provider', () => {
+    expect(
+      effectiveModelConfig(
+        {
+          provider: 'custom',
+          model: 'sonnet-latest',
+          maxContextSize: 200000,
+          protocol: 'anthropic',
+        },
+        'anthropic',
+      ),
+    ).toMatchObject({
+      capabilities: ['thinking'],
+      supportEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'high',
+    });
+  });
+
+  it('does not infer Anthropic effort metadata for a clearly non-Claude model on a non-Kimi Anthropic provider', () => {
     expect(
       effectiveModelConfig(
         {
@@ -53,10 +89,11 @@ describe('effectiveModelConfig', () => {
         },
         'anthropic',
       ),
-    ).toMatchObject({
-      capabilities: ['thinking'],
-      supportEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-      defaultEffort: 'high',
+    ).toEqual({
+      provider: 'custom',
+      model: 'custom-anthropic-model',
+      maxContextSize: 200000,
+      protocol: 'anthropic',
     });
   });
 
@@ -89,7 +126,7 @@ describe('effectiveModelConfig', () => {
       effectiveModelConfig(
         {
           provider: 'custom',
-          model: 'custom-anthropic-model',
+          model: 'custom-claude-model',
           maxContextSize: 200000,
           protocol: 'anthropic',
           adaptiveThinking: false,

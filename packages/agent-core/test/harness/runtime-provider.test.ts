@@ -283,6 +283,177 @@ describe('resolveRuntimeProvider maxOutputSize forwarding', () => {
     });
   });
 
+  it('forwards alias.offEffort to the openai and openai_responses provider configs', () => {
+    const config = {
+      ...BASE_CONFIG,
+      providers: {
+        ...BASE_CONFIG.providers,
+        gateway: { type: 'openai', apiKey: 'sk-gateway' } as const,
+        responses: { type: 'openai_responses', apiKey: 'sk-responses' } as const,
+      },
+      models: {
+        ...BASE_CONFIG.models!,
+        'gateway/grok': {
+          provider: 'gateway',
+          model: 'grok-4',
+          maxContextSize: 256000,
+          supportEfforts: ['low', 'medium', 'high'],
+          offEffort: 'none',
+        },
+        'responses/grok': {
+          provider: 'responses',
+          model: 'grok-4',
+          maxContextSize: 256000,
+          offEffort: 'none',
+        },
+      },
+    } as KimiConfig;
+
+    expect(resolveRuntimeProvider({ config, model: 'gateway/grok' }).provider).toMatchObject({
+      type: 'openai',
+      offEffort: 'none',
+    });
+    expect(resolveRuntimeProvider({ config, model: 'responses/grok' }).provider).toMatchObject({
+      type: 'openai_responses',
+      offEffort: 'none',
+    });
+  });
+
+  it('maps alias.maxInputSize onto the resolved capability while keeping the total window', () => {
+    const resolved = resolveRuntimeProvider({
+      config: {
+        ...BASE_CONFIG,
+        providers: {
+          ...BASE_CONFIG.providers,
+          gateway: { type: 'openai', apiKey: 'sk-gateway' } as const,
+        },
+        models: {
+          ...BASE_CONFIG.models!,
+          'gateway/gpt5': {
+            provider: 'gateway',
+            model: 'gpt-5',
+            maxContextSize: 400000,
+            maxInputSize: 272000,
+          },
+        },
+      },
+      model: 'gateway/gpt5',
+    });
+
+    expect(resolved.modelCapabilities).toMatchObject({
+      max_context_tokens: 400000,
+      max_input_tokens: 272000,
+    });
+  });
+
+  it('prefers alias.baseUrl over the provider base URL for the openai wire', () => {
+    // Catalog gateway shape: a model whose same-wire override endpoint
+    // differs from the provider's default.
+    const config = {
+      ...BASE_CONFIG,
+      providers: {
+        ...BASE_CONFIG.providers,
+        gateway: {
+          type: 'openai',
+          apiKey: 'sk-gateway',
+          baseUrl: 'https://gateway.example.test/api/v1',
+        } as const,
+      },
+      models: {
+        ...BASE_CONFIG.models!,
+        'gateway/tenant-model': {
+          provider: 'gateway',
+          model: 'vendor/tenant-model',
+          maxContextSize: 1000,
+          baseUrl: 'https://tenant.example.test/v1',
+        },
+        'gateway/shared-model': {
+          provider: 'gateway',
+          model: 'vendor/shared-model',
+          maxContextSize: 1000,
+        },
+      },
+    } as KimiConfig;
+
+    expect(resolveRuntimeProvider({ config, model: 'gateway/tenant-model' }).provider).toMatchObject(
+      { type: 'openai', baseUrl: 'https://tenant.example.test/v1' },
+    );
+    expect(resolveRuntimeProvider({ config, model: 'gateway/shared-model' }).provider).toMatchObject(
+      { type: 'openai', baseUrl: 'https://gateway.example.test/api/v1' },
+    );
+  });
+
+  it('prefers alias.baseUrl over the provider base URL for the anthropic wire', () => {
+    // Catalog gateway shape: provider default is the OpenAI wire, one model
+    // carries an Anthropic protocol + endpoint override.
+    const resolved = resolveRuntimeProvider({
+      config: {
+        ...BASE_CONFIG,
+        providers: {
+          ...BASE_CONFIG.providers,
+          gateway: {
+            type: 'openai',
+            apiKey: 'sk-gateway',
+            baseUrl: 'https://gateway.example.test/api/v1',
+          },
+        },
+        models: {
+          ...BASE_CONFIG.models!,
+          'gateway/claude-model': {
+            provider: 'gateway',
+            model: 'vendor/claude-model',
+            maxContextSize: 200000,
+            protocol: 'anthropic',
+            baseUrl: 'https://gateway.example.test/api/anthropic',
+          },
+          'gateway/plain-model': {
+            provider: 'gateway',
+            model: 'vendor/plain-model',
+            maxContextSize: 1000,
+            protocol: 'anthropic',
+          },
+        },
+      },
+      model: 'gateway/claude-model',
+    });
+
+    expect(resolved.provider).toMatchObject({
+      type: 'anthropic',
+      baseUrl: 'https://gateway.example.test/api/anthropic',
+    });
+
+    const fallback = resolveRuntimeProvider({
+      config: {
+        ...BASE_CONFIG,
+        providers: {
+          ...BASE_CONFIG.providers,
+          gateway: {
+            type: 'openai',
+            apiKey: 'sk-gateway',
+            baseUrl: 'https://gateway.example.test/api/v1',
+          },
+        },
+        models: {
+          ...BASE_CONFIG.models!,
+          'gateway/plain-model': {
+            provider: 'gateway',
+            model: 'vendor/plain-model',
+            maxContextSize: 1000,
+            protocol: 'anthropic',
+          },
+        },
+      },
+      model: 'gateway/plain-model',
+    });
+
+    // Without an alias endpoint the provider base URL applies (stripped of
+    // the trailing /v1 for the Anthropic SDK, as before).
+    expect(fallback.provider).toMatchObject({
+      type: 'anthropic',
+      baseUrl: 'https://gateway.example.test/api',
+    });
+  });
+
   it('omits defaultMaxTokens when alias.maxOutputSize is unset', () => {
     const resolved = resolveRuntimeProvider({
       config: {

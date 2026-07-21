@@ -268,8 +268,11 @@ export function resolveThinkingEffortForModel(
     effort = configured ?? defaultThinkingEffortForModel(model);
   }
 
-  if (strictValidation && effort === 'off' && model?.alwaysThinking === true) {
-    effort = configured ?? defaultThinkingEffortForModel(model);
+  if (effort === 'off' && model?.alwaysThinking === true) {
+    effort =
+      configured !== undefined && configured !== 'off'
+        ? configured
+        : defaultThinkingEffortForModel(model);
   }
   return normalizeThinkingEffortForModel(effort, model, strictValidation);
 }
