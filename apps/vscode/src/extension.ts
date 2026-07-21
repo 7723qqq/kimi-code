@@ -143,7 +143,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export async function deactivate(): Promise<void> {
   log("Kimi Code deactivating");
-  await provider?.shutdown();
+  await provider?.dispose();
   provider = undefined;
 }
 

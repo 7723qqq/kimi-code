@@ -6,6 +6,7 @@ import {
   withTelemetryContext,
 } from '@moonshot-ai/kimi-telemetry';
 import chalk from 'chalk';
+import os from 'node:os';
 import {
   createKimiHarness,
   log,
@@ -457,8 +458,9 @@ export function installPromptTerminationCleanup(
 }
 
 export function signalExitCode(signal: NodeJS.Signals): number {
-  if (signal === 'SIGINT') return 130;
-  if (signal === 'SIGHUP') return 129;
+  if (signal === 'SIGINT') return 128 + os.constants.signals.SIGINT;
+  if (signal === 'SIGHUP') return 128 + os.constants.signals.SIGHUP;
+  if (signal === 'SIGTERM') return 128 + os.constants.signals.SIGTERM;
   return 143;
 }
 
@@ -466,6 +468,19 @@ type PrintTurnSession = PromptSession &
   Required<Pick<PromptSession, 'handlePrintMainTurnCompleted'>>;
 
 function runPromptTurn(
+  session: PromptSession,
+  prompt: string,
+  outputFormat: PromptOutputFormat,
+  stdout: PromptOutput,
+  stderr: PromptOutput,
+): Promise<void> {
+  if (typeof (session as PrintTurnSession).handlePrintMainTurnCompleted !== 'function') {
+    return Promise.resolve();
+  }
+  return runPromptTurnImpl(session as PrintTurnSession, prompt, outputFormat, stdout, stderr);
+}
+
+function runPromptTurnImpl(
   session: PrintTurnSession,
   prompt: string,
   outputFormat: PromptOutputFormat,

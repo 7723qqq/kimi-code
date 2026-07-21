@@ -34,7 +34,11 @@ export const SUBAGENT_TIMEOUT_ENV = 'KIMI_SUBAGENT_TIMEOUT_MS';
 /** Parse the env override; anything but a positive integer is ignored (v1 semantics). */
 function parseTimeoutMsEnv(raw: string): number | undefined {
   const parsed = Number(raw);
-  return Number.isInteger(parsed) && parsed >= 1 ? parsed : undefined;
+  const valid = Number.isInteger(parsed) && parsed >= 1;
+  if (!valid && raw.trim() !== '') {
+    console.warn(`${SUBAGENT_TIMEOUT_ENV}=${raw} is not a positive integer, using default`);
+  }
+  return valid ? parsed : undefined;
 }
 
 export const subagentEnvBindings: EnvBindings<SubagentConfig> = envBindings(

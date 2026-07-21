@@ -1184,6 +1184,7 @@ export class KimiTUI {
     options?: SendMessageOptions,
     mode?: 'prompt' | 'bash',
   ): void {
+    if (this.state.queuedMessages.length >= 100) return;
     this.state.queuedMessages.push({
       text,
       agentId: this.harness.interactiveAgentId,

@@ -32,6 +32,20 @@ export const UpgradePreferencesSchema = z.object({
   autoInstall: z.boolean(),
 });
 
+export const AstronSettingsSchema = z.object({
+  stream: z.boolean(),
+  temperature: z.number(),
+  maxTokens: z.number(),
+  searchDisable: z.boolean(),
+});
+
+export const ASTRON_DEFAULT_SETTINGS = AstronSettingsSchema.parse({
+  stream: true,
+  temperature: 1.0,
+  maxTokens: 32768,
+  searchDisable: true,
+});
+
 export const TuiConfigFileSchema = z.object({
   theme: TuiThemeSchema.optional(),
   disable_paste_burst: z.boolean().optional(),
@@ -52,6 +66,14 @@ export const TuiConfigFileSchema = z.object({
       auto_install: z.boolean().optional(),
     })
     .optional(),
+  astron: z
+    .object({
+      stream: z.boolean().optional(),
+      temperature: z.number().optional(),
+      max_tokens: z.number().optional(),
+      search_disable: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 export const TuiConfigSchema = z.object({
@@ -61,12 +83,14 @@ export const TuiConfigSchema = z.object({
   editorCommand: z.string().nullable(),
   notifications: NotificationsConfigSchema,
   upgrade: UpgradePreferencesSchema,
+  astron: AstronSettingsSchema,
 });
 
 export type TuiConfigFileShape = z.infer<typeof TuiConfigFileSchema>;
 export type TuiConfig = z.infer<typeof TuiConfigSchema>;
 export type NotificationsConfig = z.infer<typeof NotificationsConfigSchema>;
 export type UpgradePreferences = z.infer<typeof UpgradePreferencesSchema>;
+export type AstronSettings = z.infer<typeof AstronSettingsSchema>;
 
 export const DEFAULT_NOTIFICATIONS_CONFIG: NotificationsConfig = {
   enabled: true,
@@ -84,6 +108,7 @@ export const DEFAULT_TUI_CONFIG: TuiConfig = TuiConfigSchema.parse({
   editorCommand: null,
   notifications: DEFAULT_NOTIFICATIONS_CONFIG,
   upgrade: DEFAULT_UPGRADE_PREFERENCES,
+  astron: ASTRON_DEFAULT_SETTINGS,
 });
 
 /**
@@ -151,6 +176,12 @@ export function normalizeTuiConfig(config: TuiConfigFileShape): TuiConfig {
     upgrade: {
       autoInstall: config.upgrade?.auto_install ?? DEFAULT_UPGRADE_PREFERENCES.autoInstall,
     },
+    astron: {
+      stream: config.astron?.stream ?? ASTRON_DEFAULT_SETTINGS.stream,
+      temperature: config.astron?.temperature ?? ASTRON_DEFAULT_SETTINGS.temperature,
+      maxTokens: config.astron?.max_tokens ?? ASTRON_DEFAULT_SETTINGS.maxTokens,
+      searchDisable: config.astron?.search_disable ?? ASTRON_DEFAULT_SETTINGS.searchDisable,
+    },
   });
 }
 
@@ -172,6 +203,12 @@ notification_condition = "${config.notifications.condition}" # "unfocused" | "al
 
 [upgrade]
 auto_install = ${String(config.upgrade.autoInstall)} # true | false
+
+[astron]
+stream = ${String(config.astron.stream)}
+temperature = ${String(config.astron.temperature)}
+max_tokens = ${String(config.astron.maxTokens)}
+search_disable = ${String(config.astron.searchDisable)}
 `;
 }
 

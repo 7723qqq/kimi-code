@@ -55,6 +55,8 @@ async function appendSessionIndexRecord(
     await mkdir(dirname(indexPath), { recursive: true, mode: 0o700 });
     await appendFile(indexPath, line, 'utf-8');
   });
+  // Swallow errors to keep the queue chain unpoisoned so future appends
+  // can still succeed. The caller's promise still reflects the error.
   appendQueues.set(homeDir, next.then(() => undefined, () => undefined));
   return next;
 }

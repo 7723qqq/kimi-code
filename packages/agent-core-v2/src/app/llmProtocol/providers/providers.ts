@@ -19,7 +19,8 @@ export type ProviderConfig =
   | ({ type: 'kimi' } & KimiOptions)
   | ({ type: 'google-genai' } & GoogleGenAIOptions)
   | ({ type: 'openai_responses' } & OpenAIResponsesOptions)
-  | ({ type: 'vertexai' } & GoogleGenAIOptions);
+  | ({ type: 'vertexai' } & GoogleGenAIOptions)
+  | ({ type: 'astron' } & KimiOptions);
 
 export type ProviderType = ProviderConfig['type'];
 
@@ -30,6 +31,8 @@ export function createProvider(config: ProviderConfig): ChatProvider {
     case 'openai':
       return new OpenAILegacyChatProvider(config);
     case 'kimi':
+      return new KimiChatProvider(config);
+    case 'astron':
       return new KimiChatProvider(config);
     case 'google-genai':
       return new GoogleGenAIChatProvider(config);
@@ -56,6 +59,7 @@ export function getModelCapability(wire: ProviderType, modelName: string): Model
     case 'vertexai':
       return getGoogleGenAIModelCapability(modelName);
     case 'kimi':
+    case 'astron':
       return UNKNOWN_CAPABILITY;
     default: {
       const exhaustive: never = wire;

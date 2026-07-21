@@ -149,6 +149,7 @@ function providerApiKeyEnvFallback(
     case 'openai_responses':
       return nonEmpty(env?.['OPENAI_API_KEY']);
     case 'kimi':
+    case 'astron':
       return nonEmpty(env?.['KIMI_API_KEY']);
     case 'google-genai':
       return nonEmpty(env?.['GOOGLE_API_KEY']);

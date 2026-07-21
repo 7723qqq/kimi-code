@@ -221,9 +221,11 @@ export class LockFile {
     }
     let pid: number | undefined;
     try {
-      pid = (JSON.parse(raw) as { pid?: number }).pid;
+      const parsed = JSON.parse(raw);
+      pid = typeof parsed.pid === 'number' ? parsed.pid : undefined;
     } catch {
-      pid = undefined; // unparsable content looks abandoned, same as a dead PID
+      // Unparsable content — refuse takeover; treat as unknown (possibly alive).
+      return { ino: st.ino, alive: true, mine: false };
     }
     return { ino: st.ino, alive: pidAlive(pid), mine: pid === process.pid };
   }

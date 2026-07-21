@@ -198,6 +198,13 @@ export function stripEnvModelConfig(config: KimiConfig): KimiConfig {
     // and the env thinking. Reaching here means env-model mode is active (the
     // synthetic provider/model exist), so these may be env values; an unset raw
     // field restores to undefined (i.e. drops it).
+    //
+    // Note: `config.raw` is a snapshot from the initial TOML load and is not
+    // updated on programmatic config mutations (e.g. `/config set`). When the
+    // env alias was active at load time, stripping restores the on-disk value
+    // that was in place before the env override — the env-alias-aware round-trip
+    // is therefore correct so long as no in-memory mutation changed the field
+    // that the env alias shadowed.
     ...(defaultIsEnv ? { defaultModel: rawDefaultModel(config) } : {}),
     thinking: rawThinking(config),
   };

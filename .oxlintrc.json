@@ -161,6 +161,7 @@
     "apps/*/scripts/",
     "docs/smoke-archive/",
     "packages/pi-tui/",
-    "*.generated.ts"
+    "*.generated.ts",
+    "参考目录/"
   ]
 }

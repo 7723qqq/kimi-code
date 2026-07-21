@@ -462,7 +462,25 @@
         "usage": "Usage",
         "usageDesc": "Show session tokens, context window, and plan quotas.",
         "githubToken": "GitHub Token",
-        "githubTokenDesc": "Set the GitHub personal access token for built-in GitHub tools."
+        "githubTokenDesc": "Set the GitHub personal access token for built-in GitHub tools.",
+        "astron": "Astron",
+        "astronDesc": "Configure the Astron model parameters."
+      },
+      "astronSettings": {
+        "title": "Astron Settings",
+        "hintNavigate": "↑↓ navigate",
+        "hintEnter": "Enter edit/toggle",
+        "hintSave": "Ctrl+S save",
+        "hintCancel": "Esc cancel",
+        "hintBackspace": "Backspace delete",
+        "saveButton": "[ Save ]",
+        "saved": "Saved",
+        "statusEnabled": "enabled",
+        "statusDisabled": "disabled",
+        "fieldStream": "Stream",
+        "fieldTemperature": "Temperature",
+        "fieldMaxTokens": "Max Tokens",
+        "fieldSearchDisable": "Search Disable"
       },
       "permissionSelector": {
         "title": "Select permission mode",
@@ -1627,6 +1645,7 @@
       "configGithubTokenInput": "Enter your GitHub personal access token (classic).",
       "configGithubTokenSaved": "GitHub token saved.",
       "configGithubTokenSaveFailed": "Failed to save GitHub token: {{error}}",
+      "configAstronSaveFailed": "Failed to save Astron settings: {{error}}",
       "configInvalidSlashCommand": "Invalid slash command: /{{name}}",
       "configVersionDisplay": "Kimi Code v{{version}}",
       "configUnknownSlashCommand": "Unknown slash command: /{{name}}",

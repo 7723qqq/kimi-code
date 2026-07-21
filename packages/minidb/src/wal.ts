@@ -70,8 +70,19 @@ export class WAL {
     this.size = st.size;
     this.nextOffset = st.size;
     if (this.policy === 'everysec') {
+      let syncFailures = 0;
       this.timer = setInterval(() => {
-        this.sync().catch(() => {});
+        this.sync().then(
+          () => {
+            syncFailures = 0;
+          },
+          () => {
+            syncFailures += 1;
+            if (syncFailures === 60) {
+              console.warn(`WAL fsync has failed for ${syncFailures} consecutive seconds, data loss risk at ${this.path}`);
+            }
+          },
+        );
       }, this.syncIntervalMs);
       this.timer.unref?.();
     }

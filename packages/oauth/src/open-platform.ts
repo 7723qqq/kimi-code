@@ -34,6 +34,28 @@ export const OPEN_PLATFORMS: readonly OpenPlatformDefinition[] = [
     consoleUrl: 'https://platform.kimi.ai',
     allowedPrefixes: ['kimi-k'],
   },
+  {
+    id: 'astron',
+    name: 'Xunfei Coding Plan (API key · xfyun.cn)',
+    baseUrl: 'https://maas-coding-api.cn-huabei-1.xf-yun.com/v2',
+    consoleUrl: 'https://www.xfyun.cn',
+  },
+];
+
+/** Embedded model list for iFlytek Astron Coding Plan — no remote fetch needed. */
+export interface AstronPlatformModelInfo {
+  readonly id: string;
+  readonly contextLength: number;
+}
+
+export const ASTRON_PLATFORM_MODELS: readonly AstronPlatformModelInfo[] = [
+  { id: 'astron-code-latest', contextLength: 200_000 },
+  { id: 'xsparkx2agent', contextLength: 256_000 },
+  { id: 'xsparkx2', contextLength: 128_000 },
+  { id: 'xsparkx2flash', contextLength: 256_000 },
+  { id: 'auto', contextLength: 200_000 },
+  { id: 'xopglm5', contextLength: 200_000 },
+  { id: 'xopglm51', contextLength: 200_000 },
 ];
 
 export function getOpenPlatformById(id: string): OpenPlatformDefinition | undefined {

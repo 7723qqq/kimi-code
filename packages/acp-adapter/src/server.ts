@@ -157,6 +157,7 @@ function providerHasNonOAuthCredentials(provider: ProviderConfig): boolean {
     case 'openai_responses':
       return hasProviderValue(provider, 'OPENAI_API_KEY');
     case 'kimi':
+    case 'astron':
       return hasProviderValue(provider, 'KIMI_API_KEY');
     case 'google-genai':
       return hasProviderValue(provider, 'GOOGLE_API_KEY');
