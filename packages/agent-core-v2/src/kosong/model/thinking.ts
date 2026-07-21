@@ -155,7 +155,7 @@ export function resolveForcedThinkingEffort(
   traitDriven: boolean,
 ): ThinkingEffort | undefined {
   if (!traitDriven || effective === 'off') return undefined;
-  return nonEmpty(forced) as ThinkingEffort | undefined;
+  return nonEmpty(forced)?.toLowerCase() as ThinkingEffort | undefined;
 }
 
 function hasCapability(
@@ -257,7 +257,7 @@ export function resolveThinkingEffortForModel(
   model: ModelThinkingMetadata | undefined,
   strictValidation = false,
 ): ThinkingEffort {
-  const configured = nonEmpty(defaults?.effort) as ThinkingEffort | undefined;
+  const configured = normalizeRequestedThinkingEffort(defaults?.effort);
   const normalized = normalizeRequestedThinkingEffort(requested);
   let effort: ThinkingEffort;
   if (normalized !== undefined) {

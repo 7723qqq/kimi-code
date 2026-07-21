@@ -140,6 +140,20 @@ describe('resolveThinkingEffort', () => {
     expect(resolveThinkingEffort('off', undefined, alwaysThinkingModel, false)).toBe('on');
   });
 
+  it('normalizes a configured off value (case/whitespace) instead of sending it upstream', () => {
+    expect(resolveThinkingEffort(undefined, { effort: ' OFF ' }, effortModel, false)).toBe('off');
+    expect(resolveThinkingEffort(undefined, { effort: 'Off' }, booleanModel, false)).toBe('off');
+    // … and inside the always-on clamp it is treated as absent, not as an effort.
+    expect(
+      resolveThinkingEffort(undefined, { enabled: false, effort: ' OFF ' }, alwaysThinkingEffortModel, false),
+    ).toBe('high');
+  });
+
+  it('reads a whitespace-only configured effort as absent, not as an empty effort', () => {
+    expect(resolveThinkingEffort(undefined, { effort: '   ' }, effortModel, false)).toBe('medium');
+    expect(resolveThinkingEffort(undefined, { effort: '   ' }, alwaysThinkingModel, false)).toBe('on');
+  });
+
   it('treats a configured off as absent when clamping always-thinking models', () => {
     expect(resolveThinkingEffort(undefined, { effort: 'off' }, alwaysThinkingEffortModel, false)).toBe(
       'high',
