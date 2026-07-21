@@ -57,6 +57,15 @@ export const FLAG_DEFINITIONS = [
     default: false,
     surface: 'core',
   },
+  {
+    id: 'goal_completion_verifier',
+    title: 'Goal completion verifier',
+    description:
+      'Before a goal is marked complete, an isolated verifier agent independently checks the work against the objective and completion criterion, and rejects the completion if it is not verifiably done.',
+    env: 'KIMI_CODE_EXPERIMENTAL_GOAL_COMPLETION_VERIFIER',
+    default: true,
+    surface: 'core',
+  },
 ] as const satisfies readonly FlagDefinitionInput[];
 
 /** Literal union of registered flag ids. */

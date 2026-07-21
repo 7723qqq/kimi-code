@@ -32,6 +32,7 @@ import {
 
 const MAX_CWD_SEGMENTS = 3;
 const GOAL_TIMER_INTERVAL_MS = 1_000;
+const THINKING_PULSE_INTERVAL_MS = 80;
 
 // Toolbar tips — rotates every 10s. Most tips are short and pair up (two
 // joined by " | ") when space allows; tips flagged `solo` are long or
@@ -209,6 +210,8 @@ export class FooterComponent implements Component {
   private goalSnapshotKey: string | null = null;
   private goalObservedAtMs = Date.now();
   private goalTimer: ReturnType<typeof setInterval> | null = null;
+  private pulseTimer: ReturnType<typeof setInterval> | null = null;
+  private pulsePhase = 0;
   /**
    * Non-terminal background-task counts split by kind so the footer can
    * render two distinct badges. `bashTasks` covers `bash-*` BPM tasks
@@ -235,6 +238,7 @@ export class FooterComponent implements Component {
     }
     this.syncGoalClock(state.goal);
     this.syncGoalTimer(state.goal);
+    this.syncPulseTimer(state.thinkingEffort !== 'off');
     this.state = state;
   }
 
@@ -298,8 +302,13 @@ export class FooterComponent implements Component {
             ? t('tui.chrome.footer.thinkingEffort', { effort })
             : t('tui.chrome.footer.thinking')
           : '';
+      const thinkingColor = this.pulsePhase > 0
+        ? pulseHexColor(colors.textDim, colors.text, Math.sin(this.pulsePhase * Math.PI))
+        : colors.text;
       const modelLabel = `${model}${thinkingLabel}`;
-      let renderedModelLabel = chalk.hex(colors.text)(modelLabel);
+      let renderedModelLabel =
+        chalk.hex(colors.text)(model) +
+        (thinkingLabel ? chalk.hex(thinkingColor)(thinkingLabel) : '');
       if (isRainbowDancing()) {
         renderedModelLabel = renderDanceFooterModel(modelLabel);
       }
@@ -415,10 +424,31 @@ export class FooterComponent implements Component {
     }
   }
 
+  private syncPulseTimer(thinking: boolean): void {
+    if (thinking) {
+      if (this.pulseTimer !== null) return;
+      this.pulseTimer = setInterval(() => {
+        this.pulsePhase = (this.pulsePhase + 0.05) % 1;
+        this.onRefresh();
+      }, THINKING_PULSE_INTERVAL_MS);
+      this.pulseTimer.unref?.();
+      return;
+    }
+    if (this.pulseTimer !== null) {
+      clearInterval(this.pulseTimer);
+      this.pulseTimer = null;
+    }
+    this.pulsePhase = 0;
+  }
+
   dispose(): void {
     if (this.goalTimer !== null) {
       clearInterval(this.goalTimer);
       this.goalTimer = null;
+    }
+    if (this.pulseTimer !== null) {
+      clearInterval(this.pulseTimer);
+      this.pulseTimer = null;
     }
   }
 
@@ -442,4 +472,27 @@ function goalSnapshotKey(goal: AppState['goal']): string | null {
     String(goal.budget.turnBudget),
     String(goal.budget.wallClockBudgetMs),
   ].join('\u0000');
+}
+
+function pulseHexColor(fromHex: string, toHex: string, t: number): string {
+  const clamp = (v: number): number => Math.max(0, Math.min(1, v));
+  const safe = clamp(t);
+  const from = parseHexColor(fromHex);
+  const to = parseHexColor(toHex);
+  if (from === undefined || to === undefined) return fromHex;
+  const mix = (s: number, e: number): string =>
+    Math.round(s + (e - s) * safe)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${mix(from.red, to.red)}${mix(from.green, to.green)}${mix(from.blue, to.blue)}`;
+}
+
+function parseHexColor(hex: string): { red: number; green: number; blue: number } | undefined {
+  const match = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex);
+  if (match === null) return undefined;
+  return {
+    red: Number.parseInt(match[1]!, 16),
+    green: Number.parseInt(match[2]!, 16),
+    blue: Number.parseInt(match[3]!, 16),
+  };
 }
