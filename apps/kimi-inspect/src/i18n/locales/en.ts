@@ -17,6 +17,9 @@ export default {
     tokenLabel: 'Bearer token (optional)',
     tokenPlaceholder: '~/.kimi-code/server.token',
     connectButton: 'Connect',
+    debugSurfaceUnavailable: 'Debug surface unavailable',
+    retry: 'Retry',
+    changeServer: 'Change server',
   },
   chat: {
     nonTextContent: '[non-text content]',

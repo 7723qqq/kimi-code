@@ -16,7 +16,10 @@
     "urlPlaceholder": "http://127.0.0.1:58627 (empty = dev proxy)",
     "tokenLabel": "Bearer token (optional)",
     "tokenPlaceholder": "~/.kimi-code/server.token",
-    "connectButton": "Connect"
+    "connectButton": "Connect",
+    "debugSurfaceUnavailable": "Debug surface unavailable",
+    "retry": "Retry",
+    "changeServer": "Change server"
   },
   "chat": {
     "nonTextContent": "[non-text content]",

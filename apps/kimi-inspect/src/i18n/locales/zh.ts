@@ -17,6 +17,9 @@ export default {
     tokenLabel: 'Bearer token（可选）',
     tokenPlaceholder: '~/.kimi-code/server.token',
     connectButton: '连接',
+    debugSurfaceUnavailable: '调试接口不可用',
+    retry: '重试',
+    changeServer: '切换服务器',
   },
   chat: {
     nonTextContent: '[非文本内容]',
