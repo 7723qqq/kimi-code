@@ -25,44 +25,53 @@ export class GoalInjection extends Disposable {
     const goal = this.options.getGoal();
     if (goal === null) return undefined;
     if (goal.status === 'active') return buildGoalReminder(goal);
-    if (goal.status === 'blocked' || goal.status === 'budget_limited' || goal.status === 'usage_limited') return buildBlockedNote(goal);
+    if (goal.status === 'blocked') return buildBlockedNote(goal);
     if (goal.status === 'paused') return buildPausedNote(goal);
     return undefined;
   }
 }
 
+const BUDGET_GUIDANCE_NEARING =
+  'Budget guidance: you are nearing a budget. Converge on the objective and avoid starting new discretionary work.';
+const BUDGET_GUIDANCE_WITHIN =
+  'Budget guidance: you are within budget. Make steady, focused progress toward the objective.';
+
 function buildBlockedNote(goal: GoalSnapshot): string {
-  const reason = goal.terminalReason;
   return renderPrompt(GOAL_BLOCKED_REMINDER, {
-    reason: reason === undefined ? '' : escapeUntrustedText(reason),
+    reason_suffix: reasonSuffix(goal),
     objective: escapeUntrustedText(goal.objective),
-    completionCriterion: escapedCompletionCriterion(goal),
+    completion_criterion_block: completionCriterionBlock(goal),
   });
 }
 
 function buildPausedNote(goal: GoalSnapshot): string {
-  const reason = goal.terminalReason;
   return renderPrompt(GOAL_PAUSED_REMINDER, {
-    reason: reason === undefined ? '' : escapeUntrustedText(reason),
+    reason_suffix: reasonSuffix(goal),
     objective: escapeUntrustedText(goal.objective),
-    completionCriterion: escapedCompletionCriterion(goal),
+    completion_criterion_block: completionCriterionBlock(goal),
   });
 }
 
 function buildGoalReminder(goal: GoalSnapshot): string {
+  const budgets = formatBudgets(goal);
   return renderPrompt(GOAL_ACTIVE_REMINDER, {
     objective: escapeUntrustedText(goal.objective),
-    completionCriterion: escapedCompletionCriterion(goal),
+    completion_criterion_block: completionCriterionBlock(goal),
     status: goal.status,
-    progress: `${goal.turnsUsed} continuation turns, ${goal.outputTokensUsed} out + ${goal.inputTokensUsed} in tokens, ${formatElapsed(goal.wallClockMs)} elapsed`,
-    budgets: formatBudgets(goal),
-    nearingBudget: isNearingBudget(goal),
+    progress: `${goal.turnsUsed} continuation turns, ${goal.tokensUsed} tokens, ${formatElapsed(goal.wallClockMs)} elapsed`,
+    budgets_block: budgets.length > 0 ? `Budgets: ${budgets}.\n` : '',
+    budget_guidance: isNearingBudget(goal) ? BUDGET_GUIDANCE_NEARING : BUDGET_GUIDANCE_WITHIN,
   });
 }
 
-function escapedCompletionCriterion(goal: GoalSnapshot): string {
+function reasonSuffix(goal: GoalSnapshot): string {
+  const reason = goal.terminalReason;
+  return reason === undefined ? '' : ` (${escapeUntrustedText(reason)})`;
+}
+
+function completionCriterionBlock(goal: GoalSnapshot): string {
   if (goal.completionCriterion === undefined) return '';
-  return escapeUntrustedText(goal.completionCriterion);
+  return `<untrusted_completion_criterion>\n${escapeUntrustedText(goal.completionCriterion)}\n</untrusted_completion_criterion>\n`;
 }
 
 function formatBudgets(goal: GoalSnapshot): string {
@@ -74,7 +83,7 @@ function formatBudgets(goal: GoalSnapshot): string {
   }
   if (goal.budget.tokenBudget !== null) {
     budgetLines.push(
-      `tokens ${goal.outputTokensUsed} out + ${goal.inputTokensUsed} in / ${goal.budget.tokenBudget} (remaining ${goal.budget.remainingTokens})`,
+      `tokens ${goal.tokensUsed}/${goal.budget.tokenBudget} (remaining ${goal.budget.remainingTokens})`,
     );
   }
   if (goal.budget.wallClockBudgetMs !== null) {
@@ -86,13 +95,7 @@ function formatBudgets(goal: GoalSnapshot): string {
 }
 
 function isNearingBudget(goal: GoalSnapshot): boolean {
-  if (goal.budget.tokenBudget !== null && goal.budget.tokenBudget > 0) {
-    return goal.tokensUsed / goal.budget.tokenBudget >= 0.75;
-  }
-  if (goal.budget.turnBudget !== null && goal.budget.turnBudget > 0) {
-    return goal.turnsUsed / goal.budget.turnBudget >= 0.75;
-  }
-  return false;
+  return maxBudgetFraction(goal) >= 0.75;
 }
 
 function maxBudgetFraction(goal: GoalSnapshot): number {

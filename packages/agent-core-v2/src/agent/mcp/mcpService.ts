@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
 
-import { t } from '@moonshot-ai/kimi-i18n';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import type { Tool as KosongTool } from '#/app/llmProtocol/tool';
+import type { Tool as KosongTool } from '#/kosong/contract/tool';
 
 import { Disposable, type IDisposable } from "#/_base/di/lifecycle";
 import type { KimiErrorPayload } from '#/_base/errors/serialize';
 import { ErrorCodes, makeErrorPayload } from "#/errors";
+import { abortable } from '#/_base/utils/abort';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { sessionMediaOriginalsDir } from '#/agent/media/image-originals';
@@ -35,7 +35,7 @@ export interface ErrorEvent extends KimiErrorPayload {
 export interface McpServerStatusPayload {
   readonly name: string;
   readonly transport: 'stdio' | 'http' | 'sse';
-  readonly status: 'pending' | 'connected' | 'failed' | 'disabled' | 'needs-auth' | 'pending-approval';
+  readonly status: 'pending' | 'connected' | 'failed' | 'disabled' | 'needs-auth';
   readonly toolCount: number;
   readonly error?: string;
 }
@@ -131,8 +131,24 @@ export class AgentMcpService extends Disposable implements IAgentMcpService {
     signal?.throwIfAborted();
   }
 
-  approveServer(name: string): Promise<void> {
-    return this.sessionMcp.approveServer(name);
+  private reconnectForToolCall(
+    serverName: string,
+    staleClient: MCPClient,
+    signal?: AbortSignal,
+  ): Promise<MCPClient | undefined> {
+    const work = this.joinHealedOrReconnect(serverName, staleClient);
+    return signal === undefined ? work : abortable(work, signal);
+  }
+
+  private async joinHealedOrReconnect(
+    serverName: string,
+    staleClient: MCPClient,
+  ): Promise<MCPClient | undefined> {
+    const healed = this.resolved(serverName)?.client;
+    if (healed !== undefined && healed !== staleClient) return healed;
+    await this.sessionMcp.connectionManager().reconnectAndJoin(serverName);
+    const current = this.resolved(serverName)?.client;
+    return current !== undefined && current !== staleClient ? current : undefined;
   }
 
   onStatusChange(listener: Parameters<IAgentMcpService['onStatusChange']>[0]) {
@@ -172,16 +188,15 @@ export class AgentMcpService extends Disposable implements IAgentMcpService {
       this.registerNeedsAuthMcpServer(entry);
       return;
     }
-    if (entry.status === 'failed') {
-      this.unregisterMcpServer(entry.name);
-      this.eventBus.publish({
-        type: 'tool.list.updated',
-        reason: 'mcp.failed',
-        serverName: entry.name,
-      });
+    if (entry.status === 'failed' || entry.status === 'pending') {
+      // Keep the server's tools registered while it is down or reconnecting.
+      // The captured client is closed, so the next call fails fast at the
+      // transport layer and the tool adapter's reconnect-and-retry path heals
+      // the connection — a dropped server surfaces as a slow call instead of
+      // "tool not found" for the rest of the session.
       return;
     }
-    if (entry.status === 'disabled' || entry.status === 'pending' || entry.status === 'pending-approval') {
+    if (entry.status === 'disabled') {
       const removed = this.unregisterMcpServer(entry.name);
       if (removed) {
         this.eventBus.publish({
@@ -272,6 +287,7 @@ export class AgentMcpService extends Disposable implements IAgentMcpService {
           createMcpTool(qualified, tool, client, {
             originalsDir: sessionMediaOriginalsDir(this.sessionContext.sessionDir),
             telemetry: this.telemetry,
+            reconnect: (signal) => this.reconnectForToolCall(serverName, client, signal),
           }),
           { source: 'mcp' },
         ),
@@ -303,12 +319,8 @@ export class AgentMcpService extends Disposable implements IAgentMcpService {
   ): void {
     const enabledNamesSnapshot = [...enabledNames].toSorted((a, b) => a.localeCompare(b));
     const work = (): void => {
-      // Sort rawTools by name before hashing so a server that returns the
-      // same tool set in a different order does not trigger a redundant
-      // mcpToolsDiscovered wire op dispatch.
-      const sortedTools = [...rawTools].sort((a, b) => a.name.localeCompare(b.name));
       const hash = createHash('sha256')
-        .update(JSON.stringify({ tools: sortedTools, enabledNames: enabledNamesSnapshot, collisions }))
+        .update(JSON.stringify({ tools: rawTools, enabledNames: enabledNamesSnapshot, collisions }))
         .digest('hex');
       const key = `${serverName}\n${hash}`;
       if (this.wire.getModel(McpDiscoveryModel).seen.includes(key)) return;
@@ -345,23 +357,17 @@ export class AgentMcpService extends Disposable implements IAgentMcpService {
     const summary = collisions
       .map((collision) =>
         collision.collidesWith.kind === 'same_server'
-          ? t('v2Mcp.toolNameCollision', {
-              toolName: collision.toolName,
-              qualified: collision.qualified,
-              collidesWith: collision.collidesWith.toolName,
-            })
-          : t('v2Mcp.toolNameCollision', {
-              toolName: collision.toolName,
-              qualified: collision.qualified,
-              collidesWith: collision.collidesWith.serverName,
-            }),
+          ? `"${collision.toolName}" -> ${collision.qualified} (collides with "${collision.collidesWith.toolName}" from the same server)`
+          : `"${collision.toolName}" -> ${collision.qualified} (collides with server "${collision.collidesWith.serverName}")`,
       )
       .join('; ');
     this.eventBus.publish({
       type: 'error',
       ...makeErrorPayload(
         ErrorCodes.MCP_TOOL_NAME_COLLISION,
-        `${t('v2Mcp.serverCollisionSummary', { serverName, count: String(collisions.length) })}; ${t('v2Mcp.losingToolsDropped', { summary })}`,
+        `MCP server "${serverName}" registered ${collisions.length} tool name` +
+          `${collisions.length === 1 ? '' : 's'} ` +
+          `that collide with existing qualified names; the losing tools were dropped: ${summary}`,
         { details: { serverName, collisions: collisions as readonly unknown[] } },
       ),
     });

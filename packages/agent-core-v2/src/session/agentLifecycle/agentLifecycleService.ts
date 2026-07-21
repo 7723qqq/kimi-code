@@ -5,7 +5,8 @@
  * serializing same-id bootstrap and dropping incomplete handles after startup
  * failure. Seeds each agent's identity through `agent` scopeContext, wires
  * per-agent wire records and the wire state machine, the blob store, and MCP,
- * and registers the agent in the session registry. New logs receive a metadata
+ * and registers the agent in the session registry. Binds the agent id into the
+ * Agent-scoped telemetry view. New logs receive a metadata
  * envelope while non-empty unversioned logs are rejected. Removal awaits the
  * agent task manager's graceful exit policy before draining turns and full
  * compaction, then disposing the child scope. Fans session-level
@@ -65,6 +66,7 @@ import { IAgentExternalHooksService } from '#/agent/externalHooks/externalHooks'
 import { IAgentPluginService } from '#/agent/plugin/agentPlugin';
 import { ISessionInteractionService } from '#/session/interaction/interaction';
 import { IWireService } from '#/wire/wire';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import {
   type AgentListFilter,
   type CreateAgentOptions,
@@ -100,6 +102,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     @IConfigService private readonly config: IConfigService,
     @ISessionMcpService private readonly sessionMcp: ISessionMcpService,
     @ISessionInteractionService private readonly interaction: ISessionInteractionService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     super();
     this._register(this.onDidCreate((handle) => this.subscribeInteractionBus(handle)));
@@ -138,7 +141,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       const existing = this.handles.get(opts.agentId);
       if (existing !== undefined) return existing;
     }
-    const agentId = opts.agentId ?? `agent-${nextAgentId++}`;
+    const agentId = opts.agentId ?? (await this.nextAvailableAgentId());
     const promise = this.doCreate(agentId, opts);
     this.creating.set(agentId, promise);
     try {
@@ -146,6 +149,20 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     } finally {
       this.creating.delete(agentId);
     }
+  }
+
+  private async nextAvailableAgentId(): Promise<string> {
+    let maxSuffix = -1;
+    const consider = (id: string): void => {
+      const match = /^agent-(\d+)$/.exec(id);
+      if (match !== null) maxSuffix = Math.max(maxSuffix, Number(match[1]));
+    };
+    for (const id of this.handles.keys()) consider(id);
+    const persisted = (await this.sessionMetadata.read()).agents ?? {};
+    for (const id of Object.keys(persisted)) consider(id);
+    const candidate = Math.max(maxSuffix + 1, nextAgentId);
+    nextAgentId = candidate + 1;
+    return `agent-${String(candidate)}`;
   }
 
   private async doCreate(agentId: string, opts: CreateAgentOptions): Promise<IAgentScopeHandle> {
@@ -164,11 +181,16 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       this.instantiation,
       LifecycleScope.Agent,
       agentId,
-      // The only per-agent seed: identity facts. Every other agent-scope
+      // Seed identity facts and the telemetry view. Every other agent-scope
       // service either derives its configuration from `IAgentScopeContext`
       // (wire, blob) or resolves it through the scope tree (the
       // session's shared MCP manager via `ISessionMcpService`).
-      { extra: [[IAgentScopeContext, makeAgentScopeContext({ agentId, agentScope })]] },
+      {
+        extra: [
+          [IAgentScopeContext, makeAgentScopeContext({ agentId, agentScope })],
+          [ITelemetryService, this.telemetry.withContext({ agent_id: agentId })],
+        ],
+      },
     ) as IAgentScopeHandle;
     this.handles.set(agentId, handle);
     try {
@@ -206,10 +228,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   // skips the lazy proxy at resolve time — so they must be resolved here or
   // their registrations (built-in tools, loop error handlers, MCP tools) would
   // never happen.
-  //
-  // Fail-fast by design: all services are critical for correct agent operation;
-  // if any fails to initialise the error propagates to the caller's catch-block
-  // so the half-built agent is dropped instead of returning a zombie.
   private igniteEagerServices(handle: IAgentScopeHandle): void {
     handle.accessor.get(IAgentBuiltinToolsRegistrar);
     handle.accessor.get(IAgentMediaToolsRegistrar);
@@ -266,36 +284,28 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     }
     const child = await this.create({ agentId: opts?.agentId, forkedFrom: source.id });
 
-    try {
-      const sourceData = source.accessor.get(IAgentProfileService).data();
-      const childProfile = child.accessor.get(IAgentProfileService);
-      const override = opts?.binding;
-      const model = override?.model ?? sourceData.modelAlias;
-      if (model !== undefined) {
-        await childProfile.bind({
-          profile: override?.profile ?? sourceData.profileName ?? 'agent',
-          model,
-          thinking: override?.thinking ?? sourceData.thinkingLevel,
-          cwd: override?.cwd ?? sourceData.cwd,
-        });
-      } else {
-        childProfile.update({
-          profileName: override?.profile ?? sourceData.profileName,
-          thinkingLevel: override?.thinking ?? sourceData.thinkingLevel,
-          systemPrompt: sourceData.systemPrompt,
-          activeToolNames: sourceData.activeToolNames,
-        });
-      }
-
-      const sourceMessages = source.accessor.get(IAgentContextMemoryService)?.get();
-      if (sourceMessages !== undefined && sourceMessages.length > 0) {
-        child.accessor.get(IAgentContextMemoryService)?.append(...sourceMessages);
-      }
-      return child;
-    } catch (error) {
-      await this.remove(child.id);
-      throw error;
+    const sourceData = source.accessor.get(IAgentProfileService).data();
+    const childProfile = child.accessor.get(IAgentProfileService);
+    const override = opts?.binding;
+    if (override?.profile !== undefined) {
+      await childProfile.bind({
+        profile: override.profile,
+        model: override.model ?? sourceData.modelAlias,
+        thinking: override?.thinking ?? sourceData.thinkingLevel,
+        cwd: override?.cwd ?? sourceData.cwd,
+      });
+    } else {
+      childProfile.applyBindingSnapshot(sourceData);
+      if (override?.model !== undefined) await childProfile.setModel(override.model);
+      if (override?.thinking !== undefined) childProfile.setThinking(override.thinking);
+      if (override?.cwd !== undefined) childProfile.update({ cwd: override.cwd });
     }
+
+    const sourceMessages = source.accessor.get(IAgentContextMemoryService)?.get();
+    if (sourceMessages !== undefined && sourceMessages.length > 0) {
+      child.accessor.get(IAgentContextMemoryService)?.append(...sourceMessages);
+    }
+    return child;
   }
 
   get(agentId: string): IAgentScopeHandle | undefined {
@@ -318,25 +328,22 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   async remove(agentId: string): Promise<void> {
     const handle = this.handles.get(agentId);
     if (handle === undefined) return;
-    try {
-      await handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed');
-      const loop = handle.accessor.get(IAgentLoopService);
-      const compaction = handle.accessor.get(IAgentFullCompactionService).compacting;
-      const compactionSettled = compaction?.promise.catch(() => undefined) ?? Promise.resolve();
-      const reason = abortError('Agent removed');
-      for (const turnId of loop.status().pendingTurnIds) {
-        loop.cancel(turnId, reason);
-      }
-      loop.cancel(undefined, reason);
-      if (compaction !== null && !compaction.abortController.signal.aborted) {
-        compaction.abortController.abort(reason);
-      }
-      await Promise.all([loop.settled(), compactionSettled]);
-    } finally {
-      this.handles.delete(agentId);
-      handle.dispose();
-      this.onDidDisposeEmitter.fire(agentId);
+    this.handles.delete(agentId);
+    await handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed');
+    const loop = handle.accessor.get(IAgentLoopService);
+    const compaction = handle.accessor.get(IAgentFullCompactionService).compacting;
+    const compactionSettled = compaction?.promise.catch(() => undefined) ?? Promise.resolve();
+    const reason = abortError('Agent removed');
+    for (const turnId of loop.status().pendingTurnIds) {
+      loop.cancel(turnId, reason);
     }
+    loop.cancel(undefined, reason);
+    if (compaction !== null && !compaction.abortController.signal.aborted) {
+      compaction.abortController.abort(reason);
+    }
+    await Promise.all([loop.settled(), compactionSettled]);
+    handle.dispose();
+    this.onDidDisposeEmitter.fire(agentId);
   }
 }
 

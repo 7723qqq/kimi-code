@@ -27,8 +27,7 @@
  * helpers stay private so callers cannot bypass the limits.
  */
 
-import { t } from '@moonshot-ai/kimi-i18n';
-import type { ContentPart } from '#/app/llmProtocol/message';
+import type { ContentPart } from '#/kosong/contract/message';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
 
 import { compressImageContentParts } from '#/agent/media/image-compress';
@@ -42,13 +41,12 @@ import type { MCPContentBlock, MCPToolResult } from './types';
 export interface McpOutputOptions {
   readonly originalsDir?: string;
   readonly telemetry?: ITelemetryService;
-  readonly logger?: { debug(message: string, meta?: Record<string, unknown>): void };
 }
 
 export const MCP_MAX_OUTPUT_CHARS = 100_000;
-const MCP_OUTPUT_TRUNCATED_TEXT = t('v2Mcp.outputTruncated', {
-  limit: String(MCP_MAX_OUTPUT_CHARS),
-});
+const MCP_OUTPUT_TRUNCATED_TEXT = `\n\n[Output truncated: exceeded ${String(
+  MCP_MAX_OUTPUT_CHARS,
+)} character limit. Use pagination or more specific queries to get remaining content.]`;
 
 export const MCP_MAX_BINARY_PART_BYTES = 10 * 1024 * 1024;
 const MCP_MAX_BINARY_PART_CHARS = Math.ceil((MCP_MAX_BINARY_PART_BYTES * 4) / 3);
@@ -56,7 +54,7 @@ const MCP_MAX_BINARY_PART_CHARS = Math.ceil((MCP_MAX_BINARY_PART_BYTES * 4) / 3)
 function binaryPartTooLargeNotice(kind: 'image' | 'audio' | 'video', urlLength: number): string {
   const approxMb = ((urlLength * 3) / 4 / (1024 * 1024)).toFixed(1);
   const capMb = String(MCP_MAX_BINARY_PART_BYTES / (1024 * 1024));
-  return t('v2Mcp.binaryPartTooLarge', { kind, approxMb, capMb });
+  return `[${kind}_url dropped: ~${approxMb} MB exceeds ${capMb} MB per-part limit. Try a smaller resource.]`;
 }
 
 export function convertMCPContentBlock(block: MCPContentBlock): ContentPart | null {
@@ -141,20 +139,11 @@ export async function mcpResultToExecutableOutput(
   truncated?: true;
 }> {
   const converted: ContentPart[] = [];
-  let dropped = 0;
-  const droppedTypes: string[] = [];
   for (const block of result.content) {
     const part = convertMCPContentBlock(block);
     if (part !== null) {
       converted.push(part);
-    } else {
-      dropped++;
-      droppedTypes.push(block.type);
     }
-  }
-  if (dropped > 0) {
-    const message = `mcpResultToExecutableOutput: dropped ${dropped} unsupported content block(s), types: ${droppedTypes.join(', ')}`;
-    options.logger?.debug(message, { dropped, types: droppedTypes });
   }
 
   const wrapped = wrapMediaOnly(converted, qualifiedToolName);

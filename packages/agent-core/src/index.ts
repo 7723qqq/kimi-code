@@ -1,5 +1,3 @@
-export { t, setLocale, getLocale } from './i18n';
-export type { Locale, TranslationKey } from './i18n';
 export * from './agent';
 export * from './session';
 export * from './rpc';
@@ -10,7 +8,7 @@ export * from './telemetry';
 export * from './errors';
 export * from './plugin';
 export { buildReplay } from './agent/replay/build';
-export type { LoopTurnStopReason } from './loop';
+export { isAgentReplayUserTurnRecord, limitAgentReplayByTurns } from './agent/replay/turns';
 export {
   flushDiagnosticLogs,
   flushDiagnosticLogsSync,
@@ -22,7 +20,6 @@ export {
 export { resolveLoggingConfig } from './logging/resolve-config';
 export type { ResolveLoggingInput } from './logging/resolve-config';
 export { installGlobalProxyDispatcher } from './utils/proxy';
-export { estimateTokens } from './utils/tokens';
 export type {
   LogContext,
   LogEntry,
@@ -160,11 +157,15 @@ export type {
 export * from './di';
 
 // ─── Base — Event<T> / Emitter<T> ──────────────────────────────────────────
-// The protocol Event union is re-exported as `ProtocolEvent` (via `./rpc`
-// above, which aliases it from `@moonshot-ai/protocol`). This frees the
-// top-level `Event` name for the VSCode-style emitter listener type
-// (`Event<T>`), so both can coexist without a naming clash.
-export { Emitter, type Event } from './base/common/event';
+// NOTE: only `Emitter` is re-exported from the top-level barrel — the new
+// VSCode-style `Event<T>` symbol collides with `./rpc`'s `Event` (agent-core
+// protocol Event union, exported via `export * from './rpc'` above). Callers
+// that need the emitter `Event<T>` type import it from the explicit sub-path
+// `@moonshot-ai/agent-core/base/common/event` (declared in `package.json`
+// `exports`). This keeps the existing top-level `Event` semantics stable for
+// consumers like `services/src/event/event.ts` while letting new code reach
+// for the emitter type without naming clashes.
+export { Emitter } from './base/common/event';
 
 // ─── In-process services (merged from @moonshot-ai/services) ─────────────────
 // Re-exports the `IXxxService` contracts, default `XxxService` implementations,

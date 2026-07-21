@@ -37,6 +37,7 @@ export interface StreamingUIHost {
   shiftQueuedMessage(): QueuedMessage | undefined;
   pushTranscriptEntry(entry: TranscriptEntry): void;
   mergeCurrentTurnSteps(): void;
+  mergeCompletedTurnAssistants(): void;
 }
 
 export class StreamingUIController {
@@ -556,6 +557,9 @@ export class StreamingUIController {
     const completedTurnKey =
       this._currentTurnId ?? `local:${String(state.appState.streamingStartTime)}`;
     this.finalizeLiveTextBuffers('idle');
+    // The finished turn keeps only its conclusion-bearing tail; intermediate
+    // chatter folds into the step summary.
+    this.host.mergeCompletedTurnAssistants();
     this.resetToolCallState();
     this._currentTurnId = undefined;
 
@@ -836,8 +840,9 @@ export class StreamingUIController {
     const children = state.transcriptContainer.children;
     const idx = children.indexOf(solo);
     if (idx >= 0) {
+      // In-place replacement is picked up by the container's ref-checked
+      // render cache; a tree-wide invalidate is unnecessary (and costly).
       children[idx] = group;
-      state.transcriptContainer.invalidate();
     } else {
       state.transcriptContainer.addChild(group);
     }
@@ -893,8 +898,9 @@ export class StreamingUIController {
     const children = state.transcriptContainer.children;
     const idx = children.indexOf(solo);
     if (idx >= 0) {
+      // In-place replacement is picked up by the container's ref-checked
+      // render cache; a tree-wide invalidate is unnecessary (and costly).
       children[idx] = group;
-      state.transcriptContainer.invalidate();
     } else {
       state.transcriptContainer.addChild(group);
     }

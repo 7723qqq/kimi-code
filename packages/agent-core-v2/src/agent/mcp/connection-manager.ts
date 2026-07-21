@@ -13,7 +13,7 @@ import { ErrorCodes, Error2 } from '#/errors';
 import type { McpServerConfig } from './config-schema';
 import type { McpConfigSource } from './config-loader';
 import type { ILogger as Logger } from '#/_base/log/log';
-import type { Tool } from '#/app/llmProtocol/tool';
+import type { Tool } from '#/kosong/contract/tool';
 
 import { abortable, linkAbortSignal } from '#/_base/utils/abort';
 import { HttpMcpClient } from './client-http';
@@ -77,6 +77,7 @@ export interface McpConnectionManagerOptions {
 export class McpConnectionManager {
   private readonly entries = new Map<string, InternalEntry>();
   private readonly listeners = new Set<McpStatusListener>();
+  private readonly inFlightReconnects = new Map<string, Promise<void>>();
   private initialLoad: Promise<void> = Promise.resolve();
   private initialLoadAttemptId = 0;
   private initialLoadStartedAt: number | undefined;
@@ -286,6 +287,18 @@ export class McpConnectionManager {
     entry.error = undefined;
     this.emit(entry);
     await this.connectWithRetry(entry, attemptId);
+  }
+
+  reconnectAndJoin(name: string): Promise<void> {
+    const existing = this.inFlightReconnects.get(name);
+    if (existing !== undefined) return existing;
+    const work = this.reconnect(name).finally(() => {
+      if (this.inFlightReconnects.get(name) === work) {
+        this.inFlightReconnects.delete(name);
+      }
+    });
+    this.inFlightReconnects.set(name, work);
+    return work;
   }
 
   async shutdown(): Promise<void> {

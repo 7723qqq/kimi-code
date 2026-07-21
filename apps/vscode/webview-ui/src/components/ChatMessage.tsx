@@ -1,8 +1,6 @@
-import { useState, Fragment } from "react";
-import { t } from "@/i18n";
+import { useState, Fragment, memo } from "react";
 import { IconLoader3, IconGitFork } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
-import { t } from "@/i18n";
 import { Content } from "@/lib/content";
 import { Markdown } from "./Markdown";
 import { ToolCallCard } from "./ToolRenderers";
@@ -19,7 +17,6 @@ import { toast } from "@/components/ui/sonner";
 import { useChatStore } from "@/stores";
 import { bridge } from "@/services";
 import type { ChatMessage as ChatMessageType, UIStep, UIStepItem } from "@/stores/chat.store";
-import { t } from "@/i18n";
 import type { ContentPart } from "shared/legacy-sdk";
 
 interface ChatMessageProps {
@@ -149,7 +146,9 @@ interface ForkButtonProps {
 function ForkButton({ turnIndex, className }: ForkButtonProps) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [isForking, setIsForking] = useState(false);
-  const { sessionId, isStreaming, loadSession } = useChatStore();
+  const sessionId = useChatStore((s) => s.sessionId);
+  const isStreaming = useChatStore((s) => s.isStreaming);
+  const loadSession = useChatStore((s) => s.loadSession);
 
   const handleFork = () => {
     if (!sessionId || turnIndex < 0) return;
@@ -187,7 +186,7 @@ function ForkButton({ turnIndex, className }: ForkButtonProps) {
         )}
         onClick={handleFork}
         disabled={isForking || !sessionId}
-        title={t('chatMessage.forkFromPoint')}
+        title="Fork conversation from this point"
       >
         <IconGitFork className="size-3.5" />
       </Button>
@@ -195,7 +194,7 @@ function ForkButton({ turnIndex, className }: ForkButtonProps) {
       <StreamingConfirmDialog
         open={showConfirm}
         onOpenChange={setShowConfirm}
-        title={t('chatMessage.forkConversation')}
+        title="Fork Conversation"
         description={
           isStreaming
             ? "The current conversation is still generating a response. Forking will stop the generation and create a new conversation from this point. Continue?"
@@ -237,7 +236,7 @@ function UserMessage({ message }: { message: ChatMessageType }) {
 
 function AssistantMessage({ message, turnIndex, isStreaming }: { message: ChatMessageType; turnIndex?: number; isStreaming?: boolean }) {
   const [previewMedia, setPreviewMedia] = useState<string | null>(null);
-  const { isCompacting } = useChatStore();
+  const isCompacting = useChatStore((s) => s.isCompacting);
 
   const steps = message.steps || [];
   const hasSteps = steps.length > 0;
@@ -270,7 +269,7 @@ function AssistantMessage({ message, turnIndex, isStreaming }: { message: ChatMe
       <div className="flex gap-3 flex-col">
         <div className="flex flex-row items-center justify-start gap-2">
           <div className="shrink-0 size-5 rounded flex items-center justify-center text-[10px] font-medium bg-blue-500 text-white">K</div>
-          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t('chatMessage.kimi')}</div>
+          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Kimi</div>
         </div>
 
         <div className="flex-1 min-w-0">
@@ -333,9 +332,9 @@ function hasMessageContent(message: ChatMessageType): boolean {
   return message.steps?.some((s) => s.items.length > 0) ?? false;
 }
 
-export function ChatMessage({ message, turnIndex, isStreaming }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ message, turnIndex, isStreaming }: ChatMessageProps) {
   if (message.role === "user") {
     return <UserMessage message={message} />;
   }
   return <AssistantMessage message={message} turnIndex={turnIndex} isStreaming={isStreaming} />;
-}
+});

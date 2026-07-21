@@ -1,13 +1,10 @@
 import { getCoreVersion } from '#/_base/version';
-import { ErrorCodes, Error2 } from '#/errors';
-import { t } from '@moonshot-ai/kimi-i18n';
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
-import type { MCPToolDefinition, MCPToolResult } from './types';
+import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
 
 export const KIMI_MCP_CLIENT_NAME = 'kimi-code';
 export const KIMI_MCP_CLIENT_VERSION = getCoreVersion();
-
-const MCP_MAX_SERIALIZED_RESULT_BYTES = 50 * 1024 * 1024;
 
 export interface UnexpectedCloseReason {
   readonly error?: Error;
@@ -16,8 +13,64 @@ export interface UnexpectedCloseReason {
 
 export type UnexpectedCloseListener = (reason: UnexpectedCloseReason) => void;
 
+export function isMcpConnectionClosedError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error as Error & { readonly code?: unknown }).code === ErrorCode.ConnectionClosed
+  );
+}
+
+export function isMcpTransportFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (isMcpConnectionClosedError(error)) return true;
+  return !(error instanceof McpError);
+}
+
+/**
+ * Timeout for the liveness probe sent after an ambiguous tool-call failure.
+ * Kept short: the probe runs on an already-failed call, so it must not add
+ * anywhere near a tool-call timeout to the turn.
+ */
+export const MCP_LIVENESS_PROBE_TIMEOUT_MS = 5_000;
+
+/**
+ * True when the error is a client-side validation failure of an otherwise
+ * well-formed JSON-RPC response: the SDK rejects with a `ZodError` when the
+ * result of `tools/call` does not match `CallToolResultSchema`
+ * (shared/protocol.js rejects with `parseResult.error`). The server did
+ * answer, so reconnecting is pointless — but the error is not an `McpError`,
+ * so `isMcpTransportFailure` alone cannot tell it apart from a dead
+ * transport. Matched by name because the repo carries more than one zod
+ * copy, which makes `instanceof` unreliable.
+ */
+export function isMcpMalformedResultError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'ZodError';
+}
+
+/**
+ * Probes whether the client's transport is still usable by sending a ping.
+ * A server that answers in any way — including `MethodNotFound`, a JSON-RPC
+ * error, or an unparseable result — counts as alive; only errors that prove
+ * the bytes never made a round trip (closed connection, fetch failures) or
+ * a probe that itself timed out (alive socket, unresponsive server) count
+ * as dead. Never rejects; an abort surfaces as a dead verdict and is the
+ * caller's job to detect via the signal.
+ */
+export async function probeMcpLiveness(client: MCPClient, signal: AbortSignal): Promise<boolean> {
+  try {
+    await client.ping(signal);
+    return true;
+  } catch (error) {
+    if (isMcpConnectionClosedError(error)) return false;
+    if (isMcpMalformedResultError(error)) return true;
+    if (error instanceof McpError) {
+      return (error as Error & { readonly code?: unknown }).code !== ErrorCode.RequestTimeout;
+    }
+    return false;
+  }
+}
+
 export interface McpRequestOptions {
-  /** Timeout in milliseconds. */
   readonly timeout?: number;
   readonly signal?: AbortSignal;
 }
@@ -26,7 +79,6 @@ export function buildRequestOptions(
   toolCallTimeoutMs: number | undefined,
   signal: AbortSignal | undefined,
 ): McpRequestOptions | undefined {
-  if (signal?.aborted) { throw signal.reason ?? new Error2(ErrorCodes.INTERNAL, t('v2Errors.internal')); }
   if (toolCallTimeoutMs === undefined && signal === undefined) return undefined;
   return { timeout: toolCallTimeoutMs, signal };
 }
@@ -46,12 +98,6 @@ export function toMcpToolDefinition(tool: SdkListedTool): MCPToolDefinition {
 }
 
 export function toMcpToolResult(result: unknown): MCPToolResult {
-  const serializedLength = estimateSerializedLength(result);
-  if (serializedLength > MCP_MAX_SERIALIZED_RESULT_BYTES) {
-    const mb = (serializedLength / (1024 * 1024)).toFixed(1);
-    const limitMb = (MCP_MAX_SERIALIZED_RESULT_BYTES / (1024 * 1024)).toFixed(0);
-    throw new Error2(ErrorCodes.INTERNAL, t('v2Errors.mcpResultTooLarge', { mb, limitMb }));
-  }
   if (typeof result === 'object' && result !== null && 'content' in result) {
     const typed = result as { content: unknown; isError?: unknown };
     if (Array.isArray(typed.content)) {
@@ -73,38 +119,5 @@ export function toMcpToolResult(result: unknown): MCPToolResult {
       isError: false,
     };
   }
-  // Intentionally returns empty content for unrecognized result shapes —
-  // the caller is expected to log the raw shape before this codepath.
   return { content: [], isError: false };
-}
-
-/**
- * Cheap upper-bound estimate of the serialized size of an MCP result
- * without paying for a full ``JSON.stringify``. We sum string lengths
- * encountered in the content array plus a fixed per-object overhead,
- * which is enough to catch the ``2 GB base64 image`` attack without
- * allocating a multi-gigabyte string.
- */
-function estimateSerializedLength(result: unknown): number {
-  if (typeof result !== 'object' || result === null) return 0;
-  const content = (result as { content?: unknown }).content;
-  if (!Array.isArray(content)) return 0;
-  let total = 0;
-  for (const block of content) {
-    if (typeof block !== 'object' || block === null) continue;
-    const record = block as Record<string, unknown>;
-    for (const key of ['text', 'data', 'blob', 'uri']) {
-      const value = record[key];
-      if (typeof value === 'string') total += value.length;
-    }
-    const resource = record['resource'] as Record<string, unknown> | undefined;
-    if (resource !== null && typeof resource === 'object') {
-      for (const key of ['text', 'blob', 'uri']) {
-        const value = resource[key];
-        if (typeof value === 'string') total += value.length;
-      }
-    }
-    total += 64; // per-block overhead (keys, type, mimeType, etc.)
-  }
-  return total;
 }

@@ -102,18 +102,20 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | `default_plan_mode` | `boolean` | `false` | Whether new sessions start in Plan mode (produce a plan before executing) by default |
 | `merge_all_available_skills` | `boolean` | `true` | Whether to merge Agent Skills from all available directories |
 | `extra_skill_dirs` | `array<string>` | — | Extra skill search directories, layered on top of the default directories |
+| `extra_agent_dirs` | `array<string>` | — | Extra custom agent search directories, layered on top of the default directories |
 | `telemetry` | `boolean` | `true` | Whether anonymous telemetry is enabled; disabled only when explicitly set to `false` |
 | `providers` | `table` | `{}` | API provider table → [`providers`](#providers) |
 | `models` | `table` | — | Model alias table → [`models`](#models) |
 | `thinking` | `table` | — | Default parameters for Thinking mode → [`thinking`](#thinking) |
 | `loop_control` | `table` | — | Agent loop control parameters → [`loop_control`](#loop_control) |
 | `background` | `table` | — | Background task runtime parameters → [`background`](#background) |
+| `tools` | `table` | — | Global tool switch → [`tools`](#tools) |
 | `image` | `table` | — | Image compression parameters → [`image`](#image) |
 | `services` | `table` | — | Built-in external service configuration → [`services`](#services) |
 | `permission` | `table` | — | Initial permission rules → [`permission`](#permission) |
 | `hooks` | `array<table>` | — | Lifecycle hooks; see [Hooks](../customization/hooks.md) |
 
-The following sections cover each of the nested tables in turn: `providers`, `models`, `thinking`, `loop_control`, `background`, `image`, `services`, and `permission`.
+The following sections cover each of the nested tables in turn: `providers`, `models`, `thinking`, `loop_control`, `background`, `tools`, `image`, `services`, and `permission`.
 
 ## `providers`
 
@@ -210,6 +212,8 @@ You can also switch models temporarily without touching the config file — by s
 | `max_retries_per_step` | `integer` | `5` | Maximum retries after a step failure |
 | `reserved_context_size` | `integer` | — | Number of tokens reserved for model output; automatic compaction is triggered when the remaining context window falls below this value |
 
+`max_steps_per_turn` can be overridden by the `KIMI_LOOP_MAX_STEPS_PER_TURN` environment variable, and `max_retries_per_step` by `KIMI_LOOP_MAX_RETRIES_PER_STEP`; both take higher priority than the config file.
+
 ## `background`
 
 `background` controls the concurrency behavior of background tasks (launched via the `Bash` tool or the `Agent` tool's `run_in_background=true` parameter).
@@ -224,7 +228,7 @@ You can also switch models temporarily without touching the config file — by s
 | `print_wait_ceiling_s` | `integer` | `3600` | In print mode (`kimi -p`), the wall-clock ceiling (seconds) for the wait/steer loop when `print_background_mode` is `"drain"` or `"steer"`. Has no effect outside print mode or when it is `"exit"` |
 | `print_max_turns` | `integer` | `50` | In print mode (`kimi -p`) with `print_background_mode = "steer"`, the maximum number of new turns that may be triggered by background-task completions, to keep the steering loop bounded |
 
-`keep_alive_on_exit` can be overridden by the `KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` environment variable, which takes higher priority than `config.toml`.
+`keep_alive_on_exit` can be overridden by the `KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` environment variable, and `max_running_tasks` by `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS`; both take higher priority than `config.toml`.
 
 In print mode (`kimi -p "<prompt>"`), Kimi Code by default runs a single non-interactive turn and exits as soon as the main agent finishes (`print_background_mode = "exit"`). If you launch background tasks (for example, concurrent subagents via `Agent(run_in_background=true)`, or a long command via `Bash(run_in_background=true)`) and need them to run to completion, set `print_background_mode` to `"drain"` (wait for them to finish, without feeding results back) or `"steer"` (feed each completion back to the main agent, starting a new turn so it can act on the result). `"steer"` is useful when the main agent should keep working based on the outcome of a long background task (e.g. training or evaluation); its total wall-clock is bounded by `print_wait_ceiling_s` and the number of extra turns by `print_max_turns`.
 
@@ -235,6 +239,26 @@ In print mode (`kimi -p "<prompt>"`), Kimi Code by default runs a single non-int
 | `timeout_ms` | `integer` | `7200000` (2 hours) | Maximum wall-clock time (milliseconds) a single subagent (`Agent` / `AgentSwarm`) is allowed to run before it is settled as `timed_out`. Set a very large value (e.g. `259200000`, i.e. 3 days) to effectively lift the cap. This is the background-task manager's per-task timeout for each subagent task, so it applies to both foreground and background subagents. Note: any value above `2147483647` (about 24.8 days) is clamped to 1ms by the runtime. |
 
 `timeout_ms` can be overridden by the `KIMI_SUBAGENT_TIMEOUT_MS` environment variable, which takes higher priority than `config.toml`.
+
+## `tools`
+
+`tools` is the global tool switch: it applies to every agent in all sessions and intersects with each agent's own `tools` / `disallowedTools` policy.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `array<string>` | — | Global allowlist: when non-empty, only the listed tools are available; omitting the field or setting an empty array imposes no constraint |
+| `disabled` | `array<string>` | — | Global denylist, applied after `enabled` |
+
+Name matching follows the same rules as the same-named fields in an agent file: built-in tools match by exact name (such as `Read`), and MCP tools match with globs (such as `mcp__github__*`). Three entry shapes never match anything and are reported with a warning: a wildcard outside an `mcp__` pattern (`enabled = ["*"]` disables every tool, `disabled = ["*"]` disables none), an `mcp__` literal missing the tool segment (`mcp__github` — use `mcp__github__*` for a whole server), and a name no registered or built-in tool has (matching is case-sensitive).
+
+```toml
+[tools]
+disabled = ["EnterPlanMode", "ExitPlanMode", "mcp__github__*"]
+```
+
+::: warning Note
+Like the `tools` / `disallowedTools` fields of an agent file, this section shapes the tools shown to the model and is enforced again before execution. [Permission rules](#permission) remain a separate control for operations that require approval.
+:::
 
 ## `image`
 
