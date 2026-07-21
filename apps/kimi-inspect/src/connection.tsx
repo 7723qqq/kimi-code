@@ -41,6 +41,7 @@ import {
   pickDefaultServer,
   useServerDiscovery,
 } from './servers';
+import { t } from './i18n';
 
 export interface ConnectionConfig {
   /** Server base URL; empty string means same-origin (the Vite dev proxy). */
@@ -259,7 +260,7 @@ function DebugSurfaceError({
   return (
     <div className="flex h-screen items-center justify-center">
       <div className="w-[520px] rounded-lg border border-red-900/60 bg-neutral-900 p-6 shadow-xl">
-        <h1 className="mb-1 text-lg font-semibold text-red-300">Debug surface unavailable</h1>
+        <h1 className="mb-1 text-lg font-semibold text-red-300">{t('connection.debugSurfaceUnavailable')}</h1>
         <p className="mb-3 text-xs leading-relaxed text-neutral-400">
           Kimi Inspect talks to kap-server exclusively over the debug RPC surface (
           <code className="text-neutral-300">/api/v1/debug</code>), and{' '}
@@ -275,13 +276,13 @@ function DebugSurfaceError({
             className="rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500"
             onClick={onRetry}
           >
-            Retry
+            {t('connection.retry')}
           </button>
           <button
             className="rounded border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:bg-neutral-800"
             onClick={onBack}
           >
-            Change server
+            {t('connection.changeServer')}
           </button>
         </div>
       </div>
@@ -348,14 +349,14 @@ function ConnectScreen({
         <label className="mb-1 block text-xs text-neutral-400">Server URL</label>
         <input
           className="mb-4 w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-sky-600"
-          placeholder="http://127.0.0.1:58627 (empty = dev proxy)"
+          placeholder={t('connection.urlPlaceholder')}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
         />
         <label className="mb-1 block text-xs text-neutral-400">Bearer token (optional)</label>
         <input
           className="mb-5 w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-sky-600"
-          placeholder="~/.kimi-code/server.token"
+          placeholder={t('connection.tokenPlaceholder')}
           value={token}
           onChange={(e) => setToken(e.target.value)}
         />

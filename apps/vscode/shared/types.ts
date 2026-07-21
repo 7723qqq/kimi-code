@@ -48,7 +48,7 @@ export interface StreamError {
   type: "error";
   code: string;
   message: string;
-  detail?: string; // 原始服务器错误信息
+  detail?: string; // Raw server error message
   phase: ErrorPhase;
   /**
    * `false` marks a mid-turn warning: the turn is still running, so UIs must

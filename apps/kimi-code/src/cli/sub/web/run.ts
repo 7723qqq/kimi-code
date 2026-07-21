@@ -16,6 +16,8 @@ import { shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
 import chalk from 'chalk';
 import { type Command } from 'commander';
 
+import { t } from '#/i18n';
+
 import { CLI_SHUTDOWN_TIMEOUT_MS } from '#/constant/app';
 import { getNativeWebAssetsDir } from '#/native/web-assets';
 import { darkColors } from '#/tui/theme/colors';
@@ -109,47 +111,50 @@ export function buildWebCommand(cmd: Command): Command {
   return cmd
     .option(
       '--port <port>',
-      `Bind port (default ${DEFAULT_SERVER_PORT})`,
+      t('cli.optionDescriptions.serverRunOptionPort', { port: String(DEFAULT_SERVER_PORT) }),
       String(DEFAULT_SERVER_PORT),
     )
     .option(
       '--host [host]',
-      `Bind host. Omit to bind ${DEFAULT_SERVER_HOST} (this machine only); pass --host to bind ${DEFAULT_LAN_HOST} (all interfaces), or --host <host> for a specific host. The bearer token is printed at startup.`,
+      t('cli.optionDescriptions.serverRunOptionHost', {
+        host: DEFAULT_SERVER_HOST,
+        lanHost: DEFAULT_LAN_HOST,
+      }),
     )
     .option(
       '--allowed-host <host...>',
-      'Extra Host header value to allow through the DNS-rebinding check. Repeat or comma-separate; a leading dot matches a domain suffix (e.g. .example.com).',
+      t('cli.optionDescriptions.serverRunOptionAllowedHost'),
     )
     .option(
       '--insecure-no-tls',
-      'Allow a non-loopback bind without a TLS-terminating reverse proxy. Defaults to true; only relevant for non-loopback binds.',
+      t('cli.optionDescriptions.serverRunOptionInsecureNoTls'),
       true,
     )
     .option(
       '--allow-remote-shutdown',
-      'On a non-loopback bind, keep POST /api/v1/shutdown enabled (default: route is disabled → 404).',
+      t('cli.optionDescriptions.serverRunOptionAllowRemoteShutdown'),
       false,
     )
     .option(
       '--allow-remote-terminals',
-      'On a non-loopback bind, keep the PTY /api/v1/terminals/* routes enabled (default: disabled → 404). Remote shell is high risk.',
+      t('cli.optionDescriptions.serverRunOptionAllowRemoteTerminals'),
       false,
     )
     .option(
       '--dangerous-bypass-auth',
-      'Disable bearer-token auth on every REST and WebSocket route, and advertise it via /api/v1/meta so the web UI connects without a token. Only use on a trusted network or behind your own authenticating proxy.',
+      t('cli.optionDescriptions.serverRunOptionDangerousBypassAuth'),
       false,
     )
     .option(
       '--log-level <level>',
-      `Server log level: ${VALID_LOG_LEVELS.join('|')}. Omit to keep logs off.`,
+      t('cli.optionDescriptions.serverRunOptionLogLevel', { levels: VALID_LOG_LEVELS.join('|') }),
     )
     .option(
       '--debug-endpoints',
-      'Mount /api/v1/debug/* routes for test introspection. OFF by default; production callers leave this unset.',
+      t('cli.optionDescriptions.serverRunOptionDebugEndpoints'),
       false,
     )
-    .option('--no-open', 'Do not open the web UI in the default browser.', true)
+    .option('--no-open', t('cli.optionDescriptions.serverRunOptionNoOpen'), true)
     .action(async (opts: WebCliOptions) => {
       try {
         await handleWebCommand(opts);
@@ -212,8 +217,8 @@ function formatDangerNoticeLines(): string[] {
   const danger = (text: string): string => chalk.hex(darkColors.error)(text);
   const dangerBold = (text: string): string => chalk.bold.hex(darkColors.error)(text);
   return [
-    `  ${dangerBold('⚠ DANGER: authentication is DISABLED (--dangerous-bypass-auth).')}`,
-    `  ${danger('Anyone who can reach this port gets full access. Only continue if you understand the risk.')}`,
+    `  ${dangerBold(t('tui.statusMessages.serverDangerAuthDisabled'))}`,
+    `  ${danger(t('tui.statusMessages.serverDangerAnyoneAccess'))}`,
     `  ${danger('If you are unsure, stop this process now with ')}${dangerBold('Ctrl+C')}${danger('.')}`,
   ];
 }
@@ -354,8 +359,8 @@ export function formatReadyBanner(
   const logo = ['▐█▛█▛█▌', '▐█████▌'] as const;
   const lines: string[] = [
     '',
-    `  ${primary(logo[0])}  ${title('Kimi server ready')}  ${dim(getVersion())}`,
-    `  ${primary(logo[1])}  ${dim('Local web UI is available from this machine.')}`,
+    `  ${primary(logo[0])}  ${title(t('tui.statusMessages.serverReadyBanner'))}  ${dim(getVersion())}`,
+    `  ${primary(logo[1])}  ${dim(t('tui.statusMessages.serverReadyLocalUi'))}`,
     '',
   ];
 

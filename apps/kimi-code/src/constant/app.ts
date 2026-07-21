@@ -85,3 +85,7 @@ export const KIMI_CODE_INSTALL_PS1_URL = `${KIMI_CODE_CDN_BASE}/install.ps1`;
 // Native install commands, split by platform. Use these for prompt copy and spawn calls only; do not assemble the strings elsewhere.
 export const NATIVE_INSTALL_COMMAND_UNIX = `curl -fsSL ${KIMI_CODE_INSTALL_SH_URL} | bash`;
 export const NATIVE_INSTALL_COMMAND_WIN = `irm ${KIMI_CODE_INSTALL_PS1_URL} | iex`;
+
+// Web Bridge landing/install page (a browser extension + daemon, not a plugin
+// package). Used by the plugins selector's pinned Official-tab entry.
+export const WEB_BRIDGE_URL = 'https://www.kimi.com/features/webbridge';

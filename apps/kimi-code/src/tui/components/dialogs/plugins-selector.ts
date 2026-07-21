@@ -11,6 +11,7 @@ import {
 import type { PluginInfo, PluginMcpServerInfo, PluginSummary } from '@moonshot-ai/kimi-code-sdk';
 import chalk from 'chalk';
 
+import { WEB_BRIDGE_URL } from '#/constant/app';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
@@ -33,7 +34,6 @@ const ELLIPSIS = '…';
 // Official tab, even when the marketplace catalog is unavailable. Selecting it
 // opens the install page in the browser rather than installing from a source,
 // because Web Bridge is a browser extension + daemon, not a plugin package.
-const WEB_BRIDGE_URL = 'https://www.kimi.com/features/webbridge';
 const WEB_BRIDGE_ENTRY: PluginMarketplaceEntry = {
   id: 'kimi-webbridge',
   displayName: 'Kimi WebBridge',
