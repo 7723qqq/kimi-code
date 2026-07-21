@@ -24,7 +24,7 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { estimateTokensForMessage, estimateTokensForMessages } from '#/_base/utils/tokens';
+import { estimateTokensForMessages } from '#/kosong/contract/tokens';
 import { IEventBus } from '#/app/event/eventBus';
 import { ContextSizeModel, contextSizeMeasured } from '#/agent/contextSize/contextSizeOps';
 import { IWireService } from '#/wire/wire';
@@ -64,24 +64,6 @@ declare module '#/app/event/eventBus' {
 export class AgentContextMemoryService extends Disposable implements IAgentContextMemoryService {
   declare readonly _serviceBrand: undefined;
 
-  /** Incrementally estimated token total, invalidated on mutation. */
-  private tokenEstimateCache = 0;
-  private tokenEstimateDirty = true;
-
-  /** Estimated total tokens across all context messages. O(1) on repeated reads,
-   *  O(n) on first read after mutation. */
-  get contextTokenEstimate(): number {
-    if (this.tokenEstimateDirty) {
-      this.tokenEstimateCache = estimateTokensForMessages(this.get());
-      this.tokenEstimateDirty = false;
-    }
-    return this.tokenEstimateCache;
-  }
-
-  private markTokenDirty(): void {
-    this.tokenEstimateDirty = true;
-  }
-
   constructor(
     @IWireService private readonly wire: IWireService,
     @IEventBus private readonly eventBus: IEventBus,
@@ -97,21 +79,17 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
     if (messages.length === 0) return;
     const start = this.get().length;
     this.wire.dispatch(...messages.map((message) => contextAppendMessage({ message })));
-    this.markTokenDirty();
     this.publishSplice({ start, deleteCount: 0, messages: [...messages] });
   }
 
   appendLoopEvent(event: LoopRecordedEvent): void {
     this.wire.dispatch(contextAppendLoopEvent({ event }));
-    this.markTokenDirty();
   }
 
   clear(): void {
     const deleteCount = this.get().length;
     if (deleteCount === 0) return;
     this.wire.dispatch(contextClear({}), contextSizeMeasured({ length: 0, tokens: 0 }));
-    this.tokenEstimateCache = 0;
-    this.tokenEstimateDirty = false;
     this.publishSplice({ start: 0, deleteCount, messages: [] });
   }
 
@@ -120,7 +98,6 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
     const cut = computeUndoCut(history, count);
     if (isFullyUndoable(cut, count)) {
       this.wire.dispatch(contextUndo({ count }), ...this.sizeOpsForCut(cut.cutIndex, history));
-      this.markTokenDirty();
       this.publishSplice({
         start: cut.cutIndex,
         deleteCount: history.length - cut.cutIndex,
@@ -146,8 +123,6 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
       }),
       contextSizeMeasured({ length: result.messages.length, tokens: result.tokensAfter }),
     );
-    this.tokenEstimateCache = result.tokensAfter;
-    this.tokenEstimateDirty = false;
     this.publishSplice({
       start: 0,
       deleteCount: history.length,

@@ -13,11 +13,10 @@
  * itself stays flat. Bound at Session scope.
  */
 
-import type { TokenUsage } from '#/app/llmProtocol/usage';
+import type { TokenUsage } from '#/kosong/contract/usage';
 
 import { InstantiationType } from '#/_base/di/extensions';
 import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
-import { Disposable } from '#/_base/di/lifecycle';
 import { linkAbortSignal } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { IAgentProfileService } from '#/agent/profile/profile';
@@ -25,7 +24,7 @@ import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMo
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { IEventBus } from '#/app/event/eventBus';
-import { IAgentProfileCatalogService } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import {
@@ -40,7 +39,6 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionProcessRunner } from '#/session/process/processRunner';
 import { ILogService } from '#/_base/log/log';
-import { t } from '@moonshot-ai/kimi-i18n';
 
 import {
   ISessionSwarmService,
@@ -71,7 +69,7 @@ declare module '#/app/event/eventBus' {
 
 const RESUMED_PROFILE_FALLBACK = 'subagent';
 
-export class SessionSwarmService extends Disposable implements ISessionSwarmService {
+export class SessionSwarmService implements ISessionSwarmService {
   declare readonly _serviceBrand: undefined;
 
   private readonly inFlight = new Map<string, AbortController>();
@@ -79,14 +77,12 @@ export class SessionSwarmService extends Disposable implements ISessionSwarmServ
   constructor(
     @IAgentLifecycleService private readonly lifecycle: IAgentLifecycleService,
     @ISessionSubagentService private readonly subagents: ISessionSubagentService,
-    @IAgentProfileCatalogService private readonly catalog: IAgentProfileCatalogService,
+    @ISessionAgentProfileCatalog private readonly catalog: ISessionAgentProfileCatalog,
     @ISessionContext private readonly sessionContext: ISessionContext,
     @ISessionMetadata private readonly metadata: ISessionMetadata,
     @ISessionProcessRunner private readonly processRunner: ISessionProcessRunner,
     @ILogService private readonly log: ILogService,
-  ) {
-    super();
-  }
+  ) {}
 
   async getSwarmItem(args: {
     readonly callerAgentId: string;
@@ -133,25 +129,20 @@ export class SessionSwarmService extends Disposable implements ISessionSwarmServ
     this.inFlight.get(callerAgentId)?.abort();
   }
 
-  override dispose(): void {
-    for (const [, ctrl] of this.inFlight) ctrl.abort();
-    super.dispose();
-  }
-
   private async spawnAttempt(
     callerAgentId: string,
     options: AgentSpawnAttemptOptions,
   ): Promise<AgentRunAttemptHandle> {
     options.signal.throwIfAborted();
-    const caller = this.lifecycle.get(callerAgentId);
-    if (caller === undefined) throw new Error(t('v2Errors.callerAgentNotFound', { agentId: callerAgentId }));
+    const caller = this.requireHandle(callerAgentId, 'Caller agent');
+    await this.catalog.ready;
     const profile = this.catalog.get(options.profileName);
     if (profile === undefined) {
-      throw new Error(t('v2Errors.unknownAgentType', { type: options.profileName }));
+      throw new Error(`Unknown agent type: "${options.profileName}"`);
     }
     const callerData = caller.accessor.get(IAgentProfileService).data();
     if (callerData.modelAlias === undefined) {
-      throw new Error(t('v2Errors.callerAgentNoModel'));
+      throw new Error('Caller agent has no model bound');
     }
     const child = await this.lifecycle.create({
       binding: {
@@ -195,10 +186,8 @@ export class SessionSwarmService extends Disposable implements ISessionSwarmServ
   ): Promise<AgentRunAttemptHandle> {
     options.signal.throwIfAborted();
     await this.requireOwnedSubagent(callerAgentId, agentId);
-    const caller = this.lifecycle.get(callerAgentId);
-    if (caller === undefined) throw new Error(t('v2Errors.callerAgentNotFound', { agentId: callerAgentId }));
-    const child = this.lifecycle.get(agentId);
-    if (child === undefined) throw new Error(t('v2Errors.subagentNotFound', { agentId }));
+    const caller = this.requireHandle(callerAgentId, 'Caller agent');
+    const child = this.requireHandle(agentId, 'Agent instance');
     this.requireIdleSubagent(agentId, child);
     this.realignChildModel(caller, child);
     const profileName =
@@ -243,27 +232,33 @@ export class SessionSwarmService extends Disposable implements ISessionSwarmServ
     };
   }
 
+  private requireHandle(agentId: string, label: string): IAgentScopeHandle {
+    const handle = this.lifecycle.get(agentId);
+    if (handle === undefined) throw new Error(`${label} "${agentId}" does not exist`);
+    return handle;
+  }
+
   private realignChildModel(caller: IAgentScopeHandle, child: IAgentScopeHandle): void {
     const modelAlias = caller.accessor.get(IAgentProfileService).data().modelAlias;
     if (modelAlias === undefined) {
-      throw new Error(t('v2Errors.callerAgentNoModel'));
+      throw new Error('Caller agent has no model bound');
     }
     child.accessor.get(IAgentProfileService).update({ modelAlias });
   }
 
   private requireIdleSubagent(agentId: string, child: IAgentScopeHandle): void {
     if (child.accessor.get(IAgentLoopService).status().state === 'running') {
-      throw new Error(t('v2Errors.subagentAlreadyRunning', { agentId }));
+      throw new Error(`Agent instance "${agentId}" is already running and cannot run concurrently`);
     }
   }
 
   private async requireOwnedSubagent(callerAgentId: string, agentId: string): Promise<void> {
     const meta = await this.agentMeta(agentId);
     if (!isSubagentMeta(meta)) {
-      throw new Error(t('v2Errors.subagentNotSubagent', { agentId }));
+      throw new Error(`Agent instance "${agentId}" is not a subagent`);
     }
     if (subagentParentAgentId(meta) !== callerAgentId) {
-      throw new Error(t('v2Errors.subagentWrongParent', { agentId }));
+      throw new Error(`Agent instance "${agentId}" does not belong to this parent agent`);
     }
   }
 

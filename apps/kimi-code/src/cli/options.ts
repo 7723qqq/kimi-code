@@ -1,4 +1,4 @@
-import { t } from '#/i18n';
+import { isKimiV2Enabled } from './experimental-v2';
 
 export type UIMode = 'shell' | 'print';
 export type PromptOutputFormat = 'text' | 'stream-json';
@@ -46,6 +46,8 @@ export interface CLIOptions {
   outputFormat: PromptOutputFormat | undefined;
   prompt: string | undefined;
   skillsDirs: string[];
+  agent: string | undefined;
+  agentFiles: string[];
   addDirs?: string[];
 }
 
@@ -68,31 +70,51 @@ export function validateOptions(
   const prompt = opts.prompt;
   const promptMode = prompt !== undefined;
   if (promptMode && prompt.trim().length === 0) {
-    throw new OptionConflictError(t('cli.errors.promptEmpty'));
+    throw new OptionConflictError('Prompt cannot be empty.');
   }
   if (opts.model !== undefined && opts.model.trim().length === 0) {
-    throw new OptionConflictError(t('cli.errors.modelEmpty'));
+    throw new OptionConflictError('Model cannot be empty.');
   }
   if (!promptMode && opts.outputFormat !== undefined) {
-    throw new OptionConflictError(t('cli.errors.outputFormatPromptOnly'));
+    throw new OptionConflictError('Output format is only supported in prompt mode.');
   }
   if (promptMode && opts.yolo) {
-    throw new OptionConflictError(t('cli.errors.cannotCombinePromptAndYolo'));
+    throw new OptionConflictError('Cannot combine --prompt with --yolo.');
   }
   if (promptMode && opts.auto) {
-    throw new OptionConflictError(t('cli.errors.cannotCombinePromptAndAuto'));
+    throw new OptionConflictError('Cannot combine --prompt with --auto.');
   }
   if (promptMode && opts.plan) {
-    throw new OptionConflictError(t('cli.errors.cannotCombinePromptAndPlan'));
+    throw new OptionConflictError('Cannot combine --prompt with --plan.');
+  }
+  if (opts.agent !== undefined && opts.agent.trim().length === 0) {
+    throw new OptionConflictError('Agent cannot be empty.');
+  }
+  if (opts.agentFiles.length > 1) {
+    throw new OptionConflictError('--agent-file may only be specified once.');
+  }
+  if (opts.agentFiles.some((file) => file.trim().length === 0)) {
+    throw new OptionConflictError('Agent file path cannot be empty.');
+  }
+  if (opts.agent !== undefined && opts.agentFiles.length > 0) {
+    throw new OptionConflictError('Cannot combine --agent with --agent-file.');
+  }
+  if (
+    (opts.agent !== undefined || opts.agentFiles.length > 0) &&
+    (!promptMode || !isKimiV2Enabled(env))
+  ) {
+    throw new OptionConflictError(
+      '--agent/--agent-file are only available with the v2 engine (kimi -p with KIMI_CODE_EXPERIMENTAL_FLAG=1).',
+    );
   }
   if (promptMode && opts.session === '') {
-    throw new OptionConflictError(t('cli.errors.sessionWithoutIdInPromptMode'));
+    throw new OptionConflictError('Cannot use --session without an id in prompt mode.');
   }
   if (opts.continue && opts.session !== undefined) {
-    throw new OptionConflictError(t('cli.errors.cannotCombineContinueAndSession'));
+    throw new OptionConflictError('Cannot combine --continue, --session.');
   }
   if (opts.yolo && opts.auto) {
-    throw new OptionConflictError(t('cli.errors.cannotCombineYoloAndAuto'));
+    throw new OptionConflictError('Cannot combine --yolo with --auto.');
   }
   // Validate `KIMI_MODEL_OUTPUT_FORMAT` eagerly in prompt mode so a typo fails
   // fast through the friendly `error:` path instead of mid-run.

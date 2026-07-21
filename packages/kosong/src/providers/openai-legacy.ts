@@ -31,7 +31,6 @@ import {
   convertChatCompletionStreamToolCall,
   type BufferedChatCompletionToolCall,
 } from './chat-completions-stream';
-import { createSharedAgent } from '../http/undici-agent';
 import {
   mergeRequestHeaders,
   requireProviderApiKey,
@@ -100,14 +99,13 @@ export interface OpenAILegacyOptions {
   defaultHeaders?: Record<string, string>;
   toolMessageConversion?: ToolMessageConversion | undefined;
   clientFactory?: (auth: ProviderRequestAuth) => OpenAI;
-  /** Encode thinking via extra_body.enable_thinking instead of top-level reasoning_effort. */
-  astronThinking?: boolean | undefined;
-  /** Model IDs that also accept reasoning_effort alongside enable_thinking (astron only). */
-  astronReasoningEffortModelIds?: readonly string[] | undefined;
-  /** Astron runtime settings: search_disable. Stream/temperature/maxTokens applied via constructor. */
-  astronSettings?: {
-    searchDisable?: boolean;
-  } | undefined;
+  /**
+   * Construction-time free-form request kwargs (e.g. `prompt_cache_key` for
+   * session affinity), merged into every request at generate time. Explicit
+   * first-class options (`maxTokens`) win on conflict; the
+   * `withGenerationKwargs` morph layers on top of both.
+   */
+  generationKwargs?: OpenAILegacyGenerationKwargs | undefined;
 }
 
 export interface OpenAILegacyGenerationKwargs {
@@ -492,9 +490,6 @@ export class OpenAILegacyChatProvider implements ChatProvider {
   private _defaultHeaders: Record<string, string> | undefined;
   private _reasoningKey: string | undefined;
   private _thinkingEffort: ThinkingEffort | undefined;
-  private _astronThinking: boolean;
-  private _astronReasoningEffortModelIds: readonly string[] | undefined;
-  private _astronSettings: OpenAILegacyOptions['astronSettings'] | undefined;
   private _generationKwargs: OpenAILegacyGenerationKwargs;
   private _toolMessageConversion: ToolMessageConversion;
   private _client: OpenAI | undefined;
@@ -518,16 +513,14 @@ export class OpenAILegacyChatProvider implements ChatProvider {
         ? normalizedReasoningKey
         : undefined;
     this._thinkingEffort = undefined;
-    this._astronThinking = options.astronThinking ?? false;
-    this._astronReasoningEffortModelIds = options.astronReasoningEffortModelIds;
-    this._astronSettings = options.astronSettings;
-    this._generationKwargs =
-      options.maxTokens !== undefined ? completionTokenKwargs(this._model, options.maxTokens) : {};
+    this._generationKwargs = {
+      ...options.generationKwargs,
+      ...(options.maxTokens !== undefined
+        ? completionTokenKwargs(this._model, options.maxTokens)
+        : {}),
+    };
     this._toolMessageConversion = options.toolMessageConversion ?? null;
-    // Default to the process-wide shared undici Agent so every OpenAI
-    // Chat Completions call routes through the same connection pool.
-    // Callers can still override by passing `httpClient` explicitly.
-    this._httpClient = options.httpClient ?? createSharedAgent();
+    this._httpClient = options.httpClient;
     this._clientFactory = options.clientFactory;
 
     this._client = this._apiKey === undefined ? undefined : this._buildClient(this._apiKey);
@@ -628,35 +621,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
       createParams['stream_options'] = { include_usage: true };
     }
 
-    if (this._astronThinking) {
-      // Coding Plan: encode thinking via extra_body.enable_thinking + reasoning_effort
-      const extraBody: Record<string, unknown> =
-        typeof createParams['extra_body'] === 'object' && createParams['extra_body'] !== null
-          ? { ...(createParams['extra_body'] as Record<string, unknown>) }
-          : {};
-      if (effort === 'off') {
-        extraBody['enable_thinking'] = false;
-      } else if (effort !== undefined) {
-        extraBody['enable_thinking'] = true;
-        const ids = this._astronReasoningEffortModelIds;
-        if (ids?.includes(this._model)) {
-          const re =
-            effort === 'low' || effort === 'medium' ? 'high'
-            : effort === 'xhigh' ? 'max'
-            : effort;
-          if (re === 'high' || re === 'max') {
-            extraBody['reasoning_effort'] = re;
-          }
-        }
-      }
-      // Inject search_disable from astron settings.
-      if (this._astronSettings?.searchDisable !== undefined) {
-        extraBody['search_disable'] = this._astronSettings.searchDisable;
-      }
-      if (Object.keys(extraBody).length > 0) {
-        createParams['extra_body'] = extraBody;
-      }
-    } else if (reasoningEffort !== undefined) {
+    if (reasoningEffort !== undefined) {
       createParams['reasoning_effort'] = reasoningEffort;
     }
 
@@ -734,10 +699,6 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     if (this._httpClient !== undefined) {
       clientOpts['httpClient'] = this._httpClient;
     }
-    // SDK-level retry: the agent-level chatWithRetry is disabled for OpenAI
-    // (dual backoff), so the OpenAI SDK's own retry handles transient
-    // failures. Set to 5 to match the retry budget used by other providers.
-    clientOpts['maxRetries'] = 5;
     return new OpenAI(clientOpts as ConstructorParameters<typeof OpenAI>[0]);
   }
 }

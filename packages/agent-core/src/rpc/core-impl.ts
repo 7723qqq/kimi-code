@@ -4,12 +4,15 @@ import { homedir } from 'node:os';
 import { ErrorCodes, KimiError } from '#/errors';
 import { getRootLogger, log } from '#/logging/logger';
 import { PluginManager } from '#/plugin';
+import { LocalFetchURLProvider } from '#/tools/providers/local-fetch-url';
+import { MoonshotFetchURLProvider } from '#/tools/providers/moonshot-fetch-url';
+import { MoonshotWebSearchProvider } from '#/tools/providers/moonshot-web-search';
 import { ImageLimits } from '#/tools/support/image-limits';
-import { setConfiguredMaxImageEdgePx, setConfiguredReadImageByteBudget } from '#/tools/support/image-compress';
 import type { PromisableMethods } from '#/utils/types';
 import { getCoreVersion } from '#/version';
 import { resolveThinkingEffort } from '../agent/config/thinking';
-import { Agent, type RunTurnOverride } from '../agent';
+import { Agent } from '../agent';
+import { limitAgentReplayByTurns } from '../agent/replay/turns';
 import {
   applyPrintModeConfigDefaults,
   ensureKimiHome,
@@ -186,12 +189,6 @@ export interface KimiCoreOptions {
    * `applyPrintModeConfigDefaults` (user-set values still win).
    */
   readonly uiMode?: string | undefined;
-  /**
-   * Optional override for the turn loop runner across all sessions in this core.
-   * When the session's config has `agent.engine = "rust"`, this should be set to
-   * the Rust engine adapter's `runTurnRust` from `packages/kimi-agent/rust-loop`.
-   */
-  readonly runTurnOverride?: RunTurnOverride;
 }
 
 export class KimiCore implements PromisableMethods<CoreAPI> {
@@ -200,7 +197,6 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
   readonly configPath: string;
   readonly sessions = new Map<string, Session>();
   readonly telemetry: TelemetryClient;
-  readonly log: Logger = log;
 
   private kaos: Promise<Kaos> | undefined;
   private runtime: ToolServices | undefined;
@@ -225,9 +221,6 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
   /** Owner-scoped [image] limits; reload pushes the new config via setConfig. */
   readonly imageLimits: ImageLimits;
 
-  /** Turn loop override; see KimiCoreOptions.runTurnOverride. */
-  private readonly runTurnOverride?: RunTurnOverride;
-
   constructor(
     protected readonly rpcClient: CoreRPCClient,
     options: KimiCoreOptions = {},
@@ -246,7 +239,6 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
     this.telemetry = options.telemetry ?? noopTelemetryClient;
     this.appVersion = options.appVersion;
     this.printMode = options.uiMode === 'print';
-    this.runTurnOverride = options.runTurnOverride;
     ensureKimiHome(this.homeDir);
     // One-shot config migrations, before the first load (best-effort, never
     // throws): rewrites a persisted thinking.effort "max" to "high" once.
@@ -270,8 +262,6 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
       this.config.experimental,
     );
     this.imageLimits = new ImageLimits(process.env, this.config.image);
-    setConfiguredMaxImageEdgePx(this.config.image?.maxEdgePx);
-    setConfiguredReadImageByteBudget(this.config.image?.readByteBudget);
     this.sessionStore = new SessionStore(this.homeDir, {
       resolveWorkspaceId: options.resolveWorkspaceId,
     });
@@ -391,7 +381,6 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
       appVersion: this.appVersion,
       additionalDirs,
       drainAgentTasksOnStop: options.drainAgentTasksOnStop,
-      runTurnOverride: this.runTurnOverride,
     });
     try {
       session.metadata = {
@@ -423,12 +412,7 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
       await session.writeMetadata();
       await session.flushMetadata();
     } catch (error) {
-      // Best-effort cleanup: session creation failed, so close any
-      // partial state. Log failures at debug level since the primary
-      // error from the catch block is what matters to the caller.
-      await session.close().catch((closeError: unknown) => {
-        this.log?.debug('session.close() failed during error recovery', { closeError });
-      });
+      await session.close().catch(() => {});
       throw error;
     }
     this.sessions.set(id, session);
@@ -500,7 +484,13 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
       }
       await active.setBaseAdditionalDirs(additionalDirs);
       return withAdditionalDirs(
-        await resumeSessionResult(summary, active, undefined, input.includeSubagents),
+        await resumeSessionResult(
+          summary,
+          active,
+          undefined,
+          input.includeSubagents,
+          input.replayTurnLimit,
+        ),
         active,
       );
     }
@@ -542,7 +532,6 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
       pluginCommands,
       appVersion: this.appVersion,
       additionalDirs,
-      runTurnOverride: this.runTurnOverride,
     });
     let warning: string | undefined;
     try {
@@ -550,9 +539,7 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
       warning = resumeResult.warning;
       await this.refreshSessionRuntimeConfig(session, config);
     } catch (error) {
-      await session.close().catch((closeError: unknown) => {
-        this.log?.debug('session.close() failed during resume error recovery', { closeError });
-      });
+      await session.close().catch(() => {});
       withTelemetryContext(this.telemetry, { sessionId: summary.id }).track('session_load_failed', {
         reason: telemetryErrorReason(error),
       });
@@ -564,7 +551,13 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
       // (and any SDK caller's resumeState) reflects the refreshed plugin context.
       await session.appendPluginSessionStartReminder();
     }
-    return resumeSessionResult(summary, session, warning, input.includeSubagents);
+    return resumeSessionResult(
+      summary,
+      session,
+      warning,
+      input.includeSubagents,
+      input.replayTurnLimit,
+    );
   }
 
   async reloadSession(input: ReloadSessionPayload): Promise<ResumeSessionResult> {
@@ -1087,11 +1080,11 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
     return Promise.resolve(this.sessionApi(sessionId).cancelGoal(payload));
   }
 
-  async getCronTasks({
+  getCronTasks({
     sessionId,
     ...payload
   }: SessionAgentPayload<EmptyPayload>): Promise<GetCronTasksResult> {
-    return this.sessionApi(sessionId).getCronTasks(payload);
+    return Promise.resolve(this.sessionApi(sessionId).getCronTasks(payload));
   }
 
   async installPlugin(payload: InstallPluginPayload): Promise<PluginSummary> {
@@ -1296,8 +1289,6 @@ export class KimiCore implements PromisableMethods<CoreAPI> {
     this.config = config;
     this.experimentalFlags.setConfigOverrides(config.experimental);
     this.imageLimits.setConfig(config.image);
-    setConfiguredMaxImageEdgePx(config.image?.maxEdgePx);
-    setConfiguredReadImageByteBudget(config.image?.readByteBudget);
     return this.config;
   }
 
@@ -1409,16 +1400,7 @@ async function createRuntimeConfig(input: {
   readonly kimiRequestHeaders?: Record<string, string> | undefined;
   readonly resolveOAuthTokenProvider?: OAuthTokenProviderResolver | undefined;
 }): Promise<ToolServices> {
-  // Dynamic import: these providers pull in linkedom + @mozilla/readability
-  // (~300KB) that's only needed when fetching URLs. Loading them lazily keeps
-  // the startup bundle small.
-  const { LocalFetchURLProvider } = await import('#/tools/providers/local-fetch-url');
-  const { LocalWebSearchProvider } = await import('#/tools/providers/local-web-search');
-  const { MoonshotFetchURLProvider } = await import('#/tools/providers/moonshot-fetch-url');
-  const { MoonshotWebSearchProvider } = await import('#/tools/providers/moonshot-web-search');
-
   const localFetcher = new LocalFetchURLProvider();
-  const localSearcher = new LocalWebSearchProvider();
   const searchService = input.config.services?.moonshotSearch;
   const fetchService = input.config.services?.moonshotFetch;
 
@@ -1434,7 +1416,7 @@ async function createRuntimeConfig(input: {
           }),
     webSearcher:
       searchService?.baseUrl === undefined
-        ? localSearcher
+        ? undefined
         : new MoonshotWebSearchProvider({
             baseUrl: searchService.baseUrl,
             defaultHeaders: input.kimiRequestHeaders,
@@ -1513,6 +1495,7 @@ async function resumeSessionResult(
   session: Session,
   warning?: string,
   includeSubagents = false,
+  replayTurnLimit?: number,
 ): Promise<ResumeSessionResult> {
   if (includeSubagents) {
     const persistedAgentIds = Object.keys(session.metadata.agents).filter(
@@ -1534,25 +1517,22 @@ async function resumeSessionResult(
   for (const [agentId, entry] of session.agents) {
     if (!(entry instanceof Agent)) continue;
     const agent = entry;
-    const [config, context, permission, plan, swarmMode, usage, tools] = await Promise.all([
-      api.getConfig({ agentId }),
-      api.getContext({ agentId }),
-      api.getPermission({ agentId }),
-      api.getPlan({ agentId }),
-      api.getSwarmMode({ agentId }),
-      api.getUsage({ agentId }),
-      api.getTools({ agentId }),
-    ]);
+    const config = await api.getConfig({ agentId });
+    const context = await api.getContext({ agentId });
+    const permission = await api.getPermission({ agentId });
+    const plan = await api.getPlan({ agentId });
+    const swarmMode = await api.getSwarmMode({ agentId });
+    const usage = await api.getUsage({ agentId });
     agents[agentId] = {
       type: agent.type,
       config,
       context,
-      replay: agent.replayBuilder.buildResult(),
+      replay: limitAgentReplayByTurns(agent.replayBuilder.buildResult(), replayTurnLimit),
       permission,
       plan,
       swarmMode,
       usage,
-      tools,
+      tools: await api.getTools({ agentId }),
       toolStore: agent.tools.storeData(),
       background: agent.background.list(false),
     };
@@ -1579,4 +1559,7 @@ async function warnIfLogFlushFails(
   } catch (error) {
     exportLog.warn(message, { error });
   }
+  try {
+    await flush();
+  } catch {}
 }
