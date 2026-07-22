@@ -9,15 +9,12 @@ import {
 } from '@moonshot-ai/pi-tui';
 
 import { currentTheme } from '#/tui/theme';
-import { t } from '#/i18n';
 
 export type ApiKeyInputResult =
   | { readonly kind: 'ok'; readonly value: string }
   | { readonly kind: 'cancel' };
 
-function getFooter(): string {
-  return t('tui.dialogs.apiKeyInput.footer');
-}
+const FOOTER = 'Enter to submit  ·  Esc to cancel';
 
 function maskInputLine(raw: string): string {
   const prefix = '> ';
@@ -51,6 +48,8 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
   private readonly onDone: (result: ApiKeyInputResult) => void;
   private readonly title: string;
   private readonly subtitleLines: readonly string[];
+  private readonly mask: boolean;
+  private readonly emptyHint: string;
   private done = false;
   private emptyHinted = false;
 
@@ -58,11 +57,14 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
     platformName: string,
     subtitleLines: readonly string[],
     onDone: (result: ApiKeyInputResult) => void,
+    options?: { title?: string; mask?: boolean; emptyHint?: string },
   ) {
     super();
     this.onDone = onDone;
-    this.title = t('tui.dialogs.apiKeyInput.title', { platformName });
+    this.title = options?.title ?? `Enter API key for ${platformName}`;
     this.subtitleLines = subtitleLines;
+    this.mask = options?.mask ?? true;
+    this.emptyHint = options?.emptyHint ?? 'API key cannot be empty.';
     this.input.onSubmit = (value) => {
       this.submit(value);
     };
@@ -99,16 +101,17 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
 
     const border = (s: string): string => currentTheme.fg('primary', s);
     const titleStyled = currentTheme.boldFg('textStrong', this.title);
-    const subtitleSource = this.emptyHinted ? [t('tui.dialogs.apiKeyInput.emptyHint')] : this.subtitleLines;
+    const subtitleSource = this.emptyHinted ? [this.emptyHint] : this.subtitleLines;
     const subtitleLines = subtitleSource.map((line) =>
       truncateToWidth(currentTheme.fg('textDim', line), innerWidth, '…'),
     );
-    const footerStyled = currentTheme.fg('textDim', getFooter());
+    const footerStyled = currentTheme.fg('textDim', FOOTER);
 
     const titleLine = truncateToWidth(titleStyled, innerWidth, '…');
     const footerLine = truncateToWidth(footerStyled, innerWidth, '…');
     const rawInputLine = this.input.render(innerWidth)[0] ?? '> ';
-    const inputLine = this.input.getValue() === '' ? rawInputLine : maskInputLine(rawInputLine);
+    const inputLine =
+      this.mask && this.input.getValue() !== '' ? maskInputLine(rawInputLine) : rawInputLine;
 
     const contentLines: string[] = [
       titleLine,

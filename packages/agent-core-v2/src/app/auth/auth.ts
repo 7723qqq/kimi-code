@@ -13,6 +13,7 @@
 import { t } from '@moonshot-ai/kimi-i18n';
 
 import type {
+  AuthManagedUsageResult,
   BearerTokenProvider,
   KimiOAuthLoginOptions,
   KimiOAuthLoginResult,
@@ -47,6 +48,7 @@ export interface IOAuthService {
   logout(provider?: string): Promise<OAuthLogoutResponse>;
   status(provider?: string): Promise<AuthStatus>;
   refreshOAuthProviderModels(): Promise<RefreshOAuthProviderModelsResponse>;
+  getManagedUsage(provider?: string): Promise<AuthManagedUsageResult>;
   resolveTokenProvider(provider: string, oauthRef?: OAuthRef): BearerTokenProvider | undefined;
   getCachedAccessToken(provider: string, oauthRef?: OAuthRef): Promise<string | undefined>;
 }
@@ -64,6 +66,10 @@ export interface IOAuthToolkit {
     oauthRef?: KimiOAuthTokenRef,
   ): Promise<string | undefined>;
   tokenProvider(providerName?: string, oauthRef?: KimiOAuthTokenRef): BearerTokenProvider;
+  getManagedUsage(
+    providerName?: string,
+    options?: { readonly oauthRef?: KimiOAuthTokenRef; readonly baseUrl?: string },
+  ): Promise<AuthManagedUsageResult>;
 }
 
 export const IOAuthToolkit: ServiceIdentifier<IOAuthToolkit> =

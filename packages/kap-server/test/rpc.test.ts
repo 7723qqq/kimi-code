@@ -7,13 +7,14 @@ import {
   IAgentGoalService,
   IAgentLifecycleService,
   IAgentRPCService,
+  IAgentShellCommandService,
   IAppendLogStore,
   IEventService,
   IPluginService,
   ISessionIndex,
   ISessionLifecycleService,
   ISessionMetadata,
-  IWorkspaceRegistry,
+  IWorkspaceService,
 } from '@moonshot-ai/agent-core-v2';
 import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -196,7 +197,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
     const cwd = home as string;
     const created = await call<{ id: string; root: string }>(
       'POST',
-      rpc('core', IWorkspaceRegistry, 'createOrTouch'),
+      rpc('core', IWorkspaceService, 'createOrTouch'),
       cwd,
     );
     expect(created.body.code).toBe(0);
@@ -204,7 +205,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
 
     const got = await call<{ id: string; root: string }>(
       'GET',
-      rpc('core', IWorkspaceRegistry, 'get'),
+      rpc('core', IWorkspaceService, 'get'),
       created.body.data.id,
     );
     expect(got.body.code).toBe(0);
@@ -215,7 +216,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
     const missing = join(home as string, 'never-created');
     const { body } = await call<null>(
       'POST',
-      rpc('core', IWorkspaceRegistry, 'createOrTouch'),
+      rpc('core', IWorkspaceService, 'createOrTouch'),
       missing,
     );
     expect(body.code).toBe(40409);
@@ -225,14 +226,14 @@ describe('server-v2 /api/v1/debug RPC', () => {
     const cwd = home as string;
     const created = await call<{ id: string; name: string }>(
       'POST',
-      rpc('core', IWorkspaceRegistry, 'createOrTouch'),
+      rpc('core', IWorkspaceService, 'createOrTouch'),
       cwd,
     );
     const id = created.body.data.id;
 
     const updated = await call<{ id: string; name: string }>(
       'POST',
-      rpc('core', IWorkspaceRegistry, 'update'),
+      rpc('core', IWorkspaceService, 'update'),
       [id, { name: 'renamed' }],
     );
     expect(updated.body.code).toBe(0);
@@ -240,7 +241,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
 
     const got = await call<{ id: string; name: string }>(
       'GET',
-      rpc('core', IWorkspaceRegistry, 'get'),
+      rpc('core', IWorkspaceService, 'get'),
       id,
     );
     expect(got.body.data.name).toBe('renamed');
@@ -248,7 +249,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
 
   it('counts active sessions', async () => {
     const cwd = home as string;
-    const created = await call<{ id: string }>('POST', rpc('core', IWorkspaceRegistry, 'createOrTouch'), cwd);
+    const created = await call<{ id: string }>('POST', rpc('core', IWorkspaceService, 'createOrTouch'), cwd);
     await createSession(cwd);
     const { body } = await call<number>(
       'POST',
@@ -380,13 +381,13 @@ describe('server-v2 /api/v1/debug RPC', () => {
     expect(meta.body.data.lastPrompt).toBe('should not become the title');
   });
 
-  it('runs a shell command through the RPC facade', async () => {
+  it('runs a shell command through the shell command service', async () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
 
     const { body } = await call<{ stdout: string; stderr: string; isError?: boolean }>(
       'POST',
-      rpc('agent', IAgentRPCService, 'runShellCommand', { sid: id, aid: 'main' }),
+      rpc('agent', IAgentShellCommandService, 'run', { sid: id, aid: 'main' }),
       { command: 'printf hello' },
     );
     expect(body.code).toBe(0);

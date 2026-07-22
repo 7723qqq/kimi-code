@@ -30,10 +30,14 @@ import {
   IConfigService,
   IEventBus,
   IOAuthToolkit,
+  ISessionCronService,
   ISessionIndex,
   ISessionLifecycleService,
   ITelemetryService,
+  PRINT_MAX_TURNS_DEFAULT,
+  PRINT_WAIT_CEILING_S_DEFAULT,
   agentCatalogRuntimeOptionsSeed,
+  applyPrintModeConfigDefaults,
   bootstrap,
   createCloudAppender,
   ensureMainAgent,
@@ -80,8 +84,6 @@ import { createKimiCodeHostIdentity } from '../version';
 
 import { resolveOutputFormat } from '../options';
 import type { CLIOptions, PromptOutputFormat } from '../options';
-import { t } from '#/i18n';
-
 import {
   type PromptOutput,
   PromptJsonWriter,
@@ -92,10 +94,14 @@ import {
 } from '../prompt-render';
 
 const PROMPT_UI_MODE = 'print';
-const DEFAULT_PRINT_WAIT_CEILING_S = 3600;
-const DEFAULT_PRINT_MAX_TURNS = 50;
 /** Re-check `goalActive` at least this often while waiting for goal turns. */
 const GOAL_WAIT_POLL_MS = 250;
+/**
+ * Slack on top of a scheduled cron fire time while waiting for the steered
+ * turn: covers the 1s tick poll interval plus fire → inject → turn-launch
+ * latency.
+ */
+const CRON_FIRE_GRACE_MS = 5_000;
 
 export async function runV2Print(
   opts: CLIOptions,
@@ -138,6 +144,10 @@ export async function runV2Print(
 
   const configService = app.accessor.get(IConfigService);
   await configService.ready;
+  // Print-mode config defaults (task timeouts / loop step cap / subagent
+  // timeout → unbounded) before anything resolves a session; only keys the
+  // user left unset are filled, in the memory layer.
+  await applyPrintModeConfigDefaults(configService);
   const defaultModel = configService.get<string>('defaultModel') ?? undefined;
   let telemetryEnabled = true;
   try {
@@ -147,7 +157,7 @@ export async function runV2Print(
   }
   for (const diagnostic of configService.diagnostics()) {
     if (diagnostic.severity === 'warning') {
-      stderr.write(`${t('tui.statusMessages.promptWarning', { warning: diagnostic.message })}\n`);
+      stderr.write(`Warning: ${diagnostic.message}\n`);
     }
   }
 
@@ -309,7 +319,7 @@ async function resolveNativeSession(
   const resumeById = async (id: string): Promise<ISessionScopeHandle> => {
     const session = await lifecycle.resume(id);
     if (session === undefined) {
-      throw new Error(t('tui.statusMessages.sessionNotFound', { sessionId: id }));
+      throw new Error(`Session "${id}" not found.`);
     }
     return session;
   };
@@ -331,17 +341,14 @@ async function resolveNativeSession(
     const page = await index.list({});
     const target = page.items.find((summary) => summary.id === opts.session);
     if (target === undefined) {
-      throw new Error(t('tui.statusMessages.sessionNotFound', { sessionId: opts.session! }));
+      throw new Error(`Session "${opts.session}" not found.`);
     }
     if (target.cwd !== undefined && resolve(target.cwd) !== resolve(workDir)) {
-      // The session exists but belongs to another directory — say so in the
-      // thrown error instead of the contradictory "session not found".
-      throw new Error(
-        t('tui.statusMessages.sessionDifferentDir', {
-          sessionId: opts.session!,
-          cwd: target.cwd,
-        }).trimEnd(),
+      stderr.write(
+        `Session "${opts.session}" was created under a different directory.\n` +
+          `  cd "${target.cwd}" && kimi -r ${opts.session}\n\n`,
       );
+      throw new Error(`Session "${opts.session}" was created under a different directory.`);
     }
     const session = await resumeById(opts.session);
     const agent = await ensureMainAgent(session);
@@ -376,7 +383,7 @@ async function resolveNativeSession(
         goalModel: configuredModel(opts.model, currentModel),
       };
     }
-    stderr.write(t('tui.statusMessages.noSessionsToContinue', { workDir }));
+    stderr.write(`No sessions to continue under "${workDir}"; starting a fresh session.\n`);
   }
 
   const model = requireConfiguredModel(opts.model, defaultModel);
@@ -439,8 +446,8 @@ async function runNativeTurn(
       const completion = await handle.completion;
       throw new Error(
         completion.state === 'blocked'
-          ? t('tui.statusMessages.promptBlocked')
-          : t('tui.statusMessages.promptTurnCannotStart'),
+          ? 'Prompt hook blocked the request.'
+          : 'Prompt turn could not be started',
       );
     }
     const result = await turn.result;
@@ -454,18 +461,20 @@ async function runNativeTurn(
       const configService = app.accessor.get(IConfigService);
       const taskConfig = resolveAgentTaskConfig(configService);
       const goalService = agent.accessor.get(IAgentGoalService);
+      const cronService = session.accessor.get(ISessionCronService);
       try {
         await applyPrintBackgroundPolicy({
           mode: resolvePrintBackgroundMode(configService),
-          ceilingS: taskConfig?.printWaitCeilingS ?? DEFAULT_PRINT_WAIT_CEILING_S,
-          maxTurns: taskConfig?.printMaxTurns ?? DEFAULT_PRINT_MAX_TURNS,
+          ceilingS: taskConfig?.printWaitCeilingS ?? PRINT_WAIT_CEILING_S_DEFAULT,
+          maxTurns: taskConfig?.printMaxTurns ?? PRINT_MAX_TURNS_DEFAULT,
           countPending: () => countPendingBackgroundTasks(session),
           drain: () => drainBackgroundTasks(session, taskConfig?.printWaitCeilingS),
           turnEndings,
           skipTurnId: turn.id,
-          warn: (message) => stderr.write(t('tui.statusMessages.promptWarning', { warning: message }) + '\n'),
+          warn: (message) => stderr.write(`Warning: ${message}\n`),
           now: () => Date.now(),
           goalActive: () => goalService.getGoal().goal?.status === 'active',
+          cronNextFireAt: () => cronService.getNextFireTime(),
         });
       } catch (error) {
         // A steered turn that fails fails the run (v1 parity). Anything else
@@ -476,11 +485,9 @@ async function runNativeTurn(
           throw error;
         }
         stderr.write(
-          t('tui.statusMessages.promptWarning', {
-            warning: `print background policy failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          }) + '\n',
+          `Warning: print background policy failed: ${
+            error instanceof Error ? error.message : String(error)
+          }\n`,
         );
       }
       writer.finish();
@@ -550,6 +557,7 @@ function dispatchNativeEvent(
       return;
     case 'turn.step.retrying':
       writer.discardAssistant();
+      writer.writeRetrying(event);
       return;
     case 'assistant.delta':
       writer.writeAssistantDelta(event.delta);
@@ -664,61 +672,113 @@ export interface PrintBackgroundPolicyInput {
    * background policy.
    */
   readonly goalActive?: () => boolean;
+  /**
+   * Reports the next scheduled cron fire time (epoch ms), or `null` when no
+   * cron task has a future fire. While it returns non-null the policy keeps
+   * the process alive — the cron tick timer itself is unref'd — waiting for
+   * the fire to steer a new turn, then re-evaluating (a fired one-shot task
+   * disappears; a recurring one reports its advanced next fire). Cron
+   * liveness is independent of the background mode: it applies under
+   * `exit`/`drain` too (v1 parity). Omitted = no cron waiting.
+   */
+  readonly cronNextFireAt?: () => number | null;
 }
 
 /**
- * Apply the print-mode (`kimi -p`) background-task policy after the main turn
- * completes. Mirrors v1's `Session.handlePrintMainTurnCompleted`:
+ * Apply the print-mode (`kimi -p`) background-resource policy after the main
+ * turn completes. A single loop re-evaluates the Session's live resources in
+ * order on every round and stays alive while any of them is pending:
  *  - goal    : while a goal is `active`, keep waiting for its continuation
  *              turns (bounded by `ceilingS` as a safety net), regardless of
  *              the background mode; the goal summary drives the exit code.
- *  - 'exit'  : return immediately (default).
- *  - 'drain' : suppress + drain background tasks, then return.
- *  - 'steer' : while background tasks are still pending, stay alive so task
- *              completions steer new main turns; return once quiescent, or
- *              when the wall-clock ceiling (`ceilingS`) or the turn cap
- *              (`maxTurns`) is reached. A steered turn that does not complete
- *              fails the run.
+ *  - cron    : while `cronNextFireAt` reports a future fire, keep waiting —
+ *              the cron tick timer is unref'd, so the process must hold the
+ *              event loop itself (v1 parity, independent of the mode). The
+ *              fire steers a new turn; a steered turn that does not complete
+ *              fails the run. Each round re-reads the next fire time, so a
+ *              fired one-shot task ends the wait while a recurring one keeps
+ *              it. A fire time that stays unchanged and in the past across
+ *              two consecutive rounds means the tick is wedged: warn once and
+ *              stop cron waiting instead of spinning.
+ *  - mode    : 'exit'  → return immediately;
+ *              'drain' → suppress + drain background tasks, then return;
+ *              'steer' → while background tasks are still pending, stay alive
+ *              so task completions steer new main turns; return once
+ *              quiescent, or when the wall-clock ceiling (`ceilingS`) or the
+ *              turn cap (`maxTurns`) is reached. A steered turn that does not
+ *              complete fails the run.
+ * The steer ceiling deadline is set once on entry, so goal/cron waiting
+ * consumes the same budget.
  */
 export async function applyPrintBackgroundPolicy(
   input: PrintBackgroundPolicyInput,
 ): Promise<void> {
-  if (input.goalActive !== undefined) {
-    const goalDeadline = input.now() + input.ceilingS * 1000;
-    while (input.goalActive()) {
-      // Also wake on a short poll: a goal can leave `active` without any
-      // further turn.ended (budget block at a turn boundary, or a pause after
-      // a continuation-launch failure), which would otherwise hang the run
-      // until the ceiling.
-      const ended = await input.turnEndings.next(
-        Math.min(goalDeadline - input.now(), GOAL_WAIT_POLL_MS),
-        input.skipTurnId,
-      );
-      if (ended === null && input.now() >= goalDeadline) {
-        input.warn(t('tui.statusMessages.printGoalWaitCeiling', { ceilingS: String(input.ceilingS) }));
-        return;
-      }
-      // A continuation turn that does not complete pauses/blocks the goal, so
-      // the loop condition exits on the next check.
-    }
-  }
-  if (input.mode === 'exit') return;
-  if (input.mode === 'drain') {
-    await input.drain();
-    return;
-  }
-
-  // 'steer'
   const deadline = input.now() + input.ceilingS * 1000;
   let turns = 0;
+  // Cron anti-spin guard: the last fire time seen already in the past. Two
+  // consecutive rounds with the same past fire time mean the tick never ran.
+  let lastPastFireAt: number | undefined;
+  let cronWedged = false;
   for (;;) {
+    // (a) goal: while a goal is `active`, keep waiting for its continuation
+    // turns. Also wake on a short poll: a goal can leave `active` without any
+    // further turn.ended (budget block at a turn boundary, or a pause after a
+    // continuation-launch failure), which would otherwise hang the run until
+    // the ceiling. A continuation turn that does not complete pauses/blocks
+    // the goal, so the condition exits on the next check.
+    while (input.goalActive?.() === true) {
+      const ended = await input.turnEndings.next(
+        Math.min(deadline - input.now(), GOAL_WAIT_POLL_MS),
+        input.skipTurnId,
+      );
+      if (ended === null && input.now() >= deadline) {
+        input.warn(`print goal wait ceiling reached (${input.ceilingS}s), finishing`);
+        return;
+      }
+    }
+
+    // (b) cron: keep the process alive until the pending fire steered a turn
+    // (one-shot tasks vanish after firing; recurring ones advance their next
+    // fire), then re-evaluate from the top.
+    if (!cronWedged && input.cronNextFireAt !== undefined) {
+      const fireAt = input.cronNextFireAt();
+      if (fireAt !== null) {
+        if (fireAt <= input.now() && lastPastFireAt === fireAt) {
+          cronWedged = true;
+          input.warn(
+            'print cron wait: next fire time stuck in the past; cron tick appears wedged, giving up on cron',
+          );
+        } else {
+          if (fireAt <= input.now()) lastPastFireAt = fireAt;
+          const ended = await input.turnEndings.next(
+            Math.max(fireAt - input.now(), 0) + CRON_FIRE_GRACE_MS,
+            input.skipTurnId,
+          );
+          if (ended !== null && ended.reason !== 'completed') {
+            throw new PrintSteeredTurnFailedError(formatTurnEndingFailure(ended));
+          }
+          // Fire observed (or its grace elapsed without a turn): re-read the
+          // next fire time from the top.
+          continue;
+        }
+      }
+    }
+
+    // (c) background-task mode.
+    if (input.mode === 'exit') return;
+    if (input.mode === 'drain') {
+      await input.drain();
+      return;
+    }
+
+    // 'steer'
     turns += 1;
     if (input.now() >= deadline) {
-      input.warn(t('tui.statusMessages.printSteerCeiling', { ceilingS: String(input.ceilingS) }));
+      input.warn(`print steer ceiling reached (${input.ceilingS}s), finishing`);
       return;
     }
     if (turns > input.maxTurns) {
-      input.warn(t('tui.statusMessages.printSteerMaxTurns', { maxTurns: String(input.maxTurns) }));
+      input.warn(`print steer max turns reached (${input.maxTurns}), finishing`);
       return;
     }
     if (input.countPending() === 0) return;
@@ -732,13 +792,13 @@ export async function applyPrintBackgroundPolicy(
 
 function formatTurnEndingFailure(ending: PrintTurnEnding): string {
   if (ending.error?.code === 'provider.filtered') {
-    return t('tui.statusMessages.btwFiltered');
+    return 'Provider safety policy blocked the response.';
   }
   if (ending.error !== undefined) return `${ending.error.code}: ${ending.error.message}`;
   if (ending.reason === 'blocked') {
-    return t('tui.statusMessages.promptBlocked');
+    return 'Prompt hook blocked the request.';
   }
-  return t('tui.statusMessages.promptTurnEnded', { reason: ending.reason });
+  return `Prompt turn ended with reason: ${ending.reason}`;
 }
 
 function countPendingBackgroundTasks(session: ISessionScopeHandle): number {
@@ -756,7 +816,7 @@ async function drainBackgroundTasks(
   const ceilingMs =
     typeof ceilingS === 'number' && Number.isFinite(ceilingS) && ceilingS > 0
       ? ceilingS * 1000
-      : DEFAULT_PRINT_WAIT_CEILING_S * 1000;
+      : PRINT_WAIT_CEILING_S_DEFAULT * 1000;
 
   const deadline = Date.now() + ceilingMs;
   const seen = new Set<string>();
@@ -789,7 +849,7 @@ function formatNativeTurnFailure(result: LoopRunResult): string {
   if (result.type === 'failed') {
     const error = result.error as { readonly code?: string; readonly message?: string } | undefined;
     if (error?.code === 'provider.filtered') {
-      return t('tui.statusMessages.btwFiltered');
+      return 'Provider safety policy blocked the response.';
     }
     if (error?.code !== undefined) {
       return `${error.code}: ${error.message ?? ''}`.trimEnd();
@@ -798,5 +858,5 @@ function formatNativeTurnFailure(result: LoopRunResult): string {
       return result.error.message;
     }
   }
-  return t('tui.statusMessages.promptTurnEnded', { reason: result.type });
+  return `Prompt turn ended with reason: ${result.type}`;
 }

@@ -4,9 +4,9 @@
 
 ### Patch Changes
 
-- Updated dependencies [[`06556e4`](https://github.com/MoonshotAI/kimi-code/commit/06556e4a350e56807b133c8be2bcdb0a91409991), [`ac1dfef`](https://github.com/MoonshotAI/kimi-code/commit/ac1dfef1119122c3610592d11726c5536b9cf549), [`a83aa30`](https://github.com/MoonshotAI/kimi-code/commit/a83aa30fe99736d4a289023bc9fbfe692408008f), [`c58880a`](https://github.com/MoonshotAI/kimi-code/commit/c58880a3fb76af21d6d4f2fbb30b1ee38a64a5e5)]:
-  - @moonshot-ai/agent-core@0.15.4
+- Updated dependencies [[`ec88d35`](https://github.com/MoonshotAI/kimi-code/commit/ec88d352e8f4dc5e8ffd1212f016138458f69893), [`b5efba7`](https://github.com/MoonshotAI/kimi-code/commit/b5efba7abcaf4041f81ec520097a61e6546e8c50), [`37eda4e`](https://github.com/MoonshotAI/kimi-code/commit/37eda4e59aebc8ecafa91be3f43f971ed63963a3), [`71bcfba`](https://github.com/MoonshotAI/kimi-code/commit/71bcfba54a6836f4b6d4e26babde67576b293a64), [`ce0e3ce`](https://github.com/MoonshotAI/kimi-code/commit/ce0e3ceb04223bdaad8e8931bad46eff561055b6), [`e458323`](https://github.com/MoonshotAI/kimi-code/commit/e45832398d0d9cad98dbad1cbf1e5b103a20aace), [`b5efba7`](https://github.com/MoonshotAI/kimi-code/commit/b5efba7abcaf4041f81ec520097a61e6546e8c50)]:
   - @moonshot-ai/kimi-code-sdk@0.14.0
+  - @moonshot-ai/agent-core@0.15.6
 
 ## 0.3.4
 
