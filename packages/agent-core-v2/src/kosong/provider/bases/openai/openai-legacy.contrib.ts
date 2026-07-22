@@ -19,6 +19,7 @@ import { traitDefaultHeaders } from '#/kosong/protocol/protocolTrait';
 import { getOpenAILegacyModelCapability, OpenAILegacyChatProvider } from './openai-legacy';
 import {
   compactObject,
+  composeOpenAIChatHooks,
   firstProcessEnv,
   traitEndpoint,
   traitProvides,
@@ -47,6 +48,8 @@ registerProtocolBase({
         defaultHeaders: traitDefaultHeaders(traits),
         maxTokens: config.providerOptions?.defaultMaxTokens,
         reasoningKey: config.providerOptions?.reasoningKey,
+        offEffort: config.providerOptions?.offEffort,
+        hooks: composeOpenAIChatHooks(traits),
       }),
     });
   },

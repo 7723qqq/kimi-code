@@ -202,7 +202,7 @@ export const kimiOpenAITrait: ProtocolTrait = {
   reasoningKey: () => KIMI_REASONING_KEY,
 
   withMaxCompletionTokens: (maxCompletionTokens) => ({
-    max_completion_tokens: maxCompletionTokens,
+    max_completion_tokens: Math.min(maxCompletionTokens, 128 * 1024),
   }),
 
   buildParams: (params) => {

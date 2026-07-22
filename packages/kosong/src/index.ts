@@ -52,8 +52,16 @@ export {
   catalogModelToCapability,
   catalogProviderModels,
   inferWireType,
+  resolveCatalogImport,
 } from './catalog';
-export type { Catalog, CatalogModel, CatalogModelEntry, CatalogProviderEntry } from './catalog';
+export type {
+  Catalog,
+  CatalogModel,
+  CatalogModelEntry,
+  CatalogProviderEntry,
+  CatalogImportInvalidReason,
+  CatalogImportResolution,
+} from './catalog';
 
 // HTTP client
 export { createSharedAgent, createSharedFetch, loadSystemCAs } from './http/undici-agent';

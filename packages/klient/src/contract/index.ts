@@ -9,6 +9,13 @@
 import type { KlientContract } from './types.js';
 import { agentActivityViewContract } from './agent/activity.js';
 import { agentRpcContract } from './agent/rpc.js';
+import {
+  agentPlanContract,
+  agentProfileContract,
+  agentShellCommandContract,
+  agentTaskContract,
+  agentUsageContract,
+} from './agent/services.js';
 import { authContract, authSummaryContract } from './global/auth.js';
 import { catalogContract } from './global/catalog.js';
 import { providerDiscoveryContract } from './global/providerDiscovery.js';
@@ -30,7 +37,7 @@ import { sessionQuestionContract } from './session/question.js';
 export const globalContract: KlientContract = {
   // core (app scope)
   sessionIndex: sessionsContract,
-  workspaceRegistry: workspacesContract,
+  workspaceService: workspacesContract,
   configService: configContract,
   providerService: providersContract,
   modelService: modelsContract,
@@ -51,6 +58,12 @@ export const globalContract: KlientContract = {
   // agent scope
   agentRPCService: agentRpcContract,
   agentActivityView: agentActivityViewContract,
+  agentShellCommandService: agentShellCommandContract,
+  agentProfileService: agentProfileContract,
+  agentUsageService: agentUsageContract,
+  agentPlanService: agentPlanContract,
+  agentTaskService: agentTaskContract,
 };
 
-export type { KlientContract, ProcedureContract, ServiceContract } from './types.js';
+export type { KlientContract, ProcedureContract, ServiceContract, StreamingProcedureContract } from './types.js';
+export { isStreamingContract } from './types.js';

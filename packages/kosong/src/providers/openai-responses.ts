@@ -4,7 +4,6 @@ import {
   ChatProviderError,
   isContextOverflowErrorCode,
 } from '#/errors';
-import { createSharedFetch } from '../http/undici-agent';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
 import { extractText, isToolDeclarationOnlyMessage } from '#/message';
 import type {
@@ -345,6 +344,14 @@ export interface OpenAIResponsesOptions {
   baseUrl?: string | undefined;
   model: string;
   maxOutputTokens?: number | undefined;
+  /**
+   * The effort value that encodes "thinking off" on this wire (e.g. `'none'`
+   * for xai grok). When set, `withThinking('off')` sends it as
+   * `reasoning_effort` instead of omitting the field — required by models
+   * whose default is to reason.
+   */
+  offEffort?: string | undefined;
+  httpClient?: unknown;
   defaultHeaders?: Record<string, string>;
   toolMessageConversion?: ToolMessageConversion | undefined;
   clientFactory?: (auth: ProviderRequestAuth) => OpenAI;
@@ -711,7 +718,7 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
     const details = readObjectField(usage, 'input_tokens_details');
     const cached = details ? (readNumberField(details, 'cached_tokens') ?? 0) : 0;
     this._usage = {
-      inputOther: Math.max(inputTokens - cached, 0),
+      inputOther: inputTokens - cached,
       output: outputTokens,
       inputCacheRead: cached,
       inputCacheCreation: 0,
@@ -1032,8 +1039,10 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
   private _baseUrl: string | undefined;
   private _defaultHeaders: Record<string, string> | undefined;
   private _generationKwargs: OpenAIResponsesGenerationKwargs;
+  private _offEffort: string | undefined;
   private _toolMessageConversion: ToolMessageConversion;
   private _client: OpenAI | undefined;
+  private _httpClient: unknown;
   private _clientFactory: ((auth: ProviderRequestAuth) => OpenAI) | undefined;
 
   constructor(options: OpenAIResponsesOptions) {
@@ -1044,7 +1053,9 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     this._model = options.model;
     this._stream = true; // Responses API always supports streaming
     this._generationKwargs = { ...options.generationKwargs };
+    this._offEffort = options.offEffort;
     this._toolMessageConversion = options.toolMessageConversion ?? null;
+    this._httpClient = options.httpClient;
     this._clientFactory = options.clientFactory;
 
     if (options.maxOutputTokens !== undefined) {
@@ -1150,7 +1161,10 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
   }
 
   withThinking(effort: ThinkingEffort): OpenAIResponsesChatProvider {
-    const reasoningEffort = effort === 'off' || effort === 'on' ? undefined : effort;
+    // 'on' sends no effort field; 'off' sends the model's declared off value
+    // (e.g. 'none') when one is configured, and omits the field otherwise.
+    const reasoningEffort =
+      effort === 'off' ? this._offEffort : effort === 'on' ? undefined : effort;
     const clone = this._clone();
     clone._generationKwargs = {
       ...clone._generationKwargs,
@@ -1191,13 +1205,14 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     const clientOpts: Record<string, unknown> = {
       apiKey,
       baseURL: this._baseUrl,
-      fetch: createSharedFetch(),
     };
     const defaultHeaders = mergeRequestHeaders(this._defaultHeaders, auth?.headers);
     if (defaultHeaders !== undefined) {
       clientOpts['defaultHeaders'] = defaultHeaders;
     }
-    clientOpts['maxRetries'] = 5;
+    if (this._httpClient !== undefined) {
+      clientOpts['httpClient'] = this._httpClient;
+    }
     return new OpenAI(clientOpts as ConstructorParameters<typeof OpenAI>[0]);
   }
 }

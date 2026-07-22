@@ -4,10 +4,10 @@ import { log, type Logger } from '@moonshot-ai/kimi-code-sdk';
 import type { TelemetryProperties } from '@moonshot-ai/kimi-telemetry';
 
 import {
+  KIMI_CODE_OFFICIAL_INSTALL_URL,
   NATIVE_INSTALL_COMMAND_UNIX,
   NATIVE_INSTALL_COMMAND_WIN,
 } from '#/constant/app';
-import { t } from '#/i18n';
 import { loadTuiConfig } from '#/tui/config';
 
 import { readUpdateCache } from './cache';
@@ -142,6 +142,10 @@ function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const THIRD_PARTY_SOURCE_NOTE =
+  '\nNote: Third-party sources may lag behind the official release.\n' +
+  `For the latest updates, use the official installer: ${KIMI_CODE_OFFICIAL_INSTALL_URL}\n`;
+
 export function renderManualUpdateMessage(
   currentVersion: string,
   target: UpdateTarget,
@@ -160,26 +164,28 @@ export function renderManualUpdateMessage(
       sourceDesc = 'homebrew';
       break;
     case 'native':
-      sourceDesc = t('tui.statusMessages.updateUnsupportedPlatform', { platform: 'windows' });
+      sourceDesc = 'native (windows). Auto-update is not supported on this platform.';
       break;
     case 'unsupported':
-      sourceDesc = t('tui.statusMessages.updateUnsupportedManager');
+      sourceDesc = 'unsupported package manager or layout.';
       break;
   }
   return (
-    t('tui.statusMessages.updateNewerAvailable', { name: NPM_PACKAGE_NAME, version: target.version }) + '\n' +
-    t('tui.statusMessages.updateDetectedSource', { source: sourceDesc }) + '\n' +
-    t('tui.statusMessages.updateManualCommand', { command: installCommand }) + '\n'
+    `A newer version of ${NPM_PACKAGE_NAME} is available ` +
+    `(${currentVersion} -> ${target.version}).\n` +
+    `Detected install source: ${sourceDesc}\n` +
+    `To update manually, run: ${installCommand}\n` +
+    (source === 'homebrew' ? THIRD_PARTY_SOURCE_NOTE : '')
   );
 }
 
 export function renderInstallSuccessMessage(target: UpdateTarget): string {
-  return t('tui.statusMessages.updateUpdated', { name: NPM_PACKAGE_NAME, version: target.version }) + '\n';
+  return `Updated ${NPM_PACKAGE_NAME} to ${target.version}. Restart the CLI to use the new version.\n`;
 }
 
 function renderBackgroundInstallSuccessNotice(version: string): string {
   const displayVersion = version.startsWith('v') ? version : `v${version}`;
-  return t('tui.statusMessages.updateUpdatedWithChangelog', { version: displayVersion, url: CHANGELOG_URL }) + '\n';
+  return `Kimi Code updated to ${displayVersion}\nChangelog: ${CHANGELOG_URL}\n`;
 }
 
 function refreshInBackground(): void {
