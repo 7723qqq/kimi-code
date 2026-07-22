@@ -1,3 +1,15 @@
+/**
+ * OpenAILegacyChatProvider — canonical implementation.
+ *
+ * The agent-core-v2 synchronised copy at
+ *   packages/agent-core-v2/src/kosong/provider/bases/openai/openai-legacy.ts
+ * is maintained in sync. Any non-provider-specific behaviour change to this
+ * file MUST also land in the v2 copy and vice versa.
+ *
+ * Astron (iFlytek Coding Plan) options are injected at construction time by
+ * the provider factory (providers/index.ts); the interface itself needs no
+ * astron-specific fields.
+ */
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
 import { isToolDeclarationOnlyMessage } from '#/message';
 import type {
@@ -94,6 +106,7 @@ export interface OpenAILegacyOptions {
   model: string;
   stream?: boolean | undefined;
   maxTokens?: number | undefined;
+  temperature?: number | undefined;
   reasoningKey?: string | undefined;
   httpClient?: unknown;
   defaultHeaders?: Record<string, string>;
@@ -106,6 +119,14 @@ export interface OpenAILegacyOptions {
    * `withGenerationKwargs` morph layers on top of both.
    */
   generationKwargs?: OpenAILegacyGenerationKwargs | undefined;
+  /** Encode thinking via top-level enable_thinking instead of reasoning_effort (astron only). */
+  astronThinking?: boolean | undefined;
+  /** Model IDs that also accept reasoning_effort alongside enable_thinking (astron only). */
+  astronReasoningEffortModelIds?: readonly string[] | undefined;
+  /** Astron runtime settings: search_disable. */
+  astronSettings?: {
+    searchDisable?: boolean;
+  } | undefined;
 }
 
 export interface OpenAILegacyGenerationKwargs {
@@ -495,6 +516,9 @@ export class OpenAILegacyChatProvider implements ChatProvider {
   private _client: OpenAI | undefined;
   private _httpClient: unknown;
   private _clientFactory: ((auth: ProviderRequestAuth) => OpenAI) | undefined;
+  private _astronThinking: boolean;
+  private _astronReasoningEffortModelIds: readonly string[] | undefined;
+  private _astronSettings: OpenAILegacyOptions['astronSettings'] | undefined;
 
   constructor(options: OpenAILegacyOptions) {
     const apiKey = options.apiKey ?? process.env['OPENAI_API_KEY'];
@@ -521,6 +545,9 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     };
     this._toolMessageConversion = options.toolMessageConversion ?? null;
     this._httpClient = options.httpClient;
+    this._astronThinking = options.astronThinking ?? false;
+    this._astronReasoningEffortModelIds = options.astronReasoningEffortModelIds;
+    this._astronSettings = options.astronSettings;
     this._clientFactory = options.clientFactory;
 
     this._client = this._apiKey === undefined ? undefined : this._buildClient(this._apiKey);
@@ -621,7 +648,28 @@ export class OpenAILegacyChatProvider implements ChatProvider {
       createParams['stream_options'] = { include_usage: true };
     }
 
-    if (reasoningEffort !== undefined) {
+    if (this._astronThinking) {
+      // Coding Plan (xfyun /v2, OpenAI-compatible): thinking and web-search
+      // are controlled by top-level body fields.
+      if (effort === 'off') {
+        createParams['enable_thinking'] = false;
+      } else if (effort !== undefined) {
+        createParams['enable_thinking'] = true;
+        const ids = this._astronReasoningEffortModelIds;
+        if (ids?.includes(this._model)) {
+          const re =
+            effort === 'low' || effort === 'medium' ? 'high'
+            : effort === 'xhigh' ? 'max'
+            : effort;
+          if (re === 'high' || re === 'max') {
+            createParams['reasoning_effort'] = re;
+          }
+        }
+      }
+      if (this._astronSettings?.searchDisable !== undefined) {
+        createParams['search_disable'] = this._astronSettings.searchDisable;
+      }
+    } else if (reasoningEffort !== undefined) {
       createParams['reasoning_effort'] = reasoningEffort;
     }
 

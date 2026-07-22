@@ -821,6 +821,7 @@ describe('ReadTool', () => {
     expect(result.isError).toBeFalsy();
     expect(result.output).toContain('deep path content');
   });
+});
 
 describe('ReadTool description and schema parity', () => {
   it('encourages reading multiple files in parallel', () => {

@@ -15,7 +15,41 @@
  * The Agent is lazy: no connections open until the first request
  * actually goes out, so importing this module is free.
  */
-import { Agent, fetch as undiciFetch } from 'undici';
+import { existsSync, readFileSync } from 'node:fs';
+import { rootCertificates } from 'node:tls';
+import { Agent, buildConnector, fetch as undiciFetch } from 'undici';
+
+// ── System CA loading (for providers with non-public CAs, e.g. xfyun.cn) ────
+
+const SYSTEM_CA_PATHS = [
+  '/etc/ssl/certs/ca-certificates.crt',
+  '/etc/pki/tls/certs/ca-bundle.crt',
+];
+
+let _systemCaCerts: string[] | undefined;
+
+/**
+ * Return the system CA certificates concatenated with Node's built-in root
+ * certificates. Idempotent: loads once and caches.
+ *
+ * Needed for providers whose TLS certificates chain to a CA that is in the
+ * system trust store but not in the Mozilla CA bundle shipped with Node
+ * (e.g. Chinese CAs for xfyun.cn).
+ */
+export function loadSystemCAs(): string[] {
+  if (_systemCaCerts) return _systemCaCerts;
+  let systemCerts = '';
+  for (const path of SYSTEM_CA_PATHS) {
+    if (existsSync(path)) {
+      try {
+        systemCerts = readFileSync(path, 'utf-8');
+        break;
+      } catch { /* ignore */ }
+    }
+  }
+  _systemCaCerts = [systemCerts, ...rootCertificates].filter(Boolean);
+  return _systemCaCerts;
+}
 
 let cachedAgent: Agent | undefined;
 
@@ -52,6 +86,9 @@ export function createSharedAgent(): Agent {
       // will read streaming bodies incrementally, but undici
       // measures time between body chunks too.
       bodyTimeout: 120_000,
+      // Include system CA certs alongside Node's built-in roots so
+      // providers with non-Mozilla CAs (e.g. xfyun.cn) are trusted.
+      connect: buildConnector({ ca: loadSystemCAs() }),
     });
   }
   return cachedAgent;
@@ -60,10 +97,7 @@ export function createSharedAgent(): Agent {
 /**
  * Build a `fetch`-compatible function that routes every call through
  * the shared undici Agent. Use this with SDKs that expose a `fetch`
- * option (Anthropic, OpenAI via `fetchOptions`).
- *
- * SDKs that expose an `httpClient` option accepting a raw Agent
- * (e.g. openai v6) can use `createSharedAgent()` directly instead.
+ * option (Anthropic, OpenAI v6).
  */
 export function createSharedFetch(): typeof fetch {
   const agent = createSharedAgent();

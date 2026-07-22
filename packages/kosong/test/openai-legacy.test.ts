@@ -92,6 +92,57 @@ const MUL_TOOL: Tool = {
 };
 
 describe('OpenAILegacyChatProvider', () => {
+  describe('astron Coding Plan encoding', () => {
+    function astronProvider(model: string, searchDisable?: boolean): OpenAILegacyChatProvider {
+      return new OpenAILegacyChatProvider({
+        model,
+        apiKey: 'test-key',
+        stream: false,
+        astronThinking: true,
+        astronReasoningEffortModelIds: ['xopglm52'],
+        astronSettings: searchDisable !== undefined ? { searchDisable } : undefined,
+      });
+    }
+    const userMsg: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
+    ];
+
+    it('sends enable_thinking + reasoning_effort at the top level (not nested extra_body)', async () => {
+      const provider = astronProvider('xopglm52').withThinking('high');
+      const body = await captureRequestBody(provider, '', [], userMsg);
+      expect(body['enable_thinking']).toBe(true);
+      expect(body['reasoning_effort']).toBe('high');
+      expect(body['extra_body']).toBeUndefined();
+    });
+
+    it('maps low/medium effort to high for effort-capable models', async () => {
+      const provider = astronProvider('xopglm52').withThinking('low');
+      const body = await captureRequestBody(provider, '', [], userMsg);
+      expect(body['reasoning_effort']).toBe('high');
+    });
+
+    it('omits reasoning_effort for models outside the effort list', async () => {
+      const provider = astronProvider('xsparkx2').withThinking('high');
+      const body = await captureRequestBody(provider, '', [], userMsg);
+      expect(body['enable_thinking']).toBe(true);
+      expect(body['reasoning_effort']).toBeUndefined();
+    });
+
+    it('sends enable_thinking=false when thinking is off', async () => {
+      const provider = astronProvider('xopglm52').withThinking('off');
+      const body = await captureRequestBody(provider, '', [], userMsg);
+      expect(body['enable_thinking']).toBe(false);
+      expect(body['reasoning_effort']).toBeUndefined();
+    });
+
+    it('injects a top-level search_disable from astronSettings', async () => {
+      const provider = astronProvider('xsparkx2', true);
+      const body = await captureRequestBody(provider, '', [], userMsg);
+      expect(body['search_disable']).toBe(true);
+      expect(body['extra_body']).toBeUndefined();
+    });
+  });
+
   describe('message conversion (COMMON_CASES)', () => {
     it('simple user message with system prompt', async () => {
       const provider = createProvider();

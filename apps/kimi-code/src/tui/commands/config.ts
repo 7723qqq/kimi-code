@@ -19,9 +19,13 @@ import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model
 import { PermissionSelectorComponent } from '../components/dialogs/permission-selector';
 import { SettingsSelectorComponent, type SettingsSelection } from '../components/dialogs/settings-selector';
 import { ThemeSelectorComponent } from '../components/dialogs/theme-selector';
-import { AstronSettingsComponent } from '../components/dialogs/astron-settings';
+import {
+  AstronSettingsComponent,
+  ASTRON_DEFAULT_SETTINGS,
+  type AstronSettings,
+} from '../components/dialogs/astron-settings';
 import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-preference-selector';
-import { DEFAULT_TUI_CONFIG, loadTuiConfig, saveTuiConfig, type TuiConfig } from '../config';
+import { DEFAULT_TUI_CONFIG, saveTuiConfig, type TuiConfig } from '../config';
 import type { ThemeName } from '#/tui/theme';
 import { currentTheme, isBuiltInTheme, lightColors, loadCustomThemeMerged } from '#/tui/theme';
 import type { Locale } from '#/i18n';
@@ -50,10 +54,7 @@ function hasConversationHistory(host: SlashCommandHost): boolean {
   );
 }
 
-async function currentTuiConfig(host: SlashCommandHost): Promise<TuiConfig> {
-  // Settings not mirrored into appState (e.g. astron) must survive unrelated
-  // saves — seed them from the persisted config instead of defaults.
-  const persisted = await loadTuiConfig().catch(() => null);
+function currentTuiConfig(host: SlashCommandHost): TuiConfig {
   return {
     theme: host.state.appState.theme,
     locale: host.state.appState.locale as Locale,
@@ -61,7 +62,6 @@ async function currentTuiConfig(host: SlashCommandHost): Promise<TuiConfig> {
     disablePasteBurst: host.state.appState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
     notifications: host.state.appState.notifications,
     upgrade: host.state.appState.upgrade,
-    astron: persisted?.astron ?? DEFAULT_TUI_CONFIG.astron,
   };
 }
 
@@ -376,7 +376,7 @@ async function applyEditorChoice(host: SlashCommandHost, value: string): Promise
   const editorCommand = value.length > 0 ? value : null;
   try {
     await saveTuiConfig({
-      ...(await currentTuiConfig(host)),
+      ...currentTuiConfig(host),
       editorCommand,
     });
   } catch (error) {
@@ -593,7 +593,7 @@ async function applyThemeChoice(host: SlashCommandHost, theme: ThemeName): Promi
 
   try {
     await saveTuiConfig({
-      ...(await currentTuiConfig(host)),
+      ...currentTuiConfig(host),
       theme,
     });
   } catch (error) {
@@ -637,7 +637,7 @@ async function applyLocaleChoice(host: SlashCommandHost, locale: Locale): Promis
 
   try {
     await saveTuiConfig({
-      ...(await currentTuiConfig(host)),
+      ...currentTuiConfig(host),
       locale,
     });
   } catch (error) {
@@ -695,13 +695,73 @@ export async function showExperimentsPanel(host: SlashCommandHost): Promise<void
 }
 
 export async function showAstronSettingsPanel(host: SlashCommandHost): Promise<void> {
+  const config = await host.harness.getConfig();
+  const astron = config.providers?.['astron'];
+  if (astron === undefined) {
+    host.showStatus(t('tui.dialogs.astronSettings.notConfigured'));
+    return;
+  }
+  const initial: AstronSettings = {
+    stream: typeof astron.stream === 'boolean' ? astron.stream : ASTRON_DEFAULT_SETTINGS.stream,
+    temperature:
+      typeof astron.temperature === 'number'
+        ? astron.temperature
+        : ASTRON_DEFAULT_SETTINGS.temperature,
+    maxTokens:
+      typeof astron.maxTokens === 'number' ? astron.maxTokens : ASTRON_DEFAULT_SETTINGS.maxTokens,
+    searchDisable:
+      typeof astron.searchDisable === 'boolean'
+        ? astron.searchDisable
+        : ASTRON_DEFAULT_SETTINGS.searchDisable,
+  };
   host.mountEditorReplacement(
     new AstronSettingsComponent({
+      initial,
+      onSave: (settings) => {
+        void saveAstronSettings(host, settings);
+      },
       onCancel: () => {
         host.restoreEditor();
       },
     }),
   );
+}
+
+async function saveAstronSettings(host: SlashCommandHost, settings: AstronSettings): Promise<void> {
+  // Pre-save validation: bounds-check the values the TUI component already
+  // guards against, so a stale/invalid value never reaches the config layer.
+  if (settings.temperature < 0 || settings.temperature > 2) {
+    host.showStatus(t('tui.dialogs.astronSettings.temperatureOutOfRange'));
+    return;
+  }
+  if (settings.maxTokens < 1) {
+    host.showStatus(t('tui.dialogs.astronSettings.maxTokensOutOfRange'));
+    return;
+  }
+  try {
+    const config = await host.harness.getConfig();
+    const astron = config.providers?.['astron'];
+    if (astron === undefined) {
+      host.showStatus(t('tui.dialogs.astronSettings.notConfigured'));
+      return;
+    }
+    config.providers['astron'] = {
+      ...astron,
+      stream: settings.stream,
+      temperature: settings.temperature,
+      maxTokens: settings.maxTokens,
+      searchDisable: settings.searchDisable,
+    };
+    await host.harness.setConfig({
+      providers: config.providers,
+      models: config.models,
+      defaultModel: config.defaultModel,
+      thinking: config.thinking,
+    });
+    host.showStatus(t('tui.dialogs.astronSettings.saved'));
+  } catch (error) {
+    host.showError(formatErrorMessage(error));
+  }
 }
 
 export async function applyExperimentalFeatureChanges(
@@ -783,7 +843,7 @@ export async function applyUpdatePreferenceChoice(
   const upgrade = { autoInstall };
   try {
     await saveTuiConfig({
-      ...(await currentTuiConfig(host as unknown as SlashCommandHost)),
+      ...currentTuiConfig(host as unknown as SlashCommandHost),
       upgrade,
     });
   } catch (error) {

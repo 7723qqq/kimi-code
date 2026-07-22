@@ -4,7 +4,7 @@ import {
   ChatProviderError,
   isContextOverflowErrorCode,
 } from '#/errors';
-import { createSharedAgent } from '../http/undici-agent';
+import { createSharedFetch } from '../http/undici-agent';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
 import { extractText, isToolDeclarationOnlyMessage } from '#/message';
 import type {
@@ -345,7 +345,6 @@ export interface OpenAIResponsesOptions {
   baseUrl?: string | undefined;
   model: string;
   maxOutputTokens?: number | undefined;
-  httpClient?: unknown;
   defaultHeaders?: Record<string, string>;
   toolMessageConversion?: ToolMessageConversion | undefined;
   clientFactory?: (auth: ProviderRequestAuth) => OpenAI;
@@ -1035,7 +1034,6 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
   private _generationKwargs: OpenAIResponsesGenerationKwargs;
   private _toolMessageConversion: ToolMessageConversion;
   private _client: OpenAI | undefined;
-  private _httpClient: unknown;
   private _clientFactory: ((auth: ProviderRequestAuth) => OpenAI) | undefined;
 
   constructor(options: OpenAIResponsesOptions) {
@@ -1047,7 +1045,6 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     this._stream = true; // Responses API always supports streaming
     this._generationKwargs = { ...options.generationKwargs };
     this._toolMessageConversion = options.toolMessageConversion ?? null;
-    this._httpClient = options.httpClient;
     this._clientFactory = options.clientFactory;
 
     if (options.maxOutputTokens !== undefined) {
@@ -1194,7 +1191,7 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     const clientOpts: Record<string, unknown> = {
       apiKey,
       baseURL: this._baseUrl,
-      httpClient: this._httpClient ?? createSharedAgent(),
+      fetch: createSharedFetch(),
     };
     const defaultHeaders = mergeRequestHeaders(this._defaultHeaders, auth?.headers);
     if (defaultHeaders !== undefined) {
