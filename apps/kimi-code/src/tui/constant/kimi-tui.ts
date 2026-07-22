@@ -11,6 +11,8 @@ export function getNoActiveSessionMessage(): string {
 }
 /** @deprecated Use {@link getNoActiveSessionMessage} instead. */
 export const NO_ACTIVE_SESSION_MESSAGE = getNoActiveSessionMessage();
+/** @deprecated Use {@link getLlmNotSetMessage} instead. */
+export const LLM_NOT_SET_MESSAGE = t('v2Goal.llmNotSet');
 export function getCtrlDHint(): string {
   return t('tui.chrome.hints.ctrlDExit');
 }
