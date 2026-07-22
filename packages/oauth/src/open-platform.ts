@@ -1,3 +1,9 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { request as httpsRequest } from 'node:https';
+import { rootCertificates } from 'node:tls';
+import { URL } from 'node:url';
+
+import { ASTRON_MODEL_DEFS, type AstronModelDef } from '@moonshot-ai/kosong/providers/astron-models';
 import { readApiErrorMessage } from './api-error';
 import { isRecord } from './utils';
 import { parseKimiCodeCustomHeaders } from './identity';
@@ -42,21 +48,10 @@ export const OPEN_PLATFORMS: readonly OpenPlatformDefinition[] = [
   },
 ];
 
-/** Embedded model list for iFlytek Astron Coding Plan — no remote fetch needed. */
-export interface AstronPlatformModelInfo {
-  readonly id: string;
-  readonly contextLength: number;
-}
-
-export const ASTRON_PLATFORM_MODELS: readonly AstronPlatformModelInfo[] = [
-  { id: 'astron-code-latest', contextLength: 200_000 },
-  { id: 'xsparkx2agent', contextLength: 256_000 },
-  { id: 'xsparkx2', contextLength: 128_000 },
-  { id: 'xsparkx2flash', contextLength: 256_000 },
-  { id: 'auto', contextLength: 200_000 },
-  { id: 'xopglm5', contextLength: 200_000 },
-  { id: 'xopglm51', contextLength: 200_000 },
-];
+/** Embedded model list for iFlytek Astron Coding Plan — no remote fetch needed.
+ *  Re-exports the canonical model definitions from @moonshot-ai/kosong. */
+export type AstronPlatformModelInfo = AstronModelDef;
+export const ASTRON_PLATFORM_MODELS: readonly AstronModelDef[] = ASTRON_MODEL_DEFS;
 
 export function getOpenPlatformById(id: string): OpenPlatformDefinition | undefined {
   return OPEN_PLATFORMS.find((p) => p.id === id);
@@ -131,13 +126,114 @@ export class OpenPlatformApiError extends Error {
   }
 }
 
+// ── System CA fetch for providers with non-Mozilla CAs (e.g. xfyun.cn) ──────
+
+const SYSTEM_CA_PATHS = [
+  '/etc/ssl/certs/ca-certificates.crt',
+  '/etc/pki/tls/certs/ca-bundle.crt',
+];
+
+let _systemCaCerts: string[] | undefined;
+let _systemCaLoadedAt = 0;
+
+function loadSystemCAs(): string[] {
+  const now = Date.now();
+  // Refresh cached CAs every hour so newly installed certificates are picked up.
+  if (_systemCaCerts && now - _systemCaLoadedAt < 3_600_000) {
+    return _systemCaCerts;
+  }
+  _systemCaLoadedAt = now;
+  let systemCerts = '';
+  for (const path of SYSTEM_CA_PATHS) {
+    if (existsSync(path)) {
+      try {
+        systemCerts = readFileSync(path, 'utf-8');
+        break;
+      } catch { /* ignore */ }
+    }
+  }
+  _systemCaCerts = [systemCerts, ...rootCertificates].filter(Boolean);
+  return _systemCaCerts;
+}
+
+function systemCaFetch(url: string | URL, init?: RequestInit): Promise<Response> {
+  const parsed = typeof url === 'string' ? new URL(url) : url;
+  const ca = loadSystemCAs();
+  return new Promise((resolve, reject) => {
+    const headers: Record<string, string> = {};
+    if (init?.headers) {
+      const h = init.headers as Record<string, string>;
+      for (const [k, v] of Object.entries(h)) headers[k] = v;
+    }
+    const req = httpsRequest(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port || 443,
+        path: parsed.pathname + parsed.search,
+        method: (init?.method ?? 'GET').toUpperCase(),
+        headers,
+        ca,
+        rejectUnauthorized: true,
+        timeout: 30_000,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf-8');
+          resolve(
+            new Response(body, {
+              status: res.statusCode ?? 0,
+              headers: res.headers as Record<string, string>,
+            }),
+          );
+        });
+      },
+    );
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Connection timed out'));
+    });
+    if (init?.signal) {
+      const onAbort = (): void => {
+        req.destroy();
+        reject(new Error('Aborted'));
+      };
+      if (init.signal.aborted) {
+        onAbort();
+        return;
+      }
+      init.signal.addEventListener('abort', onAbort, { once: true });
+    }
+    req.end();
+  });
+}
+
 export async function fetchOpenPlatformModels(
   platform: OpenPlatformDefinition,
   apiKey: string,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl?: typeof fetch,
   signal?: AbortSignal,
 ): Promise<ManagedKimiCodeModelInfo[]> {
-  const res = await fetchImpl(`${platform.baseUrl.replace(/\/+$/, '')}/models`, {
+  // Astron (xfyun.cn) models are embedded — no remote fetch needed.
+  if (platform.id === 'astron') {
+    return ASTRON_MODEL_DEFS.map((m): ManagedKimiCodeModelInfo => ({
+      id: m.id,
+      contextLength: m.contextLength,
+      displayName: m.displayName,
+      supportsReasoning: true,
+      supportsImageIn: false,
+      supportsVideoIn: false,
+      supportEfforts: undefined,
+      defaultEffort: undefined,
+    }));
+  }
+
+  // Astron's xfyun.cn uses a Chinese CA not in the Mozilla store; fall back
+  // to a system-CA fetch unless the caller explicitly provided one.
+  const effectiveFetch = fetchImpl ?? (platform.id === 'astron' ? systemCaFetch as typeof fetch : fetch);
+  const res = await effectiveFetch(`${platform.baseUrl.replace(/\/+$/, '')}/models`, {
     headers: {
       ...parseKimiCodeCustomHeaders(),
       Authorization: `Bearer ${apiKey}`,

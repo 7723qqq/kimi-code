@@ -332,10 +332,17 @@ function toKosongProviderConfig(
         model,
         baseUrl: providerValue(provider.baseUrl, provider.env, 'ASTRON_BASE_URL'),
         apiKey: providerApiKey(provider),
-        generationKwargs: { prompt_cache_key: promptCacheKey },
+        reasoningKey,
+        stream: provider.stream,
+        temperature: provider.temperature,
+        maxTokens: provider.maxTokens,
+        astronSettings:
+          provider.searchDisable !== undefined
+            ? { searchDisable: provider.searchDisable }
+            : undefined,
         ...defaultHeadersField({
           ...envCustomHeaders,
-          ...kimiRequestHeaders,
+          ...kimiUserAgentHeader(kimiRequestHeaders),
           ...provider.customHeaders,
         }),
       };

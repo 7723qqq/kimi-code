@@ -1,5 +1,6 @@
 import { t } from '#/i18n';
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
+import { isExperimentalFlagEnabled } from '../../commands/experimental-flags';
 
 export type SettingsSelection =
   | 'model'
@@ -14,7 +15,7 @@ export type SettingsSelection =
   | 'astron';
 
 function getSettingsOptions(): readonly ChoiceOption[] {
-  return [
+  const options: ChoiceOption[] = [
     {
       value: 'model',
       label: t('tui.dialogs.settingsSelector.model'),
@@ -60,12 +61,17 @@ function getSettingsOptions(): readonly ChoiceOption[] {
       label: t('tui.dialogs.settingsSelector.githubToken'),
       description: t('tui.dialogs.settingsSelector.githubTokenDesc'),
     },
-    {
+  ];
+  // Astron settings are gated behind the same experimental flag as the
+  // /login Astron platform option.
+  if (isExperimentalFlagEnabled('xunfei_coding_plan')) {
+    options.push({
       value: 'astron',
       label: t('tui.dialogs.settingsSelector.astron'),
       description: t('tui.dialogs.settingsSelector.astronDesc'),
-    },
-  ];
+    });
+  }
+  return options;
 }
 
 function isSettingsSelection(value: string): value is SettingsSelection {

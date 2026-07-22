@@ -90,3 +90,4 @@ describe('SseMcpClient', () => {
     await client.close();
     await expect(client.close()).resolves.toBeUndefined();
   }, 15000);
+});

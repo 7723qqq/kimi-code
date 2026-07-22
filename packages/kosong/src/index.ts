@@ -38,7 +38,12 @@ export { isUnknownCapability, UNKNOWN_CAPABILITY } from './capability';
 export type { ModelCapability } from './capability';
 
 // Astron (xunfei coding plan) model definitions
-export { ASTRON_MODEL_DEFS, ASTRON_PROVIDER_KEY } from './providers/astron-models';
+export {
+  ASTRON_DEFAULT_BASE_URL,
+  ASTRON_MODEL_DEFS,
+  ASTRON_PROVIDER_KEY,
+  ASTRON_REASONING_EFFORT_MODEL_IDS,
+} from './providers/astron-models';
 export type { AstronModelDef } from './providers/astron-models';
 
 // Model catalog (models.dev-style) metadata
@@ -50,7 +55,8 @@ export {
 } from './catalog';
 export type { Catalog, CatalogModel, CatalogModelEntry, CatalogProviderEntry } from './catalog';
 
-// Core functions
+// HTTP client
+export { createSharedAgent, createSharedFetch, loadSystemCAs } from './http/undici-agent';
 export { generate } from './generate';
 export type { GenerateCallbacks, GenerateResult } from './generate';
 

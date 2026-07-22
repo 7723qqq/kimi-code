@@ -71,6 +71,8 @@ export default {
       outputFormat: '提示模式的输出格式。默认为 text。',
       skillsDir: '从指定目录加载 skills，替代自动发现的用户和项目目录。可重复指定。',
       addDir: '为本会话添加额外的工作区目录。可重复指定。',
+      agent: '本次调用使用的智能体配置文件（仅 v2 引擎）。从智能体目录自动发现或通过 --agent-file 加载。',
+      agentFile: '从 Markdown 文件加载智能体定义并选用（仅 v2 引擎）。',
       yes: '自动确认提示。',
       autoApprove: '自动批准所有操作。',
       exportOutput: '输出 ZIP 路径。',
@@ -480,6 +482,8 @@ export default {
         off: '关',
         saved: '讯飞设置已保存',
         notConfigured: '尚未配置讯飞 — 请先 /login 登录',
+        temperatureOutOfRange: 'Temperature 必须在 0-2 之间',
+        maxTokensOutOfRange: 'Max Tokens 必须大于 0',
       },
       permissionSelector: {
         title: '选择权限模式',

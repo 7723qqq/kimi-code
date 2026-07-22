@@ -477,7 +477,9 @@
         "on": "开",
         "off": "关",
         "saved": "讯飞设置已保存",
-        "notConfigured": "尚未配置讯飞 — 请先 /login 登录"
+        "notConfigured": "尚未配置讯飞 — 请先 /login 登录",
+        "temperatureOutOfRange": "Temperature 必须在 0-2 之间",
+        "maxTokensOutOfRange": "Max Tokens 必须大于 0"
       },
       "permissionSelector": {
         "title": "选择权限模式",

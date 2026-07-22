@@ -66,6 +66,15 @@ export const FLAG_DEFINITIONS = [
     default: true,
     surface: 'core',
   },
+  {
+    id: 'xunfei_coding_plan',
+    title: 'Xunfei Coding Plan',
+    description:
+      'Enable iFlytek Astron Coding Plan as an API provider option. Requires an API key from xfyun.cn.',
+    env: 'KIMI_CODE_EXPERIMENTAL_XUNFEI_CODING_PLAN',
+    default: false,
+    surface: 'both',
+  },
 ] as const satisfies readonly FlagDefinitionInput[];
 
 /** Literal union of registered flag ids. */

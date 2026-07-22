@@ -477,7 +477,9 @@
         "on": "ON",
         "off": "OFF",
         "saved": "Astron settings saved",
-        "notConfigured": "Astron is not configured — run /login to set it up first"
+        "notConfigured": "Astron is not configured — run /login to set it up first",
+        "temperatureOutOfRange": "Temperature must be between 0 and 2",
+        "maxTokensOutOfRange": "Max tokens must be at least 1"
       },
       "permissionSelector": {
         "title": "Select permission mode",

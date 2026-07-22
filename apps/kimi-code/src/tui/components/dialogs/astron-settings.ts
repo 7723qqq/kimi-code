@@ -1,3 +1,12 @@
+/**
+ * Astron settings panel — toggle stream, temperature, max_tokens, search_disable.
+ *
+ * The panel is presentation-only: it seeds from `opts.initial` and hands the
+ * edited values back through `opts.onSave`. The host owns persistence to the
+ * `[providers.astron]` section of ~/.kimi-code/config.toml (via the SDK), so
+ * this component never touches config or the SDK directly.
+ */
+
 import {
   Container,
   Key,
@@ -5,29 +14,35 @@ import {
   truncateToWidth,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
-
+import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { t } from '#/i18n';
-import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { printableChar } from '#/tui/utils/printable-key';
-import {
-  ASTRON_DEFAULT_SETTINGS,
-  type AstronSettings,
-  loadTuiConfig,
-  saveTuiConfig,
-} from '#/tui/config';
 
-const ELLIPSIS = '…';
-
-export interface AstronSettingsOptions {
-  readonly onCancel: () => void;
+export interface AstronSettings {
+  stream: boolean;
+  temperature: number;
+  maxTokens: number;
+  searchDisable: boolean;
 }
 
-type FieldName = 'stream' | 'temperature' | 'maxTokens' | 'searchDisable';
+// searchDisable defaults to true because coding sessions rarely benefit from
+// web search and disabling it avoids unnecessary latency and cost.
+export const ASTRON_DEFAULT_SETTINGS: AstronSettings = {
+  stream: true,
+  temperature: 1.0,
+  maxTokens: 32768,
+  searchDisable: true,
+};
+
+const ASTRON_TEMPERATURE_RANGE = { min: 0, max: 2 } as const;
+const ASTRON_MAX_TOKENS_MIN = 1;
+
+type FieldName = keyof AstronSettings;
 
 interface FieldDef {
-  readonly name: FieldName;
-  readonly type: 'bool' | 'number';
+  name: FieldName;
+  type: 'bool' | 'number';
 }
 
 const FIELDS: readonly FieldDef[] = [
@@ -37,246 +52,149 @@ const FIELDS: readonly FieldDef[] = [
   { name: 'searchDisable', type: 'bool' },
 ];
 
-function fieldLabel(field: FieldName): string {
-  const labels: Record<FieldName, string> = {
-    stream: t('tui.dialogs.astronSettings.fieldStream'),
-    temperature: t('tui.dialogs.astronSettings.fieldTemperature'),
-    maxTokens: t('tui.dialogs.astronSettings.fieldMaxTokens'),
-    searchDisable: t('tui.dialogs.astronSettings.fieldSearchDisable'),
-  };
-  return labels[field];
-}
+const ELLIPSIS = '\u2026';
 
-function maxFieldLabelWidth(): number {
-  let max = 0;
-  for (const f of FIELDS) {
-    const w = fieldLabel(f.name).length;
-    if (w > max) max = w;
-  }
-  return max;
+export interface AstronSettingsOptions {
+  readonly initial: AstronSettings;
+  readonly onSave: (settings: AstronSettings) => void;
+  readonly onCancel: () => void;
 }
 
 export class AstronSettingsComponent extends Container implements Focusable {
   focused = false;
 
   private readonly opts: AstronSettingsOptions;
-  private readonly draft: AstronSettings;
-  private selectedIndex = 0;
-  private editingIndex: number | null = null;
+  private settings: AstronSettings;
+  private index = 0;
+  private editing = false;
   private editBuffer = '';
-  private saved = false;
+  private errorMessage: string | null = null;
 
   constructor(opts: AstronSettingsOptions) {
     super();
     this.opts = opts;
-    this.draft = { ...ASTRON_DEFAULT_SETTINGS };
+    this.settings = { ...opts.initial };
+  }
 
-    // Load current settings from tui.toml.
-    loadTuiConfig()
-      .then((cfg) => {
-        if (cfg.astron) {
-          this.draft.stream = cfg.astron.stream;
-          this.draft.temperature = cfg.astron.temperature;
-          this.draft.maxTokens = cfg.astron.maxTokens;
-          this.draft.searchDisable = cfg.astron.searchDisable;
-        }
-        this.invalidate();
-      })
-      .catch(() => {
-        // Keep defaults.
-      });
+  private currentField(): FieldDef {
+    return FIELDS[this.index]!;
   }
 
   handleInput(data: string): void {
-    if (this.editingIndex !== null) {
-      this.handleEditInput(data);
-      return;
-    }
+    const item = this.currentField();
 
-    if (matchesKey(data, Key.escape)) {
-      this.opts.onCancel();
-      return;
-    }
-
-    if (matchesKey(data, Key.ctrl('s'))) {
-      this.save();
+    if (this.editing && item.type === 'number') {
+      if (matchesKey(data, Key.enter) || matchesKey(data, Key.escape)) {
+        if (matchesKey(data, Key.enter) && this.editBuffer.length > 0) {
+          const val = Number(this.editBuffer);
+          if (Number.isFinite(val)) {
+            if (item.name === 'temperature') {
+              if (val < ASTRON_TEMPERATURE_RANGE.min || val > ASTRON_TEMPERATURE_RANGE.max) {
+                this.errorMessage = `Value must be between ${ASTRON_TEMPERATURE_RANGE.min} and ${ASTRON_TEMPERATURE_RANGE.max}`;
+                return;
+              }
+            } else if (item.name === 'maxTokens') {
+              if (val < ASTRON_MAX_TOKENS_MIN) {
+                this.errorMessage = `Value must be at least ${ASTRON_MAX_TOKENS_MIN}`;
+                return;
+              }
+            }
+            this.setField(item.name, val);
+          }
+        }
+        this.editing = false;
+        this.editBuffer = '';
+        return;
+      }
+      if (matchesKey(data, Key.backspace)) {
+        this.editBuffer = this.editBuffer.slice(0, -1);
+        return;
+      }
+      const ch = printableChar(data);
+      if (ch !== undefined && /[0-9.]/.test(ch)) {
+        this.editBuffer += ch;
+        return;
+      }
       return;
     }
 
     if (matchesKey(data, Key.up)) {
-      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+      this.index = (this.index - 1 + FIELDS.length) % FIELDS.length;
+      this.errorMessage = null;
       return;
     }
-
     if (matchesKey(data, Key.down)) {
-      this.selectedIndex = Math.min(FIELDS.length - 1, this.selectedIndex + 1);
+      this.index = (this.index + 1) % FIELDS.length;
+      this.errorMessage = null;
       return;
     }
-
     if (matchesKey(data, Key.enter)) {
-      const field = FIELDS[this.selectedIndex];
-      if (!field) return;
-      if (field.type === 'bool') {
-        this.toggleBool(field.name);
+      if (item.type === 'bool') {
+        this.setField(item.name, !this.settings[item.name]);
       } else {
-        this.enterEditMode(this.selectedIndex);
+        this.editing = true;
+        this.editBuffer = String(this.settings[item.name]);
+        this.errorMessage = null;
       }
       return;
     }
-  }
-
-  private handleEditInput(data: string): void {
-    if (this.editingIndex === null) return;
-    const field = FIELDS[this.editingIndex];
-    if (!field || field.type !== 'number') return;
-
     if (matchesKey(data, Key.escape)) {
-      this.exitEditMode(false);
+      this.opts.onCancel();
       return;
     }
-
-    if (matchesKey(data, Key.enter)) {
-      this.exitEditMode(true);
+    if (matchesKey(data, Key.ctrl('s'))) {
+      this.opts.onSave(this.settings);
       return;
-    }
-
-    if (matchesKey(data, Key.backspace)) {
-      this.editBuffer = this.editBuffer.slice(0, -1);
-      return;
-    }
-
-    const ch = printableChar(data);
-    if (ch.length === 1) {
-      // For maxTokens, only accept digits.
-      if (field.name === 'maxTokens' && !/^\d$/.test(ch)) return;
-      // For temperature, accept digits, dot, and minus.
-      if (field.name === 'temperature' && !/^[\d.-]$/.test(ch)) return;
-      this.editBuffer += ch;
     }
   }
 
   override render(width: number): string[] {
-    const editable = this.editingIndex !== null;
-    const hintParts = [t('tui.dialogs.astronSettings.hintNavigate')];
-    if (editable) {
-      hintParts.push(t('tui.dialogs.astronSettings.hintBackspace'));
-    } else {
-      hintParts.push(t('tui.dialogs.astronSettings.hintEnter'));
-    }
-    hintParts.push(t('tui.dialogs.astronSettings.hintSave'), t('tui.dialogs.astronSettings.hintCancel'));
-
-    const labelWidth = maxFieldLabelWidth();
-
     const lines: string[] = [
-      currentTheme.fg('primary', '─'.repeat(width)),
+      currentTheme.fg('primary', '\u2500'.repeat(width)),
       currentTheme.boldFg('primary', ` ${t('tui.dialogs.astronSettings.title')}`),
-      currentTheme.fg('textMuted', ` ${hintParts.join(' · ')}`),
+      currentTheme.fg('textMuted', ` ${t('tui.dialogs.astronSettings.hint')}`),
       '',
     ];
 
     for (let i = 0; i < FIELDS.length; i++) {
-      const field = FIELDS[i]!;
-      const selected = i === this.selectedIndex;
-      const isEditing = i === this.editingIndex;
-      lines.push(this.renderField(field, selected, isEditing, labelWidth));
+      const item = FIELDS[i]!;
+      const selected = i === this.index;
+      const pointer = selected ? SELECT_POINTER : ' ';
+      const label = t(`tui.dialogs.astronSettings.${item.name}` as `${string}`);
+
+      const prefix = currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `);
+      const labelText = selected
+        ? currentTheme.boldFg('primary', label)
+        : currentTheme.fg('text', label);
+
+      if (item.type === 'bool') {
+        const enabled = this.settings[item.name];
+        const status = enabled
+          ? t('tui.dialogs.astronSettings.on')
+          : t('tui.dialogs.astronSettings.off');
+        const valueText = enabled
+          ? currentTheme.fg('success', ` ${status}`)
+          : currentTheme.fg('textDim', ` ${status}`);
+        lines.push(truncateToWidth(`${prefix}${labelText}:${valueText}`, width, ELLIPSIS));
+      } else if (this.editing && selected) {
+        lines.push(truncateToWidth(`${prefix}${labelText}: ${this.editBuffer}\u2588`, width, ELLIPSIS));
+      } else {
+        const valueText = currentTheme.fg('text', ` ${String(this.settings[item.name])}`);
+        lines.push(truncateToWidth(`${prefix}${labelText}:${valueText}`, width, ELLIPSIS));
+      }
+    }
+
+    if (this.errorMessage !== null) {
+      lines.push('');
+      lines.push(currentTheme.fg('error', `  ${this.errorMessage}`));
     }
 
     lines.push('');
-    lines.push(this.renderSaveButton());
-    lines.push(currentTheme.fg('primary', '─'.repeat(width)));
-
-    return lines.map((line) => truncateToWidth(line, width, ELLIPSIS));
+    lines.push(currentTheme.fg('primary', '\u2500'.repeat(width)));
+    return lines;
   }
 
-  private renderField(
-    field: FieldDef,
-    selected: boolean,
-    isEditing: boolean,
-    labelWidth: number,
-  ): string {
-    const pointer = selected ? SELECT_POINTER : ' ';
-    const prefix = currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `);
-    const name = selected
-      ? currentTheme.boldFg('primary', fieldLabel(field.name).padEnd(labelWidth))
-      : currentTheme.fg('text', fieldLabel(field.name).padEnd(labelWidth));
-
-    if (field.type === 'bool') {
-      const value = this.draft[field.name] as boolean;
-      const status = value
-        ? t('tui.dialogs.astronSettings.statusEnabled')
-        : t('tui.dialogs.astronSettings.statusDisabled');
-      const statusStyled = value
-        ? currentTheme.fg('success', `  ${status}`)
-        : currentTheme.fg('textDim', `  ${status}`);
-      return `${prefix}${name}${statusStyled}`;
-    }
-
-    // Number field
-    const numValue = this.draft[field.name] as number;
-    const displayValue = isEditing ? this.editBuffer : String(numValue);
-    const cursor = isEditing ? '█' : '';
-    return `${prefix}${name}  ${currentTheme.fg('text', displayValue)}${cursor}`;
-  }
-
-  private renderSaveButton(): string {
-    if (this.saved) {
-      return ` ${currentTheme.fg('success', t('tui.dialogs.astronSettings.saved'))}`;
-    }
-    const label = t('tui.dialogs.astronSettings.saveButton');
-    return ` ${currentTheme.boldFg('primary', label)}`;
-  }
-
-  private toggleBool(name: FieldName): void {
-    if (name === 'stream' || name === 'searchDisable') {
-      this.draft[name] = !this.draft[name];
-      this.saved = false;
-    }
-  }
-
-  private enterEditMode(index: number): void {
-    const field = FIELDS[index];
-    if (!field || field.type !== 'number') return;
-    this.editingIndex = index;
-    this.editBuffer = String(this.draft[field.name]);
-  }
-
-  private exitEditMode(commit: boolean): void {
-    if (this.editingIndex === null) return;
-    const field = FIELDS[this.editingIndex];
-    if (!field) return;
-
-    if (commit) {
-      if (field.name === 'temperature') {
-        const parsed = parseFloat(this.editBuffer);
-        if (!Number.isNaN(parsed)) {
-          this.draft.temperature = Math.max(0, Math.min(2, parsed));
-        }
-      } else if (field.name === 'maxTokens') {
-        const parsed = parseInt(this.editBuffer, 10);
-        if (!Number.isNaN(parsed) && parsed >= 1) {
-          this.draft.maxTokens = parsed;
-        }
-      }
-      this.saved = false;
-    }
-
-    this.editingIndex = null;
-    this.editBuffer = '';
-  }
-
-  private async save(): Promise<void> {
-    try {
-      const cfg = await loadTuiConfig();
-      cfg.astron = {
-        stream: this.draft.stream,
-        temperature: this.draft.temperature,
-        maxTokens: this.draft.maxTokens,
-        searchDisable: this.draft.searchDisable,
-      };
-      await saveTuiConfig(cfg);
-      this.saved = true;
-    } catch {
-      // Silently ignore save failures.
-    }
+  private setField<K extends FieldName>(name: K, value: AstronSettings[K]): void {
+    this.settings = { ...this.settings, [name]: value };
   }
 }

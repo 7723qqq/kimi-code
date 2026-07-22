@@ -189,6 +189,12 @@ export interface KimiCoreOptions {
    * `applyPrintModeConfigDefaults` (user-set values still win).
    */
   readonly uiMode?: string | undefined;
+  /**
+   * Optional override for the turn loop runner. When set, every session
+   * created by this core will use the provided function instead of the
+   * built-in JS turn loop. Used by the Rust agent engine (kimi-agent).
+   */
+  readonly runTurnOverride?: import('#/agent').RunTurnOverride;
 }
 
 export class KimiCore implements PromisableMethods<CoreAPI> {

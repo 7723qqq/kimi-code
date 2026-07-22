@@ -234,3 +234,12 @@ describe('AgentPermissionModeService (wire-backed)', () => {
   });
 
   it('multiple setMode calls to the same mode fire only one event', () => {
+    const changes: { mode: PermissionMode; previousMode: PermissionMode }[] = [];
+    disposables.add(svc.onDidChangeMode((ctx) => {
+      changes.push({ mode: ctx.mode, previousMode: ctx.previousMode });
+    }));
+    svc.setMode('auto');
+    svc.setMode('auto');
+    expect(changes).toHaveLength(1);
+  });
+});

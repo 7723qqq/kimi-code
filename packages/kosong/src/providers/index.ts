@@ -11,6 +11,7 @@ import { GoogleGenAIChatProvider, type GoogleGenAIOptions } from './google-genai
 import { KimiChatProvider, type KimiOptions } from './kimi';
 import { OpenAILegacyChatProvider, type OpenAILegacyOptions } from './openai-legacy';
 import { OpenAIResponsesChatProvider, type OpenAIResponsesOptions } from './openai-responses';
+import { ASTRON_DEFAULT_BASE_URL, ASTRON_REASONING_EFFORT_MODEL_IDS } from './astron-models';
 
 
 export type ProviderConfig =
@@ -20,7 +21,7 @@ export type ProviderConfig =
   | ({ type: 'google-genai' } & GoogleGenAIOptions)
   | ({ type: 'openai_responses' } & OpenAIResponsesOptions)
   | ({ type: 'vertexai' } & GoogleGenAIOptions)
-  | ({ type: 'astron' } & KimiOptions);
+  | ({ type: 'astron' } & OpenAILegacyOptions);
 
 export type ProviderType = ProviderConfig['type'];
 
@@ -33,7 +34,13 @@ export function createProvider(config: ProviderConfig): ChatProvider {
     case 'kimi':
       return new KimiChatProvider(config);
     case 'astron':
-      return new KimiChatProvider(config);
+      return new OpenAILegacyChatProvider({
+        ...config,
+        baseUrl: config.baseUrl ?? ASTRON_DEFAULT_BASE_URL,
+        maxTokens: config.maxTokens ?? 32768,
+        astronThinking: true,
+        astronReasoningEffortModelIds: ASTRON_REASONING_EFFORT_MODEL_IDS,
+      });
     case 'google-genai':
       return new GoogleGenAIChatProvider(config);
     case 'openai_responses':
