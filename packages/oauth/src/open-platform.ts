@@ -3,7 +3,11 @@ import { request as httpsRequest } from 'node:https';
 import { rootCertificates } from 'node:tls';
 import { URL } from 'node:url';
 
-import { ASTRON_MODEL_DEFS, type AstronModelDef } from '@moonshot-ai/kosong/providers/astron-models';
+import {
+  ASTRON_MODEL_DEFS,
+  ASTRON_REASONING_EFFORT_MODEL_IDS,
+  type AstronModelDef,
+} from '@moonshot-ai/kosong/providers/astron-models';
 import { readApiErrorMessage } from './api-error';
 import { isRecord } from './utils';
 import { parseKimiCodeCustomHeaders } from './identity';
@@ -218,16 +222,22 @@ export async function fetchOpenPlatformModels(
 ): Promise<ManagedKimiCodeModelInfo[]> {
   // Astron (xfyun.cn) models are embedded — no remote fetch needed.
   if (platform.id === 'astron') {
-    return ASTRON_MODEL_DEFS.map((m): ManagedKimiCodeModelInfo => ({
-      id: m.id,
-      contextLength: m.contextLength,
-      displayName: m.displayName,
-      supportsReasoning: true,
-      supportsImageIn: false,
-      supportsVideoIn: false,
-      supportEfforts: undefined,
-      defaultEffort: undefined,
-    }));
+    return ASTRON_MODEL_DEFS.map((m): ManagedKimiCodeModelInfo => {
+      // Only GLM-5.2 and the DeepSeek-V4 Pro/Flash models accept reasoning_effort
+      // (high/max) on the Coding Plan; expose those levels so the effort picker
+      // can select a concrete level. Every other model is thinking on/off only.
+      const effortCapable = ASTRON_REASONING_EFFORT_MODEL_IDS.includes(m.id);
+      return {
+        id: m.id,
+        contextLength: m.contextLength,
+        displayName: m.displayName,
+        supportsReasoning: true,
+        supportsImageIn: false,
+        supportsVideoIn: false,
+        supportEfforts: effortCapable ? ['high', 'max'] : undefined,
+        defaultEffort: effortCapable ? 'high' : undefined,
+      };
+    });
   }
 
   // Astron's xfyun.cn uses a Chinese CA not in the Mozilla store; fall back

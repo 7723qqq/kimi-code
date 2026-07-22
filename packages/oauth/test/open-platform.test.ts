@@ -449,6 +449,27 @@ describe('applyOpenPlatformConfig', () => {
   });
 });
 
+describe('fetchOpenPlatformModels — astron embedded efforts', () => {
+  it('exposes high/max efforts only for reasoning-effort-capable astron models', async () => {
+    const platform = getOpenPlatformById('astron')!;
+    const models = await fetchOpenPlatformModels(platform, 'sk-test');
+
+    const glm52 = models.find((m) => m.id === 'xopglm52');
+    expect(glm52?.supportEfforts).toEqual(['high', 'max']);
+    expect(glm52?.defaultEffort).toBe('high');
+
+    for (const id of ['xopdeepseekv4pro', 'xopdeepseekv4flash']) {
+      const model = models.find((m) => m.id === id);
+      expect(model?.supportEfforts).toEqual(['high', 'max']);
+    }
+
+    const sparkx2 = models.find((m) => m.id === 'xsparkx2');
+    expect(sparkx2?.supportEfforts).toBeUndefined();
+    expect(sparkx2?.defaultEffort).toBeUndefined();
+  });
+});
+
+
 describe('removeOpenPlatformConfig', () => {
   it('removes provider, its models, and defaultModel when matched', () => {
     const config: ManagedKimiConfigShape = {
