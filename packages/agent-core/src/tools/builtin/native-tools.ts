@@ -24,6 +24,7 @@ import {
   matchesGlobRuleSubject,
   matchesPathRuleSubject,
 } from '../../tools/support/rule-match';
+import { noopTelemetryClient, type TelemetryClient } from '../../telemetry';
 import { EditTool } from './file/edit';
 import { GlobTool } from './file/glob';
 import { GrepTool } from './file/grep';
@@ -31,22 +32,53 @@ import { ReadTool } from './file/read';
 import { WriteTool } from './file/write';
 import { BashTool, type BashInput } from './shell/bash';
 
-// Lazy-load the native module to avoid hard dependency.
-// Three-state cache (undefined = not tried, null = tried and failed, object = loaded)
-// matching the pattern used by all other native-module consumers in this codebase.
-let nativeModule: Record<string, unknown> | null | undefined;
+/**
+ * Why a `tryNative*` call returned `undefined` and the caller fell back to TS.
+ *
+ * `returned_undefined` is intentionally NOT a reason: a native function can
+ * legitimately return `undefined`/`null` (e.g. `nativeCompressImage` returning
+ * `null` for "passthrough, caller falls back to jimp"). That is the native
+ * engine saying "no", not a fallback.
+ */
+export type NativeFallbackReason =
+  | 'disabled'            // KIMI_CODE_EXPERIMENTAL_NATIVE_TOOLS=0 (or not set in tests)
+  | 'load_failed'         // require('@moonshot-ai/kimi-native-tools') threw (binary missing, ABI mismatch)
+  | 'function_missing'    // module loaded but this specific export is not a function
+  | 'function_threw';     // call dispatched at runtime but threw (corrupted binary, missing DLL, etc.)
 
-function getNativeModule(): Record<string, unknown> | undefined {
-  if (nativeModule === null) return undefined;
-  if (nativeModule !== undefined) return nativeModule;
+type NativeModuleState =
+  | { readonly kind: 'unloaded' }
+  | { readonly kind: 'disabled' }
+  | { readonly kind: 'load_failed'; readonly error: unknown }
+  | { readonly kind: 'loaded'; readonly module: Record<string, unknown> };
+
+let nativeModule: NativeModuleState = { kind: 'unloaded' };
+
+function getNativeModuleState(): NativeModuleState {
+  if (nativeModule.kind !== 'unloaded') return nativeModule;
+  if (!flags.enabled('native_tools')) {
+    nativeModule = { kind: 'disabled' };
+    return nativeModule;
+  }
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    nativeModule = require('@moonshot-ai/kimi-native-tools');
-    return nativeModule ?? undefined;
-  } catch {
-    nativeModule = null;
-    return undefined;
+    const mod = require('@moonshot-ai/kimi-native-tools') as Record<string, unknown> | null;
+    nativeModule = mod === null || mod === undefined
+      ? { kind: 'load_failed', error: new Error('native module resolved to null') }
+      : { kind: 'loaded', module: mod };
+  } catch (error) {
+    nativeModule = { kind: 'load_failed', error };
   }
+  return nativeModule;
+}
+
+/**
+ * Back-compat wrapper that mirrors the previous `undefined = unavailable` shape.
+ * Prefer `getNativeModuleState()` in new code so the reason is available.
+ */
+function getNativeModule(): Record<string, unknown> | undefined {
+  const state = getNativeModuleState();
+  return state.kind === 'loaded' ? state.module : undefined;
 }
 
 export function isNativeToolsEnabled(): boolean {
@@ -54,33 +86,96 @@ export function isNativeToolsEnabled(): boolean {
 }
 
 export function tryLoadNative(): Record<string, unknown> | undefined {
-  if (!isNativeToolsEnabled()) return undefined;
   return getNativeModule();
 }
 
+let telemetryClient: TelemetryClient = noopTelemetryClient;
+const firstSeen = new Set<string>();
+
+/**
+ * Inject a telemetry client that receives `native_tool_fallback` events.
+ * Called once at app boot. Defaults to a no-op so test setups do not need to
+ * wire anything.
+ */
+export function setNativeTelemetry(client: TelemetryClient): void {
+  telemetryClient = client;
+}
+
+/**
+ * Record a single fallback event. Logs to `console.warn` on the FIRST
+ * occurrence of each `(fnName, reason)` pair so we can spot broken native
+ * binaries without spamming logs, and emits a `native_tool_fallback` telemetry
+ * event every time (callers aggregate by reason).
+ */
+function recordFallback(fnName: string, reason: NativeFallbackReason): void {
+  const key = `${reason}:${fnName}`;
+  if (!firstSeen.has(key)) {
+    firstSeen.add(key);
+    // eslint-disable-next-line no-console
+    console.warn(`[kimi-native-tools] fallback for ${fnName}: ${reason}`);
+  }
+  telemetryClient.track('native_tool_fallback', { tool: fnName, reason });
+}
+
+/** Test-only: clear the dedup cache and force the loader to re-evaluate. */
+export function __resetNativeModuleForTests(): void {
+  nativeModule = { kind: 'unloaded' };
+  firstSeen.clear();
+}
+
 async function callNative<T>(fnName: string, ...args: unknown[]): Promise<T | undefined> {
-  const mod = getNativeModule();
-  if (!mod) return undefined;
-  const fn = mod[fnName];
-  if (typeof fn !== 'function') return undefined;
+  const state = getNativeModuleState();
+  if (state.kind === 'disabled') {
+    recordFallback(fnName, 'disabled');
+    return undefined;
+  }
+  if (state.kind === 'load_failed') {
+    recordFallback(fnName, 'load_failed');
+    return undefined;
+  }
+  if (state.kind === 'unloaded') {
+    // Unreachable: getNativeModuleState() always resolves unloaded on first call.
+    return undefined;
+  }
+  const fn = state.module[fnName];
+  if (typeof fn !== 'function') {
+    recordFallback(fnName, 'function_missing');
+    return undefined;
+  }
   try {
     return await (fn(...args) as T);
   } catch {
     // Native function threw at runtime (corrupted binary, missing DLL, etc.)
     // — return undefined so callers can fall back to the TS implementation.
+    recordFallback(fnName, 'function_threw');
     return undefined;
   }
 }
 
 /** Synchronous native call — for functions that don't involve I/O (validation, rendering, computation). */
 function callNativeSync<T>(fnName: string, ...args: unknown[]): T | undefined {
-  const mod = getNativeModule();
-  if (!mod) return undefined;
-  const fn = mod[fnName];
-  if (typeof fn !== 'function') return undefined;
+  const state = getNativeModuleState();
+  if (state.kind === 'disabled') {
+    recordFallback(fnName, 'disabled');
+    return undefined;
+  }
+  if (state.kind === 'load_failed') {
+    recordFallback(fnName, 'load_failed');
+    return undefined;
+  }
+  if (state.kind === 'unloaded') {
+    // Unreachable: getNativeModuleState() always resolves unloaded on first call.
+    return undefined;
+  }
+  const fn = state.module[fnName];
+  if (typeof fn !== 'function') {
+    recordFallback(fnName, 'function_missing');
+    return undefined;
+  }
   try {
     return fn(...args) as T;
   } catch {
+    recordFallback(fnName, 'function_threw');
     return undefined;
   }
 }
@@ -648,20 +743,36 @@ export async function nativeListDirectory(
   workDir?: string,
   options?: NativeListDirectoryOptions,
 ): Promise<string | undefined> {
+  const state = getNativeModuleState();
+  if (state.kind === 'disabled') {
+    recordFallback('nativeListDirectory', 'disabled');
+    return undefined;
+  }
+  if (state.kind === 'load_failed') {
+    recordFallback('nativeListDirectory', 'load_failed');
+    return undefined;
+  }
+  if (state.kind === 'unloaded') {
+    return undefined;
+  }
+  const fn = state.module['nativeListDirectory'] as
+    | ((opts: { path?: string; collapseHiddenDirs?: boolean }) => { output: string; error?: string })
+    | undefined;
+  if (typeof fn !== 'function') {
+    recordFallback('nativeListDirectory', 'function_missing');
+    return undefined;
+  }
+  const effectiveDir = workDir ?? kaos.getcwd();
   try {
-    const mod = getNativeModule();
-    if (!mod) return undefined;
-    const fn = mod['nativeListDirectory'] as
-      | ((opts: { path?: string; collapseHiddenDirs?: boolean }) => { output: string; error?: string })
-      | undefined;
-    if (typeof fn !== 'function') return undefined;
-
-    const effectiveDir = workDir ?? kaos.getcwd();
     const result = fn({ path: effectiveDir, collapseHiddenDirs: options?.collapseHiddenDirs });
-    if (result.error) return undefined; // fall back to TS on error
+    if (result.error) {
+      recordFallback('nativeListDirectory', 'function_threw');
+      return undefined;
+    }
     return result.output;
   } catch {
-    return undefined; // native module unavailable or binary mismatch — fall back to TS
+    recordFallback('nativeListDirectory', 'function_threw');
+    return undefined;
   }
 }
 
@@ -766,15 +877,7 @@ export interface NativeImageDimensions {
 }
 
 export function tryNativeSniffImageDimensions(data: Uint8Array): NativeImageDimensions | undefined {
-  const m = getNativeModule();
-  if (m) {
-    try {
-      return (m as any).nativeSniffImageDimensions(new Uint8Array(data)) ?? undefined;
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
+  return callNativeSync<NativeImageDimensions>('nativeSniffImageDimensions', new Uint8Array(data));
 }
 
 // ── file type detection ──────────────────────────────────────────
@@ -785,16 +888,13 @@ export interface NativeFileTypeResult {
 }
 
 export function tryNativeDetectFileType(path: string, header: Uint8Array): NativeFileTypeResult | undefined {
-  const m = getNativeModule();
-  if (m && (m as any).nativeDetectFileType) {
-    try {
-      const r = (m as any).nativeDetectFileType(path, new Uint8Array(header));
-      return r ? { kind: r.kind, mimeType: r.mimeType ?? r.mime_type } : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
+  const r = callNativeSync<{ kind: 'text' | 'image' | 'video' | 'unknown'; mimeType?: string; mime_type?: string }>(
+    'nativeDetectFileType',
+    path,
+    new Uint8Array(header),
+  );
+  if (r === undefined) return undefined;
+  return { kind: r.kind, mimeType: r.mimeType ?? r.mime_type ?? 'application/octet-stream' };
 }
 
 // ============================================================================
