@@ -180,3 +180,5 @@ export { Emitter } from './base/common/event';
 export * from './services';
 
 export { estimateTokens } from './utils/tokens';
+export { setNativeTelemetry } from './tools/builtin/native-tools';
+export type { NativeFallbackReason } from './tools/builtin/native-tools';

@@ -7,6 +7,7 @@ import {
   resolveConfigPath,
   resolveKimiHome,
   resolveLoggingConfig,
+  setNativeTelemetry,
   type CoreAPI,
   type OAuthTokenProviderResolver,
   type RPCMethods,
@@ -71,6 +72,7 @@ export class SDKRpcClient extends SDKRpcClientBase {
       configPath: options.configPath,
     });
     this.telemetry = options.telemetry ?? noopTelemetryClient;
+    setNativeTelemetry(this.telemetry);
     this.auth = new KimiAuthFacade({
       homeDir: this.homeDir,
       configPath: this.configPath,

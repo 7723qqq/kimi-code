@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ToolExecution } from '../../src/loop/types';
 import {
+  __resetNativeModuleForTests,
   isNativeToolsEnabled,
   NativeBashTool,
   NativeEditTool,
@@ -14,7 +15,7 @@ import {
   NativeGrepTool,
   NativeReadTool,
   NativeWriteTool,
-  tryLoadNative,
+  setNativeTelemetry,
 } from '../../src/tools/builtin/native-tools';
 import { GlobTool } from '../../src/tools/builtin/file/glob';
 import { GrepTool } from '../../src/tools/builtin/file/grep';
@@ -616,5 +617,72 @@ describe('native-tools integration', () => {
 
     expect(result.isError).toBeUndefined();
     expect(result.output).toContain('No results');
+  });
+});
+
+describe('native-tools fallback telemetry', () => {
+  let recorder: { calls: Array<{ event: string; props: Record<string, unknown> }> };
+
+  beforeEach(() => {
+    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_NATIVE_TOOLS', '0');
+    __resetNativeModuleForTests();
+    recorder = { calls: [] };
+    setNativeTelemetry({
+      track(event, properties) {
+        recorder.calls.push({ event, props: { ...(properties ?? {}) } });
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_NATIVE_TOOLS', '1');
+    __resetNativeModuleForTests();
+    setNativeTelemetry({ track: () => {} });
+  });
+
+  function makeGrepTool() {
+    const kaos = createFakeKaos({ normpath: (p: string) => p, getcwd: () => '/tmp' });
+    return new NativeGrepTool(
+      kaos,
+      { workspaceDir: '/tmp', additionalDirs: [] },
+      'Search files.',
+      new GrepTool(kaos, { workspaceDir: '/tmp', additionalDirs: [] }),
+    );
+  }
+
+  it('emits a native_tool_fallback event with reason=disabled when the flag is off', async () => {
+    const exec = expectRunnable(makeGrepTool().resolveExecution({ pattern: 'x' }));
+    await exec.execute({
+      turnId: '0',
+      toolCallId: 't',
+      signal: new AbortController().signal,
+    });
+    const events = recorder.calls.filter((c) => c.event === 'native_tool_fallback');
+    expect(events.length).toBeGreaterThan(0);
+    expect(events[0]?.props).toMatchObject({ tool: 'nativeGrep', reason: 'disabled' });
+  });
+
+  it('warns on console once per (fnName, reason) but emits telemetry each call', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const tool = makeGrepTool();
+    await expectRunnable(tool.resolveExecution({ pattern: 'x' })).execute({
+      turnId: '0', toolCallId: 't1', signal: new AbortController().signal,
+    });
+    await expectRunnable(tool.resolveExecution({ pattern: 'y' })).execute({
+      turnId: '0', toolCallId: 't2', signal: new AbortController().signal,
+    });
+    const disabledEvents = recorder.calls.filter(
+      (c) =>
+        c.event === 'native_tool_fallback' &&
+        c.props['reason'] === 'disabled' &&
+        c.props['tool'] === 'nativeGrep',
+    );
+    expect(disabledEvents.length).toBe(2);
+    const fallbackWarns = warn.mock.calls.filter(
+      (args) => typeof args[0] === 'string' && args[0].includes('[kimi-native-tools]'),
+    );
+    expect(fallbackWarns.length).toBe(1);
+    warn.mockRestore();
   });
 });
