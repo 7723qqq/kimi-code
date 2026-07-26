@@ -38,8 +38,7 @@
 import { randomBytes } from 'node:crypto';
 import { join } from 'pathe';
 
-import { InstantiationType } from '#/_base/di/extensions';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 
 import type { ContentPart } from '#/kosong/contract/message';
 
@@ -89,9 +88,9 @@ import {
 import { resolveAgentTaskConfig } from './configSection';
 import { AgentTaskPersistence } from './persist';
 import { TaskModel, taskStarted, taskTerminated } from './taskOps';
-import { formatTaskList } from '#/agent/task/tools/task-list';
-import '#/agent/task/tools/task-output';
-import '#/agent/task/tools/task-stop';
+import { formatTaskList } from '#/agent/tools/task/task-list/taskListTool';
+import '#/agent/tools/task/task-output/taskOutputTool';
+import '#/agent/tools/task/task-stop/taskStopTool';
 
 interface ForegroundRelease {
   readonly promise: Promise<ForegroundTaskReleaseReason>;
@@ -1359,6 +1358,6 @@ registerScopedService(
   LifecycleScope.Agent,
   IAgentTaskService,
   AgentTaskService,
-  InstantiationType.Eager,
+  ScopeActivation.OnScopeCreated,
   'task',
 );

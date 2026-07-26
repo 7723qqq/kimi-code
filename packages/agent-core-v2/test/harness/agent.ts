@@ -119,7 +119,7 @@ import {
   ITelemetryService,
   IHostTerminalService,
   IAgentToolRegistryService,
-  IAgentBuiltinToolsRegistrar,
+  IAgentToolActivationService,
   IAgentUserToolService,
   IAgentUsageService,
   ISessionWorkspaceContext,
@@ -538,7 +538,7 @@ export function homeDirServices(homeDir: string | undefined): TestAgentServiceOv
         reg.defineInstance(id, value);
       }
       const file = (): SyncDescriptor<IFileSystemStorageService> =>
-        new SyncDescriptor(FileStorageService, [homeDir], true);
+        new SyncDescriptor(FileStorageService, [homeDir]);
       reg.defineDescriptor(IFileSystemStorageService, file());
       reg.define(IBlobStore, BlobStoreService);
     }
@@ -1033,7 +1033,7 @@ export class AgentTestContext {
             reg.defineInstance(id, value);
           }
           const memoryStorage = (): SyncDescriptor<IFileSystemStorageService> =>
-            new SyncDescriptor(InMemoryStorageService, [], true);
+            new SyncDescriptor(InMemoryStorageService, []);
           reg.defineDescriptor(IFileSystemStorageService, memoryStorage());
           reg.define(IBlobStore, BlobStoreService);
           reg.defineInstance(
@@ -1333,7 +1333,11 @@ export class AgentTestContext {
     const permissionRules = this.get(IAgentPermissionRulesService);
     const cron = this.get(ISessionCronService);
     const plan = this.get(IAgentPlanService);
-    this.get(IAgentBuiltinToolsRegistrar);
+    // Activate the AgentTool contributions before any profile allowlist is
+    // applied by `configure()` — at this point `activeToolNames` is still
+    // undefined, so every contribution whose `when` holds lands in the
+    // registry, matching the harness's historical all-tools behavior.
+    void this.get(IAgentToolActivationService).activate();
     this.get(IAgentToolDedupeService);
     this.get(IAgentExternalHooksService);
     this.get(IAgentStepRetryService);

@@ -21,7 +21,6 @@
  * service awaits during creation.
  */
 
-import { InstantiationType } from '#/_base/di/extensions';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { Emitter } from '#/_base/event';
@@ -29,6 +28,7 @@ import {
   createScopedChildHandle,
   type IAgentScopeHandle,
   LifecycleScope,
+  ScopeActivation,
   registerScopedService,
 } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -48,6 +48,7 @@ import { abortError } from '#/_base/utils/abort';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
 import { ISessionInteractionService } from '#/session/interaction/interaction';
 import { IWireService } from '#/wire/wire';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -191,6 +192,10 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       await mcpReady;
       await wire.restore();
       await this.bindBootstrap(handle, opts);
+      // Activate the AgentTool contributions allowed by the bound Profile
+      // before the handle admits turns: restore and binding own the final
+      // `activeToolNames`, so this must run after both.
+      await handle.accessor.get(IAgentToolActivationService).activate();
       return handle;
     } catch (error) {
       // Startup failed: drop the half-built agent so the next `create` starts
@@ -298,6 +303,6 @@ registerScopedService(
   LifecycleScope.Session,
   IAgentLifecycleService,
   AgentLifecycleService,
-  InstantiationType.Eager,
+  ScopeActivation.OnScopeCreated,
   'agentLifecycle',
 );
