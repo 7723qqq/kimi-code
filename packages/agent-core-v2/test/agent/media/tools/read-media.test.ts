@@ -28,6 +28,7 @@ import {
 } from '#/agent/media/image-compress';
 import { createVideoUploader, registerMediaTools } from '#/agent/media/registerMediaTools';
 import { AgentMediaToolsRegistrar } from '#/agent/media/mediaToolsRegistrar';
+import { AgentStateService } from '#/agent/state/agentStateService';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
 import {
   ToolAccesses,
@@ -852,6 +853,7 @@ describe('AgentMediaToolsRegistrar', () => {
       createTestEnv(),
       workspaceCtx,
       recordingTelemetry([]),
+      new AgentStateService(),
     );
     const bindModel = (alias: string, caps: ModelCapability): void => {
       state.alias = alias;

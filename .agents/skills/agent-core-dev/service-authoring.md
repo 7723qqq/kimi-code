@@ -203,6 +203,17 @@ A scoped Service may expose a factory method that returns a **new** instance of 
 - `readonly` public fields only for immutable exposed state; prefer a getter (`get level()`) when the value can change.
 - Keep state minimal — a Service owns only the state that matches its scope's identity (design.md §2). Anything else belongs in a different Service.
 
+### Runtime state goes into the per-scope state container
+
+Session/Agent-scope Services register their runtime state into the scope's state container (`ISessionStateService` / `IAgentStateService`, both over `_base`'s `StateRegistry`) instead of holding it in bare instance fields, so per-scope state lives in one observable place (`snapshot()` / `onDidChange`) and dies with the scope. Reference: `session/interaction/interactionService.ts`.
+
+- Declare keys in the domain file and export them: `export const interactionPendingKey = defineState<Map<string, Pending>>('interaction.pending', () => new Map())` — `<domain>.<field>` naming, factory initializers.
+- Inject `@ISessionStateService private readonly states` (or the Agent token) and `this.states.register(key)` per key at the top of the constructor.
+- Replace the field with accessors: a getter for collections only mutated in place (`this.foo.add(...)` keeps working — the container stores references, never clones); add a setter routed through `states.set` for reassigned scalars. Call sites stay unchanged.
+- Values must be plain data: scalars, arrays, and literal objects/Maps/Sets built from them. Never register class instances, resource handles (disposables, abort controllers, Promise locks), or objects holding service references — the regression precedent: one registry key whose class instances reached the whole DI graph deep-copied to hundreds of MB on `snapshot()` and OOM-killed the server. This means registries whose entries carry resources (the tool registry, the task map, prompt queues) stay as instance fields alongside Emitters, hook slots, disposable slots, waiter arrays, caches, and queue instances.
+- `snapshot()` additionally recurses plain data only: values with a custom prototype collapse to a `'(ClassName)'` marker — a `_base`-level backstop, not a license to register resource-bearing values.
+- Durable, replayable state does NOT belong here — it stays on wire Models. The container is memory-only.
+
 ## Events
 
 v2 has two distinct event mechanisms. Pick by audience:
