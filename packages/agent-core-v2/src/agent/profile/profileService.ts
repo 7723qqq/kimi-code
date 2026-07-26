@@ -52,9 +52,8 @@
  * Agent scope.
  */
 
-import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/_base/state/stateRegistry';
 import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/kosong/contract/capability';
 import { type SamplingOptions, type ThinkingEffort } from '#/kosong/contract/provider';
@@ -109,6 +108,7 @@ import { IAgentProfileService, ProfileError, ProfileErrors } from './profile';
 import { TOOLS_SECTION, type ToolsConfig } from '#/agent/toolPolicy/configSection';
 import { isToolActiveComposed, findInactiveToolPatterns, literalToolNames, type InactiveToolPattern } from '#/agent/toolPolicy/evaluate';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
 import {
   ActiveToolsModel,
   configUpdate,
@@ -778,6 +778,10 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
 
   private publishToolPatternWarnings(profile?: ResolvedAgentProfile): void {
     const known = new Set<string>();
+    // The registry only holds tools the bound Profile activated; the
+    // contribution table is the full static universe, so a valid-but-inactive
+    // name never trips the unknown-tool warning.
+    for (const contribution of getAgentToolContributions()) known.add(contribution.options.name);
     for (const ref of this.toolRegistry.listReferences()) known.add(ref.name);
     for (const builtin of this.builtinProfiles.list()) {
       for (const name of literalToolNames([
@@ -882,6 +886,6 @@ registerScopedService(
   LifecycleScope.Agent,
   IAgentProfileService,
   AgentProfileService,
-  InstantiationType.Eager,
+  ScopeActivation.OnScopeCreated,
   'profile',
 );
