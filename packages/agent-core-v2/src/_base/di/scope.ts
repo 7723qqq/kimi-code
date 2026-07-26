@@ -1,5 +1,13 @@
 /**
  * `di` domain (L0) — DI Scope tree (`Scope`, `LifecycleScope`) and scoped service registry.
+ *
+ * Creating a scope eagerly instantiates every service registered for it:
+ * registration plus scope creation construct a side-effect service, nobody
+ * has to `get()` it first. Each `get` runs a DFS over the static dependency
+ * graph, so dependencies are always constructed before their dependents and
+ * cycles still throw `CyclicDependencyError`; `Delayed` descriptors only
+ * materialize their lazy proxy at scope creation — the real constructor
+ * still defers to first property access.
  */
 
 import { SyncDescriptor } from './descriptors';
@@ -89,6 +97,15 @@ function buildCollection(kind: LifecycleScope, extra?: ScopeSeed): ServiceCollec
   return collection;
 }
 
+function instantiateAll(
+  instantiation: IInstantiationService,
+  collection: ServiceCollection,
+): void {
+  collection.forEach((id) => {
+    instantiation.invokeFunction((accessor) => accessor.get(id));
+  });
+}
+
 export function createScopedChildHandle(
   parent: IInstantiationService,
   kind: LifecycleScope,
@@ -97,6 +114,12 @@ export function createScopedChildHandle(
 ): IScopeHandle {
   const collection = buildCollection(kind, options.extra);
   const child = parent.createChild(collection);
+  try {
+    instantiateAll(child, collection);
+  } catch (error) {
+    child.dispose();
+    throw error;
+  }
   const accessor: ServicesAccessor = {
     get: <T>(serviceId: ServiceIdentifier<T>): T =>
       child.invokeFunction((a) => a.get(serviceId)),
@@ -127,6 +150,12 @@ export class Scope implements IDisposable {
     const kind = LifecycleScope.App;
     const collection = buildCollection(kind, options.extra);
     const instantiation = new InstantiationService(collection, true);
+    try {
+      instantiateAll(instantiation, collection);
+    } catch (error) {
+      instantiation.dispose();
+      throw error;
+    }
     return new Scope(options.id ?? 'app', kind, instantiation);
   }
 
@@ -148,6 +177,12 @@ export class Scope implements IDisposable {
     }
     const collection = buildCollection(kind, options.extra);
     const childInstantiation = this.instantiation.createChild(collection);
+    try {
+      instantiateAll(childInstantiation, collection);
+    } catch (error) {
+      childInstantiation.dispose();
+      throw error;
+    }
     const child = new Scope(id, kind, childInstantiation, this);
     this.children.set(id, child);
     return child;
