@@ -63,6 +63,11 @@ import { createSecurityHeadersHook } from './middleware/securityHeaders';
 import { createAuthHook } from './middleware/auth';
 import { GuiStoreService } from './services/guiStore/guiStoreService';
 import { loadSnapshotConfig, SnapshotReader } from './services/snapshot';
+import {
+  initializeServerTelemetry,
+  type ServerTelemetry,
+  shutdownServerTelemetry,
+} from './services/telemetry';
 import { TranscriptService } from './services/transcript/transcriptService';
 import { ModelCatalogRefreshScheduler } from './services/modelCatalog/modelCatalogRefreshScheduler';
 import { createAuthFailureLimiter } from './middleware/rateLimit';
@@ -134,6 +139,14 @@ export interface ServerStartOptions {
    * embedding hosts (the CLI) should pass their own version.
    */
   readonly version?: string;
+  /**
+   * Opt-in cloud telemetry for the engine's `ITelemetryService` events: when
+   * true, a `CloudAppender` is attached at startup (still gated by the config
+   * `telemetry` toggle) and flushed on close. Defaults to false so tests and
+   * embedding hosts that wire their own telemetry never post to the real
+   * endpoint unintentionally; the CLI's `kimi web` host passes true.
+   */
+  readonly telemetry?: boolean;
 }
 
 export interface RunningServer {
@@ -212,7 +225,7 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
   // rooted at `homeDir`, so the Store facades above it (append-log, atomic
   // document, blob) — and in turn session metadata, wire records, blobs, and
   // the session index — all persist to disk.
-  const { app: core } = bootstrap({ homeDir, configPath }, [
+  const { app: core } = bootstrap({ homeDir, configPath, clientVersion: hostVersion }, [
     ...logSeed(logging),
     // Default host identity so outbound requests (model, WebSearch, registry
     // refresh) carry a product User-Agent even when the embedding host did not
@@ -223,6 +236,23 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     ...hostIdentitySeed(opts.hostIdentity),
     ...(opts.seeds ?? []),
   ]);
+
+  // Attach the cloud telemetry appender BEFORE any session is created:
+  // `session_started` / `session_load_failed` fire inside create()/resume(), so
+  // an appender wired later would drop them to the null appender. Opt-in via
+  // `opts.telemetry` (off by default so tests never post to the real endpoint);
+  // best-effort — telemetry must never block server boot.
+  let telemetry: ServerTelemetry = {};
+  if (opts.telemetry === true) {
+    try {
+      telemetry = await initializeServerTelemetry(core, homeDir);
+    } catch (error) {
+      logger.warn(
+        { err: error instanceof Error ? error.message : String(error) },
+        'telemetry initialization failed; continuing without telemetry',
+      );
+    }
+  }
 
   if (exposureClass !== 'loopback') {
     logger.warn(
@@ -303,8 +333,20 @@ export async function startServer(opts: ServerStartOptions = {}): Promise<Runnin
     await app.close();
     authFailureLimiter?.dispose();
     modelCatalogRefreshScheduler.dispose();
-    core.dispose();
-    await registration.release();
+    // Telemetry is best-effort and must never prevent core or instance cleanup.
+    try {
+      await shutdownServerTelemetry(telemetry);
+    } catch (error) {
+      logger.warn(
+        { err: error instanceof Error ? error.message : String(error) },
+        'telemetry shutdown failed; continuing server cleanup',
+      );
+    }
+    try {
+      core.dispose();
+    } finally {
+      await registration.release();
+    }
   };
 
   const connectionRegistry = new ConnectionRegistry();
