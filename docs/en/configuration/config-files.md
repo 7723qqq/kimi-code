@@ -242,6 +242,8 @@ When the experiment is enabled, the configuration is validated as the session st
 
 `max_steps_per_turn` can be overridden by the `KIMI_LOOP_MAX_STEPS_PER_TURN` environment variable, and `max_retries_per_step` by `KIMI_LOOP_MAX_RETRIES_PER_STEP`; both take higher priority than the config file.
 
+Retries only apply to transient failures — connection errors, timeouts, HTTP 429 rate limits, and 5xx server errors. A 429 caused by an exhausted quota or insufficient account balance is not retried and fails immediately, since it cannot succeed until the account is recharged.
+
 ## `background`
 
 `background` controls the concurrency behavior of background tasks (launched via the `Bash` tool or the `Agent` tool's `run_in_background=true` parameter).
