@@ -319,6 +319,35 @@ describe('runShell', () => {
     });
   });
 
+  it('resolves the --agent profile into the TUI startup input', async () => {
+    mocks.loadTuiConfig.mockResolvedValue({
+      theme: 'dark',
+      editorCommand: null,
+      notifications: { enabled: true, condition: 'unfocused' },
+    });
+    mocks.tuiStart.mockResolvedValue(undefined);
+
+    await runShell(
+      {
+        session: undefined,
+        continue: false,
+        yolo: false,
+        auto: false,
+        plan: false,
+        model: undefined,
+        outputFormat: undefined,
+        prompt: undefined,
+        skillsDirs: [],
+        agent: 'reviewer',
+        agentFiles: [],
+      },
+      '1.2.3-test',
+    );
+
+    const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
+    expect(startupInput).toMatchObject({ agentProfile: 'reviewer' });
+  });
+
   it('forwards skillsDirs from CLI options to the harness', async () => {
     mocks.loadTuiConfig.mockResolvedValue({
       theme: 'dark',
