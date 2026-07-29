@@ -1,5 +1,5 @@
 ---
-"@moonshot-ai/agent-core": patch
+"@moonshot-ai/kimi-code": patch
 ---
 
-Count validation-rejected tool calls toward the repeat breaker so reminders fire at 3/5/8 and the turn force-stops at 12.
+Stop the turn after repeated invalid tool calls instead of retrying indefinitely.
