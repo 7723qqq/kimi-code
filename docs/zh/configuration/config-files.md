@@ -192,7 +192,9 @@ display_name = "Kimi for Coding (custom)"
 
 次主力模型是主模型 `default_model` 之外的第二个模型指针——通常是一个更便宜的模型，供不需要主模型的功能绑定使用。目前的消费者是子 Agent 派生：设置后，新派生的子 Agent（`Agent` / `AgentSwarm`）默认绑定该模型，而不再继承主 Agent 的模型；主 Agent 会被告知每次派生可在 `"secondary"`（该模型）与 `"primary"`（主模型）之间选择。未设置时，子 Agent 继承主 Agent 的模型。
 
-该功能目前是实验功能，默认关闭。在 `kimi web` 下，通过 `KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL=1` 启用；在 `kimi -p` 下，选择 v2 引擎本就需要 `KIMI_CODE_EXPERIMENTAL_FLAG=1`，该 master flag 也会启用本功能。交互式 TUI 会忽略该配置。
+该功能目前是实验功能，默认关闭。通过 `KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL=1` 启用，或使用 master `KIMI_CODE_EXPERIMENTAL_FLAG=1`。它在包括交互式 TUI 在内的所有启动方式下生效。
+
+在交互式 TUI 中，可以使用 [`/secondary_model`](../reference/slash-commands.md) 命令打开模型选择器来设置该配置：选择后会写入本小节配置，并在当前会话立即生效——之后派生的子 Agent 会直接绑定新的第二模型。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
