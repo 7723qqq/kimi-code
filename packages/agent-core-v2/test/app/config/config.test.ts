@@ -84,14 +84,14 @@ import {
 } from '#/app/auth/configSection';
 import { SECONDARY_DERIVED_MODEL_ID } from '#/app/kosongConfig/secondaryModelOverlay';
 import { type SecondaryModelConfig } from '#/app/kosongConfig/configSection';
-import '#/agent/mcp/configSection';
+import '#/app/mcpConfig/configSection';
 import {
   MCP_SECTION,
   MCP_STARTUP_TIMEOUT_ENV,
   MCP_TOOL_TIMEOUT_ENV,
   McpSectionSchema,
   type McpSection,
-} from '#/agent/mcp/configSection';
+} from '#/app/mcpConfig/configSection';
 import { ILogService } from '#/_base/log/log';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -239,11 +239,13 @@ describe('Agent config', () => {
         created_at: 1,
       },
       {
-        type: 'config.update',
+        type: 'profile.bind',
         cwd: '/restored-cwd',
         modelAlias: 'restored-model',
         profileName: 'restored-profile',
+        thinkingEffort: 'off',
         systemPrompt: 'Restored prompt.',
+        disallowedTools: [],
       },
       {
         type: 'tools.set_active_tools',
@@ -252,7 +254,6 @@ describe('Agent config', () => {
     ]);
 
     expect(profile.data()).toMatchObject({
-      cwd: '/restored-cwd',
       modelAlias: 'restored-model',
       profileName: 'restored-profile',
       systemPrompt: 'Restored prompt.',
@@ -260,7 +261,7 @@ describe('Agent config', () => {
     });
   });
 
-  it('config.update with cwd initializes builtin tools', async () => {
+  it('config.update initializes builtin tools', async () => {
     const tools = await ctx.rpc.getTools({});
 
     expect(toolNames(tools)).toEqual(
