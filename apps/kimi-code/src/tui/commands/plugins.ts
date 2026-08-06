@@ -8,6 +8,7 @@ import {
   type PluginSummary,
   type Session,
 } from '@moonshot-ai/kimi-code-sdk';
+import { Markdown, Spacer } from '@moonshot-ai/pi-tui';
 
 import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
 import {
@@ -26,6 +27,7 @@ import {
   buildPluginsListLines,
 } from '../components/messages/plugins-status-panel';
 import { UsagePanelComponent } from '../components/messages/usage-panel';
+import { createMarkdownTheme } from '../theme/pi-tui-theme';
 import { formatErrorMessage } from '../utils/event-payload';
 import {
   formatPluginSourceLabel,
@@ -561,6 +563,15 @@ async function installCapabilityFromPanel(
     host.showStatus(pluginReloadHint(), 'warning');
     return;
   }
+  if (entry.id === 'kimi-webbridge') {
+    host.showNotice(`${label} is installed.`);
+    host.state.transcriptContainer.addChild(new Spacer(1));
+    host.state.transcriptContainer.addChild(
+      new Markdown(WEBBRIDGE_POST_INSTALL_MARKDOWN, 2, 0, createMarkdownTheme()),
+    );
+    host.state.ui.requestRender();
+    return;
+  }
   host.showStatus(`${label} is installed.`);
   host.showStatus(pluginReloadHint(), 'warning');
 }
@@ -777,6 +788,17 @@ const PLUGIN_RELOAD_HINT_V2 =
 function pluginReloadHint(): string {
   return isKimiV2Enabled() ? PLUGIN_RELOAD_HINT_V2 : PLUGIN_RELOAD_HINT;
 }
+
+const WEBBRIDGE_POST_INSTALL_MARKDOWN = [
+  '*Two steps left to use Kimi WebBridge:*',
+  '1. Install the browser extension',
+  '',
+  '   - [Chrome Web Store](https://chromewebstore.google.com/detail/kimi-webbridge/fldmhceldgbpfpkbgopacenieobmligc)',
+  '   - [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/kimi-webbridge/bnlffdbcfnanfbknnlaflhlhkocccckg)',
+  '   - [Manual installation guide](https://www.kimi.com/code/docs/kimi-code-cli/customization/plugins.html#install-the-browser-extension)',
+  '',
+  '2. Run `/reload` or `/new` to apply it.',
+].join('\n');
 
 const PLUGIN_QUOTA_NOTE = 'Note: This plugin consumes your quota.';
 
