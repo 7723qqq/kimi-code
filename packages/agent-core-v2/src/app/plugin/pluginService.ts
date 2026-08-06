@@ -6,8 +6,12 @@
  * skill discovery, and resolves managed endpoint settings through the
  * provider service plus the startup snapshot. Exposes plugin contributions
  * through the hook, MCP, skill, and system-prompt contracts. Mutations
- * serialize through a queue and consumption reads wait on it. Bound at App
- * scope.
+ * serialize through a queue and consumption reads wait on it; while no
+ * snapshot has loaded, a consumption read resolves to its per-method
+ * fallback instead of rejecting (`hasLoadedSnapshot` exposes the state).
+ * Every mutation (install / enable / disable / remove) re-fires
+ * `onDidReload` so workspace-scoped consumers refresh their contributions
+ * immediately. Bound at App scope.
  */
 
 import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
@@ -56,7 +60,7 @@ export class PluginService extends Service implements IPluginService {
   private readonly envOAuthHost: string | undefined;
   private readonly manager: PluginManager;
   private initialLoadPromise: Promise<void> | undefined;
-  private hasLoadedSnapshot = false;
+  private snapshotLoaded = false;
   private loadError: Error | undefined;
   private mutationQueue: Promise<void> = Promise.resolve();
   private readonly onDidReloadEmitter = this._register(new Emitter<ReloadSummary>());
@@ -89,6 +93,7 @@ export class PluginService extends Service implements IPluginService {
       const info = this.manager.info(record.id);
       if (info === undefined)
         throw new BugIndicatingError(`Plugin "${record.id}" missing right after install`);
+      await this.reloadAndNotify();
       return info;
     });
   }
@@ -96,29 +101,28 @@ export class PluginService extends Service implements IPluginService {
   setPluginEnabled(input: SetPluginEnabledInput): Promise<void> {
     return this.runSerializedOperation(async () => {
       await this.manager.setEnabled(input.id, input.enabled);
+      await this.reloadAndNotify();
     });
   }
 
   setPluginMcpServerEnabled(input: SetPluginMcpServerEnabledInput): Promise<void> {
     return this.runSerializedOperation(async () => {
       await this.manager.setMcpServerEnabled(input.id, input.server, input.enabled);
+      await this.reloadAndNotify();
     });
   }
 
   removePlugin(input: RemovePluginInput): Promise<void> {
     return this.runSerializedOperation(async () => {
       await this.manager.remove(input.id);
+      await this.reloadAndNotify();
     });
   }
 
   reloadPlugins(): Promise<ReloadSummary> {
     const reload = this.enqueueMutation(async () => {
       try {
-        const summary = await this.manager.reload();
-        this.hasLoadedSnapshot = true;
-        this.loadError = undefined;
-        this.onDidReloadEmitter.fire(summary);
-        return summary;
+        return await this.reloadAndNotify();
       } catch (error) {
         this.loadError = error instanceof Error ? error : new Error(String(error));
         throw new Error2(
@@ -133,6 +137,14 @@ export class PluginService extends Service implements IPluginService {
       () => undefined,
     );
     return reload;
+  }
+
+  private async reloadAndNotify(): Promise<ReloadSummary> {
+    const summary = await this.manager.reload();
+    this.snapshotLoaded = true;
+    this.loadError = undefined;
+    this.onDidReloadEmitter.fire(summary);
+    return summary;
   }
 
   getPluginInfo(input: GetPluginInfoInput): Promise<PluginInfo> {
@@ -188,6 +200,10 @@ export class PluginService extends Service implements IPluginService {
     return this.runConsumptionRead([], async () => this.manager.enabledHooks());
   }
 
+  hasLoadedSnapshot(): boolean {
+    return this.snapshotLoaded;
+  }
+
   private runSerializedOperation<T>(operation: () => Promise<T>): Promise<T> {
     void this.startInitialLoad();
     return this.enqueueMutation(async () => {
@@ -204,7 +220,7 @@ export class PluginService extends Service implements IPluginService {
 
   private async runConsumptionRead<T>(fallback: T, operation: () => Promise<T>): Promise<T> {
     await this.waitForPendingMutations();
-    if (!this.hasLoadedSnapshot) return fallback;
+    if (!this.snapshotLoaded) return fallback;
     return operation();
   }
 
@@ -223,7 +239,7 @@ export class PluginService extends Service implements IPluginService {
   private async loadOnce(): Promise<void> {
     try {
       await this.manager.load();
-      this.hasLoadedSnapshot = true;
+      this.snapshotLoaded = true;
       this.loadError = undefined;
     } catch (error) {
       this.loadError = error instanceof Error ? error : new Error(String(error));
