@@ -434,6 +434,8 @@ export const agentTaskInfoSchema = taskInfoBaseSchema.extend({
   kind: z.literal('agent'),
   agentId: z.string().optional(),
   subagentType: z.string().optional(),
+  model: z.string().optional(),
+  thinkingEffort: z.string().optional(),
 });
 
 export const questionTaskInfoSchema = taskInfoBaseSchema.extend({
@@ -811,6 +813,8 @@ export const subagentSpawnedEventSchema = z.object({
   description: z.string().optional(),
   swarmIndex: z.number().optional(),
   runInBackground: z.boolean(),
+  model: z.string().optional(),
+  thinkingEffort: z.string().optional(),
 }) satisfies z.ZodType<SubagentSpawnedEvent>;
 
 export const subagentStartedEventSchema = z.object({

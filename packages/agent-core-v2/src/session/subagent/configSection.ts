@@ -29,8 +29,12 @@
  * and wrap spawn failures with
  * `wrapSubagentModelError`; while the experiment is off they also strip the
  * no-op `model` parameter from their advertised schemas via
- * `stripSubagentModelParameter`. Self-registered at module load via
- * `registerConfigSection`.
+ * `stripSubagentModelParameter`. Spawn reporting reads the display-facing
+ * alias from `subagentDisplayModel`: the derived entry id means nothing to a
+ * user, so it resolves back to the recipe's base alias — flag-independent on
+ * purpose, since interpreting an already-persisted derived binding (resume)
+ * must keep working after the experiment is switched off. Self-registered
+ * at module load via `registerConfigSection`.
  */
 
 import { z } from 'zod';
@@ -114,18 +118,32 @@ export function resolveSubagentBinding(
   flags: IFlagService,
   own: { modelAlias: string; thinkingLevel: string },
   requested?: SubagentModelChoice,
-): { model: string; thinking?: string } {
+): { model: string; thinking?: string; displayModel: string } {
   const secondary = resolveSecondaryModel(config, flags);
   if (requested !== 'primary' && secondary?.model !== undefined) {
+    const model =
+      secondaryModelPatch(secondary) === undefined ? secondary.model : SECONDARY_DERIVED_MODEL_ID;
     return {
-      model:
-        secondaryModelPatch(secondary) === undefined
-          ? secondary.model
-          : SECONDARY_DERIVED_MODEL_ID,
+      model,
       thinking: secondary.defaultEffort,
+      displayModel: subagentDisplayModel(config, model),
     };
   }
-  return { model: own.modelAlias, thinking: own.thinkingLevel };
+  return {
+    model: own.modelAlias,
+    thinking: own.thinkingLevel,
+    displayModel: subagentDisplayModel(config, own.modelAlias),
+  };
+}
+
+export function subagentDisplayModel(
+  config: IConfigService,
+  boundAlias: string,
+): string {
+  if (boundAlias !== SECONDARY_DERIVED_MODEL_ID) return boundAlias;
+  return (
+    config.get<SecondaryModelConfig | undefined>(SECONDARY_MODEL_SECTION)?.model ?? boundAlias
+  );
 }
 
 export function buildSubagentModelDescriptions(
