@@ -197,6 +197,7 @@ import {
   IWorkspaceAliases,
   IWorkspaceDirs,
   IWorkspaceMcpService,
+  ISessionActivityView,
   ISessionLifecycleService,
   IWorkspaceLifecycleService,
   IWorkspaceSkillCatalog,
@@ -832,6 +833,11 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const meta = await handle.accessor.get(ISessionMetadata).read();
     const ctx = handle.accessor.get(ISessionContext);
     const workspace = handle.accessor.get(ISessionWorkspaceContext);
+    // The live aggregate is authoritative for a live session: a just-resumed
+    // session already has the restored outcome in memory, while the metadata
+    // document can lag both the backfill and the clear (a retry started after
+    // a failure), so never read the document here.
+    const liveOutcome = handle.accessor.get(ISessionActivityView).state().lastTurnReason;
     return {
       id: meta.id,
       title: meta.title,
@@ -843,6 +849,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       archived: meta.archived,
       metadata: meta.custom as JsonObject | undefined,
       additionalDirs: workspace.additionalDirs,
+      lastTurnReason: liveOutcome,
     };
   }
 
@@ -991,8 +998,19 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       // workspace) cannot be resumed on either engine; v1's store never lists
       // one in the first place, so drop it here too.
       if (workDir === undefined) continue;
+      // A live session reports its own outcome; the index may still carry a
+      // stale one while the mirror's clear is queued (a fresh turn just
+      // started after a failure).
+      const liveHandle = getLiveSessionById(this.engineAccessor, item.id);
+      const effectiveItem =
+        liveHandle === undefined
+          ? item
+          : {
+              ...item,
+              lastTurnReason: liveHandle.accessor.get(ISessionActivityView).state().lastTurnReason,
+            };
       summaries.push(
-        v2SummaryToSessionSummary(item, {
+        v2SummaryToSessionSummary(effectiveItem, {
           workDir,
           sessionDir: sessionDirOf(
             bootstrapService.homeDir,
