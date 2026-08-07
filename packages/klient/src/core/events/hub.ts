@@ -59,13 +59,19 @@ export class EventHub<TPayloadMap extends object = KlientEventPayloads>
   private readonly subs = new Map<string, SharedSub>();
   private readonly errorListeners = new Set<(error: Error) => void>();
   private closed = false;
+  private idleNotified = false;
+  /** Invoked once when the hub becomes fully idle (no listeners, subs, or error listeners). */
+  private readonly onIdle: (() => void) | undefined;
 
   constructor(
     private readonly channel: KlientChannel,
     private readonly validate: boolean,
     private readonly scope: ScopeRef,
     private readonly registrations: Record<string, EventRegistration>,
-  ) {}
+    onIdle?: () => void,
+  ) {
+    this.onIdle = onIdle;
+  }
 
   on<E extends keyof TPayloadMap & string>(
     event: E,
@@ -97,12 +103,15 @@ export class EventHub<TPayloadMap extends object = KlientEventPayloads>
       },
     };
   }
-
   onError(listener: (error: Error) => void): IDisposable {
     this.errorListeners.add(listener);
+    let disposed = false;
     return {
       dispose: () => {
+        if (disposed) return;
+        disposed = true;
         this.errorListeners.delete(listener);
+        this.notifyIdleIfEmpty();
       },
     };
   }
@@ -115,6 +124,23 @@ export class EventHub<TPayloadMap extends object = KlientEventPayloads>
     }
     this.subs.clear();
     this.listeners.clear();
+    this.errorListeners.clear();
+  }
+
+  /**
+   * Once every listener/subscription is gone, notify the owner (klient) so a
+   * discarded handle's hub can be released instead of being pinned in a Set
+   * for the lifetime of the process. Only fires once per hub — if the hub is
+   * reused after going idle (new listeners), it stays alive and will notify
+   * again on the next full idle.
+   */
+  private notifyIdleIfEmpty(): void {
+    if (this.idleNotified) return;
+    if (this.listeners.size > 0 || this.subs.size > 0 || this.errorListeners.size > 0) {
+      return;
+    }
+    this.idleNotified = true;
+    this.onIdle?.();
   }
 
   private acquire(event: string): void {
@@ -143,6 +169,7 @@ export class EventHub<TPayloadMap extends object = KlientEventPayloads>
     if (sub.refs <= 0) {
       sub.disposable.dispose();
       this.subs.delete(key);
+      this.notifyIdleIfEmpty();
     }
   }
 

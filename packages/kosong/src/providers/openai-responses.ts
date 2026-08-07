@@ -33,13 +33,14 @@ import {
   mergeRequestHeaders,
   requireProviderApiKey,
   resolveAuthBackedClient,
+  AuthClientLRU,
 } from './request-auth';
 import {
   normalizeToolCallIdsForProvider,
   sanitizeOpenAIResponsesCallId,
   type ToolCallIdPolicy,
 } from './tool-call-id';
-import { tryNativeLlmStream } from './native-stream';
+import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
 
 /**
  * Normalize the Responses API status / incomplete_details into the unified
@@ -1055,6 +1056,7 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
   private _client: OpenAI | undefined;
   private _httpClient: unknown;
   private _clientFactory: ((auth: ProviderRequestAuth) => OpenAI) | undefined;
+  private readonly _authClientLRU: AuthClientLRU<OpenAI>;
 
   constructor(options: OpenAIResponsesOptions) {
     const apiKey = options.apiKey ?? process.env['OPENAI_API_KEY'];
@@ -1068,6 +1070,7 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     this._toolMessageConversion = options.toolMessageConversion ?? null;
     this._httpClient = options.httpClient;
     this._clientFactory = options.clientFactory;
+    this._authClientLRU = new AuthClientLRU<OpenAI>();
 
     if (options.maxOutputTokens !== undefined) {
       this._generationKwargs.max_output_tokens = options.maxOutputTokens;
@@ -1159,23 +1162,43 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
       }
       try {
         options?.onRequestSent?.();
-        const nativeResult = await tryNativeLlmStream({
-          provider: 'openai-responses',
+        const nativeConfig = {
+          provider: 'openai-responses' as const,
           url: `${this._baseUrl ?? 'https://api.openai.com/v1'}/responses`,
           apiKey: this._apiKey,
           model: this._model,
           requestBody: JSON.stringify(createParams),
           timeoutMs: 120_000,
           extraHeaders,
-        });
+          signal: options?.signal,
+        };
+        // Prefer true incremental streaming (TSFN); fall back to the buffered
+        // native path only when the streaming binding is unavailable.
+        const incremental = await tryNativeLlmStreamIncremental(nativeConfig);
+        if (incremental !== undefined) {
+          return incremental;
+        }
+        const nativeResult = await tryNativeLlmStream(nativeConfig);
         if (nativeResult !== undefined) {
           if (nativeResult.traceId && options?.onTraceId) {
             options.onTraceId(nativeResult.traceId);
           }
           return nativeResult;
         }
-      } catch {
-        // Native stream failed (TLS/connection/Rust error) — fall through to SDK.
+      } catch (error) {
+        // A user cancel must propagate, not fall through to a re-issued SDK
+        // request the caller has explicitly aborted.
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw error;
+        }
+        // Native stream failed (TLS/connection/Rust error) — fall through to
+        // SDK. Log the reason so a systematic native failure is diagnosable
+        // instead of silently doubling every LLM request.
+        console.warn(
+          `[kosong] native LLM stream (openai-responses) failed, falling back to SDK: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
       }
     }
     // ── End native fast-path ──────────────────────────────────────────
@@ -1238,7 +1261,11 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
 
   private _createClient(auth: ProviderRequestAuth | undefined): OpenAI {
     return resolveAuthBackedClient(
-      { cachedClient: this._client, clientFactory: this._clientFactory },
+      {
+        cachedClient: this._client,
+        clientFactory: this._clientFactory,
+        authClientLRU: this._authClientLRU,
+      },
       auth,
       (a) =>
         this._buildClient(requireProviderApiKey('OpenAIResponsesChatProvider', a, this._apiKey), a),

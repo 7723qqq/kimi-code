@@ -86,7 +86,18 @@ export class SingleModelProvider implements ModelProvider {
 }
 
 export class ProviderManager implements ModelProvider {
-  constructor(private readonly options: ProviderManagerOptions) {}
+  constructor(private readonly options: ProviderManagerOptions) {
+    this.cache = new Map();
+  }
+
+  /**
+   * Per-model memo of `resolveProviderConfig`. Keyed by model alias, and
+   * invalidated whenever the config object reference changes (config reloads
+   * replace the object). The resolved provider is a large object graph
+   * rebuilt on every call — the turn loop calls this per step — so the cache
+   * removes a real hot-path cost while staying correct across reloads.
+   */
+  private readonly cache: Map<string, { readonly config: KimiConfig; readonly resolved: ResolvedRuntimeProvider }>;
 
   private get config(): KimiConfig {
     const { config } = this.options;
@@ -94,7 +105,21 @@ export class ProviderManager implements ModelProvider {
   }
 
   resolveProviderConfig(model: string): ResolvedRuntimeProvider {
-    const alias = this.config.models?.[model];
+    const config = this.config;
+    const cached = this.cache.get(model);
+    if (cached !== undefined && cached.config === config) {
+      return cached.resolved;
+    }
+    const resolved = this.resolveProviderConfigUncached(model, config);
+    this.cache.set(model, { config, resolved });
+    return resolved;
+  }
+
+  private resolveProviderConfigUncached(
+    model: string,
+    config: KimiConfig,
+  ): ResolvedRuntimeProvider {
+    const alias = config.models?.[model];
     if (alias === undefined) {
       throw new KimiError(
         ErrorCodes.CONFIG_INVALID,
@@ -103,7 +128,7 @@ export class ProviderManager implements ModelProvider {
       );
     }
 
-    const providerName = alias.provider ?? this.config.defaultProvider;
+    const providerName = alias.provider ?? config.defaultProvider;
     if (providerName === undefined) {
       throw new KimiError(
         ErrorCodes.CONFIG_INVALID,
@@ -111,7 +136,7 @@ export class ProviderManager implements ModelProvider {
       );
     }
 
-    const providerConfig = this.config.providers[providerName];
+    const providerConfig = config.providers[providerName];
     if (providerConfig === undefined) {
       throw new KimiError(
         ErrorCodes.CONFIG_INVALID,

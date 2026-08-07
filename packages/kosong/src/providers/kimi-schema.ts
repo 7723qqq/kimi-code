@@ -119,8 +119,21 @@ const NUMERIC_STRUCTURE_KEYS = new Set([
  * typeless property schemas. The root schema object is treated as a container
  * and is not itself normalized.
  */
+/**
+ * Normalize a Kimi tool schema: dereference `$ref`s, infer types, and
+ * canonicalize property types. Pure function of the input object.
+ */
+const kimiToolSchemaMemo = new WeakMap<Record<string, unknown>, Record<string, unknown>>();
+
 export function normalizeKimiToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
-  return ensureKimiPropertyTypes(derefJsonSchema(schema));
+  // The tool list is byte-stable across turns (schema objects are reused), so
+  // memoize on the source object identity — deref + clone + recurse is wasted
+  // work on every request otherwise, especially for large MCP schemas.
+  const cached = kimiToolSchemaMemo.get(schema);
+  if (cached !== undefined) return cached;
+  const normalized = ensureKimiPropertyTypes(derefJsonSchema(schema));
+  kimiToolSchemaMemo.set(schema, normalized);
+  return normalized;
 }
 
 function ensureKimiPropertyTypes(schema: Record<string, unknown>): Record<string, unknown> {

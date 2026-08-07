@@ -36,7 +36,7 @@ import { CronManager } from './cron';
 import { ConfigState } from './config';
 import { ContextMemory } from './context';
 import { GoalMode } from './goal';
-import { HookEngine } from '../session/hooks';
+import type { HookEngine } from '../session/hooks';
 import { InjectionManager } from './injection/manager';
 import { PermissionManager, type PermissionManagerOptions } from './permission';
 import { PlanMode } from './plan';
@@ -788,5 +788,18 @@ export class Agent {
         },
       ),
     });
+  }
+
+  /**
+   * Release resources held by this agent that outlive the agent's useful life.
+   *
+   * Today this disposes the ToolManager's MCP status listener, so a finished
+   * subagent does not keep a permanent listener + closure reference to the
+   * whole Agent object graph on the session-shared MCP connection manager.
+   * Idempotent; the agent remains usable afterwards (listeners are re-attached
+   * on the next spawn/resume via the subagent host).
+   */
+  dispose(): void {
+    this.tools.dispose();
   }
 }

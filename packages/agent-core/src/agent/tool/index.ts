@@ -124,6 +124,18 @@ export class ToolManager {
     });
   }
 
+  /**
+   * Release the MCP status-change listener subscribed by {@link attachMcpTools}.
+   * Idempotent: safe to call multiple times, and after it runs a later
+   * {@link attachMcpTools} re-subscribes. Called when a (sub)agent's lifecycle
+   * ends so finished agents do not keep a permanent listener + closure reference
+   * to the whole ToolManager/Agent graph on the shared MCP connection manager.
+   */
+  dispose(): void {
+    this.mcpToolStatusUnsubscribe?.();
+    this.mcpToolStatusUnsubscribe = undefined;
+  }
+
   updateStore<K extends ToolStoreKey>(key: K, value: ToolStoreData[K]): void {
     this.agent.records.logRecord({
       type: 'tools.update_store',
@@ -1038,7 +1050,7 @@ export class ToolManager {
           this.userTools.get(name) ??
           this.mcpTools.get(name)?.tool ??
           this.builtinTools.get(name);
-        if (tool === undefined) return undefined;
+        if (tool === undefined) return;
         const deferred =
           disclosure && (this.mcpTools.has(name) || this.deferredUserTools.has(name));
         // Dynamic entries are plain object literals, so the spread keeps the

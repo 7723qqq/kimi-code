@@ -161,7 +161,7 @@ export interface ImageDimensions {
   height: number;
 }
 
-export function nativeSniffImageDimensions(data: Buffer | Uint8Array): ImageDimensions | null;
+export function nativeSniffImageDimensions(data: Uint8Array): ImageDimensions | null;
 
 export function nativeIsSensitiveFile(path: string): boolean;
 
@@ -529,3 +529,54 @@ export function nativeTranslateBatchCached(
   keys: string[],
   params?: Record<string, string> | null,
 ): NativeBatchTranslateResult[];
+
+// ============================================================================
+// LLM Stream (incremental)
+// ============================================================================
+
+export interface NativeLlmStreamPart {
+  partType: string;
+  text?: string;
+  think?: string;
+  encrypted?: string;
+  id?: string;
+  name?: string;
+  arguments?: string;
+  argumentsPart?: string;
+  streamIndex?: number;
+}
+
+export interface NativeLlmStreamMetadata {
+  responseId?: string;
+  finishReason?: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  traceId?: string;
+}
+
+export interface NativeLlmStreamEvent {
+  kind: 'part' | 'done' | 'error';
+  part?: NativeLlmStreamPart;
+  metadata?: NativeLlmStreamMetadata;
+  error?: string;
+}
+
+export interface NativeLlmStreamConfig {
+  provider: 'openai-responses' | 'openai-legacy' | 'anthropic';
+  url: string;
+  apiKey: string;
+  model: string;
+  requestBody: string;
+  timeoutMs?: number | null;
+  extraHeaders?: Array<{ key: string; value: string }> | null;
+}
+
+/**
+ * Incremental streaming variant: forwards decoded parts to `onEvent` as they arrive.
+ * Follows Node callback conventions: `(err, event)` — `err` is `null` on success.
+ */
+export function nativeLlmStreamStreaming(
+  config: NativeLlmStreamConfig,
+  onEvent: (error: unknown, event: NativeLlmStreamEvent) => void,
+): void;

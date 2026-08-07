@@ -153,8 +153,8 @@ function hostEnvironmentStub(): IHostEnvironment {
 
 function workspaceSkillCatalogStub(): IWorkspaceSkillCatalog {
   const catalog = {
-    getSkill: () => undefined,
-    getPluginSkill: () => undefined,
+    getSkill: () => {},
+    getPluginSkill: () => {},
     renderSkillPrompt: () => '',
     listSkills: () => [],
     listInvocableSkills: () => [],
@@ -226,7 +226,7 @@ function workspaceStub(): IWorkspaceService {
   return {
     _serviceBrand: undefined,
     list: () => Promise.resolve([]),
-    get: () => Promise.resolve(undefined),
+    get: () => Promise.resolve(),
     createOrTouch: (root, name) =>
       Promise.resolve<Workspace>({
         id: 'wd_stub',
@@ -235,7 +235,7 @@ function workspaceStub(): IWorkspaceService {
         createdAt: 0,
         lastOpenedAt: 0,
       }),
-    update: () => Promise.resolve(undefined),
+    update: () => Promise.resolve(),
     delete: () => Promise.resolve(),
   };
 }
@@ -280,7 +280,7 @@ function persistentWorkspaceStub(): IWorkspaceService {
       workspaces.set(id, workspace);
       return Promise.resolve(workspace);
     },
-    update: () => Promise.resolve(undefined),
+    update: () => Promise.resolve(),
     delete: () => Promise.resolve(),
   };
 }
@@ -300,7 +300,7 @@ function sessionIndexStub(): ISessionIndex {
     prepare: () => Promise.resolve({ state: 'uninitialized', degradedCount: 0 }),
     status: () => ({ state: 'uninitialized', degradedCount: 0 }),
     listRecent: () => Promise.resolve({ items: [] }),
-    get: () => Promise.resolve(undefined),
+    get: () => Promise.resolve(),
     count: () => Promise.resolve(0),
     remove: () => Promise.resolve(),
   };
@@ -339,13 +339,14 @@ function appendLogStoreStub(): IAppendLogStore {
     flush: () => Promise.resolve(),
     close: () => Promise.resolve(),
     acquire: () => ({ dispose: () => {} }),
+    revision: () => 0,
   };
 }
 
 function atomicDocumentStoreStub(): IAtomicDocumentStore {
   return {
     _serviceBrand: undefined,
-    get: () => Promise.resolve(undefined),
+    get: () => Promise.resolve(),
     set: () => Promise.resolve(),
     delete: () => Promise.resolve(),
     list: () => Promise.resolve([]),
@@ -371,7 +372,7 @@ function agentLifecycleStub(): IAgentLifecycleService {
     onDidDispose: () => ({ dispose: () => {} }),
     create: () => Promise.reject(new Error('not implemented')),
     fork: () => Promise.reject(new Error('not implemented')),
-    get: () => undefined,
+    get: () => {},
     list: () => [],
     remove: () => Promise.resolve(),
     broadcastPermissionMode: () => {},
@@ -599,7 +600,7 @@ describe('SessionLifecycleService', () => {
       stubPair(ISessionCronService, { _serviceBrand: undefined } as unknown as ISessionCronService),
       stubPair(ISessionSecondaryModelWarningService, {
         _serviceBrand: undefined,
-        getSecondaryModelWarning: () => undefined,
+        getSecondaryModelWarning: () => {},
       } as ISessionSecondaryModelWarningService),
       stubPair(IProjectLocalConfigService, projectLocalConfigStub()),
       stubPair(IHostFsWatchService, {
@@ -840,7 +841,7 @@ describe('SessionLifecycleService', () => {
           createdAt: 1,
           lastOpenedAt: 1,
         }),
-      update: () => Promise.resolve(undefined),
+      update: () => Promise.resolve(),
       delete: () => Promise.resolve(),
     };
     await build([

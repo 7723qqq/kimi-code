@@ -41,6 +41,23 @@ import { toProtocolMessage } from './messageProjection';
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
 
+/**
+ * Bounded cache of the folded transcript per agent wire scope.
+ *
+ * `readTranscript` flushes the journal and folds the whole append log from
+ * scratch on every request, which is O(history) disk + CPU per call — the
+ * `messages` routes call it on every GET and the UI polls them. The append
+ * log's monotonic `revision` counter lets us reuse the folded result while
+ * the log is unchanged: `revision` increments on every append/rewrite, so a
+ * matching revision guarantees byte-identical input to the reducer. The
+ * cache is per-process and bounded (a handful of active sessions), so a
+ * rebuild/reopen of a long session is the only case where a stale entry
+ * could persist — but revision still changes then (a fresh read rewrites),
+ * so correctness holds.
+ */
+const TRANSCRIPT_CACHE_MAX = 64;
+const transcriptCache = new Map<string, { readonly revision: number; readonly transcript: ContextTranscript }>();
+
 /** Sentinel — the route maps it to 40401. */
 export class SessionNotFoundError extends Error {
   readonly sessionId: string;
@@ -81,7 +98,7 @@ export async function listMessages(
   query: MessageListQuery,
 ): Promise<PageResponse<Message>> {
   const all = await loadMessages(core, sessionId);
-  const desc = [...all].reverse();
+  const desc = [...all].toReversed();
 
   let pivotIndex = -1;
   if (query.before_id !== undefined) {
@@ -189,13 +206,20 @@ async function rehydrate(
 async function readTranscript(core: Scope, agent: IAgentScopeHandle): Promise<ContextTranscript> {
   await agent.accessor.get(IWireService).flush();
   const scope = agent.accessor.get(IAgentScopeContext).scope();
+  const log = core.accessor.get(IAppendLogStore);
+  const revision = log.revision(scope, AGENT_WIRE_RECORD_KEY);
+  const cached = transcriptCache.get(scope);
+  if (cached !== undefined && cached.revision === revision) {
+    return cached.transcript;
+  }
   const reducer = createContextTranscriptReducer();
-  for await (const record of core.accessor
-    .get(IAppendLogStore)
-    .read<WireRecord>(scope, AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of log.read<WireRecord>(scope, AGENT_WIRE_RECORD_KEY)) {
     reducer.add(record);
   }
-  return reducer.result();
+  const transcript = reducer.result();
+  if (transcriptCache.size >= TRANSCRIPT_CACHE_MAX) transcriptCache.clear();
+  transcriptCache.set(scope, { revision, transcript });
+  return transcript;
 }
 
 function mergeLiveTail(
@@ -211,6 +235,6 @@ function mergeLiveTail(
   const tail = contextMessages.slice(transcript.foldedLength);
   return {
     messages: [...transcript.entries, ...tail],
-    times: [...transcript.times, ...tail.map(() => undefined)],
+    times: [...transcript.times, ...tail.map(() => {})],
   };
 }

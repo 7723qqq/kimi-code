@@ -385,15 +385,23 @@ export class SessionStore {
 
     const sessions: SessionSummary[] = [];
     const seen = new Set<string>();
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const id = entry.name;
-      if (!isSafeSessionId(id)) continue;
-      const dir = join(bucketDir, id);
-      const summary = await this.summaryFromDir(id, dir, workDir);
+    // summaryFromDir does stat + readFile + readdir per session; running them
+    // serially makes list latency linear in session count (50 sessions ≈ 300+
+    // sequential fs calls). Bound-concurrent instead.
+    const CONCURRENCY = 16;
+    const summaries = await withBoundConcurrency(
+      entries.filter((entry) => entry.isDirectory() && isSafeSessionId(entry.name)),
+      CONCURRENCY,
+      async (entry) => {
+        const id = entry.name;
+        const dir = join(bucketDir, id);
+        return this.summaryFromDir(id, dir, workDir);
+      },
+    );
+    for (const summary of summaries) {
       if (!includeArchive && summary.archived === true) continue;
       sessions.push(summary);
-      seen.add(id);
+      seen.add(summary.id);
     }
 
     // Do not change the established bucket hash: that would hide every
@@ -401,13 +409,22 @@ export class SessionStore {
     // sessions whose persisted workDir names the same case-insensitive drive
     // or UNC location (for example TUI `C:/Work` vs VS Code `c:\\Work`).
     const index = await readSessionIndex(this.homeDir, this.sessionsDir);
+    const indexedEntries = [];
     for (const entry of index.values()) {
       if (seen.has(entry.sessionId) || !(await isDirectory(entry.sessionDir))) continue;
-      const summary = await this.summaryFromDir(entry.sessionId, entry.sessionDir, entry.workDir);
+      indexedEntries.push(entry);
+    }
+    const indexedSummaries = await withBoundConcurrency(
+      indexedEntries,
+      CONCURRENCY,
+      async (entry) =>
+        this.summaryFromDir(entry.sessionId, entry.sessionDir, entry.workDir),
+    );
+    for (const summary of indexedSummaries) {
       if (!areSameFsPath(summary.workDir, workDir)) continue;
       if (!includeArchive && summary.archived === true) continue;
       sessions.push(summary);
-      seen.add(entry.sessionId);
+      seen.add(summary.id);
     }
     sessions.sort(compareSessionSummary);
     return sessions;
@@ -431,10 +448,20 @@ export class SessionStore {
 
   private async listAll(includeArchive: boolean): Promise<readonly SessionSummary[]> {
     const index = await readSessionIndex(this.homeDir, this.sessionsDir);
-    const sessions: SessionSummary[] = [];
+    const CONCURRENCY = 16;
+    const entries = [];
     for (const entry of index.values()) {
       if (!(await isDirectory(entry.sessionDir))) continue;
-      const summary = await this.summaryFromDir(entry.sessionId, entry.sessionDir, entry.workDir);
+      entries.push(entry);
+    }
+    const summaries = await withBoundConcurrency(
+      entries,
+      CONCURRENCY,
+      async (entry) =>
+        this.summaryFromDir(entry.sessionId, entry.sessionDir, entry.workDir),
+    );
+    const sessions: SessionSummary[] = [];
+    for (const summary of summaries) {
       if (!includeArchive && summary.archived === true) continue;
       sessions.push(summary);
     }
@@ -1033,4 +1060,32 @@ function compareSessionSummary(a: SessionSummary, b: SessionSummary): number {
   if (a.id < b.id) return -1;
   if (a.id > b.id) return 1;
   return 0;
+}
+
+/**
+ * Map `items` to results with a fixed concurrency cap. Unlike a bare
+ * `Promise.all`, this bounds the number of simultaneous fs operations — the
+ * per-session `summaryFromDir` does stat + readFile + readdir each, and an
+ * unbounded fan-out over hundreds of sessions would spike file descriptors.
+ */
+async function withBoundConcurrency<T, U>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<U>,
+): Promise<U[]> {
+  const results: U[] = [];
+  results.length = items.length;
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= items.length) return;
+        results[index] = await mapper(items[index] as T);
+      }
+    }),
+  );
+  return results;
 }

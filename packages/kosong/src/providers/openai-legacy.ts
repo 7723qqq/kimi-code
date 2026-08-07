@@ -48,13 +48,14 @@ import {
   mergeRequestHeaders,
   requireProviderApiKey,
   resolveAuthBackedClient,
+  AuthClientLRU,
 } from './request-auth';
 import {
   normalizeToolCallIdsForProvider,
   sanitizeToolCallId,
   type ToolCallIdPolicy,
 } from './tool-call-id';
-import { tryNativeLlmStream } from './native-stream';
+import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
 
 // Inbound: scan the known reasoning field names in priority order; first
 // string value wins. Outbound: echo the dialect the endpoint actually spoke
@@ -512,6 +513,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
   private _client: OpenAI | undefined;
   private _httpClient: unknown;
   private _clientFactory: ((auth: ProviderRequestAuth) => OpenAI) | undefined;
+  private readonly _authClientLRU: AuthClientLRU<OpenAI>;
   private _astronThinking: boolean;
   private _astronReasoningEffortModelIds: readonly string[] | undefined;
   private _astronSettings: OpenAILegacyOptions['astronSettings'] | undefined;
@@ -547,6 +549,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     this._astronReasoningEffortModelIds = options.astronReasoningEffortModelIds;
     this._astronSettings = options.astronSettings;
     this._clientFactory = options.clientFactory;
+    this._authClientLRU = new AuthClientLRU<OpenAI>();
 
     this._client = this._apiKey === undefined ? undefined : this._buildClient(this._apiKey);
   }
@@ -694,26 +697,47 @@ export class OpenAILegacyChatProvider implements ChatProvider {
         }
         try {
           options?.onRequestSent?.();
-          const nativeResult = await tryNativeLlmStream({
-            provider: 'openai-legacy',
+          const nativeConfig = {
+            provider: 'openai-legacy' as const,
             url: `${this._baseUrl ?? 'https://api.openai.com/v1'}/chat/completions`,
             apiKey: this._apiKey,
             model: this._model,
             requestBody: JSON.stringify(createParams),
             timeoutMs: 120_000,
             extraHeaders: nativeExtraHeaders,
-          });
+            signal: options?.signal,
+          };
+          // Prefer true incremental streaming (TSFN); fall back to the buffered
+          // native path only when the streaming binding is unavailable.
+          const incremental = await tryNativeLlmStreamIncremental(nativeConfig);
+          if (incremental !== undefined) {
+            return incremental;
+          }
+          const nativeResult = await tryNativeLlmStream(nativeConfig);
           if (nativeResult !== undefined) {
             if (nativeResult.traceId && options?.onTraceId) {
               options.onTraceId(nativeResult.traceId);
             }
             return nativeResult;
           }
-        } catch {
-          // Native stream failed — fall through to SDK.
+      } catch (error) {
+        // A user cancel must propagate, not fall through to a re-issued SDK
+        // request the caller has explicitly aborted.
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw error;
         }
+        // Native stream failed — fall through to SDK. Log the reason: a
+        // silently swallowed failure would otherwise re-issue the whole
+        // request over the SDK path with zero diagnostics (and no circuit
+        // breaker feedback loop).
+        console.warn(
+          `[kosong] native LLM stream (openai-legacy) failed, falling back to SDK: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
       }
-      // ── End native fast-path ────────────────────────────────────────
+    }
+    // ── End native fast-path ────────────────────────────────────────
 
       const client = this._createClient(options?.auth);
       options?.onRequestSent?.();
@@ -772,7 +796,11 @@ export class OpenAILegacyChatProvider implements ChatProvider {
 
   private _createClient(auth: ProviderRequestAuth | undefined): OpenAI {
     return resolveAuthBackedClient(
-      { cachedClient: this._client, clientFactory: this._clientFactory },
+      {
+        cachedClient: this._client,
+        clientFactory: this._clientFactory,
+        authClientLRU: this._authClientLRU,
+      },
       auth,
       (a) =>
         this._buildClient(requireProviderApiKey('OpenAILegacyChatProvider', a, this._apiKey), a),

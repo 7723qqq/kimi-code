@@ -95,7 +95,7 @@ function catalogStub() {
     list: () => Promise.resolve([...workspaces.values()]),
     get: (id) => Promise.resolve(workspaces.get(id)),
     createOrTouch,
-    update: () => Promise.resolve(undefined),
+    update: () => Promise.resolve(),
     delete: () => Promise.resolve(),
   };
   return { service, createOrTouch };
@@ -115,7 +115,7 @@ function sessionIndexStub(): ISessionIndex {
     _serviceBrand: undefined,
     prepare: () => Promise.resolve({ state: 'ready', generation: 0, degradedCount: 0 }),
     status: () => ({ state: 'ready', generation: 0, degradedCount: 0 }),
-    get: () => Promise.resolve(undefined),
+    get: () => Promise.resolve(),
     listRecent: () => Promise.resolve({ items: [] }),
     count: () => Promise.resolve(0),
     remove: () => Promise.resolve(),
@@ -164,8 +164,8 @@ function sessionStubs(): ReturnType<typeof stubPair>[] {
     } satisfies ISessionProcessRunner),
     stubPair(IWorkspaceSkillCatalog, (() => {
       const catalog = {
-        getSkill: () => undefined,
-        getPluginSkill: () => undefined,
+        getSkill: () => {},
+        getPluginSkill: () => {},
         renderSkillPrompt: () => '',
         listSkills: () => [],
         listInvocableSkills: () => [],
@@ -324,7 +324,7 @@ describe('WorkspaceLifecycleService', () => {
       stubPair(IWorkspaceService, catalog.service),
       stubPair(ISessionIndex, sessionIndexStub()),
       stubPair(ISessionIndexMirror, sessionIndexMirrorStub()),
-      stubPair(IConfigService, { get: () => undefined } as unknown as IConfigService),
+      stubPair(IConfigService, { get: () => {} } as unknown as IConfigService),
       stubPair(IAppendLogStore, {
         _serviceBrand: undefined,
         append: () => {},
@@ -333,10 +333,11 @@ describe('WorkspaceLifecycleService', () => {
         flush: () => Promise.resolve(),
         close: () => Promise.resolve(),
         acquire: () => ({ dispose: () => {} }),
+        revision: () => 0,
       } satisfies IAppendLogStore),
       stubPair(IAtomicDocumentStore, {
         _serviceBrand: undefined,
-        get: () => Promise.resolve(undefined),
+        get: () => Promise.resolve(),
         set: () => Promise.resolve(),
         delete: () => Promise.resolve(),
         list: () => Promise.resolve([]),
@@ -369,7 +370,7 @@ describe('WorkspaceLifecycleService', () => {
       stubPair(ITelemetryService, recordingTelemetry(telemetryRecords)),
       stubPair(ICronTaskPersistence, {
         _serviceBrand: undefined,
-        get: () => Promise.resolve(undefined),
+        get: () => Promise.resolve(),
         list: () => Promise.resolve([]),
         save: () => Promise.resolve(),
         delete: () => Promise.resolve(),

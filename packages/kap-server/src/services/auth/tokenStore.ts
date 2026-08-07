@@ -30,8 +30,20 @@ export async function createTokenStore(homeDir: string): Promise<TokenStore> {
     mtimeMs: initialStat.mtimeMs,
     ino: initialStat.ino,
   };
+  // TTL for the `statSync` freshness probe. The file is 43 bytes and only
+  // changes on `rotate-token`, so re-statting on every request is pure event
+  // loop cost — the common case returns the cached token. A rotate still
+  // lands within one TTL window (≈1s), which is "immediately" for a running
+  // server and preserves the no-restart rotation contract.
+  const STAT_TTL_MS = 1_000;
+  let lastStatAt = 0;
 
   const currentToken = (): string => {
+    const now = Date.now();
+    if (now - lastStatAt < STAT_TTL_MS) {
+      return cache.token;
+    }
+    lastStatAt = now;
     let st: ReturnType<typeof statSync>;
     try {
       st = statSync(tokenPath);

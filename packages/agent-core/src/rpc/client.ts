@@ -44,8 +44,12 @@ export function createRPC<Left extends Record<string, any>, Right extends Record
   function simulateNetwork<T>(data: T): Promise<T> {
     return new Promise((resolve) => {
       const run = (): void => {
-        const serialized = JSON.stringify(data);
-        resolve(serialized === undefined ? (undefined as T) : JSON.parse(serialized));
+        // structuredClone is faster than a JSON round-trip for the large
+        // payloads (tool results, transcripts) that cross this boundary on
+        // every event, and preserves non-JSON-safe values like Dates. The
+        // isolation semantics (consumers never alias the producer's object)
+        // are identical.
+        resolve(data === undefined ? (undefined as T) : structuredClone(data));
       };
       if (useMicrotask) {
         queueMicrotask(run);

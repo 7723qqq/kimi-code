@@ -51,13 +51,13 @@ import {
   type AnthropicModelVersion,
 } from './anthropic-profile';
 import { mergeConsecutiveUserMessages } from './merge-user-messages';
-import { mergeRequestHeaders, resolveAuthBackedClient } from './request-auth';
+import { AuthClientLRU, mergeRequestHeaders, resolveAuthBackedClient } from './request-auth';
 import {
   normalizeToolCallIdsForProvider,
   sanitizeToolCallId,
   type ToolCallIdPolicy,
 } from './tool-call-id';
-import { tryNativeLlmStream } from './native-stream';
+import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
 
 /**
  * Normalize an Anthropic `stop_reason` string to the unified
@@ -929,6 +929,7 @@ export class AnthropicChatProvider implements ChatProvider {
   private _baseUrl: string | undefined;
   private _defaultHeaders: Record<string, string | null> | undefined;
   private _clientFactory: ((auth: ProviderRequestAuth) => Anthropic) | undefined;
+  private readonly _authClientLRU: AuthClientLRU<Anthropic>;
   private _adaptiveThinking: boolean | undefined;
   private readonly _supportEfforts: readonly string[] | undefined;
   private readonly _kimiThinking: boolean;
@@ -950,6 +951,7 @@ export class AnthropicChatProvider implements ChatProvider {
     this._baseUrl = options.baseUrl;
     this._defaultHeaders = options.defaultHeaders;
     this._clientFactory = options.clientFactory;
+    this._authClientLRU = new AuthClientLRU<Anthropic>();
     this._client = this._apiKey === undefined ? undefined : this._buildClient(this._apiKey);
     this._explicitMaxTokens = options.defaultMaxTokens !== undefined;
     this._generationKwargs = {
@@ -1118,7 +1120,6 @@ export class AnthropicChatProvider implements ChatProvider {
     }
     const finalRequestOptions = Object.keys(requestOptions).length > 0 ? requestOptions : undefined;
     const client = this._createClient(options?.auth);
-    options?.onRequestSent?.();
 
     // ── Native stream fast-path ────────────────────────────────────────
     // Attempt the Rust native SSE pipeline before falling back to the SDK.
@@ -1129,23 +1130,46 @@ export class AnthropicChatProvider implements ChatProvider {
       }
       try {
         options?.onRequestSent?.();
-        const nativeResult = await tryNativeLlmStream({
-          provider: 'anthropic',
+        const nativeConfig = {
+          provider: 'anthropic' as const,
           url: `${this._baseUrl ?? 'https://api.anthropic.com'}/v1/messages`,
           apiKey: this._apiKey,
           model: this._model,
           requestBody: JSON.stringify({ ...createParams, stream: true }),
           timeoutMs: 120_000,
           extraHeaders: nativeHeaders,
-        });
+          signal: options?.signal,
+        };
+        // Prefer true incremental streaming (TSFN); fall back to the buffered
+        // native path only when the streaming binding is unavailable.
+        const incremental = await tryNativeLlmStreamIncremental(nativeConfig);
+        if (incremental !== undefined) {
+          return incremental;
+        }
+        const nativeResult = await tryNativeLlmStream(nativeConfig);
         if (nativeResult !== undefined) {
           return nativeResult;
         }
-      } catch {
-        // Native stream failed — fall through to SDK.
+      } catch (error) {
+        // A user cancel must propagate, not fall through to a re-issued SDK
+        // request the caller has explicitly aborted.
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw error;
+        }
+        // Native stream failed — fall through to SDK. Log the reason so a
+        // systematic native failure is diagnosable instead of silently
+        // doubling every LLM request.
+        console.warn(
+          `[kosong] native LLM stream (anthropic) failed, falling back to SDK: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
       }
     }
     // ── End native fast-path ──────────────────────────────────────────
+    // Report the SDK request (the native branch reports its own above); the
+    // native fast-path must not double-report a successful native request.
+    options?.onRequestSent?.();
 
     if (this._stream) {
       // Use the raw Messages stream instead of the SDK MessageStream helper.
@@ -1186,7 +1210,11 @@ export class AnthropicChatProvider implements ChatProvider {
 
   private _createClient(auth: ProviderRequestAuth | undefined): Anthropic {
     return resolveAuthBackedClient(
-      { cachedClient: this._client, clientFactory: this._clientFactory },
+      {
+        cachedClient: this._client,
+        clientFactory: this._clientFactory,
+        authClientLRU: this._authClientLRU,
+      },
       auth,
       (a) => this._buildClient(this._requireApiKey(a)),
     );

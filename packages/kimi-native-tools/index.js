@@ -42,7 +42,7 @@ function loadBinding() {
   // Try from release build directory (cargo build --release).
   const ext = process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so';
   // Rust crate name is kimi_native_tools (underscores), JS package is kimi-native-tools (hyphens).
-  const rustName = BINDING_NAME.replace(/-/g, '_');
+  const rustName = BINDING_NAME.replaceAll(/-/g, '_');
   const releasePath = path.join(__dirname, 'target', 'release', `${rustName}.${ext}`);
   try {
     if (fs.existsSync(releasePath)) {
@@ -170,6 +170,35 @@ async function nativeLlmStream(config) {
     timeoutMs: config.timeoutMs ?? null,
     extraHeaders: config.extraHeaders ?? null,
   });
+}
+
+/**
+ * Execute an LLM streaming request via Rust with incremental delivery.
+ *
+ * Same Rust pipeline as {@link nativeLlmStream} but parts are forwarded to
+ * `onEvent` as they are decoded (via a ThreadsafeFunction), so the JS side
+ * observes tokens incrementally instead of after the whole stream completes.
+ * The function returns immediately; the stream runs on a background thread.
+ *
+ * Follows Node callback conventions: `onEvent(err, event)` — `err` is `null`
+ * on success; `event` is `{ kind: 'part'|'done'|'error', part?, metadata?, error? }`.
+ *
+ * @param {object} config - Stream configuration (same shape as nativeLlmStream).
+ * @param {function} onEvent - `(err, event)` callback invoked per event.
+ */
+function nativeLlmStreamStreaming(config, onEvent) {
+  return binding.nativeLlmStreamStreaming(
+    {
+      provider: config.provider,
+      url: config.url,
+      apiKey: config.apiKey,
+      model: config.model,
+      requestBody: config.requestBody,
+      timeoutMs: config.timeoutMs ?? null,
+      extraHeaders: config.extraHeaders ?? undefined,
+    },
+    onEvent,
+  );
 }
 
 // ============================================================================
@@ -376,7 +405,7 @@ function nativeListDirectory(options = {}) {
 /**
  * Best-effort pixel-dimension reader for common raster formats.
  *
- * @param {Buffer|Uint8Array} data - Raw file bytes (at least the first few hundred bytes).
+ * @param {Uint8Array} data - Raw file bytes (at least the first few hundred bytes).
  * @returns {{ width: number, height: number } | null} Image dimensions or null if unknown.
  */
 function nativeSniffImageDimensions(data) {
@@ -389,7 +418,7 @@ function nativeSniffImageDimensions(data) {
  * Uses file extension first, then falls back to magic-byte sniffing.
  *
  * @param {string} path - File path (used for extension-based detection).
- * @param {Buffer|Uint8Array} header - First bytes of the file content (up to 512 bytes).
+ * @param {Uint8Array} header - First bytes of the file content (up to 512 bytes).
  * @returns {{ kind: string, mimeType: string }}
  */
 function nativeDetectFileType(path, header) {
@@ -1155,4 +1184,7 @@ module.exports = {
 
   // LLM Stream
   nativeLlmStream,
+
+  // LLM Stream (incremental)
+  nativeLlmStreamStreaming,
 };

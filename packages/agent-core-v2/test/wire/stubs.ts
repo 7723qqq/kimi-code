@@ -28,6 +28,7 @@ const noopLog: IAppendLogStore = {
   flush: async () => {},
   close: async () => {},
   acquire: () => toDisposable(() => {}),
+  revision: () => 0,
 };
 
 const noopBlob: IAgentBlobService = {
@@ -123,5 +124,6 @@ export function recordingWireLog(
     flush: async () => {},
     close: async () => {},
     acquire: () => toDisposable(() => {}),
+    revision: () => records.length,
   };
 }

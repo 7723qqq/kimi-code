@@ -1,5 +1,6 @@
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { spawn } from 'node:child_process';
+import type { Dirent } from 'node:fs';
 import {
   appendFile,
   lstat,
@@ -376,23 +377,30 @@ export class LocalKaos implements Kaos {
         yield basePath;
       }
 
-      let entries: string[];
+      let entries: Dirent[];
       try {
-        entries = await readdir(basePath);
+        entries = await readdir(basePath, { withFileTypes: true });
       } catch {
         return;
       }
 
       for (const entry of entries) {
         // Use join to avoid "//entry" when basePath is a filesystem root.
-        const fullPath = join(basePath, entry);
-        let entryStat;
-        try {
-          entryStat = await stat(fullPath);
-        } catch {
-          continue;
-        }
-        if (entryStat.isDirectory()) {
+        const fullPath = join(basePath, entry.name);
+        // Dirent.isDirectory() does not follow symlinks: a symlink to a
+        // directory must still be traversed (and its target inode cycle-
+        // checked), so symlinks are stat'ed; plain files/dirs need no stat.
+        if (entry.isDirectory() || entry.isSymbolicLink()) {
+          let entryStat;
+          try {
+            entryStat = await stat(fullPath);
+          } catch {
+            continue;
+          }
+          if (!entryStat.isDirectory()) {
+            if (remainingParts.length === 0) yield fullPath;
+            continue;
+          }
           const key = cycleKey(entryStat);
           if (key !== null && visited.has(key)) continue;
           yield* this._globWalk(
@@ -410,24 +418,28 @@ export class LocalKaos implements Kaos {
     } else {
       const regex = globPatternToRegex(currentPattern ?? '', caseSensitive);
 
-      let entries: string[];
+      let entries: Dirent[];
       try {
-        entries = await readdir(basePath);
+        entries = await readdir(basePath, { withFileTypes: true });
       } catch {
         return;
       }
 
       for (const entry of entries) {
-        if (!regex.test(entry)) {
+        if (!regex.test(entry.name)) {
           continue;
         }
 
         // Use join to avoid "//entry" when basePath is a filesystem root.
-        const fullPath = join(basePath, entry);
+        const fullPath = join(basePath, entry.name);
 
         if (remainingParts.length === 0) {
           yield fullPath;
         } else {
+          // Symlinks are stat'ed so a symlink-to-directory is traversed
+          // (and its target inode cycle-checked); plain files are skipped
+          // via Dirent without any syscall.
+          if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
           let entryStat;
           try {
             entryStat = await stat(fullPath);

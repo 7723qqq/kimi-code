@@ -347,6 +347,9 @@ export class ConfigService extends Disposable implements IConfigService {
   private readonly diagnosticsList: ConfigDiagnostic[] = [];
   private lastDiagnosticsSnapshot = '[]';
   private readonly configKey: string;
+  /** Memoized result of {@link freshEffective}; invalidated on any state change. */
+  private cachedEffective: ResolvedConfig | undefined;
+  private effectiveCacheValid = false;
 
   constructor(
     @IConfigRegistry private readonly registry: IConfigRegistry,
@@ -394,10 +397,21 @@ export class ConfigService extends Disposable implements IConfigService {
   }
 
   private freshEffective(): ResolvedConfig {
+    if (this.effectiveCacheValid && this.cachedEffective !== undefined) {
+      return this.cachedEffective;
+    }
     const effective: ResolvedConfig = { ...this.validated };
     this.applySectionEnvBindings(effective, false);
     this.applyEnvOverlay(effective, false);
+    this.cachedEffective = effective;
+    this.effectiveCacheValid = true;
     return effective;
+  }
+
+  /** Drop the memoized effective config; call whenever raw/validated/env change. */
+  private invalidateEffectiveCache(): void {
+    this.effectiveCacheValid = false;
+    this.cachedEffective = undefined;
   }
 
   diagnostics(): readonly ConfigDiagnostic[] {
@@ -545,8 +559,8 @@ export class ConfigService extends Disposable implements IConfigService {
   private enqueueStateTransition<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.stateChain.then(() => fn());
     this.stateChain = run.then(
-      () => undefined,
-      () => undefined,
+      () => {},
+      () => {},
     );
     return run;
   }
@@ -592,6 +606,7 @@ export class ConfigService extends Disposable implements IConfigService {
     source: ConfigChangeSource = 'reload',
     domains?: readonly string[],
   ): void {
+    this.invalidateEffectiveCache();
     const previous = this.effective;
     this.validated = this.buildValidated(this.raw);
     const next = { ...this.validated };
@@ -696,6 +711,7 @@ export class ConfigService extends Disposable implements IConfigService {
   }
 
   private reapplyOverlays(): void {
+    this.invalidateEffectiveCache();
     const before = this.effective;
     this.validated = this.buildValidated(this.raw);
     const next = { ...this.validated };
@@ -707,6 +723,7 @@ export class ConfigService extends Disposable implements IConfigService {
   }
 
   private revalidateDomain(domain: string): void {
+    this.invalidateEffectiveCache();
     const section = this.registry.getSection(domain);
     if (section === undefined) return;
 
@@ -758,6 +775,7 @@ export class ConfigService extends Disposable implements IConfigService {
   }
 
   private devalidateDomain(domain: string): void {
+    this.invalidateEffectiveCache();
     if (this.registry.getSection(domain) !== undefined) return;
 
     const snakeKey = camelToSnake(domain);

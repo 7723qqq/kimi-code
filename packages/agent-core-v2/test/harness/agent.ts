@@ -665,7 +665,7 @@ const noopHookRunner: IExternalHooksRunnerService = {
   ready: Promise.resolve(),
   onDidReload: Event.None as Event<void>,
   trigger: async () => [],
-  triggerBlock: async () => undefined,
+  triggerBlock: async () => {},
   fireAndForgetTrigger: async () => [],
   hasHooksFor: () => false,
 };
@@ -734,7 +734,7 @@ export function swarmServices(
     typeof swarmService === 'function'
       ? {
           _serviceBrand: undefined,
-          getSwarmItem: async () => undefined,
+          getSwarmItem: async () => {},
           run: swarmService,
           cancel: () => {},
         } satisfies ISessionSwarmService
@@ -754,8 +754,8 @@ export function createCommandRunner(stdout: string, exitCode = 0): ISessionProce
       pid: 42,
       exitCode,
       wait: vi.fn().mockResolvedValue(exitCode) as IProcess['wait'],
-      kill: vi.fn().mockResolvedValue(undefined) as IProcess['kill'],
-      dispose: vi.fn().mockResolvedValue(undefined) as IProcess['dispose'],
+      kill: vi.fn().mockResolvedValue() as IProcess['kill'],
+      dispose: vi.fn().mockResolvedValue() as IProcess['dispose'],
     };
   }
   return createFakeProcessRunner({
@@ -910,6 +910,10 @@ class PersistenceAppendLogStore implements IAppendLogStore {
     return toDisposable(() => { });
   }
 
+  revision(): number {
+    return this.history.length;
+  }
+
   snapshot(): WireRecord[] {
     return this.persistence.records.map(cloneRecord);
   }
@@ -1061,7 +1065,7 @@ export class AgentTestContext {
               () => { },
             ),
           );
-          reg.defineInstance(ILogService, createLogService(undefined));
+          reg.defineInstance(ILogService, createLogService());
           reg.defineInstance(
             ILogOptions,
             {
@@ -1211,7 +1215,7 @@ export class AgentTestContext {
                 Promise.reject(
                   new Error('IAgentLifecycleService.fork is not supported in the test harness'),
                 ),
-              get: () => undefined,
+              get: () => {},
               list: () => [],
               remove: () => Promise.resolve(),
               broadcastPermissionMode: (mode: PermissionMode) => {
@@ -1417,7 +1421,7 @@ export class AgentTestContext {
       this.get(IAgentContextInjectorService).register(
         'plugin_session_start',
         async ({ injectedPositions }) => {
-          if (injectedPositions.length > 0) return undefined;
+          if (injectedPositions.length > 0) return;
           return renderPluginSessionStartReminder(
             sessionStarts,
             skillCatalog,
@@ -2355,7 +2359,7 @@ function configStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot['config
 }
 
 function emptyConfig(): KimiConfig {
-  return configWithProvider({ providers: {} }, MOCK_PROVIDER, undefined);
+  return configWithProvider({ providers: {} }, MOCK_PROVIDER);
 }
 
 function applyTestAgentOptionsToConfig(config: KimiConfig, options: TestAgentOptions): KimiConfig {
@@ -2377,7 +2381,7 @@ function applyTestAgentOptionsToConfig(config: KimiConfig, options: TestAgentOpt
 function configService(readConfig: () => KimiConfig): IConfigService {
   const effectiveConfig = () => {
     const effective = { ...configWithEnvOverrides(readConfig()) } as Record<string, unknown>;
-    secondaryModelOverlay.apply(effective, () => undefined, (_domain, value) => value);
+    secondaryModelOverlay.apply(effective, () => {}, (_domain, value) => value);
     return effective as unknown as KimiConfig;
   };
   const memory = new Map<string, unknown>();

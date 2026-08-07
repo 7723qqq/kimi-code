@@ -49,7 +49,11 @@ function eventSourceFromFrame(frame: IpcFrame): EventSourceRef {
 }
 
 export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<KlientIpcHost> {
-  const dispatcher = createMemoryDispatcher(options.scope);
+  // `clone: false`: the IPC codec (`encodeFrame`) already JSON-serializes
+  // every frame at the socket boundary, so the dispatcher's extra JSON
+  // round-trip per value would only double the cost of large streaming
+  // payloads without adding isolation the codec does not already provide.
+  const dispatcher = createMemoryDispatcher(options.scope, { clone: false });
 
   // Best-effort cleanup of a stale socket file; ignore everything but a real
   // leftover (ENOENT = nothing to remove).
@@ -71,6 +75,30 @@ export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<Kl
     const send = (frame: IpcFrame): void => {
       if (!socket.destroyed) socket.write(encodeFrame(frame));
     };
+    /**
+     * Write a frame and report whether the socket's write buffer accepted it.
+     * `false` means the kernel/stream buffer is full — the caller should stop
+     * producing and wait for the `drain` event (see `awaitSocketDrain`).
+     */
+    const tryWrite = (frame: IpcFrame): boolean => {
+      if (socket.destroyed) return true;
+      return socket.write(encodeFrame(frame));
+    };
+    /** Resolve when the socket drains (buffer flushed) or is destroyed/closed. */
+    const awaitSocketDrain = (): Promise<void> =>
+      new Promise((resolve) => {
+        if (socket.destroyed) {
+          resolve();
+          return;
+        }
+        const settle = (): void => {
+          socket.off('drain', settle);
+          socket.off('close', settle);
+          resolve();
+        };
+        socket.once('drain', settle);
+        socket.once('close', settle);
+      });
     const sendError = (id: string, error: unknown): void => {
       if (error instanceof RPCError) {
         send({ type: 'error', id, code: error.code, msg: error.message });
@@ -172,7 +200,13 @@ export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<Kl
             try {
               for await (const chunk of iterable) {
                 if (ac.signal.aborted || socket.destroyed) break;
-                send({ type: 'stream_data', id, data: chunk });
+                // Respect socket backpressure: when the consumer is slower
+                // than the engine, `write` returns false once the buffer is
+                // full — pause the pull until the socket drains instead of
+                // letting the outbound buffer grow unbounded.
+                if (!tryWrite({ type: 'stream_data', id, data: chunk })) {
+                  await awaitSocketDrain();
+                }
               }
               if (!ac.signal.aborted && !socket.destroyed) {
                 send({ type: 'stream_end', id });

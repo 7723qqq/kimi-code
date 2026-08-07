@@ -30,6 +30,11 @@ export interface IAgentToolRegistryService {
 
   register(tool: ExecutableTool, options?: ToolRegistrationOptions): IDisposable;
   list(): readonly ToolInfo[];
+  /**
+   * O(1) lookup of a single tool's info by name — the per-step hot path
+   * (tool selection/policy) must not scan the whole sorted `list()` per name.
+   */
+  resolveInfo(name: string): ToolInfo | undefined;
   listReferences(): readonly ToolReference[];
   resolve(name: string): ExecutableTool | undefined;
 }

@@ -352,7 +352,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     };
 
     const run = async (projection: RequestProjection): Promise<AgentLLMRequestFinish> => {
-      onRequestTrace(undefined);
+      onRequestTrace();
       const projected = requestInput(projection);
       const input = {
         ...projected,
@@ -634,19 +634,19 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
 
   private logRequest(input: LLMRequestLogInput): void {
     const logFields: AgentLLMRequestLogFields = input.fields ?? {};
-    const wireTools = providerVisibleTools(input.tools);
+    const { hash: toolsHash } = cachedToolSignature(input.tools);
     const config = {
       provider: input.protocol,
       model: input.modelName,
       modelAlias: input.modelAlias,
       thinkingEffort: input.thinkingEffort ?? undefined,
       systemPromptChars: input.systemPrompt.length,
-      toolCount: wireTools.length,
+      toolCount: providerVisibleTools(input.tools).length,
     };
     const signature = JSON.stringify({
       ...config,
       systemPromptHash: fingerprint(input.systemPrompt),
-      toolsHash: fingerprint(JSON.stringify(toolSignature(wireTools))),
+      toolsHash,
     });
     if (signature !== this.lastConfigLogSignature) {
       this.lastConfigLogSignature = signature;
@@ -661,9 +661,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
 
   private recordRequest(input: LLMRequestLogInput): void {
     const fields = input.fields ?? {};
-    const wireTools = providerVisibleTools(input.tools);
-    const tools = toolSignature(wireTools);
-    const toolsHash = fingerprint(JSON.stringify(tools));
+    const { tools, hash: toolsHash } = cachedToolSignature(input.tools);
     if (!this.wire.getModel(LlmRequestTraceModel).seenToolsHashes.includes(toolsHash)) {
       this.wire.dispatch(llmToolsSnapshot({ hash: toolsHash, tools }));
     }
@@ -777,6 +775,40 @@ function providerVisibleTools(tools: readonly Tool[]): readonly Tool[] {
 
 function toolSignature(tools: readonly Tool[]): readonly LlmRequestToolSchema[] {
   return tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
+}
+
+/**
+ * Memoized tool signature + hash. Every LLM request re-derives the same
+ * signature and sha256 (the tool set is stable across a session), and the
+ * schemas can be hundreds of KB — serializing them per request is wasted CPU.
+ *
+ * Keyed by the sorted name list (+ deferred flag): tool names are unique in
+ * the registry, so a name uniquely identifies its schema (re-registering a
+ * name replaces the entry wholesale and changes nothing about the identity).
+ * The cache is small (bounded by the handful of distinct tool-set variants a
+ * session sees) so a plain Map with a hard cap is enough.
+ */
+const TOOLS_HASH_CACHE_MAX = 32;
+const toolsHashCache = new Map<
+  string,
+  { readonly tools: readonly LlmRequestToolSchema[]; readonly hash: string }
+>();
+
+function cachedToolSignature(
+  tools: readonly Tool[],
+): { readonly tools: readonly LlmRequestToolSchema[]; readonly hash: string } {
+  const wireTools = providerVisibleTools(tools);
+  const key = wireTools
+    .map((tool) => (tool.deferred === true ? `${tool.name}#deferred` : tool.name))
+    .toSorted()
+    .join('\u0000');
+  const cached = toolsHashCache.get(key);
+  if (cached !== undefined) return cached;
+  const signature = toolSignature(wireTools);
+  const entry = { tools: signature, hash: fingerprint(JSON.stringify(signature)) };
+  if (toolsHashCache.size >= TOOLS_HASH_CACHE_MAX) toolsHashCache.clear();
+  toolsHashCache.set(key, entry);
+  return entry;
 }
 
 function requestKindForRecord(fields: AgentLLMRequestLogFields): PayloadOf<typeof llmRequest>['kind'] {

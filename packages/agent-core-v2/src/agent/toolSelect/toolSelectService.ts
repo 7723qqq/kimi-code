@@ -175,9 +175,9 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
 
   private shouldIntercept(name: string): boolean {
     if (!this.enabled()) return false;
-    const info = this.toolRegistry.list().find((entry) => entry.name === name);
+    const info = this.toolRegistry.resolveInfo(name);
     if (info === undefined || !this.isDynamicallyLoadable(info)) return false;
-    if (!this.loadableToolNames().includes(name)) return false;
+    if (!this.toolPolicy.isToolActive(name, info.source)) return false;
     return !this.activeLoadedToolNames().has(name);
   }
 
@@ -235,7 +235,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   }
 
   private isLoadedToolActive(name: string): boolean {
-    const info = this.toolRegistry.list().find((entry) => entry.name === name);
+    const info = this.toolRegistry.resolveInfo(name);
     if (info !== undefined) {
       return (
         this.isDynamicallyLoadable(info) &&

@@ -53,6 +53,13 @@ export interface IAppendLogStore {
   flush(): Promise<void>;
   close(): Promise<void>;
   acquire(scope: string, key: string): IDisposable;
+  /**
+   * Monotonic write counter for a log: every `append`/`rewrite` increments it.
+   * Lets readers cheaply detect "the log changed since I last read" without
+   * re-reading the whole file — e.g. cache the folded result of a log and
+   * reuse it while this value is unchanged.
+   */
+  revision(scope: string, key: string): number;
 }
 
 export const IAppendLogStore: ServiceIdentifier<IAppendLogStore> =

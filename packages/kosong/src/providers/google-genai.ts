@@ -20,7 +20,7 @@ import type { TokenUsage } from '#/usage';
 import { ApiError as GoogleApiError, GoogleGenAI as GenAIClient } from '@google/genai';
 import { mergeConsecutiveUserMessages } from './merge-user-messages';
 
-import { requireProviderApiKey, resolveAuthBackedClient } from './request-auth';
+import { AuthClientLRU, requireProviderApiKey, resolveAuthBackedClient } from './request-auth';
 
 /**
  * Normalize a Google GenAI (Gemini) `finishReason` value to the unified
@@ -749,12 +749,14 @@ export class GoogleGenAIChatProvider implements ChatProvider {
   private _location: string | undefined;
   private _defaultHeaders: Record<string, string> | undefined;
   private _clientFactory: ((auth: ProviderRequestAuth) => GenAIClient) | undefined;
+  private readonly _authClientLRU: AuthClientLRU<GenAIClient>;
 
   constructor(options: GoogleGenAIOptions) {
     this._model = options.model;
     this._vertexai = options.vertexai ?? false;
     this._stream = options.stream ?? true;
     this._generationKwargs = {};
+    this._authClientLRU = new AuthClientLRU<GenAIClient>();
 
     const apiKey = options.apiKey ?? process.env['GOOGLE_API_KEY'];
     this._apiKey = apiKey === undefined || apiKey.length === 0 ? undefined : apiKey;
@@ -905,7 +907,11 @@ export class GoogleGenAIChatProvider implements ChatProvider {
 
   private _createClient(auth: ProviderRequestAuth | undefined): GenAIClient {
     return resolveAuthBackedClient(
-      { cachedClient: this._client, clientFactory: this._clientFactory },
+      {
+        cachedClient: this._client,
+        clientFactory: this._clientFactory,
+        authClientLRU: this._authClientLRU,
+      },
       auth,
       (a) => {
         // Vertex AI auth flows through google-auth-library service credentials,

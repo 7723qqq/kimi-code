@@ -71,6 +71,19 @@ pub enum StreamEvent {
 pub async fn run_llm_stream(
     config: &LlmStreamConfig,
 ) -> Result<Vec<StreamEvent>, String> {
+    let mut events = Vec::new();
+    run_llm_stream_with(config, |event| events.push(event)).await?;
+    Ok(events)
+}
+
+/// Execute the full LLM streaming pipeline, invoking `emit` for each event as
+/// it is decoded — the SSE loop stays fully streaming; nothing is buffered.
+/// The NAPI layer uses this to forward parts to JS via a ThreadsafeFunction
+/// as they arrive (true incremental streaming, not "collect then return").
+pub async fn run_llm_stream_with(
+    config: &LlmStreamConfig,
+    mut emit: impl FnMut(StreamEvent),
+) -> Result<(), String> {
     let timeout = Duration::from_millis(config.timeout_ms);
 
     // Build headers
@@ -147,13 +160,12 @@ pub async fn run_llm_stream(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
-    // Read SSE stream
-    let mut events = Vec::new();
     let mut metadata = StreamMetadata {
         trace_id,
         ..Default::default()
     };
 
+    // Read SSE stream
     let bytes_stream = response.bytes_stream();
     let mut sse_stream = bytes_stream.eventsource();
 
@@ -178,18 +190,18 @@ pub async fn run_llm_stream(
                 };
 
                 for part in decoded {
-                    events.push(StreamEvent::Part(part));
+                    emit(StreamEvent::Part(part));
                 }
             }
             Err(e) => {
-                events.push(StreamEvent::Error(format!("SSE stream error: {e}")));
+                emit(StreamEvent::Error(format!("SSE stream error: {e}")));
                 break;
             }
         }
     }
 
-    events.push(StreamEvent::Done(metadata));
-    Ok(events)
+    emit(StreamEvent::Done(metadata));
+    Ok(())
 }
 
 // ── OpenAI Responses API decoder ─────────────────────────────────────────────

@@ -101,7 +101,13 @@ export function createKlientFromChannel(
     scope: ScopeRef,
     registrations: Record<string, EventRegistration>,
   ): KlientEvents<TPayloadMap> => {
-    const hub = new EventHub<TPayloadMap>(channel, validate, scope, registrations);
+    const hub = new EventHub<TPayloadMap>(channel, validate, scope, registrations, () => {
+      // A discarded handle's hub has no listeners left — stop pinning it in
+      // the Set so the whole EventHub (and any captured scope) can be GC'd.
+      // `close` is idempotent and `close()` on an already-idle hub is a no-op,
+      // so this cannot interfere with `klient.close()`.
+      hubs.delete(hub);
+    });
     hubs.add(hub);
     return hub;
   };

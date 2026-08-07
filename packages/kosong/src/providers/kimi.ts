@@ -38,6 +38,7 @@ import {
   mergeRequestHeaders,
   requireProviderApiKey,
   resolveAuthBackedClient,
+  AuthClientLRU,
 } from './request-auth';
 import {
   normalizeToolCallIdsForProvider,
@@ -426,6 +427,7 @@ export class KimiChatProvider implements ChatProvider {
   private _generationKwargs: GenerationKwargs;
   private _client: OpenAI | undefined;
   private _clientFactory: ((auth: ProviderRequestAuth) => OpenAI) | undefined;
+  private readonly _authClientLRU: AuthClientLRU<OpenAI>;
   private _files: KimiFiles | undefined;
   private _reasoningKeyDialect: ReasoningKeyDialect;
 
@@ -435,6 +437,7 @@ export class KimiChatProvider implements ChatProvider {
     this._baseUrl = options.baseUrl ?? process.env['KIMI_BASE_URL'] ?? 'https://api.moonshot.ai/v1';
     this._defaultHeaders = options.defaultHeaders;
     this._clientFactory = options.clientFactory;
+    this._authClientLRU = new AuthClientLRU<OpenAI>();
     this._model = options.model;
     this._stream = options.stream ?? true;
     this._generationKwargs = { ...options.generationKwargs };
@@ -640,7 +643,11 @@ export class KimiChatProvider implements ChatProvider {
 
   private _createClient(auth: ProviderRequestAuth | undefined): OpenAI {
     return resolveAuthBackedClient(
-      { cachedClient: this._client, clientFactory: this._clientFactory },
+      {
+        cachedClient: this._client,
+        clientFactory: this._clientFactory,
+        authClientLRU: this._authClientLRU,
+      },
       auth,
       (a) => {
         const defaultHeaders = mergeRequestHeaders(this._defaultHeaders, a?.headers);

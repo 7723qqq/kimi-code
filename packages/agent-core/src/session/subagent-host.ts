@@ -204,17 +204,29 @@ export class SessionSubagentHost {
         throw error;
       }
     });
+    const finalCompletion = this.withAutomaticRetry(parent, id, profile.name, runOptions, completion);
+    // Once the whole (possibly retried) run settles, release the child's MCP
+    // status listener so finished subagents stop accumulating permanent
+    // listeners on the session-shared MCP connection manager. A later
+    // `resume`/`retry` of this agentId re-attaches it.
+    void finalCompletion.then(
+      () => agent.dispose(),
+      () => agent.dispose(),
+    );
     return {
       agentId: id,
       profileName: profile.name,
       resumed: false,
-      completion: this.withAutomaticRetry(parent, id, profile.name, runOptions, completion),
+      completion: finalCompletion,
     };
   }
 
   async resume(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle> {
     options.signal.throwIfAborted();
     const { parent, child, profileName } = await this.ensureIdleSubagent(agentId);
+    // Re-attach the MCP status listener a previous `dispose()` released — this
+    // agent may be reused across spawns/resumes.
+    child.tools.attachMcpTools();
     const runOptions = retryableRunOptions(options);
     const completion = this.runWithActiveChild(agentId, runOptions, async (activeOptions) => {
       this.emitSubagentSpawned(parent, agentId, profileName, activeOptions);
@@ -226,17 +238,24 @@ export class SessionSubagentHost {
         throw error;
       }
     });
+    const finalCompletion = this.withAutomaticRetry(parent, agentId, profileName, runOptions, completion);
+    void finalCompletion.then(
+      () => child.dispose(),
+      () => child.dispose(),
+    );
     return {
       agentId,
       profileName,
       resumed: true,
-      completion: this.withAutomaticRetry(parent, agentId, profileName, runOptions, completion),
+      completion: finalCompletion,
     };
   }
 
   async retry(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle> {
     options.signal.throwIfAborted();
     const { parent, child, profileName } = await this.ensureIdleSubagent(agentId);
+    // Re-attach the MCP status listener a previous `dispose()` released.
+    child.tools.attachMcpTools();
     const runOptions = retryableRunOptions(options);
     const completion = this.runWithActiveChild(agentId, runOptions, async (activeOptions) => {
       try {
@@ -254,11 +273,16 @@ export class SessionSubagentHost {
         throw error;
       }
     });
+    const finalCompletion = this.withAutomaticRetry(parent, agentId, profileName, runOptions, completion);
+    void finalCompletion.then(
+      () => child.dispose(),
+      () => child.dispose(),
+    );
     return {
       agentId,
       profileName,
       resumed: true,
-      completion: this.withAutomaticRetry(parent, agentId, profileName, runOptions, completion),
+      completion: finalCompletion,
     };
   }
 
@@ -348,6 +372,7 @@ export class SessionSubagentHost {
     if (agent === undefined) return;
     this.persistentChildren.delete(agentId);
     agent.turn.cancel(undefined, new Error('Subagent destroyed'));
+    agent.dispose();
     this.session.agents.delete(agentId);
     delete this.session.metadata.agents[agentId];
   }

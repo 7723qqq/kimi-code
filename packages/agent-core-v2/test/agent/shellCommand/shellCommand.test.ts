@@ -161,8 +161,9 @@ describe('AgentShellCommandService', () => {
       _serviceBrand: undefined,
       register: () => ({ dispose: () => {} }),
       list: () => [],
+      resolveInfo: () => {},
       listReferences: () => [],
-      resolve: () => undefined,
+      resolve: () => {},
     };
     ctx = createTestAgent(agentService(IAgentToolRegistryService, emptyRegistry));
     context = ctx.get(IAgentContextMemoryService);

@@ -10,7 +10,10 @@
  * in-process — and non-serializable leaks fail early.
  *
  * Shared by the memory transport and the IPC host, which guarantees ipc and
- * memory behave identically by construction.
+ * memory behave identically by construction. The IPC host opts out of the
+ * clone (`clone: false`): its `encodeFrame` already JSON-serializes every
+ * frame, so the extra round-trip per chunk would be pure waste — the wire
+ * guarantees the clone provides are already enforced at the codec boundary.
  */
 
 import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2/_base/di/instantiation';
@@ -38,6 +41,16 @@ export function wireClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+export interface MemoryDispatcherOptions {
+  /**
+   * When `false`, skip the JSON round-trip (`wireClone`) on every value.
+   * The IPC host uses this — its codec already serializes each frame, so the
+   * clone would only double the per-chunk cost of large streaming payloads.
+   * Defaults to `true` (memory transport keeps the isolation semantics).
+   */
+  readonly clone?: boolean;
+}
+
 export interface MemoryDispatcher {
   call(scope: ScopeRef, service: string, method: string, args: unknown[]): Promise<unknown>;
   stream(scope: ScopeRef, service: string, method: string, args: unknown[]): AsyncIterable<unknown>;
@@ -59,7 +72,11 @@ interface ResolvedScope {
   readonly like: ScopeLike;
 }
 
-export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
+export function createMemoryDispatcher(
+  root: ScopeLike,
+  options?: MemoryDispatcherOptions,
+): MemoryDispatcher {
+  const clone = <T>(value: T): T => (options?.clone === false ? value : wireClone(value));
   /** Mirrors kap-server's `resolveScope`, incl. main-agent materialization. */
   async function resolveScope(scope: ScopeRef): Promise<ResolvedScope> {
     if (scope.workspaceId !== undefined) {
@@ -101,25 +118,25 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
     if (resolved.kind === 'core' && name === 'events') {
       const bus = resolved.like.accessor.get(IEventService);
       return bus.subscribe((event) => {
-        handler(wireClone(event));
+        handler(clone(event));
       });
     }
     if (resolved.kind === 'session' && name === 'interactions') {
       const interaction = resolved.like.accessor.get(ISessionInteractionService);
       return interaction.onDidChangePending(() => {
-        handler(wireClone(interaction.listPending()));
+        handler(clone(interaction.listPending()));
       });
     }
     if (resolved.kind === 'session' && name === 'interactions:resolved') {
       const interaction = resolved.like.accessor.get(ISessionInteractionService);
       return interaction.onDidResolve((resolution) => {
-        handler(wireClone(resolution));
+        handler(clone(resolution));
       });
     }
     if (resolved.kind === 'agent' && name === 'events') {
       const bus = resolved.like.accessor.get(IEventBus);
       return bus.subscribe((event) => {
-        handler(wireClone(event));
+        handler(clone(event));
       });
     }
     throw new RPCError(REQUEST_INVALID, `unknown event stream: ${name} (${resolved.kind})`);
@@ -144,7 +161,7 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
     return (emitter as (listener: (data: unknown) => void) => IDisposable).call(
       instance,
       (data) => {
-        handler(wireClone(data));
+        handler(clone(data));
       },
     );
   }
@@ -158,11 +175,11 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
         throw new RPCError(REQUEST_INVALID, `method not found: ${service}.${method}`);
       }
       if (typeof member !== 'function') {
-        return wireClone(member);
+        return clone(member);
       }
-      const clonedArgs = args.map(wireClone);
+      const clonedArgs = args.map(clone);
       const result = await (member as (...a: unknown[]) => unknown).apply(instance, clonedArgs);
-      return wireClone(result);
+      return clone(result);
     },
 
     stream(scope, service, method, args): AsyncIterable<unknown> {
@@ -184,9 +201,9 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
                 const requester = (catalog as { getRequester(id: string): { request(...a: unknown[]): AsyncIterable<unknown> } })
                   .getRequester(modelId as string);
                 const iterable = requester.request(
-                  wireClone(input),
+                  clone(input),
                   controller.signal,
-                  wireClone(params),
+                  clone(params),
                 );
                 source = iterable[Symbol.asyncIterator]();
               })();
@@ -198,7 +215,7 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
                 await ensureStarted();
                 const result = await source!.next();
                 if (result.done) return { done: true, value: undefined };
-                return { done: false, value: wireClone(result.value) };
+                return { done: false, value: clone(result.value) };
               },
               async return(value?: unknown) {
                 controller.abort();
@@ -229,7 +246,7 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
               if (typeof member !== 'function') {
                 throw new RPCError(REQUEST_INVALID, `not a streaming method: ${service}.${method}`);
               }
-              const clonedArgs = args.map(wireClone);
+              const clonedArgs = args.map(clone);
               const iterable = (member as (...a: unknown[]) => unknown).apply(
                 instance,
                 clonedArgs,
@@ -244,7 +261,7 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
               await ensureStarted();
               const result = await source!.next();
               if (result.done) return { done: true, value: undefined };
-              return { done: false, value: wireClone(result.value) };
+              return { done: false, value: clone(result.value) };
             },
             async return(value?: unknown) {
               await source?.return?.(value);

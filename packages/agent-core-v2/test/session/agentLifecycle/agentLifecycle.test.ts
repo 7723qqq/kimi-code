@@ -132,6 +132,7 @@ function recordingAppendLog(initial: readonly WireRecord[] = []): {
     flush: () => Promise.resolve(),
     close: () => Promise.resolve(),
     acquire: () => ({ dispose: () => {} }),
+    revision: () => records.length,
   };
   return {
     appended,
@@ -174,7 +175,7 @@ describe('AgentLifecycleService', () => {
     ix.set(IAgentStateService, new AgentStateService());
     ix.stub(IAppendLogStore, recordingAppendLog().store);
     stubBlobPassThrough(ix);
-    registerAgent = vi.fn<ISessionMetadata['registerAgent']>().mockResolvedValue(undefined);
+    registerAgent = vi.fn<ISessionMetadata['registerAgent']>().mockResolvedValue();
     atomicDocs = new Map();
     ix.stub(ISessionContext, {
       _serviceBrand: undefined,
@@ -210,7 +211,7 @@ describe('AgentLifecycleService', () => {
     ix.stub(IPluginService, pluginServiceStub);
     ix.stub(IConfigService, {
       ready: Promise.resolve(),
-      get: (() => undefined) as IConfigService['get'],
+      get: (() => {}) as IConfigService['get'],
       onDidSectionChange: (() => ({ dispose: () => {} })) as IConfigService['onDidSectionChange'],
     } as unknown as IConfigService);
     const atomicDocsStore: IAtomicDocumentStore = {
@@ -238,7 +239,7 @@ describe('AgentLifecycleService', () => {
     ix.stub(IAgentToolRegistryService, {
       _serviceBrand: undefined,
       register: () => ({ dispose: () => {} }),
-      resolve: () => undefined,
+      resolve: () => {},
       list: () => [],
     } as unknown as IAgentToolRegistryService);
     ix.stub(IAgentMediaToolsRegistrar, {
@@ -311,7 +312,7 @@ describe('AgentLifecycleService', () => {
     ix.stub(ISessionAgentProfileCatalog, {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
-      get: () => undefined,
+      get: () => {},
       getDefault: () => {
         throw new Error('catalog resolution is not expected');
       },

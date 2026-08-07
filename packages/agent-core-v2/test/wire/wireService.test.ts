@@ -16,7 +16,7 @@ import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { defineModel, type ModelDef } from '#/wire/model';
 import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
 import { bindDefineOp, DuplicateOpError, type Op, type OpDescriptor } from '#/wire/op';
-import { IWireService } from '#/wire/wire';
+import type { IWireService } from '#/wire/wire';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 import {
   builtinWireContribution,
@@ -246,6 +246,7 @@ describe('WireService', () => {
       flush: async () => {},
       close: async () => {},
       acquire: () => toDisposable(() => {}),
+      revision: () => 0,
     };
     const streamingIx = disposables.add(new TestInstantiationService());
     streamed = registerTestAgentWire(
