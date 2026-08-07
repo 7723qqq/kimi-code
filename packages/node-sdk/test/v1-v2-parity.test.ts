@@ -23,6 +23,8 @@ import {
 
 import { McpOAuthService } from '../../agent-core/src/mcp/oauth/service';
 
+import { startMcpAuthStatusServer } from './mcp-auth-status-server';
+
 import {
   createKimiHarness,
   createKimiHarnessV2,
@@ -3464,11 +3466,15 @@ async function expectSameMcpRejection(
 
 describe('v1↔v2 global MCP parity', () => {
   it('classifies global MCP authorization identically from persisted credentials', async () => {
+    const statusServer = await startMcpAuthStatusServer();
     const authorizedUrl = 'https://authorized.example.test/mcp';
     const pair = await makeGlobalMcpParityPair({
       mcpServers: {
         stdio: { command: 'local-command' },
-        plain: { transport: 'http', url: 'https://plain.example.test/mcp' },
+        plain: { transport: 'http', url: statusServer.plainUrl },
+        detected: { transport: 'http', url: statusServer.oauthUrl },
+        sse: { transport: 'sse', url: statusServer.oauthUrl },
+        'sse-oauth': { transport: 'sse', url: statusServer.oauthUrl, auth: 'oauth' },
         bearer: {
           transport: 'http',
           url: 'https://bearer.example.test/mcp',
@@ -3487,9 +3493,13 @@ describe('v1↔v2 global MCP parity', () => {
       },
     });
     for (const homeDir of [pair.v1HomeDir, pair.v2HomeDir]) {
-      new McpOAuthService({ kimiHomeDir: homeDir })
+      const externalOAuth = new McpOAuthService({ kimiHomeDir: homeDir });
+      externalOAuth
         .getProvider('oauth-authorized', authorizedUrl)
         .saveTokens({ access_token: 'test-access-token', token_type: 'Bearer' });
+      externalOAuth
+        .getProvider('sse', statusServer.oauthUrl)
+        .saveTokens({ access_token: 'stale-sse-token', token_type: 'Bearer' });
     }
 
     try {
@@ -3501,14 +3511,18 @@ describe('v1↔v2 global MCP parity', () => {
       expect(v1Statuses).toEqual([
         { name: 'stdio', authStatus: 'not-applicable' },
         { name: 'plain', authStatus: 'not-applicable' },
+        { name: 'detected', authStatus: 'oauth-required' },
+        { name: 'sse', authStatus: 'not-applicable' },
+        { name: 'sse-oauth', authStatus: 'oauth-required' },
         { name: 'bearer', authStatus: 'bearer-token' },
         { name: 'oauth-required', authStatus: 'oauth-required' },
         { name: 'oauth-authorized', authStatus: 'oauth-authorized' },
       ]);
     } finally {
       await closeGlobalMcpPair(pair);
+      await statusServer.close();
     }
-  });
+  }, 15_000);
 
   it('CRUD round-trips identically and writes byte-identical mcp.json files', async () => {
     const pair = await makeGlobalMcpParityPair({
