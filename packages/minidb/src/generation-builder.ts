@@ -690,7 +690,9 @@ export class GenerationBuilder<V> {
           await fs.copyFile(snapSrc, path.join(tmpDir, GEN_SNAPSHOT_FILE));
           const h = await fs.open(path.join(tmpDir, GEN_SNAPSHOT_FILE), 'r');
           try {
-            await h.sync();
+            await h.sync().catch((e: NodeJS.ErrnoException) => {
+              if (e.code !== 'EPERM' && e.code !== 'ENOTSUP' && e.code !== 'EINVAL') throw e;
+            });
           } finally {
             await h.close().catch(() => {});
           }

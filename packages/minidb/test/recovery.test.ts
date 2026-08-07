@@ -244,7 +244,9 @@ function swapWalInodeSync(real: FsSyncModule, walPath: string): void {
   real.renameSync(`${walPath}.swap`, walPath);
 }
 
-test('generation pairing: a rotation-like WAL inode swap at the post-scan forensics is retried to a consistent read-only open', async () => {
+// The WAL inode swap is simulated with POSIX rename-over-open semantics,
+// which Windows cannot reproduce (an open WAL handle blocks rename/unlink).
+test('generation pairing: a rotation-like WAL inode swap at the post-scan forensics is retried to a consistent read-only open', { skip: process.platform === 'win32' }, async () => {
   const dir = await tmpDir();
   try {
     const writer = await MiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'no', autoCompact: false, indexGenerations: false });

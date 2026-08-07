@@ -158,9 +158,12 @@ export function attachImage(
  *  across the rename). A reopen failure degrades reads to delta-only until
  *  the next build, exactly like commitBuild's reopen failure. */
 export function repointPostings(s: Pick<TextIndexImageState, 'pf'>, newPath: string): void {
-  if (!s.pf) return;
   if (process.platform === 'win32') {
-    s.pf.close();
+    // The caller (generation-builder) closes every live base before the
+    // publish rename on Windows; the handle is then null here and must be
+    // reopened at the published path — an early `if (!s.pf) return` would
+    // leave the index permanently without a postings handle.
+    if (s.pf) s.pf.close();
     s.pf = null;
     try {
       s.pf = PostingsFile.open(newPath);
@@ -169,5 +172,6 @@ export function repointPostings(s: Pick<TextIndexImageState, 'pf'>, newPath: str
     }
     return;
   }
+  if (!s.pf) return;
   s.pf.path = newPath;
 }
