@@ -241,6 +241,16 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   private frozenSkillListing: string | undefined;
   private frozenPluginSections: string | undefined;
 
+  // Cache-stability freezes: `${now}` and `cwdListing` are part of the system
+  // prompt prefix. If they change between requests, the provider's prompt
+  // cache is invalidated entirely. Both are snapshotted on the first
+  // successful build and reused by every subsequent refreshSystemPrompt, so
+  // AGENTS.md / tool-config / skill-catalog changes do not churn the prefix
+  // and destroy cache hits. Never reset by applyProfile / useProfile /
+  // applyBindingSnapshot / refreshSystemPrompt.
+  private frozenNow: string | undefined;
+  private frozenCwdListing: string | undefined;
+
   constructor(
     @IWireService private readonly wire: IWireService,
     @IEventBus private readonly eventBus: IEventBus,
@@ -948,11 +958,21 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       {
         additionalDirs: options?.additionalDirs ?? this.workspace.additionalDirs,
         preloadedAgentsMd,
+        preloadedCwdListing: this.frozenCwdListing,
       },
     );
+    // Freeze cwdListing on first build so subsequent refreshSystemPrompt
+    // calls do not re-read the directory (files created/deleted during a
+    // coding session would otherwise churn the system-prompt prefix and
+    // invalidate the provider's prompt cache).
+    this.frozenCwdListing ??= base.cwdListing;
     const skills = await this.resolveSkillListing();
     const pluginSections = await this.resolvePluginSections();
-    const now = this.clock.now();
+    // Freeze `${now}` on first build: regenerating it on every
+    // refreshSystemPrompt would change the system-prompt prefix and destroy
+    // all prompt-cache hits for the session.
+    const now = this.frozenNow ?? this.clock.now().toISOString();
+    this.frozenNow ??= now;
     const timeZone = this.clock.timeZone();
     return {
       ...base,
@@ -960,7 +980,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       osKind: this.env.osKind,
       shellName: this.env.shellName,
       shellPath: this.env.shellPath,
-      now: now.toISOString(),
+      now,
       timeZone,
       skills,
       pluginSections,
