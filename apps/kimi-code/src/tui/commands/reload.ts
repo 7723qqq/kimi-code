@@ -7,13 +7,17 @@ import type { SlashCommandHost } from './dispatch';
 import { setExperimentalFeatures } from './experimental-flags';
 
 export async function handleReloadTuiCommand(host: SlashCommandHost): Promise<void> {
-  const tuiConfig = await loadTuiConfig();
+  const tuiConfig = await loadTuiConfig(undefined, (message) =>
+    host.showStatus(message, 'warning'),
+  );
   await applyReloadedTuiConfig(host, tuiConfig);
   host.showStatus(t('tui.statusMessages.reloadTuiConfigReloaded'), 'success');
 }
 
 export async function handleReloadCommand(host: SlashCommandHost): Promise<void> {
-  const tuiConfig = await loadTuiConfig();
+  const tuiConfig = await loadTuiConfig(undefined, (message) =>
+    host.showStatus(message, 'warning'),
+  );
   const session = host.session;
 
   if (session !== undefined) {
@@ -49,6 +53,7 @@ export async function applyReloadedTuiConfig(
     disablePasteBurst: config.disablePasteBurst,
     notifications: config.notifications,
     upgrade: config.upgrade,
+    statusLine: config.statusLine,
   });
   host.state.editor.setDisablePasteBurst(config.disablePasteBurst);
 }

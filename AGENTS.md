@@ -11,7 +11,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Author**: Moonshot AI
 - **License**: MIT
 - **Homepage**: https://github.com/MoonshotAI/kimi-code
-- **Version**: `@moonshot-ai/kimi-code` 0.29.1 (the main CLI app)
+- **Version**: `@moonshot-ai/kimi-code` 0.30.0 (the main CLI app)
 
 > **Note**: This repository is a personal experimental fork of MoonshotAI/kimi-code. Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream.
 
@@ -163,7 +163,9 @@ packages/
   i18n-shared/       — Shared i18n core (types, locale detection, web-safe)
   oauth/             — Kimi OAuth and managed auth utilities
   telemetry/         — Shared client-side telemetry infrastructure
-  minidb/            — Embedded key-value DB (Redis-style in-memory + SQLite-style WAL)
+  minidb/            — Embedded JSON document store (snapshot + WAL, full-text index)
+  server-e2e/        — Live e2e tests against a running server (KIMI_SERVER_URL)
+  tree-sitter-bash/  — Pure-TypeScript bash parser (deterministic budget)
   migration-legacy/  — Data migration from kimi-cli (~/.kimi/) to kimi-code (~/.kimi-code/)
   pi-tui/            — Terminal UI framework (upstream dependency, node:test suite)
   kimi-native-tools/ — Rust native Node addon (napi-rs)

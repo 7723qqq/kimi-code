@@ -17,6 +17,7 @@ import type { TokenUsage } from '#/usage';
 import OpenAI from 'openai';
 import { createSharedFetch } from '../http/undici-agent';
 
+import { classifyKimiQuotaError } from './kimi-errors';
 import { KimiFiles } from './kimi-files';
 import {
   convertChatCompletionStreamToolCall,
@@ -401,7 +402,7 @@ class KimiStreamedMessage implements StreamedMessage {
         }
       }
     } catch (error: unknown) {
-      throw convertOpenAIError(error);
+      throw convertOpenAIError(error, classifyKimiQuotaError);
     }
   }
 }
@@ -581,7 +582,7 @@ export class KimiChatProvider implements ChatProvider {
         this._reasoningKeyDialect,
       );
     } catch (error: unknown) {
-      throw convertOpenAIError(error);
+      throw convertOpenAIError(error, classifyKimiQuotaError);
     }
   }
 

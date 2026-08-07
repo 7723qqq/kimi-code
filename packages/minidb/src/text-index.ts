@@ -23,7 +23,7 @@ import { PostingsFile } from './text-postings.js';
 import type { PostingEntry } from './text-postings.js';
 
 const LATIN = /[a-z0-9]+/g;
-const CJK = /[\u3400-\u9fff\u3040-\u30ff\uff00-\uffef]+/g;
+const CJK = /[\u3400-\u9FFF\u3040-\u30FF\uFF00-\uFFEF]+/g;
 // Postings records store the term length in a uint16. A single document with a
 // longer token previously made every postings rebuild throw after the index had
 // already been cleared, permanently poisoning the index (and compaction). Such
@@ -63,6 +63,15 @@ function stringLeaves(obj: unknown, acc: string[] = []): string[] {
 
 export interface TextIndexOptions {
   fields?: readonly string[] | null;
+  /** Custom tokenizer, applied to indexed documents (and to query text when
+   *  no `queryTokenizer` is given). Defaults to the built-in word/CJK
+   *  `tokenize`. */
+  tokenizer?: (text: string) => string[];
+  /** Custom tokenizer for query text in `search()`. Defaults to `tokenizer`.
+   *  Only diverges for the n-gram index: the query side emits fewer, more
+   *  selective terms (a length >= 3 query needs only its 3-grams), while the
+   *  index side indexes both widths so every query shape can match. */
+  queryTokenizer?: (text: string) => string[];
   /** Path to the postings file. If omitted, the index keeps its base postings
    *  in memory instead of on disk (used by read-only openers, which must not
    *  write to a live writer's directory). */
@@ -86,6 +95,8 @@ const EMPTY_MAP: ReadonlyMap<number, number> = new Map();
 
 export class TextIndex {
   private readonly fields: readonly string[] | null;
+  private readonly tokenizer: (text: string) => string[];
+  private readonly queryTokenizer: (text: string) => string[];
   private readonly path: string | null;
   private readonly cacheTerms: number;
 
@@ -117,13 +128,15 @@ export class TextIndex {
 
   constructor(opts: TextIndexOptions = {}) {
     this.fields = opts.fields ?? null;
+    this.tokenizer = opts.tokenizer ?? tokenize;
+    this.queryTokenizer = opts.queryTokenizer ?? this.tokenizer;
     this.path = opts.postingsPath ?? null;
     this.cacheTerms = opts.cacheTerms ?? 1024;
     if (!this.path) this.memBase = new Map();
   }
 
   private extract(doc: unknown): string {
-    if (this.fields && this.fields.length) {
+    if (this.fields && this.fields.length > 0) {
       return this.fields
         .map((f) => getPath(doc, f))
         .filter((v): v is string => typeof v === 'string')
@@ -168,7 +181,7 @@ export class TextIndex {
       const docID = newKeys.length;
       newKeys.push(key);
       newKeyToId.set(key, docID);
-      const tokens = tokenize(this.extract(value));
+      const tokens = this.tokenizer(this.extract(value));
       const counts = new Map<string, number>();
       for (const t of tokens) counts.set(t, (counts.get(t) ?? 0) + 1);
       for (const [t, c] of counts) {
@@ -194,7 +207,7 @@ export class TextIndex {
       let dict: Map<string, PostingEntry>;
       try {
         dict = PostingsFile.rebuildSync(this.path, aggToSorted(agg));
-      } catch (e) {
+      } catch (error) {
         // rebuildSync failed before the atomic rename, so the old file is
         // intact: re-attach it and keep serving the previous index until the
         // next successful build.
@@ -205,7 +218,7 @@ export class TextIndex {
             /* old handle unrecoverable; the next successful build fixes it */
           }
         }
-        throw e;
+        throw error;
       }
       // The rename happened — the old postings are replaced on disk, so from
       // here the swap commits to the new index. A failed reopen (EMFILE & co.)
@@ -241,7 +254,7 @@ export class TextIndex {
     const docID = this.keys.length;
     this.keys.push(key);
     this.keyToId.set(key, docID);
-    const tokens = tokenize(this.extract(doc));
+    const tokens = this.tokenizer(this.extract(doc));
     const counts = new Map<string, number>();
     for (const t of tokens) counts.set(t, (counts.get(t) ?? 0) + 1);
     for (const [t, c] of counts) {
@@ -306,8 +319,8 @@ export class TextIndex {
   }
 
   search(query: string, opts: SearchOptions = {}): SearchHit[] {
-    const qtokens = [...new Set(tokenize(query))];
-    if (!qtokens.length) return [];
+    const qtokens = [...new Set(this.queryTokenizer(query))];
+    if (qtokens.length === 0) return [];
     const op = opts.op ?? 'AND';
     const limit = opts.limit ?? 50;
 
@@ -323,7 +336,7 @@ export class TextIndex {
       if (lists.some((m) => m.size === 0)) return [];
       lists.sort((a, b) => a.size - b.size);
       candidates = new Set(lists[0]!.keys());
-      for (let i = 1; i < lists.length && candidates.size; i++) {
+      for (let i = 1; i < lists.length && candidates.size > 0; i++) {
         for (const id of candidates) if (!lists[i]!.has(id)) candidates.delete(id);
       }
     }

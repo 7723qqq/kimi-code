@@ -16,17 +16,6 @@
  * every Service.
  */
 
-import { IAuthSummaryService } from '@moonshot-ai/agent-core-v2/app/auth/auth';
-import { IConfigService } from '@moonshot-ai/agent-core-v2/app/config/config';
-import { IFlagService } from '@moonshot-ai/agent-core-v2/app/flag/flag';
-import { IProviderService } from '@moonshot-ai/agent-core-v2/kosong/provider/provider';
-
-import { ISessionApprovalService } from '@moonshot-ai/agent-core-v2/session/approval/approval';
-import { ISessionInitService } from '@moonshot-ai/agent-core-v2/session/sessionInit/sessionInit';
-import { ISessionInteractionService } from '@moonshot-ai/agent-core-v2/session/interaction/interaction';
-import { ISessionMetadata } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
-import { ISessionQuestionService } from '@moonshot-ai/agent-core-v2/session/question/question';
-import { ISessionWorkspaceContext } from '@moonshot-ai/agent-core-v2/session/workspaceContext/workspaceContext';
 import { IAgentActivityView } from '@moonshot-ai/agent-core-v2/agent/activityView/activityView';
 import { IAgentContextSizeService } from '@moonshot-ai/agent-core-v2/agent/contextSize/contextSize';
 import { IAgentGoalService } from '@moonshot-ai/agent-core-v2/agent/goal/goal';
@@ -41,6 +30,16 @@ import { IAgentTaskService } from '@moonshot-ai/agent-core-v2/agent/task/task';
 import { IAgentToolRegistryService } from '@moonshot-ai/agent-core-v2/agent/toolRegistry/toolRegistry';
 import { IAgentUsageService } from '@moonshot-ai/agent-core-v2/agent/usage/usage';
 import { t } from './i18n';
+import { IAuthSummaryService } from '@moonshot-ai/agent-core-v2/app/auth/auth';
+import { IConfigService } from '@moonshot-ai/agent-core-v2/app/config/config';
+import { IFlagService } from '@moonshot-ai/agent-core-v2/app/flag/flag';
+import { IProviderService } from '@moonshot-ai/agent-core-v2/kosong/provider/provider';
+import { ISessionApprovalService } from '@moonshot-ai/agent-core-v2/session/approval/approval';
+import { ISessionInteractionService } from '@moonshot-ai/agent-core-v2/session/interaction/interaction';
+import { ISessionQuestionService } from '@moonshot-ai/agent-core-v2/session/question/question';
+import { ISessionInitService } from '@moonshot-ai/agent-core-v2/session/sessionInit/sessionInit';
+import { ISessionMetadata } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
+import { ISessionWorkspaceContext } from '@moonshot-ai/agent-core-v2/session/workspaceContext/workspaceContext';
 
 /** Loosely-typed view of a scoped service proxy (every member is a remote call). */
 export type AnyService = Record<string, (...args: unknown[]) => Promise<unknown>>;
@@ -230,7 +229,12 @@ export const AGENT_PANELS: readonly ServicePanelDef[] = [
     scope: 'agent',
     fetch: (svc) => call(svc, 'list'),
     actions: [
-      { label: 'Stop task', input: 'Task id', danger: true, run: (svc, id) => call(svc, 'stop', id) },
+      {
+        label: 'Stop task',
+        input: 'Task id',
+        danger: true,
+        run: (svc, id) => call(svc, 'stop', id),
+      },
       { label: 'stopAll', danger: true, run: (svc) => call(svc, 'stopAll') },
     ],
   },

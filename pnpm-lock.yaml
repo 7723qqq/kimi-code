@@ -125,9 +125,6 @@ importers:
       '@moonshot-ai/pi-tui':
         specifier: workspace:^
         version: link:../../packages/pi-tui
-      '@moonshot-ai/server':
-        specifier: workspace:^
-        version: link:../../packages/server
       '@moonshot-ai/vis-server':
         specifier: workspace:^
         version: link:../vis/server
@@ -248,8 +245,8 @@ importers:
         specifier: ^0.17.0
         version: 0.17.0
       markstream-vue:
-        specifier: ^1.0.4
-        version: 1.0.4(katex@0.17.0)(mermaid@11.15.0)(stream-markdown@0.0.16(react@19.2.5)(shiki@4.3.0)(vue@3.5.35(typescript@6.0.2)))(vue-i18n@11.4.5(vue@3.5.35(typescript@6.0.2)))(vue@3.5.35(typescript@6.0.2))
+        specifier: ^1.0.7
+        version: 1.0.7(katex@0.17.0)(mermaid@11.15.0)(stream-markdown@0.0.16(react@19.2.5)(shiki@4.3.0)(vue@3.5.35(typescript@6.0.2)))(vue-i18n@11.4.5(vue@3.5.35(typescript@6.0.2)))(vue@3.5.35(typescript@6.0.2))
       mermaid:
         specifier: ^11.15.0
         version: 11.15.0
@@ -311,6 +308,9 @@ importers:
       '@moonshot-ai/kosong':
         specifier: workspace:^
         version: link:../../../packages/kosong
+      '@moonshot-ai/protocol':
+        specifier: workspace:^
+        version: link:../../../packages/protocol
       hono:
         specifier: '>=4.12.18'
         version: 4.12.32
@@ -728,6 +728,9 @@ importers:
       '@moonshot-ai/protocol':
         specifier: workspace:^
         version: link:../protocol
+      '@moonshot-ai/tree-sitter-bash':
+        specifier: workspace:^
+        version: link:../tree-sitter-bash
       '@mozilla/readability':
         specifier: ^0.6.0
         version: 0.6.0
@@ -882,9 +885,15 @@ importers:
       '@moonshot-ai/agent-core-v2':
         specifier: workspace:^
         version: link:../agent-core-v2
+      '@moonshot-ai/kimi-code-oauth':
+        specifier: workspace:^
+        version: link:../oauth
       '@moonshot-ai/kimi-i18n':
         specifier: workspace:^
         version: link:../i18n
+      '@moonshot-ai/minidb':
+        specifier: workspace:*
+        version: link:../minidb
       '@moonshot-ai/transcript':
         specifier: workspace:^
         version: link:../transcript
@@ -925,12 +934,15 @@ importers:
       '@moonshot-ai/agent-core':
         specifier: workspace:*
         version: link:../agent-core
+      '@moonshot-ai/agent-core-v2':
+        specifier: workspace:*
+        version: link:../agent-core-v2
 
   packages/kimi-native-tools:
     devDependencies:
       '@napi-rs/cli':
         specifier: ^3.0.0
-        version: 3.7.3(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@22.19.17)(node-addon-api@7.1.1)
+        version: 3.7.3(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@22.19.17)(node-addon-api@8.9.0)
       vitest:
         specifier: 4.1.4
         version: 4.1.4(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.3(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
@@ -1027,12 +1039,18 @@ importers:
       '@moonshot-ai/agent-core':
         specifier: workspace:^
         version: link:../agent-core
+      '@moonshot-ai/agent-core-v2':
+        specifier: workspace:^
+        version: link:../agent-core-v2
       '@moonshot-ai/kaos':
         specifier: workspace:^
         version: link:../kaos
       '@moonshot-ai/kimi-code-oauth':
         specifier: workspace:^
         version: link:../oauth
+      '@moonshot-ai/klient':
+        specifier: workspace:^
+        version: link:../klient
       '@moonshot-ai/kosong':
         specifier: workspace:^
         version: link:../kosong
@@ -1081,58 +1099,6 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
 
-  packages/server:
-    dependencies:
-      '@fastify/multipart':
-        specifier: ^10.0.0
-        version: 10.0.0
-      '@fastify/swagger':
-        specifier: ^9.7.0
-        version: 9.7.0
-      '@moonshot-ai/agent-core':
-        specifier: workspace:^
-        version: link:../agent-core
-      '@moonshot-ai/protocol':
-        specifier: workspace:^
-        version: link:../protocol
-      bcryptjs:
-        specifier: ^2.4.3
-        version: 2.4.3
-      fastify:
-        specifier: ^5.1.0
-        version: 5.8.5
-      pino:
-        specifier: ^9.5.0
-        version: 9.14.0
-      pino-pretty:
-        specifier: ^13.0.0
-        version: 13.1.3
-      smol-toml:
-        specifier: ^1.6.1
-        version: 1.6.1
-      ulid:
-        specifier: ^3.0.1
-        version: 3.0.2
-      ws:
-        specifier: '>=8.21.0'
-        version: 8.21.1
-      zod:
-        specifier: 'catalog:'
-        version: 4.3.6
-      zod-to-json-schema:
-        specifier: ^3.25.2
-        version: 3.25.2(zod@4.3.6)
-    devDependencies:
-      '@types/bcryptjs':
-        specifier: ^2.4.6
-        version: 2.4.6
-      '@types/ws':
-        specifier: ^8.18.0
-        version: 8.18.1
-      jimp:
-        specifier: ^1.6.1
-        version: 1.6.1
-
   packages/telemetry: {}
 
   packages/transcript:
@@ -1140,6 +1106,15 @@ importers:
       zod:
         specifier: 'catalog:'
         version: 4.3.6
+
+  packages/tree-sitter-bash:
+    devDependencies:
+      tree-sitter-bash:
+        specifier: 0.25.0
+        version: 0.25.0
+      web-tree-sitter:
+        specifier: 0.25.10
+        version: 0.25.10
 
 packages:
 
@@ -1645,9 +1620,6 @@ packages:
   '@changesets/write@0.4.0':
     resolution: {integrity: sha512-CdTLvIOPiCNuH71pyDu3rA+Q0n65cmAbXnwWH84rKGiFumFzkmHNT8KHTMEchcxN+Kl8I54xGUhJ7l3E7X396Q==}
 
-  '@chenglou/pretext@0.0.5':
-    resolution: {integrity: sha512-A8GZN10REdFGsyuiUgLV8jjPDDFMg5GmgxGWV0I3igxBOnzj+jgz2VMmVD7g+SFyoctfeqHFxbNatKSzVRWtRg==}
-
   '@chenglou/pretext@0.0.8':
     resolution: {integrity: sha512-yqm2GMxnPI7VHcHwe84P8ZF0JK/2d2DMKPqMN+s95jQhwDMYYXKVFVJUMEaVWckQStdsjdLav/0Vu+d9YbtGxA==}
 
@@ -2118,14 +2090,8 @@ packages:
   '@fastify/swagger@9.7.0':
     resolution: {integrity: sha512-Vp1SC1GC2Hrkd3faFILv86BzUNyFz5N4/xdExqtCgkGASOzn/x+eMe4qXIGq7cdT6wif/P/oa6r1Ruqx19paZA==}
 
-  '@floating-ui/core@1.7.5':
-    resolution: {integrity: sha512-1Ih4WTWyw0+lKyFMcBHGbb5U5FtuHJuujoyyr5zTaWS5EYMeT6Jb2AuDeftsCsEuchO+mM2ij5+q9crhydzLhQ==}
-
   '@floating-ui/core@1.8.0':
     resolution: {integrity: sha512-0CIZ5itps/8x7BG8dEIhs53BvCUH2PCoogtakwRTut+Arm58sJooJ0AuZhLw2HJYIR5cMLNPBSS728sPho2khQ==}
-
-  '@floating-ui/dom@1.7.6':
-    resolution: {integrity: sha512-9gZSAI5XM36880PPMm//9dfiEngYoC6Am2izES1FF406YFsjvyBMmeJ2g4SAju3xWwtuynNRFL2s9hgxpLI5SQ==}
 
   '@floating-ui/dom@1.8.0':
     resolution: {integrity: sha512-yXSrzeHZBTZadLOlfyhCkJHNeLJnHRnRInwdZ40L7ZiaAtrBwoYlsDrX3v5zB1Utk7CLfzcOVnVVWoXEky7Ceg==}
@@ -6034,9 +6000,6 @@ packages:
   dataloader@1.4.0:
     resolution: {integrity: sha512-68s5jYdlvasItOJnCuI2Q9s4q98g0pCyL3HrcKJu8KNugUl8ahgmZYg38ysLTgQjjXX3H8CJLkAvWrclWfcalw==}
 
-  dateformat@4.6.3:
-    resolution: {integrity: sha512-2P0p0pFGzHS5EMnhdxQi7aJN+iMheud0UhG4dlE1DLAlvL8JHjJJTX/CSm4JXwV0Ka5nGk3zC5mcb5bUQUxxMA==}
-
   dayjs@1.11.21:
     resolution: {integrity: sha512-98IT+HOahAisibz/yjKbzuOBwYcjJ7BCLPzARyHiyEBmRz4fatF+KPJszEHXsGYjUG234aH/cOjW1wwTbKUZlA==}
 
@@ -6409,9 +6372,6 @@ packages:
   extendable-error@0.1.7:
     resolution: {integrity: sha512-UOiS2in6/Q0FK0R0q6UY9vYpQ21mr/Qn1KOnte7vsACuNJf514WvCCUHSRCPcgjPT2bAhNIJdlE6bVap1GKmeg==}
 
-  fast-copy@4.0.4:
-    resolution: {integrity: sha512-eVAiWVNPSEGIzDl5yPuLrx8fNMogScXvD9xp1Kzd41FjRIz2I3sSIcxsFeM5EzFfHAfobdvs8ZySffUopljvIA==}
-
   fast-decode-uri-component@1.0.1:
     resolution: {integrity: sha512-WKgKWg5eUxvRZGwW8FvfbaH7AXSh2cL+3j5fMGzUMCxWBJ3dV3a7Wz8y2f/uQ0e3B6WmodD3oS54jTQ9HVTIIg==}
 
@@ -6427,9 +6387,6 @@ packages:
 
   fast-querystring@1.1.2:
     resolution: {integrity: sha512-g6KuKWmFXc0fID8WWH0jit4g0AGBoJhCkJMb1RmbsSEUNvQ+ZC8D6CUZ+GtF8nMzSPXnhiePyyqqipzNNEnHjg==}
-
-  fast-safe-stringify@2.1.1:
-    resolution: {integrity: sha512-W+KJc2dmILlPplD/H4K9l9LcAHAfPtP6BY84uVLXQ6Evcz9Lcg33Y2z1IVblT6xdY54PXYVHEv+0Wpq8Io6zkA==}
 
   fast-sha256@1.3.0:
     resolution: {integrity: sha512-n11RGP/lrWEFI/bWdygLxhI+pVeo1ZYIVwvvPkW7azl/rOy+F3HYRZ2K5zeE9mmkhQppyv9sQFx0JM9UabnpPQ==}
@@ -6792,9 +6749,6 @@ packages:
 
   heic-to@1.5.2:
     resolution: {integrity: sha512-8Fns+lZHAWmz5U5IUxDeXKwIf3foBoKNPLxxFY4B0MkLjNuomEIHCoDbDE+x/llFK3NCEO1cu4+n3iUKY+Svmw==}
-
-  help-me@5.0.0:
-    resolution: {integrity: sha512-7xgomUX6ADmcYzFik0HzAxh/73YlKR9bmFzf51CZwR+b6YtzU2m0u49hQCqV6SvlqIqsaxovfwdvbnsw3b/zpg==}
 
   highlight.js@10.7.3:
     resolution: {integrity: sha512-tzcUFauisWKNHaRkN4Wjl/ZA07gENAjFl3J/c480dprkGTg5EQstgaNFqBfUqCq54kZRIEcreTsAgF/m2quD7A==}
@@ -7235,10 +7189,6 @@ packages:
   jose@6.2.2:
     resolution: {integrity: sha512-d7kPDd34KO/YnzaDOlikGpOurfF0ByC2sEV4cANCtdqLlTfBlw2p14O/5d/zv40gJPbIQxfES3nSx1/oYNyuZQ==}
 
-  joycon@3.1.1:
-    resolution: {integrity: sha512-34wB/Y7MW7bzjKRjUKTa46I2Z7eV62Rkhva+KkopW7Qvv/OSWBqvkSY7vusOPrNuZcUG3tApvdVgNB8POj3SPw==}
-    engines: {node: '>=10'}
-
   jpeg-js@0.4.4:
     resolution: {integrity: sha512-WZzeDOEtTOBK4Mdsar0IqEU5sMr3vSV2RqkAIzUEV2BHnUfKGyswWFPFwK5EeDo93K3FohSHbLAjj0s1Wzd+dg==}
 
@@ -7530,6 +7480,9 @@ packages:
   linkify-it@5.0.1:
     resolution: {integrity: sha512-wVoTjP4Q6R0NW5hiZkVJaFZPWgtXfoGF+6LucL3/FtiNjmcHhYjEr5f1Kqjirc1nBW07J/ZuRFumqr2oqccEWg==}
 
+  linkify-it@5.0.2:
+    resolution: {integrity: sha512-ONTm2jCMAVZjgQa/Fy1kScXsuOoF5NPTsoFBdE1KVIZ2vAh/r9+Bqo+0jINCBYnavTPQZz38QzFTme79ENoN3Q==}
+
   lint-staged@16.4.0:
     resolution: {integrity: sha512-lBWt8hujh/Cjysw5GYVmZpFHXDCgZzhrOm8vbcUdobADZNOK/bRshr2kM3DfgrrtR1DQhfupW9gnIXOfiFi+bw==}
     engines: {node: '>=20.17'}
@@ -7661,8 +7614,8 @@ packages:
   markdown-it-task-checkbox@1.0.6:
     resolution: {integrity: sha512-7pxkHuvqTOu3iwVGmDPeYjQg+AIS9VQxzyLP9JCg9lBjgPAJXGEkChK6A2iFuj3tS0GV3HG2u5AMNhcQqwxpJw==}
 
-  markdown-it-ts@1.0.2:
-    resolution: {integrity: sha512-zba9mN313K2HmKk+BOHqkO/nuZtj9M1TTnUlSbItGrCMpYzc8OHGCm+IaqxWCi2pGcgpiFC8ltxkasYWYpp/YQ==}
+  markdown-it-ts@1.0.5:
+    resolution: {integrity: sha512-vD3lIbUDHE0eorCuPdku4ikNFcIJC1ZzyAQA0d/2zjMg+8etvfC10uV8GOlzQBHQc7/NUh7H0VtW72gLjXANCw==}
     engines: {node: '>=18'}
 
   markdown-it@14.2.0:
@@ -7700,15 +7653,16 @@ packages:
   markstream-core@1.0.3:
     resolution: {integrity: sha512-QXn+yERo1q+RD6YlGDW61zc/af65uhkQEH3K8YvEKkprHbgRJ/JIeBeEQjELCTyBnPoxqtKQ7I565rylY+PePg==}
 
-  markstream-vue@1.0.4:
-    resolution: {integrity: sha512-uWFjW6waY3E8gbfbXx9n8IDc7OFl6hJpdjAXVsAkk6UHtmE0d60JhjyFrsp6OOHtKB408M6gd9HOs3vOXN8Z9w==}
+  markstream-vue@1.0.7:
+    resolution: {integrity: sha512-88UVoAH34jh/BXGUVYtK8t+Tw9JETbHhRVF2DwBAIE8r8W6MO27xRADotHpz1Qn34Mas6XRW6NmqvzwwjtvciQ==}
     peerDependencies:
       '@antv/infographic': ^0.2.3
       '@terrastruct/d2': '>=0.1.33'
       katex: '>=0.16.22'
       mermaid: '>=11'
+      stream-diffs: '>=0.0.2'
       stream-markdown: '>=0.0.16'
-      stream-monaco: '>=0.0.45'
+      stream-monaco: '>=0.0.48'
       vue: '>=3.0.0'
       vue-i18n: '>=9'
     peerDependenciesMeta:
@@ -7719,6 +7673,8 @@ packages:
       katex:
         optional: true
       mermaid:
+        optional: true
+      stream-diffs:
         optional: true
       stream-markdown:
         optional: true
@@ -8050,6 +8006,10 @@ packages:
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
 
+  node-addon-api@8.9.0:
+    resolution: {integrity: sha512-ekZMeaaIzSQTSpr7X2X3iJM7lTzgnx8ahAG9pJfT/7+14mlEM8ZYQ9cgCDvSSRbReFK0oHli3WrZdCiRsgAT9Q==}
+    engines: {node: ^18 || ^20 || >= 21}
+
   node-domexception@1.0.0:
     resolution: {integrity: sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ==}
     engines: {node: '>=10.5.0'}
@@ -8071,6 +8031,10 @@ packages:
   node-fetch@3.3.2:
     resolution: {integrity: sha512-dRB78srN/l6gqWulah9SrxeYnxeddIG30+GOqK/9OlLVyLg3HPnr6SqOWTWOXKRwC2eGYCkZ59NNuSgvSrpgOA==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+
+  node-gyp-build@4.8.4:
+    resolution: {integrity: sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ==}
+    hasBin: true
 
   node-pty@1.1.0:
     resolution: {integrity: sha512-20JqtutY6JPXTUnL0ij1uad7Qe1baT46lyolh2sSENDd4sTzKZ4nmAFkeAARDKwmlLjPx6XKRlwRUxwjOy+lUg==}
@@ -8417,13 +8381,6 @@ packages:
 
   pino-abstract-transport@2.0.0:
     resolution: {integrity: sha512-F63x5tizV6WCh4R6RHyi2Ml+M70DNRXt/+HANowMflpgGFMAym/VKm6G7ZOQRjqN7XbGxK1Lg9t6ZrtzOaivMw==}
-
-  pino-abstract-transport@3.0.0:
-    resolution: {integrity: sha512-wlfUczU+n7Hy/Ha5j9a/gZNy7We5+cXp8YL+X+PG8S0KXxw7n/JXA3c46Y0zQznIJ83URJiwy7Lh56WLokNuxg==}
-
-  pino-pretty@13.1.3:
-    resolution: {integrity: sha512-ttXRkkOz6WWC95KeY9+xxWL6AtImwbyMHrL1mSwqwW9u+vLp/WIElvHvCSDg0xO/Dzrggz1zv3rN5ovTRVowKg==}
-    hasBin: true
 
   pino-std-serializers@7.1.0:
     resolution: {integrity: sha512-BndPH67/JxGExRgiX1dX0w1FvZck5Wa4aal9198SrRhZjH3GxKQUKIBnYJTdj2HDN3UQAS06HlfcSbQj2OHmaw==}
@@ -9262,8 +9219,8 @@ packages:
     resolution: {integrity: sha512-eLoXW/DHyl62zxY4SCaIgnRhuMr6ri4juEYARS8E6sCEqzKpOiE521Ucofdx+KnDZl5xmvGYaaKCk5FEOxJCoQ==}
     engines: {node: '>= 0.4'}
 
-  stream-markdown-parser@1.0.7:
-    resolution: {integrity: sha512-IkWYtBv+9QPDzKKOoy1ZxuiwpcL0APfgUrBlUt9L4s0Sq5XnHY9rQK7tOs46ouHOX/OR0Nq6zTqfV0vbtLD4RA==}
+  stream-markdown-parser@1.1.4:
+    resolution: {integrity: sha512-fjkHUh7uIOH5Yp/kt26l2td+q/4sRusMFO4iB0d+GcWj40ZZuH+HxxiLxGeSD1oo8YdyapokzHOfchDIYFnNgg==}
 
   stream-markdown@0.0.16:
     resolution: {integrity: sha512-2WoOxlpc3N5RLc3zGuW+g/w76z6ketWBY0N1YzDYbXds1qw7zrUBv5PTQ3DOtpqgCjLuF3P2iCfjJTEqWGv0NQ==}
@@ -9349,10 +9306,6 @@ packages:
   strip-json-comments@3.1.1:
     resolution: {integrity: sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig==}
     engines: {node: '>=8'}
-
-  strip-json-comments@5.0.3:
-    resolution: {integrity: sha512-1tB5mhVo7U+ETBKNf92xT4hrQa3pm0MZ0PQvuDnWgAAGHDsfp4lPSpiS6psrSiet87wyGPh9ft6wmhOMQ0hDiw==}
-    engines: {node: '>=14.16'}
 
   strtok3@10.3.5:
     resolution: {integrity: sha512-ki4hZQfh5rX0QDLLkOCj+h+CVNkqmp/CMf8v8kZpkNVK6jGQooMytqzLZYUVYIZcFZ6yDB70EfD8POcFXiF5oA==}
@@ -9550,6 +9503,14 @@ packages:
   tree-kill@1.2.2:
     resolution: {integrity: sha512-L0Orpi8qGpRG//Nd+H90vFB+3iHnue1zSSGmNOOCh1GLJ7rUKVwV2HvijphGQS2UmhUZewS9VgvxYIdgr+fG1A==}
     hasBin: true
+
+  tree-sitter-bash@0.25.0:
+    resolution: {integrity: sha512-gZtlj9+qFS81qKxpLfD6H0UssQ3QBc/F0nKkPsiFDyfQF2YBqYvglFJUzchrPpVhZe9kLZTrJ9n2J6lmka69Vg==}
+    peerDependencies:
+      tree-sitter: ^0.25.0
+    peerDependenciesMeta:
+      tree-sitter:
+        optional: true
 
   trim-lines@3.0.1:
     resolution: {integrity: sha512-kRj8B+YHZCc9kQYdWfJB2/oUl9rA99qbowYYBtr4ui4mZyAQ2JpvVBd/6U2YloATfqBhBTSMhTpgBHtU0Mf3Rg==}
@@ -10045,6 +10006,14 @@ packages:
   web-streams-polyfill@3.3.3:
     resolution: {integrity: sha512-d2JWLCivmZYTSIoge9MsgFCZrt571BikcWGYkjC1khllbTeDlGqZ2D8vD8E/lJa8WGWbb7Plm8/XJYV7IJHZZw==}
     engines: {node: '>= 8'}
+
+  web-tree-sitter@0.25.10:
+    resolution: {integrity: sha512-Y09sF44/13XvgVKgO2cNDw5rGk6s26MgoZPXLESvMXeefBf7i6/73eFurre0IsTW6E14Y0ArIzhUMmjoc7xyzA==}
+    peerDependencies:
+      '@types/emscripten': ^1.40.0
+    peerDependenciesMeta:
+      '@types/emscripten':
+        optional: true
 
   webidl-conversions@3.0.1:
     resolution: {integrity: sha512-2JAn3z8AR6rjK8Sm8orRC0h/bcl/DqL7tRPdGZ4I1CjdF+EaMLmYxBHyXuKL849eucPFhvBoxMsflfOb8kxaeQ==}
@@ -10844,7 +10813,7 @@ snapshots:
   '@base-ui/utils@0.3.1(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)':
     dependencies:
       '@babel/runtime': 7.29.2
-      '@floating-ui/utils': 0.2.11
+      '@floating-ui/utils': 0.2.12
       react: 19.2.5
       react-dom: 19.2.5(react@19.2.5)
       reselect: 5.2.0
@@ -11022,8 +10991,6 @@ snapshots:
       fs-extra: 7.0.1
       human-id: 4.1.3
       prettier: 2.8.8
-
-  '@chenglou/pretext@0.0.5': {}
 
   '@chenglou/pretext@0.0.8': {}
 
@@ -11397,18 +11364,9 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@floating-ui/core@1.7.5':
-    dependencies:
-      '@floating-ui/utils': 0.2.11
-
   '@floating-ui/core@1.8.0':
     dependencies:
       '@floating-ui/utils': 0.2.12
-
-  '@floating-ui/dom@1.7.6':
-    dependencies:
-      '@floating-ui/core': 1.7.5
-      '@floating-ui/utils': 0.2.11
 
   '@floating-ui/dom@1.8.0':
     dependencies:
@@ -12040,7 +11998,7 @@ snapshots:
       outvariant: 1.4.3
       strict-event-emitter: 0.5.1
 
-  '@napi-rs/cli@3.7.3(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@22.19.17)(node-addon-api@7.1.1)':
+  '@napi-rs/cli@3.7.3(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@22.19.17)(node-addon-api@8.9.0)':
     dependencies:
       '@inquirer/prompts': 8.5.2(@types/node@22.19.17)
       '@napi-rs/cross-toolchain': 1.0.3
@@ -12048,7 +12006,7 @@ snapshots:
       '@octokit/rest': 22.0.1
       clipanion: 4.0.0-rc.4(typanion@3.14.0)
       colorette: 2.0.20
-      emnapi: 1.11.2(node-addon-api@7.1.1)
+      emnapi: 1.11.2(node-addon-api@8.9.0)
       es-toolkit: 1.47.0
       js-yaml: 4.3.0
       obug: 2.1.4
@@ -15380,8 +15338,6 @@ snapshots:
 
   dataloader@1.4.0: {}
 
-  dateformat@4.6.3: {}
-
   dayjs@1.11.21: {}
 
   debounce-fn@4.0.0:
@@ -15524,9 +15480,9 @@ snapshots:
 
   electron-to-chromium@1.5.340: {}
 
-  emnapi@1.11.2(node-addon-api@7.1.1):
+  emnapi@1.11.2(node-addon-api@8.9.0):
     optionalDependencies:
-      node-addon-api: 7.1.1
+      node-addon-api: 8.9.0
 
   emoji-regex-xs@1.0.0: {}
 
@@ -15555,6 +15511,7 @@ snapshots:
   end-of-stream@1.4.5:
     dependencies:
       once: 1.4.0
+    optional: true
 
   enhanced-resolve@5.20.1:
     dependencies:
@@ -15830,8 +15787,6 @@ snapshots:
 
   extendable-error@0.1.7: {}
 
-  fast-copy@4.0.4: {}
-
   fast-decode-uri-component@1.0.1: {}
 
   fast-deep-equal@3.1.3: {}
@@ -15856,8 +15811,6 @@ snapshots:
   fast-querystring@1.1.2:
     dependencies:
       fast-decode-uri-component: 1.0.1
-
-  fast-safe-stringify@2.1.1: {}
 
   fast-sha256@1.3.0: {}
 
@@ -16329,8 +16282,6 @@ snapshots:
 
   heic-to@1.5.2: {}
 
-  help-me@5.0.0: {}
-
   highlight.js@10.7.3: {}
 
   highlightjs-vue@1.0.0: {}
@@ -16733,8 +16684,6 @@ snapshots:
 
   jose@6.2.2: {}
 
-  joycon@3.1.1: {}
-
   jpeg-js@0.4.4: {}
 
   js-cookie@3.0.8: {}
@@ -17004,6 +16953,10 @@ snapshots:
     dependencies:
       uc.micro: 2.1.0
 
+  linkify-it@5.0.2:
+    dependencies:
+      uc.micro: 2.1.0
+
   lint-staged@16.4.0:
     dependencies:
       commander: 14.0.3
@@ -17136,12 +17089,12 @@ snapshots:
 
   markdown-it-task-checkbox@1.0.6: {}
 
-  markdown-it-ts@1.0.2:
+  markdown-it-ts@1.0.5:
     dependencies:
       '@types/linkify-it': 5.0.0
       '@types/mdurl': 2.0.0
       entities: 4.5.0
-      linkify-it: 5.0.1
+      linkify-it: 5.0.2
       mdurl: 2.0.0
       punycode.js: 2.3.1
       uc.micro: 2.1.0
@@ -17178,12 +17131,12 @@ snapshots:
 
   markstream-core@1.0.3: {}
 
-  markstream-vue@1.0.4(katex@0.17.0)(mermaid@11.15.0)(stream-markdown@0.0.16(react@19.2.5)(shiki@4.3.0)(vue@3.5.35(typescript@6.0.2)))(vue-i18n@11.4.5(vue@3.5.35(typescript@6.0.2)))(vue@3.5.35(typescript@6.0.2)):
+  markstream-vue@1.0.7(katex@0.17.0)(mermaid@11.15.0)(stream-markdown@0.0.16(react@19.2.5)(shiki@4.3.0)(vue@3.5.35(typescript@6.0.2)))(vue-i18n@11.4.5(vue@3.5.35(typescript@6.0.2)))(vue@3.5.35(typescript@6.0.2)):
     dependencies:
-      '@chenglou/pretext': 0.0.5
-      '@floating-ui/dom': 1.7.6
+      '@chenglou/pretext': 0.0.8
+      '@floating-ui/dom': 1.8.0
       markstream-core: 1.0.3
-      stream-markdown-parser: 1.0.7
+      stream-markdown-parser: 1.1.4
       vue: 3.5.35(typescript@6.0.2)
     optionalDependencies:
       katex: 0.17.0
@@ -17775,6 +17728,8 @@ snapshots:
 
   node-addon-api@7.1.1: {}
 
+  node-addon-api@8.9.0: {}
+
   node-domexception@1.0.0: {}
 
   node-emoji@2.2.0:
@@ -17795,6 +17750,8 @@ snapshots:
       data-uri-to-buffer: 4.0.1
       fetch-blob: 3.2.0
       formdata-polyfill: 4.0.10
+
+  node-gyp-build@4.8.4: {}
 
   node-pty@1.1.0:
     dependencies:
@@ -18156,26 +18113,6 @@ snapshots:
     dependencies:
       split2: 4.2.0
 
-  pino-abstract-transport@3.0.0:
-    dependencies:
-      split2: 4.2.0
-
-  pino-pretty@13.1.3:
-    dependencies:
-      colorette: 2.0.20
-      dateformat: 4.6.3
-      fast-copy: 4.0.4
-      fast-safe-stringify: 2.1.1
-      help-me: 5.0.0
-      joycon: 3.1.1
-      minimist: 1.2.8
-      on-exit-leak-free: 2.1.2
-      pino-abstract-transport: 3.0.0
-      pump: 3.0.4
-      secure-json-parse: 4.1.0
-      sonic-boom: 4.2.1
-      strip-json-comments: 5.0.3
-
   pino-std-serializers@7.1.0: {}
 
   pino@9.14.0:
@@ -18319,6 +18256,7 @@ snapshots:
     dependencies:
       end-of-stream: 1.4.5
       once: 1.4.0
+    optional: true
 
   punycode.js@2.3.1: {}
 
@@ -19283,7 +19221,7 @@ snapshots:
       es-errors: 1.3.0
       internal-slot: 1.1.0
 
-  stream-markdown-parser@1.0.7:
+  stream-markdown-parser@1.1.4:
     dependencies:
       markdown-it-container: 4.0.0
       markdown-it-footnote: 4.0.0
@@ -19292,7 +19230,7 @@ snapshots:
       markdown-it-sub: 2.0.0
       markdown-it-sup: 2.0.0
       markdown-it-task-checkbox: 1.0.6
-      markdown-it-ts: 1.0.2
+      markdown-it-ts: 1.0.5
 
   stream-markdown@0.0.16(react@19.2.5)(shiki@4.3.0)(vue@3.5.35(typescript@6.0.2)):
     dependencies:
@@ -19393,8 +19331,6 @@ snapshots:
     optional: true
 
   strip-json-comments@3.1.1: {}
-
-  strip-json-comments@5.0.3: {}
 
   strtok3@10.3.5:
     dependencies:
@@ -19584,6 +19520,11 @@ snapshots:
     optional: true
 
   tree-kill@1.2.2: {}
+
+  tree-sitter-bash@0.25.0:
+    dependencies:
+      node-addon-api: 8.9.0
+      node-gyp-build: 4.8.4
 
   trim-lines@3.0.1: {}
 
@@ -20086,6 +20027,8 @@ snapshots:
   web-namespaces@2.0.1: {}
 
   web-streams-polyfill@3.3.3: {}
+
+  web-tree-sitter@0.25.10: {}
 
   webidl-conversions@3.0.1: {}
 

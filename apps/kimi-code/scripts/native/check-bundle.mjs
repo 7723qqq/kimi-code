@@ -21,7 +21,6 @@ const optionalRuntimeRequires = new Set([
   'fast-json-stringify/lib/serializer',
   'fast-json-stringify/lib/validator',
   'utf-8-validate',
-  '@moonshot-ai/server',
   '@moonshot-ai/kimi-native-tools',
   '@moonshot-ai/kimi-i18n',
   '@moonshot-ai/kimi-agent',

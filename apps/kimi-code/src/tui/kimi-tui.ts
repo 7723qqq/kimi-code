@@ -17,6 +17,8 @@ import {
   getCapabilities,
   Spacer,
 } from '@moonshot-ai/pi-tui';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { resolve } from 'pathe';
 
 import type { CLIOptions } from '#/cli/options';
@@ -24,7 +26,6 @@ import { getLocale } from '#/i18n';
 import {
   MigrationScreenComponent,
   type MigrationScreenResult,
-  writeSkipMigrationMarker,
 } from '#/migration/index';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
@@ -235,6 +236,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     disablePasteBurst: input.tuiConfig.disablePasteBurst,
     notifications: input.tuiConfig.notifications,
     upgrade: input.tuiConfig.upgrade,
+    statusLine: input.tuiConfig.statusLine,
     availableModels: {},
     availableProviders: {},
     sessionTitle: null,
@@ -2843,7 +2845,11 @@ export class KimiTUI {
     if (result.decision === 'never') {
       // Persist the skip marker `detectPendingMigration` checks, so "Never ask
       // again" actually stops the prompt from reappearing every launch.
-      writeSkipMigrationMarker(this.harness.homeDir);
+      try {
+        writeFileSync(join(this.harness.homeDir, '.skip-migration-from-kimi-cli'), '', 'utf-8');
+      } catch {
+        // Non-blocking: a failed marker write must never crash startup.
+      }
     }
     return result;
   }

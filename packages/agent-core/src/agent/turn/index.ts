@@ -5,6 +5,7 @@ import {
   APIConnectionError,
   APIContextOverflowError,
   APIEmptyResponseError,
+  APIProviderQuotaExhaustedError,
   APIStatusError,
   APITimeoutError,
   inputTotal,
@@ -141,6 +142,51 @@ function renderGoalContinuationPrompt(
   }
   return null;
 }
+
+const GOAL_CONTINUATION_PROMPT = [
+  'Continue working toward the active goal.',
+  'Keep the self-audit brief. Do not explore unrelated interpretations once the goal can be',
+  'decided. If the objective is simple, already answered, impossible, unsafe, or contradictory,',
+  'do not run another goal turn. Explain briefly if useful, then call UpdateGoal with `complete`',
+  'or `blocked` in the same turn. Otherwise, weigh the objective and any completion criteria',
+  'against the work done so far, choose one bounded, useful slice of work, and use the existing',
+  'conversation context and your tools. Do not try to finish a broad goal in one turn unless the',
+  'whole goal is genuinely small. Most goal turns should not call UpdateGoal: after completing a',
+  'useful slice, if material work remains, end the turn normally without calling UpdateGoal so',
+  'the runtime can continue the goal in the next turn. Call UpdateGoal with `complete` only when',
+  'all required work is done, any stated validation has passed, and there is no useful next',
+  'action. Completion audit: before calling `complete`, verify the current state against the',
+  'actual objective and every explicit requirement. Treat weak or indirect evidence as not',
+  'complete. Do not mark complete after only producing a plan, summary, first pass, or partial',
+  'result. Do not mark complete merely because a budget is nearly exhausted or you want to stop.',
+  'Blocked audit: do not call UpdateGoal with `blocked` the first time you hit a blocker. Use',
+  '`blocked` only for a genuine impasse: an external condition, required user input, missing',
+  'credentials or permissions, or a persistent technical failure. For those non-terminal',
+  'blockers, the same blocking condition must repeat for at least 3 consecutive goal turns before',
+  'you call `blocked`, counting the original/user-triggered turn and automatic continuations.',
+  'If a previously blocked goal is resumed, treat the resumed run as a fresh blocked audit.',
+  'Exception: if the objective itself is impossible, unsafe, or contradictory, call UpdateGoal',
+  'with `blocked` in the same turn; do not run more goal turns just to satisfy the audit. Do not',
+  'use `blocked` because the work is large, hard, slow, uncertain, incomplete, still needs',
+  'validation, would benefit from clarification, or needs more goal turns. Once the 3-turn',
+  'threshold is met and you cannot make meaningful progress without user input or an',
+  'external-state change, call UpdateGoal with `blocked`; do not keep reporting the blocker while',
+  'leaving the goal active. Do not ask the user for input unless a real blocker prevents progress.',
+].join(' ');
+
+/**
+ * Variant of {@link GOAL_CONTINUATION_PROMPT} used when the previous goal turn
+ * ended by hitting the per-turn step limit (`loop_control.max_steps_per_turn`).
+ * The limit fragments goal work into more continuation turns instead of
+ * pausing the goal; the notice tells the model why, so it can size the next
+ * slice to fit the limit.
+ */
+const GOAL_STEP_CAP_CONTINUATION_PROMPT = [
+  'The previous goal turn reached the per-turn step limit before finishing its work,',
+  'so a new turn was started for you. Pick up where that turn stopped and keep each',
+  'slice of work small enough to fit the limit.',
+  GOAL_CONTINUATION_PROMPT,
+].join(' ');
 
 export class TurnFlow {
   private steerBuffer: BufferedSteer[] = [];
@@ -425,11 +471,15 @@ export class TurnFlow {
       // instead of stopping after the turn that merely started it. (The
       // already-active case took the early return above.)
       const goalBecameActive = this.agent.goal.getGoal().goal?.status === 'active';
+      // The same per-turn-step-limit exemption as the driver's continuation
+      // loop: a turn that failed only at the step cap does not block the
+      // handoff — pursuit starts with a fresh continuation turn (told why).
+      const hitStepCap = isMaxStepsTurnFailure(end);
       if (
         goalBecameActive &&
         end.event.reason !== 'cancelled' &&
-        end.event.reason !== 'failed' &&
-        end.event.reason !== 'blocked'
+        end.event.reason !== 'blocked' &&
+        (end.event.reason !== 'failed' || hitStepCap)
       ) {
         // The ordinary turn created or resumed the goal, so it counts as the
         // first active goal turn before the continuation driver takes over.
@@ -447,7 +497,7 @@ export class TurnFlow {
           : 'Continue working toward the active goal.';
         return await this.driveGoal(
           this.allocateTurnId(),
-          [{ type: 'text', text: prompt }],
+          [{ type: 'text', text: hitStepCap ? GOAL_STEP_CAP_CONTINUATION_PROMPT : prompt }],
           GOAL_CONTINUATION_ORIGIN,
           signal,
         );
@@ -466,7 +516,9 @@ export class TurnFlow {
    * full turn, then reads the goal status the model set via `UpdateGoal`:
    * `complete` (the record is cleared) / `blocked` stop the loop; `active`
    * (the model didn't decide) re-injects the goal reminder and runs the
-   * next continuation turn. Aborted or failed turns pause the goal. Goal-state
+   * next continuation turn. Aborted or failed turns pause the goal — except a
+   * turn that only failed by reaching the per-turn step limit, which just
+   * fragments goal work into more continuation turns. Goal-state
    * blockers, such as explicit `UpdateGoal('blocked')`, prompt-hook blocks, and
    * budget limits, block it (all resumable). Returns the final turn's result.
    */
@@ -501,7 +553,12 @@ export class TurnFlow {
         await this.agent.goal.pauseOnInterrupt({ reason: t('shell.pausedAfterInterruption') });
         return end;
       }
-      if (end.event.reason === 'failed') {
+      // A turn that failed only by reaching the per-turn step limit ended at a
+      // clean step boundary, so it is not a goal failure: fall through to the
+      // normal continuation decision below and keep pursuing the goal. The
+      // `turn.ended` event still reports the failure (and the limit) to hosts.
+      const hitStepCap = isMaxStepsTurnFailure(end);
+      if (end.event.reason === 'failed' && !hitStepCap) {
         await this.agent.goal.pauseActiveGoal({ reason: goalFailurePauseReason(end.event.error) });
         return end;
       }
@@ -529,7 +586,7 @@ export class TurnFlow {
       }
 
       turnId = this.allocateTurnId();
-      turnInput = [{ type: 'text', text: postDecision.prompt }];
+      turnInput = [{ type: 'text', text: hitStepCap ? GOAL_STEP_CAP_CONTINUATION_PROMPT : postDecision.prompt }];
       turnOrigin = GOAL_CONTINUATION_ORIGIN;
     }
   }
@@ -979,6 +1036,16 @@ export class TurnFlow {
               return this.agent.permission.beforeToolCall(ctx);
             },
             finalizeToolResult: async (ctx) => {
+              // Calls rejected in preflight (e.g. invalid args) never reach
+              // prepareToolExecution, so register them here — otherwise the
+              // repeat breaker cannot count them and the model can re-issue
+              // the same invalid call indefinitely.
+              deduper.registerSkipped(
+                ctx.toolCall.id,
+                ctx.toolCall.name,
+                ctx.args,
+                ctx.toolCall.arguments,
+              );
               // Resolve dedup BEFORE firing the PostToolUse hook so same-step
               // dups (whose ctx.result is the dedup placeholder) report the
               // original's real outcome, not an empty success.
@@ -1306,6 +1373,18 @@ function hasStepBudgetRemaining(maxSteps: number | undefined, currentStep: numbe
   return maxSteps === undefined || maxSteps <= 0 || currentStep < maxSteps;
 }
 
+/**
+ * True when a turn ended `failed` only because it reached the per-turn step
+ * limit (`loop_control.max_steps_per_turn`). Such a turn stopped at a clean
+ * step boundary, so goal pursuit continues instead of pausing.
+ */
+function isMaxStepsTurnFailure(end: TurnEndResult): boolean {
+  return (
+    end.event.reason === 'failed' &&
+    end.event.error?.code === ErrorCodes.LOOP_MAX_STEPS_EXCEEDED
+  );
+}
+
 function isTerminalUpdateGoalResult(
   toolName: string,
   args: unknown,
@@ -1523,6 +1602,11 @@ interface ApiErrorClassification {
 }
 
 function classifyApiError(error: unknown, summary: KimiErrorPayload): ApiErrorClassification {
+  // Quota/balance exhaustion shares status 429 with rate limits but fails
+  // fast instead of retrying — keep the two apart in telemetry.
+  if (error instanceof APIProviderQuotaExhaustedError) {
+    return { errorType: 'quota_exhausted', statusCode: error.statusCode };
+  }
   const statusCode = apiStatusCode(error) ?? summaryStatusCode(summary);
   if (statusCode !== undefined) {
     if (statusCode === 429) return { errorType: 'rate_limit', statusCode };

@@ -18,9 +18,8 @@
 import { Project } from 'ts-morph';
 import path from 'node:path';
 import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __dirname = import.meta.dirname;
 const PKG = path.resolve(__dirname, '..');
 const SRC = path.join(PKG, 'src');
 const ENTRY = path.join(SRC, 'index.ts');
@@ -365,7 +364,7 @@ function regenerateEntry() {
 // ---------------------------------------------------------------------------
 const REGISTER_NAMES = new Set([
   'registerScopedService',
-  'registerTool',
+  'registerAgentToolService',
   'registerErrorDomain',
   'registerConfigSection',
   'registerAgentProfile',

@@ -136,8 +136,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     readonly error: string | null;
   } | null>(null);
   const [probeNonce, setProbeNonce] = useState(0);
-  const configKey =
-    config === null ? null : `${resolveBaseUrl(config.url)}|${config.token.trim()}`;
+  const configKey = config === null ? null : `${resolveBaseUrl(config.url)}|${config.token.trim()}`;
 
   useEffect(() => {
     if (config === null || configKey === null) {

@@ -26,8 +26,6 @@ export const fileMetaSchema = z.object({
 });
 export type FileMeta = z.infer<typeof fileMetaSchema>;
 
-export const DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
-
 export interface SaveOptions {
   readonly name?: string;
   readonly mimeType?: string;
@@ -58,7 +56,6 @@ export const IFileService: ServiceIdentifier<IFileService> = createDecorator<IFi
 export const FileErrors = {
   codes: {
     FILE_NOT_FOUND: 'file.not_found',
-    FILE_TOO_LARGE: 'file.too_large',
   },
   info: {
     'file.not_found': {
@@ -66,12 +63,6 @@ export const FileErrors = {
       retryable: false,
       public: true,
       action: t('v2Errors.fileNotFoundAction'),
-    },
-    'file.too_large': {
-      title: t('v2Errors.fileTooLarge'),
-      retryable: false,
-      public: true,
-      action: t('v2Errors.fileTooLargeAction'),
     },
   },
 } as const satisfies ErrorDomain;
@@ -91,14 +82,6 @@ export class FileError extends Error2 {
 
 export function fileNotFoundError(fileId: string): FileError {
   return new FileError(FileErrors.codes.FILE_NOT_FOUND, t('v2Model.fileNotFound', { fileId }), { fileId });
-}
-
-export function fileTooLargeError(seen: number, limit: number): FileError {
-  return new FileError(
-    FileErrors.codes.FILE_TOO_LARGE,
-    t('v2Model.fileTooLarge', { seen: String(seen), limit: String(limit) }),
-    { seen, limit },
-  );
 }
 
 export function isFileError(error: unknown, code: (typeof FileErrors.codes)[keyof typeof FileErrors.codes]): boolean {

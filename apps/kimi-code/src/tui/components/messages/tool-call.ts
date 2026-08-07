@@ -26,7 +26,7 @@ import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
 import { t } from '#/i18n';
 
 import { ShellExecutionComponent } from './shell-execution';
-import { countNonEmptyLines, pickChip } from './tool-renderers/chip';
+import { pickChip } from './tool-renderers/chip';
 import { buildGoalToolHeader } from './tool-renderers/goal';
 import { isGenericToolResult } from './tool-renderers/registry';
 
@@ -68,6 +68,33 @@ const DETACH_HINT_DELAY_MS = 10_000;
 const DETACH_HINT_TEXT = t('tui.messages.toolCall.detachHint');
 
 const MAX_PROGRESS_LINES = 24;
+
+
+
+
+
+
+
+
+
+
+
+
+/**
+ * Pull the live value of a JSON string field out of partially-streamed
+ * arguments, even if the closing quote hasn't arrived yet. Handles the
+ * common JSON string escapes so `\n` in a streamed `content` becomes a
+ * real newline we can highlight. Returns `undefined` if the field hasn't
+ * started streaming yet.
+ */
+
+
+
+
+
+
+
+
 
 export class ToolCallComponent extends Container {
   private expanded = false;

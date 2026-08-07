@@ -19,13 +19,18 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 
-import {
-  tryNativeWorkspaceIndexPredictRead,
-  type NativeReadPrediction,
-} from '@moonshot-ai/agent-core-v2';
-
 // Project root: packages/kimi-agent/rust-loop.ts → ../../ (project root)
 const projectRoot = resolve(import.meta.dirname, '..', '..');
+
+/**
+ * Native workspace index predict-read is not wired in this build; the JS
+ * fallback (`predictReadViaFs`) is always used. Kept for API parity with the
+ * planned Rust workspace index integration.
+ */
+type NativeReadPrediction = { preview: string; lineCount: number; size: number };
+function tryNativeWorkspaceIndexPredictRead(_path: string): NativeReadPrediction | null {
+  return null;
+}
 
 /** Token usage carried on step.end (structurally matches kosong's TokenUsage). */
 interface HostTokenUsage {
