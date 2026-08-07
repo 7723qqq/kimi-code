@@ -14,9 +14,9 @@ import { join } from 'pathe';
 import { MiniDb } from '@moonshot-ai/minidb';
 
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
-import { InstantiationType } from '#/_base/di/extensions';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { createDecorator } from '#/_base/di/instantiation';
+import { LifecycleScope } from '#/app/scopes';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { ILogService } from '#/_base/log/log';
 import type { MemoryEntry, MemorySearchResult } from './memoryPaths';
@@ -240,6 +240,6 @@ registerScopedService(
   LifecycleScope.App,
   IMemoryStore,
   MemoryStore,
-  InstantiationType.Eager,
+  ScopeActivation.OnScopeCreated,
   'memory',
 );

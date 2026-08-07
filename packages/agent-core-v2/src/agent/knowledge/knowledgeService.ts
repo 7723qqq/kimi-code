@@ -10,10 +10,10 @@
  * following the same pattern as GoalService ↔ GoalInjection.
  */
 
-import { InstantiationType } from '#/_base/di/extensions';
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
+import { LifecycleScope } from '#/app/scopes';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -258,6 +258,6 @@ registerScopedService(
   LifecycleScope.Agent,
   IAgentKnowledgeService,
   AgentKnowledgeService,
-  InstantiationType.Eager,
+  ScopeActivation.OnScopeCreated,
   'knowledge',
 );

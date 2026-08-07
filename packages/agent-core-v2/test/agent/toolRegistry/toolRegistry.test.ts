@@ -117,8 +117,7 @@ describe('AgentToolRegistryService', () => {
   });
 
   it('lists tool info with description and parameters', () => {
-    const tool = new StubTool('Search');
-    tool.description = 'Search files';
+    const tool = new StubTool('Search', 'Search files');
     registry.register(tool);
 
     const info = registry.list().find((t) => t.name === 'Search');

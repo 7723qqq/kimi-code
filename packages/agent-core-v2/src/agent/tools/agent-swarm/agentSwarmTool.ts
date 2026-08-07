@@ -1,5 +1,5 @@
 /**
- * `tools` domain (L7) — `AgentSwarmTool` implementation (the `AgentSwarm`
+ * `tools` domain — `AgentSwarmTool` implementation (the `AgentSwarm`
  * tool).
  *
  * Launches a batch of child agents (an ordinary Agent scope each) through the
@@ -12,10 +12,11 @@
  * `ISessionAgentProfileCatalog`, and the caller's `IAgentProfileService`) and
  * threads it through the swarm tasks; otherwise binding is left to the
  * service, which keeps its own "no model bound" check and inherit-caller
- * fallback. Swarm mode is entered through `IAgentSwarmService`; the caller's
- * agent id comes from `IAgentScopeContext`. Pure tool — owns no scoped state.
- * The public contract (input schema, constants, `IAgentSwarmTool`) lives in
- * `./agent-swarm`.
+ * fallback. The advertised `model` parameter lists the secondary/primary
+ * pair via `buildSubagentModelDescriptions`, suffixing each line with the
+ * entry's capability flags resolved through `IModelCatalog`. Swarm mode is
+ * entered through `IAgentSwarmService`; the caller's agent id comes from
+ * `IAgentScopeContext`. Pure tool — owns no scoped state.
  *
  * Registered via the module-level `registerAgentToolService(IAgentSwarmTool,
  * AgentSwarmTool)` at the bottom of this file — the same "import = register"
@@ -30,10 +31,12 @@ import {
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
+import { Error2, ErrorCodes } from '#/errors';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
+import { IModelCatalog } from '#/kosong/model/catalog';
 import { ISessionSwarmService, type SessionSwarmTask } from '#/session/swarm/sessionSwarm';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IAgentProfileService } from '#/agent/profile/profile';
@@ -47,7 +50,9 @@ import {
   buildSubagentModelDescriptions,
   resolveSubagentBinding,
   resolveSubagentTimeoutMs,
+  stripSubagentModelParameter,
 } from '#/session/subagent/configSection';
+import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import {
   AgentSwarmToolInputSchema,
   IAgentSwarmTool,
@@ -58,6 +63,9 @@ import {
 import AGENT_SWARM_DESCRIPTION from './agent-swarm.md?raw';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
+
+const AGENT_SWARM_PARAMETERS = toInputJsonSchema(AgentSwarmToolInputSchema);
+const AGENT_SWARM_PARAMETERS_NO_MODEL = stripSubagentModelParameter(AGENT_SWARM_PARAMETERS);
 
 interface AgentSwarmSpawnSpec {
   readonly kind: 'spawn';
@@ -88,7 +96,12 @@ interface SwarmRunResult {
 export class AgentSwarmTool implements IAgentSwarmTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'AgentSwarm' as const;
-  readonly parameters: Record<string, unknown> = toInputJsonSchema(AgentSwarmToolInputSchema);
+
+  get parameters(): Record<string, unknown> {
+    return this.flags.enabled(SECONDARY_MODEL_FLAG_ID)
+      ? AGENT_SWARM_PARAMETERS
+      : AGENT_SWARM_PARAMETERS_NO_MODEL;
+  }
 
   private readonly callerAgentId: string;
 
@@ -100,6 +113,7 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     @IFlagService private readonly flags: IFlagService,
     @ISessionAgentProfileCatalog private readonly catalog: ISessionAgentProfileCatalog,
     @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IModelCatalog private readonly modelCatalog: IModelCatalog,
   ) {
     this.callerAgentId = scopeContext.agentId;
   }
@@ -109,6 +123,7 @@ export class AgentSwarmTool implements IAgentSwarmTool {
       this.config,
       this.flags,
       this.profile.data().modelAlias,
+      this.modelCatalog,
     );
     return modelLines === undefined
       ? AGENT_SWARM_DESCRIPTION
@@ -160,19 +175,26 @@ export class AgentSwarmTool implements IAgentSwarmTool {
       const own = this.profile.data();
       const allowlist = subagentAllowlistFor(this.catalog, own);
       if (allowlist !== undefined && !allowlist.includes(profileName)) {
-        throw new Error(subagentTypeNotAllowedMessage(profileName, allowlist));
+        throw new Error2(
+          ErrorCodes.AGENT_TYPE_NOT_ALLOWED,
+          subagentTypeNotAllowedMessage(profileName, allowlist),
+          { details: { profileName, allowlist } },
+        );
       }
       const targetProfile = this.catalog.get(profileName);
       if (targetProfile === undefined) {
-        throw new Error(`Unknown agent type: "${profileName}"`);
+        throw new Error2(ErrorCodes.PROFILE_UNKNOWN, `Unknown agent type: "${profileName}"`, {
+          details: { profileName },
+        });
       }
       if (own.modelAlias !== undefined) {
-        binding = resolveSubagentBinding(
+        const resolved = resolveSubagentBinding(
           this.config,
           this.flags,
           { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
           args.model ?? targetProfile.modelPreference,
         );
+        binding = { model: resolved.model, thinking: resolved.thinking };
       }
     }
     const timeoutMs = resolveSubagentTimeoutMs(this.config);

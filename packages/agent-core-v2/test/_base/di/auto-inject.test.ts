@@ -208,7 +208,10 @@ describe('@IFoo auto-injection', () => {
         [ILevel4, new SyncDescriptor(Level4)],
       ),
     );
-    const l1 = ix.invokeFunction((a) => a.get(ILevel1));
+    const l1 = ix.invokeFunction((a) => a.get(ILevel1)) as {
+      tag: string;
+      d2: { tag: string; d3: { tag: string; d4: { tag: string } } };
+    };
     expect(l1.tag).toBe('L1');
     expect(l1.d2.tag).toBe('L2');
     expect(l1.d2.d3.tag).toBe('L3');

@@ -11,7 +11,8 @@
  */
 
 import { registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
-import type { AgentProfile, AgentProfileContext } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import type { AgentProfileContext } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import type { AgentProfileInput } from '#/app/agentProfileCatalog/agentProfileCatalog';
 
 export const GOAL_JUDGE_PROFILE_NAME = 'goal-judge';
 
@@ -43,7 +44,7 @@ that worked on the goal — you are an auditor.
 - Execute the verification
 - Report based on actual command output, not assumptions`;
 
-const goalJudgeProfile: AgentProfile = {
+const goalJudgeProfile: AgentProfileInput = {
   name: GOAL_JUDGE_PROFILE_NAME,
   description: 'Independent goal-completion verifier with tool access',
   whenToUse: 'Internal: launched by the goal service to verify completion criteria',

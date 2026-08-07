@@ -1,12 +1,13 @@
 /**
- * `wire` domain (L2) — error codes, the `WireError` base class, and the domain
+ * `wire` domain — error codes, the `WireError` base class, and the domain
  * registration.
  *
- * Aggregates the wire domain's coded errors: `DuplicateOpError` (thrown by
- * `defineOp` in `op.ts`) and `CycleError` (thrown by the dispatch drain in
- * `wireService.ts`) stay co-located with their throw sites but extend
+ * Aggregates the wire domain's coded errors: `DuplicateOpError` and
+ * `CycleError` stay co-located with their throw sites but extend
  * `WireError`; `wire.unknown_record` is constructed here for replay-time
- * reporting of records whose Op type is absent from `OP_REGISTRY`.
+ * reporting of records whose Op type is absent from the wire runtime's
+ * folded op registry (unknown or withdrawn vocabulary — see
+ * `wireContribution.ts`).
  */
 
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
@@ -18,6 +19,7 @@ export const WireErrors = {
     WIRE_DUPLICATE_OP: 'wire.duplicate_op',
     WIRE_CYCLE: 'wire.cycle',
     WIRE_UNKNOWN_RECORD: 'wire.unknown_record',
+    WIRE_MIGRATION_MISSING: 'wire.migration_missing',
     RECORDS_WRITE_FAILED: 'records.write_failed',
   },
   info: {
@@ -38,6 +40,12 @@ export const WireErrors = {
       retryable: false,
       public: true,
       action: t('v2Errors.wireUnknownRecordAction'),
+    },
+    'wire.migration_missing': {
+      title: 'Wire migration missing',
+      retryable: false,
+      public: true,
+      action: 'The wire file predates the supported migration chain; start a new session.',
     },
     'records.write_failed': {
       title: t('v2Errors.wireWriteFailed'),

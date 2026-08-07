@@ -23,6 +23,25 @@ function collectRequired(schema: unknown, acc: string[] = []): string[] {
   return acc;
 }
 
+/**
+ * `toInputJsonSchema` returns a plain `Record<string, unknown>` JSON Schema
+ * node; the `properties` member is only reachable through index access and its
+ * children need casting before nested reads.
+ */
+function propsOf(schema: unknown): Record<string, unknown> | undefined {
+  const props = (schema as Record<string, unknown> | undefined)?.['properties'];
+  return typeof props === 'object' && props !== null
+    ? (props as Record<string, unknown>)
+    : undefined;
+}
+
+function propOf(schema: unknown, name: string): Record<string, unknown> | undefined {
+  const value = propsOf(schema)?.[name];
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 describe('tool input JSON Schema', () => {
   const inputSchema = z
     .object({
@@ -78,8 +97,8 @@ describe('tool input JSON Schema', () => {
   it('handles union types correctly', () => {
     const unionSchema = z.union([z.string(), z.number()]);
     const jsonSchema = toInputJsonSchema(unionSchema);
-    expect(jsonSchema.anyOf).toBeDefined();
-    expect(jsonSchema.anyOf).toHaveLength(2);
+    expect(jsonSchema['anyOf']).toBeDefined();
+    expect(jsonSchema['anyOf']).toHaveLength(2);
   });
 
   it('handles optional fields correctly', () => {
@@ -98,8 +117,9 @@ describe('tool input JSON Schema', () => {
       value: z.string().nullable(),
     });
     const jsonSchema = toInputJsonSchema(nullableSchema);
-    expect(jsonSchema.properties?.value).toBeDefined();
-    expect(jsonSchema.properties?.value?.nullable ?? jsonSchema.properties?.value?.oneOf).toBeDefined();
+    const valueProp = propOf(jsonSchema, 'value');
+    expect(valueProp).toBeDefined();
+    expect(valueProp?.['anyOf']).toBeDefined();
   });
 
   it('handles literal types', () => {
@@ -107,7 +127,7 @@ describe('tool input JSON Schema', () => {
       kind: z.literal('specific'),
     });
     const jsonSchema = toInputJsonSchema(literalSchema);
-    expect(jsonSchema.properties?.kind?.const).toBe('specific');
+    expect(propOf(jsonSchema, 'kind')?.['const']).toBe('specific');
   });
 
   it('handles discriminated unions', () => {
@@ -116,13 +136,13 @@ describe('tool input JSON Schema', () => {
       z.object({ type: z.literal('b'), count: z.number() }),
     ]);
     const jsonSchema = toInputJsonSchema(base);
-    expect(jsonSchema.oneOf ?? jsonSchema.anyOf ?? jsonSchema.discriminator).toBeDefined();
+    expect(jsonSchema['oneOf'] ?? jsonSchema['anyOf'] ?? jsonSchema['discriminator']).toBeDefined();
   });
 
   it('handles enum schemas', () => {
     const enumSchema = z.enum(['red', 'green', 'blue']);
     const jsonSchema = toInputJsonSchema(enumSchema);
-    expect(jsonSchema.enum).toEqual(['red', 'green', 'blue']);
+    expect(jsonSchema['enum']).toEqual(['red', 'green', 'blue']);
   });
 
   it('handles string, number, boolean, and array primitives', () => {
@@ -133,11 +153,13 @@ describe('tool input JSON Schema', () => {
       arr: z.array(z.string()),
     });
     const jsonSchema = toInputJsonSchema(primitiveSchema);
-    expect(jsonSchema.properties?.s?.type).toBe('string');
-    expect(jsonSchema.properties?.n?.type).toBe('number');
-    expect(jsonSchema.properties?.b?.type).toBe('boolean');
-    expect(jsonSchema.properties?.arr?.type).toBe('array');
-    expect(jsonSchema.properties?.arr?.items?.type).toBe('string');
+    expect(propOf(jsonSchema, 's')?.['type']).toBe('string');
+    expect(propOf(jsonSchema, 'n')?.['type']).toBe('number');
+    expect(propOf(jsonSchema, 'b')?.['type']).toBe('boolean');
+    expect(propOf(jsonSchema, 'arr')?.['type']).toBe('array');
+    expect(
+      (propOf(jsonSchema, 'arr')?.['items'] as Record<string, unknown> | undefined)?.['type'],
+    ).toBe('string');
   });
 
   it('handles default values in the JSON schema output', () => {
@@ -146,8 +168,8 @@ describe('tool input JSON Schema', () => {
       retries: z.number().default(3),
     });
     const jsonSchema = toInputJsonSchema(schemaWithDefaults);
-    expect(jsonSchema.properties?.greeting?.default).toBe('hello');
-    expect(jsonSchema.properties?.retries?.default).toBe(3);
+    expect(propOf(jsonSchema, 'greeting')?.['default']).toBe('hello');
+    expect(propOf(jsonSchema, 'retries')?.['default']).toBe(3);
   });
 
   it('handles string length constraints', () => {
@@ -155,8 +177,8 @@ describe('tool input JSON Schema', () => {
       short: z.string().min(1).max(10),
     });
     const jsonSchema = toInputJsonSchema(constrained);
-    expect(jsonSchema.properties?.short?.minLength).toBe(1);
-    expect(jsonSchema.properties?.short?.maxLength).toBe(10);
+    expect(propOf(jsonSchema, 'short')?.['minLength']).toBe(1);
+    expect(propOf(jsonSchema, 'short')?.['maxLength']).toBe(10);
   });
 
   it('handles number range constraints', () => {
@@ -164,8 +186,8 @@ describe('tool input JSON Schema', () => {
       score: z.number().min(0).max(100),
     });
     const jsonSchema = toInputJsonSchema(ranged);
-    expect(jsonSchema.properties?.score?.minimum).toBe(0);
-    expect(jsonSchema.properties?.score?.maximum).toBe(100);
+    expect(propOf(jsonSchema, 'score')?.['minimum']).toBe(0);
+    expect(propOf(jsonSchema, 'score')?.['maximum']).toBe(100);
   });
 
   it('handles array length constraints', () => {
@@ -173,8 +195,8 @@ describe('tool input JSON Schema', () => {
       tags: z.array(z.string()).min(1).max(5),
     });
     const jsonSchema = toInputJsonSchema(arrayConstraints);
-    expect(jsonSchema.properties?.tags?.minItems).toBe(1);
-    expect(jsonSchema.properties?.tags?.maxItems).toBe(5);
+    expect(propOf(jsonSchema, 'tags')?.['minItems']).toBe(1);
+    expect(propOf(jsonSchema, 'tags')?.['maxItems']).toBe(5);
   });
 
   it('handles regex patterns', () => {
@@ -182,7 +204,7 @@ describe('tool input JSON Schema', () => {
       email: z.string().regex(/^[a-z]+@[a-z]+\.[a-z]+$/),
     });
     const jsonSchema = toInputJsonSchema(patternSchema);
-    expect(jsonSchema.properties?.email?.pattern).toBeDefined();
+    expect(propOf(jsonSchema, 'email')?.['pattern']).toBeDefined();
   });
 
   it('handles transforms by preserving the underlying schema type', () => {
@@ -191,7 +213,7 @@ describe('tool input JSON Schema', () => {
     });
     const jsonSchema = toInputJsonSchema(transformSchema);
     // Coerce.number() still produces a number schema
-    expect(jsonSchema.properties?.port?.type).toBe('number');
+    expect(propOf(jsonSchema, 'port')?.['type']).toBe('number');
   });
 
   it('handles optional fields with defaults as not required', () => {

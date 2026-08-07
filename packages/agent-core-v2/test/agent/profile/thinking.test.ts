@@ -7,12 +7,6 @@ import {
   resolveThinkingEffortForModel,
 } from '#/kosong/model/thinking';
 
-// The old `#/agent/profile/thinking` helpers derived "Kimi thinking
-// semantics" from `protocol: 'kimi'` on the model fixture. The kosong layer
-// has no Kimi protocol (Kimi is a set of `(baseProtocol, traits)`
-// registrations, so fixtures use `providerType: 'kimi'` + a legal protocol);
-// the semantics verdict is now an explicit `strictValidation` argument
-// resolved by the caller through the adapter registry.
 const booleanModel = { capabilities: ['thinking'] };
 const effortModel = {
   capabilities: ['thinking'],
@@ -38,9 +32,6 @@ const alwaysThinkingEffortModel = {
   defaultEffort: 'high',
 };
 const nonThinkingModel = { capabilities: ['tool_use'] };
-// Named fixtures for the call sites below: inline literals would trip excess
-// property checks (`ModelThinkingMetadata` carries no protocol/providerType —
-// those fields only document which semantics verdict the case stands for).
 const alwaysThinkingAnthropicEffortModel = {
   ...alwaysThinkingEffortModel,
   protocol: 'anthropic',
@@ -146,10 +137,6 @@ describe('resolveThinkingEffortForModel', () => {
   });
 
   it('clamps always-thinking models to their default effort even without strict validation', () => {
-    // A model declared always-on never resolves to off, on any wire — claiming
-    // off while upstream keeps reasoning at its default would be a lie. This
-    // covers Kimi-managed models routed through the Anthropic transport and
-    // catalog-imported always-thinking models (e.g. gpt-5) alike.
     expect(
       resolveThinkingEffortForModel('off', undefined, alwaysThinkingAnthropicEffortModel),
     ).toBe('high');
@@ -210,21 +197,20 @@ describe('resolveThinkingEffortForModel', () => {
   });
 
   it('normalizes a whitespace-only effort to the model default', () => {
-    expect(resolveThinkingEffort(undefined, { effort: '   ' }, effortModel)).toBe('medium');
+    expect(resolveThinkingEffortForModel(undefined, { effort: '   ' }, effortModel)).toBe('medium');
   });
 
   it('returns on for always-thinking models without supportEfforts', () => {
     expect(
-      resolveThinkingEffort('off', undefined, {
+      resolveThinkingEffortForModel('off', undefined, {
         capabilities: ['thinking', 'always_thinking'],
         alwaysThinking: true,
-        protocol: 'kimi',
       }),
     ).toBe('on');
   });
 
   it('handles request with undefined model gracefully', () => {
-    expect(resolveThinkingEffort('off', undefined, undefined)).toBe('off');
-    expect(resolveThinkingEffort(undefined, undefined, undefined)).toBe('off');
+    expect(resolveThinkingEffortForModel('off', undefined, undefined)).toBe('off');
+    expect(resolveThinkingEffortForModel(undefined, undefined, undefined)).toBe('off');
   });
 });

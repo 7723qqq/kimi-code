@@ -309,9 +309,9 @@ describe('workflow runtime primitives', () => {
     const items = [5, 10];
     const double = async (_prev: unknown, item: number) => item * 2;
     const result = await Promise.all(
-      items.map((item, index) =>
+      items.map((item) =>
         [double].reduce(
-          (acc, stage) => acc.then((prev) => stage(prev, item, index)),
+          (acc, stage) => acc.then((prev) => stage(prev, item)),
           Promise.resolve(item as unknown),
         ),
       ),
@@ -460,7 +460,7 @@ describe('workflow sandbox primitives', () => {
   });
 
   it('search returns empty array when no provider', async () => {
-    const searchHook = async () => {
+    const searchHook = async (_query: string) => {
       return [];
     };
 

@@ -30,9 +30,12 @@ export function formatBackgroundAgentTranscript(
         ? t('tui.messages.bgAgentCompleted', { subject })
         : t('tui.messages.bgAgentFailed', { subject });
   const tail = phase === 'failed' ? normalizeBackgroundField(extras?.error) : undefined;
-  const detailParts = [normalizeBackgroundField(meta.description), tail].filter(
-    (part): part is string => part !== undefined,
-  );
+  const detailParts = [
+    normalizeBackgroundField(meta.model),
+    normalizeBackgroundField(meta.effort),
+    normalizeBackgroundField(meta.description),
+    tail,
+  ].filter((part): part is string => part !== undefined);
 
   return {
     phase,

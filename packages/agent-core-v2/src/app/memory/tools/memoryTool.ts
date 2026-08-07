@@ -9,9 +9,10 @@
 import { z } from 'zod';
 import { isAbsolute, join } from 'pathe';
 
+import { createDecorator } from '#/_base/di/instantiation';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type { BuiltinTool, ToolExecution } from '#/tool/toolContract';
-import { registerTool } from '#/agent/toolRegistry/toolContribution';
+import type { AgentTool, ToolExecution } from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -57,7 +58,14 @@ export const MemoryToolInputSchema = z
 
 export type MemoryToolInput = z.infer<typeof MemoryToolInputSchema>;
 
-export class MemoryTool implements BuiltinTool<MemoryToolInput> {
+export interface IMemoryTool extends AgentTool<MemoryToolInput> {
+  readonly _serviceBrand: undefined;
+}
+
+export const IMemoryTool = createDecorator<IMemoryTool>('memoryTool');
+
+export class MemoryTool implements IMemoryTool {
+  declare readonly _serviceBrand: undefined;
   readonly name = 'Memory' as const;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(MemoryToolInputSchema);
@@ -250,12 +258,26 @@ function normalizeFileName(name: string): string {
   return name.endsWith('.md') ? name : `${name}.md`;
 }
 
+/**
+ * Sanitize a user-supplied filename into a safe basename. Returns
+ * `undefined` when the input is empty or contains path separators or
+ * `..` (path traversal).
+ */
+function sanitizeFileName(name: string): string | undefined {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) return undefined;
+  if (trimmed.includes('/') || trimmed.includes('\\') || trimmed.includes('..')) return undefined;
+  return normalizeFileName(trimmed);
+}
+
 function buildRelPath(scope: MemoryScope, scopeId: string, fileName: string): string {
   if (scope === 'global') return `global/${fileName}`;
   if (scope === 'project') return `projects/${scopeId}/${fileName}`;
   return `sessions/${scopeId}/${fileName}`;
 }
 
-registerTool(MemoryTool, {
+registerAgentToolService(IMemoryTool, MemoryTool, {
+  name: 'Memory',
+  domain: 'memory',
   when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
 });

@@ -8,9 +8,10 @@
 
 import { z } from 'zod';
 
+import { createDecorator } from '#/_base/di/instantiation';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type { BuiltinTool, ToolExecution } from '#/tool/toolContract';
-import { registerTool } from '#/agent/toolRegistry/toolContribution';
+import type { AgentTool, ToolExecution } from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
@@ -51,7 +52,14 @@ export const WorkflowToolInputSchema = z
 
 export type WorkflowToolInput = z.infer<typeof WorkflowToolInputSchema>;
 
-export class WorkflowTool implements BuiltinTool<WorkflowToolInput> {
+export interface IWorkflowTool extends AgentTool<WorkflowToolInput> {
+  readonly _serviceBrand: undefined;
+}
+
+export const IWorkflowTool = createDecorator<IWorkflowTool>('workflowTool');
+
+export class WorkflowTool implements IWorkflowTool {
+  declare readonly _serviceBrand: undefined;
   readonly name = 'Workflow' as const;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WorkflowToolInputSchema);
@@ -191,6 +199,8 @@ function formatStatus(result: {
   return lines.join('\n');
 }
 
-registerTool(WorkflowTool, {
+registerAgentToolService(IWorkflowTool, WorkflowTool, {
+  name: 'Workflow',
+  domain: 'workflow',
   when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
 });

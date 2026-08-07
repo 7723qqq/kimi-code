@@ -3,7 +3,8 @@
  * contract so that v2 domain modules see the same error types everywhere.
  */
 export {
+  APIEmptyResponseError,
+  APIStatusError,
   ChatProviderError,
-  type LLMRequestFinish,
 } from '#/kosong/contract/errors';
-export { APIStatusError } from '#/kosong/contract/errors';
+export type { AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';

@@ -69,6 +69,8 @@ export interface ModelSelectorOptions {
   /** Live thinking effort of the currently active model (e.g. 'off', 'on',
    * 'high'). Used to highlight the active segment for the current model. */
   readonly currentThinkingEffort: ThinkingEffort;
+  /** Overrides the default ' Select a model' title line. */
+  readonly title?: string;
   /** When true, typed characters filter the list (fuzzy) and a search line is shown. */
   readonly searchable?: boolean;
   /** Items per page. Lists longer than this paginate (PgUp/PgDn). */
@@ -146,8 +148,8 @@ export function effortLabel(effort: string): string {
  * middle `support_efforts` entry, else `'on'` for boolean models, `'off'` when
  * thinking is unsupported.
  */
-function defaultThinkingEffortFor(model: ModelAlias): ThinkingEffort {
-  if (thinkingAvailabilityKind(model) === 'unsupported') return 'off';
+export function defaultThinkingEffortFor(model: ModelAlias): ThinkingEffort {
+  if (thinkingAvailability(model) === 'unsupported') return 'off';
   const efforts = effortsOf(model);
   if (efforts.length > 0) {
     return model.defaultEffort ?? efforts[Math.floor(efforts.length / 2)]!;
@@ -303,7 +305,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg('primary', ` ${t('tui.dialogs.modelSelector.title')}`) + titleSuffix,
+      currentTheme.boldFg('primary', this.opts.title ?? ` ${t('tui.dialogs.modelSelector.title')}`) + titleSuffix,
       currentTheme.fg('textMuted', ' ' + hintParts.join(' · ')),
     ];
     if (this.opts.warning !== undefined) {

@@ -19,6 +19,8 @@ export const MAIN_AGENT_ID = 'main';
 export function getOauthLoginRequiredStartupNotice(): string {
   return t('tui.chrome.hints.oauthLoginExpired');
 }
+export const SESSIONLESS_STARTUP_NOTICE =
+  'No session yet — one will be created on your first message.';
 export const EXIT_CONFIRM_WINDOW_MS = 1500;
 // Time window for treating two consecutive Esc presses as a double-Esc, which
 // opens the undo selector. Kept short (double-click feel) so two deliberate

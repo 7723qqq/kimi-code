@@ -70,16 +70,6 @@ const DETACH_HINT_TEXT = t('tui.messages.toolCall.detachHint');
 const MAX_PROGRESS_LINES = 24;
 
 
-
-
-
-
-
-
-
-
-
-
 /**
  * Pull the live value of a JSON string field out of partially-streamed
  * arguments, even if the closing quote hasn't arrived yet. Handles the
@@ -87,13 +77,6 @@ const MAX_PROGRESS_LINES = 24;
  * real newline we can highlight. Returns `undefined` if the field hasn't
  * started streaming yet.
  */
-
-
-
-
-
-
-
 
 
 export class ToolCallComponent extends Container {
@@ -819,10 +802,11 @@ export class ToolCallComponent extends Container {
   }
 
   private formatSingleSubagentStatsText(): string {
+    const parts: string[] = [];
+    if (this.subagent.modelValue !== undefined) parts.push(this.subagent.modelValue);
+    if (this.subagent.effortValue !== undefined) parts.push(this.subagent.effortValue);
     const toolCount = this.subagent.subToolActivitiesMap.size;
-    const parts = [
-      t('tui.messages.toolCall.singleSubagent.toolCount', { n: toolCount }),
-    ];
+    parts.push(t('tui.messages.toolCall.singleSubagent.toolCount', { n: toolCount }));
     const elapsed = this.subagent.getElapsedSeconds();
     if (elapsed !== undefined) parts.push(formatElapsed(elapsed));
     const tokens =

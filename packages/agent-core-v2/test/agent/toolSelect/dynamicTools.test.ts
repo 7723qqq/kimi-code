@@ -149,7 +149,7 @@ describe('predicates and ledger scan', () => {
   });
 
   it('handles empty tool name arrays in schema messages', () => {
-    const history = [schemaMessage(), userMessage('x')];
+    const history = [schemaMessage([]), userMessage('x')];
     expect([...collectLoadedDynamicToolNames(history)]).toEqual([]);
   });
 
@@ -158,13 +158,12 @@ describe('predicates and ledger scan', () => {
     expect(stripDynamicToolContext(history)).toBe(history);
   });
 
-  it('isDynamicToolSchemaMessage returns false for messages with missing variant', () => {
+  it('isDynamicToolSchemaMessage returns false for messages without tools', () => {
     const msg: ContextMessage = {
       role: 'system',
       content: [],
       toolCalls: [],
-      tools: [{ name: 't', description: 't desc', parameters: {} }],
-      origin: { kind: 'injection' },
+      origin: { kind: 'injection', variant: 'dynamic_tool_schema' },
     };
     expect(isDynamicToolSchemaMessage(msg)).toBe(false);
   });

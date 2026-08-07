@@ -1,5 +1,5 @@
 /**
- * `web` domain (L4) — local `UrlFetcher` used when no managed fetch service
+ * `web` domain — local `UrlFetcher` used when no managed fetch service
  * is configured. GETs URLs with a Chrome-like UA and SSRF hardening: http(s)
  * schemes only; unless `allowPrivateAddresses` is set, IP literals and
  * DNS-resolved addresses in loopback / RFC1918 / link-local / CGNAT / ULA
@@ -22,6 +22,7 @@ import { t } from '@moonshot-ai/kimi-i18n';
 import { Agent, type Dispatcher } from 'undici';
 
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
+import { Error2, ErrorCodes } from '#/errors';
 
 import { HttpFetchError, type UrlFetcher, type UrlFetchResult } from '../tools/fetch-url-types';
 
@@ -104,8 +105,10 @@ export class LocalFetchURLProvider implements UrlFetcher {
       if (Number.isFinite(cl) && cl > this.maxBytes) {
         await response.body?.cancel().catch(() => {
         });
-        throw new Error(
+        throw new Error2(
+          ErrorCodes.WEB_FETCH_FAILED,
           `Response body too large: ${String(cl)} bytes exceeds maxBytes (${String(this.maxBytes)}).`,
+          { details: { bytes: cl, maxBytes: this.maxBytes } },
         );
       }
     }
@@ -114,8 +117,10 @@ export class LocalFetchURLProvider implements UrlFetcher {
 
     const actualBytes = Buffer.byteLength(body, 'utf8');
     if (actualBytes > this.maxBytes) {
-      throw new Error(
+      throw new Error2(
+        ErrorCodes.WEB_FETCH_FAILED,
         `Response body too large: ${String(actualBytes)} bytes exceeds maxBytes (${String(this.maxBytes)}).`,
+        { details: { bytes: actualBytes, maxBytes: this.maxBytes } },
       );
     }
 
@@ -149,8 +154,10 @@ export class LocalFetchURLProvider implements UrlFetcher {
       await response.body?.cancel().catch(() => {
       });
       if (redirects >= MAX_REDIRECT_HOPS) {
-        throw new Error(
+        throw new Error2(
+          ErrorCodes.WEB_FETCH_FAILED,
           `Too many redirects while fetching "${url}" (limit ${String(MAX_REDIRECT_HOPS)}).`,
+          { details: { url, limit: MAX_REDIRECT_HOPS } },
         );
       }
       redirects += 1;
@@ -202,9 +209,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
     const fallbackText = (container?.textContent ?? '').trim();
 
     if (fallbackText.length === 0) {
-      throw new Error(
-        t('toolsV2.fetchUrl.contentExtractionFailed'),
-      );
+      throw new Error(t('toolsV2.fetchUrl.contentExtractionFailed'));
     }
 
     return titleText.length > 0 ? `# ${titleText}\n\n${fallbackText}` : fallbackText;
@@ -244,10 +249,14 @@ async function resolveSafeFetchTarget(url: string, allowPrivate: boolean): Promi
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error(`Invalid URL: "${url}"`);
+    throw new Error2(ErrorCodes.WEB_INVALID_URL, `Invalid URL: "${url}"`, { details: { url } });
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Unsupported URL scheme "${parsed.protocol}" — only http(s) allowed.`);
+    throw new Error2(
+      ErrorCodes.WEB_INVALID_URL,
+      `Unsupported URL scheme "${parsed.protocol}" — only http(s) allowed.`,
+      { details: { url, protocol: parsed.protocol } },
+    );
   }
   const hostRaw = parsed.hostname.toLowerCase();
   const host = hostRaw.startsWith('[') && hostRaw.endsWith(']') ? hostRaw.slice(1, -1) : hostRaw;
@@ -255,25 +264,35 @@ async function resolveSafeFetchTarget(url: string, allowPrivate: boolean): Promi
   if (allowPrivate) return { host, port };
   if (isIP(host) !== 0) {
     if (isBlockedAddress(host)) {
-      throw new Error(`Refusing to fetch private address: "${host}"`);
+      throw new Error2(ErrorCodes.WEB_PRIVATE_ADDRESS, `Refusing to fetch private address: "${host}"`, {
+        details: { host },
+      });
     }
     return { host, port };
   }
   if (host === 'localhost' || host.endsWith('.localhost')) {
-    throw new Error(`Refusing to fetch private host: "${host}"`);
+    throw new Error2(ErrorCodes.WEB_PRIVATE_ADDRESS, `Refusing to fetch private host: "${host}"`, {
+      details: { host },
+    });
   }
   let addresses: LookupAddress[];
   try {
     addresses = await lookup(host, { all: true });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Cannot resolve host "${host}" for the fetch safety check: ${detail}`, {
-      cause: error,
-    });
+    throw new Error2(
+      ErrorCodes.WEB_PRIVATE_ADDRESS,
+      `Cannot resolve host "${host}" for the fetch safety check: ${detail}`,
+      { cause: error, details: { host } },
+    );
   }
   for (const { address } of addresses) {
     if (isBlockedAddress(address)) {
-      throw new Error(`Refusing to fetch host "${host}": resolves to private address "${address}".`);
+      throw new Error2(
+        ErrorCodes.WEB_PRIVATE_ADDRESS,
+        `Refusing to fetch host "${host}": resolves to private address "${address}".`,
+        { details: { host, address } },
+      );
     }
   }
   return { host, port, addresses };

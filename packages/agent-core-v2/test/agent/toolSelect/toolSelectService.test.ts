@@ -247,6 +247,7 @@ class FakeLoopService implements IAgentLoopService {
 
 class FakeContextMemory implements IAgentContextMemoryService {
   readonly _serviceBrand = undefined;
+  readonly contextTokenEstimate = 0;
   readonly history: ContextMessage[] = [];
   readonly appended: ContextMessage[] = [];
 

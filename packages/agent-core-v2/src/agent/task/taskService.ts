@@ -1,5 +1,5 @@
 /**
- * `task` domain (L5) — `AgentTaskService` implementation.
+ * `task` domain — `AgentTaskService` implementation.
  *
  * Owns the agent's registry of running and restored tasks:
  * registers and drives tasks to completion, retains a bounded output ring,
@@ -40,10 +40,10 @@
 
 import { randomBytes } from 'node:crypto';
 import { join } from 'pathe';
-
 import { t } from '@moonshot-ai/kimi-i18n';
 
-import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 
 import type { ContentPart } from '#/kosong/contract/message';
 
@@ -54,6 +54,7 @@ import {
   abortable,
   userCancellationReason,
 } from '#/_base/utils/abort';
+import { setClampedTimeout } from '#/_base/utils/timer';
 import { escapeXml, escapeXmlAttr } from '#/_base/utils/xml-escape';
 import { IEventBus } from '#/app/event/eventBus';
 import { defineCheckpointedModel } from '#/agent/contextMemory/conversationTime';
@@ -191,7 +192,7 @@ const NOTIFICATION_FALLBACK_PREVIEW_BYTES = 3_000;
 const ACTIVE_BACKGROUND_TASK_INJECTION_VARIANT = 'background_task_status';
 const ACTIVE_BACKGROUND_TASK_GUIDANCE = [
   'The conversation was compacted, so the earlier messages that started these background tasks are gone — but the tasks are still running from before.',
-  'Do not start duplicates. Use TaskOutput to fetch a task’s result, TaskList to list them, and TaskStop to cancel one.',
+  'Do not start duplicates. Use TaskList to list them, TaskOutput for a non-blocking status/output snapshot, and TaskStop to cancel one — completion arrives via automatic notification.',
 ].join(' ');
 
 export function isAgentTaskTerminal(status: AgentTaskStatus): boolean {
@@ -249,6 +250,7 @@ export const taskActiveTaskReminderPendingKey = defineState<boolean>(
   () => false,
 );
 
+// NOTE: stays Disposable — its own 'config' collides with the Fiber
 export class AgentTaskService extends Disposable implements IAgentTaskService {
   declare readonly _serviceBrand: undefined;
 
@@ -686,7 +688,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   }
 
   private armManagerTimeout(entry: ManagedTask, timeoutMs: number): void {
-    entry.timeoutHandle = setTimeout(() => {
+    entry.timeoutHandle = setClampedTimeout(() => {
       entry.timeoutHandle = undefined;
       if (this.canAutoBackgroundOnTimeout(entry)) {
         this.detachEntry(entry, true);
@@ -875,7 +877,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
           entry.waiters.push(resolve);
         }),
         new Promise<void>((resolve) => {
-          timeout = setTimeout(resolve, timeoutMs);
+          // A clamped early return just makes callers (e.g. the print drain
+          // loop) re-poll — the task may still be running, which the caller
+          // observes from the returned info.
+          timeout = setClampedTimeout(resolve, timeoutMs);
           timeout.unref?.();
         }),
       ]);

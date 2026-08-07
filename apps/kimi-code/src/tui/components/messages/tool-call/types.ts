@@ -45,6 +45,10 @@ export interface ToolCallSubagentSnapshot {
   readonly toolName: string;
   readonly toolCallDescription: string;
   readonly agentName: string | undefined;
+  /** Display name of the model the subagent is bound to, when known (live only). */
+  readonly model?: string;
+  /** Thinking effort, present only for concrete levels (on/off hidden). */
+  readonly effort?: string;
   readonly phase: SubagentPhase | undefined;
   readonly toolCount: number;
   readonly elapsedSeconds: number | undefined;
@@ -93,6 +97,10 @@ export interface SubagentFailedPayload {
 export interface SubagentMetricsPayload {
   readonly contextTokens?: number | undefined;
   readonly usage?: TokenUsage | undefined;
+  /** Display name of the model the subagent is bound to (agent.status.updated). */
+  readonly modelDisplay?: string | undefined;
+  /** Thinking effort display, present only for concrete levels (on/off hidden). */
+  readonly effortDisplay?: string | undefined;
 }
 
 export interface BackgroundTaskTerminalStatus {

@@ -104,6 +104,7 @@ async function undoByCount(host: SlashCommandHost, count: number): Promise<boole
     host.showError(t('tui.statusMessages.undoFailed', { message }));
     return false;
   }
+  host.noteContextCut?.();
 
   const children = host.state.transcriptContainer.children;
   const lastUserComponentIndex = findUndoAnchorComponentIndex(children, count);

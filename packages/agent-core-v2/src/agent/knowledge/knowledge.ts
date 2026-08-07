@@ -9,6 +9,8 @@
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
+export type KnowledgeEntryStatus = 'pending' | 'confirmed' | 'rejected';
+
 export interface KnowledgeEntry {
   id: string;
   category: 'coding-style' | 'pitfall' | 'architecture' | 'workflow';
@@ -18,6 +20,7 @@ export interface KnowledgeEntry {
   scope: string | null;
   confidence: number;
   source: 'human' | 'ai-learned' | 'ai-confirmed';
+  status: KnowledgeEntryStatus;
   created_at: string;
   updated_at: string;
 }
@@ -36,12 +39,14 @@ export interface KnowledgeAddInput {
   scope?: string;
   source?: 'human' | 'ai-learned';
   confidence?: number;
+  status?: KnowledgeEntryStatus;
 }
 
 export interface KnowledgeStats {
   total: number;
   by_category: Record<string, number>;
   by_source: Record<string, number>;
+  by_status: Record<string, number>;
   avg_confidence: number;
 }
 

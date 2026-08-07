@@ -111,7 +111,9 @@ describe('AgentSwarmService — Agent tool veto in swarm mode', () => {
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     ix.set(IEventBus, new SyncDescriptor(EventBusService));
-    ix.stub(IAgentLoopService, { status: () => ({ state: 'idle' }) });
+    ix.stub(IAgentLoopService, {
+      status: () => ({ state: 'idle', pendingTurnIds: [], hasPendingRequests: false }),
+    });
     ix.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
     ix.stub(IAgentLifecycleService, {});
     ix.stub(ISessionSwarmService, {

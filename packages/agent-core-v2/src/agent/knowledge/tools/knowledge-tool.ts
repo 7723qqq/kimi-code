@@ -7,8 +7,16 @@
  */
 
 import { z } from 'zod';
-import { registerTool } from '#/agent/toolRegistry/toolContribution';
-import { IAgentScopeContext } from '#/agent/agentScopeContext';
+
+import { createDecorator } from '#/_base/di/instantiation';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import type {
+  AgentTool,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentKnowledgeService } from '../knowledge';
 
 import TOOL_DESCRIPTION from './knowledge-tool.md?raw';
@@ -26,32 +34,47 @@ const KnowledgeInputSchema = z.object({
 
 type KnowledgeInput = z.infer<typeof KnowledgeInputSchema>;
 
-class KnowledgeTool {
-  static readonly name = 'Knowledge';
-  static readonly description = TOOL_DESCRIPTION;
-  static readonly inputSchema = KnowledgeInputSchema;
+export interface IKnowledgeTool extends AgentTool<KnowledgeInput> {
+  readonly _serviceBrand: undefined;
+}
 
-  readonly name = KnowledgeTool.name;
+export const IKnowledgeTool = createDecorator<IKnowledgeTool>('knowledgeTool');
 
-  async execute(input: KnowledgeInput, accessor: { get<T>(id: { new(...args: unknown[]): T }): T }): Promise<string> {
-    const knowledge = accessor.get(IAgentKnowledgeService as unknown as { new(...args: unknown[]): IAgentKnowledgeService });
+export class KnowledgeTool implements IKnowledgeTool {
+  declare readonly _serviceBrand: undefined;
+  readonly name = 'Knowledge' as const;
+  readonly description: string = TOOL_DESCRIPTION;
+  readonly parameters: Record<string, unknown> = toInputJsonSchema(KnowledgeInputSchema);
 
+  constructor(@IAgentKnowledgeService private readonly knowledge: IAgentKnowledgeService) {}
+
+  resolveExecution(input: KnowledgeInput): ToolExecution {
+    return {
+      description: `Knowledge: ${input.action}`,
+      approvalRule: this.name,
+      execute: async () => this.execute(input),
+    };
+  }
+
+  private async execute(input: KnowledgeInput): Promise<ExecutableToolResult> {
     switch (input.action) {
       case 'search': {
         const query = input.query ?? '';
         const tags = input.tags?.split(',').filter(Boolean);
-        const results = knowledge.search(query, input.scope, tags);
-        if (results.length === 0) return 'No matching knowledge entries found.';
-        return results.map((r, i) =>
-          `${i + 1}. [${r.entry.category}] ${r.entry.title} (confidence: ${r.entry.confidence})\n   ${r.entry.content.split('\n')[0]}`
-        ).join('\n\n');
+        const results = this.knowledge.search(query, input.scope, tags);
+        if (results.length === 0) return { output: 'No matching knowledge entries found.' };
+        return {
+          output: results.map((r, i) =>
+            `${i + 1}. [${r.entry.category}] ${r.entry.title} (confidence: ${r.entry.confidence})\n   ${r.entry.content.split('\n')[0]}`
+          ).join('\n\n'),
+        };
       }
 
       case 'add': {
         if (!input.title || !input.content || !input.category) {
-          return 'Error: title, content, and category are required for add action.';
+          return { output: 'Error: title, content, and category are required for add action.', isError: true };
         }
-        const entry = knowledge.add({
+        const entry = this.knowledge.add({
           title: input.title,
           category: input.category,
           content: input.content,
@@ -60,26 +83,37 @@ class KnowledgeTool {
           source: 'ai-learned',
           confidence: 0.7,
         });
-        return entry
-          ? `Learned: [${entry.category}] ${entry.title} (id: ${entry.id}, confidence: 0.7)`
-          : 'Failed to add knowledge entry.';
+        return {
+          output: entry
+            ? `Learned: [${entry.category}] ${entry.title} (id: ${entry.id}, confidence: 0.7)`
+            : 'Failed to add knowledge entry.',
+          isError: entry === null,
+        };
       }
 
       case 'confirm': {
-        if (!input.id) return 'Error: id is required for confirm action.';
-        const ok = knowledge.confirm(input.id);
-        return ok ? `Confirmed entry ${input.id} (confidence → 1.0)` : `Entry ${input.id} not found.`;
+        if (!input.id) return { output: 'Error: id is required for confirm action.', isError: true };
+        const ok = this.knowledge.confirm(input.id);
+        return {
+          output: ok ? `Confirmed entry ${input.id} (confidence → 1.0)` : `Entry ${input.id} not found.`,
+          isError: !ok,
+        };
       }
 
       case 'reject': {
-        if (!input.id) return 'Error: id is required for reject action.';
-        const ok = knowledge.remove(input.id);
-        return ok ? `Rejected and removed entry ${input.id}` : `Entry ${input.id} not found.`;
+        if (!input.id) return { output: 'Error: id is required for reject action.', isError: true };
+        const ok = this.knowledge.remove(input.id);
+        return {
+          output: ok ? `Rejected and removed entry ${input.id}` : `Entry ${input.id} not found.`,
+          isError: !ok,
+        };
       }
     }
   }
 }
 
-registerTool(KnowledgeTool, {
+registerAgentToolService(IKnowledgeTool, KnowledgeTool, {
+  name: 'Knowledge',
+  domain: 'knowledge',
   when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
 });

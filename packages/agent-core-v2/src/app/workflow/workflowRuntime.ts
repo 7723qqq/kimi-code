@@ -27,7 +27,7 @@ import type { ISessionSubagentService } from '#/session/subagent/subagent';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { ILogService } from '#/_base/log/log';
 import type { WorkflowRunEntry, AgentOpts } from './workflowTypes';
-import type { WebSearchProvider } from '#/app/auth/webSearch/tools/web-search';
+import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';
 
 const MAX_CONCURRENT = Math.min(16, 2 * (navigator?.hardwareConcurrency ?? 4));
 
@@ -200,11 +200,11 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
       return [];
     }
     try {
-      const results = await provider(query, { count: 8 });
+      const results = await provider.search(query);
       return results.map((r) => ({
         title: r.title ?? '',
         url: r.url ?? '',
-        snippet: r.content ?? '',
+        snippet: r.snippet ?? '',
       }));
     } catch (err) {
       deps.log.warn('workflow.search.failed', {
@@ -292,7 +292,7 @@ async function spawnAgent(
   deps: WorkflowRuntimeDeps,
   entry: WorkflowRunEntry,
 ): Promise<unknown> {
-  const { lifecycle, subagents, sessionContext, callerAgentId } = deps;
+  const { lifecycle, subagents, callerAgentId } = deps;
 
   // Build the full prompt — include schema instructions if provided.
   let fullPrompt = prompt;
@@ -317,7 +317,6 @@ async function spawnAgent(
       profile: opts.agentType ?? 'coder',
       model: modelAlias,
       thinking: callerData?.thinkingLevel,
-      cwd: sessionContext.cwd,
     },
     labels: {
       parentAgentId: callerAgentId,

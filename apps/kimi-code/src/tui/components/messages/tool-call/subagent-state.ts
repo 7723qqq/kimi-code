@@ -73,6 +73,10 @@ export class SubagentStateManager {
   private usage: TokenUsage | undefined;
   private resultSummary: string | undefined;
   private error: string | undefined;
+  /** Display name of the model the subagent is bound to (agent.status.updated). */
+  private model: string | undefined;
+  /** Thinking effort, set only for concrete levels (boolean on/off hidden). */
+  private effort: string | undefined;
 
   // ── Timing ──
   private startedAtMs: number | undefined;
@@ -201,6 +205,12 @@ export class SubagentStateManager {
     }
     if (payload.usage !== undefined) {
       this.usage = payload.usage;
+    }
+    if (payload.modelDisplay !== undefined) {
+      this.model = payload.modelDisplay;
+    }
+    if (payload.effortDisplay !== undefined) {
+      this.effort = payload.effortDisplay;
     }
     this.notify();
   }
@@ -359,6 +369,8 @@ export class SubagentStateManager {
       toolName: this.toolCall.name,
       toolCallDescription: str(this.toolCall.args['description']) || str(this.toolCall.description),
       agentName: this.agentName,
+      model: this.model,
+      effort: this.effort,
       phase: derivedPhase,
       toolCount: finished,
       elapsedSeconds: this.getElapsedSeconds(),
@@ -452,6 +464,8 @@ export class SubagentStateManager {
   get errorValue(): string | undefined { return this.error; }
   get contextTokensValue(): number | undefined { return this.contextTokens; }
   get usageValue(): TokenUsage | undefined { return this.usage; }
+  get modelValue(): string | undefined { return this.model; }
+  get effortValue(): string | undefined { return this.effort; }
   get spinnerFrameValue(): number { return this.spinnerFrame; }
   get ongoingSubCallsMap(): ReadonlyMap<string, OngoingSubCall> { return this.ongoingSubCalls; }
   get finishedSubCallsList(): readonly FinishedSubCall[] { return this.finishedSubCalls; }

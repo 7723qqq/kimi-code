@@ -85,7 +85,12 @@ describe('fromErrorPayload', () => {
   });
 
   it('round-trips an Error2 with cause: undefined (no cause key)', () => {
-    const revived = fromErrorPayload({ code: 'internal', message: 'plain', name: 'Error' });
+    const revived = fromErrorPayload({
+      code: 'internal',
+      message: 'plain',
+      name: 'Error',
+      retryable: false,
+    });
     expect(revived).toBeInstanceOf(Error2);
     expect(revived.code).toBe('internal');
     expect(revived.message).toBe('plain');

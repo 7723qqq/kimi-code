@@ -15,6 +15,7 @@ export {
   FEEDBACK_ISSUE_URL,
   FEEDBACK_TELEMETRY_EVENT,
   FEEDBACK_VERSION_PREFIX,
+  KIMI_CODE_SIGNUP_URL,
 } from '#/constant/app';
 
 export function getFeedbackStatusSubmitting(): string {

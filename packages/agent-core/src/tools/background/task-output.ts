@@ -64,12 +64,8 @@ export type TaskOutputInput = z.Infer<typeof TaskOutputInputSchema>;
 
 // ── Implementation ───────────────────────────────────────────────────
 
-function retrievalStatus(
-  status: BackgroundTaskStatus,
-  block: boolean | undefined,
-): 'success' | 'timeout' | 'not_ready' {
-  if (isBackgroundTaskTerminal(status)) return 'success';
-  return block ? 'timeout' : 'not_ready';
+function retrievalStatus(status: BackgroundTaskStatus): 'success' | 'not_ready' {
+  return isBackgroundTaskTerminal(status) ? 'success' : 'not_ready';
 }
 
 function terminalReason(info: BackgroundTaskInfo): 'timed_out' | 'stopped' | 'failed' | undefined {
@@ -126,7 +122,7 @@ export class TaskOutputTool implements BuiltinTool<TaskOutputInput> {
 
     const lines = [
       formatPlainObject({
-        retrievalStatus: retrievalStatus(current.status, args.block),
+        retrievalStatus: retrievalStatus(current.status),
         ...current,
         outputPath: output.outputPath,
         terminalReason: terminalReason(current),

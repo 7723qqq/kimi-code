@@ -1,14 +1,14 @@
 import {
   estimateTokensForMessage,
   estimateTokensForMessages,
-} from "#/_base/utils/tokens";
+} from '#/kosong/contract/tokens';
 import { isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import {
   APIEmptyResponseError,
   APIStatusError,
 } from '#/app/llmProtocol/errors';
-import type { LLMRequestFinish } from '#/agent/llmRequester/llmRequester';
+import type { AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import type { Message } from '#/app/llmProtocol/message';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
 
@@ -37,7 +37,7 @@ export function findAPIStatusError(error: unknown): APIStatusError | undefined {
   return undefined;
 }
 
-export function collectSummary(finish: LLMRequestFinish): CompactionAttemptResult {
+export function collectSummary(finish: AgentLLMRequestFinish): CompactionAttemptResult {
   if (finish.providerFinishReason === 'truncated') {
     throw new CompactionTruncatedError();
   }

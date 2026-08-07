@@ -68,6 +68,18 @@ describe('AppendLogStore', () => {
     return out;
   }
 
+  async function collectFrom<R>(
+    store: IAppendLogStore,
+    scope: string,
+    key: string,
+  ): Promise<readonly R[]> {
+    const out: R[] = [];
+    for await (const r of store.read<R>(scope, key)) {
+      out.push(r);
+    }
+    return out;
+  }
+
   it('reads nothing from an empty log', async () => {
     expect(await collect<Rec>(SCOPE, KEY)).toEqual([]);
   });
@@ -737,6 +749,6 @@ describe('AppendLogStore', () => {
     secondIx.stub(IFileSystemStorageService, storage);
     secondIx.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     const reopened = secondIx.get(IAppendLogStore);
-    expect(await collect<Rec>(reopened, SCOPE, KEY)).toEqual([{ n: 42 }]);
+    expect(await collectFrom<Rec>(reopened, SCOPE, KEY)).toEqual([{ n: 42 }]);
   });
 });

@@ -61,7 +61,7 @@ describe('goal tools', () => {
     eventBus = ctx.get(IEventBus);
     toolExecutor = ctx.get(IAgentToolExecutorService);
     setGoalBudgetTool = new SetGoalBudgetTool(goals);
-    updateGoalTool = new UpdateGoalTool(goals, { evaluate: async () => ({ ok: true, reason: '' }) } as any);
+    updateGoalTool = new UpdateGoalTool(goals);
   });
 
   afterEach(async () => {
@@ -254,7 +254,7 @@ describe('goal tools', () => {
     expect(UpdateGoalToolInputSchema.safeParse({ status: 'blocked', reason: 'x' }).success).toBe(
       false,
     );
-    for (const status of ['active', 'paused', 'impossible', 'cancelled', '']) {
+    for (const status of ['paused', 'impossible', 'cancelled', '']) {
       expect(UpdateGoalToolInputSchema.safeParse({ status }).success).toBe(false);
     }
   });
@@ -288,8 +288,14 @@ describe('goal tools', () => {
   it('UpdateGoal blocked requires 3 consecutive blocked calls before stopping the turn', async () => {
     await goals.createGoal({ objective: 'ship it' });
 
+    const runUpdate = async (toolCallId: string) => {
+      const resolved = updateGoalTool.resolveExecution({ status: 'blocked' });
+      if (resolved.isError === true) throw new Error('expected executable tool call');
+      return resolved.execute({ turnId: 0, toolCallId, signal });
+    };
+
     // Attempt 1/3
-    const r1 = await updateGoalTool.resolveExecution({ status: 'blocked' }).execute({ turnId: 0, toolCallId: 'call_b1', signal });
+    const r1 = await runUpdate('call_b1');
     expect(r1.stopTurn).toBeFalsy();
     expect(r1.output).toContain('attempt 1/3');
     // Manually record blocked attempts for the remaining calls
@@ -297,7 +303,7 @@ describe('goal tools', () => {
     expect(goals.getGoal().goal?.blockedStreak).toBe(2);
 
     // Attempt 3/3: now actually blocked
-    const result = await updateGoalTool.resolveExecution({ status: 'blocked' }).execute({ turnId: 0, toolCallId: 'call_b3', signal });
+    const result = await runUpdate('call_b3');
     expect(result.stopTurn).toBe(true);
     expect(result.output).toContain('Goal blocked.');
     expect(result.output).toContain('Worked');

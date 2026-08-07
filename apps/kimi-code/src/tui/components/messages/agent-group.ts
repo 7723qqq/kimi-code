@@ -299,10 +299,14 @@ function formatBreakdownParts(counts: PhaseCounts): string[] {
 }
 
 function formatStats(snap: ToolCallSubagentSnapshot): string {
-  const toolCountStr = snap.toolCount === 1
-    ? t('tui.messages.agentGroup.tool_one', { count: snap.toolCount })
-    : t('tui.messages.agentGroup.tool_other', { count: snap.toolCount });
-  const parts = [toolCountStr];
+  const parts: string[] = [];
+  if (snap.model !== undefined) parts.push(snap.model);
+  if (snap.effort !== undefined) parts.push(snap.effort);
+  parts.push(
+    snap.toolCount === 1
+      ? t('tui.messages.agentGroup.tool_one', { count: snap.toolCount })
+      : t('tui.messages.agentGroup.tool_other', { count: snap.toolCount }),
+  );
   if (snap.elapsedSeconds !== undefined) parts.push(formatElapsed(snap.elapsedSeconds));
   if (snap.tokens > 0) parts.push(formatTokens(snap.tokens));
   return currentTheme.dim(` · ${parts.join(' · ')}`);

@@ -13,6 +13,7 @@ const STATUS_PRIORITY: Record<McpServerInfo['status'], number> = {
   pending: 2,
   connected: 3,
   disabled: 4,
+  removed: 5,
 };
 
 function statusLabel(status: McpServerInfo['status']): string {
@@ -27,6 +28,8 @@ function statusLabel(status: McpServerInfo['status']): string {
       return t('tui.messages.mcpStatusPanel.status.failed');
     case 'disabled':
       return t('tui.messages.mcpStatusPanel.status.disabled');
+    case 'removed':
+      return 'removed';
   }
 }
 
@@ -36,6 +39,7 @@ const SUMMARY_ORDER: readonly McpServerInfo['status'][] = [
   'needs-auth',
   'failed',
   'disabled',
+  'removed',
 ];
 
 function statusPainter(
@@ -50,12 +54,15 @@ function statusPainter(
     case 'pending':
       return (text) => currentTheme.fg('warning', text);
     case 'disabled':
+    case 'removed':
       return (text) => currentTheme.fg('textDim', text);
   }
 }
 
 function formatToolCount(server: McpServerInfo): string {
-  if (server.status === 'disabled') return t('tui.messages.mcpStatusPanel.disabledToolCount');
+  if (server.status === 'disabled' || server.status === 'removed') {
+    return t('tui.messages.mcpStatusPanel.disabledToolCount');
+  }
   return t(
     server.toolCount === 1
       ? 'tui.messages.mcpStatusPanel.tool_one'

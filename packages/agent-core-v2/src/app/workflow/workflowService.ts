@@ -7,9 +7,9 @@
  */
 
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
-import { InstantiationType } from '#/_base/di/extensions';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { createDecorator } from '#/_base/di/instantiation';
+import { LifecycleScope } from '#/app/scopes';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
@@ -199,6 +199,6 @@ registerScopedService(
   LifecycleScope.App,
   IWorkflowService,
   WorkflowService,
-  InstantiationType.Eager,
+  ScopeActivation.OnScopeCreated,
   'workflow',
 );

@@ -43,6 +43,7 @@ export function stubContextMemory(eventBus?: IEventBus): StubContextMemory {
   const messages: ContextMessage[] = [];
   return {
     _serviceBrand: undefined,
+    contextTokenEstimate: 0,
     get messages() {
       return messages;
     },
@@ -88,8 +89,11 @@ export function stubContextMemory(eventBus?: IEventBus): StubContextMemory {
 class StubContextMemoryService implements IAgentContextMemoryService {
   declare readonly _serviceBrand: undefined;
   private readonly impl: StubContextMemory;
-  constructor(@IEventBus eventBus: IEventBus) {
+  constructor(@IEventBus eventBus?: IEventBus) {
     this.impl = stubContextMemory(eventBus);
+  }
+  get contextTokenEstimate(): number {
+    return this.impl.contextTokenEstimate;
   }
   get messages(): readonly ContextMessage[] {
     return this.impl.messages;

@@ -11,10 +11,10 @@
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { InstantiationType } from '#/_base/di/extensions';
-import { LifecycleScope, registerScopedService } from '#/_base/di/scope';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 import { createDecorator } from '#/_base/di/instantiation';
-import { IAgentLLMRequesterService, type LLMRequestFinish } from '#/agent/llmRequester/llmRequester';
+import { IAgentLLMRequesterService, type AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -169,7 +169,7 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
       messageCount: messages.length,
     });
 
-    let finish: LLMRequestFinish;
+    let finish: AgentLLMRequestFinish;
     try {
       finish = await this.llmRequester.request(
         {
@@ -335,6 +335,6 @@ registerScopedService(
   LifecycleScope.Agent,
   IAgentGoalJudgeService,
   AgentGoalJudgeService,
-  InstantiationType.Eager,
+  ScopeActivation.OnScopeCreated,
   'goalJudge',
 );

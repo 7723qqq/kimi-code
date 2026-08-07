@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createDecorator } from '#/_base/di/instantiation';
+import { LifecycleScope } from '#/app/scopes';
 import {
-  LifecycleScope,
   ScopeActivation,
   _clearScopedRegistryForTests,
   getScopedServiceDescriptors,
@@ -123,13 +123,13 @@ describe('registerScopedService / getScopedServiceDescriptors', () => {
     expect(entries[0]?.id).toBe(IApp);
   });
 
-  it('register with Eager vs Delayed both work', () => {
-    registerScopedService(LifecycleScope.App, IApp, AppSvc, InstantiationType.Eager);
-    registerScopedService(LifecycleScope.Session, ISession, SessionSvc, InstantiationType.Delayed);
+  it('register with eager vs on-demand activation both work', () => {
+    registerScopedService(LifecycleScope.App, IApp, AppSvc, ScopeActivation.OnScopeCreated);
+    registerScopedService(LifecycleScope.Session, ISession, SessionSvc, ScopeActivation.OnDemand);
     const appEntries = getScopedServiceDescriptors(LifecycleScope.App);
     const sessionEntries = getScopedServiceDescriptors(LifecycleScope.Session);
-    expect(appEntries[0]?.descriptor.supportsDelayedInstantiation).toBe(false);
-    expect(sessionEntries[0]?.descriptor.supportsDelayedInstantiation).toBe(true);
+    expect(appEntries[0]?.activation).toBe(ScopeActivation.OnScopeCreated);
+    expect(sessionEntries[0]?.activation).toBe(ScopeActivation.OnDemand);
   });
 
   it('getScopedServiceDescriptors for a scope with no registrations returns empty', () => {

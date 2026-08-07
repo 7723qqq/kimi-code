@@ -5,6 +5,7 @@ import type {
   SpawnSubagentOptions,
   SubagentHandle,
 } from './subagent-host';
+import type { SubagentModelChoice } from './subagent-binding';
 import { isUserCancellation } from '../utils/abort';
 import {
   SUBAGENT_FAILED_RESUME_MAX_RETRIES,
@@ -63,6 +64,7 @@ type BaseQueuedSubagentTask<T> = {
   readonly runInBackground: boolean;
   readonly timeout?: number;
   readonly signal?: AbortSignal;
+  readonly modelChoice?: SubagentModelChoice;
 };
 
 export type SpawnQueuedSubagentTask<T = unknown> = BaseQueuedSubagentTask<T> & {
@@ -360,6 +362,7 @@ export class SubagentBatch<T> {
         const spawnOptions: SpawnSubagentOptions = {
           profileName: task.profileName,
           swarmItem: task.swarmItem,
+          modelChoice: task.modelChoice,
           ...runOptions,
         };
         handle = await this.launcher.spawn(spawnOptions);

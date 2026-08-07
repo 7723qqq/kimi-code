@@ -17,8 +17,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   ISessionApprovalService,
-  ISessionLifecycleService,
   ISessionQuestionService,
+  getLiveSessionById,
 } from '@moonshot-ai/agent-core-v2';
 
 import {
@@ -169,9 +169,9 @@ function scrubHomePrefixes(value: unknown, home: HomePair): unknown {
  */
 const KNOWN_DIFFS = {
   // v2's flag registry is per-domain and already carries flags v1 does not
-  // have (fault-injection, minidb backend, subagent); v1-only flags would be
-  // the symmetric case. Parity is enforced on the intersection of ids until
-  // the registries are unified.
+  // have (minidb backend, subagent); v1-only flags would be the symmetric
+  // case. Parity is enforced on the intersection of ids until the registries
+  // are unified.
   getExperimentalFeatures: (
     features: readonly { id: string }[],
     other: readonly { id: string }[],
@@ -241,12 +241,12 @@ const KNOWN_DIFFS = {
     projectResumedSession(resumed, home),
   reloadSession: (resumed: ResumedSessionSummary, home: HomePair): unknown =>
     projectResumedSession(resumed, home),
-  // Agent context: v1 reports the running token ESTIMATE (an import adopts
-  // it wholesale); v2 reports the provider-MEASURED prefix, which an
-  // in-memory append never touches — post-import counts diverge by design
-  // (v1 > 0, v2 === 0, asserted explicitly at the call site). Histories
-  // compare in full; the count compares only in the pre-import state where
-  // both are 0.
+  // Agent context: v1 reports the running token ESTIMATE; v2 reports the
+  // provider-MEASURED prefix. In-memory appends (e.g. importContext) count
+  // identically on both engines via the shared `estimateTokensForMessages`,
+  // but once the provider reports measured usage the counts diverge by
+  // design. Histories compare in full; the count compares only in the
+  // pre-LLM state where both sides still estimate.
   getContext: (context: { readonly history: readonly unknown[] }): unknown =>
     context.history.length === 0 ? context : { history: context.history },
   // Plan ids are random per engine (hero slugs) and the plan path embeds
@@ -343,6 +343,9 @@ function projectSessionSummary(summary: SessionSummary, home: HomePair): unknown
   const projected = scrubHomePrefixes(summary, home) as Record<string, unknown>;
   delete projected['createdAt'];
   delete projected['updatedAt'];
+  // `lastTurnReason` is v2-only: the v1 engine never records a turn outcome,
+  // so the field cannot compare across engines.
+  delete projected['lastTurnReason'];
   if (projected['title'] === 'New Session') delete projected['title'];
   return projected;
 }
@@ -388,9 +391,14 @@ function projectResumedAgents(
  *   model, where v2's bind requires a model and deliberately leaves the
  *   agent unbound (the same model-less gap the getStatus parity pins). With
  *   a configured model both bind the same profile and compare in full.
+ * - `config.subagentNames`: v1's config snapshot carries the bound profile's
+ *   delegatable subagent roster (custom agent files are a v1-engine feature);
+ *   v2's resumed agent state has no equivalent field. Engine-owned profile
+ *   data, not resume data.
  * - `context.tokenCount`: the KNOWN_DIFFS.getContext divergence (v1's running
- *   estimate vs v2's provider-measured prefix) — the history compares in
- *   full, the count only in the empty state.
+ *   estimate vs v2's provider-measured prefix once the provider reports
+ *   usage) — the history compares in full, the count only where both sides
+ *   still estimate.
  * - replay `config_updated` records: v1 persists the profile BIND as
  *   `config.update` records (which restore maps to config_updated entries);
  *   v2 persists it as a `profile.bind` op the replay fold deliberately does
@@ -415,6 +423,7 @@ function projectResumedAgent(agent: ResumedAgentState, home: HomePair): unknown 
   const config = projected['config'] as Record<string, unknown>;
   delete config['provider'];
   delete config['systemPrompt'];
+  delete config['subagentNames'];
   const modelLess = config['modelAlias'] === undefined;
   if (modelLess) {
     delete config['profileName'];
@@ -603,6 +612,35 @@ api_key = "fixture-api-key"
 
 [thinking]
 enabled = "not-a-boolean"
+`;
+
+/**
+ * Secondary-model parity fixture: one resolvable model and the experiment
+ * enabled, no `[secondary_model]` recipe — the apply cases persist the recipe
+ * through `setConfig` mid-test.
+ */
+const SECONDARY_MODEL_CONFIG_TOML = `
+default_provider = "fixture-provider"
+default_model = "fixture-model"
+
+[providers.fixture-provider]
+type = "kimi"
+api_key = "fixture-api-key"
+base_url = "https://example.com/v1"
+
+[models.fixture-model]
+provider = "fixture-provider"
+model = "kimi-for-coding"
+max_context_size = 262144
+
+[experimental]
+secondary-model = true
+`;
+
+/** Same fixture with a dangling `[secondary_model]` pointer baked in. */
+const SECONDARY_MODEL_BROKEN_CONFIG_TOML = `${SECONDARY_MODEL_CONFIG_TOML}
+[secondary_model]
+model = "missing-model"
 `;
 
 function expectConfigParity(v1Config: KimiConfig, v2Config: KimiConfig): void {
@@ -1123,10 +1161,14 @@ interface SessionParityPair {
   readonly workDir: string;
 }
 
-async function makeSessionParityPair(): Promise<SessionParityPair> {
+async function makeSessionParityPair(configToml?: string): Promise<SessionParityPair> {
   const v1HomeDir = await makeTempDir('kimi-sdk-parity-v1-home-');
   const v2HomeDir = await makeTempDir('kimi-sdk-parity-v2-home-');
   const workDir = await makeTempDir('kimi-sdk-parity-work-');
+  if (configToml !== undefined) {
+    await writeFile(join(v1HomeDir, 'config.toml'), configToml, 'utf-8');
+    await writeFile(join(v2HomeDir, 'config.toml'), configToml, 'utf-8');
+  }
   return {
     v1: new SDKRpcClient({ homeDir: v1HomeDir, identity: TEST_IDENTITY }),
     v2: new SDKRpcClientV2({ homeDir: v2HomeDir, identity: TEST_IDENTITY }),
@@ -1889,11 +1931,12 @@ describe('v1↔v2 agent interaction parity', () => {
       expect(normalize(v2Context.history, '')).toEqual(normalize(v1Context.history, ''));
       expect(v1Context.history).toHaveLength(1);
       expect(v1Context.history[0]).toMatchObject({ role: 'user', origin: { kind: 'user' } });
-      // The pinned divergence (KNOWN_DIFFS.getContext): v1 adopts the import
-      // estimate as its reported count; v2's reported count is
-      // provider-measured and stays 0 until the first LLM round.
+      // Both engines estimate an in-memory import with the same
+      // `estimateTokensForMessages`, so post-import counts match exactly.
+      // (They diverge again once the provider reports measured usage — see
+      // KNOWN_DIFFS.getContext.)
       expect(v1Context.tokenCount).toBeGreaterThan(0);
-      expect(v2Context.tokenCount).toBe(0);
+      expect(v2Context.tokenCount).toBe(v1Context.tokenCount);
       // v1's validations, replicated on the v2 side.
       await expect(
         pair.v1.importContext({ ...input, content: ' \n\t ', source: "file 'empty.md'" }),
@@ -2577,6 +2620,96 @@ describe('v1↔v2 agent interaction parity', () => {
       await expect(pair.v2.getSessionWarnings({ sessionId: 'session_missing' })).rejects.toMatchObject(
         { code: ErrorCodes.SESSION_NOT_FOUND },
       );
+    } finally {
+      await closeSessionPair(pair);
+      restoreEnv();
+    }
+  });
+
+  it('applyPersistedSecondaryModel validates, applies, and refreshes warnings identically', async () => {
+    const restoreEnv = scrubConfigEnv();
+    const pair = await makeSessionParityPair(SECONDARY_MODEL_CONFIG_TOML);
+    try {
+      await createOnBoth(pair, { id: 'session_parity_secondary_apply' });
+      const input = { sessionId: 'session_parity_secondary_apply' } as const;
+      const applyError = (client: SDKRpcClient | SDKRpcClientV2) =>
+        client.applyPersistedSecondaryModel(input).then(
+          () => undefined,
+          (error: unknown) => error as Error,
+        );
+
+      // No recipe persisted yet: both reject with v1's persist-first error.
+      const [v1NoRecipe, v2NoRecipe] = await Promise.all([
+        applyError(pair.v1),
+        applyError(pair.v2),
+      ]);
+      expect(v1NoRecipe).toMatchObject({ code: ErrorCodes.CONFIG_INVALID });
+      expect(v2NoRecipe).toMatchObject({ code: ErrorCodes.CONFIG_INVALID });
+      expect(v2NoRecipe?.message).toBe(v1NoRecipe?.message);
+
+      // A dangling recipe: both reject, pointing at [secondary_model].
+      await Promise.all([
+        pair.v1.setConfig({ secondaryModel: { model: 'missing-model' } }),
+        pair.v2.setConfig({ secondaryModel: { model: 'missing-model' } }),
+      ]);
+      const [v1Broken, v2Broken] = await Promise.all([
+        applyError(pair.v1),
+        applyError(pair.v2),
+      ]);
+      expect(v1Broken).toMatchObject({ code: ErrorCodes.CONFIG_INVALID });
+      expect(v2Broken).toMatchObject({ code: ErrorCodes.CONFIG_INVALID });
+      expect(v1Broken?.message).toContain('[secondary_model].model');
+      expect(v2Broken?.message).toContain('[secondary_model].model');
+
+      // A valid recipe: both apply cleanly. The warnings pull converges on
+      // empty — v1's snapshot never held the broken recipe (its apply
+      // validates before mutating), v2's live-config warning cache is
+      // refreshed by the successful apply.
+      await Promise.all([
+        pair.v1.setConfig({ secondaryModel: { model: 'fixture-model' } }),
+        pair.v2.setConfig({ secondaryModel: { model: 'fixture-model' } }),
+      ]);
+      await Promise.all([
+        pair.v1.applyPersistedSecondaryModel(input),
+        pair.v2.applyPersistedSecondaryModel(input),
+      ]);
+      const [v1Warnings, v2Warnings] = await Promise.all([
+        pair.v1.getSessionWarnings(input),
+        pair.v2.getSessionWarnings(input),
+      ]);
+      expect(v2Warnings).toEqual(v1Warnings);
+      expect(v1Warnings).toEqual([]);
+
+      await expect(
+        pair.v1.applyPersistedSecondaryModel({ sessionId: 'session_missing' }),
+      ).rejects.toMatchObject({ code: ErrorCodes.SESSION_NOT_FOUND });
+      await expect(
+        pair.v2.applyPersistedSecondaryModel({ sessionId: 'session_missing' }),
+      ).rejects.toMatchObject({ code: ErrorCodes.SESSION_NOT_FOUND });
+    } finally {
+      await closeSessionPair(pair);
+      restoreEnv();
+    }
+  });
+
+  it('getSessionWarnings flags a creation-time broken secondary recipe on both engines', async () => {
+    const restoreEnv = scrubConfigEnv();
+    const pair = await makeSessionParityPair(SECONDARY_MODEL_BROKEN_CONFIG_TOML);
+    try {
+      await createOnBoth(pair, { id: 'session_parity_secondary_broken' });
+      const input = { sessionId: 'session_parity_secondary_broken' } as const;
+      const [v1Warnings, v2Warnings] = await Promise.all([
+        pair.v1.getSessionWarnings(input),
+        pair.v2.getSessionWarnings(input),
+      ]);
+      // The message wording is engine-specific; the code + severity are the
+      // shared contract.
+      const codes = (warnings: readonly { code: string; severity: string }[]) =>
+        warnings.map(({ code, severity }) => ({ code, severity }));
+      expect(codes(v2Warnings)).toEqual(codes(v1Warnings));
+      expect(codes(v1Warnings)).toEqual([
+        { code: 'secondary-model-invalid', severity: 'warning' },
+      ]);
     } finally {
       await closeSessionPair(pair);
       restoreEnv();
@@ -3582,6 +3715,33 @@ describe('v1↔v2 global MCP parity', () => {
   }, 20_000);
 });
 
+type McpServerList = Awaited<ReturnType<SDKRpcClientBase['listMcpServers']>>;
+
+/**
+ * List MCP servers on both engines once the initial connect has settled.
+ * v1 connects in the background after create resolves while v2 awaits the
+ * initial connect inside create, so an immediate list can catch either side
+ * still pending under load; poll until no server reports a transient status.
+ */
+async function listMcpServersWhenSettled(
+  pair: SessionParityPair,
+  input: { readonly sessionId: string },
+  timeoutMs = 10_000,
+): Promise<readonly [McpServerList, McpServerList]> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const lists = await Promise.all([
+      pair.v1.listMcpServers(input),
+      pair.v2.listMcpServers(input),
+    ] as const);
+    const settled = lists.every((servers) =>
+      servers.every((server) => server.status !== 'pending'),
+    );
+    if (settled || Date.now() >= deadline) return lists;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 describe('v1↔v2 session MCP parity', () => {
   /** working (connects, 3 tools) + broken (fails fast) + off (disabled). */
   const SESSION_MCP_FIXTURE = {
@@ -3607,10 +3767,7 @@ describe('v1↔v2 session MCP parity', () => {
     try {
       await createOnBoth(pair, { id: 'session_parity_mcp_list' });
       const input = { sessionId: 'session_parity_mcp_list' } as const;
-      const [v1Servers, v2Servers] = await Promise.all([
-        pair.v1.listMcpServers(input),
-        pair.v2.listMcpServers(input),
-      ]);
+      const [v1Servers, v2Servers] = await listMcpServersWhenSettled(pair, input);
       expect(normalize(v2Servers, 'name')).toEqual(normalize(v1Servers, 'name'));
       const byName = new Map(v1Servers.map((server) => [server.name, server]));
       expect(byName.get('working')).toMatchObject({
@@ -3923,7 +4080,7 @@ describe('v1↔v2 event & interaction parity', () => {
     try {
       await createOnBoth(pair, { id: 'session_parity_events_approval' });
       const sessionId = 'session_parity_events_approval';
-      const v2Session = pair.v2.engineAccessor.get(ISessionLifecycleService).get(sessionId);
+      const v2Session = getLiveSessionById(pair.v2.engineAccessor, sessionId);
       expect(v2Session).toBeDefined();
       const v2Approvals = v2Session!.accessor.get(ISessionApprovalService);
       const requestInput = {
@@ -4002,7 +4159,7 @@ describe('v1↔v2 event & interaction parity', () => {
     try {
       await createOnBoth(pair, { id: 'session_parity_events_question' });
       const sessionId = 'session_parity_events_question';
-      const v2Session = pair.v2.engineAccessor.get(ISessionLifecycleService).get(sessionId);
+      const v2Session = getLiveSessionById(pair.v2.engineAccessor, sessionId);
       expect(v2Session).toBeDefined();
       const v2Questions = v2Session!.accessor.get(ISessionQuestionService);
       const requestInput = {

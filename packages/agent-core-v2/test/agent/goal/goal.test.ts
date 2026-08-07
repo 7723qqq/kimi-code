@@ -6,6 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { isUserCancellation } from '#/_base/utils/abort';
 import type { TurnEndedEvent } from '#/agent/loop/turnEvents';
 
 import type { IDisposable } from '#/_base/di/lifecycle';
@@ -64,9 +65,6 @@ import { stubLoopWithHooks, type StubLoop } from '../loop/stubs';
 import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../toolExecutor/stubs';
 import { stubAgentSwarm, stubJudge } from './stubs';
 
-// The real AgentSwarmService self-wires executor listeners and pulls in the
-// swarm runtime; goal tests never exercise swarm behavior, so every test
-// agent here stubs it out to keep the wiring focused on the goal domain.
 function createTestAgent(
   ...inputs: readonly (TestAgentServiceOverride | TestAgentOptions)[]
 ): TestAgentContext {
@@ -262,6 +260,7 @@ async function runTerminalUpdateGoalResult(
     toolCall,
     toolCalls: [toolCall],
     args: { status },
+    outcome: 'executed',
     result: { output, stopTurn: true },
   });
 }
@@ -514,12 +513,12 @@ describe('AgentGoalService', () => {
 
     it('forbids model-driven goal pauses', async () => {
       await goals.createGoal({ objective: 'work' });
-      const tool = new UpdateGoalTool(goals, {} as any);
+      const tool = new UpdateGoalTool(goals);
 
-      for (const status of ['complete', 'blocked']) {
+      for (const status of ['active', 'complete', 'blocked']) {
         expect(UpdateGoalToolInputSchema.safeParse({ status }).success).toBe(true);
       }
-      for (const status of ['active', 'paused', 'impossible', 'cancelled', '']) {
+      for (const status of ['paused', 'impossible', 'cancelled', '']) {
         expect(UpdateGoalToolInputSchema.safeParse({ status }).success).toBe(false);
       }
 
@@ -597,7 +596,7 @@ describe('AgentGoalService', () => {
       await goals.createGoal({ objective: 'work' });
       await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 100 } }, 'model');
 
-      const snapshot = await goals.recordTokenUsage(50);
+      const snapshot = (await goals.recordTokenUsage(50))!;
 
       expect(snapshot.status).toBe('active');
       expect(snapshot.budget.overBudget).toBe(false);
@@ -1193,6 +1192,7 @@ describe('AgentGoalService core workflow hooks', () => {
 
     expect(abort).toHaveBeenCalledOnce();
     expect(cancel).toHaveBeenCalledWith(41);
+    expect(cancel.mock.calls[0]?.[1]).toBeUndefined();
   });
 
   it.each(['turn', 'token', 'wall-clock'] as const)(
@@ -1218,7 +1218,7 @@ describe('AgentGoalService core workflow hooks', () => {
       endTurn(eventBus, turn);
       expect(loopService.status()).toMatchObject({ state: 'idle', hasPendingRequests: false });
 
-      const state = goals.goalState;
+      const state = goals.getGoal().goal;
       expect(state).not.toBeNull();
       expect(state!.status).toBe('budget_limited');
       expect(state!.terminalReason).toMatch(/^Budget limited after goal budget reached:/);
@@ -1784,7 +1784,7 @@ describe('goal pause classification on provider errors', () => {
     return {
       initialConfig: {
         providers: {},
-        loopControl: { maxRetriesPerStep: 1 },
+        loopControl: { maxAttemptsPerStep: 1 },
       },
     };
   }
@@ -1959,7 +1959,7 @@ describe('AgentGoalService hard wall-clock deadline', () => {
     }
   });
 
-  it('keeps user cancellation authoritative when it precedes the wall-clock deadline', async () => {
+  it('keeps the goal-cancellation abort authoritative when it precedes the wall-clock deadline', async () => {
     const clock = new ManualGoalDeadlineScheduler();
     const llm = blockingGenerate();
     const ctx = createTestAgent(appService(IGoalDeadlineScheduler, clock), {
@@ -1977,8 +1977,9 @@ describe('AgentGoalService hard wall-clock deadline', () => {
       await ctx.rpc.cancelGoal({});
       expect(llm.signal()).toMatchObject({
         aborted: true,
-        reason: expect.objectContaining({ userCancelled: true }),
+        reason: expect.objectContaining({ message: 'Goal cancelled' }),
       });
+      expect(isUserCancellation(llm.signal().reason)).toBe(false);
       clock.advanceBy(1_000);
 
       await ctx.untilTurnEnd();

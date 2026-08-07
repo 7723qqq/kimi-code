@@ -7,5 +7,6 @@ export default defineConfig({
     env: {
       KIMI_LANG: 'en',
     },
+    setupFiles: ['test/setup.ts'],
   },
 });

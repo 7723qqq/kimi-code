@@ -70,8 +70,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 
 ```
 apps/
-  kimi-code/        — Main CLI / TUI application (entry point)
-  kimi-web/         — Browser web UI (Vue 3 + Vite)
+  kimi-code/        — Main CLI / TUI application (entry point, incl. dist-web web bundle)
   vscode/           — VS Code extension (React 19 webview)
   kimi-inspect/     — Web inspector for kap-server /api/v1/debug RPC surface
   vis/              — Session replay & debugging visualizer
@@ -122,9 +121,9 @@ src/
 | Native prebuilds | `apps/kimi-code/native/` |
 | SEA binary | `apps/kimi-code/dist-native/bin/` |
 
-#### `apps/kimi-web` — Browser Web UI
+#### Web UI (`apps/kimi-code/dist-web`)
 
-Peer to the TUI. Vue 3 + Vite + vue-i18n; talks to the server over REST + WebSocket under `/api/v1`. It must not depend on `@moonshot-ai/agent-core` (wire types are re-implemented locally). Debug against the two engines via the root `pnpm dev:v2` scripts. See `apps/kimi-web/AGENTS.md`.
+The browser web UI source no longer lives in this repo — it is developed in the code-app repo and shipped as the committed, prebuilt bundle `apps/kimi-code/dist-web`, synced from code-app. To hack on the web UI against this repo's server, run `pnpm dev:server` here and point code-app's `pnpm dev:web` at it via `KIMI_SERVER_URL`.
 
 #### `apps/vscode` — VS Code Extension
 

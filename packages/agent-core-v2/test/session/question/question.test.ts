@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
 import {
   _clearScopedRegistryForTests,
-  LifecycleScope,
   ScopeActivation,
   registerScopedService,
   type Scope,
@@ -12,10 +12,16 @@ import { createScopedTestHost, stubPair, type ScopedTestHost } from '#/_base/di/
 import { IEventBus } from '#/app/event/eventBus';
 import { ISessionInteractionService } from '#/session/interaction/interaction';
 import { SessionInteractionService } from '#/session/interaction/interactionService';
-import { type QuestionRequest, ISessionQuestionService } from '#/session/question/question';
+import {
+  type QuestionAnswerMethod,
+  type QuestionRequest,
+  ISessionQuestionService,
+} from '#/session/question/question';
 import { SessionQuestionService } from '#/session/question/questionService';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
+import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
+import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
 
 const noopEventBus: IEventBus = {
   _serviceBrand: undefined,
@@ -49,7 +55,9 @@ describe('ISessionQuestionService (Session scope facade over the interaction ker
 
     disposables = new DisposableStore();
     host = createScopedTestHost([stubPair(IEventBus, noopEventBus)]);
-    session = host.child(LifecycleScope.Session, 'session-a');
+    session = host.child(LifecycleScope.Session, 'session-a', [
+      stubPair(IWorkspaceStateService, new WorkspaceStateService()),
+    ]);
   });
 
   afterEach(() => {
@@ -170,7 +178,9 @@ describe('ISessionQuestionService (Session scope facade over the interaction ker
   });
 
   it('Session scope isolates brokers: a question parked in A is invisible to B', () => {
-    const sessionB = host.child(LifecycleScope.Session, 'session-b');
+    const sessionB = host.child(LifecycleScope.Session, 'session-b', [
+      stubPair(IWorkspaceStateService, new WorkspaceStateService()),
+    ]);
     const questionsA = session.accessor.get(ISessionQuestionService);
     const questionsB = sessionB.accessor.get(ISessionQuestionService);
 
@@ -205,7 +215,10 @@ describe('ISessionQuestionService (Session scope facade over the interaction ker
   it('answer with an unexpected method still resolves the request', async () => {
     const questions = session.accessor.get(ISessionQuestionService);
     const pending = questions.request(makeRequest('q1'));
-    questions.answer('q1', { answers: { q_0: 'Maybe' }, method: 'unknown_method' });
+    questions.answer('q1', {
+      answers: { q_0: 'Maybe' },
+      method: 'unknown_method' as QuestionAnswerMethod,
+    });
     await expect(pending).resolves.toEqual({ answers: { q_0: 'Maybe' }, method: 'unknown_method' });
   });
 

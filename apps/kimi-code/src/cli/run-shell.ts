@@ -27,12 +27,13 @@ import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
 import { KimiTUI } from '#/tui/index';
+import { startupTrace } from '#/utils/startup-trace';
 import { currentTheme, getColorPalette } from '#/tui/theme';
-import { combineStartupNotice } from '#/tui/utils/startup';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
 
 import type { CLIOptions } from './options';
+import { resolveAgentProfileSelection } from './agent-selection';
 import { isKimiV2Enabled } from './experimental-v2';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
 import { createKimiCodeHostIdentity } from './version';
@@ -82,12 +83,14 @@ export async function runShell(
     },
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
   };
-  // Experimental agent-core-v2 route (same master switch as `kimi -p`): the
-  // harness is the SDK's v2-backed client, so the whole TUI runs on the
-  // agent-core-v2 engine.
-  const harness = isKimiV2Enabled()
+  // The agent-core-v2 route is the default (same engine gate as `kimi -p`):
+  // the harness is the SDK's v2-backed client, so the whole TUI runs on the
+  // agent-core-v2 engine unless the legacy flag is set.
+  const engineV2 = isKimiV2Enabled();
+  const harness = engineV2
     ? createKimiHarnessV2(harnessOptions)
     : createKimiHarness(harnessOptions);
+  startupTrace('harness:created');
   log.info('kimi-code starting', {
     version,
     uiMode: CLI_UI_MODE,
@@ -108,16 +111,21 @@ export async function runShell(
     return;
   }
   const config = await harness.getConfig();
-  for (const warning of (await harness.getConfigDiagnostics()).warnings) {
-    configWarning = combineStartupNotice(configWarning, warning);
-  }
+  startupTrace('config:loaded');
+  // Config diagnostics (deprecated keys, invalid sections, ...) are surfaced
+  // by the TUI itself at `finishStartup` via `showConfigWarningsIfAny` —
+  // folded into the dim startup notice they were too easy to miss.
   const configMs = Date.now() - configStartedAt;
   // Propagate locale from tui.toml to i18n engine and agent-core
   setLocale(tuiConfig.locale);
   setAgentCoreLocale(tuiConfig.locale);
 
+  // Resolve --agent/--agent-file once for the startup session; validateOptions
+  // has already rejected them alongside --session/--continue.
+  const agentProfile = await resolveAgentProfileSelection(opts, workDir);
   const tui = new KimiTUI(harness, {
     cliOptions: opts,
+    agentProfile,
     additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
     tuiConfig,
     version,
@@ -125,6 +133,7 @@ export async function runShell(
     startupNotice: configWarning,
     migrationPlan,
     migrateOnly: runOptions.migrateOnly,
+    engineV2,
   });
 
   initializeCliTelemetry({
@@ -243,7 +252,9 @@ export async function runShell(
   };
   try {
     const initStartedAt = Date.now();
+    startupTrace('tui.start:begin');
     await tui.start();
+    startupTrace('tui.start:end');
     const initMs = Date.now() - initStartedAt;
     const startupSessionId = tui.getCurrentSessionId();
     const mcpMs = await tui.getStartupMcpMs();

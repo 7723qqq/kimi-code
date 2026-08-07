@@ -402,7 +402,7 @@ describe('LifecycleMachine', () => {
   it('transaction with no enter state still completes', async () => {
     const machine = new LifecycleMachine<State>('idle');
     await machine.transaction(
-      { operation: 'run', from: 'idle', commit: 'completed', rollback: 'failed' },
+      { operation: 'run', from: 'idle', enter: 'running', commit: 'completed', rollback: 'failed' },
       async () => 'done',
     );
     expect(machine.state).toBe('completed');

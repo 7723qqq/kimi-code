@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { join as patheJoin } from 'pathe';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -27,22 +28,22 @@ describe('bootstrap path helpers', () => {
       }
     });
 
-    it('returns undefined when KIMI_CODE_HOME is set to empty string', () => {
+    it('returns an empty home when KIMI_CODE_HOME is set to empty string', () => {
       const prev = process.env['KIMI_CODE_HOME'];
       process.env['KIMI_CODE_HOME'] = '';
       try {
-        expect(resolveKimiHome()).toBeUndefined();
+        expect(resolveKimiHome()).toBe('');
       } finally {
         if (prev === undefined) delete process.env['KIMI_CODE_HOME'];
         else process.env['KIMI_CODE_HOME'] = prev;
       }
     });
 
-    it('returns undefined when no env and no explicit homeDir', () => {
+    it('falls back to osHomeDir/.kimi-code when no env and no explicit homeDir', () => {
       const prev = process.env['KIMI_CODE_HOME'];
       delete process.env['KIMI_CODE_HOME'];
       try {
-        expect(resolveKimiHome()).toBeUndefined();
+        expect(resolveKimiHome()).toBe(patheJoin(homedir(), '.kimi-code'));
       } finally {
         if (prev === undefined) delete process.env['KIMI_CODE_HOME'];
         else process.env['KIMI_CODE_HOME'] = prev;
@@ -65,8 +66,8 @@ describe('bootstrap path helpers', () => {
       );
     });
 
-    it('handles a trailing slash in homeDir', () => {
-      expect(resolveConfigPath({ homeDir: '/tmp/kimi/' })).toBe('/tmp/kimi//config.toml');
+    it('normalizes a trailing slash in homeDir', () => {
+      expect(resolveConfigPath({ homeDir: '/tmp/kimi/' })).toBe('/tmp/kimi/config.toml');
     });
   });
 
@@ -86,7 +87,7 @@ describe('bootstrap path helpers', () => {
       dir = mkdtempSync(join(tmpdir(), 'kimi-home-'));
       ensureKimiHome(dir);
       // second call should be a no-op
-      expect(() => ensureKimiHome(dir)).not.toThrow();
+      expect(() => ensureKimiHome(dir!)).not.toThrow();
     });
 
     it('does not throw for a root-like path', () => {

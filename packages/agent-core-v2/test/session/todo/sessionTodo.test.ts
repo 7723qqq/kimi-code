@@ -10,7 +10,8 @@ import { describe, expect, it } from 'vitest';
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { type IAgentScopeHandle, LifecycleScope } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
+import { type IAgentScopeHandle } from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -227,7 +228,16 @@ describe('SessionTodoService', () => {
     const main = makeFakeAgent('main');
     const lifecycle = makeLifecycleStub([main.handle]);
     const service = new SessionTodoService(lifecycle.service);
-    service.setTodos([{ title: 'doomed', status: 'in_progress' }]);
+    service.setTodos([
+      {
+        id: 'T1',
+        parentId: null,
+        title: 'doomed',
+        status: 'in_progress',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ]);
 
     const seen: Array<readonly TodoItem[]> = [];
     const subscription = service.onDidChange((todos) => seen.push(todos));
@@ -238,7 +248,9 @@ describe('SessionTodoService', () => {
     main.eventBus.publish({ type: 'context.undone', turns: 1 });
     subscription.dispose();
 
-    expect(seen).toEqual([[{ title: 'kept', status: 'pending' }]]);
+    expect(seen).toEqual([
+      [expect.objectContaining({ title: 'kept', status: 'open' })],
+    ]);
   });
 
   it('appends a tools.update_store record to the main agent wire on setTodos', () => {
