@@ -447,7 +447,10 @@ describe('build core (segmented external merge)', () => {
     await seedTextDb(db, 100);
     const tmp = await openTmp('anchor-tmp');
     const spec = await specForLiveDb(db, dir, tmp);
-    spec.walIno += 1;
+    // Windows file IDs are 64-bit values near 2^54, where a JS number's
+    // double precision swallows a +1 increment — use a large delta so the
+    // anchor genuinely differs on every platform.
+    spec.walIno += 4096;
     await expect(buildTextArtifacts(spec)).rejects.toThrow('anchor mismatch');
     await db.close();
   });
