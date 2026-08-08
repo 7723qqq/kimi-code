@@ -74,6 +74,7 @@ export const ProviderConfigSchema = z.object({
   oauth: OAuthRefSchema.optional(),
   env: StringRecordSchema.optional(),
   source: z.record(z.string(), z.unknown()).optional(),
+  cacheKey: z.boolean().optional(),
 });
 
 export const ProvidersSectionSchema = z.record(z.string(), ProviderConfigSchema);
@@ -143,7 +144,7 @@ function providerEntryToToml(
   const out = cloneRecord(rawProvider);
   for (const [key, value] of Object.entries(provider)) {
     if (key === 'oauth' && isPlainObject(value)) {
-      out[camelToSnake(key)] = plainObjectToToml(value, undefined);
+      out[camelToSnake(key)] = plainObjectToToml(value);
     } else if ((key === 'env' || key === 'customHeaders') && value !== undefined) {
       out[camelToSnake(key)] = cloneRecord(value);
     } else {

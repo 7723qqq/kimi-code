@@ -42,6 +42,14 @@ export interface ProviderConfig {
   oauth?: OAuthRef;
   env?: Record<string, string>;
   source?: Record<string, unknown>;
+  /**
+   * Whether the session-affinity cache key is emitted on the wire
+   * (`prompt_cache_key` on OpenAI-compatible transports, `metadata.user_id`
+   * on Anthropic). Defaults to true (the upstream behavior). Set to false
+   * for endpoints that reject the field with 400 (e.g. some third-party
+   * relays such as TokenRhythm answer `unknown request field`).
+   */
+  cacheKey?: boolean;
 }
 
 export type ProvidersSection = Record<string, ProviderConfig>;

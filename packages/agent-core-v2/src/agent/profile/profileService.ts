@@ -96,6 +96,7 @@ import { IModelCatalog, type Model } from '#/kosong/model/catalog';
 import { type ModelOverrides } from '#/kosong/model/model.types';
 import { type ModelRequestParams } from '#/kosong/model/modelRequester';
 import { IProtocolAdapterRegistry } from '#/kosong/protocol/protocol';
+import { IProviderService } from '#/kosong/provider/provider';
 import {
   drivesThinkingThroughTraits,
   modelSupportsThinkingEffort,
@@ -244,12 +245,16 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   // Cache-stability freezes: `${now}` and `cwdListing` are part of the system
   // prompt prefix. If they change between requests, the provider's prompt
   // cache is invalidated entirely. Both are snapshotted on the first
-  // successful build and reused by every subsequent refreshSystemPrompt, so
+  // successful build and reused until the freeze window expires, so
   // AGENTS.md / tool-config / skill-catalog changes do not churn the prefix
-  // and destroy cache hits. Never reset by applyProfile / useProfile /
-  // applyBindingSnapshot / refreshSystemPrompt.
+  // and destroy cache hits, while a long-lived session still sees a fresh
+  // timestamp and directory listing every FREEZE_WINDOW_MS. Never reset by
+  // applyProfile / useProfile / applyBindingSnapshot / refreshSystemPrompt.
   private frozenNow: string | undefined;
+  private nowFreezeUntil = 0;
   private frozenCwdListing: string | undefined;
+  private cwdListingFreezeUntil = 0;
+  private static readonly FREEZE_WINDOW_MS = 30 * 60 * 1000;
 
   constructor(
     @IWireService private readonly wire: IWireService,
@@ -258,6 +263,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     @IAgentTelemetryContextService private readonly telemetryContext: IAgentTelemetryContextService,
     @IConfigService private readonly config: IConfigService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
+    @IProviderService private readonly providers: IProviderService,
     @IProtocolAdapterRegistry private readonly protocolAdapters: IProtocolAdapterRegistry,
     @IHostEnvironment private readonly env: IHostEnvironment,
     @IHostClock private readonly clock: IHostClock,
@@ -620,8 +626,16 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       temperature: overrides?.temperature,
       topP: overrides?.topP,
     };
+    // Session-affinity cache key (`prompt_cache_key` on OpenAI-compatible
+    // transports, `metadata.user_id` on Anthropic). Per-provider opt-out via
+    // `cache_key = false` for endpoints that reject the field with 400 (e.g.
+    // third-party relays such as TokenRhythm). The key must stay constant for
+    // the session (including across resume) for the provider-side cache to
+    // hit.
+    const provider = model === undefined ? undefined : this.providers.get(model.providerName);
+    const cacheKeyEnabled = provider?.cacheKey !== false;
     return {
-      cacheKey: this.sessionContext.sessionId,
+      cacheKey: cacheKeyEnabled ? this.sessionContext.sessionId : undefined,
       sampling:
         sampling.temperature === undefined && sampling.topP === undefined ? undefined : sampling,
       thinkingEffort: thinking.effective,
@@ -951,6 +965,14 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     options?: ApplyProfileOptions,
   ): Promise<SystemPromptContext> {
     const preloadedAgentsMd = await this.workspaceInstructionsSnapshot();
+    const nowMs = this.clock.now().getTime();
+    // Freeze cwdListing on first build and refresh it once the freeze window
+    // expires, so subsequent refreshSystemPrompt calls do not re-read the
+    // directory on every invocation (files created/deleted during a coding
+    // session would otherwise churn the system-prompt prefix and invalidate
+    // the provider's prompt cache on every refresh).
+    const cwdListingStale =
+      this.frozenCwdListing === undefined || nowMs >= this.cwdListingFreezeUntil;
     const base = await prepareSystemPromptContext(
       { fs: this.fs, homeDir: this.env.homeDir },
       this.sessionContext.cwd,
@@ -958,21 +980,26 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       {
         additionalDirs: options?.additionalDirs ?? this.workspace.additionalDirs,
         preloadedAgentsMd,
-        preloadedCwdListing: this.frozenCwdListing,
+        preloadedCwdListing: cwdListingStale ? undefined : this.frozenCwdListing,
       },
     );
-    // Freeze cwdListing on first build so subsequent refreshSystemPrompt
-    // calls do not re-read the directory (files created/deleted during a
-    // coding session would otherwise churn the system-prompt prefix and
-    // invalidate the provider's prompt cache).
-    this.frozenCwdListing ??= base.cwdListing;
+    if (cwdListingStale) {
+      this.frozenCwdListing = base.cwdListing;
+      this.cwdListingFreezeUntil =
+        this.clock.now().getTime() + AgentProfileService.FREEZE_WINDOW_MS;
+    }
     const skills = await this.resolveSkillListing();
     const pluginSections = await this.resolvePluginSections();
-    // Freeze `${now}` on first build: regenerating it on every
-    // refreshSystemPrompt would change the system-prompt prefix and destroy
-    // all prompt-cache hits for the session.
-    const now = this.frozenNow ?? this.clock.now().toISOString();
-    this.frozenNow ??= now;
+    // Freeze `${now}` on first build, refreshing it once the freeze window
+    // expires: regenerating it on every refreshSystemPrompt would change the
+    // system-prompt prefix and destroy all prompt-cache hits for the session,
+    // while freezing it forever would leave a long-lived session with a
+    // stale "current time" the model acts on.
+    if (this.frozenNow === undefined || nowMs >= this.nowFreezeUntil) {
+      this.frozenNow = this.clock.now().toISOString();
+      this.nowFreezeUntil = this.clock.now().getTime() + AgentProfileService.FREEZE_WINDOW_MS;
+    }
+    const now = this.frozenNow;
     const timeZone = this.clock.timeZone();
     return {
       ...base,
