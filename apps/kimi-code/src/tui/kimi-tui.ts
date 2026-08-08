@@ -241,6 +241,9 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 0,
+    cacheReadTokens: 0,
+    cacheMissTokens: 0,
+    tokenSpeed: 0,
     outputTokens: 0,
     locale: getLocale(),
     isCompacting: false,
@@ -3121,6 +3124,38 @@ export class KimiTUI {
   /** Per-step usage for the client-side cache-break detector. */
   noteStepUsage(usage: TokenUsage | undefined): void {
     this.cacheHint.noteStepUsage(usage);
+  }
+
+  /**
+   * Per-step cache-hit and output-speed accounting for the footer readout:
+   * accumulate cache hit/miss input tokens for the live hit rate, and use
+   * the step's stream duration to compute the latest output speed
+   * (tokens/second).
+   */
+  noteStepCacheStats(
+    usage: TokenUsage | undefined,
+    streamDurationMs: number | undefined,
+  ): void {
+    const patch: Partial<AppState> = {};
+    if (usage !== undefined) {
+      const read = usage.inputCacheRead ?? 0;
+      const miss = usage.inputOther ?? 0;
+      if (read > 0 || miss > 0) {
+        patch.cacheReadTokens = this.state.appState.cacheReadTokens + read;
+        patch.cacheMissTokens = this.state.appState.cacheMissTokens + miss;
+      }
+    }
+    if (
+      usage !== undefined &&
+      (usage.output ?? 0) > 0 &&
+      streamDurationMs !== undefined &&
+      streamDurationMs > 0
+    ) {
+      patch.tokenSpeed = (usage.output! / streamDurationMs) * 1000;
+    }
+    if (Object.keys(patch).length > 0) {
+      this.setAppState(patch);
+    }
   }
 
   /** Compaction shrinks the cached prefix — reset the cache-break baseline. */

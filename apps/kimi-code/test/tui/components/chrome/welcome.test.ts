@@ -19,6 +19,9 @@ const appState: AppState = {
   permissionMode: 'manual',
   thinkingEffort: 'off',
   contextUsage: 0,
+  cacheReadTokens: 0,
+  cacheMissTokens: 0,
+  tokenSpeed: 0,
   contextTokens: 0,
   maxContextTokens: 0,
   isCompacting: false,
@@ -78,7 +81,7 @@ describe('WelcomeComponent', () => {
   it('renders the banner in a single brand color by default', () => {
     const codes = truecolorCodes(headerOf(new WelcomeComponent(appState).render(80)));
 
-    // No rainbow by default — just the brand primary (plus the dim tagline).
+    // No rainbow by default 鈥?just the brand primary (plus the dim tagline).
     expect(codes.size).toBeLessThanOrEqual(2);
   });
 

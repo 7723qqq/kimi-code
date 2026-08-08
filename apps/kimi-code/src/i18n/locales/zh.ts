@@ -159,6 +159,8 @@ export default {
       footer: {
         context: '上下文：{{pct}}%',
         contextWithTokens: '上下文：{{pct}}%（{{tokens}}/{{maxTokens}}）',
+        cacheHit: '缓存 {{pct}}%',
+        tokenSpeed: '{{speed}} tok/s',
         goalBadge: '[目标 {{dot}} {{status}} · {{elapsed}} · {{turns}}]',
         statusActive: '进行中',
         statusPaused: '已暂停',

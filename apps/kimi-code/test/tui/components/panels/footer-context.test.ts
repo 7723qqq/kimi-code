@@ -164,6 +164,44 @@ describe('FooterComponent — context NaN resilience', () => {
   });
 });
 
+describe('FooterComponent · live cache hit rate and token speed', () => {
+  it('hides the cache readout until usage is reported', () => {
+    const fc = new FooterComponent(baseState({}));
+    const out = strip(fc.render(200).join(''));
+    expect(out).not.toMatch(/cache/);
+    expect(out).toMatch(/context: 0%/);
+  });
+
+  it('renders the live cache hit rate next to the context readout', () => {
+    const fc = new FooterComponent(
+      baseState({ cacheReadTokens: 1_792, cacheMissTokens: 99 }),
+    );
+    const out = strip(fc.render(200).join(''));
+    expect(out).toMatch(/cache 95%/);
+    expect(out).toMatch(/context: 0%/);
+  });
+
+  it('renders the output speed after the hit rate when measured', () => {
+    const fc = new FooterComponent(
+      baseState({ cacheReadTokens: 1_792, cacheMissTokens: 99, tokenSpeed: 12.345 }),
+    );
+    const out = strip(fc.render(200).join(''));
+    expect(out).toMatch(/cache 95% · 12.3 tok\/s/);
+  });
+
+  it('never renders NaN for partial/undefined cache state', () => {
+    const fc = new FooterComponent(
+      baseState({
+        cacheReadTokens: undefined as unknown as number,
+        cacheMissTokens: undefined as unknown as number,
+        tokenSpeed: Number.NaN,
+      }),
+    );
+    const out = strip(fc.render(200).join(''));
+    expect(out).not.toMatch(/NaN/);
+  });
+});
+
 describe('buildWeightedTips — weighted rotation', () => {
   it('repeats higher-priority tips more often (length = sum of weights)', () => {
     const seq = buildWeightedTips([

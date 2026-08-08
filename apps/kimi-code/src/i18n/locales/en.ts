@@ -161,6 +161,8 @@ export default {
       footer: {
         context: 'context: {{pct}}%',
         contextWithTokens: 'context: {{pct}}% ({{tokens}}/{{maxTokens}})',
+        cacheHit: 'cache {{pct}}%',
+        tokenSpeed: '{{speed}} tok/s',
         goalBadge: '[goal {{dot}} {{status}} · {{elapsed}} · {{turns}}]',
         statusActive: 'active',
         statusPaused: 'paused',

@@ -109,6 +109,7 @@ export interface SessionEventHost {
   track(event: string, props?: Record<string, unknown>): void;
   recordSessionActivity(): void;
   noteStepUsage(usage: TokenUsage | undefined): void;
+  noteStepCacheStats(usage: TokenUsage | undefined, streamDurationMs: number | undefined): void;
   noteCompactionFinished(): void;
   mountEditorReplacement(panel: Component & Focusable): void;
   restoreEditor(): void;
@@ -133,7 +134,7 @@ function estimateTokensFromText(text: string): number {
   let ascii = 0;
   let nonAscii = 0;
   for (let i = 0; i < text.length; i++) {
-    if (text.charCodeAt(i) < 128) ascii++;
+    if (text.codePointAt(i) < 128) ascii++;
     else nonAscii++;
   }
   return Math.ceil(ascii / 4 + nonAscii);
@@ -442,6 +443,7 @@ export class SessionEventHandler {
   private handleStepCompleted(event: TurnStepCompletedEvent): void {
     this.host.streamingUI.flushNow();
     this.host.noteStepUsage(event.usage);
+    this.host.noteStepCacheStats(event.usage, event.llmStreamDurationMs);
     this.maybeShowDebugTiming(event);
 
     if (event.providerFinishReason === 'filtered') {

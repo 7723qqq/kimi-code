@@ -207,6 +207,28 @@ function formatContextStatus(usage: number, tokens?: number, maxTokens?: number)
   return t('tui.chrome.footer.context', { pct: String(usagePercentFromRatio(usage)) });
 }
 
+/**
+ * Live cache hit rate and output speed readout, e.g. `cache 87% · 12.3 tok/s`.
+ * Hidden until at least one step reported usage (no session traffic yet).
+ */
+function formatCacheStatus(
+  cacheReadTokens: number,
+  cacheMissTokens: number,
+  tokenSpeed: number,
+): string | null {
+  const read = cacheReadTokens ?? 0;
+  const miss = cacheMissTokens ?? 0;
+  const total = read + miss;
+  if (total <= 0) return null;
+  const pct = String(Math.round((read / total) * 100));
+  const speed =
+    (tokenSpeed ?? 0) > 0
+      ? t('tui.chrome.footer.tokenSpeed', { speed: (tokenSpeed ?? 0).toFixed(1) })
+      : '';
+  const hit = t('tui.chrome.footer.cacheHit', { pct });
+  return speed.length > 0 ? `${hit} · ${speed}` : hit;
+}
+
 export function formatFooterGitBadge(status: GitStatus, colors: ColorPalette): string {
   const base = chalk.hex(colors.textDim)(formatGitBadgeBase(status));
   if (status.pullRequest === null) return base;
@@ -357,13 +379,19 @@ export class FooterComponent implements Component {
       }
     }
 
-    // ── Line 2: transient hint (bottom-left) + context (right) ──
+    // ── Line 2: transient hint (bottom-left) + cache/context (right) ──
+    const cacheText = formatCacheStatus(
+      state.cacheReadTokens,
+      state.cacheMissTokens,
+      state.tokenSpeed,
+    );
     const contextText = formatContextStatus(
       state.contextUsage,
       state.contextTokens,
       state.maxContextTokens,
     );
-    const contextWidth = visibleWidth(contextText);
+    const rightText = cacheText === null ? contextText : `${cacheText}  ${contextText}`;
+    const contextWidth = visibleWidth(rightText);
     let line2: string;
     if (this.transientHint) {
       const maxHintWidth = Math.max(0, width - contextWidth - 1);
@@ -376,10 +404,10 @@ export class FooterComponent implements Component {
       line2 =
         chalk.hex(colors.warning).bold(shownHint) +
         ' '.repeat(pad) +
-        chalk.hex(colors.text)(contextText);
+        chalk.hex(colors.text)(rightText);
     } else {
       const leftPad = Math.max(0, width - contextWidth);
-      line2 = ' '.repeat(leftPad) + chalk.hex(colors.text)(contextText);
+      line2 = ' '.repeat(leftPad) + chalk.hex(colors.text)(rightText);
     }
 
     return [truncateToWidth(line1, width), truncateToWidth(line2, width)];
