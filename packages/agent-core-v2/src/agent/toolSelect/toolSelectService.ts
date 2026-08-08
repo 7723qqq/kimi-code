@@ -223,8 +223,18 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
 
   private activeLoadedToolNames(): Set<string> {
     const names = this.loadedToolNames();
+    // Snapshot the policy once instead of per-tool: isToolActive otherwise
+    // re-allocates profile data and re-reads config for every loaded name,
+    // which is O(n) profile/config reads for n loaded tools per step.
+    const isActive = this.toolPolicy.createToolActiveChecker();
     for (const name of names) {
-      if (!this.isLoadedToolActive(name)) names.delete(name);
+      const info = this.toolRegistry.resolveInfo(name);
+      const loadable =
+        info !== undefined
+          ? this.isDynamicallyLoadable(info)
+          : isMcpToolName(name);
+      const source = info?.source ?? 'mcp';
+      if (!loadable || !isActive(name, source)) names.delete(name);
     }
     return names;
   }

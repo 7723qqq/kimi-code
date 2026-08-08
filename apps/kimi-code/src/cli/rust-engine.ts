@@ -31,6 +31,7 @@ interface NativeLlmDef {
 }
 
 interface RustEngineConfig {
+  defaultModel?: string;
   providers?: Record<
     string,
     { defaultModel?: string; type?: string; apiKey?: string; baseUrl?: string }
@@ -89,17 +90,57 @@ function extractMultiLlmProviders(
 
 /**
  * Extract the native HTTP LLM transport config from the kimi config.
- * `agent.nativeLlmProvider` names a provider whose endpoint the Rust
- * engine should call directly (SSE streaming). Only static-key
- * `openai`/`kimi` (Chat Completions) and `anthropic` (Messages) providers
- * are supported; anything else falls back to the host proxy.
+ *
+ * The provider is derived from the **current default model** (not from
+ * `agent.nativeLlmProvider`) so that when the user switches models in the
+ * TUI — e.g. from a model on `provider A` to one on `provider B` — the
+ * Rust engine calls the correct provider endpoint on the next turn.
+ *
+ * `agent.nativeLlmProvider` is kept as a fallback: when the default model's
+ * provider is not suitable for native transport (e.g. OAuth-managed, missing
+ * static key), the named provider is tried instead.
+ *
+ * Only static-key `openai`/`kimi` (Chat Completions) and `anthropic`
+ * (Messages) providers are supported; anything else falls back to the host
+ * proxy.
  */
 function extractNativeLlm(config: RustEngineConfig): NativeLlmDef | undefined {
-  const name = config.agent?.nativeLlmProvider;
-  if (!name) return undefined;
-  const provider = config.providers?.[name];
+  // 1) Try the current default model's provider.
+  const defaultModelAlias = config.defaultModel;
+  if (defaultModelAlias) {
+    const modelConfig = config.models?.[defaultModelAlias];
+    const providerName = modelConfig?.provider;
+    if (providerName) {
+      const result = tryResolveNativeLlm(config, providerName, modelConfig?.model);
+      if (result !== undefined) return result;
+    }
+  }
+
+  // 2) Fall back to agent.nativeLlmProvider (legacy behaviour).
+  const legacyName = config.agent?.nativeLlmProvider;
+  if (legacyName) {
+    const result = tryResolveNativeLlm(config, legacyName);
+    if (result !== undefined) return result;
+  }
+
+  return undefined;
+}
+
+/**
+ * Resolve a single provider into a `NativeLlmDef`. Returns `undefined` when
+ * the provider is missing, has an unsupported type, or lacks a static
+ * `baseUrl`/`apiKey` — in which case the caller can try the next candidate.
+ */
+function tryResolveNativeLlm(
+  config: RustEngineConfig,
+  providerName: string,
+  explicitModel?: string,
+): NativeLlmDef | undefined {
+  const provider = config.providers?.[providerName];
   if (!provider) {
-    console.warn(`[kimi-agent] agent.nativeLlmProvider "${name}" not found in providers.`);
+    console.warn(
+      `[kimi-agent] provider "${providerName}" not found in providers.`,
+    );
     return undefined;
   }
 
@@ -111,26 +152,27 @@ function extractNativeLlm(config: RustEngineConfig): NativeLlmDef | undefined {
         : undefined;
   if (protocol === undefined) {
     console.warn(
-      `[kimi-agent] provider "${name}" type "${provider.type ?? 'unknown'}" is not supported by the native transport — falling back to host proxy.`,
+      `[kimi-agent] provider "${providerName}" type "${provider.type ?? 'unknown'}" is not supported by the native transport.`,
     );
     return undefined;
   }
   if (!provider.baseUrl || !provider.apiKey) {
     console.warn(
-      `[kimi-agent] provider "${name}" needs a static baseUrl + apiKey for the native transport — falling back to host proxy.`,
+      `[kimi-agent] provider "${providerName}" needs a static baseUrl + apiKey for the native transport.`,
     );
     return undefined;
   }
 
-  // Resolve the model the same way MultiLLM extraction does.
-  let model = provider.defaultModel;
+  // Use the explicit model from the model alias, or fall back to the
+  // provider's defaultModel, or the first model referencing this provider.
+  let model = explicitModel ?? provider.defaultModel;
   if (!model && config.models) {
-    const alias = Object.entries(config.models).find(([, m]) => m.provider === name);
+    const alias = Object.entries(config.models).find(([, m]) => m.provider === providerName);
     if (alias) model = alias[1].model;
   }
   if (!model) {
     console.warn(
-      `[kimi-agent] provider "${name}" has no resolvable model — falling back to host proxy.`,
+      `[kimi-agent] provider "${providerName}" has no resolvable model.`,
     );
     return undefined;
   }
@@ -178,9 +220,12 @@ export async function maybeLoadRustEngine(
     return undefined;
   }
 
-  // Extract MultiLLM providers and native execution options when configured
+  // Extract MultiLLM providers and native execution options when configured.
+  // `nativeLlm` is resolved **dynamically** on each turn so that when the user
+  // switches models in the TUI (which writes a new `default_model` to
+  // config.toml), the Rust engine follows to the new model's provider instead
+  // of forever calling the provider that was active at startup.
   const providers = extractMultiLlmProviders(loaded.config);
-  const nativeLlm = extractNativeLlm(loaded.config);
   const nativeTools = agentConfig.nativeTools === true;
 
   // Dynamic import of the Rust adapter via the workspace package.
@@ -192,7 +237,13 @@ export async function maybeLoadRustEngine(
     // The workspace root anchors the Read-prediction fast-path and the
     // native tool sandbox; the session working directory is the workspace.
     const override = createRunTurnOverride(providers ?? undefined, process.cwd(), {
-      nativeLlm,
+      nativeLlm: () => {
+        // Re-read the config file fresh so model switches in the TUI
+        // (which update `default_model` in config.toml) are reflected.
+        const reloaded = loadRuntimeConfigSafe(resolvedConfig);
+        if (reloaded.fileError !== undefined) return;
+        return extractNativeLlm(reloaded.config);
+      },
       nativeTools,
     });
     if (override !== undefined) {

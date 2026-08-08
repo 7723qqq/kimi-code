@@ -5,10 +5,12 @@
   "description": "Rust agent engine for Kimi Code",
   "type": "module",
   "exports": {
+    ".": "./rust-loop.ts",
     "./rust-loop": {
       "types": "./rust-loop.ts",
       "default": "./rust-loop.ts"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "devDependencies": {
     "@moonshot-ai/agent-core": "workspace:*",

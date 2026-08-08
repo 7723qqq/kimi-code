@@ -55,8 +55,18 @@ static CALLBACK_REGISTRY: LazyLock<Mutex<HashMap<u32, oneshot::Sender<std::resul
 /// Payload registry — stores the JSON request payloads by callback ID.
 /// The JS side fetches the payload via `getCallbackPayload(id)` after
 /// receiving the callback ID via TSFN.
+///
+/// To prevent unbounded growth from unfetched event payloads, the registry
+/// is pruned when it exceeds `PAYLOAD_REGISTRY_MAX_ENTRIES`. Pruning removes
+/// the oldest entries (lowest IDs) first, since IDs are monotonically
+/// increasing.
 static PAYLOAD_REGISTRY: LazyLock<Mutex<HashMap<u32, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Maximum number of entries in the payload registry before pruning kicks in.
+/// Each entry is a small JSON string; 1000 entries is a generous ceiling that
+/// prevents unbounded growth without affecting normal operation.
+const PAYLOAD_REGISTRY_MAX_ENTRIES: usize = 1000;
 
 /// Monotonically increasing callback ID. Wrapping is fine because the ID
 /// space is large enough that collisions are impossible in practice.
@@ -77,18 +87,13 @@ pub fn get_callback_payload(id: u32) -> napi::Result<Option<String>> {
 /// * `result` — if present (and `error` is absent), the JSON-serialized response
 #[napi]
 pub fn resolve_callback(id: u32, error: Option<String>, result: Option<String>) -> napi::Result<()> {
-    eprintln!("[RUST] resolve_callback: id={id}, has_error={}, has_result={}",
-        error.is_some(), result.is_some());
     if let Some(tx) = CALLBACK_REGISTRY.lock().unwrap().remove(&id) {
         let outcome = match (error, result) {
             (Some(err), _) => Err(err),
             (_, Some(res)) => Ok(res),
             (None, None) => Err("callback resolved with no result".to_string()),
         };
-        eprintln!("[RUST] resolve_callback: id={id} found, sending outcome");
         let _ = tx.send(outcome);
-    } else {
-        eprintln!("[RUST] resolve_callback: id={id} NOT FOUND in registry!");
     }
     Ok(())
 }
@@ -160,10 +165,22 @@ async fn invoke_via_registry(
     let id = NEXT_CALLBACK_ID.fetch_add(1, Ordering::SeqCst);
     let (tx, rx) = oneshot::channel();
 
-    eprintln!("[RUST] {label}: assigned callback_id={id}, input_len={}", input.len());
-
     // Store the payload so JS can fetch it via getCallbackPayload(id).
-    PAYLOAD_REGISTRY.lock().unwrap().insert(id, input);
+    // Prune stale entries to prevent unbounded growth from unfetched events.
+    {
+        let mut reg = PAYLOAD_REGISTRY.lock().unwrap();
+        if reg.len() >= PAYLOAD_REGISTRY_MAX_ENTRIES {
+            // Remove oldest entries (lowest IDs) to stay under the limit.
+            let to_remove: Vec<u32> = reg.keys()
+                .copied()
+                .take(reg.len().saturating_sub(PAYLOAD_REGISTRY_MAX_ENTRIES - 1))
+                .collect();
+            for id in to_remove {
+                reg.remove(&id);
+            }
+        }
+        reg.insert(id, input);
+    }
 
     // Register the sender so resolve_callback can find it.
     CALLBACK_REGISTRY.lock().unwrap().insert(id, tx);
@@ -175,18 +192,12 @@ async fn invoke_via_registry(
         // Clean up on failure.
         PAYLOAD_REGISTRY.lock().unwrap().remove(&id);
         CALLBACK_REGISTRY.lock().unwrap().remove(&id);
-        eprintln!("[RUST] {label}: tsfn.call failed: {status:?}");
         return Err(format!("{label} call: {status:?}"));
     }
 
-    eprintln!("[RUST] {label}: tsfn.call OK, awaiting rx...");
-
     // Await the oneshot receiver. The sender is triggered by resolve_callback.
     rx.await
-        .map_err(|e| {
-            eprintln!("[RUST] {label}: rx closed: {e}");
-            format!("{label} closed: {e}")
-        })?
+        .map_err(|e| format!("{label} closed: {e}"))?
 }
 
 /// Standalone async function for LLM chat via callback registry.
@@ -320,7 +331,6 @@ pub fn run_turn_rust(
     let llm_chat_tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal> =
         llm_chat_cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
             let id = ctx.value;
-            eprintln!("[RUST] TSFN closure: llm_chat, id={id}");
             let js_num = ctx.env.create_uint32(id)?;
             let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
             Ok(args)
@@ -329,7 +339,6 @@ pub fn run_turn_rust(
     let execute_tool_tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal> =
         execute_tool_cb.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<u32>| {
             let id = ctx.value;
-            eprintln!("[RUST] TSFN closure: execute_tool, id={id}");
             let js_num = ctx.env.create_uint32(id)?;
             let args: Vec<napi::JsUnknown> = vec![js_num.into_unknown()];
             Ok(args)

@@ -24,6 +24,8 @@ const CLIENT_CONFIGS_PATH = '/client_configs';
 /** Cache validity per config name: 1 day. */
 const CONFIG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 5000;
+/** Upper bound on the number of named configs cached in-process. */
+const CONFIG_CACHE_MAX_ENTRIES = 64;
 
 export interface ClientConfigFetchOptions {
   /** Managed OAuth token; sent as Bearer when present. The endpoint is
@@ -39,6 +41,20 @@ export interface ClientConfigFetchOptions {
 }
 
 const cache = new Map<string, { readonly fetchedAt: number; readonly data: unknown }>();
+
+/** Insert or replace a cache entry, evicting the oldest when full.
+ *  Always moves the entry to the MRU position (Map insertion-order tail)
+ *  so that frequently-accessed configs survive eviction. */
+function touchCache(name: string, entry: { readonly fetchedAt: number; readonly data: unknown }): void {
+  if (cache.size >= CONFIG_CACHE_MAX_ENTRIES && !cache.has(name)) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  // delete+set ensures the entry moves to the end (MRU position) even
+  // when the key already existed (Map.set alone preserves old order).
+  cache.delete(name);
+  cache.set(name, entry);
+}
 
 const cacheFileEnvelopeSchema = z.object({
   version: z.literal(1),
@@ -98,6 +114,9 @@ export async function getClientConfig<S extends z.ZodType>(
   const now = options.now ?? Date.now();
   const hit = cache.get(name);
   if (hit !== undefined && now - hit.fetchedAt < CONFIG_CACHE_TTL_MS) {
+    // LRU touch: refresh position so frequently-used configs survive.
+    cache.delete(name);
+    cache.set(name, hit);
     return hit.data as z.infer<S>;
   }
   const file = cacheFileFor(name, options);
@@ -106,13 +125,13 @@ export async function getClientConfig<S extends z.ZodType>(
     if (diskHit !== undefined) {
       // Warm the in-process layer with the original fetch time, so the entry
       // still expires a day after it was actually fetched.
-      cache.set(name, diskHit);
+      touchCache(name, diskHit);
       return diskHit.data;
     }
   }
   const data = await fetchClientConfig(name, schema, options);
   if (data === undefined) return undefined;
-  cache.set(name, { fetchedAt: now, data });
+  touchCache(name, { fetchedAt: now, data });
   if (file !== undefined) await writeDiskCache(file, data, now);
   return data;
 }
@@ -123,7 +142,7 @@ export function refreshClientConfigInBackground<S extends z.ZodType>(
   schema: S,
   options: ClientConfigFetchOptions = {},
 ): void {
-  void getClientConfig(name, schema, options).catch(() => undefined);
+  void getClientConfig(name, schema, options).catch(() => {});
 }
 
 /**
@@ -138,6 +157,9 @@ export function peekClientConfig<S extends z.ZodType>(
 ): z.infer<S> | undefined {
   const hit = cache.get(name);
   if (hit === undefined || now - hit.fetchedAt >= CONFIG_CACHE_TTL_MS) return undefined;
+  // LRU touch: refresh position on peek too, since a peek implies usage.
+  cache.delete(name);
+  cache.set(name, hit);
   const parsed = schema.safeParse(hit.data);
   return parsed.success ? (parsed.data as z.infer<S>) : undefined;
 }

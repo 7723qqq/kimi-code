@@ -1,7 +1,7 @@
-/// kimi-agent — Rust agent engine library.
-///
-/// Shared library entry point for both the CLI binary (stdio JSON-RPC)
-/// and the napi-rs native addon (direct Node.js integration).
+//! kimi-agent — Rust agent engine library.
+//!
+//! Shared library entry point for both the CLI binary (stdio JSON-RPC)
+//! and the napi-rs native addon (direct Node.js integration).
 
 pub mod callbacks;
 pub mod hooks;

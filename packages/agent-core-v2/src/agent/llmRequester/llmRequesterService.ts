@@ -785,13 +785,21 @@ function toolSignature(tools: readonly Tool[]): readonly LlmRequestToolSchema[] 
  * Keyed by the sorted name list (+ deferred flag): tool names are unique in
  * the registry, so a name uniquely identifies its schema (re-registering a
  * name replaces the entry wholesale and changes nothing about the identity).
+ * To stay correct when a registered tool's schema changes under the same
+ * name (e.g. an MCP server re-registers its tools after a restart), the entry
+ * additionally records the source `Tool` object references and is discarded
+ * on any identity change — a cheap pointer comparison, not a re-serialize.
  * The cache is small (bounded by the handful of distinct tool-set variants a
  * session sees) so a plain Map with a hard cap is enough.
  */
 const TOOLS_HASH_CACHE_MAX = 32;
 const toolsHashCache = new Map<
   string,
-  { readonly tools: readonly LlmRequestToolSchema[]; readonly hash: string }
+  {
+    readonly tools: readonly LlmRequestToolSchema[];
+    readonly hash: string;
+    readonly toolsRef: readonly Tool[];
+  }
 >();
 
 function cachedToolSignature(
@@ -803,12 +811,39 @@ function cachedToolSignature(
     .toSorted()
     .join('\u0000');
   const cached = toolsHashCache.get(key);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined && sameToolObjects(cached.toolsRef, wireTools)) {
+    // LRU: move to most-recently-used position by re-inserting, so the
+    // eviction below removes the truly least-recently-used entry rather
+    // than the oldest insertion-order entry that is still hot.
+    toolsHashCache.delete(key);
+    toolsHashCache.set(key, cached);
+    return cached;
+  }
   const signature = toolSignature(wireTools);
-  const entry = { tools: signature, hash: fingerprint(JSON.stringify(signature)) };
-  if (toolsHashCache.size >= TOOLS_HASH_CACHE_MAX) toolsHashCache.clear();
+  const entry = {
+    tools: signature,
+    hash: fingerprint(JSON.stringify(signature)),
+    toolsRef: wireTools,
+  };
+  // LRU: evict only the least-recently-used entry instead of clearing the
+  // entire cache. A full clear() punishes multi-session scenarios where
+  // different sessions with different tool sets share this global cache —
+  // one session's miss evicts every other session's entries, forcing the
+  // next 32 requests to all miss and re-serialize their tool schemas.
+  if (toolsHashCache.size >= TOOLS_HASH_CACHE_MAX) {
+    const oldestKey = toolsHashCache.keys().next().value;
+    if (oldestKey !== undefined) toolsHashCache.delete(oldestKey);
+  }
   toolsHashCache.set(key, entry);
   return entry;
+}
+
+function sameToolObjects(a: readonly Tool[], b: readonly Tool[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
 
 function requestKindForRecord(fields: AgentLLMRequestLogFields): PayloadOf<typeof llmRequest>['kind'] {

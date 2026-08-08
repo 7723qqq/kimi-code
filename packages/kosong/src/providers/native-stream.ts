@@ -271,9 +271,30 @@ export async function tryNativeLlmStreamIncremental(
     waiters = [];
     for (const w of pending) w();
   };
-  const waitForData = (): Promise<void> =>
+  /**
+   * Resolve when new data is available. Races the optional abort signal: a
+   * user cancel must not be held hostage by a stalled stream (no parts, no
+   * `done`), so the signal resolves the waiter and the consumer's next
+   * `throwIfAborted` check surfaces the AbortError immediately.
+   */
+  const waitForData = (signal?: AbortSignal): Promise<void> =>
     new Promise((resolve) => {
-      waiters.push(resolve);
+      if (signal?.aborted === true) {
+        resolve();
+        return;
+      }
+      const onAbort = (): void => {
+        cleanup();
+        resolve();
+      };
+      const cleanup = (): void => {
+        signal?.removeEventListener('abort', onAbort);
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+      waiters.push(() => {
+        cleanup();
+        resolve();
+      });
     });
 
   const onEvent = (error: unknown, event: NativeLlmEventPayload): void => {
@@ -346,7 +367,7 @@ class NativeIncrementalStreamedMessage implements StreamedMessage {
     private readonly _config: NativeLlmStreamConfig,
     private readonly _buffer: StreamedMessagePart[],
     done: () => { error?: string; metadata?: NativeStreamMetadata } | undefined,
-    private readonly _waitForData: () => Promise<void>,
+    private readonly _waitForData: (signal?: AbortSignal) => Promise<void>,
     private readonly _wake: () => void,
   ) {
     this._done = done;
@@ -397,7 +418,7 @@ class NativeIncrementalStreamedMessage implements StreamedMessage {
       }
       const done = this._done();
       if (done !== undefined) break;
-      await this._waitForData();
+      await this._waitForData(this._config.signal);
     }
 
     const done = this._done();

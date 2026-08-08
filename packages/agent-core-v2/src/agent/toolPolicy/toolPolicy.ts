@@ -20,6 +20,13 @@ export interface IAgentToolPolicyService {
     name: string,
     source?: ToolSource,
   ): boolean;
+  /**
+   * Snapshot the composed tool activation policy and return a checker
+   * closure. Callers that check many tools per step (e.g. tool selection)
+   * should prefer this over calling `isToolActive` in a loop, which
+   * re-allocates profile data and re-reads config per tool.
+   */
+  createToolActiveChecker(): (name: string, source?: ToolSource) => boolean;
   setSessionDisabledTools(names: readonly string[]): Promise<void>;
 }
 

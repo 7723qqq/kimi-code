@@ -206,7 +206,8 @@ pub fn run_turn<'a>(
                                 let response = callbacks.execute_tool(req).await
                                     .map_err(|e| format!("Tool execution error: {e}"))?;
                                 if response.is_error {
-                                    eprintln!("Tool {} ({}) error: {}", tc.name, tc.id, response.content);
+                                    // Tool errors are returned to the LLM in the
+                                    // message history; no need to log to stderr.
                                 }
                                 Ok(ExecutableToolResult {
                                     content: response.content,
@@ -289,7 +290,20 @@ pub fn run_turn<'a>(
                         usage: total_usage,
                     });
                 }
-                LoopStepStopReason::Error(_msg) => continue,
+                LoopStepStopReason::Error(_msg) => {
+                    // An LLM error that exhausted all retries must stop the
+                    // turn — continuing would spin the loop without progress,
+                    // potentially forever if the error is deterministic (e.g.
+                    // 400 Bad Request from a misconfigured provider).
+                    // Note: the error message (_msg) is intentionally not
+                    // surfaced here — it has already been logged by retry logic.
+                    drain_pending_precise(&mut messages, &mut pending_precise).await;
+                    return Ok(TurnResult {
+                        stop_reason: LoopTurnStopReason::EndTurn,
+                        steps,
+                        usage: total_usage,
+                    });
+                }
             }
         }
 
@@ -392,16 +406,13 @@ where
 
                     // Spawn background precise execution (force_precise = true).
                     let precise = tokio::spawn(async move {
-                        eprintln!("[debug] background precise task started for tc={}", tc.id);
                         let precise_result = exec(tc, true).await.unwrap_or_else(|e| {
-                            eprintln!("[debug] background precise exec error: {e}");
                             ExecutableToolResult {
                                 content: format!("Background precise execution error: {e}"),
                                 is_error: true,
                                 is_prediction: false,
                             }
                         });
-                        eprintln!("[debug] background precise task done, content={}", precise_result.content);
                         // Ensure the result is not marked as a prediction
                         ExecutableToolResult {
                             content: precise_result.content,

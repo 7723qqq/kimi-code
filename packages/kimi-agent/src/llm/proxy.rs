@@ -46,8 +46,30 @@ impl LLM for HostLlmProxy {
         &self.model_name
     }
 
-    fn is_retryable_error(&self, _error: &str) -> bool {
-        true
+    fn is_retryable_error(&self, error: &str) -> bool {
+        // Transport-level and throttling/server errors are retryable;
+        // auth, request-shape, and client errors are not. This mirrors
+        // NativeHttpLlm's classification so the host-proxy path doesn't
+        // waste time retrying 400/401/403 errors.
+        const RETRYABLE: &[&str] = &[
+            "status 429",
+            "status 500",
+            "status 502",
+            "status 503",
+            "status 504",
+            "status 529",
+            "overloaded",
+            "timed out",
+            "timeout",
+            "connect",
+            "connection",
+            "sse decode error",
+            "econnreset",
+            "econnrefused",
+            "socket hang up",
+        ];
+        let lower = error.to_lowercase();
+        RETRYABLE.iter().any(|s| lower.contains(s))
     }
 
     fn chat(&self, params: LLMChatParams) -> crate::rpc::types::BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>> {

@@ -107,6 +107,10 @@ export function createKlientFromChannel(
       // `close` is idempotent and `close()` on an already-idle hub is a no-op,
       // so this cannot interfere with `klient.close()`.
       hubs.delete(hub);
+    }, () => {
+      // The caller re-attached listeners to a previously-idle hub — re-track
+      // it so a later `klient.close()` still tears down its subscriptions.
+      hubs.add(hub);
     });
     hubs.add(hub);
     return hub;

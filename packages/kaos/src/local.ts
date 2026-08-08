@@ -18,6 +18,21 @@ import type { Readable, Writable } from 'node:stream';
 import { detectEnvironmentFromNode, type Environment } from './environment';
 import { KaosFileExistsError } from './errors';
 import { BufferedReadable, decodeTextWithErrors, globPatternToRegex } from './internal';
+
+// ── Glob regex cache ───────────────────────────────────────────────────────
+// globPatternToRegex is called once per directory level per glob walk. In a
+// deep tree the same pattern is recompiled thousands of times — cache it.
+const globRegexCache = new Map<string, RegExp>();
+
+function getCachedGlobRegex(pattern: string, caseSensitive: boolean): RegExp {
+  const cacheKey = `${caseSensitive ? '1' : '0'}:${pattern}`;
+  let regex = globRegexCache.get(cacheKey);
+  if (regex === undefined) {
+    regex = globPatternToRegex(pattern, caseSensitive);
+    globRegexCache.set(cacheKey, regex);
+  }
+  return regex;
+}
 import type { Kaos } from './kaos';
 import { applyLoginShellPathFromNode } from './login-shell-path';
 import type { KaosProcess } from './process';
@@ -403,12 +418,9 @@ export class LocalKaos implements Kaos {
           }
           const key = cycleKey(entryStat);
           if (key !== null && visited.has(key)) continue;
-          yield* this._globWalk(
-            fullPath,
-            patternParts,
-            caseSensitive,
-            key !== null ? new Set([...visited, key]) : visited,
-          );
+          if (key !== null) visited.add(key);
+          yield* this._globWalk(fullPath, patternParts, caseSensitive, visited);
+          if (key !== null) visited.delete(key);
         } else if (remainingParts.length === 0) {
           // Pattern ends with `**`: non-directory entries match too
           // (since `**` matches "anything").
@@ -416,7 +428,7 @@ export class LocalKaos implements Kaos {
         }
       }
     } else {
-      const regex = globPatternToRegex(currentPattern ?? '', caseSensitive);
+      const regex = getCachedGlobRegex(currentPattern ?? '', caseSensitive);
 
       let entries: Dirent[];
       try {
@@ -449,12 +461,9 @@ export class LocalKaos implements Kaos {
           if (entryStat.isDirectory()) {
             const key = cycleKey(entryStat);
             if (key !== null && visited.has(key)) continue;
-            yield* this._globWalk(
-              fullPath,
-              remainingParts,
-              caseSensitive,
-              key !== null ? new Set([...visited, key]) : visited,
-            );
+            if (key !== null) visited.add(key);
+            yield* this._globWalk(fullPath, remainingParts, caseSensitive, visited);
+            if (key !== null) visited.delete(key);
           }
         }
       }

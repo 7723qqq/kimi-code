@@ -775,6 +775,196 @@ describe("TUI differential rendering", () => {
 	});
 });
 
+describe("Viewport clamping on above-viewport in-place changes", () => {
+	it("does NOT full-redraw when a line above the viewport changes in-place (same line count)", async () => {
+		const terminal = new LoggingVirtualTerminal(40, 10);
+		const tui = new TUI(terminal);
+		const component = new TestComponent();
+		tui.addChild(component);
+
+		// 15 lines — viewport at bottom (rows 5-9 visible)
+		component.lines = Array.from({ length: 15 }, (_, i) => `Line ${i}`);
+		tui.start();
+		await terminal.waitForRender();
+
+		const viewportYBefore = terminal.getViewport().length; // just to init
+		const xterm = (terminal as unknown as { xterm: XtermTerminalType }).xterm;
+		const scrollYBefore = xterm.buffer.active.viewportY;
+		const redrawsBefore = tui.fullRedraws;
+		terminal.clearWrites();
+
+		// In-place change: modify line 2 (above the viewport at rows 5-9)
+		// without changing the total line count.
+		component.lines = component.lines.map((line, i) =>
+			i === 2 ? "Line 2 (CHANGED)" : line,
+		);
+		tui.requestRender();
+		await terminal.waitForRender();
+
+		// 1. fullRedraws must NOT have increased — we clamped, not full-rendered.
+		assert.strictEqual(
+			tui.fullRedraws,
+			redrawsBefore,
+			"In-place change above viewport must NOT trigger a full redraw",
+		);
+
+		// 2. Terminal must NOT receive screen-clear or scrollback-clear sequences.
+		const writes = terminal.getWrites();
+		assert.ok(
+			!writes.includes("\x1b[2J"),
+			"Must NOT send \x1b[2J (clear screen)",
+		);
+		assert.ok(
+			!writes.includes("\x1b[3J"),
+			"Must NOT send \x1b[3J (clear scrollback)",
+		);
+		assert.ok(
+			!writes.includes("\x1b[H"),
+			"Must NOT send \x1b[H (cursor home)",
+		);
+
+		// 3. Terminal scroll position (viewportY) must be unchanged.
+		const scrollYAfter = xterm.buffer.active.viewportY;
+		assert.strictEqual(
+			scrollYAfter,
+			scrollYBefore,
+			"Terminal scroll position must not change on in-place above-viewport edit",
+		);
+
+		// 4. Visible viewport content must still show the correct tail.
+		const viewport = terminal.getViewport();
+		assert.deepStrictEqual(viewport, [
+			"Line 5",
+			"Line 6",
+			"Line 7",
+			"Line 8",
+			"Line 9",
+			"Line 10",
+			"Line 11",
+			"Line 12",
+			"Line 13",
+			"Line 14",
+		]);
+
+		tui.stop();
+	});
+
+	it("still full-redraws when line count changes above the viewport", async () => {
+		const terminal = new LoggingVirtualTerminal(40, 10);
+		const tui = new TUI(terminal);
+		const component = new TestComponent();
+		tui.addChild(component);
+
+		component.lines = Array.from({ length: 15 }, (_, i) => `Line ${i}`);
+		tui.start();
+		await terminal.waitForRender();
+
+		const redrawsBefore = tui.fullRedraws;
+
+		// Change line count: replace line 2 with 3 lines (net +2 lines)
+		component.lines = [
+			"Line 0",
+			"Line 1",
+			"Line 2a",
+			"Line 2b",
+			"Line 2c",
+			"Line 3",
+			"Line 4",
+			"Line 5",
+			"Line 6",
+			"Line 7",
+			"Line 8",
+			"Line 9",
+			"Line 10",
+			"Line 11",
+			"Line 12",
+			"Line 13",
+			"Line 14",
+		];
+		tui.requestRender();
+		await terminal.waitForRender();
+
+		// Line count changed (15 → 17) → must fall back to fullRender.
+		assert.ok(
+			tui.fullRedraws > redrawsBefore,
+			"Line count change above viewport must trigger full redraw",
+		);
+
+		// Viewport must show the correct tail of the new content.
+		// 17 lines, height 10 → viewport at line 7, showing lines 7-16.
+		const viewport = terminal.getViewport();
+		assert.deepStrictEqual(viewport, [
+			"Line 5",
+			"Line 6",
+			"Line 7",
+			"Line 8",
+			"Line 9",
+			"Line 10",
+			"Line 11",
+			"Line 12",
+			"Line 13",
+			"Line 14",
+		]);
+
+		tui.stop();
+	});
+
+	it("correctly updates visible lines when above-viewport change propagates into viewport", async () => {
+		const terminal = new LoggingVirtualTerminal(40, 10);
+		const tui = new TUI(terminal);
+		const top = new TestComponent();
+		const bottom = new TestComponent();
+		tui.addChild(top);
+		tui.addChild(bottom);
+
+		// top: 8 lines, bottom: 5 lines → 13 total, height 10 → viewport at line 3.
+		// Lines 0-2 are above the viewport (in scrollback).
+		top.lines = Array.from({ length: 8 }, (_, i) => `Top ${i}`);
+		bottom.lines = Array.from({ length: 5 }, (_, i) => `Bottom ${i}`);
+		tui.start();
+		await terminal.waitForRender();
+
+		const redrawsBefore = tui.fullRedraws;
+		terminal.clearWrites();
+
+		// In-place change on line 1 (strictly above the viewport at line 3).
+		top.lines = top.lines.map((line, i) =>
+			i === 1 ? "Top 1 (CHANGED)" : line,
+		);
+		tui.requestRender();
+		await terminal.waitForRender();
+
+		// No full redraw — we clamped.
+		assert.strictEqual(
+			tui.fullRedraws,
+			redrawsBefore,
+			"In-place change above viewport must NOT trigger a full redraw",
+		);
+
+		// No screen-clear sequences.
+		const writes = terminal.getWrites();
+		assert.ok(!writes.includes("\x1b[2J"), "No clear screen");
+		assert.ok(!writes.includes("\x1b[3J"), "No clear scrollback");
+
+		// Visible viewport: lines 3-12 (Top 3..Top 7, Bottom 0..Bottom 4).
+		const viewport = terminal.getViewport();
+		assert.deepStrictEqual(viewport, [
+			"Top 3",
+			"Top 4",
+			"Top 5",
+			"Top 6",
+			"Top 7",
+			"Bottom 0",
+			"Bottom 1",
+			"Bottom 2",
+			"Bottom 3",
+			"Bottom 4",
+		]);
+
+		tui.stop();
+	});
+});
+
 describe("Container width clamping", () => {
 	it("clamps non-positive widths to 1 before rendering children", () => {
 		const container = new Container();

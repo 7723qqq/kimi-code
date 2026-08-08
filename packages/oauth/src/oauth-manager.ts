@@ -12,7 +12,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, open, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 import lockfile from 'proper-lockfile';
@@ -27,6 +27,10 @@ import type { DeviceAuthorization, OAuthFlowConfig, OAuthRequestHeaders, TokenIn
 const MIN_REFRESH_THRESHOLD_SECONDS = 300;
 const REFRESH_THRESHOLD_RATIO = 0.5;
 const DEFAULT_DEVICE_CODE_TIMEOUT_MS = 15 * 60 * 1000;
+/** Defensive upper bound on a single refresh attempt (lock acquisition +
+ *  network round-trip + storage write). Prevents piggyback callers from
+ *  waiting indefinitely on a hung refresh. */
+const REFRESH_TIMEOUT_MS = 180_000;
 
 export function defaultRefreshThreshold(expiresIn: number): number {
   if (expiresIn > 0) {
@@ -82,8 +86,8 @@ export interface OAuthManagerOptions {
    * When omitted AND `process.env.NODE_ENV === 'test'`, the manager
    * falls back to `process.env.KIMI_CODE_HOME` so multi-process test
    * harnesses don't need to thread the dir through every fixture. In
-   * production the fallback is inert. Windows platforms and
-   * `process.env.KIMI_DISABLE_OAUTH_LOCK === '1'` always skip; the
+   * production the fallback is inert.
+   * `process.env.KIMI_DISABLE_OAUTH_LOCK === '1'` always skips; the
    * "re-read storage" fail-safe remains as a best-effort coordinator.
    */
   readonly configDir?: string | undefined;
@@ -173,14 +177,12 @@ export class OAuthManager {
   }
 
   /**
-   * Resolve the sentinel target file `proper-lockfile` locks against.
-   * `proper-lockfile.lock(target)` creates `${target}.lock` as the
-   * actual lock directory, so the real lockfile on disk ends up at
-   * `{configDir}/oauth/{providerName}.lock`. Returns `undefined` when
-   * locking is opted out (no configDir, Windows, env kill switch).
+   * Resolve the lock target path. On POSIX, `proper-lockfile` creates a
+   * `${target}.lock` directory as the lock indicator. On Windows, a
+   * `${target}.winlock` file is used with `O_EXCL` semantics. Returns
+   * `undefined` when locking is opted out (no configDir, env kill switch).
    */
   private resolveLockTarget(): string | undefined {
-    if (process.platform === 'win32') return undefined;
     if (process.env['KIMI_DISABLE_OAUTH_LOCK'] === '1') return undefined;
     if (this.configDir === undefined) return undefined;
     return `${this.configDir}/oauth/${this.config.name}`;
@@ -191,18 +193,41 @@ export class OAuthManager {
    * Returns a `release` closure; when locking is disabled returns a no-op.
    * If locking is configured but cannot be acquired, fail closed rather than
    * refreshing with no lock and racing refresh_token rotation.
+   *
+   * On POSIX, uses `proper-lockfile` (directory-based atomic lock).
+   * On Windows, uses a file-based lock with `O_EXCL` creation flag and
+   * stale detection via mtime — `proper-lockfile` has historical issues
+   * on Windows, so we use a native `fs.open('wx')` approach instead.
    */
   private async acquireRefreshLock(): Promise<() => Promise<void>> {
     const target = this.resolveLockTarget();
     if (target === undefined) return async () => {};
 
-    // proper-lockfile requires the target path to exist. We create
-    // an empty sentinel file; the real lock indicator is the sibling
-    // `{target}.lock` directory proper-lockfile creates and cleans
-    // up on release (→ test oracle `{configDir}/oauth/{name}.lock`
-    // must be absent after a graceful exit).
+    // Prepare the lock directory.
     try {
       await mkdir(dirname(target), { recursive: true });
+    } catch (error) {
+      throw new OAuthError(
+        `Unable to prepare OAuth refresh lock directory for "${this.config.name}": ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    if (process.platform === 'win32') {
+      return this.acquireWindowsLock(target);
+    }
+
+    return this.acquirePosixLock(target);
+  }
+
+  /** POSIX lock via `proper-lockfile` — creates `${target}.lock` directory. */
+  private async acquirePosixLock(target: string): Promise<() => Promise<void>> {
+    // proper-lockfile requires the target path to exist. We create
+    // an empty sentinel file; the real lock indicator is the sibling
+    // `${target}.lock` directory proper-lockfile creates and cleans
+    // up on release.
+    try {
       await writeFile(target, '', { flag: 'a' });
     } catch (error) {
       throw new OAuthError(
@@ -232,6 +257,69 @@ export class OAuthManager {
         }`,
       );
     }
+  }
+
+  /** Windows lock via `fs.open('wx')` — creates `${target}.winlock` file.
+   *
+   * The `wx` flag atomically creates the file only if it doesn't exist
+   * (maps to `O_CREAT | O_EXCL`). If the file exists, we check staleness
+   * via mtime (matching `proper-lockfile`'s 5s stale threshold) and retry
+   * with the same 120-retry / 500ms-1s back-off as the POSIX path.
+   *
+   * **Known TOCTOU limitation**: between the stale `stat` check and the
+   * `unlink`, another process could have removed the stale lock and
+   * created a fresh one — our `unlink` would then delete the new lock.
+   * The probability is low (the 5s stale window means the holder is
+   * likely dead), and the re-read-storage fail-safe in `doEnsureFresh`
+   * prevents a double-refresh even if the race fires. A fully
+   * race-free solution would require `LockFileEx` (native module). */
+  private async acquireWindowsLock(target: string): Promise<() => Promise<void>> {
+    const lockFile = `${target}.winlock`;
+    const maxRetries = 120;
+    const staleMs = 5_000;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const handle = await open(lockFile, 'wx');
+        await handle.writeFile(String(process.pid));
+        await handle.close();
+        return async () => {
+          try {
+            await unlink(lockFile);
+          } catch {
+            /* ignore cleanup errors — stale lock will be reclaimed */
+          }
+        };
+      } catch (error: unknown) {
+        const code = (error as { code?: string }).code;
+        if (code === 'EEXIST') {
+          // Check if the lock is stale.
+          try {
+            const info = await stat(lockFile);
+            if (Date.now() - info.mtimeMs > staleMs) {
+              // Stale lock — remove and retry immediately.
+              await unlink(lockFile).catch(() => {});
+              continue;
+            }
+          } catch {
+            // File was removed by the holder between our open and stat —
+            // retry immediately.
+            continue;
+          }
+          // Lock is held and fresh — wait and retry.
+          await this.sleep(Math.min(500 + attempt * 10, 1_000));
+          continue;
+        }
+        throw new OAuthError(
+          `Unable to acquire OAuth refresh lock for "${this.config.name}": ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+    throw new OAuthError(
+      `OAuth refresh lock for "${this.config.name}" timed out after ${maxRetries} attempts`,
+    );
   }
 
   async hasToken(): Promise<boolean> {
@@ -266,10 +354,33 @@ export class OAuthManager {
       // Wait for the non-force call to settle (success or failure),
       // then start our own forced refresh. Swallowing rejection here
       // is safe: the non-force caller already owns surfacing that error.
-      return current.promise.catch(() => undefined).then(() => this.ensureFresh(options));
+      return current.promise.catch(() => {}).then(() => this.ensureFresh(options));
     }
 
-    const promise = this.doEnsureFresh(force).finally(() => {
+    // Defensive timeout: a hung refresh (network stall, lock contention)
+    // must not hold piggyback callers indefinitely. The raw operation
+    // continues in the background; its late rejection is swallowed.
+    const rawPromise = this.doEnsureFresh(force);
+    rawPromise.catch(() => {}); // prevent unhandled rejection if timeout wins
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new OAuthError(
+              `Token refresh for "${this.config.name}" timed out after ${REFRESH_TIMEOUT_MS / 1000}s`,
+            ),
+          ),
+        REFRESH_TIMEOUT_MS,
+      );
+      // Don't keep the Node process alive just for this timer.
+      timer.unref?.();
+    });
+
+    const promise = Promise.race([rawPromise, timeoutPromise]).finally(() => {
+      // Clear the timer so it doesn't linger after the race settles.
+      if (timer !== undefined) clearTimeout(timer);
       // Only clear our own slot. A later, replacement in-flight (e.g. a
       // queued force after this non-force resolves) must not be evicted
       // by our cleanup.

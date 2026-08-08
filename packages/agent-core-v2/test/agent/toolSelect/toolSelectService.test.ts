@@ -316,6 +316,8 @@ function registerSharedServices(
   reg.definePartialInstance(IAgentToolPolicyService, {
     isToolActive: (name: string) => activeToolNames === undefined || activeToolNames.has(name),
     isToolActiveForDisclosure: () => disclosureToolActive,
+    createToolActiveChecker: () => (name: string) =>
+      activeToolNames === undefined || activeToolNames.has(name),
   });
   reg.definePartialInstance(IFlagService, {
     enabled: (id: string) => (id === TOOL_SELECT_FLAG_ID ? flagEnabled : false),

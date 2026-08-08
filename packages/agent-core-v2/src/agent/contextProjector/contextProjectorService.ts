@@ -414,9 +414,9 @@ function project(history: readonly ContextMessage[], onAnomaly?: OnAnomaly): Mes
   const flushMerge = (): void => {
     if (merge === undefined) return;
     if (merge.singleContent === undefined) {
-      const text = merge.texts.join('\n\n');
-      const content: ContentPart[] = text === '' ? [] : [{ type: 'text', text }];
-      content.push(...merge.parts);
+      const content = merge.content.length === 0
+        ? [{ type: 'text' as const, text: '' }]
+        : merge.content;
       out[merge.index] = {
         role: 'user',
         name: undefined,
@@ -448,7 +448,7 @@ function project(history: readonly ContextMessage[], onAnomaly?: OnAnomaly): Mes
     if (canMergeUserMessage(source)) {
       if (merge === undefined) {
         out.push(toWireMessage(source, content));
-        merge = { index: out.length - 1, singleContent: content, texts: [], parts: [] };
+        merge = { index: out.length - 1, singleContent: content, content: [] };
       } else {
         if (merge.singleContent !== undefined) {
           appendMergeContent(merge, merge.singleContent);
@@ -519,17 +519,29 @@ interface OpenSlot {
 interface MergeGroup {
   index: number;
   singleContent: readonly ContentPart[] | undefined;
-  texts: string[];
-  parts: ContentPart[];
+  /** Accumulated content parts in original order, with adjacent text merged. */
+  content: ContentPart[];
 }
 
 function appendMergeContent(group: MergeGroup, content: readonly ContentPart[]): void {
-  let text = '';
   for (const part of content) {
-    if (part.type === 'text') text += part.text;
-    else group.parts.push(part);
+    if (part.type === 'text') {
+      // Merge with the previous part if it is also text, preserving
+      // interleaving with non-text parts instead of displacing all
+      // text to the front.
+      const last = group.content.at(-1);
+      if (last !== undefined && last.type === 'text') {
+        group.content[group.content.length - 1] = {
+          type: 'text',
+          text: last.text + '\n\n' + part.text,
+        };
+      } else {
+        group.content.push({ type: 'text', text: part.text });
+      }
+    } else {
+      group.content.push(part);
+    }
   }
-  if (text.length > 0) group.texts.push(text);
 }
 
 function projectedContent(source: ContextMessage, onAnomaly?: OnAnomaly): ContentPart[] {

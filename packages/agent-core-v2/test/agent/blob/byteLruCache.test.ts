@@ -3,8 +3,10 @@
  *
  * Responsibilities asserted: hit returns the stored value, miss is undefined,
  * least-recently-used eviction on overflow, recency refresh on get, oversize
- * payloads are never cached, replacement re-accounts size, and multiple entries
- * evict to make room. Pure data-structure tests — no DI, no IO.
+ * payloads are never cached, replacement re-accounts size, multiple entries
+ * evict to make room, `has` checks membership without touching LRU, `delete`
+ * removes entries and re-accounts bytes, and `size`/`bytes` report correctly.
+ * Pure data-structure tests — no DI, no IO.
  *
  * Run: `pnpm test -- test/blob/byteLruCache.test.ts`
  */
@@ -87,5 +89,60 @@ describe('ByteLruCache', () => {
     expect(cache.get('b')).toBeUndefined();
     expect(cache.get('c')).toBeDefined();
     expect(cache.get('d')).toBeDefined();
+  });
+
+  it('has() checks membership without refreshing LRU position', () => {
+    const cache = new ByteLruCache(10);
+    cache.set('a', buf(5));
+    cache.set('b', buf(5));
+
+    // 'has' should not refresh 'a' — 'a' should still be evicted next.
+    expect(cache.has('a')).toBe(true);
+    cache.set('c', buf(5));
+
+    expect(cache.get('a')).toBeUndefined();
+    expect(cache.get('b')).toBeDefined();
+    expect(cache.get('c')).toBeDefined();
+  });
+
+  it('has() returns false for a missing key', () => {
+    const cache = new ByteLruCache(16);
+    expect(cache.has('nope')).toBe(false);
+  });
+
+  it('delete() removes an entry and re-accounts bytes', () => {
+    const cache = new ByteLruCache(10);
+    cache.set('a', buf(5));
+    cache.set('b', buf(5));
+
+    expect(cache.delete('a')).toBe(true);
+    expect(cache.bytes).toBe(5);
+    expect(cache.size).toBe(1);
+
+    // The freed space should allow a new entry without evicting 'b'.
+    cache.set('c', buf(5));
+    expect(cache.get('b')).toBeDefined();
+    expect(cache.get('c')).toBeDefined();
+  });
+
+  it('delete() returns false for a missing key', () => {
+    const cache = new ByteLruCache(16);
+    expect(cache.delete('nope')).toBe(false);
+  });
+
+  it('size and bytes report current cache state', () => {
+    const cache = new ByteLruCache(100);
+    expect(cache.size).toBe(0);
+    expect(cache.bytes).toBe(0);
+
+    cache.set('a', buf(10));
+    cache.set('b', buf(20));
+    expect(cache.size).toBe(2);
+    expect(cache.bytes).toBe(30);
+
+    // Replacement re-accounts.
+    cache.set('a', buf(15));
+    expect(cache.size).toBe(2);
+    expect(cache.bytes).toBe(35);
   });
 });

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import type { ContentPart, Message, TextPart } from '@moonshot-ai/kosong';
+import type { ContentPart, Message } from '@moonshot-ai/kosong';
 
 import { ErrorCodes, KimiError } from '../../errors';
 import { renderToolResultForModel } from './tool-result-render';
@@ -459,27 +459,37 @@ function canMergeUserMessage(message: ContextMessage): boolean {
 }
 
 function mergeTwoUserMessages(a: ContextMessage, b: ContextMessage): ContextMessage {
-  const aText = extractTextOnly(a);
-  const bText = extractTextOnly(b);
-  const nonTextParts = [
-    ...a.content.filter((p) => p.type !== 'text'),
-    ...b.content.filter((p) => p.type !== 'text'),
-  ];
-  const mergedText: TextPart = { type: 'text', text: `${aText}\n\n${bText}` };
-  const content: ContentPart[] = [mergedText, ...nonTextParts];
+  // Concatenate the content arrays preserving original order, merging only
+  // adjacent text parts. This keeps interleaved text+media in its correct
+  // relative order (e.g. [text:"look", image, text:"end"]) instead of
+  // displacing all text to the front and all media to the back.
+  const content: ContentPart[] = [];
+  let pendingText = '';
+  const flushPending = (): void => {
+    if (pendingText.length > 0) {
+      content.push({ type: 'text', text: pendingText });
+      pendingText = '';
+    }
+  };
+  for (const part of [...a.content, ...b.content]) {
+    if (part.type === 'text') {
+      if (pendingText.length > 0) pendingText += '\n\n';
+      pendingText += part.text;
+    } else {
+      flushPending();
+      content.push(part);
+    }
+  }
+  flushPending();
+  // If no content survived (e.g. both messages were only whitespace text),
+  // keep an empty text block so the message is not dropped unexpectedly.
+  if (content.length === 0) content.push({ type: 'text', text: '' });
   return {
     role: 'user',
     content,
     toolCalls: [],
     origin: a.origin,
   };
-}
-
-function extractTextOnly(message: Message): string {
-  return message.content
-    .filter((p): p is TextPart => p.type === 'text')
-    .map((p) => p.text)
-    .join('');
 }
 
 function stripContextMetadata(message: ContextMessage): Message {

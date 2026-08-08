@@ -92,6 +92,15 @@ export const nativeDeps = Object.freeze([
     collect: 'native-files',
     parent: null,
   },
+  {
+    id: 'kimi-agent',
+    name: () => '@moonshot-ai/kimi-agent',
+    // Rust NAPI module — the agent engine (turn loop, LLM proxy, tool dispatch).
+    // JS (rust-loop.ts) is bundled into main.cjs; only the .node binary ships
+    // as a native asset so the SEA exe can load it at runtime.
+    collect: 'native-files',
+    parent: null,
+  },
 ]);
 
 /**

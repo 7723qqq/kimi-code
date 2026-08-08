@@ -104,8 +104,12 @@ export interface NativeLlmDef {
 
 /** Options controlling the native (in-Rust) execution paths. */
 export interface RustEngineOptions {
-  /** When set, the Rust engine calls this provider directly over HTTP. */
-  nativeLlm?: NativeLlmDef;
+  /**
+   * When set, the Rust engine calls this provider directly over HTTP.
+   * Can be a static value or a function evaluated fresh on each turn so
+   * that model switches in the TUI are reflected.
+   */
+  nativeLlm?: NativeLlmDef | (() => NativeLlmDef | undefined);
   /** When true, Read/Grep/Glob execute inside the Rust process. */
   nativeTools?: boolean;
 }
@@ -216,6 +220,32 @@ class NapiEngine {
       // Production: may be bundled elsewhere
       resolve(projectRoot, 'packages/kimi-agent/kimi_agent.node'),
     ];
+
+    // SEA exe: the .node file is embedded as a native asset and extracted
+    // to a cache directory at runtime. The global helper
+    // `__kimi_getNativePackageRoot` (installed by native-assets.ts) returns
+    // the cached package root for a given package name.
+    const seaPkgRoot = (
+      globalThis as Record<string, unknown>
+    )['__kimi_getNativePackageRoot']?.('@moonshot-ai/kimi-agent') as
+      | string
+      | null
+      | undefined;
+    if (seaPkgRoot !== null && seaPkgRoot !== undefined) {
+      // The .node file may be named with a platform suffix (e.g.
+      // kimi_agent.win32-x64-msvc.node) or plain kimi_agent.node.
+      try {
+        const entries = fs.readdirSync(seaPkgRoot);
+        for (const entry of entries) {
+          if (entry.endsWith('.node') && entry.startsWith('kimi_agent')) {
+            candidates.push(resolve(seaPkgRoot, entry));
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     for (const candidate of candidates) {
       try {
         if (fs.existsSync(candidate)) return candidate;
@@ -673,7 +703,7 @@ export function createRunTurnOverride(
   const mode = initEngine();
   if (mode === 'js') return undefined;
 
-  const nativeLlm = options?.nativeLlm;
+  const nativeLlmOpt = options?.nativeLlm;
   const nativeTools = options?.nativeTools === true;
 
   // Build a lightweight workspace predictor for the Read prediction fast-path.
@@ -685,6 +715,22 @@ export function createRunTurnOverride(
   const predictor = workspaceRoot ? new WorkspacePredictor(workspaceRoot) : undefined;
 
   return async (input) => {
+    // Resolve nativeLlm fresh per turn: when a function is provided it
+    // re-reads the config file so TUI model switches are reflected.
+    const resolvedNativeLlm =
+      typeof nativeLlmOpt === 'function' ? nativeLlmOpt() : nativeLlmOpt;
+
+    // Guard: when the user switches models in the TUI, the session's LLM
+    // adapter (input.llm) is updated to the new provider/model, but the
+    // nativeLlm config (read from config.toml) may still point to the old
+    // provider. If the models don't match, fall back to the host proxy
+    // (host/llm_chat) which always follows the session's current model.
+    const nativeLlm =
+      resolvedNativeLlm !== undefined &&
+      resolvedNativeLlm.model !== input.llm.modelName
+        ? undefined
+        : resolvedNativeLlm;
+
     // The prediction fast-path requires transcript replacement. If the host
     // doesn't provide replaceToolResult, predictions are disabled and all
     // reads execute precisely on the first call.

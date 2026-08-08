@@ -62,6 +62,8 @@ export class EventHub<TPayloadMap extends object = KlientEventPayloads>
   private idleNotified = false;
   /** Invoked once when the hub becomes fully idle (no listeners, subs, or error listeners). */
   private readonly onIdle: (() => void) | undefined;
+  /** Invoked when the hub regains listeners after having gone idle. */
+  private readonly onRevive: (() => void) | undefined;
 
   constructor(
     private readonly channel: KlientChannel,
@@ -69,8 +71,10 @@ export class EventHub<TPayloadMap extends object = KlientEventPayloads>
     private readonly scope: ScopeRef,
     private readonly registrations: Record<string, EventRegistration>,
     onIdle?: () => void,
+    onRevive?: () => void,
   ) {
     this.onIdle = onIdle;
+    this.onRevive = onRevive;
   }
 
   on<E extends keyof TPayloadMap & string>(
@@ -105,6 +109,7 @@ export class EventHub<TPayloadMap extends object = KlientEventPayloads>
   }
   onError(listener: (error: Error) => void): IDisposable {
     this.errorListeners.add(listener);
+    this.notifyReviveIfNeeded();
     let disposed = false;
     return {
       dispose: () => {
@@ -130,9 +135,10 @@ export class EventHub<TPayloadMap extends object = KlientEventPayloads>
   /**
    * Once every listener/subscription is gone, notify the owner (klient) so a
    * discarded handle's hub can be released instead of being pinned in a Set
-   * for the lifetime of the process. Only fires once per hub — if the hub is
-   * reused after going idle (new listeners), it stays alive and will notify
-   * again on the next full idle.
+   * for the lifetime of the process. Only fires once per idle period — a hub
+   * that gains listeners again after going idle notifies `onRevive` so the
+   * owner can re-track it, and will notify `onIdle` again on the next full
+   * idle.
    */
   private notifyIdleIfEmpty(): void {
     if (this.idleNotified) return;
@@ -143,7 +149,19 @@ export class EventHub<TPayloadMap extends object = KlientEventPayloads>
     this.onIdle?.();
   }
 
+  /**
+   * A hub that went idle may be reused (listeners re-attached to a handle the
+   * caller still holds). Re-track it with the owner so a later `close()` still
+   * tears down its channel subscriptions.
+   */
+  private notifyReviveIfNeeded(): void {
+    if (!this.idleNotified) return;
+    this.idleNotified = false;
+    this.onRevive?.();
+  }
+
   private acquire(event: string): void {
+    this.notifyReviveIfNeeded();
     const reg = this.registrations[event];
     if (reg === undefined) return;
     const key = keyOf(reg);

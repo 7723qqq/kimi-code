@@ -23,7 +23,7 @@ import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionT
 import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import type { ToolSource } from '#/tool/toolContract';
 
-import { isToolActiveComposed, type ToolActivationPolicy } from './evaluate';
+import { isToolActiveComposed, type ToolActivationPolicy, type ToolPolicyLayers } from './evaluate';
 import { IAgentToolPolicyService } from './toolPolicy';
 
 // NOTE: stays Disposable — its own 'config' collides with the Fiber
@@ -82,16 +82,25 @@ export class AgentToolPolicyService extends Disposable implements IAgentToolPoli
     name: string,
     source: ToolSource = 'builtin',
   ): boolean {
-    return isToolActiveComposed(
-      {
-        workspaceDisabledTools: this.toolPolicyGate.disabledTools,
-        profile,
-        global: this.config.get<ToolsConfig>(TOOLS_SECTION),
-        sessionDisabledTools: this.sessionToolPolicy.disabledTools(),
-      },
-      name,
-      source,
-    );
+    return isToolActiveComposed(this.snapshotPolicyLayers(profile), name, source);
+  }
+
+  createToolActiveChecker(): (name: string, source?: ToolSource) => boolean {
+    const profile = this.profile.data();
+    const layers = this.snapshotPolicyLayers({
+      tools: profile.activeToolNames,
+      disallowedTools: profile.disallowedTools,
+    });
+    return (name, source = 'builtin') => isToolActiveComposed(layers, name, source);
+  }
+
+  private snapshotPolicyLayers(profile: ToolActivationPolicy): ToolPolicyLayers {
+    return {
+      workspaceDisabledTools: this.toolPolicyGate.disabledTools,
+      profile,
+      global: this.config.get<ToolsConfig>(TOOLS_SECTION),
+      sessionDisabledTools: this.sessionToolPolicy.disabledTools(),
+    };
   }
 
   async setSessionDisabledTools(names: readonly string[]): Promise<void> {

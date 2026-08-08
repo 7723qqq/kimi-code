@@ -41,8 +41,10 @@ const zeroWidthRegex = /^(?:\p{Default_Ignorable_Code_Point}|\p{Control}|\p{Mark
 const leadingNonPrintingRegex = /^[\p{Default_Ignorable_Code_Point}\p{Control}\p{Format}\p{Mark}\p{Surrogate}]+/v;
 const rgiEmojiRegex = /^\p{RGI_Emoji}$/v;
 
-// Cache for non-ASCII strings
+// Cache for non-ASCII strings (LRU: hit refreshes position so hot entries survive).
 const WIDTH_CACHE_SIZE = 4096;
+/** Skip caching strings longer than this to avoid excessive memory per key. */
+const WIDTH_CACHE_MAX_KEY_LEN = 256;
 const widthCache = new Map<string, number>();
 
 export const cjkBreakRegex =
@@ -223,9 +225,11 @@ export function visibleWidth(str: string): number {
 		return str.length;
 	}
 
-	// Check cache
+	// Check cache (LRU: refresh position on hit so frequently-used entries survive)
 	const cached = widthCache.get(str);
 	if (cached !== undefined) {
+		widthCache.delete(str);
+		widthCache.set(str, cached);
 		return cached;
 	}
 
@@ -258,14 +262,16 @@ export function visibleWidth(str: string): number {
 		width += graphemeWidth(segment);
 	}
 
-	// Cache result
-	if (widthCache.size >= WIDTH_CACHE_SIZE) {
-		const firstKey = widthCache.keys().next().value;
-		if (firstKey !== undefined) {
-			widthCache.delete(firstKey);
+	// Cache result (skip overly long strings to bound per-key memory)
+	if (str.length <= WIDTH_CACHE_MAX_KEY_LEN) {
+		if (widthCache.size >= WIDTH_CACHE_SIZE) {
+			const firstKey = widthCache.keys().next().value;
+			if (firstKey !== undefined) {
+				widthCache.delete(firstKey);
+			}
 		}
+		widthCache.set(str, width);
 	}
-	widthCache.set(str, width);
 
 	return width;
 }

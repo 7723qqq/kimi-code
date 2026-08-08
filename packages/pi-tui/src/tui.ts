@@ -1515,11 +1515,38 @@ export class TUI extends Container {
 		}
 
 		// Differential rendering can only touch what was actually visible.
-		// If the first changed line is above the previous viewport, we need a full redraw.
+		// If the first changed line is above the previous viewport, the upstream
+		// behaviour is a destructive full redraw (\x1b[2J\x1b[H\x1b[3J).  On most
+		// terminals that resets the scrollbar position and jumps the user's view
+		// to the top — the classic "TUI scrolls to top during streaming" bug.
+		//
+		// We avoid the full redraw in the common case: an *in-place* content
+		// change above the viewport (same line count — e.g. a spinner tick, a
+		// status-line update, or a markdown re-render that doesn't alter the
+		// number of rendered lines).  In that case we simply clamp the
+		// differential render to the visible viewport and update `previousLines`
+		// for the invisible region so future diffs stay correct.  No screen
+		// clear, no scrollback wipe, no scrollbar jump.
+		//
+		// When the line count *did* change (lines inserted or deleted above the
+		// viewport), the viewport offset is stale and must be re-anchored, so we
+		// fall back to the original full redraw.
 		if (firstChanged < prevViewportTop) {
-			logRedraw(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`);
-			fullRender(true);
-			return;
+			if (newLines.length === this.previousLines.length) {
+				logRedraw(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop}) — clamping to viewport (in-place change)`);
+				// Update previousLines for the invisible changed region so the
+				// next frame's diff doesn't re-flag these lines as changed.
+				for (let i = firstChanged; i < prevViewportTop; i++) {
+					this.previousLines[i] = newLines[i]!;
+				}
+				firstChanged = prevViewportTop;
+				lastChanged = Math.max(lastChanged, newLines.length - 1);
+				// appendStart is already false here (firstChanged !== previousLines.length).
+			} else {
+				logRedraw(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop}) — line count changed, full redraw`);
+				fullRender(true);
+				return;
+			}
 		}
 
 		// Render from first changed line to end
