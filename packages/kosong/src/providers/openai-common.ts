@@ -210,8 +210,16 @@ export function extractUsage(usage: unknown): TokenUsage | null {
   const completionTokens = typeof u['completion_tokens'] === 'number' ? u['completion_tokens'] : 0;
 
   let cached = 0;
-  // Moonshot proprietary: top-level cached_tokens
-  if (typeof u['cached_tokens'] === 'number') {
+  let miss: number | undefined;
+  // DeepSeek proprietary: prompt_cache_hit_tokens / prompt_cache_miss_tokens
+  // (top-level, alongside prompt_tokens / completion_tokens).
+  if (typeof u['prompt_cache_hit_tokens'] === 'number') {
+    cached = u['prompt_cache_hit_tokens'];
+    if (typeof u['prompt_cache_miss_tokens'] === 'number') {
+      miss = u['prompt_cache_miss_tokens'];
+    }
+  } else if (typeof u['cached_tokens'] === 'number') {
+    // Moonshot proprietary: top-level cached_tokens
     cached = u['cached_tokens'];
   } else if (
     typeof u['prompt_tokens_details'] === 'object' &&
@@ -224,7 +232,7 @@ export function extractUsage(usage: unknown): TokenUsage | null {
   }
 
   return {
-    inputOther: Math.max(promptTokens - cached, 0),
+    inputOther: miss ?? Math.max(promptTokens - cached, 0),
     output: completionTokens,
     inputCacheRead: cached,
     inputCacheCreation: 0,

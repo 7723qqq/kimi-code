@@ -2166,6 +2166,38 @@ describe('extractUsage', () => {
     });
   });
 
+  it('extracts usage with DeepSeek prompt_cache_hit_tokens', () => {
+    const usage = extractUsage({
+      prompt_tokens: 100,
+      completion_tokens: 20,
+      total_tokens: 120,
+      prompt_cache_hit_tokens: 70,
+      prompt_cache_miss_tokens: 30,
+    });
+    expect(usage).toEqual({
+      inputOther: 30,
+      output: 20,
+      inputCacheRead: 70,
+      inputCacheCreation: 0,
+    });
+  });
+
+  it('prefers DeepSeek counters over Moonshot cached_tokens when both are present', () => {
+    const usage = extractUsage({
+      prompt_tokens: 100,
+      completion_tokens: 20,
+      cached_tokens: 90,
+      prompt_cache_hit_tokens: 70,
+      prompt_cache_miss_tokens: 30,
+    });
+    expect(usage).toEqual({
+      inputOther: 30,
+      output: 20,
+      inputCacheRead: 70,
+      inputCacheCreation: 0,
+    });
+  });
+
   it('returns null for null/undefined', () => {
     const undef: unknown = undefined;
     expect(extractUsage(null)).toBeNull();

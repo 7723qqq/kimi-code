@@ -976,16 +976,6 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       return finishReason === 'tool_calls' ? 'other' : finishReason;
     }
 
-    // Emit speculative hint so the model can pre-plan while tools run.
-    // v2 internal ToolCall stores `name` at the top level (not nested under `function`).
-    const toolNames = response.message.toolCalls.map((tc) => tc.name);
-    this.context.appendLoopEvent({
-      type: 'tools.dispatched',
-      stepUuid,
-      toolNames,
-      count: toolNames.length,
-    });
-
     const toolCallUuids = new Map<string, string>();
     const toolCallEvents: Array<{ toolCallId: string; name: string; args?: unknown }> = [];
     const toolResultEvents: Array<{
@@ -1039,6 +1029,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         result: { output: event.output, isError: event.isError, note: event.note },
       });
     }
+    // A user cancel must win over a natural stop (e.g. a goal budget
+    // stopTurn): if the turn was aborted while tools ran, surface the abort
+    // so the loop reports `cancelled` instead of a misleading `completed`.
+    signal.throwIfAborted();
     finishReason = stopTurn ? 'completed' : 'tool_calls';
     return finishReason;
   }

@@ -42,6 +42,7 @@ import {
   kimiAnthropicTrait,
   kimiOpenAITrait,
 } from '#/kosong/provider/providers/kimi/kimi.contrib';
+import { extractUsage } from '#/kosong/provider/bases/openai/openai-common';
 
 const context: TraitContext = {
   config: { protocol: 'openai', providerType: 'kimi', modelName: 'kimi-k2' },
@@ -187,6 +188,40 @@ describe('kimiOpenAITrait.extractUsage', () => {
   it('defers to the base default when the chunk carries no usage', () => {
     expect(call(kimiOpenAITrait.extractUsage, { choices: [] }, context)).toBeUndefined();
     expect(call(kimiOpenAITrait.extractUsage, { choices: [{}] }, context)).toBeUndefined();
+  });
+});
+
+describe('openai-common extractUsage', () => {
+  it('maps DeepSeek prompt_cache_hit_tokens to inputCacheRead', () => {
+    const usage = extractUsage({
+      prompt_tokens: 100,
+      completion_tokens: 20,
+      total_tokens: 120,
+      prompt_cache_hit_tokens: 70,
+      prompt_cache_miss_tokens: 30,
+    });
+    expect(usage).toEqual({
+      inputOther: 30,
+      output: 20,
+      inputCacheRead: 70,
+      inputCacheCreation: 0,
+    });
+  });
+
+  it('prefers DeepSeek counters over Moonshot cached_tokens when both are present', () => {
+    const usage = extractUsage({
+      prompt_tokens: 100,
+      completion_tokens: 20,
+      cached_tokens: 90,
+      prompt_cache_hit_tokens: 70,
+      prompt_cache_miss_tokens: 30,
+    });
+    expect(usage).toEqual({
+      inputOther: 30,
+      output: 20,
+      inputCacheRead: 70,
+      inputCacheCreation: 0,
+    });
   });
 });
 
@@ -336,7 +371,7 @@ describe('KimiFiles upload error conversion', () => {
         { auth: { apiKey: 'request-token' } },
       )
       .then(
-        () => undefined,
+        () => {},
         (error: unknown) => error,
       );
     expect(caught).toBeInstanceOf(APIProviderQuotaExhaustedError);

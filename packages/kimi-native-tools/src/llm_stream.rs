@@ -348,6 +348,15 @@ fn decode_openai_legacy_event(event: &Value, metadata: &mut StreamMetadata) -> V
             .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
         metadata.output_tokens = usage.get("completion_tokens")
             .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        // DeepSeek proprietary cache counters: prompt_cache_hit_tokens /
+        // prompt_cache_miss_tokens (top-level). Fall back to the Moonshot
+        // top-level cached_tokens for Kimi-compatible endpoints.
+        if let Some(hit) = usage.get("prompt_cache_hit_tokens").and_then(|v| v.as_u64()) {
+            metadata.cached_tokens = hit as u32;
+        } else {
+            metadata.cached_tokens = usage.get("cached_tokens")
+                .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        }
     }
 
     let choices = match event.get("choices").and_then(|v| v.as_array()) {
@@ -876,6 +885,39 @@ mod tests {
         decode_openai_legacy_event(&event, &mut meta);
         assert_eq!(meta.input_tokens, 55);
         assert_eq!(meta.output_tokens, 30);
+        assert_eq!(meta.cached_tokens, 0);
+    }
+
+    #[test]
+    fn test_openai_legacy_usage_extraction_deepseek_cache_counters() {
+        let mut meta = StreamMetadata::default();
+        let event = json!({
+            "id": "chatcmpl-u",
+            "choices": [{ "delta": {}, "finish_reason": "stop" }],
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 20,
+                "prompt_cache_hit_tokens": 70,
+                "prompt_cache_miss_tokens": 30
+            }
+        });
+        decode_openai_legacy_event(&event, &mut meta);
+        assert_eq!(meta.input_tokens, 100);
+        assert_eq!(meta.output_tokens, 20);
+        assert_eq!(meta.cached_tokens, 70);
+    }
+
+    #[test]
+    fn test_openai_legacy_usage_extraction_moonshot_cached_tokens_fallback() {
+        let mut meta = StreamMetadata::default();
+        let event = json!({
+            "id": "chatcmpl-u",
+            "choices": [{ "delta": {}, "finish_reason": "stop" }],
+            "usage": { "prompt_tokens": 55, "completion_tokens": 30, "cached_tokens": 20 }
+        });
+        decode_openai_legacy_event(&event, &mut meta);
+        assert_eq!(meta.input_tokens, 55);
+        assert_eq!(meta.cached_tokens, 20);
     }
 
     #[test]

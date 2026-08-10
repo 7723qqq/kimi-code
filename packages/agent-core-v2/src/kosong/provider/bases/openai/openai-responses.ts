@@ -733,10 +733,21 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
   private _extractUsage(usage: RawObject): void {
     const inputTokens = readNumberField(usage, 'input_tokens') ?? 0;
     const outputTokens = readNumberField(usage, 'output_tokens') ?? 0;
-    const details = readObjectField(usage, 'input_tokens_details');
-    const cached = details ? (readNumberField(details, 'cached_tokens') ?? 0) : 0;
+    let cached = 0;
+    let miss: number | undefined;
+    // DeepSeek proprietary: prompt_cache_hit_tokens / prompt_cache_miss_tokens
+    // (top-level, alongside input_tokens / output_tokens).
+    const hit = readNumberField(usage, 'prompt_cache_hit_tokens');
+    if (hit !== undefined) {
+      cached = hit;
+      const deepSeekMiss = readNumberField(usage, 'prompt_cache_miss_tokens');
+      if (deepSeekMiss !== undefined) miss = deepSeekMiss;
+    } else {
+      const details = readObjectField(usage, 'input_tokens_details');
+      cached = details ? (readNumberField(details, 'cached_tokens') ?? 0) : 0;
+    }
     this._usage = {
-      inputOther: inputTokens - cached,
+      inputOther: miss ?? inputTokens - cached,
       output: outputTokens,
       inputCacheRead: cached,
       inputCacheCreation: 0,
@@ -1224,5 +1235,5 @@ export function getOpenAIResponsesModelCapability(modelName: string) {
   if (hasModelPrefix(normalized, OPENAI_VISION_TOOL_PREFIXES)) {
     return OPENAI_VISION_TOOL_CAPABILITY;
   }
-  return undefined;
+  return;
 }

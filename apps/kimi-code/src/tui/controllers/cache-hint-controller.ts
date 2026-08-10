@@ -121,6 +121,15 @@ export class CacheHintController {
     const currRead = usage.inputCacheRead;
     if (currRead >= prevRead * CACHE_BREAK_DROP_RATIO) return;
     if (prevRead - currRead <= CACHE_BREAK_MIN_DROP_TOKENS) return;
+    // Surface the break in the terminal as well as telemetry: the server-side
+    // prompt cache was likely invalidated (prefix change, cache expiry, or a
+    // mid-session model/effort switch). Telemetry props are flattened snake_case.
+    console.info(
+      `[cache] prompt-cache break detected: cache read dropped ${prevRead - currRead} ` +
+        `tokens (${Math.round(((prevRead - currRead) / prevRead) * 100)}%) between steps, ` +
+        `${((now - prev.time) / 1000).toFixed(1)}s after the previous request ` +
+        `(model ${prev.model} -> ${model}, effort ${prev.effort} -> ${effort})`,
+    );
     this.host.track('cache_break_detected', {
       prev_model: prev.model,
       curr_model: model,
@@ -225,7 +234,7 @@ export class CacheHintController {
     // The resume dialog also covers this idle cycle: the first submit right
     // after it must not be intercepted again.
     this.idlePrompted = true;
-    await this.showDialog('resume', decision, undefined);
+    await this.showDialog('resume', decision);
   }
 
   /**
@@ -373,7 +382,7 @@ export class CacheHintController {
       accessToken = await this.host.harness.auth.getCachedAccessToken();
     } catch {
       // Facade unavailable (test doubles) — never fetch.
-      return undefined;
+      return;
     }
     // The endpoint is public: apiKey-only users fetch anonymously.
     return getCacheHintConfig({ accessToken });
