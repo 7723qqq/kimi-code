@@ -8,6 +8,7 @@
 import { Container, Markdown, truncateToWidth, visibleWidth, type Component } from '@moonshot-ai/pi-tui';
 
 import { MESSAGE_INDENT } from '#/tui/constant/rendering';
+import { STREAMING_MARKDOWN_TAIL_CHARS } from '#/tui/constant/streaming';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
@@ -43,8 +44,17 @@ export class AssistantMessageComponent implements Component {
   }
 
   updateContent(text: string, opts?: AssistantMarkdownOptions): void {
-    const displayText = text.trim();
     const transient = opts?.transient === true;
+    // While streaming (transient), render only a bounded tail so re-lexing +
+    // re-wrapping the still-growing draft on the main thread stays O(tail)
+    // per flush instead of O(full) — a large message otherwise blocks the
+    // event loop (ESC/Ctrl+C and rendering both freeze). The final
+    // non-transient pass renders the complete text.
+    const displayText = (
+      transient && text.length > STREAMING_MARKDOWN_TAIL_CHARS
+        ? text.slice(-STREAMING_MARKDOWN_TAIL_CHARS)
+        : text
+    ).trim();
 
     if (displayText === this.lastText && transient === this.lastTransient) return;
 

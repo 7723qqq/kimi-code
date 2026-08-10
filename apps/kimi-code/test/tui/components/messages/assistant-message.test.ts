@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
+import { STREAMING_MARKDOWN_TAIL_CHARS } from '#/tui/constant/streaming';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 
 import { captureProcessWrite } from '../../../helpers/process';
@@ -110,6 +111,23 @@ describe('AssistantMessageComponent', () => {
     expect(finalized).toBeInstanceOf(Markdown);
 
     expect(finalized).not.toBe(streaming);
+  });
+
+  it('renders only a bounded tail while streaming a large message, then the full text on finalize', () => {
+    const component = new AssistantMessageComponent();
+    const big = 'long line of text\n'.repeat(2000);
+
+    component.updateContent(big, { transient: true });
+    const streamingChild = (component as any).contentContainer.children[0] as Markdown;
+    expect((streamingChild as any).text.length).toBeLessThanOrEqual(STREAMING_MARKDOWN_TAIL_CHARS);
+    // The streaming view is bounded, so re-lexing it per flush stays cheap.
+    expect((streamingChild as any).text).toBe(
+      big.slice(-STREAMING_MARKDOWN_TAIL_CHARS).trim(),
+    );
+
+    component.updateContent(big, { transient: false });
+    const finalizedChild = (component as any).contentContainer.children[0] as Markdown;
+    expect((finalizedChild as any).text).toBe(big.trim());
   });
 
   it('skips synchronous syntax highlighting in transient markdown themes', () => {
