@@ -1974,7 +1974,7 @@ command = "vim"
         'Post-create setup failed: permission setup failed',
       );
     });
-    expect(failedSession.onEvent).toHaveBeenCalledOnce();
+    expect(failedSession.onEvent).toHaveBeenCalledTimes(2);
   });
 
   it('tracks Shift-Tab mode switches through the editor handler', async () => {
@@ -2029,7 +2029,7 @@ command = "vim"
     driver.sessionEventHandler.startSubscription();
     await Promise.resolve();
 
-    expect(session.onEvent).toHaveBeenCalledOnce();
+    expect(session.onEvent).toHaveBeenCalledTimes(2);
     expect(session.listMcpServers).toHaveBeenCalledOnce();
     const subscribeOrder = session.onEvent.mock.invocationCallOrder[0];
     const snapshotOrder = session.listMcpServers.mock.invocationCallOrder[0];
@@ -2062,7 +2062,7 @@ command = "vim"
 
     driver.sessionEventHandler.startSubscription();
     await Promise.resolve();
-    eventListeners[0]?.({
+    eventListeners.at(-1)?.({
       type: 'mcp.server.status',
       agentId: 'main',
       sessionId: 'ses-1',
@@ -2073,7 +2073,7 @@ command = "vim"
       1,
     );
 
-    eventListeners[0]?.({
+    eventListeners.at(-1)?.({
       type: 'mcp.server.status',
       agentId: 'main',
       sessionId: 'ses-1',
@@ -2083,7 +2083,7 @@ command = "vim"
         toolCount: 0,
       },
     } as Event);
-    eventListeners[0]?.({
+    eventListeners.at(-1)?.({
       type: 'mcp.server.status',
       agentId: 'main',
       sessionId: 'ses-1',
@@ -2119,7 +2119,7 @@ command = "vim"
     const { driver } = await makeDriver(session);
 
     driver.sessionEventHandler.startSubscription();
-    eventListeners[0]?.({
+    eventListeners.at(-1)?.({
       type: 'mcp.server.status',
       agentId: 'main',
       sessionId: 'ses-1',
