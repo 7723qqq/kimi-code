@@ -1300,6 +1300,8 @@ describe('aborted step tool execution', () => {
       const slowToolStarted = registerAbortableWorkTool(ctx);
       const goals = ctx.get(IAgentGoalService);
       await goals.createGoal({ objective: 'finish the task' });
+      // A loose budget keeps goal accounting out of this test's way: the
+      // point is the abort path, not the budget trigger (see the next test).
       await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 1000 } });
       ctx.get(IEventBus).publish({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } });
 
@@ -1313,6 +1315,8 @@ describe('aborted step tool execution', () => {
       await slowToolStarted.promise;
       controller.abort(new Error('cancelled by test'));
 
+      // The user cancel wins over the natural step flow: the turn reports
+      // cancelled (not completed) and both steps' usage is accounted.
       await expect(resultPromise).resolves.toMatchObject({ type: 'cancelled', steps: 2 });
       expect(ctx.get(IAgentUsageService).status()).toMatchObject({
         total: {
@@ -1328,9 +1332,51 @@ describe('aborted step tool execution', () => {
           inputCacheCreation: 0,
         },
       });
+      // Goal stayed active (budget never hit), usage accounted across turns.
       expect(goals.getGoal().goal).toMatchObject({
         status: 'active',
         tokensUsed: 168,
+      });
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  it('vetoes further tool calls once the goal budget is exhausted', async () => {
+    const ctx = createTestAgent(
+      { generate: createAbortedStepGenerate() },
+      permissionModeServices('yolo'),
+    );
+    try {
+      const slowToolStarted = registerAbortableWorkTool(ctx);
+      const goals = ctx.get(IAgentGoalService);
+      await goals.createGoal({ objective: 'finish the task' });
+      // Tight budget: the first step's usage (150 tokens) exceeds it, so the
+      // goal enters budget grace and the second tool call must be vetoed.
+      await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 60 } });
+      ctx.get(IEventBus).publish({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } });
+
+      const loopService = ctx.get(IAgentLoopService);
+      loopService.enqueue(new ContinuationStepRequest());
+      const resultPromise = loopService.run({
+        turnId: 1,
+        signal: new AbortController().signal,
+      });
+      // The second tool call never executes: budget grace vetoes it, so the
+      // abortable tool's started signal must not fire within the turn.
+      const startedWithinTurn = await Promise.race([
+        slowToolStarted.promise.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500)),
+      ]);
+      const result = await resultPromise;
+      expect(startedWithinTurn).toBe(false);
+      // No abort happened here: the goal's budget stop naturally ends the
+      // turn (the model gets one final wrap-up slot per the budget design).
+      expect(result.type).toBe('completed');
+      // Goal transitioned to budget_limited with the exhausted flag.
+      expect(goals.getGoal().goal).toMatchObject({
+        status: 'budget_limited',
+        budget: { tokenBudgetReached: true },
       });
     } finally {
       await ctx.dispose();
