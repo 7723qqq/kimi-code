@@ -151,7 +151,7 @@ describe('toKimiErrorPayload — non-API errors', () => {
   });
 
   it('an undefined value maps to internal', () => {
-    const payload = toKimiErrorPayload();
+    const payload = toKimiErrorPayload(undefined as unknown);
     expect(payload.code).toBe('internal');
     expect(payload.message).toBe('undefined');
   });

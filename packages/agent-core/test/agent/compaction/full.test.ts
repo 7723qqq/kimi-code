@@ -2674,6 +2674,10 @@ function overflowOnlyCompactionStrategy(maxSize: number = 14): DefaultCompaction
     reservedContextSize: 0,
     maxCompactionPerTurn: 3,
     maxOverflowCompactionAttempts: 3,
+    maxRecentMessages: 0xFFFFFFFF,
+    maxRecentUserMessages: 0xFFFFFFFF,
+    maxRecentSizeRatio: 0.2,
+    minOverflowReductionRatio: 0.05,
   });
 }
 

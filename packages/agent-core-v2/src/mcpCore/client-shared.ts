@@ -58,7 +58,7 @@ export interface McpRequestOptions {
 
 export function buildRequestOptions(
   timeoutMs: number | undefined,
-  signal: AbortSignal | undefined,
+  signal?: AbortSignal,
 ): McpRequestOptions | undefined {
   if (timeoutMs === undefined && signal === undefined) return undefined;
   return { timeout: timeoutMs, signal };

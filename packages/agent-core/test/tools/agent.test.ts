@@ -950,7 +950,7 @@ describe('AgentTool', () => {
               reject(new DOMException('Aborted', 'AbortError'));
             }, { once: true });
           }),
-      ),
+      ) as unknown as SessionSubagentHost['resume'],
     });
     const tool = agentTool(host);
 

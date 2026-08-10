@@ -58,7 +58,7 @@ describe('github tools', () => {
 
   it('GitHubListIssues forwards query params', async () => {
     await run('GitHubListIssues', { owner: 'o', repo: 'r', state: 'open', perPage: 50 });
-    const [method, path, options] = mockReq.mock.calls[0];
+    const [method, path, options] = mockReq.mock.calls[0]!;
     expect(method).toBe('GET');
     expect(path).toBe('/repos/o/r/issues');
     expect(options?.query).toMatchObject({ state: 'open', per_page: 50 });
@@ -66,7 +66,7 @@ describe('github tools', () => {
 
   it('GitHubCreateIssue sends a POST body', async () => {
     await run('GitHubCreateIssue', { owner: 'o', repo: 'r', title: 'Hi', body: 'B' });
-    const [method, path, options] = mockReq.mock.calls[0];
+    const [method, path, options] = mockReq.mock.calls[0]!;
     expect(method).toBe('POST');
     expect(path).toBe('/repos/o/r/issues');
     expect(options?.body).toMatchObject({ title: 'Hi', body: 'B' });
@@ -80,7 +80,7 @@ describe('github tools', () => {
       message: 'm',
       content: 'hello world',
     });
-    const options = mockReq.mock.calls[0][2];
+    const options = mockReq.mock.calls[0]?.[2];
     expect((options?.body as { content: string }).content).toBe(
       Buffer.from('hello world', 'utf8').toString('base64'),
     );
@@ -89,7 +89,7 @@ describe('github tools', () => {
   it('GitHubGetPRDiff requests the diff media type', async () => {
     mockReq.mockResolvedValue({ status: 200, ok: true, body: 'diff --git ...' });
     await run('GitHubGetPRDiff', { owner: 'o', repo: 'r', pullNumber: 3 });
-    expect(mockReq.mock.calls[0][2]?.accept).toBe('application/vnd.github.diff');
+    expect(mockReq.mock.calls[0]?.[2]?.accept).toBe('application/vnd.github.diff');
   });
 
   it('surfaces a missing-token error to the model', async () => {
@@ -101,7 +101,7 @@ describe('github tools', () => {
     });
     const res = await run('GitHubGetMe', {});
     expect(res.isError).toBe(true);
-    expect(String(res.output)).toContain('GITHUB_TOKEN');
+    expect(String(res.output as unknown)).toContain('GITHUB_TOKEN');
   });
 
   it('rejects invalid arguments before calling the API', async () => {

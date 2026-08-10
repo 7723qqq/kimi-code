@@ -21,7 +21,7 @@ import { describe, expect, it } from 'vitest';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import type { ExecutableTool } from '#/agent/toolExecutor/toolExecutor';
+import type { ExecutableTool } from '#/tool/toolContract';
 import type { Message, ToolCall } from '#/kosong/contract/message';
 import { permissionModeServices, createTestAgent } from '../../harness/agent';
 import type { GenerateCall } from '../../harness/snapshots';

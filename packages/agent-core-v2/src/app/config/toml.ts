@@ -35,7 +35,10 @@ export function transformPlainObject(data: Record<string, unknown>): Record<stri
   return out;
 }
 
-export function plainObjectToToml(value: Record<string, unknown>, raw: unknown): Record<string, unknown> {
+export function plainObjectToToml(
+  value: Record<string, unknown>,
+  raw: unknown = {},
+): Record<string, unknown> {
   const out = cloneRecord(raw);
   for (const [key, entry] of Object.entries(value)) {
     setDefined(out, camelToSnake(key), entry);

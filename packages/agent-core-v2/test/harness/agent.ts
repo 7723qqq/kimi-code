@@ -754,8 +754,8 @@ export function createCommandRunner(stdout: string, exitCode = 0): ISessionProce
       pid: 42,
       exitCode,
       wait: vi.fn().mockResolvedValue(exitCode) as IProcess['wait'],
-      kill: vi.fn().mockResolvedValue() as IProcess['kill'],
-      dispose: vi.fn().mockResolvedValue() as IProcess['dispose'],
+      kill: vi.fn(async (_signal?: NodeJS.Signals) => {}) as IProcess['kill'],
+      dispose: vi.fn(async () => {}) as IProcess['dispose'],
     };
   }
   return createFakeProcessRunner({
@@ -1065,7 +1065,7 @@ export class AgentTestContext {
               () => { },
             ),
           );
-          reg.defineInstance(ILogService, createLogService());
+          reg.defineInstance(ILogService, createLogService(undefined as Logger | undefined));
           reg.defineInstance(
             ILogOptions,
             {
@@ -2359,7 +2359,11 @@ function configStateSnapshot(ctx: AgentTestContext): ResumeStateSnapshot['config
 }
 
 function emptyConfig(): KimiConfig {
-  return configWithProvider({ providers: {} }, MOCK_PROVIDER);
+  return configWithProvider(
+    { providers: {} },
+    MOCK_PROVIDER,
+    undefined as ModelCapability | undefined,
+  );
 }
 
 function applyTestAgentOptionsToConfig(config: KimiConfig, options: TestAgentOptions): KimiConfig {

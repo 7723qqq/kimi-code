@@ -352,7 +352,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     };
 
     const run = async (projection: RequestProjection): Promise<AgentLLMRequestFinish> => {
-      onRequestTrace();
+      onRequestTrace(undefined as string | undefined);
       const projected = requestInput(projection);
       const input = {
         ...projected,

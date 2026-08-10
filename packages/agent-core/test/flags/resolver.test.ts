@@ -217,8 +217,8 @@ describe('FLAG_DEFINITIONS invariants', () => {
       expect(def.env.startsWith('KIMI_CODE_EXPERIMENTAL_')).toBe(true);
       expect(def.env).not.toBe(MASTER_ENV);
       expect(def.id).not.toBe('flag'); // reserved: would collide with the master switch
-      expect(def.title.length).toBeGreaterThan(0);
-      expect(def.description.length).toBeGreaterThan(0);
+      expect(def.title!.length).toBeGreaterThan(0);
+      expect(def.description!.length).toBeGreaterThan(0);
       expect(seenEnv.has(def.env)).toBe(false);
       expect(seenId.has(def.id)).toBe(false);
       seenEnv.add(def.env);

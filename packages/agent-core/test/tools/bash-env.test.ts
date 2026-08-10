@@ -148,7 +148,7 @@ describe('BashTool noninteractive env semantics', () => {
     const execWithEnv = vi.fn().mockResolvedValue(fakeProcess());
     const kaos = createFakeKaos({ execWithEnv, osEnv: posixEnv }).withEnv({
       REMOVED_VAR: undefined,
-    } as Record<string, string>);
+    } as unknown as Record<string, string>);
     const tool = new BashTool(kaos, '/workspace', createBackgroundManager().manager);
 
     await executeTool(tool, {

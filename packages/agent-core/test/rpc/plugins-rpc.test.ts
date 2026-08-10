@@ -126,7 +126,7 @@ oauth = { storage = "file", key = "oauth/kimi-code-env-1234", oauth_host = "http
             servers: Record<string, { env?: Record<string, string> }>;
           };
         }
-      ).mergePluginMcpConfig(undefined);
+      ).mergePluginMcpConfig(undefined as never);
 
       expect(mcpConfig.servers['plugin-kimi-datasource:data']?.env).toEqual(
         expect.objectContaining({
@@ -271,7 +271,7 @@ oauth = { storage = "file", key = "oauth/kimi-code-env-1234", oauth_host = "http
     await new Promise((r) => setImmediate(r));
 
     const installed = await core.installPlugin({ source: pluginRoot });
-    expect(installed.name).toBe('spécial-plügin');
+    expect(installed.displayName).toBe('spécial-plügin');
   });
 });
 

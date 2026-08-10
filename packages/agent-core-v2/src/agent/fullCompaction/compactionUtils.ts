@@ -152,7 +152,7 @@ export function snipLargeToolResults<T extends { readonly role: string; readonly
     if (changed === undefined) changed = messages.slice(0, i);
     changed.push(next as T);
   }
-  return changed ?? messages;
+  return changed ?? [...messages];
 }
 
 function snipToolResultContent(

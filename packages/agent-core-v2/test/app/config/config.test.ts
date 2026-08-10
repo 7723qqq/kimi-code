@@ -576,7 +576,7 @@ describe('ConfigService env overlay (live)', () => {
     await config.set('defaultModel', undefined);
     expect(config.get<string>('defaultModel')).toBe('kimi-code/kimi-k2');
 
-    await config.replace('defaultModel');
+    await config.replace('defaultModel', undefined as unknown);
     expect(config.get<string>('defaultModel')).toBeUndefined();
 
     disposables.dispose();
@@ -724,7 +724,7 @@ describe('services config section env bindings', () => {
       moonshotSearch: { baseUrl: 'https://file.example/search' },
     });
 
-    await config.replace(SERVICES_SECTION);
+    await config.replace(SERVICES_SECTION, undefined as unknown);
 
     expect(config.inspect<ServicesConfig>(SERVICES_SECTION).userValue).toBeUndefined();
     expect(config.get<ServicesConfig>(SERVICES_SECTION)?.moonshotSearch?.baseUrl).toBe(

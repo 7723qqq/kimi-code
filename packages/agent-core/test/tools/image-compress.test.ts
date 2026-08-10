@@ -331,7 +331,13 @@ async function encodeWebp(
   const requireLocal = createRequire(import.meta.url);
   const encMod = (await import(
     requireLocal.resolve('@jsquash/webp/encode.js')
-  )) as typeof import('@jsquash/webp/encode.js');
+  )) as {
+    init(wasm: unknown): Promise<void>;
+    default(
+      bitmap: unknown,
+      options?: { quality?: number },
+    ): Promise<Uint8Array>;
+  };
   const { readFileSync } = await import('node:fs');
   // The repo tsconfig has no DOM lib, so the global WebAssembly name is
   // reached structurally (same approach as the production decoder).
@@ -362,7 +368,7 @@ async function encodeWebp(
 function animatedWebpHeader(): Uint8Array {
   const bytes = new Uint8Array(30);
   const ascii = (s: string, at: number) => {
-    for (let i = 0; i < s.length; i++) bytes[at + i] = s.charCodeAt(i);
+    for (let i = 0; i < s.length; i++) bytes[at + i] = s.codePointAt(i) ?? 0;
   };
   ascii('RIFF', 0);
   new DataView(bytes.buffer).setUint32(4, 22, true);

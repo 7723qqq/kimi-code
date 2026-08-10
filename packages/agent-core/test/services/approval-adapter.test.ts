@@ -130,7 +130,7 @@ describe('approval-adapter · toAgentCoreResponse (protocol → in-process)', ()
 
   it('handles special characters in action and feedback', () => {
     const protoReq = toBrokerRequest(
-      { ...inProc, action: 'rm -rf /tmp/ \"test\" && echo $HOME' },
+      { ...inProc, action: 'rm -rf /tmp/ "test" && echo $HOME' },
       {
         approvalId: 'a',
         sessionId: 's',
@@ -171,7 +171,7 @@ describe('approval-adapter · toAgentCoreResponse (protocol → in-process)', ()
 
   it('handles all decision values', () => {
     for (const decision of ['approved', 'rejected', 'cancelled', 'error'] as const) {
-      const inProcResp = toAgentCoreResponse({ decision });
+      const inProcResp = toAgentCoreResponse({ decision } as never);
       expect(inProcResp.decision).toBe(decision);
     }
   });

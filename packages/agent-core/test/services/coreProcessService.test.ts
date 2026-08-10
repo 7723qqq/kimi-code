@@ -10,11 +10,11 @@ import {
   getSingletonServiceDescriptors,
   type ApprovalRequest,
   type ApprovalResponse,
-  type Event,
   type QuestionRequest,
   type QuestionResult,
 } from '../../src';
 import { TestInstantiationService } from '../../src/di/test';
+import type { Event } from '@moonshot-ai/protocol';
 
 import {
   BridgeClientAPI,
@@ -377,7 +377,7 @@ describe('singleton registry composition', () => {
   });
 
   it('multiple dispose calls after ready are safe', async () => {
-    const { eventService, approvalService, questionService, logService } = makePeers();
+    const { eventService, approvalService, questionService, logService, workspaceRegistry } = makePeers();
     const core = new CoreProcessService(
       {},
       makeEnv(tmpHome),
@@ -385,6 +385,7 @@ describe('singleton registry composition', () => {
       approvalService,
       questionService,
       logService,
+      workspaceRegistry,
     );
     await core.ready();
     core.dispose();
@@ -416,7 +417,7 @@ describe('singleton registry composition', () => {
   });
 
   it('CoreProcessService rpc call before ready() is queued and resolves', async () => {
-    const { eventService, approvalService, questionService, logService } = makePeers();
+    const { eventService, approvalService, questionService, logService, workspaceRegistry } = makePeers();
     const core = new CoreProcessService(
       {},
       makeEnv(tmpHome),
@@ -424,6 +425,7 @@ describe('singleton registry composition', () => {
       approvalService,
       questionService,
       logService,
+      workspaceRegistry,
     );
     try {
       const rpcPromise = core.rpc.getCoreInfo({});

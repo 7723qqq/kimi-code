@@ -60,7 +60,7 @@ describe('IInstantiationService self-registration (P0.5)', () => {
   it('nested invokeFunction resolves to the same container', () => {
     const ix = new InstantiationService();
     const resolved = ix.invokeFunction((a) =>
-      a.invokeFunction((b) => b.get(IInstantiationService)),
+      a.get(IInstantiationService).invokeFunction((b) => b.get(IInstantiationService)),
     );
     expect(resolved).toBe(ix);
   });

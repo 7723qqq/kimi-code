@@ -4,6 +4,7 @@ import { SyncDescriptor } from '#/di/descriptors';
 import { InstantiationService } from '#/di/instantiationService';
 import {
   createDecorator,
+  IInstantiationService,
   type BrandedService,
   type IConstructorSignature,
   type ServicesAccessor,
@@ -27,7 +28,7 @@ function captureThrown(fn: () => void): unknown {
 
 describe('InstantiationService (basic)', () => {
   it('constructs an impl from SyncDescriptor on first get', () => {
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     class ConsoleLogger implements ILogger {
       log(m: string): void {
         // eslint-disable-next-line no-console
@@ -345,7 +346,7 @@ describe('InstantiationService (basic)', () => {
     const ix = new InstantiationService();
     let innerAccessor: ServicesAccessor | undefined;
     const result = ix.invokeFunction((outer) => {
-      return outer.invokeFunction((inner) => {
+      return outer.get(IInstantiationService).invokeFunction((inner) => {
         innerAccessor = inner;
         return 'nested-ok';
       });
@@ -368,7 +369,7 @@ describe('InstantiationService (basic)', () => {
 
   it('invokeFunction callback can return undefined', () => {
     const ix = new InstantiationService();
-    expect(ix.invokeFunction(() => undefined)).toBeUndefined();
+    expect(ix.invokeFunction(() => {})).toBeUndefined();
   });
 
   it('invokeFunction callback can return null', () => {

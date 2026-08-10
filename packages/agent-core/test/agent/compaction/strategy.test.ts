@@ -43,6 +43,10 @@ describe('DefaultCompactionStrategy', () => {
       reservedContextSize: 50_000,
       maxCompactionPerTurn: 3,
       maxOverflowCompactionAttempts: 3,
+      maxRecentMessages: 0xFFFFFFFF,
+      maxRecentUserMessages: 0xFFFFFFFF,
+      maxRecentSizeRatio: 0.2,
+      minOverflowReductionRatio: 0.05,
     });
 
     expect(strategy.shouldCompact(1)).toBe(false);
@@ -66,6 +70,10 @@ describe('DefaultCompactionStrategy', () => {
       reservedContextSize: 0,
       maxCompactionPerTurn: 3,
       maxOverflowCompactionAttempts: 3,
+      maxRecentMessages: 0xFFFFFFFF,
+      maxRecentUserMessages: 0xFFFFFFFF,
+      maxRecentSizeRatio: 0.2,
+      minOverflowReductionRatio: 0.05,
     });
 
     expect(strategy.checkAfterStep).toBe(true);
@@ -85,5 +93,9 @@ function testCompactionStrategy(maxSize: number = 1_000): DefaultCompactionStrat
     reservedContextSize: 0,
     maxCompactionPerTurn: 3,
     maxOverflowCompactionAttempts: 3,
+    maxRecentMessages: 0xFFFFFFFF,
+    maxRecentUserMessages: 0xFFFFFFFF,
+    maxRecentSizeRatio: 0.2,
+    minOverflowReductionRatio: 0.05,
   });
 }

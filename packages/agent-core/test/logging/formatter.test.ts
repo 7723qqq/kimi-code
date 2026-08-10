@@ -60,13 +60,13 @@ describe('formatter — logfmt rendering', () => {
 
   it('does not include ANSI when ansi=false', () => {
     const { text } = formatEntry(baseEntry({ level: 'error' }), { ansi: false });
-    expect(text).not.toMatch(/\u001b\[/);
+    expect(text).not.toMatch(/\u001B\[/);
   });
 
   it('includes ANSI when ansi=true', () => {
     const { text } = formatEntry(baseEntry({ level: 'error' }), { ansi: true });
-    expect(text).toMatch(/\u001b\[31m/);
-    expect(text).toMatch(/\u001b\[0m/);
+    expect(text).toMatch(/\u001B\[31m/);
+    expect(text).toMatch(/\u001B\[0m/);
   });
 
   it('handles empty ctx gracefully', () => {
@@ -173,7 +173,9 @@ describe('formatter — error extraction', () => {
   });
 
   it('handles error with null message', () => {
-    const { text } = formatEntry(baseEntry({ level: 'error', error: { message: null } }));
+    const { text } = formatEntry(
+      baseEntry({ level: 'error', error: { message: null as unknown as string } }),
+    );
     expect(text).toContain('ERROR');
   });
 

@@ -52,8 +52,8 @@ describe('createMcpAuthTool', () => {
     let reconnectCalls = 0;
     const oauthService = fakeOAuthService(async () => ({
       authorizationUrl: new URL('https://example.com/authorize?state=abc'),
-      complete: async () => undefined,
-      cancel: async () => undefined,
+      complete: async () => {},
+      cancel: async () => {},
     }));
     const { result, updates } = runTool({
       oauthService,
@@ -103,7 +103,7 @@ describe('createMcpAuthTool', () => {
     });
     const { result } = runTool({
       oauthService,
-      reconnect: async () => undefined,
+      reconnect: async () => {},
     });
     const final = await result;
     expect(final.isError).toBe(true);
@@ -116,11 +116,11 @@ describe('createMcpAuthTool', () => {
       complete: async () => {
         throw new Error('OAuth callback timed out');
       },
-      cancel: async () => undefined,
+      cancel: async () => {},
     }));
     const { result } = runTool({
       oauthService,
-      reconnect: async () => undefined,
+      reconnect: async () => {},
     });
     const final = await result;
     expect(final.isError).toBe(true);
@@ -131,8 +131,8 @@ describe('createMcpAuthTool', () => {
   it('returns isError when reconnect after success fails', async () => {
     const oauthService = fakeOAuthService(async () => ({
       authorizationUrl: new URL('https://example.com/authorize?state=abc'),
-      complete: async () => undefined,
-      cancel: async () => undefined,
+      complete: async () => {},
+      cancel: async () => {},
     }));
     const { result } = runTool({
       oauthService,
@@ -148,14 +148,14 @@ describe('createMcpAuthTool', () => {
   it('returns isError when the signal is already aborted before execution', async () => {
     const oauthService = fakeOAuthService(async () => ({
       authorizationUrl: new URL('https://example.com/authorize?state=abc'),
-      complete: async () => undefined,
-      cancel: async () => undefined,
+      complete: async () => {},
+      cancel: async () => {},
     }));
     const controller = new AbortController();
     controller.abort();
     const { result } = runTool({
       oauthService,
-      reconnect: async () => undefined,
+      reconnect: async () => {},
       signal: controller.signal,
     });
     const final = await result;
@@ -169,10 +169,10 @@ describe('createMcpAuthTool', () => {
       serverUrl: 'https://example.com/mcp',
       oauthService: fakeOAuthService(async () => ({
         authorizationUrl: new URL('https://example.com/authorize?state=abc'),
-        complete: async () => undefined,
-        cancel: async () => undefined,
+        complete: async () => {},
+        cancel: async () => {},
       })),
-      reconnect: async () => undefined,
+      reconnect: async () => {},
       timeoutMs: 100,
     });
     // The tool name must be sanitized to a valid identifier.
@@ -186,11 +186,11 @@ describe('createMcpAuthTool', () => {
       complete: async () => {
         throw new Error('User cancelled the flow');
       },
-      cancel: async () => undefined,
+      cancel: async () => {},
     }));
     const { result, updates } = runTool({
       oauthService,
-      reconnect: async () => undefined,
+      reconnect: async () => {},
     });
     const final = await result;
     expect(final.isError).toBe(true);
@@ -204,7 +204,7 @@ describe('createMcpAuthTool', () => {
     let cancelCalled = false;
     const oauthService = fakeOAuthService(async () => ({
       authorizationUrl: new URL('https://example.com/authorize?state=abc'),
-      complete: async ({ signal }) => {
+      complete: async ({ signal } = {}) => {
         // Wait for the signal to be aborted.
         await new Promise<void>((resolve, reject) => {
           if (signal?.aborted) {
@@ -222,7 +222,7 @@ describe('createMcpAuthTool', () => {
     }));
     const { result, controller } = runTool({
       oauthService,
-      reconnect: async () => undefined,
+      reconnect: async () => {},
     });
     // Abort mid-flow.
     controller.abort();

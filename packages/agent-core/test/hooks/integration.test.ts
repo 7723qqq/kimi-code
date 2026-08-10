@@ -32,6 +32,10 @@ interface HookEngineInstance {
     event: string,
     args?: { matcherValue?: HookMatcherValue; inputData?: Record<string, unknown> },
   ) => Promise<HookResult[]>;
+  triggerBlock: (
+    event: string,
+    args?: { matcherValue?: HookMatcherValue; inputData?: Record<string, unknown> },
+  ) => Promise<{ block?: boolean; reason?: string } | undefined>;
   summary: Record<string, number>;
 }
 

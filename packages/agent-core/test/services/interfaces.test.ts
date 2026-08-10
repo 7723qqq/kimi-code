@@ -8,7 +8,8 @@ import {
   Emitter,
 } from '../../src';
 import { TestInstantiationService } from '../../src/di/test';
-import type { ApprovalRequest, Event, QuestionRequest } from '../../src';
+import type { ApprovalRequest, QuestionRequest } from '../../src';
+import type { Event } from '@moonshot-ai/protocol';
 
 import {
   IApprovalService,

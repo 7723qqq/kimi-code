@@ -11,7 +11,7 @@ import {
   type ApprovalResponse,
   type CoreAPI,
   type CoreRPC,
-  type Event,
+  type ProtocolEvent,
   type SDKAPI,
   type TelemetryClient,
 } from '../../src';
@@ -769,11 +769,11 @@ describe('HarnessAPI session skills', () => {
     readonly telemetry?: TelemetryClient;
   }): Promise<{
     core: KimiCore;
-    events: Event[];
+    events: ProtocolEvent[];
     rpc: CoreRPC;
   }> {
     const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
-    const events: Event[] = [];
+    const events: ProtocolEvent[] = [];
     const configuredHomeDir = options === undefined ? homeDir : options.homeDir;
     const core = new KimiCore(
       coreRpc,
@@ -792,9 +792,9 @@ describe('HarnessAPI session skills', () => {
 });
 
 async function waitForEvent(
-  events: readonly Event[],
-  predicate: (event: Event) => boolean,
-): Promise<Event> {
+  events: readonly ProtocolEvent[],
+  predicate: (event: ProtocolEvent) => boolean,
+): Promise<ProtocolEvent> {
   const deadline = Date.now() + 1_000;
   while (Date.now() < deadline) {
     const event = events.find(predicate);

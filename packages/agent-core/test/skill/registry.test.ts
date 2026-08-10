@@ -184,7 +184,7 @@ describe('SkillRegistry edge cases', () => {
 
   it('does not include disabled-model-invocation skills in model listing', () => {
     const skill = makeSkill('hidden', 'user');
-    skill.metadata.disableModelInvocation = true;
+    (skill.metadata as { disableModelInvocation?: boolean }).disableModelInvocation = true;
     const registry = makeRegistry([skill]);
     expect(registry.getModelSkillListing()).not.toContain('hidden');
   });

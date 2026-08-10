@@ -50,8 +50,8 @@ function makeFakeBridge(state: FakeBridgeState): ICoreProcessService {
   };
   return {
     rpc: rpc as CoreRPC,
-    ready: async () => undefined,
-    dispose: () => undefined,
+    ready: async () => {},
+    dispose: () => {},
     _serviceBrand: undefined,
   };
 }
@@ -246,7 +246,7 @@ describe('McpService.restart', () => {
     const state = freshState();
     state.sessions.push(fakeSession('s', 1));
     const bridge = makeFakeBridge(state);
-    (bridge.rpc as unknown as Record<string, ReturnType<typeof vi.fn>>).listMcpServers = vi
+    (bridge.rpc as unknown as Record<string, ReturnType<typeof vi.fn>>)['listMcpServers'] = vi
       .fn()
       .mockRejectedValueOnce(new Error('server error'));
     const svc = new McpService(bridge);

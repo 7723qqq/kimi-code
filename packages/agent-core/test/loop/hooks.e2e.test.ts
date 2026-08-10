@@ -9,7 +9,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { LoopHooks, ExecutableToolResult, ToolExecution } from '../../src/loop/index';
 import { PathSecurityError } from '../../src/tools/policies/path-access';
-import { makeEndTurnResponse, makeToolCall, makeToolUseResponse } from './fixtures/fake-llm';
+import {
+  makeEndTurnResponse,
+  makeMaxTokensResponse,
+  makeToolCall,
+  makeToolUseResponse,
+} from './fixtures/fake-llm';
 import { runTurn, runTurnExpectingThrow } from './fixtures/helpers';
 import { EchoTool, FailingTool, type EchoInput } from './fixtures/tools';
 

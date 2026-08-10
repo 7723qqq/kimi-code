@@ -35,10 +35,9 @@ import { Emitter } from '../../src';
 
 import type {
   CoreRPC,
-  Event,
   SessionSummary,
 } from '../../src';
-import type { PromptSubmission, Session } from '@moonshot-ai/protocol';
+import type { Event, PromptSubmission, Session } from '@moonshot-ai/protocol';
 
 import {
   type IAuthSummaryService,
@@ -246,7 +245,7 @@ function makeBridge(
   };
   const bridge: ICoreProcessService = {
     rpc: rpc as CoreRPC,
-    ready: vi.fn().mockResolvedValue(undefined),
+    ready: vi.fn().mockResolvedValue(undefined as never),
     dispose: vi.fn(),
     _serviceBrand: undefined,
   };
@@ -601,7 +600,7 @@ describe('PromptService.submit', () => {
     const { bridge } = makeBridge();
     (bridge.rpc.prompt as unknown as ReturnType<typeof vi.fn>)
       .mockRejectedValueOnce(new Error('boom'))
-      .mockResolvedValue(undefined);
+      .mockResolvedValue(undefined as never);
     const { bus } = makeBus();
     const impl = newSvc(bridge, bus);
     await expect(impl.submit(SID, mkBody())).rejects.toThrowError(/boom/);
@@ -924,7 +923,7 @@ describe('PromptService.abort', () => {
     events.length = 0;
 
     // Make cancel reject — but not before turn.ended fires during the RPC.
-    (bridge.rpc.cancel as ReturnType<typeof vi.fn>).mockImplementationOnce(async (payload) => {
+    (bridge.rpc.cancel as ReturnType<typeof vi.fn>).mockImplementationOnce((payload) => {
       record.cancelCalls.push(payload);
       // Simulate turn.ended arriving while cancel is in flight: _handleBusEvent
       // sees state.aborted=true, detaches state, and starts next queued prompt.
@@ -971,7 +970,7 @@ describe('PromptService._startNextQueued error handling', () => {
     } as unknown as Event);
 
     // Make the second prompt's core.rpc.prompt reject (but still record the call).
-    (bridge.rpc.prompt as ReturnType<typeof vi.fn>).mockImplementationOnce(async (payload) => {
+    (bridge.rpc.prompt as ReturnType<typeof vi.fn>).mockImplementationOnce((payload) => {
       record.promptCalls.push(payload);
       throw new Error('dispatch failed');
     });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { InstantiationService, Trace } from '#/di/instantiationService';
+import type { ServiceIdentifier } from '#/di/instantiation';
 import { ServiceCollection } from '#/di/serviceCollection';
 
 /**
@@ -53,7 +54,7 @@ describe('InstantiationService Trace installation (P0.2)', () => {
 
   it('Trace.branch() on the noop sentinel does not throw', () => {
     const t = Trace.traceCreation(false, class Foo {});
-    const branch = t.branch();
+    const branch = t.branch(null as unknown as ServiceIdentifier<unknown>, true);
     expect(branch).toBeDefined();
     expect(() => branch.stop()).not.toThrow();
   });

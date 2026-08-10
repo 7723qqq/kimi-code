@@ -1094,7 +1094,7 @@ describe('resolveThinkingEffort', () => {
     // effort-capable model -> middle supportEfforts entry
     expect(resolveThinkingEffort(undefined, {}, effortModel)).toBe('medium');
     // no / non-thinking model -> 'off'
-    expect(resolveThinkingEffort(undefined, {})).toBe('off');
+    expect(resolveThinkingEffort(undefined, {}, undefined as ModelAlias | undefined)).toBe('off');
   });
 
   it('forces always-thinking models back on even when off is requested', () => {

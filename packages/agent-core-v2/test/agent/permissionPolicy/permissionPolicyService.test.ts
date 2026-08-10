@@ -39,6 +39,7 @@ import { recordingTelemetry } from '../../app/telemetry/stubs';
 const signal = new AbortController().signal;
 
 const guardianDisabledStub = {
+  _serviceBrand: undefined,
   enabled: false,
   circuitOpen: false,
   review: async () => ({ verdict: 'bypass' as const, reason: 'disabled in test' }),

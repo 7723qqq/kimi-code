@@ -5,13 +5,10 @@ import {
   SNIPPED_TOOL_RESULT_MARKER,
   snipLargeToolResults,
 } from '#/agent/fullCompaction/compactionUtils';
+import { createToolMessage } from '#/kosong/contract/message';
 
 function toolMessage(text: string): ContextMessage {
-  return {
-    role: 'tool',
-    toolCallId: 'call_1',
-    content: [{ type: 'text', text }],
-  };
+  return createToolMessage('call_1', text);
 }
 
 function bigOutput(lines: number, line = 'line of output content'): string {
@@ -60,6 +57,8 @@ describe('snipLargeToolResults', () => {
     const big = toolMessage(bigOutput(200));
     const input = [big];
     snipLargeToolResults(input, { minBytes: 10, headLines: 5, tailLines: 3 });
-    expect((input[0]!.content[0] as { text: string }).text).toBe(big.content[0]!.text);
+    expect((input[0]!.content[0] as { text: string }).text).toBe(
+      (big.content[0] as { text: string }).text,
+    );
   });
 });

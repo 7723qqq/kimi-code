@@ -226,7 +226,7 @@ function workspaceStub(): IWorkspaceService {
   return {
     _serviceBrand: undefined,
     list: () => Promise.resolve([]),
-    get: () => Promise.resolve(),
+    get: async () => {},
     createOrTouch: (root, name) =>
       Promise.resolve<Workspace>({
         id: 'wd_stub',
@@ -235,7 +235,7 @@ function workspaceStub(): IWorkspaceService {
         createdAt: 0,
         lastOpenedAt: 0,
       }),
-    update: () => Promise.resolve(),
+    update: async () => {},
     delete: () => Promise.resolve(),
   };
 }
@@ -280,7 +280,7 @@ function persistentWorkspaceStub(): IWorkspaceService {
       workspaces.set(id, workspace);
       return Promise.resolve(workspace);
     },
-    update: () => Promise.resolve(),
+    update: async () => {},
     delete: () => Promise.resolve(),
   };
 }
@@ -300,7 +300,7 @@ function sessionIndexStub(): ISessionIndex {
     prepare: () => Promise.resolve({ state: 'uninitialized', degradedCount: 0 }),
     status: () => ({ state: 'uninitialized', degradedCount: 0 }),
     listRecent: () => Promise.resolve({ items: [] }),
-    get: () => Promise.resolve(),
+    get: async () => {},
     count: () => Promise.resolve(0),
     remove: () => Promise.resolve(),
   };
@@ -346,7 +346,7 @@ function appendLogStoreStub(): IAppendLogStore {
 function atomicDocumentStoreStub(): IAtomicDocumentStore {
   return {
     _serviceBrand: undefined,
-    get: () => Promise.resolve(),
+    get: async () => {},
     set: () => Promise.resolve(),
     delete: () => Promise.resolve(),
     list: () => Promise.resolve([]),
@@ -841,7 +841,7 @@ describe('SessionLifecycleService', () => {
           createdAt: 1,
           lastOpenedAt: 1,
         }),
-      update: () => Promise.resolve(),
+      update: async () => {},
       delete: () => Promise.resolve(),
     };
     await build([

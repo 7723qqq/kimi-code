@@ -251,7 +251,7 @@ describe('TestInstantiationService (P1.3)', () => {
     // The rejected promise will be caught by the stub's return value.
     // Since stubPromise creates a stub that returns a resolved promise,
     // we need to use a different approach for rejection.
-    const load = ix.stub(IAsyncService, 'load') as sinon.SinonStub;
+    const load = ix.stub(IAsyncService, 'load', undefined as unknown);
     load.rejects(error);
     await expect(service.load('bad')).rejects.toThrow('stub-promise-reject');
   });
@@ -287,14 +287,14 @@ describe('TestInstantiationService (P1.3)', () => {
     ix.stub(ILogger, {
       log(_msg: string): void {},
       warn(_msg: string): void {},
-    });
+    } as unknown as ILogger);
 
     const mock = ix.mock(ILogger) as sinon.SinonMock;
     const logExpect = mock.expects('log').once().withArgs('log-msg');
     const warnExpect = mock.expects('warn').once().withArgs('warn-msg');
 
     ix.get(ILogger).log('log-msg');
-    ix.get(ILogger).warn('warn-msg');
+    (ix.get(ILogger) as unknown as { warn(msg: string): void }).warn('warn-msg');
 
     mock.verify();
   });

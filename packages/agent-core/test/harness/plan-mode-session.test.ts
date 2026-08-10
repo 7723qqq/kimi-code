@@ -77,7 +77,7 @@ describe('plan-mode bootstrap from config.defaultPlanMode', () => {
     const rpc = await createTestRpc();
     const created = await rpc.createSession({ workDir });
 
-    rpc.enterPlan({});
+    await rpc.enterPlan({ agentId: 'main', sessionId: created.id });
     await rpc.closeSession({ sessionId: created.id });
 
     expect(await countPlanModeEnters()).toBe(1);
@@ -106,7 +106,7 @@ describe('plan-mode bootstrap from config.defaultPlanMode', () => {
     const rpc = await createTestRpc();
     const created = await rpc.createSession({ workDir });
 
-    rpc.cancelPlan({ id: 'nonexistent' });
+    await rpc.cancelPlan({ agentId: 'main', sessionId: created.id, id: 'nonexistent' });
     await rpc.closeSession({ sessionId: created.id });
 
     expect(await countPlanModeEnters()).toBe(0);
@@ -117,7 +117,7 @@ describe('plan-mode bootstrap from config.defaultPlanMode', () => {
     const rpc = await createTestRpc();
     const created = await rpc.createSession({ workDir });
 
-    rpc.clearPlan({});
+    await rpc.clearPlan({ agentId: 'main', sessionId: created.id });
     await rpc.closeSession({ sessionId: created.id });
 
     expect(await countPlanModeEnters()).toBe(0);

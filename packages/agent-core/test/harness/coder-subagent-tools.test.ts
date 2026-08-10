@@ -285,7 +285,7 @@ describe('coder subagent aligned tools (real Session e2e)', () => {
     };
     const { agent: mainAgent } = await session.createAgent(
       { type: 'main', generate: async () => {
-        await new Promise<void>(delay(1_000_000));
+        await new Promise<void>((resolve) => void delay(1_000_000).then(resolve));
         throw new Error('should not be reached');
       } },
       { profile: mainProfile },
@@ -340,7 +340,7 @@ describe('coder subagent aligned tools (real Session e2e)', () => {
     };
     const { agent: mainAgent } = await session.createAgent(
       { type: 'main', generate: async () => {
-        await new Promise<void>(delay(1_000_000));
+        await new Promise<void>((resolve) => void delay(1_000_000).then(resolve));
         throw new Error('should not be reached');
       } },
       { profile: mainProfile },
