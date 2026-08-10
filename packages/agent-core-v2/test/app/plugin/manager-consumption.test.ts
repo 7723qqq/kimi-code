@@ -7,9 +7,8 @@
  * test/app/plugin/manager-consumption.test.ts`.
  */
 
-import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -17,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { PluginManager } from '#/app/plugin/manager';
 
+import { createZipFromDir } from './zip-helper';
 import { stubSkill } from '../skillCatalog/stubs';
 
 async function isolatedTmpdir(): Promise<string> {
@@ -106,11 +106,7 @@ async function makePlugin(
 }
 
 async function zipDir(sourceRoot: string): Promise<Buffer> {
-  const zipPath = path.join(tmpdir(), `plugin-${Date.now()}-${Math.random().toString(36).slice(2)}.zip`);
-  execFileSync('zip', ['-qr', zipPath, '.'], { cwd: sourceRoot });
-  const buffer = await readFile(zipPath);
-  await rm(zipPath, { force: true });
-  return buffer;
+  return createZipFromDir(sourceRoot);
 }
 
 async function serveOnce(buffer: Buffer): Promise<string> {

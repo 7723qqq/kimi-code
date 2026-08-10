@@ -21,8 +21,8 @@
  *     disk; the caller (the synthetic tool) drives a manager-level
  *     `reconnect` to swap the synthetic tool out for the real MCP tools.
  */
-
-import { auth, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import { auth } from '@modelcontextprotocol/client';
+import type { OAuthClientProvider } from '@modelcontextprotocol/client';
 
 import { startCallbackServer, type CallbackServer } from './callback-server';
 import { McpOAuthClientProvider } from './provider';
@@ -104,14 +104,15 @@ export class McpOAuthService {
     serverUrl: string | URL,
     options: BeginAuthorizationOptions = {},
   ): Promise<BeginAuthorizationResult> {
-    const provider = options.clientLabel === undefined
-      ? this.getProvider(serverName, serverUrl)
-      : new McpOAuthClientProvider({
-          serverName,
-          serverUrl,
-          store: this.store,
-          clientLabel: options.clientLabel,
-        });
+    const provider =
+      options.clientLabel === undefined
+        ? this.getProvider(serverName, serverUrl)
+        : new McpOAuthClientProvider({
+            serverName,
+            serverUrl,
+            store: this.store,
+            clientLabel: options.clientLabel,
+          });
     if (options.clientLabel !== undefined) {
       this.providers.set(provider.storeKey, provider);
     }
@@ -192,7 +193,7 @@ export class McpOAuthService {
         throw wrapAuthError(`OAuth flow for "${serverName}" failed`, error);
       }
       settled = true;
-      await callbackServer.close().catch(() => undefined);
+      await callbackServer.close().catch(() => {});
       provider.resetFlow();
     };
 

@@ -338,7 +338,7 @@ describe('StdioMcpClient', () => {
       args: [fixture],
     });
     // Must not throw.
-    await client.close();
+    await expect(client.close()).resolves.toBeUndefined();
   });
 
   it('handles args with special characters', async () => {
@@ -434,7 +434,9 @@ describe('mergeStdioEnv', () => {
       { PATH: '/usr/bin' },
     );
     expect(merged['HTTP_PROXY']).toBe('http://corp:3128');
-    expect(merged['NO_PROXY']).toBe('.corp.com');
+    // The explicit override is preserved, with the loopback bypass appended
+    // so local traffic still never routes through the configured proxy.
+    expect(merged['NO_PROXY']).toBe('.corp.com,localhost,127.0.0.1,::1,[::1]');
     expect(merged['NODE_USE_ENV_PROXY']).toBe('1');
   });
 

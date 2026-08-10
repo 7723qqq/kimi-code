@@ -1,8 +1,9 @@
-import type { McpServerHttpConfig } from '#/config/schema';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import type { OAuthClientProvider } from '@modelcontextprotocol/client';
 
+import type { McpServerHttpConfig } from '#/config/schema';
+
+import { buildMcpRemoteHeaders } from './client-remote';
 import {
   buildRequestOptions,
   KIMI_MCP_CLIENT_NAME,
@@ -12,7 +13,6 @@ import {
   type UnexpectedCloseListener,
   type UnexpectedCloseReason,
 } from './client-shared';
-import { buildMcpRemoteHeaders } from './client-remote';
 import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
 
 export interface HttpMcpClientOptions {
@@ -91,10 +91,7 @@ export class HttpMcpClient implements MCPClient {
     // Install hooks BEFORE the SDK handshake; see StdioMcpClient.connect.
     this.installTransportHooks();
     try {
-      await this.client.connect(
-        this.transport,
-        buildRequestOptions(this.startupTimeoutMs, undefined),
-      );
+      await this.client.connect(this.transport, buildRequestOptions(this.startupTimeoutMs));
     } catch (error) {
       await this.closeStartedClient();
       throw error;
@@ -130,7 +127,7 @@ export class HttpMcpClient implements MCPClient {
   async listTools(): Promise<MCPToolDefinition[]> {
     const result = await this.client.listTools(
       undefined,
-      buildRequestOptions(this.startupTimeoutMs, undefined),
+      buildRequestOptions(this.startupTimeoutMs),
     );
     return result.tools.map(toMcpToolDefinition);
   }
@@ -141,7 +138,7 @@ export class HttpMcpClient implements MCPClient {
     signal?: AbortSignal,
   ): Promise<MCPToolResult> {
     const requestOptions = buildRequestOptions(this.toolCallTimeoutMs, signal);
-    const result = await this.client.callTool({ name, arguments: args }, undefined, requestOptions);
+    const result = await this.client.callTool({ name, arguments: args }, requestOptions);
     return toMcpToolResult(result);
   }
 

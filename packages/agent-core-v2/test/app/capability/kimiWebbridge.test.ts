@@ -37,7 +37,7 @@ function fakeProc(code: number, stdout = '', stderr = ''): IHostProcess {
     stderr: Readable.from([stderr]),
     wait: () => Promise.resolve(code),
     kill: () => Promise.resolve(),
-    dispose: () => undefined,
+    dispose: () => {},
   } as IHostProcess;
 }
 
@@ -413,6 +413,12 @@ describe('kimi-webbridge entry', () => {
     );
 
     const detected = await entry.detect();
+    if (process.platform === 'win32') {
+      // Windows has no POSIX executable bit, so X_OK always succeeds and the
+      // leftover binary reads as a usable install.
+      expect(detected.steps.find((step) => step.id === 'daemon-binary')?.state).toBe('ok');
+      return;
+    }
     expect(detected.steps.find((step) => step.id === 'daemon-binary')).toEqual({
       id: 'daemon-binary',
       state: 'missing',

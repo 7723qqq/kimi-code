@@ -88,7 +88,9 @@ export function createMcpAuthTool(options: CreateMcpAuthToolOptions): Executable
   const parameters = toInputJsonSchema(z.object({}));
   const execute = async (ctx: ExecutableToolContext): Promise<ExecutableToolResult> => {
     const { signal, onUpdate } = ctx;
-    signal.throwIfAborted();
+    if (signal.aborted) {
+      return errorResult(serverName, new Error('aborted'));
+    }
 
     onUpdate?.({ kind: 'status', text: `Discovering OAuth metadata for ${serverName}…` });
 

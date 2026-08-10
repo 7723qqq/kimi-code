@@ -7,32 +7,25 @@
  * @moonshot-ai/agent-core exec vitest run test/mcp/connection-manager.test.ts`.
  */
 
+import { randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
+import type { AddressInfo as HttpAddress } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'pathe';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { testKaos } from '../fixtures/test-kaos';
+import { Client } from '@modelcontextprotocol/client';
+import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/client';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { McpServer } from '@modelcontextprotocol/server';
 import type { ProviderConfig } from '@moonshot-ai/kosong';
+import { dirname, join } from 'pathe';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-
-import { randomUUID } from 'node:crypto';
-import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
-import type { AddressInfo as HttpAddress } from 'node:net';
-
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type {
-  OAuthClientInformationFull,
-  OAuthTokens,
-} from '@modelcontextprotocol/sdk/shared/auth.js';
 import { z } from 'zod';
 
 import { KimiError } from '../../src/errors';
-import { ProviderManager } from '../../src/session/provider-manager';
 import {
   MCP_STARTUP_TIMEOUT_ENV,
   MCP_TOOL_TIMEOUT_ENV,
@@ -44,9 +37,10 @@ import {
 import { JsonFileStore, McpOAuthService } from '../../src/mcp/oauth';
 import type { AgentEvent, SDKSessionRPC } from '../../src/rpc';
 import { Session } from '../../src/session';
+import { ProviderManager } from '../../src/session/provider-manager';
 import { SessionAPIImpl } from '../../src/session/rpc';
 import { createScriptedGenerate } from '../agent/harness';
-
+import { testKaos } from '../fixtures/test-kaos';
 
 const here = import.meta.dirname;
 const stdioFixture = join(here, 'fixtures', 'mock-stdio-server.mjs');
@@ -69,10 +63,12 @@ function stdioConfig(args: string[] = [stdioFixture]) {
   };
 }
 
-function sessionRpc(options: {
-  readonly events?: SessionRpcEvent[] | undefined;
-  readonly onEvent?: ((event: SessionRpcEvent) => void) | undefined;
-} = {}): SDKSessionRPC {
+function sessionRpc(
+  options: {
+    readonly events?: SessionRpcEvent[] | undefined;
+    readonly onEvent?: ((event: SessionRpcEvent) => void) | undefined;
+  } = {},
+): SDKSessionRPC {
   return {
     emitEvent: async (event: SessionRpcEvent) => {
       options.events?.push(event);
@@ -119,7 +115,7 @@ describe('McpConnectionManager', () => {
   }, 20000);
 
   it('marks HTTP servers failed when configured bearer token env var is missing', async () => {
-    const cm = new McpConnectionManager({ envLookup: () => undefined });
+    const cm = new McpConnectionManager({ envLookup: () => {} });
     try {
       await cm.connectAll({
         remote: {
@@ -137,7 +133,7 @@ describe('McpConnectionManager', () => {
   });
 
   it('marks SSE servers failed when configured bearer token env var is missing', async () => {
-    const cm = new McpConnectionManager({ envLookup: () => undefined });
+    const cm = new McpConnectionManager({ envLookup: () => {} });
     try {
       await cm.connectAll({
         legacy: {
@@ -506,7 +502,8 @@ describe('McpConnectionManager', () => {
     const server: HttpServer = createHttpServer((_req, res) => {
       res.writeHead(401, {
         'content-type': 'application/json',
-        'www-authenticate': 'Bearer realm="mcp", resource_metadata="http://x/.well-known/oauth-protected-resource"',
+        'www-authenticate':
+          'Bearer realm="mcp", resource_metadata="http://x/.well-known/oauth-protected-resource"',
       });
       res.end(JSON.stringify({ error: 'unauthorized' }));
     });
@@ -548,7 +545,8 @@ describe('McpConnectionManager', () => {
     const server: HttpServer = createHttpServer((_req, res) => {
       res.writeHead(401, {
         'content-type': 'text/plain',
-        'www-authenticate': 'Bearer realm="mcp", resource_metadata="http://x/.well-known/oauth-protected-resource"',
+        'www-authenticate':
+          'Bearer realm="mcp", resource_metadata="http://x/.well-known/oauth-protected-resource"',
       });
       res.end('unauthorized');
     });
@@ -769,10 +767,10 @@ describe('McpConnectionManager', () => {
     const mcpServer = new McpServer({ name: 'cm-terminal', version: '0.0.1' });
     mcpServer.registerTool(
       'echo',
-      { description: 'Echoes text', inputSchema: { text: z.string() } },
+      { description: 'Echoes text', inputSchema: z.object({ text: z.string() }) },
       ({ text }) => ({ content: [{ type: 'text', text }] }),
     );
-    const transport = new StreamableHTTPServerTransport({
+    const transport = new NodeStreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
     });
     await mcpServer.connect(transport);
@@ -796,9 +794,11 @@ describe('McpConnectionManager', () => {
       expect(cm.get('remote')?.status).toBe('connected');
 
       // Reach into the live client to invoke the same hook the SDK uses.
-      const internalClient = (cm as unknown as {
-        entries: Map<string, { client?: { client: { onerror?: (e: Error) => void } } }>;
-      }).entries.get('remote')?.client?.client;
+      const internalClient = (
+        cm as unknown as {
+          entries: Map<string, { client?: { client: { onerror?: (e: Error) => void } } }>;
+        }
+      ).entries.get('remote')?.client?.client;
       internalClient?.onerror?.(new Error('Maximum reconnection attempts (3) exceeded.'));
 
       // Listener fires asynchronously through our wrapper; allow microtasks.
@@ -923,10 +923,7 @@ describe('Session MCP startup', () => {
       } satisfies OAuthTokens);
 
       await expect(
-        readFile(
-          join(kimiHome, 'credentials', 'mcp', `${provider.storeKey}-tokens.json`),
-          'utf-8',
-        ),
+        readFile(join(kimiHome, 'credentials', 'mcp', `${provider.storeKey}-tokens.json`), 'utf-8'),
       ).resolves.toContain('session-token');
       await expect(
         readFile(

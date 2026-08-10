@@ -1,9 +1,10 @@
-import { ContentBlockSchema } from '@modelcontextprotocol/sdk/types.js';
-import type { ContentPart } from '@moonshot-ai/kosong';
-import { Jimp } from 'jimp';
 import { mkdtemp, readFile, rm, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { ContentBlockSchema } from '@modelcontextprotocol/core';
+import type { ContentPart } from '@moonshot-ai/kosong';
+import { Jimp } from 'jimp';
 import { describe, expect, test } from 'vitest';
 
 import { convertMCPContentBlock, mcpResultToExecutableOutput } from '../../src/mcp/output';
@@ -254,10 +255,12 @@ describe('convertMCPContentBlock', () => {
   });
 
   test('returns null for resource with no text and no blob', () => {
-    const block = assertValidMcpBlock({
+    // Spec-ambiguous shape: the v2 ContentBlockSchema requires text or blob,
+    // so guard the runtime branch without schema validation.
+    const block = {
       type: 'resource',
       resource: { uri: 'file:///empty', mimeType: 'text/plain' },
-    });
+    } as MCPContentBlock;
     expect(convertMCPContentBlock(block)).toBeNull();
   });
 
@@ -446,9 +449,7 @@ describe('mcpResultToExecutableOutput', () => {
     const parts = out.output as ContentPart[];
     expect(parts[0]).toEqual({ type: 'text', text: '<mcp_tool_result name="mcp__search__image">' });
     expect(parts.some((p) => p.type === 'image_url')).toBe(false);
-    const notice = parts.find(
-      (p) => p.type === 'text' && p.text.includes('image/avif'),
-    );
+    const notice = parts.find((p) => p.type === 'text' && p.text.includes('image/avif'));
     expect(notice).toBeDefined();
     expect(parts.at(-1)).toEqual({ type: 'text', text: '</mcp_tool_result>' });
   });
@@ -668,9 +669,7 @@ describe('mcpResultToExecutableOutput', () => {
     expect(out.note).toContain('Image compressed');
     expect(out.note).toContain('3600x1800');
     const parts = out.output as ContentPart[];
-    expect(parts.some((p) => p.type === 'text' && p.text.includes('Image compressed'))).toBe(
-      false,
-    );
+    expect(parts.some((p) => p.type === 'text' && p.text.includes('Image compressed'))).toBe(false);
     expect(parts.some((p) => p.type === 'image_url')).toBe(true);
 
     // The caption points at a persisted copy of the ORIGINAL bytes, so the
@@ -679,7 +678,7 @@ describe('mcpResultToExecutableOutput', () => {
     expect(pathMatch).not.toBeNull();
     const persisted = await readFile(pathMatch![1]!);
     expect(persisted.equals(bigBytes)).toBe(true);
-    await unlink(pathMatch![1]!).catch(() => undefined);
+    await unlink(pathMatch![1]!).catch(() => {});
   });
 
   test('adds no caption for an image that passes through unchanged', async () => {
@@ -876,7 +875,10 @@ describe('mcpResultToExecutableOutput', () => {
       ]),
       'mcp__s__t',
     );
-    expect((out.output as ContentPart[])[0]).toEqual({
+    const parts = out.output as ContentPart[];
+    // Media-only results are wrapped in <mcp_tool_result> tags; the link is
+    // the payload in the middle.
+    expect(parts[1]).toEqual({
       type: 'image_url',
       imageUrl: { url: 'https://example.com/img.png' },
     });

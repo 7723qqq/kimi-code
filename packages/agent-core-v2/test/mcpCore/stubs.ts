@@ -3,14 +3,14 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { McpServer } from '@modelcontextprotocol/server';
+import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 import { z } from 'zod';
 
+import type { Tool as KosongTool } from '#/kosong/contract/tool';
 import type { McpOAuthStore } from '#/mcpCore/oauth/store';
 import type { MCPClient, MCPToolDefinition } from '#/mcpCore/types';
-import type { Tool as KosongTool } from '#/kosong/contract/tool';
 import type {
   ExecutableTool,
   ExecutableToolContext,
@@ -120,11 +120,11 @@ export async function startInProcessHttpMcpServer(opts?: {
   const mcpServer = new McpServer({ name: 'mock-http', version: '0.0.1' });
   mcpServer.registerTool(
     'echo',
-    { description: 'Echoes text', inputSchema: { text: z.string() } },
+    { description: 'Echoes text', inputSchema: z.object({ text: z.string() }) },
     ({ text }) => ({ content: [{ type: 'text', text }] }),
   );
 
-  const transport = new StreamableHTTPServerTransport({
+  const transport = new NodeStreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
   });
   await mcpServer.connect(transport);
@@ -169,7 +169,7 @@ export async function startInProcessSseMcpServer(opts?: {
       const mcpServer = new McpServer({ name: 'mock-sse', version: '0.0.1' });
       mcpServer.registerTool(
         'echo',
-        { description: 'Echoes text', inputSchema: { text: z.string() } },
+        { description: 'Echoes text', inputSchema: z.object({ text: z.string() }) },
         ({ text }) => ({ content: [{ type: 'text', text }] }),
       );
       const transport = new SSEServerTransport('/messages', res);

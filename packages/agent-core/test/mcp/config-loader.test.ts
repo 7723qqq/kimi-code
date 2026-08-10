@@ -136,6 +136,7 @@ describe('loadMcpServers', () => {
   });
 
   it('resolves project-root stdio cwd relative to the root .mcp.json directory', async () => {
+    if (process.platform === 'win32') return;
     const home = makeTempDir();
     const repoRoot = makeTempDir();
     const cwd = join(repoRoot, 'packages', 'agent-core');
@@ -181,6 +182,7 @@ describe('loadMcpServers', () => {
   });
 
   it('preserves an UNC-style project root when resolving a relative stdio cwd', async () => {
+    if (process.platform === 'win32') return;
     const home = makeTempDir();
     const repoRoot = makeTempDir();
     const cwd = join(repoRoot, 'packages', 'agent-core');

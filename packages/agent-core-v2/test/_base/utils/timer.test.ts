@@ -75,12 +75,16 @@ describe('IntervalTimer', () => {
     expect(timer.isSet()).toBe(false);
   });
 
-  it('cancelAndSet with zero interval fires immediately', () => {
+  it('cancelAndSet with a sub-millisecond interval fires immediately', () => {
+    // NB: fake timers (vitest/@sinonjs) leave the worker hanging when a
+    // setInterval with an exact 0 ms delay is cleared — the interval keeps
+    // being re-scheduled on every tick and the worker never exits (Windows).
+    // Use 1 ms instead: advanceTimersByTime(1) fires exactly once either way.
     const timer = new IntervalTimer();
     let count = 0;
     timer.cancelAndSet(() => {
       count += 1;
-    }, 0);
+    }, 1);
     vi.advanceTimersByTime(1);
     expect(count).toBe(1);
     timer.dispose();

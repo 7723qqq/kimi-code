@@ -101,6 +101,14 @@ export function convertMCPContentBlock(block: MCPContentBlock): ContentPart | nu
     };
   }
 
+  if (block.type === 'video' && typeof block.data === 'string') {
+    const mimeType = block.mimeType ?? 'video/mp4';
+    return {
+      type: 'video_url',
+      videoUrl: { url: `data:${mimeType};base64,${block.data}` },
+    };
+  }
+
   // EmbeddedResource: payload is nested under `resource`, as
   // TextResourceContents (`text`) or BlobResourceContents (`blob`).
   if (block.type === 'resource' && typeof block.resource === 'object' && block.resource !== null) {

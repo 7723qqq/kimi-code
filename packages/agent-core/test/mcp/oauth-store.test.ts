@@ -1,10 +1,10 @@
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 
+import type { OAuthTokens } from '@modelcontextprotocol/client';
+import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { McpOAuthClientProvider, McpOAuthService } from '../../src/mcp/oauth';
 import { JsonFileStore, sanitizeStoreKey } from '../../src/mcp/oauth/store';
 
@@ -64,13 +64,16 @@ describe('JsonFileStore', () => {
     expect(store.read('missing.json')).toBeUndefined();
   });
 
-  it.skipIf(process.platform === 'win32')('writes files with 0600 permissions on POSIX', async () => {
-    if (process.platform === 'win32') return; // file modes unreliable on Windows
-    const store = new JsonFileStore(dir);
-    store.write('secret.json', { token: 'abc' });
-    const info = await stat(join(dir, 'secret.json'));
-    expect(info.mode & 0o777).toBe(0o600);
-  });
+  it.skipIf(process.platform === 'win32')(
+    'writes files with 0600 permissions on POSIX',
+    async () => {
+      if (process.platform === 'win32') return; // file modes unreliable on Windows
+      const store = new JsonFileStore(dir);
+      store.write('secret.json', { token: 'abc' });
+      const info = await stat(join(dir, 'secret.json'));
+      expect(info.mode & 0o777).toBe(0o600);
+    },
+  );
 
   it('removes existing files without throwing on already-missing files', () => {
     const store = new JsonFileStore(dir);
@@ -154,9 +157,7 @@ describe('MCP OAuth credential identity', () => {
 
   it('scopes hasTokens to the server URL, not just the configured name', () => {
     const service = new McpOAuthService({ store: new JsonFileStore(dir) });
-    service
-      .getProvider('linear', 'https://first.example.com/mcp')
-      .saveTokens(token('first-token'));
+    service.getProvider('linear', 'https://first.example.com/mcp').saveTokens(token('first-token'));
 
     expect(service.hasTokens('linear', 'https://first.example.com/mcp')).toBe(true);
     expect(service.hasTokens('linear', 'https://second.example.com/mcp')).toBe(false);
@@ -164,9 +165,7 @@ describe('MCP OAuth credential identity', () => {
 
   it('removes stored credentials when a server authorization is reset', () => {
     const service = new McpOAuthService({ store: new JsonFileStore(dir) });
-    service
-      .getProvider('linear', 'https://mcp.example.com/mcp')
-      .saveTokens(token('access-token'));
+    service.getProvider('linear', 'https://mcp.example.com/mcp').saveTokens(token('access-token'));
 
     service.invalidate('linear', 'https://mcp.example.com/mcp');
 
@@ -198,8 +197,9 @@ describe('MCP OAuth credential identity', () => {
 
   it('invalidate is idempotent when no credentials exist', () => {
     const service = new McpOAuthService({ store: new JsonFileStore(dir) });
-    // Must not throw.
+    // Must not throw, and no credentials appear for the server afterwards.
     service.invalidate('nonexistent', 'https://example.com/mcp');
+    expect(service.hasTokens('nonexistent', 'https://example.com/mcp')).toBe(false);
   });
 
   it('saveTokens with empty access_token still persists the token record', () => {

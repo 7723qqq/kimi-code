@@ -9,7 +9,7 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
-import { IGitService } from '#/app/git/git';
+import type { IGitService } from '#/app/git/git';
 import { ErrorCodes, Error2 } from '#/errors';
 import { type HostDirEntry, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IWorkspaceFsService } from '#/workspace/workspaceFs/fs';
@@ -20,7 +20,10 @@ import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { IWorkspaceGitService } from '#/workspace/workspaceGit/workspaceGit';
 
-const WORK_DIR = '/repo';
+// `resolve('/repo')` binds the current drive root on Windows, so the fake fs
+// keys and the service's resolved paths only agree when both are normalized.
+const norm = (p: string): string => p.replaceAll(/\\/g, '/');
+const WORK_DIR = norm(resolve('/repo'));
 
 function stubWorkspaceContext(): IWorkspaceContext {
   return {
@@ -64,35 +67,40 @@ function fakeFs(
 ): IHostFileSystem {
   const fileMap = new Map<string, string | Buffer>();
   const dirSet = new Set<string>([WORK_DIR]);
+  const normAbs = (rel: string): string => norm(join(WORK_DIR, rel));
   const addAncestors = (rel: string): void => {
     const parts = rel.split('/');
     for (let i = 1; i < parts.length; i++) {
-      dirSet.add(join(WORK_DIR, parts.slice(0, i).join('/')));
+      dirSet.add(normAbs(parts.slice(0, i).join('/')));
     }
   };
   for (const [rel, content] of Object.entries(files)) {
-    fileMap.set(join(WORK_DIR, rel), content);
+    fileMap.set(normAbs(rel), content);
     addAncestors(rel);
   }
   const symlinkSet = new Set<string>();
   for (const rel of symlinks) {
-    symlinkSet.add(join(WORK_DIR, rel));
+    symlinkSet.add(normAbs(rel));
     addAncestors(rel);
   }
   const symlinkTargetMap = new Map<string, string>();
   for (const [rel, target] of Object.entries(symlinkTargets)) {
-    const abs = join(WORK_DIR, rel);
+    const abs = normAbs(rel);
     symlinkTargetMap.set(abs, target);
     symlinkSet.add(abs);
     addAncestors(rel);
   }
-  const isDir = (p: string): boolean => p === WORK_DIR || dirSet.has(p);
+  const isDir = (p: string): boolean => {
+    p = norm(p);
+    return p === WORK_DIR || dirSet.has(p);
+  };
   const enoent = (p: string): NodeJS.ErrnoException => {
     const err = new Error(`ENOENT: ${p}`) as NodeJS.ErrnoException;
     err.code = 'ENOENT';
     return err;
   };
   const lstatImpl = async (p: string) => {
+    p = norm(p);
     if (fileMap.has(p)) {
       return {
         isFile: true,
@@ -113,14 +121,14 @@ function fakeFs(
   return {
     _serviceBrand: undefined,
     readText: async (p) => {
-      const c = fileMap.get(p);
+      const c = fileMap.get(norm(p));
       if (c === undefined) throw enoent(p);
       return typeof c === 'string' ? c : c.toString('utf8');
     },
     writeText: async () => {},
     appendText: async () => {},
     readBytes: async (p, n) => {
-      const c = fileMap.get(p);
+      const c = fileMap.get(norm(p));
       if (c === undefined) throw enoent(p);
       const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
       return buf.subarray(0, n ?? buf.length);
@@ -131,17 +139,20 @@ function fakeFs(
     createExclusive: async () => false,
     lstat: lstatImpl,
     stat: async (p) => {
-      let cur = p;
+      let cur = norm(p);
       for (let hops = 0; hops < 10 && symlinkSet.has(cur); hops += 1) {
         const target = symlinkTargetMap.get(cur);
         if (target === undefined) break;
-        cur = isAbsolute(target) ? target : join(cur, '..', target);
+        // `resolve` maps a POSIX-style absolute target onto the current drive
+        // root on Windows, keeping both platforms equivalent.
+        cur = norm(resolve(cur, '..', target));
       }
       return lstatImpl(cur);
     },
     readdir: async (p) => {
-      if (!isDir(p)) throw enoent(p);
-      const prefix = `${p}/`;
+      const key = norm(p);
+      if (!isDir(key)) throw enoent(p);
+      const prefix = `${key}/`;
       const children = new Map<string, HostDirEntry>();
       const addDir = (name: string): void => {
         if (!children.has(name)) {
@@ -174,6 +185,7 @@ function fakeFs(
       return [...children.values()];
     },
     mkdir: async (p, options) => {
+      p = norm(p);
       const recursive = options?.recursive ?? false;
       const exists = isDir(p) || fileMap.has(p);
       if (recursive) {
@@ -202,6 +214,7 @@ function fakeFs(
     },
     remove: async () => {},
     realpath: async (p) => {
+      p = norm(p);
       let current = p;
       for (let i = 0; i < 40; i++) {
         let longest: string | undefined;
@@ -236,7 +249,7 @@ function fakeProcess(stdout: string, stderr: string, exitCode: number): IProcess
     exitCode,
     wait: () => Promise.resolve(exitCode),
     kill: () => Promise.resolve(),
-    dispose: () => undefined,
+    dispose: () => {},
   };
 }
 
@@ -287,7 +300,7 @@ function makeStreamingProcess(lines: readonly string[]): {
       killed = true;
       resolveWait(0);
     },
-    dispose: () => undefined,
+    dispose: () => {},
   };
   return { proc, wasKilled: () => killed, yieldedLines: () => yielded };
 }
@@ -642,7 +655,7 @@ describe('WorkspaceFsService.list', () => {
       sort: 'name_asc',
       include_git_status: false,
     });
-    const names = result.items.map((i) => i.name).sort();
+    const names = result.items.map((i) => i.name).toSorted();
     expect(names).toEqual(['README.md', 'src']);
     expect(result.items.find((i) => i.name === 'src')?.kind).toBe('directory');
   });
@@ -658,7 +671,7 @@ describe('WorkspaceFsService.list', () => {
       sort: 'name_asc',
       include_git_status: false,
     });
-    expect(result.children_by_path?.['src']?.map((i) => i.name).sort()).toEqual([
+    expect(result.children_by_path?.['src']?.map((i) => i.name).toSorted()).toEqual([
       'a.ts',
       'sub',
     ]);
@@ -706,15 +719,15 @@ describe('WorkspaceFsService.read', () => {
   });
 
   it('returns base64 for binary content in auto mode', async () => {
-    const fs = makeSession({ 'bin.dat': 'abc\x00def' }, emptyHandler);
+    const fs = makeSession({ 'bin.dat': 'abc\u0000def' }, emptyHandler);
     const result = await fs.read({ path: 'bin.dat', offset: 0, length: 1024, encoding: 'auto' });
     expect(result.encoding).toBe('base64');
     expect(result.is_binary).toBe(true);
-    expect(result.content).toBe(Buffer.from('abc\x00def').toString('base64'));
+    expect(result.content).toBe(Buffer.from('abc\u0000def').toString('base64'));
   });
 
   it('throws fs.is_binary for binary content in utf-8 mode', async () => {
-    const fs = makeSession({ 'bin.dat': 'abc\x00def' }, emptyHandler);
+    const fs = makeSession({ 'bin.dat': 'abc\u0000def' }, emptyHandler);
     await expect(
       fs.read({ path: 'bin.dat', offset: 0, length: 1024, encoding: 'utf-8' }),
     ).rejects.toMatchObject({ code: 'fs.is_binary' });
@@ -838,7 +851,7 @@ describe('WorkspaceFsService.resolvePath', () => {
     const res = await fs.resolvePath('src/a.ts');
     expect(res.relative).toBe('src/a.ts');
     expect(res.isDirectory).toBe(false);
-    expect(res.absolute).toContain('src/a.ts');
+    expect(norm(res.absolute)).toContain('src/a.ts');
   });
 });
 

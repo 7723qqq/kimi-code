@@ -1,4 +1,4 @@
-import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'vitest';
 
 import { McpOAuthClientProvider } from '#/mcpCore/oauth/provider';
@@ -32,9 +32,9 @@ describe('sanitizeStoreKey', () => {
     expect(result).toBe(long);
   });
 
-  it('handles Unicode characters in store keys', () => {
-    expect(sanitizeStoreKey('服务器/节点')).toBe('节点');
-    expect(sanitizeStoreKey('日本語!test')).toBe('日本語_test');
+  it('replaces non-ASCII (e.g. CJK) characters with underscores', () => {
+    expect(sanitizeStoreKey('服务器/节点')).toBe('_');
+    expect(sanitizeStoreKey('日本語!test')).toBe('_test');
   });
 
   it('rejects names that are entirely slashes', () => {
@@ -94,7 +94,9 @@ describe('MCP OAuth credential identity', () => {
     await provider.saveTokens(token('first-token'));
 
     await expect(service.hasTokens('linear', 'https://first.example.com/mcp')).resolves.toBe(true);
-    await expect(service.hasTokens('linear', 'https://second.example.com/mcp')).resolves.toBe(false);
+    await expect(service.hasTokens('linear', 'https://second.example.com/mcp')).resolves.toBe(
+      false,
+    );
   });
 
   it('uses stored client redirect URI when no active OAuth callback is running', async () => {

@@ -361,7 +361,7 @@ describe('mergeStdioEnv', () => {
     expect(merged['FOO']).toBe('override');
   });
 
-  it('only allows approved env keys from parent environment', () => {
+  it('filters secrets, proxy, and connection-URL keys from the parent environment', () => {
     const merged = mergeStdioEnv(undefined, {
       PATH: '/usr/bin',
       HOME: '/home/user',
@@ -380,8 +380,10 @@ describe('mergeStdioEnv', () => {
     expect(merged['DB_PASSWORD']).toBeUndefined();
     expect(merged['NPM_CREDENTIALS']).toBeUndefined();
     expect(merged['OPENAI_API_KEY']).toBeUndefined();
-    expect(merged['CUSTOM_DEBUG_VAR']).toBeUndefined();
-    expect(merged['INTERNAL_BUILD_ID']).toBeUndefined();
+    // Non-sensitive custom parent vars are inherited so real stdio servers
+    // that need e.g. LANG/TERM still launch; only secrets/proxy/URLs are gated.
+    expect(merged['CUSTOM_DEBUG_VAR']).toBe('debug');
+    expect(merged['INTERNAL_BUILD_ID']).toBe('12345');
   });
 
   it('does not depend on a filesystem cwd fixture for env merging', async () => {

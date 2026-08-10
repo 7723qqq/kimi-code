@@ -1,23 +1,26 @@
-import { ContentBlockSchema } from '@modelcontextprotocol/sdk/types.js';
-import type { ContentPart } from '#/kosong/contract/message';
-import { Jimp } from 'jimp';
 import { mkdtemp, readFile, rm, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { ContentBlockSchema } from '@modelcontextprotocol/core';
+import { Jimp } from 'jimp';
 import { describe, expect, test } from 'vitest';
 
-import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
 import { convertMCPContentBlock, mcpResultToExecutableOutput } from '#/agent/mcp/output';
 import { createMcpTool } from '#/agent/mcp/tools/mcp';
+import { sniffImageDimensions } from '#/agent/media/file-type';
+import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
+import type { ContentPart } from '#/kosong/contract/message';
 import type { MCPClient, MCPContentBlock, MCPToolResult } from '#/mcpCore/types';
 import type { ToolExecution } from '#/tool/toolContract';
-import { sniffImageDimensions } from '#/agent/media/file-type';
 
 const MCP_OUTPUT_TRUNCATED_TEXT =
   '\n\n[Output truncated: exceeded 100000 character limit. ' +
   'Use pagination or more specific queries to get remaining content.]';
 
-function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
+function isPromiseLike(
+  value: ToolExecution | Promise<ToolExecution>,
+): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
 
@@ -524,7 +527,7 @@ describe('mcpResultToExecutableOutput', () => {
     expect(pathMatch).not.toBeNull();
     const persisted = await readFile(pathMatch![1]!);
     expect(persisted.equals(bigBytes)).toBe(true);
-    await unlink(pathMatch![1]!).catch(() => undefined);
+    await unlink(pathMatch![1]!).catch(() => {});
   });
 
   test('adds no caption for an image that passes through unchanged', async () => {

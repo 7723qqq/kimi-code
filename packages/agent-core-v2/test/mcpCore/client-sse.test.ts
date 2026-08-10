@@ -1,4 +1,4 @@
-import { SseError } from '@modelcontextprotocol/sdk/client/sse.js';
+import { SseError } from '@modelcontextprotocol/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { SseMcpClient, isTerminalSseTransportError } from '#/mcpCore/client-sse';
@@ -59,11 +59,7 @@ describe('SseMcpClient', () => {
     expect(isTerminalSseTransportError(unauthorized)).toBe(true);
     expect(
       isTerminalSseTransportError(
-        new SseError(
-          204,
-          'Server sent HTTP 204',
-          {} as ConstructorParameters<typeof SseError>[2],
-        ),
+        new SseError(204, 'Server sent HTTP 204', {} as ConstructorParameters<typeof SseError>[2]),
       ),
     ).toBe(false);
     expect(isTerminalSseTransportError(new Error('fetch failed'))).toBe(false);
@@ -77,7 +73,9 @@ describe('SseMcpClient', () => {
 
   it('classifies connection-closed errors as non-terminal for SSE', () => {
     expect(isTerminalSseTransportError(new Error('Connection closed'))).toBe(false);
-    expect(isTerminalSseTransportError(new Error('SSE stream disconnected: ECONNRESET'))).toBe(false);
+    expect(isTerminalSseTransportError(new Error('SSE stream disconnected: ECONNRESET'))).toBe(
+      false,
+    );
     expect(isTerminalSseTransportError(new Error('socket hang up'))).toBe(false);
   });
 

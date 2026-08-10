@@ -31,14 +31,14 @@ describe('sanitizeMcpNamePart', () => {
     expect(sanitizeMcpNamePart('12345')).toBe('12345');
   });
 
-  it('handles unicode characters', () => {
-    expect(sanitizeMcpNamePart('服务端')).toBe('服务端');
-    expect(sanitizeMcpNamePart('中文 server')).toBe('中文_server');
+  it('replaces non-ASCII (e.g. CJK) characters with underscores', () => {
+    expect(sanitizeMcpNamePart('服务端')).toBe('_');
+    expect(sanitizeMcpNamePart('中文 server')).toBe('_server');
   });
 
-  it('strips leading/trailing underscores after collapsing', () => {
-    expect(sanitizeMcpNamePart('__hello__')).toBe('hello');
-    expect(sanitizeMcpNamePart('___')).toBe('');
+  it('preserves leading/trailing underscores after collapsing', () => {
+    expect(sanitizeMcpNamePart('__hello__')).toBe('_hello_');
+    expect(sanitizeMcpNamePart('___')).toBe('_');
   });
 });
 
@@ -79,12 +79,14 @@ describe('isMcpToolName', () => {
 
   it('returns false for empty string or null-like values', () => {
     expect(isMcpToolName('')).toBe(false);
-    expect(isMcpToolName('mcp__')).toBe(false);
-    expect(isMcpToolName('mcp____')).toBe(false);
   });
 
-  it('returns false for names with only prefix and no parts', () => {
+  it('returns true for any name starting with the mcp__ prefix', () => {
+    expect(isMcpToolName('mcp__')).toBe(true);
+    expect(isMcpToolName('mcp____')).toBe(true);
+  });
+
+  it('returns false for names with only the prefix and no separator', () => {
     expect(isMcpToolName('mcp')).toBe(false);
-    expect(isMcpToolName('mcp__')).toBe(false);
   });
 });

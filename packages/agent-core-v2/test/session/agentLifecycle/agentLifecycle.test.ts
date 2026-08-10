@@ -7,68 +7,69 @@
  * test/session/agentLifecycle/agentLifecycle.test.ts`.
  */
 
+import type { OAuthTokens } from '@modelcontextprotocol/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { type ISessionScopeHandle } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
 import { Event } from '#/_base/event';
-import { IAgentProfileService } from '#/agent/profile/profile';
+import { ILogService } from '#/_base/log/log';
 import '#/agent/profile/profileService';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
-import { IAgentMcpService } from '#/agent/mcp/mcp';
-import { McpConnectionManager } from '#/mcpCore/connection-manager';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentBlobService } from '#/agent/blob/agentBlobService';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import '#/agent/permissionMode/permissionModeOps';
+import { IAgentMcpService } from '#/agent/mcp/mcp';
+import { IAgentMediaToolsRegistrar } from '#/agent/media/mediaTools';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentPluginService } from '#/agent/plugin/agentPlugin';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
-import { ISessionStateService } from '#/session/state/sessionState';
-import { SessionStateService } from '#/session/state/sessionStateService';
+import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { _clearAgentToolContributionsForTests } from '#/agent/toolRegistry/toolContribution';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
+import '#/agent/mcp/mcpService';
+import '#/wire/wireService';
+import { createMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
+import { IPluginService } from '#/app/plugin/plugin';
+import '#/agent/toolDedupe/toolDedupeService';
+import { LifecycleScope } from '#/app/scopes';
+import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
+import '#/app/event/eventBusService';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { McpConnectionManager } from '#/mcpCore/connection-manager';
+import { McpOAuthService } from '#/mcpCore/oauth/service';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { AgentLifecycleService } from '#/session/agentLifecycle/agentLifecycleService';
 import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
-import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
-import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
-import { McpOAuthService } from '#/mcpCore/oauth/service';
-import { createMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
-import { ISessionSubagentService } from '#/session/subagent/subagent';
-import { SessionSubagentService } from '#/session/subagent/subagentService';
-import '#/agent/mcp/mcpService';
-import '#/wire/wireService';
-import { IAgentTaskService } from '#/agent/task/task';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
-import '#/agent/toolDedupe/toolDedupeService';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IConfigService } from '#/app/config/config';
-import '#/app/event/eventBusService';
-import { IAgentBlobService } from '#/agent/blob/agentBlobService';
-import { IAgentPluginService } from '#/agent/plugin/agentPlugin';
-import { ILogService } from '#/_base/log/log';
-import { IPluginService } from '#/app/plugin/plugin';
-import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import { createWireMetadataRecord, type WireRecord } from '#/wire/record';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
-import { _clearAgentToolContributionsForTests } from '#/agent/toolRegistry/toolContribution';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { ISessionStateService } from '#/session/state/sessionState';
+import { SessionStateService } from '#/session/state/sessionStateService';
+import { ISessionSubagentService } from '#/session/subagent/subagent';
 import '#/agent/toolActivation/toolActivationService';
-import { IAgentMediaToolsRegistrar } from '#/agent/media/mediaTools';
+import { SessionSubagentService } from '#/session/subagent/subagentService';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import type { OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+import { createWireMetadataRecord, type WireRecord } from '#/wire/record';
+
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 
 const noopLog = {
@@ -142,7 +143,6 @@ function recordingAppendLog(initial: readonly WireRecord[] = []): {
     store,
   };
 }
-
 
 function stubBlobPassThrough(ix: TestInstantiationService): void {
   ix.stub(IAgentBlobService, {
@@ -297,10 +297,11 @@ describe('AgentLifecycleService', () => {
     ix.stub(ITelemetryService, {
       _serviceBrand: undefined,
       track2: () => {},
-      withContext: () => ({
-        _serviceBrand: undefined,
-        track2: () => {},
-      }) as unknown as ITelemetryService,
+      withContext: () =>
+        ({
+          _serviceBrand: undefined,
+          track2: () => {},
+        }) as unknown as ITelemetryService,
     } as unknown as ITelemetryService);
     ix.stub(IAgentTelemetryContextService, {
       _serviceBrand: undefined,
@@ -588,10 +589,13 @@ describe('AgentLifecycleService', () => {
   });
 
   it('keeps the restored permission mode instead of overwriting it with the default', async () => {
-    ix.stub(IAppendLogStore, recordingAppendLog([
-      createWireMetadataRecord(1),
-      { type: 'permission.set_mode', mode: 'manual', time: 2 },
-    ]).store);
+    ix.stub(
+      IAppendLogStore,
+      recordingAppendLog([
+        createWireMetadataRecord(1),
+        { type: 'permission.set_mode', mode: 'manual', time: 2 },
+      ]).store,
+    );
     ix.stub(IConfigService, {
       ready: Promise.resolve(),
       get: (() => 'auto') as IConfigService['get'],
@@ -703,10 +707,7 @@ describe('AgentLifecycleService', () => {
       dispose: () => {},
     };
 
-    const [first, second] = await Promise.all([
-      ensureMainAgent(session),
-      ensureMainAgent(session),
-    ]);
+    const [first, second] = await Promise.all([ensureMainAgent(session), ensureMainAgent(session)]);
 
     expect(first).toBe(second);
     expect(registerAgent).toHaveBeenCalledTimes(1);
@@ -757,7 +758,11 @@ describe('AgentLifecycleService', () => {
     ix.set(ISessionSubagentService, new SyncDescriptor(SessionSubagentService));
     const svc = ix.get(ISessionSubagentService);
     expect(() =>
-      svc.run('missing', { kind: 'prompt', prompt: 'hi' }, { signal: new AbortController().signal }),
+      svc.run(
+        'missing',
+        { kind: 'prompt', prompt: 'hi' },
+        { signal: new AbortController().signal },
+      ),
     ).toThrow('Agent "missing" does not exist');
   });
 

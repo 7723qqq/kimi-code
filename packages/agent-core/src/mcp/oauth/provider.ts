@@ -20,15 +20,14 @@ import { randomBytes } from 'node:crypto';
 import type {
   OAuthClientProvider,
   OAuthDiscoveryState,
-} from '@modelcontextprotocol/sdk/client/auth.js';
-import type {
   OAuthClientInformationFull,
   OAuthClientInformationMixed,
   OAuthClientMetadata,
   OAuthTokens,
-} from '@modelcontextprotocol/sdk/shared/auth.js';
+} from '@modelcontextprotocol/client';
 
-import { JsonFileStore, canonicalMcpOAuthResource, mcpOAuthStoreKey } from './store';
+import type { JsonFileStore } from './store';
+import { canonicalMcpOAuthResource, mcpOAuthStoreKey } from './store';
 
 const TOKENS_SUFFIX = '-tokens.json';
 const CLIENT_SUFFIX = '-client.json';

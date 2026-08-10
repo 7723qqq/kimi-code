@@ -11,23 +11,20 @@
 
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, realpathSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo as HttpAddress } from 'node:net';
-import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { join } from 'pathe';
+import { pathToFileURL } from 'node:url';
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type {
-  OAuthClientInformationFull,
-  OAuthTokens,
-} from '@modelcontextprotocol/sdk/shared/auth.js';
-import { z } from 'zod';
+import { Client } from '@modelcontextprotocol/client';
+import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/client';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { McpServer } from '@modelcontextprotocol/server';
+import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
 import { Error2 } from '#/errors';
 import { KIMI_MCP_CLIENT_NAME } from '#/mcpCore/client-shared';
@@ -115,7 +112,7 @@ describe('McpConnectionManager', () => {
   }, 20000);
 
   it('marks HTTP servers failed when configured bearer token env var is missing', async () => {
-    const cm = new McpConnectionManager({ envLookup: () => undefined });
+    const cm = new McpConnectionManager({ envLookup: () => {} });
     try {
       await cm.connectAll({
         remote: {
@@ -133,7 +130,7 @@ describe('McpConnectionManager', () => {
   });
 
   it('marks SSE servers failed when configured bearer token env var is missing', async () => {
-    const cm = new McpConnectionManager({ envLookup: () => undefined });
+    const cm = new McpConnectionManager({ envLookup: () => {} });
     try {
       await cm.connectAll({
         legacy: {
@@ -217,9 +214,7 @@ describe('McpConnectionManager', () => {
       const resolved = cm.resolved('mock');
       if (resolved === undefined) throw new Error('Expected mock MCP server to connect');
       const result = await resolved.client.callTool('whoami', {});
-      expect((result.content[0] as { type: 'text'; text: string }).text).toBe(
-        KIMI_MCP_CLIENT_NAME,
-      );
+      expect((result.content[0] as { type: 'text'; text: string }).text).toBe(KIMI_MCP_CLIENT_NAME);
     } finally {
       await cm.shutdown();
     }
@@ -860,10 +855,10 @@ describe('McpConnectionManager', () => {
     const mcpServer = new McpServer({ name: 'cm-terminal', version: '0.0.1' });
     mcpServer.registerTool(
       'echo',
-      { description: 'Echoes text', inputSchema: { text: z.string() } },
+      { description: 'Echoes text', inputSchema: z.object({ text: z.string() }) },
       ({ text }) => ({ content: [{ type: 'text', text }] }),
     );
-    const transport = new StreamableHTTPServerTransport({
+    const transport = new NodeStreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
     });
     await mcpServer.connect(transport);
@@ -886,9 +881,11 @@ describe('McpConnectionManager', () => {
       });
       expect(cm.get('remote')?.status).toBe('connected');
 
-      const internalClient = (cm as unknown as {
-        entries: Map<string, { client?: { client: { onerror?: (e: Error) => void } } }>;
-      }).entries.get('remote')?.client?.client;
+      const internalClient = (
+        cm as unknown as {
+          entries: Map<string, { client?: { client: { onerror?: (e: Error) => void } } }>;
+        }
+      ).entries.get('remote')?.client?.client;
       internalClient?.onerror?.(new Error('Maximum reconnection attempts (3) exceeded.'));
 
       for (let i = 0; i < 50; i++) {
@@ -956,7 +953,7 @@ describe('McpConnectionManager', () => {
 
   it('shutdown is idempotent when called before any connect', async () => {
     const cm = new McpConnectionManager();
-    await cm.shutdown();
-    await cm.shutdown();
+    await expect(cm.shutdown()).resolves.toBeUndefined();
+    await expect(cm.shutdown()).resolves.toBeUndefined();
   });
 });

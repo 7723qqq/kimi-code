@@ -1,10 +1,9 @@
+import { McpServer } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 // Simulates an MCP stdio server that connects normally and then exits a short
 // time later, without going through the protocol shutdown handshake. Used to
 // drive the "transport disconnected after connect" path in
 // McpConnectionManager.
-
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
 const server = new McpServer({ name: 'crash-after-connect', version: '0.0.1' });
@@ -23,7 +22,7 @@ server.registerTool(
   'echo',
   {
     description: 'Echoes input text',
-    inputSchema: { text: z.string() },
+    inputSchema: z.object({ text: z.string() }),
   },
   ({ text }) => ({
     content: [{ type: 'text', text }],
@@ -37,7 +36,7 @@ server.registerTool(
   'exit_after_reply',
   {
     description: 'Replies, then exits the process',
-    inputSchema: {},
+    inputSchema: z.object({}),
   },
   () => {
     setImmediate(exitWithBanner);

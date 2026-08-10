@@ -15,6 +15,7 @@ import {
 } from '#/tool/rule-match';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { IHostEnvironment, type IHostEnvironment as HostEnvironmentService } from '#/os/interface/hostEnvironment';
+import { IAgentGuardianService } from '#/agent/guardian/guardianService';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPermissionPolicyService, type PermissionPolicyEvaluation } from '#/agent/permissionPolicy/permissionPolicy';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
@@ -36,6 +37,12 @@ import { stubPermissionModeService } from '../permissionMode/stubs';
 import { recordingTelemetry } from '../../app/telemetry/stubs';
 
 const signal = new AbortController().signal;
+
+const guardianDisabledStub = {
+  enabled: false,
+  circuitOpen: false,
+  review: async () => ({ verdict: 'bypass' as const, reason: 'disabled in test' }),
+};
 
 const hostFs = new HostFileSystem();
 
@@ -68,6 +75,7 @@ describe('AgentPermissionPolicyService chain', () => {
         reg.defineInstance(IHostEnvironment, kaosStub());
         reg.defineInstance(ITelemetryService, recordingTelemetry([]));
         reg.definePartialInstance(IGitService, { findWorkTree: async () => null });
+        reg.defineInstance(IAgentGuardianService, guardianDisabledStub);
         reg.define(IAgentPermissionPolicyService, AgentPermissionPolicyService);
       },
       strict: true,
@@ -208,6 +216,7 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
         reg.definePartialInstance(IGitService, {
           findWorkTree: (cwd: string) => findGitWorkTree(hostFs, cwd),
         });
+        reg.defineInstance(IAgentGuardianService, guardianDisabledStub);
         reg.define(IAgentPermissionPolicyService, AgentPermissionPolicyService);
       },
       strict: true,

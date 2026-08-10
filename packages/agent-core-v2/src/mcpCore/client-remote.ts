@@ -23,7 +23,7 @@ export function buildMcpRemoteHeaders(
       );
     }
     const token = envLookup(config.bearerTokenEnvVar);
-    if (token === undefined || token.length === 0) {
+    if (token === undefined || token.trim().length === 0) {
       throw new Error2(
         ErrorCodes.CONFIG_INVALID,
         `MCP ${config.transport?.toUpperCase() ?? 'unknown'} bearer token env var "${config.bearerTokenEnvVar}" is not set or is empty`,

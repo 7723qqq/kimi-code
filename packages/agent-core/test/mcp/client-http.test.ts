@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { McpServer } from '@modelcontextprotocol/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
@@ -35,16 +35,14 @@ function expectConfigInvalid(fn: () => unknown): void {
 
 describe('buildMcpHttpHeaders', () => {
   it('returns undefined when no headers and no bearer are configured', () => {
-    expect(
-      buildMcpHttpHeaders({ transport: 'http', url: 'https://x' }, () => undefined),
-    ).toBeUndefined();
+    expect(buildMcpHttpHeaders({ transport: 'http', url: 'https://x' }, () => {})).toBeUndefined();
   });
 
   it('passes through configured static headers', () => {
     expect(
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://x', headers: { 'X-Tenant': 'kimi' } },
-        () => undefined,
+        () => {},
       ),
     ).toEqual({ 'X-Tenant': 'kimi' });
   });
@@ -62,13 +60,13 @@ describe('buildMcpHttpHeaders', () => {
     expectConfigInvalid(() =>
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://x', bearerTokenEnvVar: 'MISSING' },
-        () => undefined,
+        () => {},
       ),
     );
     expect(() =>
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://x', bearerTokenEnvVar: 'MISSING' },
-        () => undefined,
+        () => {},
       ),
     ).toThrow(/"MISSING" is not set or is empty/);
     expectConfigInvalid(() =>
@@ -130,10 +128,7 @@ describe('buildMcpHttpHeaders', () => {
 
   it('returns undefined when headers is an empty object and no bearer token', () => {
     expect(
-      buildMcpHttpHeaders(
-        { transport: 'http', url: 'https://x', headers: {} },
-        () => undefined,
-      ),
+      buildMcpHttpHeaders({ transport: 'http', url: 'https://x', headers: {} }, () => {}),
     ).toBeUndefined();
   });
 
@@ -141,7 +136,7 @@ describe('buildMcpHttpHeaders', () => {
     expect(
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://example.com/mcp/server?version=1&locale=zh-CN' },
-        () => undefined,
+        () => {},
       ),
     ).toBeUndefined();
   });
@@ -149,7 +144,9 @@ describe('buildMcpHttpHeaders', () => {
 
 describe('isTerminalTransportError', () => {
   it('classifies SDK terminal errors correctly', () => {
-    expect(isTerminalTransportError(new Error('Maximum reconnection attempts (3) exceeded.'))).toBe(true);
+    expect(isTerminalTransportError(new Error('Maximum reconnection attempts (3) exceeded.'))).toBe(
+      true,
+    );
 
     const unauthorized = new Error('Unauthorized');
     unauthorized.name = 'UnauthorizedError';
@@ -174,11 +171,11 @@ async function startInProcessHttpMcpServer(opts?: {
   const mcpServer = new McpServer({ name: 'mock-http', version: '0.0.1' });
   mcpServer.registerTool(
     'echo',
-    { description: 'Echoes text', inputSchema: { text: z.string() } },
-    ({ text }) => ({ content: [{ type: 'text', text }] }),
+    { description: 'Echoes text', inputSchema: z.object({ text: z.string().optional() }) },
+    ({ text }) => ({ content: [{ type: 'text', text: String(text) }] }),
   );
 
-  const transport = new StreamableHTTPServerTransport({
+  const transport = new NodeStreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
   });
   await mcpServer.connect(transport);
@@ -250,9 +247,11 @@ describe('HttpMcpClient', () => {
       // (e.g. "Maximum reconnection attempts (3) exceeded.") — there is no
       // matching `onclose` for HTTP. Simulate that path directly to exercise
       // the terminal-error branch without rigging an SSE reconnect storm.
-      const internal = (client as unknown as {
-        client: { onerror?: (error: Error) => void };
-      }).client;
+      const internal = (
+        client as unknown as {
+          client: { onerror?: (error: Error) => void };
+        }
+      ).client;
       internal.onerror?.(new Error('Maximum reconnection attempts (3) exceeded.'));
       // Listener may fire in a later microtask; give it a chance.
       await new Promise((r) => setTimeout(r, 25));
@@ -272,9 +271,11 @@ describe('HttpMcpClient', () => {
     client.onUnexpectedClose(() => closes.push(Date.now()));
     try {
       await client.connect();
-      const internal = (client as unknown as {
-        client: { onerror?: (error: Error) => void };
-      }).client;
+      const internal = (
+        client as unknown as {
+          client: { onerror?: (error: Error) => void };
+        }
+      ).client;
       // SSE flap that the SDK will retry on its own — should NOT flip the
       // entry to failed; otherwise a brief network blip would tear down every
       // HTTP MCP connection.
@@ -311,7 +312,7 @@ describe('HttpMcpClient', () => {
   it('close() is a no-op when connect was never called', async () => {
     const client = new HttpMcpClient({ transport: 'http', url: 'https://example.invalid/mcp' });
     // Must not throw.
-    await client.close();
+    await expect(client.close()).resolves.toBeUndefined();
   });
 
   it('onUnexpectedClose does not throw when no listener is registered', async () => {
@@ -322,13 +323,16 @@ describe('HttpMcpClient', () => {
     try {
       await client.connect();
       // No listener registered — the terminal error must be silently buffered.
-      const internal = (client as unknown as {
-        client: { onerror?: (error: Error) => void };
-      }).client;
+      const internal = (
+        client as unknown as {
+          client: { onerror?: (error: Error) => void };
+        }
+      ).client;
       internal.onerror?.(new Error('Maximum reconnection attempts (3) exceeded.'));
       await new Promise((r) => setTimeout(r, 25));
     } finally {
-      await client.close();
+      // The buffered error must not have corrupted the client: close still resolves.
+      await expect(client.close()).resolves.toBeUndefined();
     }
   }, 15000);
 

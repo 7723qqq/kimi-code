@@ -69,7 +69,7 @@ export interface MCPToolDefinition {
  * {@link ToolManager}.
  *
  * This is a transport-agnostic seam: implementations can wrap
- * `@modelcontextprotocol/sdk`, a bespoke stdio client, an HTTP SSE client,
+ * `@modelcontextprotocol/client`, a bespoke stdio client, an HTTP SSE client,
  * or a mock for testing. Keeping the surface small lets tests inject fakes
  * without pulling in the full SDK type graph.
  */

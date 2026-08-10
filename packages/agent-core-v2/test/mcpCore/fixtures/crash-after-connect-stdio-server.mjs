@@ -1,5 +1,5 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { McpServer } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { z } from 'zod';
 
 const server = new McpServer({ name: 'crash-after-connect', version: '0.0.1' });
@@ -18,7 +18,7 @@ server.registerTool(
   'echo',
   {
     description: 'Echoes input text',
-    inputSchema: { text: z.string() },
+    inputSchema: z.object({ text: z.string() }),
   },
   ({ text }) => ({
     content: [{ type: 'text', text }],
@@ -29,7 +29,7 @@ server.registerTool(
   'exit_after_reply',
   {
     description: 'Replies, then exits the process',
-    inputSchema: {},
+    inputSchema: z.object({}),
   },
   () => {
     setImmediate(exitWithBanner);

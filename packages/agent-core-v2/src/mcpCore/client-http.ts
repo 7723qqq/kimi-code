@@ -2,12 +2,12 @@
  * `mcpCore` domain — Streamable HTTP transport MCP client.
  */
 
-import { ErrorCodes, Error2 } from '#/errors';
-import type { McpServerHttpConfig } from './config-schema';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import type { OAuthClientProvider } from '@modelcontextprotocol/client';
 
+import { ErrorCodes, Error2 } from '#/errors';
+
+import { buildMcpRemoteHeaders } from './client-remote';
 import {
   buildRequestOptions,
   KIMI_MCP_CLIENT_NAME,
@@ -18,7 +18,7 @@ import {
   type UnexpectedCloseListener,
   type UnexpectedCloseReason,
 } from './client-shared';
-import { buildMcpRemoteHeaders } from './client-remote';
+import type { McpServerHttpConfig } from './config-schema';
 import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
 
 export interface HttpMcpClientOptions {
@@ -70,10 +70,7 @@ export class HttpMcpClient implements MCPClient {
     this.started = true;
     this.installTransportHooks();
     try {
-      await this.client.connect(
-        this.transport,
-        buildRequestOptions(this.startupTimeoutMs, undefined),
-      );
+      await this.client.connect(this.transport, buildRequestOptions(this.startupTimeoutMs));
     } catch (error) {
       await this.closeStartedClient();
       throw error;
@@ -103,7 +100,7 @@ export class HttpMcpClient implements MCPClient {
   async listTools(): Promise<MCPToolDefinition[]> {
     const result = await this.client.listTools(
       undefined,
-      buildRequestOptions(this.startupTimeoutMs, undefined),
+      buildRequestOptions(this.startupTimeoutMs),
     );
     return result.tools.map(toMcpToolDefinition);
   }
@@ -114,7 +111,7 @@ export class HttpMcpClient implements MCPClient {
     signal?: AbortSignal,
   ): Promise<MCPToolResult> {
     const requestOptions = buildRequestOptions(this.toolCallTimeoutMs, signal);
-    const result = await this.client.callTool({ name, arguments: args }, undefined, requestOptions);
+    const result = await this.client.callTool({ name, arguments: args }, requestOptions);
     return toMcpToolResult(result);
   }
 
@@ -159,6 +156,7 @@ export class HttpMcpClient implements MCPClient {
 }
 
 export function isTerminalTransportError(error: Error): boolean {
+  if (!(error instanceof Error)) return false;
   if (error.name === 'UnauthorizedError') return true;
   if (/Maximum reconnection attempts/i.test(error.message)) return true;
   return false;

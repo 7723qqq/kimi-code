@@ -71,6 +71,7 @@ function binaryPartTooLargeNotice(kind: 'image' | 'audio' | 'video', urlLength: 
 }
 
 export function convertMCPContentBlock(block: MCPContentBlock): ContentPart | null {
+  if (block === null || block === undefined) return null;
   if (block.type === 'text' && typeof block.text === 'string') {
     return { type: 'text', text: block.text };
   }
@@ -88,6 +89,14 @@ export function convertMCPContentBlock(block: MCPContentBlock): ContentPart | nu
     return {
       type: 'audio_url',
       audioUrl: { url: `data:${mimeType};base64,${block.data}` },
+    };
+  }
+
+  if (block.type === 'video' && typeof block.data === 'string') {
+    const mimeType = block.mimeType ?? 'video/mp4';
+    return {
+      type: 'video_url',
+      videoUrl: { url: `data:${mimeType};base64,${block.data}` },
     };
   }
 
@@ -122,6 +131,7 @@ export function convertMCPContentBlock(block: MCPContentBlock): ContentPart | nu
   }
 
   if (block.type === 'resource_link' && typeof block.uri === 'string') {
+    if (block.uri.length === 0) return null;
     const mimeType = block.mimeType ?? 'application/octet-stream';
     if (mimeType.startsWith('image/')) {
       if (!isModelAcceptedImageMime(mimeType)) {

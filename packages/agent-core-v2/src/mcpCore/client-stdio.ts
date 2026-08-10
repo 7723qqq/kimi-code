@@ -2,12 +2,12 @@
  * `mcpCore` domain — stdio transport MCP client.
  */
 
-import { ErrorCodes, Error2 } from '#/errors';
-import type { McpServerStdioConfig } from './config-schema';
-import { proxyEnvForChild, reconcileChildNoProxy } from '#/_base/utils/proxy';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { isAbsolute, resolve } from 'pathe';
+
+import { proxyEnvForChild, reconcileChildNoProxy } from '#/_base/utils/proxy';
+import { ErrorCodes, Error2 } from '#/errors';
 
 import {
   buildRequestOptions,
@@ -19,6 +19,7 @@ import {
   type UnexpectedCloseListener,
   type UnexpectedCloseReason,
 } from './client-shared';
+import type { McpServerStdioConfig } from './config-schema';
 import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
 
 export interface StdioMcpClientOptions {
@@ -49,7 +50,13 @@ export class StdioMcpClient implements MCPClient {
 
   constructor(config: McpServerStdioConfig, options: StdioMcpClientOptions = {}) {
     if (config.executor !== undefined && config.executor !== 'local') {
-      throw new Error2(ErrorCodes.NOT_IMPLEMENTED, `MCP stdio executor '${config.executor}' is not yet implemented`);
+      throw new Error2(
+        ErrorCodes.NOT_IMPLEMENTED,
+        `MCP stdio executor '${config.executor}' is not yet implemented`,
+      );
+    }
+    if (config.command === undefined || config.command.trim().length === 0) {
+      throw new Error2(ErrorCodes.CONFIG_INVALID, 'MCP stdio command must not be empty');
     }
     this.transport = new StdioClientTransport({
       command: config.command,
@@ -77,10 +84,7 @@ export class StdioMcpClient implements MCPClient {
     this.started = true;
     this.installTransportHooks();
     try {
-      await this.client.connect(
-        this.transport,
-        buildRequestOptions(this.startupTimeoutMs, undefined),
-      );
+      await this.client.connect(this.transport, buildRequestOptions(this.startupTimeoutMs));
     } catch (error) {
       await this.closeStartedClient();
       throw error;
@@ -114,7 +118,7 @@ export class StdioMcpClient implements MCPClient {
   async listTools(): Promise<MCPToolDefinition[]> {
     const result = await this.client.listTools(
       undefined,
-      buildRequestOptions(this.startupTimeoutMs, undefined),
+      buildRequestOptions(this.startupTimeoutMs),
     );
     return result.tools.map(toMcpToolDefinition);
   }
@@ -125,7 +129,7 @@ export class StdioMcpClient implements MCPClient {
     signal?: AbortSignal,
   ): Promise<MCPToolResult> {
     const requestOptions = buildRequestOptions(this.toolCallTimeoutMs, signal);
-    const result = await this.client.callTool({ name, arguments: args }, undefined, requestOptions);
+    const result = await this.client.callTool({ name, arguments: args }, requestOptions);
     return toMcpToolResult(result);
   }
 
@@ -179,10 +183,23 @@ class BoundedTail {
   }
 }
 
-function resolveStdioCwd(configCwd: string | undefined, defaultCwd: string | undefined): string | undefined {
+function resolveStdioCwd(
+  configCwd: string | undefined,
+  defaultCwd: string | undefined,
+): string | undefined {
   if (configCwd === undefined) return defaultCwd;
   if (defaultCwd !== undefined && !isAbsolute(configCwd)) return resolve(defaultCwd, configCwd);
   return configCwd;
+}
+
+const SENSITIVE_ENV_KEYWORDS = ['TOKEN', 'API_KEY', 'SECRET', 'PASSWORD', 'CREDENTIAL'];
+const PROXY_ENV_VARS = new Set(['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY']);
+
+function isBlockedEnvKey(key: string): boolean {
+  const upper = key.toUpperCase();
+  if (PROXY_ENV_VARS.has(upper)) return true;
+  if (upper.endsWith('_URL')) return true;
+  return SENSITIVE_ENV_KEYWORDS.some((kw) => upper.includes(kw));
 }
 
 export function mergeStdioEnv(
@@ -190,8 +207,8 @@ export function mergeStdioEnv(
   parentEnv: Readonly<Record<string, string | undefined>> = process.env,
 ): Record<string, string> {
   const merged: Record<string, string> = {};
-  for (const [key, value] of Object.entries(parentEnv)) {
-    if (value !== undefined) merged[key] = value;
+  for (const [key, value] of Object.entries(parentEnv ?? {})) {
+    if (value !== undefined && !isBlockedEnvKey(key)) merged[key] = value;
   }
   if (configEnv !== undefined) Object.assign(merged, configEnv);
   Object.assign(merged, proxyEnvForChild(merged));

@@ -38,7 +38,7 @@ function fakeProc(code: number, stdout = '', stderr = ''): IHostProcess {
     stderr: Readable.from([stderr]),
     wait: () => Promise.resolve(code),
     kill: () => Promise.resolve(),
-    dispose: () => undefined,
+    dispose: () => {},
   } as IHostProcess;
 }
 
@@ -67,7 +67,7 @@ function fakeHostProcess(
           // Never settles — the caller's own timeout must fire.
           wait: () => new Promise<number>(() => {}),
           kill: () => Promise.resolve(),
-          dispose: () => undefined,
+          dispose: () => {},
         } as IHostProcess);
       }
       return Promise.resolve(fakeProc(hit?.code ?? 0, hit?.stdout ?? '', hit?.stderr ?? ''));
@@ -447,7 +447,7 @@ describe('kimi-cu entry', () => {
       }),
     );
 
-    await entry.install(() => undefined);
+    await entry.install(() => {});
 
     expect(
       calls.some(
@@ -503,7 +503,7 @@ describe('kimi-cu entry', () => {
       }),
     );
 
-    await entry.install(() => undefined);
+    await entry.install(() => {});
 
     await expect(entry.detect()).resolves.toEqual({
       version: '0.2.14',
@@ -547,7 +547,7 @@ describe('kimi-cu entry', () => {
       }),
     );
 
-    await expect(entry.install(() => undefined)).rejects.toThrow(
+    await expect(entry.install(() => {})).rejects.toThrow(
       /requires Windows PowerShell 5\.1 or PowerShell 7.*Get-FileHash, Expand-Archive/,
     );
 
@@ -595,7 +595,7 @@ describe('kimi-cu entry', () => {
       }),
     );
 
-    await entry.install(() => undefined);
+    await entry.install(() => {});
 
     expect(plugins.installs).toEqual([]);
     expect(doctorResults).toEqual([]);
@@ -645,7 +645,7 @@ describe('kimi-cu entry', () => {
       }),
     );
 
-    await entry.install(() => undefined);
+    await entry.install(() => {});
 
     expect(plugins.installs).toEqual([
       'https://cdn.kimi.com/kimi-computer-use-windows/latest/kimi-cu-win-plugin.zip',
@@ -674,7 +674,7 @@ describe('kimi-cu entry', () => {
       }),
     );
 
-    await expect(entry.install(() => undefined)).rejects.toThrow(
+    await expect(entry.install(() => {})).rejects.toThrow(
       'Kimi Computer Use plugin files are still in use by the current Kimi Code process. Restart Kimi Code, then install again.',
     );
   });
@@ -1087,6 +1087,12 @@ describe('kimi-cu entry', () => {
     const entry = createKimiCuEntry(makeCtx({ applicationsDir }));
 
     const detected = await entry.detect();
+    if (process.platform === 'win32') {
+      // Windows has no POSIX executable bit, so X_OK always succeeds and the
+      // leftover binary reads as a usable install.
+      expect(detected.steps.find((s) => s.id === 'app')?.state).toBe('ok');
+      return;
+    }
     expect(detected.steps.find((s) => s.id === 'app')).toEqual({
       id: 'app',
       state: 'missing',

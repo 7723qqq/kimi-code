@@ -1,9 +1,9 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import { SseError } from '@modelcontextprotocol/sdk/client/sse.js';
+import { SseError } from '@modelcontextprotocol/client';
+import { McpServer } from '@modelcontextprotocol/server';
+import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
@@ -36,7 +36,7 @@ async function startInProcessSseMcpServer(opts?: {
       const mcpServer = new McpServer({ name: 'mock-sse', version: '0.0.1' });
       mcpServer.registerTool(
         'echo',
-        { description: 'Echoes text', inputSchema: { text: z.string() } },
+        { description: 'Echoes text', inputSchema: z.object({ text: z.string() }) },
         ({ text }) => ({ content: [{ type: 'text', text }] }),
       );
       const transport = new SSEServerTransport('/messages', res);
@@ -130,11 +130,7 @@ describe('SseMcpClient', () => {
     expect(isTerminalSseTransportError(unauthorized)).toBe(true);
     expect(
       isTerminalSseTransportError(
-        new SseError(
-          204,
-          'Server sent HTTP 204',
-          {} as ConstructorParameters<typeof SseError>[2],
-        ),
+        new SseError(204, 'Server sent HTTP 204', {} as ConstructorParameters<typeof SseError>[2]),
       ),
     ).toBe(false);
     expect(isTerminalSseTransportError(new Error('fetch failed'))).toBe(false);
@@ -174,7 +170,7 @@ describe('SseMcpClient', () => {
   it('close() is a no-op when connect was never called', async () => {
     const client = new SseMcpClient({ transport: 'sse', url: 'http://127.0.0.1:1/mcp' });
     // Must not throw.
-    await client.close();
+    await expect(client.close()).resolves.toBeUndefined();
   });
 
   it('onUnexpectedClose does not throw when no listener is registered', async () => {
@@ -185,13 +181,16 @@ describe('SseMcpClient', () => {
     try {
       await client.connect();
       // No listener — terminal error must be silently buffered.
-      const internal = (client as unknown as {
-        client: { onerror?: (error: Error) => void };
-      }).client;
+      const internal = (
+        client as unknown as {
+          client: { onerror?: (error: Error) => void };
+        }
+      ).client;
       internal.onerror?.(new Error('Unauthorized'));
       await new Promise((r) => setTimeout(r, 25));
     } finally {
-      await client.close();
+      // The buffered error must not have corrupted the client: close still resolves.
+      await expect(client.close()).resolves.toBeUndefined();
     }
   }, 15000);
 });

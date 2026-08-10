@@ -16,6 +16,7 @@ import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalo
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
+import { IProviderService } from '#/kosong/provider/provider';
 import { IProtocolAdapterRegistry, type Protocol } from '#/kosong/protocol/protocol';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
@@ -34,12 +35,13 @@ import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { IWireService } from '#/wire/wire';
+import type { IWireService } from '#/wire/wire';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
 import '#/kosong/provider/providers/kimi/kimi.contrib';
 
 import { registerTestAgentWire, restoreTestAgentWire, testWireScope } from '../../wire/stubs';
+import { stubProviderService } from '../../app/provider/stubs';
 
 const SCOPE = 'wire';
 const KEY = 'profile-test';
@@ -47,8 +49,8 @@ const KEY = 'profile-test';
 function createTelemetryStub(): ITelemetryService {
   return {
     _serviceBrand: undefined,
-    track: () => undefined,
-    track2: () => undefined,
+    track: () => {},
+    track2: () => {},
   } as unknown as ITelemetryService;
 }
 
@@ -89,7 +91,7 @@ function createTestModel(
     alwaysThinking: false,
     providerType,
     providerName: 'kimi',
-    authProvider: { getAuth: async () => undefined },
+    authProvider: { getAuth: async () => {} },
   };
 }
 
@@ -136,12 +138,12 @@ function createProtocolRegistryStub(): IProtocolAdapterRegistry {
         providerType === 'kimi' && protocol === 'openai'
           ? [
               {
-                trait: { withThinking: () => undefined, strictThinkingValidation: true },
+                trait: { withThinking: () => {}, strictThinkingValidation: true },
                 context: {},
               },
             ]
           : providerType === 'kimi' && protocol === 'anthropic'
-            ? [{ trait: { withThinking: () => undefined }, context: {} }]
+            ? [{ trait: { withThinking: () => {} }, context: {} }]
             : [],
     }),
     resolveProviderBaseId: (protocol: Protocol) => protocol,
@@ -198,6 +200,7 @@ function buildHost(key: string): {
   );
   host.stub(IConfigService, createConfigStub());
   host.stub(IModelCatalog, modelCatalog);
+  host.stub(IProviderService, stubProviderService());
   host.stub(IProtocolAdapterRegistry, createProtocolRegistryStub());
   host.stub(IHostEnvironment, stubUnused());
   host.stub(IHostFileSystem, stubUnused());
@@ -207,7 +210,7 @@ function buildHost(key: string): {
   host.stub(ISessionAgentProfileCatalog, {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
-    get: () => undefined,
+    get: () => {},
     getDefault: () => {
       throw new Error('catalog resolution is not exercised');
     },
@@ -553,7 +556,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'kimi-code': createTestModel({ providerType: 'kimi' }),
     });
     const host = buildHost('profile-thinking-keep');
-    host.svc.configure({ emitStatusUpdated: () => undefined });
+    host.svc.configure({ emitStatusUpdated: () => {} });
     configValues['modelOverrides'] = { temperature: 0.3, thinkingKeep: 'all' };
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
@@ -571,7 +574,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'kimi-code': createTestModel({ providerType: 'kimi' }),
     });
     const host = buildHost('profile-thinking-effort-resolved');
-    host.svc.configure({ emitStatusUpdated: () => undefined });
+    host.svc.configure({ emitStatusUpdated: () => {} });
     configValues['thinking'] = { effort: ' max ' };
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
@@ -588,7 +591,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'kimi-code': createTestModel({ providerType: 'kimi' }),
     });
     const host = buildHost('profile-thinking-effort-force');
-    host.svc.configure({ emitStatusUpdated: () => undefined });
+    host.svc.configure({ emitStatusUpdated: () => {} });
     configValues['thinking'] = { effort: 'low', forcedEffort: ' max ' };
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
@@ -609,7 +612,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'other-code': createTestModel({ id: 'other-code', protocol: 'anthropic' }),
     });
     const host = buildHost('profile-thinking-effort-force-switch');
-    host.svc.configure({ emitStatusUpdated: () => undefined });
+    host.svc.configure({ emitStatusUpdated: () => {} });
     configValues['thinking'] = { forcedEffort: 'max' };
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
@@ -628,7 +631,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'claude-code': createTestModel({ id: 'claude-code', protocol: 'anthropic' }),
     });
     const host = buildHost('profile-thinking-keep-anthropic');
-    host.svc.configure({ emitStatusUpdated: () => undefined });
+    host.svc.configure({ emitStatusUpdated: () => {} });
     configValues['modelOverrides'] = { temperature: 0.3, thinkingKeep: 'all' };
 
     host.svc.update({ modelAlias: 'claude-code', thinkingLevel: 'high' });
@@ -646,7 +649,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'kimi-code': createTestModel({ protocol: 'anthropic', providerType: 'kimi' }),
     });
     const host = buildHost('profile-thinking-effort-force-anthropic');
-    host.svc.configure({ emitStatusUpdated: () => undefined });
+    host.svc.configure({ emitStatusUpdated: () => {} });
     configValues['thinking'] = { forcedEffort: 'max' };
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
@@ -664,7 +667,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'kimi-code': createTestModel({ providerType: 'kimi' }),
     });
     const host = buildHost('profile-thinking-keep-default');
-    host.svc.configure({ emitStatusUpdated: () => undefined });
+    host.svc.configure({ emitStatusUpdated: () => {} });
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
 
@@ -680,7 +683,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'kimi-code': createTestModel({ providerType: 'kimi' }),
     });
     const host = buildHost('profile-thinking-keep-env-off');
-    host.svc.configure({ emitStatusUpdated: () => undefined });
+    host.svc.configure({ emitStatusUpdated: () => {} });
     configValues['modelOverrides'] = { thinkingKeep: 'off' };
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
@@ -696,7 +699,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'claude-code': createTestModel({ id: 'claude-code', protocol: 'anthropic' }),
     });
     const host = buildHost('profile-thinking-keep-anthropic-config');
-    host.svc.configure({ emitStatusUpdated: () => undefined });
+    host.svc.configure({ emitStatusUpdated: () => {} });
     configValues['thinking'] = { keep: 'config-keep' };
 
     host.svc.update({ modelAlias: 'claude-code', thinkingLevel: 'high' });
@@ -713,7 +716,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'kimi-code': createTestModel({ providerType: 'kimi' }),
     });
     const host = buildHost('profile-thinking-keep-off');
-    host.svc.configure({ emitStatusUpdated: () => undefined });
+    host.svc.configure({ emitStatusUpdated: () => {} });
     configValues['thinking'] = { forcedEffort: 'max' };
     configValues['modelOverrides'] = { temperature: 0.3, thinkingKeep: 'all' };
 
@@ -733,7 +736,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'kimi-code': createTestModel({ providerType: 'kimi' }),
     });
     const host = buildHost('profile-prompt-cache-key');
-    host.svc.configure({ emitStatusUpdated: () => undefined });
+    host.svc.configure({ emitStatusUpdated: () => {} });
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
 
@@ -749,7 +752,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'claude-sonnet': createTestModel({ id: 'claude-sonnet', protocol: 'anthropic' }),
     });
     const host = buildHost('profile-prompt-cache-key-anthropic');
-    host.svc.configure({ emitStatusUpdated: () => undefined });
+    host.svc.configure({ emitStatusUpdated: () => {} });
 
     host.svc.update({ modelAlias: 'claude-sonnet', thinkingLevel: 'high' });
 
