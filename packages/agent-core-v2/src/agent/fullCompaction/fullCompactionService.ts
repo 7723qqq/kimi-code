@@ -26,6 +26,7 @@ import { defineState } from '#/_base/state/stateRegistry';
 import { renderPrompt } from "#/_base/utils/render-prompt";
 import { estimateTokensForMessage } from "#/kosong/contract/tokens";
 import { buildCompactionSummaryText, isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
+import { snipLargeToolResults } from '#/agent/fullCompaction/compactionUtils';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
@@ -85,6 +86,11 @@ const OVERFLOW_CONTEXT_SAFETY_RATIO = 0.85;
 const OVERFLOW_STATUS_RECOVERY_RATIO = 0.5;
 const MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS = 3;
 const COMPACTION_OVERFLOW_SHRINK_RATIOS = [0.7, 0.5, 0.35] as const;
+/** Stuck-guard condition: a compaction after which the context is still
+ *  over the auto-compaction trigger (`strategy.shouldCompact`) cannot make
+ *  progress and pauses auto-compaction (see `compaction.stuck`). No tunable
+ *  thresholds — the strategy's own trigger ratio is the definition of
+ *  "the fold did not solve the pressure". */
 const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
   type: 'object',
   properties: {},
@@ -146,6 +152,14 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   private readonly strategy: CompactionStrategy;
   private _compacting: ActiveCompaction | null = null;
   private contextInjectorService: IAgentContextInjectorService | undefined;
+  /**
+   * Set when a compaction round makes no meaningful progress (window too small
+   * for the fold to shrink history). Auto-compaction is paused while stuck —
+   * re-running it every step would rewrite the prompt-cache prefix each time
+   * and crater the hit rate (see `compaction.stuck`). A manual compaction
+   * clears it.
+   */
+  private autoCompactionStuck = false;
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -326,6 +340,11 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   begin(input: FullCompactionInput): boolean {
     if (this._compacting) return false;
     const data: CompactionBeginData = { source: input.source, instruction: input.instruction };
+    // A manual compaction is the way out of the stuck state: it may use a
+    // user instruction or a fresh window and clears the auto-pause.
+    if (data.source === 'manual') {
+      this.autoCompactionStuck = false;
+    }
     if (!this.reserveCompactionSlot(data.source)) return false;
 
     const tokenCount = this.validateCompactionStart(data.source);
@@ -343,7 +362,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       { once: true },
     );
     void this.compactionWorker(active.task, data).then(active.resolve, active.reject);
-    void active.task.promise.catch(() => undefined);
+    void active.task.promise.catch(() => {});
     return true;
   }
 
@@ -486,6 +505,10 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
 
   private checkAutoCompaction(throwOnLimit = true): boolean {
     if (this._compacting) return true;
+    // Stuck guard: paused until a manual compaction succeeds (see the
+    // `compaction.stuck` event). Re-running a doomed compaction every step
+    // would rewrite the prompt-cache prefix repeatedly and crater the cache.
+    if (this.autoCompactionStuck) return false;
     if (
       this.lastCompactedTokenCount !== null &&
       this.tokenCountWithPending() <= this.lastCompactedTokenCount
@@ -563,6 +586,23 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       if (!this.markCompleted(active)) {
         throw compactionCancelledReason(active);
       }
+      // Stuck guard: when the context window is too small for the fold to
+      // bring the context under the trigger threshold, every subsequent step
+      // would re-trigger compaction — each round rewrites the prompt-cache
+      // prefix and craters the hit rate. Detect "compaction did not solve the
+      // pressure" (the context is still over the threshold right after a
+      // compaction) and pause auto-compaction until a manual one succeeds.
+      const afterTokens = this.tokenCountWithPending();
+      const progressTokens = result.tokensBefore - afterTokens;
+      if (this.strategy.shouldCompact(afterTokens)) {
+        this.autoCompactionStuck = true;
+        this.eventBus.publish({
+          type: 'compaction.stuck',
+          tokensBefore: result.tokensBefore,
+          tokensAfter: afterTokens,
+          progressTokens,
+        });
+      }
       const { contextSummary: _contextSummary, ...eventResult } = result;
       void _contextSummary;
       this.eventBus.publish({ type: 'compaction.completed', result: eventResult });
@@ -622,7 +662,9 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
 
       const delays = retryBackoffDelays(MAX_COMPACTION_RETRY_ATTEMPTS);
       let attempt: CompactionAttemptResult | undefined;
-      let historyForModel: readonly ContextMessage[] = stripDynamicToolContext(originalHistory);
+      let historyForModel: readonly ContextMessage[] = snipLargeToolResults(
+        stripDynamicToolContext(originalHistory),
+      );
       let droppedCount = 0;
       let overflowShrinkCount = 0;
       let emptyOrTruncatedShrinkCount = 0;

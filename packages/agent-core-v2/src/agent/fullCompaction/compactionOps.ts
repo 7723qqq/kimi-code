@@ -59,6 +59,19 @@ export interface CompactionCompletedEvent {
   readonly result: CompactionResult;
 }
 
+/**
+ * Compaction made no meaningful progress (the context window is so small the
+ * fold cannot shrink the history below the threshold). Auto-compaction is
+ * paused so the loop does not re-run a doomed compaction every step — each
+ * attempt would rewrite the prompt-cache prefix and crater the hit rate.
+ */
+export interface CompactionStuckEvent {
+  readonly type: 'compaction.stuck';
+  readonly tokensBefore: number;
+  readonly tokensAfter: number;
+  readonly progressTokens: number;
+}
+
 export type CompactionPhase = 'idle' | 'running' | 'cancelled' | 'completed';
 
 export interface CompactionState {
@@ -75,6 +88,7 @@ declare module '#/app/event/eventBus' {
     'compaction.blocked': CompactionBlockedEvent;
     'compaction.cancelled': CompactionCancelledEvent;
     'compaction.completed': CompactionCompletedEvent;
+    'compaction.stuck': CompactionStuckEvent;
   }
 }
 
