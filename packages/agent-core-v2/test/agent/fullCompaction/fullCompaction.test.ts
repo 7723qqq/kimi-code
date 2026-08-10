@@ -3150,7 +3150,9 @@ function hookPayloadLoggerCommand(logPath: string): string {
     '});',
   ].join('');
   writeFileSync(scriptPath, script);
-  return `${process.execPath} ${scriptPath}`;
+  // Quote both paths: on Windows `process.execPath` lives under
+  // "Program Files" and an unquoted shell command would fail to spawn.
+  return `"${process.execPath}" "${scriptPath}"`;
 }
 
 function readHookPayloads(logPath: string): Array<Record<string, unknown>> {
