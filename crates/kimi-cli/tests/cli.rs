@@ -629,12 +629,18 @@ fn print_continue_resumes_latest_session() {
     let out = child.wait_with_output().expect("wait");
     assert!(out.status.success(), "chat exits 0: {}", out.status);
 
-    let out = run(&home, &["print", "--continue", "hi"]);
-    assert!(!out.status.success(), "no LLM -> print errors: {}", out.status);
+    let mut child = Command::new(binary())
+        .args(["print", "--continue", "hi"])
+        .current_dir(&cwd)
+        .env("KIMI_AGENT_HOME", &home)
+        .env("HOME", &home)
+        .output()
+        .expect("spawn kimi print");
+    assert!(!child.status.success(), "no LLM -> print errors: {}", child.status);
     let list = run(&home, &["sessions", "--json"]);
     let text = stdout(&list);
     assert!(text.contains("continue-me"), "resumed session listed: {text}");
-    assert!(!text.contains("kimi-exec"), "no fresh session created: {text}");
+    assert!(!text.contains("\"id\": \"kimi-exec"), "no fresh session created: {text}");
 }
 
 #[test]
@@ -894,7 +900,7 @@ fn chat_continue_reuses_latest_session() {
     let list = run(&home, &["sessions", "--json"]);
     let text = stdout(&list);
     assert!(text.contains("continue-me"), "seeded session listed: {text}");
-    assert!(!text.contains("chat-"), "no fresh chat session created: {text}");
+    assert!(!text.contains("\"id\": \"chat-"), "no fresh chat session created: {text}");
 }
 
 #[test]

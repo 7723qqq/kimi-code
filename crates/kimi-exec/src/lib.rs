@@ -47,6 +47,11 @@ pub async fn run_prompt_with_setup(
     setup: &PromptSetup,
 ) -> serde_json::Value {
     let mut create_params = serde_json::json!({ "session_id": session_id });
+    if let Ok(cwd) = std::env::current_dir() {
+        // Record the workspace on the record so `--continue` can resume
+        // within the same directory (TS `listSessions({ workDir })` parity).
+        create_params["work_dir"] = serde_json::json!(cwd);
+    }
     if let Some(nllm) = native_llm {
         create_params["native_llm"] = serde_json::to_value(&nllm).unwrap_or_default();
     }

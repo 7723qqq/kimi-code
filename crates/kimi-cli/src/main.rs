@@ -224,13 +224,23 @@ fn fresh_print_session_id() -> String {
     format!("kimi-exec-{}", std::process::id())
 }
 
-async fn latest_session_id(client: &mut kimi_server_client::AppServerClient) -> Option<String> {
+/// Most recently updated session, optionally restricted to a work directory
+/// (TS `listSessions({ workDir })` parity — `--continue` must not resume a
+/// session from another directory).
+async fn latest_session_id(
+    client: &mut kimi_server_client::AppServerClient,
+    work_dir: Option<&str>,
+) -> Option<String> {
     let body = client
-        .call(kimi_protocol::methods::SESSION_LIST, serde_json::json!({ "limit": 1 }))
+        .call(kimi_protocol::methods::SESSION_LIST, serde_json::json!({ "limit": 100 }))
         .await;
     body["result"]["sessions"]
-        .as_array()
-        .and_then(|sessions| sessions.first())
+        .as_array()?
+        .iter()
+        .find(|session| match work_dir {
+            Some(dir) => session["work_dir"].as_str() == Some(dir),
+            None => true,
+        })
         .and_then(|session| session["id"].as_str())
         .map(str::to_string)
 }
@@ -263,6 +273,7 @@ async fn run_web(
     no_auth: bool,
     no_open: bool,
     assets: Option<&str>,
+    allowed_hosts: Vec<String>,
 ) -> anyhow::Result<()> {
     let server = kimi_server::Server::build()?;
     let processor = std::sync::Arc::new(server.processor);
@@ -273,11 +284,17 @@ async fn run_web(
         Some(token) => format!("http://{host}:{port}/#token={token}"),
         None => format!("http://{host}:{port}"),
     };
+    let host_check = kimi_server_transport::http::HostCheckConfig {
+        bound_host: Some(host.to_string()),
+        extra: allowed_hosts,
+        ..Default::default()
+    };
     let state = kimi_server_transport::http::HttpState::with_events(
         processor,
         server.state.event_sender(),
     )
-    .with_auth(auth);
+    .with_auth(auth)
+    .with_host_check(host_check);
     let listener = tokio::net::TcpListener::bind((host, port)).await?;
     println!("Kimi Code web server running at {url}");
     if !no_open {
@@ -369,6 +386,48 @@ fn generate_token() -> String {
 
 /// Run the kimi OAuth device-code login flow and persist the granted token
 /// as `providers.kimi.apiKey` (shared by `kimi login` and `kimi acp --login`).
+/// Build a CONFIG_SET patch that removes `provider_id` plus every model
+/// alias referencing it (TS `provider remove` parity — orphaned aliases
+/// would otherwise keep pointing at a deleted provider).
+fn provider_removal_patch(config: &serde_json::Value, provider_id: &str) -> serde_json::Value {
+    let mut patch = serde_json::json!({ "providers": { provider_id: null } });
+    let prefix = format!("{provider_id}/");
+    if let Some(models) = config["result"]["models"].as_object() {
+        let mut aliases = serde_json::Map::new();
+        for key in models.keys() {
+            if key.starts_with(&prefix) {
+                aliases.insert(key.clone(), serde_json::Value::Null);
+            }
+        }
+        if !aliases.is_empty() {
+            patch["models"] = serde_json::Value::Object(aliases);
+        }
+    }
+    patch
+}
+
+/// `kimi provider remove` / `logout` shared config plumbing.
+async fn apply_provider_removal(
+    server: &Option<String>,
+    provider_id: &str,
+    done_message: &str,
+) -> anyhow::Result<()> {
+    let client = connect(server)?;
+    let config = client
+        .call(kimi_protocol::methods::CONFIG_GET, serde_json::Value::Null)
+        .await;
+    let patch = provider_removal_patch(&config, provider_id);
+    let body = client
+        .call(kimi_protocol::methods::CONFIG_SET, serde_json::json!({ "patch": patch }))
+        .await;
+    if let Some(error) = body.get("error") {
+        eprintln!("error: {}", error["message"].as_str().unwrap_or("unknown"));
+        std::process::exit(1);
+    }
+    println!("{done_message}");
+    Ok(())
+}
+
 async fn run_kimi_login(
     server: &Option<String>,
     oauth_host: Option<String>,
@@ -611,6 +670,10 @@ enum Commands {
         /// Serve the bundled SPA from this directory (`--assets <dir>`).
         #[arg(long)]
         assets: Option<String>,
+        /// Extra allowed Host headers / domain suffixes (DNS-rebinding
+        /// allowlist; TS `--allowed-host <host...>` parity).
+        #[arg(long, num_args = 1..)]
+        allowed_hosts: Vec<String>,
     },
     /// Launch the visualization frontend (ships with the TS distribution).
     Vis,
@@ -1740,9 +1803,12 @@ async fn main() -> anyhow::Result<()> {
             let resume = continue_ || matches!(&session, Some(Some(_)));
             let session_id = match &session {
                 Some(Some(id)) => id.clone(),
-                _ if continue_ => latest_session_id(&mut client)
-                    .await
-                    .unwrap_or_else(fresh_print_session_id),
+                _ if continue_ => {
+                    let cwd = std::env::current_dir().ok();
+                    latest_session_id(&mut client, cwd.as_deref().and_then(|p| p.to_str()))
+                        .await
+                        .unwrap_or_else(fresh_print_session_id)
+                }
                 _ => fresh_print_session_id(),
             };
             // `/goal <objective>` prompt prefix (TS `parseHeadlessGoalCreate`
@@ -2176,17 +2242,19 @@ async fn main() -> anyhow::Result<()> {
             let capture = std::io::stderr().is_terminal();
             let (mut client, renderer) = connect_with_renderer(&server, capture, false)?;
             let session_id = if continue_ {
-                latest_session_id(&mut client)
+                let cwd = std::env::current_dir().ok();
+                latest_session_id(&mut client, cwd.as_deref().and_then(|p| p.to_str()))
                     .await
                     .unwrap_or_else(|| format!("chat-{}", std::process::id()))
             } else {
                 session.unwrap_or_else(|| format!("chat-{}", std::process::id()))
             };
+            let mut create_params = serde_json::json!({ "session_id": session_id });
+            if let Ok(cwd) = std::env::current_dir() {
+                create_params["work_dir"] = serde_json::json!(cwd);
+            }
             let created = client
-                .call(
-                    kimi_protocol::methods::SESSION_CREATE,
-                    serde_json::json!({ "session_id": session_id }),
-                )
+                .call(kimi_protocol::methods::SESSION_CREATE, create_params)
                 .await;
             if let Some(error) = created.get("error") {
                 eprintln!("error: {}", error["message"].as_str().unwrap_or("unknown"));
@@ -2290,20 +2358,9 @@ async fn main() -> anyhow::Result<()> {
             run_kimi_login(&server, oauth_host, max_polls).await?;
         }
         Commands::Logout => {
-            // Remove the kimi provider from the engine config (null patch
-            // deletes the whole provider entry, mirroring `provider remove`).
-            let client = connect(&server)?;
-            let body = client
-                .call(
-                    kimi_protocol::methods::CONFIG_SET,
-                    serde_json::json!({ "patch": { "providers": { "kimi": null } } }),
-                )
-                .await;
-            if let Some(error) = body.get("error") {
-                eprintln!("error: {}", error["message"].as_str().unwrap_or("unknown"));
-                std::process::exit(1);
-            }
-            println!("logged out — kimi provider removed from config");
+            // Remove the kimi provider AND its model aliases (TS `provider
+            // remove kimi` parity).
+            apply_provider_removal(&server, "kimi", "logged out — kimi provider removed from config").await?;
         }
         Commands::Upgrade => {
             // Self-update is owned by the distribution (npm wrapper / package
@@ -2321,7 +2378,7 @@ async fn main() -> anyhow::Result<()> {
             println!("  npm i -g kimi-code@latest && kimi migrate");
             println!("(the Rust distribution does not bundle the legacy migration screen)");
         }
-        Commands::Web { port, host, dangerous_bypass_auth, no_open, assets } => {
+        Commands::Web { port, host, dangerous_bypass_auth, no_open, assets, allowed_hosts } => {
             // Launch the Rust web server in-process (API + WS + optional SPA
             // assets). This replaces the TS `startRustServerForeground` path;
             // the SPA itself ships with the TS distribution unless `--assets`
@@ -2332,6 +2389,7 @@ async fn main() -> anyhow::Result<()> {
                 dangerous_bypass_auth,
                 no_open,
                 assets.as_deref(),
+                allowed_hosts,
             )
             .await?;
         }
@@ -2477,11 +2535,10 @@ async fn main() -> anyhow::Result<()> {
                         eprintln!("Provider \"{id}\" not found.");
                         std::process::exit(1);
                     }
-                    let patch = serde_json::json!({
-                        "providers": {
-                            id.clone(): null,
-                        }
-                    });
+                    // Cascade: drop the provider AND every model alias that
+                    // references it (TS parity — orphaned aliases would keep
+                    // resolving to a deleted provider).
+                    let patch = provider_removal_patch(&config, &id);
                     let body = client
                         .call(
                             kimi_protocol::methods::CONFIG_SET,
