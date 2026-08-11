@@ -69,7 +69,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 
 > **Status (2026-08-03):** the JS agent engines (`agent-core`, `agent-core-v2`) are **retired**. The only engine is the Rust engine (`packages/kimi-agent`). `schema.ts` `engine` enum is `'rust'` only — no JS fallback.
 >
-> **方向（2026-08-03 定案，2026-08-06 收紧，见 `CODEX_MIGRATION_PLAN.md` 顶部 R 节）**：走 Codex 方向——**核心全部 Rust，只有 web 是 TS**。除浏览器前端（`kimi-web`/`kimi-inspect`/`vis/web`）与必须 JS 的前端壳（`vscode` 扩展宿主、npm bin 包装）外，一切 TS（CLI/TUI/server/SDK/protocol/OAuth/ACP/LLM 抽象/i18n 数据/rust-loop 桥）迁入 Rust 或退役。当前 TS 宿主（CLI/TUI/Web/API，源码约 23 万行）按 `CODEX_MIGRATION_PLAN.md` 的 G-0..G-7 收口路线逐模块迁入 `crates/`（kimi-cli/kimi-tui/kimi-server/kimi-sdk/…）。**迁移进度（2026-08-03 会话）**：阶段 A–E 全部完成（协议/引擎/宿主协议/CLI/exec/TUI/ACP/SDK/OAuth/WS 传输+客户端，测试基线 2890+，三传输路径全 e2e）；阶段 F（入口切换与 TS 退役）按记录决策待 Rust 全绿后执行——npm 分发薄壳（kimi-code-rust-bin）已验证可用。迁移完成前 TS 宿主保留（见下方白名单），**新增宿主逻辑优先写 Rust**；已完成迁移的模块删除对应 TS。
+> **方向（2026-08-03 定案，2026-08-06 收紧，见 `CODEX_MIGRATION_PLAN.md` 顶部 R 节）**：走 Codex 方向——**核心全部 Rust，只有 web 是 TS**。除浏览器前端（`kimi-web`/`kimi-inspect`/`vis/web`）与必须 JS 的前端壳（`vscode` 扩展宿主、npm bin 包装）外，一切 TS（CLI/TUI/server/SDK/protocol/OAuth/ACP/LLM 抽象/i18n 数据/rust-loop 桥）迁入 Rust 或退役。**迁移进度（2026-08-11）**：阶段 A–F 全部完成；G-1/G-2/G-4/G-6 完成，G-3 parity 批次 6 落地，**G-7 壳化完成（2026-08-11）**——`@moonshot-ai/kimi-code` 变纯分发壳（`bin/kimi.mjs` 纯 Rust spawn + dist-web 资产），TS 入口与宿主测试全部退役（→ `retired/kimi-code-src/`），`kimi upgrade` 由 Rust 实现（npm registry 查询 + 版本注入）。**新增宿主逻辑一律写 Rust**；已完成迁移的模块已删除对应 TS。
 
 ### Where new code goes
 
@@ -83,10 +83,9 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 
 | Scope | Files | Reason |
 |-------|-------|--------|
-| Rust bridge / adapter | `apps/kimi-code/src/cli/rust-engine.ts`, `apps/kimi-code/src/cli/native-session.ts` | glue host ↔ Rust RPC |
 | Generated files | `packages/kimi-agent/src/rpc/wire.gen.ts` | regenerated via `pnpm gen:wire`, never hand-edited |
-| CLI / TUI / Web / VS Code shells | `apps/*` UI + i18n | pure UI, no engine logic（目标迁入 crates/） |
-| Test adaptation | TS tests asserting against the Rust engine | keep host behavior verified |
+| Web / VS Code shells | `apps/kimi-web` / `kimi-inspect` / `vis/web` / `vscode` UI + i18n | pure UI, no engine logic |
+| Distribution shell | `apps/kimi-code/bin/kimi.mjs`, `packages/kimi-code-rust-bin/` | pure Rust spawn + dist-web assets |
 
 Before writing any TS change, ask: *is this engine functionality?* If yes → implement in Rust. If it is host/UI → TS is fine **for now, but prefer Rust** (see `CODEX_MIGRATION_PLAN.md`).
 
@@ -122,53 +121,19 @@ apps/
   vis/              — Session replay & debugging visualizer
 ```
 
-#### `apps/kimi-code` — CLI / TUI Application
+#### `apps/kimi-code` — Distribution shell (G-7, 2026-08-11)
 
-The main application. Consumes core capabilities through `@moonshot-ai/kimi-code-sdk` and must **not** depend directly on `@moonshot-ai/agent-core`. When writing or modifying its terminal UI, use the `write-tui` skill (`.agents/skills/write-tui/SKILL.md`).
-
-**Source layout:**
-
-```
-src/
-  main.ts             — Entry point
-  cli/                — CLI mode (headless)
-    commands.ts       — CLI command definitions
-    options.ts        — CLI option parsing
-    sub/              — Subcommands (acp, doctor, export, login, provider, upgrade, vis, web)
-    update/           — Self-update mechanism
-  tui/                — Terminal UI mode
-    kimi-tui.ts       — TUI initialization and main loop
-    config.ts         — TUI configuration
-    banner/           — Startup banner
-    commands/         — Slash command handlers (26+ commands)
-    components/       — UI components (panes, messages, dialogs, editor, media)
-    controllers/      — UI controllers (auth-flow, session, streaming, keyboard, etc.)
-    theme/            — Theme system
-    reverse-rpc/      — Reverse RPC for ACP communication
-  i18n/               — Localization setup
-  native/             — Native module integration
-  migration/          — Data migration
-  feedback/           — User feedback collection
-  utils/              — Shared utilities
-  constant/           — Constants
-  generated/          — Generated asset references
-```
-
-**CLI subcommands:** `acp`, `doctor`, `export`, `login`, `login-flow`, `plugin-run-node`, `provider`, `upgrade`, `vis`, `web`
-
-**TUI slash commands (26+):** `add-dir`, `auth`, `btw`, `complete-args`, `config`, `copy`, `discuss`, `dispatch`, `experimental-flags`, `goal`, `info`, `parse`, `plugin-commands`, `plugins`, `prompts`, `provider`, `registry`, `reload`, `resolve`, `session`, `skills`, `swarm`, `types`, `undo`, `web`, `workflow`
+The npm distribution shell for the Rust CLI (`@moonshot-ai/kimi-code`). It is **not** an application anymore: all TS source (CLI/TUI/i18n/native bridges) retired to `retired/kimi-code-src/`. The shell contains `bin/kimi.mjs` (pure Rust spawn; `KIMI_RUST_BIN` overrides the binary), `dist-web/` (kimi-web build output served by `kimi web --assets`), and `scripts/` (postinstall shim cleanup, web-asset copy, plugin-marketplace build). The Rust CLI itself lives in `crates/kimi-cli` (see "Engine Ownership").
 
 **Build output:**
 | Output | Path |
 |--------|------|
-| CLI entry (ESM) | `apps/kimi-code/dist/main.mjs` |
+| npm bin wrapper | `apps/kimi-code/bin/kimi.mjs` |
 | Web UI assets | `apps/kimi-code/dist-web/` |
-| Native prebuilds | `apps/kimi-code/native/` |
-| SEA binary | `apps/kimi-code/dist-native/bin/` |
 
 #### `apps/kimi-web` — Browser Web UI
 
-Peer to the TUI. Vue 3 + Vite + vue-i18n; talks to the server over REST + WebSocket under `/api/v1`. It must not depend on `@moonshot-ai/agent-core` (wire types are re-implemented locally). Debug against the Rust-backed server via the root `pnpm dev:v2` script. See `apps/kimi-web/AGENTS.md`.
+Peer to the TUI. Vue 3 + Vite + vue-i18n; talks to the server over REST + WebSocket under `/api/v1`. It must not depend on `@moonshot-ai/agent-core` (wire types are re-implemented locally). Debug against the Rust-backed server; see `apps/kimi-web/AGENTS.md`.
 
 #### `apps/vscode` — VS Code Extension
 
@@ -267,9 +232,8 @@ scripts/
 pnpm install                  # Install all dependencies
 pnpm build                    # Build all workspace packages
 pnpm build:packages           # Build only packages/*
-pnpm dev:cli                  # Run CLI in dev mode
+pnpm dev:cli                  # Run CLI in dev mode (Rust, cargo run -p kimi-cli)
 pnpm dev:web                  # Run web UI in dev mode
-pnpm dev:server               # Run server in dev mode
 pnpm test                     # Run all tests (vitest)
 pnpm test:watch               # Watch mode
 pnpm test:coverage            # With coverage
@@ -299,16 +263,14 @@ make rust-test        # cargo test + kimi-agent --test
 ### Package-specific commands
 
 ```sh
-# CLI app
-pnpm --filter @moonshot-ai/kimi-code build
-pnpm --filter @moonshot-ai/kimi-code run dev
-pnpm --filter @moonshot-ai/kimi-code run test
-pnpm --filter @moonshot-ai/kimi-code run e2e     # E2E tests (sets KIMI_E2E=1)
+# Distribution shell (Rust CLI lives in crates/kimi-cli)
+pnpm --filter @moonshot-ai/kimi-code build            # kimi-web build + copy dist-web
+KIMI_RUST_BIN=target/debug/kimi.exe node apps/kimi-code/bin/kimi.mjs --version
 
 # Native tools (Rust)
 cd packages/kimi-native-tools && cargo test
 cd packages/kimi-native-tools && cargo build --release
-pnpm --filter @moonshot-ai/kimi-code run build:native:release  # Full SEA build
+cargo run -p kimi-cli -- --help                        # Rust CLI (debug)
 
 # VS Code extension
 pnpm --filter kimi-code run build
@@ -323,13 +285,13 @@ pnpm --filter @moonshot-ai/kimi-web run dev
 ### CI pipeline
 
 GitHub Actions (`ci.yml`) runs on every PR and push to `main`:
-1. **build** — Install, build, smoke test CLI bundle
+1. **build** — Install, build, smoke test the Rust kimi CLI
 2. **test** — `vitest run` split across 5 parallel shards on Ubuntu
 3. **lint** — oxlint, sherif, locale JSON freshness check, locale placeholder validity, hardcoded string scan
 4. **typecheck** — TypeScript check across all packages (uses `tsgo` from `@typescript/native-preview`)
 5. **native-tools** — Runs on Windows-latest: `cargo test` and `cargo build --release`
 
-Additional workflows: `_native-build.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release.yml`.
+Additional workflows: `docs-deploy.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release.yml`.
 
 ---
 
@@ -430,7 +392,7 @@ pnpm --filter <package> vitest run -- --reporter=verbose  # Verbose mode
 
 - Test files co-locate with source or in a `test/` directory under each package/app.
 - Patterns: `*.test.ts`, `*.test.tsx`, `*.spec.ts`, `*.spec.tsx`, `test/**/*.ts`
-- E2E tests live in `apps/kimi-code/test/e2e/` and require `KIMI_E2E=1` env.
+- Rust CLI/TUI/server behavior is covered by `cargo test` (`crates/*`, `packages/kimi-agent`); the retired TS host suite lives with `retired/kimi-code-src/` (G-7, 2026-08-11).
 
 ---
 

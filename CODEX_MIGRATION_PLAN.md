@@ -30,7 +30,7 @@
 |---|---|
 | Rust 引擎（`packages/kimi-agent`） | ✅ 唯一引擎，cargo 全绿；宿主面补齐：`config/get·set` 空 home 容忍、`session/cancel_compact`、`session/create` work_dir、metadata 持久化 |
 | 阶段 A–E（协议/引擎/宿主协议/CLI/exec/TUI/ACP/SDK/OAuth/WS） | ✅ 完成（§6） |
-| 阶段 F（入口切换与 TS 退役） | 🔶 主体完成（分发薄壳 ✅、入口 wrapper ✅、F-5 全链路 e2e ✅）；TS 删除待 G-6 |
+| 阶段 F（入口切换与 TS 退役） | ✅ 完成（2026-08-11，随 G-7 壳化收官：分发薄壳 + 入口 wrapper + F-5 e2e + TS 入口退役） |
 | G-6 退役收口（剩余两包） | ✅ 完成（2026-08-11）：pi-tui + migration-legacy → retired/；vscode 消费面本地化；TS 迁移死代码（migration/ 目录、migrate 命令面）删除；SEA 注册项/CI/flake.nix/lockfile 同步 |
 | G-4 TUI 攻坚（最大长杆） | ✅ 61 命令全命令面 + 交互对拍（§6.4） |
 | G-2 Rust server（`kimi-server` + HTTP/WS 投影） | ✅ 前端零改动直连；v1 wire 契约字段级对拍完成 |
@@ -42,7 +42,7 @@
 1. **G-0 收尾**：基线锁定（cargo 全绿 ✅ + vitest 收敛 ✅）；TS 侧新增逻辑先与 Rust 核对（进行中）
 2. **G-2 剩余**：Rust server 的 v1 wire 遗留投影批次（见 §7，MINOR 批已复核 2026-08-11）
 3. **G-3**：CLI 消费面切 kimi-cli；**G-4 剩余**：真实终端手动冒烟清单 + 媒体富卡片（另议）
-4. **G-5/G-7**：LLM 面并入（已定案）→ web-only 验证 + 旧 TS 测试清理（TS 入口退役前置：Rust 全绿 + 分发切换决策）
+4. **G-5/G-7**：LLM 面并入（已定案 ✅）→ **G-7 web-only 达成（2026-08-11）**；后续：真实终端手动冒烟、媒体富卡片（另议）、发布形态观察（壳包 + kimi-code-rust 双发）
 
 ## 1.4 已知缺口（不阻塞主线的记录）
 
@@ -125,8 +125,7 @@ kimi-protocol ← kimi-agent(引擎) ← kimi-server ← kimi-server-transport
 | 现 TS 包 | 规模 | 处理 | 目标 | 状态 |
 |---|---|---|---|---|
 | `apps/kimi-code` TUI | 41k | 迁 Rust | kimi-tui | ✅ G-4 攻坚完成（TS 已删 2026-08-09） |
-| `apps/kimi-code` CLI | 9k | 迁 Rust | kimi-cli | ✅ 大部分落地 |
-| `apps/kimi-code` i18n/utils/constant | 9.4k | 迁/数据化 | kimi-tui + JSON 数据 | 🔶 |
+| `apps/kimi-code` CLI/i18n/utils/constant | 18.4k | 迁 Rust/退役 | kimi-cli + kimi-tui | ✅ **已退役**（2026-08-11，G-7 壳化：src/ 全量 → `retired/kimi-code-src/`；upgrade 由 kimi-cli Rust 实现） |
 | `kap-server` | 16.2k | 迁 Rust | kimi-server | ✅ 主体完成 → **已退役**（retired/，2026-08-10） |
 | `node-sdk` | 16.2k | 迁 Rust | kimi-sdk | ✅ 消费面切换完成 → **已退役**（retired/，2026-08-10） |
 | `kosong` | 11.1k | 迁 Rust | kimi-sdk LLM 面 | ✅ 核心能力引擎已覆盖（§8 决策）→ **已退役**（retired/，2026-08-10） |
@@ -191,7 +190,7 @@ kimi-sdk（Session 45/45 + Harness + catalog 归一化 + config/errors + /btw）
 | G-4 | TUI → kimi-tui 分片搬运（长杆） | ✅ 攻坚完成（P0-P6 分片，§6.4）；剩余：真实终端手动冒烟 + 媒体富卡片（另议） |
 | G-5 | kosong/kaos/protocol LLM 面并入；transcript/telemetry 收编 | 🔶 kimi-schema 规范化移植完成；kosong 核心能力引擎已覆盖（评估定案）；kimi-files 上传/capability/Astron 数据项随 node-sdk 退役 |
 | G-6 | 退役（node-sdk/kap-server/acp-adapter/oauth/protocol/kaos → retired/；删 rust-loop.ts、TS i18n、TS 入口、pi-tui） | ✅ 完成（2026-08-11）：11 包/模块退役（2026-08-10）+ pi-tui/migration-legacy → retired/（2026-08-11，vscode 消费面本地化至 apps/vscode/src/migration-legacy/，TS 迁移死代码与 migrate 命令面删除，SEA 注册项/CI/flake.nix/lockfile 同步） |
-| G-7 | web-only 验证 + 删除全部旧 TS 测试 | ⏳ 未开始（前置：TS 入口退役——Rust 全绿 + 分发切换决策） |
+| G-7 | web-only 验证 + 删除全部旧 TS 测试 | ✅ **完成（2026-08-11）**：`@moonshot-ai/kimi-code` 壳化（bin/kimi.mjs 纯 Rust spawn + dist-web 资产）；TS 入口与宿主测试全量退役（src → retired/kimi-code-src/，~690 用例）；`kimi upgrade` Rust 化（npm registry + KIMI_CODE_VERSION 注入）；SEA 链/tsdown/相关 workflow（_native-build/manual-native-bundle）删除；flake.nix 改 Rust 构建；vitest 基线收敛至 1133（web/壳/vscode） |
 
 ---
 
