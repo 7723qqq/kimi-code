@@ -5,9 +5,51 @@
 
 use crate::config::types::KimiConfig;
 
+/// Field-name pairs where the TS spelling (camelCase) is the serialized
+/// form and the snake_case spelling is accepted as a serde alias. When a
+/// config file written by both generations of tooling carries both keys,
+/// serde rejects the duplicate (`duplicate field`) and the whole config
+/// fails to load. Before deserializing, drop the snake_case twin so
+/// mixed-generation files load — the camelCase value wins (it is the
+/// serialized form).
+const ALIAS_DUPLICATE_PAIRS: &[(&str, &str)] = &[
+    ("defaultModel", "default_model"),
+    ("apiKey", "api_key"),
+    ("baseUrl", "base_url"),
+    ("maxTokens", "max_tokens"),
+];
+
+/// Recursively drop snake_case alias twins where the camelCase spelling is
+/// also present (see [`ALIAS_DUPLICATE_PAIRS`]).
+fn dedupe_alias_fields(value: &mut toml::Value) {
+    match value {
+        toml::Value::Table(table) => {
+            for (camel, snake) in ALIAS_DUPLICATE_PAIRS {
+                if table.contains_key(*camel) && table.contains_key(*snake) {
+                    table.remove(*snake);
+                }
+            }
+            for child in table.iter_mut().map(|(_, v)| v) {
+                dedupe_alias_fields(child);
+            }
+        }
+        toml::Value::Array(items) => {
+            for item in items {
+                dedupe_alias_fields(item);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Parse a KimiConfig from a TOML string.
 pub fn parse_config(toml_str: &str) -> Result<KimiConfig, String> {
-    toml::from_str(toml_str).map_err(|e| format!("TOML parse error: {e}"))
+    let mut value: toml::Value =
+        toml::from_str(toml_str).map_err(|e| format!("TOML parse error: {e}"))?;
+    dedupe_alias_fields(&mut value);
+    value
+        .try_into()
+        .map_err(|e: toml::de::Error| format!("TOML parse error: {e}"))
 }
 
 /// Serialize a KimiConfig to a TOML string.
@@ -47,6 +89,42 @@ max_turns = 100
         let config = parse_config(toml_str).unwrap();
         assert_eq!(config.agent.as_ref().unwrap().engine, Some("rust".into()));
         assert_eq!(config.agent.as_ref().unwrap().max_turns, Some(100));
+    }
+
+    #[test]
+    fn test_parse_mixed_spelling_default_model() {
+        // Both the TS (`defaultModel`) and snake_case (`default_model`)
+        // spellings present: the duplicate must not fail the load, and the
+        // camelCase (serialized form) value wins.
+        let toml_str = r#"
+defaultModel = "alpha"
+default_model = "beta"
+
+[providers.openai]
+type = "openai"
+apiKey = "sk-a"
+api_key = "sk-b"
+baseUrl = "https://a.example"
+base_url = "https://b.example"
+maxTokens = 1
+max_tokens = 2
+"#;
+        let config = parse_config(toml_str).unwrap();
+        assert_eq!(config.default_model.as_deref(), Some("alpha"));
+        let openai = &config.providers.as_ref().unwrap()["openai"];
+        assert_eq!(openai.api_key.as_deref(), Some("sk-a"));
+        assert_eq!(openai.base_url.as_deref(), Some("https://a.example"));
+        assert_eq!(openai.max_tokens, Some(1));
+    }
+
+    #[test]
+    fn test_parse_snake_case_spelling_only() {
+        // The alias alone still works (Rust-written configs).
+        let toml_str = r#"
+default_model = "beta"
+"#;
+        let config = parse_config(toml_str).unwrap();
+        assert_eq!(config.default_model.as_deref(), Some("beta"));
     }
 
     #[test]
