@@ -1829,16 +1829,16 @@ async fn main() -> anyhow::Result<()> {
             // TS `validateOptions` parity: empty prompt/model are rejected
             // before anything is sent to the engine.
             if prompt.trim().is_empty() {
-                eprintln!("error: Prompt cannot be empty.");
+                eprintln!("error: {}", kimi_tui::i18n::t("cli.print.promptEmpty"));
                 std::process::exit(1);
             }
             if model.as_deref().is_some_and(|m| m.trim().is_empty()) {
-                eprintln!("error: Model cannot be empty.");
+                eprintln!("error: {}", kimi_tui::i18n::t("cli.print.modelEmpty"));
                 std::process::exit(1);
             }
             let stream_json = output_format == PrintOutputFormat::StreamJson;
             if json && stream_json {
-                eprintln!("error: --json and --output-format stream-json are mutually exclusive");
+                eprintln!("error: {}", kimi_tui::i18n::t("cli.print.jsonStreamConflict"));
                 std::process::exit(1);
             }
             // Progress on stderr: always with `--verbose`, and by default when
@@ -1861,7 +1861,7 @@ async fn main() -> anyhow::Result<()> {
             // recently updated session; otherwise a fresh per-run id (TS
             // generates a unique session per print — never reuse a fixed id).
             if matches!(&session, Some(None)) {
-                eprintln!("error: --session requires an id in prompt mode");
+                eprintln!("error: {}", kimi_tui::i18n::t("cli.print.sessionIdRequired"));
                 std::process::exit(1);
             }
             let resume = continue_ || matches!(&session, Some(Some(_)));
@@ -1985,7 +1985,7 @@ async fn main() -> anyhow::Result<()> {
             }
             // Resume hint (TS parity): points at the persisted session so a
             // one-shot run can be continued interactively.
-            eprintln!("To resume this session: kimi resume {session_id}");
+            eprintln!("{}", kimi_tui::i18n::t_fmt("cli.print.resumeHint", &[session_id.clone()]));
         }
         Commands::Sessions { limit, json } => {
             let client = connect(&server)?;
@@ -2013,7 +2013,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Resume { session_id, prompt, verbose, json, goal, model, plan, output_format, yolo, auto } => {
             let stream_json = output_format == PrintOutputFormat::StreamJson;
             if json && stream_json {
-                eprintln!("error: --json and --output-format stream-json are mutually exclusive");
+                eprintln!("error: {}", kimi_tui::i18n::t("cli.print.jsonStreamConflict"));
                 std::process::exit(1);
             }
             // TTY default capture, like print (verbose forces it; script
@@ -2543,7 +2543,7 @@ async fn main() -> anyhow::Result<()> {
                     let api_key = api_key
                         .or_else(|| std::env::var("KIMI_REGISTRY_API_KEY").ok());
                     let Some(api_key) = api_key else {
-                        eprintln!("Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.");
+                        eprintln!("{}", kimi_tui::i18n::t("cli.provider.missingApiKey"));
                         std::process::exit(1);
                     };
                     let trimmed = url.trim();

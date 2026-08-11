@@ -1127,6 +1127,30 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "Reload only the TUI preferences",
         "仅重载界面偏好",
     ),
+
+    // ── CLI (shared with kimi-cli via `kimi_tui::i18n::t`) ─────────────
+    ("cli.print.promptEmpty", "Prompt cannot be empty.", "提示不能为空。"),
+    ("cli.print.modelEmpty", "Model cannot be empty.", "模型不能为空。"),
+    (
+        "cli.print.jsonStreamConflict",
+        "--json and --output-format stream-json are mutually exclusive",
+        "--json 与 --output-format stream-json 不能同时使用",
+    ),
+    (
+        "cli.print.sessionIdRequired",
+        "--session requires an id in prompt mode",
+        "提示模式下 --session 需要指定 id",
+    ),
+    (
+        "cli.print.resumeHint",
+        "To resume this session: kimi resume {0}",
+        "恢复此会话：kimi resume {0}",
+    ),
+    (
+        "cli.provider.missingApiKey",
+        "Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.",
+        "缺少 API 密钥。请传 --api-key <key> 或设置 KIMI_REGISTRY_API_KEY。",
+    ),
 ];
 
 #[cfg(test)]
