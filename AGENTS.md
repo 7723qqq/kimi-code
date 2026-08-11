@@ -99,11 +99,11 @@ Before writing any TS change, ask: *is this engine functionality?* If yes → im
 
 | 冻结包 | 目标 Rust | 备注 |
 |---|---|---|
-| `packages/migration-legacy` | 退役 | 一次性数据迁移 |
-| `packages/pi-tui` | 退役 | — |
 | `apps/kimi-code` 剩余 TS（`src/main.ts` 入口） | kimi-cli | G-3 切换中 |
 
 > **2026-08-10 已退役（→ `retired/`）**：`node-sdk`、`kap-server`、`acp-adapter`、`oauth`、`protocol`、`kaos`、`kosong`、`telemetry`、`transcript`——不再扩展、不再恢复；引用它们的代码不得回引。`kimi-agent/rust-loop.ts` 与 `kimi-agent/runtime/`（TS 桥/兼容层）已删除（2026-08-10）——kimi-agent 包仅剩 Rust + 生成文件 `src/rpc/wire.gen.ts`；apps/kimi-code 经 `NativeServerClient`（stdio RPC）直连引擎，telemetry/transcript 已本地化至宿主与 kimi-inspect。
+>
+> **2026-08-11 已退役（→ `retired/`）**：`pi-tui`、`migration-legacy`（G-6 收尾）。pi-tui 唯一消费者（TS 迁移屏）随 TS TUI 退役已死，`copy-native-assets.mjs` / SEA `native-deps.mjs` 的 pi-tui 注册项一并删除；migration-legacy 的 vscode 消费面（`LegacyMigrationManager`）已本地化至 `apps/vscode/src/migration-legacy/`，`kimi migrate` TS 命令面随死代码删除（Rust kimi-cli 保留迁移提示占位）。引用它们的代码不得回引。
 
 **保留 TS（不受冻结）**：`kimi-web` / `kimi-inspect` / `vis/web`（web 前端）、`apps/vscode`（壳）、npm 薄壳（`kimi.mjs`）——仍遵守"引擎逻辑不得写 TS"白名单。
 
@@ -200,8 +200,6 @@ packages/
   i18n-shared/       — Shared i18n core (types, locale detection, web-safe)
   telemetry/         — Shared client-side telemetry infrastructure
   minidb/            — Embedded key-value DB (Redis-style in-memory + SQLite-style WAL)
-  migration-legacy/  — Data migration from kimi-cli (~/.kimi/) to kimi-code (~/.kimi-code/)
-  pi-tui/            — Terminal UI framework (upstream dependency, node:test suite)
   kimi-native-tools/ — Rust native Node addon (napi-rs)
   kimi-build/        — Rust native build tool (SEA binary injection)
   kimi-agent/        — Rust agent engine — the only engine
@@ -327,10 +325,9 @@ pnpm --filter @moonshot-ai/kimi-web run dev
 GitHub Actions (`ci.yml`) runs on every PR and push to `main`:
 1. **build** — Install, build, smoke test CLI bundle
 2. **test** — `vitest run` split across 5 parallel shards on Ubuntu
-3. **test-pi-tui** — `pi-tui` suite (uses node:test, not vitest)
-4. **lint** — oxlint, sherif, locale JSON freshness check, locale placeholder validity, hardcoded string scan
-5. **typecheck** — TypeScript check across all packages (uses `tsgo` from `@typescript/native-preview`)
-6. **native-tools** — Runs on Windows-latest: `cargo test` and `cargo build --release`
+3. **lint** — oxlint, sherif, locale JSON freshness check, locale placeholder validity, hardcoded string scan
+4. **typecheck** — TypeScript check across all packages (uses `tsgo` from `@typescript/native-preview`)
+5. **native-tools** — Runs on Windows-latest: `cargo test` and `cargo build --release`
 
 Additional workflows: `_native-build.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release.yml`.
 
@@ -359,7 +356,7 @@ Additional workflows: `_native-build.yml`, `docs-deploy.yml`, `manual-native-bun
 - Test files get relaxed rules (no-explicit-any off, no-console off, vitest plugin rules)
 - `packages/kosong/src/providers/` gets relaxed unsafety rules
 - For full config with all overrides, see `.oxlintrc.json`
-- Ignored: `dist/`, `coverage/`, `node_modules/`, `apps/*/scripts/`, `packages/pi-tui/`, `*.generated.ts`, `参考目录/`
+- Ignored: `dist/`, `coverage/`, `node_modules/`, `apps/*/scripts/`, `*.generated.ts`, `参考目录/`
 
 ### TypeScript Config (root `tsconfig.json`)
 
@@ -401,7 +398,6 @@ Additional workflows: `_native-build.yml`, `docs-deploy.yml`, `manual-native-bun
 ### Test Framework
 
 - **vitest 4.1.4** for all TypeScript/JavaScript tests (root-level)
-- **node:test** for `@moonshot-ai/pi-tui` (not part of vitest workspace)
 - **cargo test** for Rust packages (`kimi-native-tools`)
 - **Coverage**: v8 provider, reports in text + HTML
 
