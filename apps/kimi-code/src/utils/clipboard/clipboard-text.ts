@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 
+import { t } from '#/i18n';
 import { clipboard } from './clipboard-native';
 import { writeClipboardOSC52 } from './clipboard-osc52';
 
@@ -38,7 +39,7 @@ async function copyWithPlatformCommand(text: string): Promise<void> {
   }
 
   if (lastError instanceof Error) throw lastError;
-  throw new Error('No clipboard command is available.');
+  throw new Error(t('tui.statusMessages.noClipboardCommandAvailable'));
 }
 
 /** How the text was delivered: a verified local clipboard tool, or an

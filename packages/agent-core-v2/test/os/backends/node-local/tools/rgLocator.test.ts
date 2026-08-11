@@ -177,10 +177,11 @@ describe('rgUnavailableMessage', () => {
     expect(msg).toContain('brew');
   });
 
-  it('includes the object message for Error-like thrown values', () => {
+  it('falls back to "unknown error" for Error-like thrown values', () => {
     const like = { message: 'disk full' };
     const msg = rgUnavailableMessage(like);
-    expect(msg).toContain('disk full');
+    expect(msg).toContain('unknown error');
+    expect(msg).not.toContain('disk full');
   });
 });
 

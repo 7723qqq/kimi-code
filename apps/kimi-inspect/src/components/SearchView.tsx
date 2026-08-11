@@ -9,6 +9,7 @@ import { useState } from 'react';
 
 import { useConnection } from '../connection';
 import { fetchSearchPage, type SearchHit, type SearchIndexState } from '../search/api';
+import { t } from '../i18n';
 import { ActionButton, Badge, ErrorLine, relTime } from '../ui';
 
 type RoleFilter = 'all' | 'user' | 'assistant' | 'title';
@@ -192,10 +193,12 @@ export function SearchView({ onOpenResult }: { onOpenResult: (hit: SearchHit) =>
         ) : null}
         {result === null ? (
           <div className="text-[12px] text-neutral-600 italic">
-            Search user prompts, assistant replies and session titles across every session.
+            {t('chat.searchHint')}
           </div>
         ) : result.items.length === 0 && !searching ? (
-          <div className="text-[12px] text-neutral-600 italic">No hits for “{result.query}”.</div>
+          <div className="text-[12px] text-neutral-600 italic">
+            {t('chat.noHitsForQuery', { query: result.query })}
+          </div>
         ) : (
           <div className="flex flex-col gap-2">
             {result.incomplete === 'candidate_cap' ? (

@@ -3,6 +3,7 @@ import type {
   PermissionPolicy,
   PermissionPolicyResult,
 } from '#/agent/permissionPolicy/types';
+import { GITHUB_READONLY_TOOL_NAMES } from '#/agent/tools/github/github-tools';
 
 const DEFAULT_APPROVE_TOOLS = new Set([
   'Read',
@@ -27,6 +28,9 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'SetGoalBudget',
   'UpdateGoal',
   'select_tools',
+  // Read-only GitHub tools (no remote side effects). Mutating GitHub tools are
+  // intentionally excluded so they still require approval.
+  ...GITHUB_READONLY_TOOL_NAMES,
 ]);
 
 export class DefaultToolApprovePermissionPolicyService implements PermissionPolicy {

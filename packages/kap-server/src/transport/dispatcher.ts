@@ -17,6 +17,7 @@ import {
   type ServiceIdentifier,
 } from '@moonshot-ai/agent-core-v2';
 
+import { t } from '../i18n';
 import type { ScopeKind } from './channel';
 import { resolveAnyScopedServiceId } from './channelRegistry';
 import { assertSerializable } from './errors';
@@ -107,7 +108,7 @@ export async function resolveService(
   ) {
     throw new Error2(
       ErrorCodes.GOAL_UNSUPPORTED_AGENT,
-      'Goals are only supported by the main agent',
+      t('v2Goal.onlyMainAgent'),
       { details: { agentId: params['agent_id'] ?? '' } },
     );
   }
@@ -121,6 +122,41 @@ export async function resolveService(
   }
 }
 
+// Reflect RPC must not reach prototype/object members: `constructor`,
+// `toString`, `valueOf`, `dispose`, `_`-prefixed internals, etc. A client
+// that can dispatch `dispose` (or worse) could destroy service state.
+const FORBIDDEN_METHOD_NAMES = new Set<string>([
+  'constructor',
+  'prototype',
+  '__proto__',
+  '__defineGetter__',
+  '__defineSetter__',
+  '__lookupGetter__',
+  '__lookupSetter__',
+  'hasOwnProperty',
+  'isPrototypeOf',
+  'propertyIsEnumerable',
+  'toLocaleString',
+  'toString',
+  'valueOf',
+  'then',
+  'catch',
+  'finally',
+  'dispose',
+]);
+
+function assertDispatchableMethod(serviceName: string, method: string): void {
+  if (method.startsWith('_') || FORBIDDEN_METHOD_NAMES.has(method)) {
+    throw new Error2(
+      ErrorCodes.REQUEST_INVALID,
+      `method not allowed: ${serviceName}.${method}`,
+    );
+  }
+}
+
+/** Exported for tests. */
+export { assertDispatchableMethod };
+
 export async function dispatch(
   core: Scope,
   scopeKind: ScopeKind,
@@ -131,6 +167,7 @@ export async function dispatch(
   lookup: ChannelLookup = resolveAnyScopedServiceId,
 ): Promise<unknown> {
   const service = await resolveService(core, scopeKind, params, serviceName, lookup);
+  assertDispatchableMethod(serviceName, method);
   const member = (service as Record<string, unknown>)[method];
   if (member === undefined) {
     throw new Error2(ErrorCodes.REQUEST_INVALID, `method not found: ${serviceName}.${method}`);

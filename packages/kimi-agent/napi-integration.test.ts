@@ -19,8 +19,21 @@ function loadNativeModule(): {
   resolveCallback: (id: number, error: string | null, result: string | null) => void;
   getCallbackPayload: (id: number) => string | null;
 } {
+  // The napi build emits a platform-suffixed name (e.g.
+  // kimi_agent.win32-x64-msvc.node), so glob instead of requiring a
+  // fixed `kimi_agent.node` path.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require('./kimi_agent.node');
+  const fs = require('node:fs') as typeof import('node:fs');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const path = require('node:path') as typeof import('node:path');
+  const entry = fs
+    .readdirSync(import.meta.dirname)
+    .find((f: string) => f.endsWith('.node') && f.startsWith('kimi_agent'));
+  if (!entry) {
+    throw new Error('kimi_agent native addon not built; run `napi build` in packages/kimi-agent');
+  }
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require(path.resolve(import.meta.dirname, entry));
 }
 
 /**

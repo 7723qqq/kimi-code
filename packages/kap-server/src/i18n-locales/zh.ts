@@ -56,4 +56,10 @@ export default {
     indexHtmlNotAFile: 'index.html 不是一个文件',
     paginationMutuallyExclusive: 'before_id 和 after_id 互斥',
   },
+  v2Errors: {
+    fileNotFound: '未找到文件',
+  },
+  v2Goal: {
+    onlyMainAgent: '目标仅由主 Agent 支持',
+  },
 } as const;

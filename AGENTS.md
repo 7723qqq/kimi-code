@@ -78,7 +78,7 @@ apps/
 
 #### `apps/kimi-code` — CLI / TUI Application
 
-The main application. Consumes core capabilities through `@moonshot-ai/kimi-code-sdk` and must **not** depend directly on `@moonshot-ai/agent-core`. When writing or modifying its terminal UI, use the `write-tui` skill (`.agents/skills/write-tui/SKILL.md`).
+The main application. Consumes core capabilities through `@moonshot-ai/kimi-code-sdk` and must **not** depend directly on `@moonshot-ai/agent-core-v2` outside the `cli/v2` runner. When writing or modifying its terminal UI, use the `write-tui` skill (`.agents/skills/write-tui/SKILL.md`).
 
 **Source layout:**
 
@@ -154,7 +154,6 @@ packages/
   klient/            — Client SDK (contract-driven facade over agent-core-v2)
   kap-server/        — Kimi Code local server (REST + WebSocket)
   server/            — Legacy local REST + WebSocket server
-  acp-adapter/       — Agent Client Protocol adapter (public package)
   node-sdk/          — Public TypeScript SDK (@moonshot-ai/kimi-code-sdk)
   protocol/          — Shared REST + WS protocol schemas (Zod types)
   transcript/        — Isomorphic transcript rendering data layer
@@ -457,7 +456,7 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 ## Experimental Features
 
-- Gate a not-yet-public feature behind an experimental flag. Add the flag to the registry at `packages/agent-core/src/flags/registry.ts`, then check it with `flags.enabled('my-feature')`.
+- Gate a not-yet-public feature behind an experimental flag. Add the flag to the registry at `packages/agent-core-v2/src/app/flag/flagRegistry.ts`, then check it with `flags.enabled('my-feature')`.
 - Flags are env-driven and default off:
   - `KIMI_CODE_EXPERIMENTAL_<NAME>` toggles one
   - `KIMI_CODE_EXPERIMENTAL_FLAG` enables all

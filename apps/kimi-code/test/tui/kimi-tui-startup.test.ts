@@ -141,6 +141,8 @@ function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
     status: 'paused',
     turnsUsed: 2,
     tokensUsed: 100,
+    inputTokensUsed: 0,
+    outputTokensUsed: 0,
     wallClockMs: 1000,
     createdAt: 1000,
     updatedAt: 2000,
@@ -155,6 +157,8 @@ function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
       turnBudgetReached: false,
       wallClockBudgetReached: false,
       overBudget: false,
+      inputTokensUsed: 0,
+      outputTokensUsed: 0,
     },
     ...overrides,
   };

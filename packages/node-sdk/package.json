@@ -27,6 +27,8 @@
   ],
   "type": "module",
   "imports": {
+    "#/legacy": "./src/legacy/index.ts",
+    "#/config-local": "./src/config-local/index.ts",
     "#/*": "./src/*.ts"
   },
   "exports": {
@@ -59,13 +61,14 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@moonshot-ai/agent-core": "workspace:^",
     "@moonshot-ai/agent-core-v2": "workspace:^",
-    "@moonshot-ai/kaos": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
+    "@moonshot-ai/kimi-i18n": "workspace:^",
     "@moonshot-ai/klient": "workspace:^",
     "@moonshot-ai/kosong": "workspace:^",
+    "@moonshot-ai/protocol": "workspace:^",
     "@types/yazl": "^2.4.6",
-    "jimp": "^1.6.1"
+    "jimp": "^1.6.1",
+    "pathe": "^2.0.3"
   }
 }

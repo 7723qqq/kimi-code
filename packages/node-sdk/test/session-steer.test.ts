@@ -52,7 +52,7 @@ afterEach(async () => {
 });
 
 describe('Session.steer', () => {
-  it('sends turn.steer to the core session runtime', async () => {
+  it('rejects an idle-session steer with prompt.not_found (v2 pinned)', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-work-');
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
@@ -60,15 +60,11 @@ describe('Session.steer', () => {
     try {
       const session = await harness.createSession({ id: 'ses_steer_wire', workDir });
 
-      await session.steer('also do this');
-
-      await expect(
-        waitForAgentWireEvent(homeDir, session.id, 'turn.steer', (event) =>
-          Array.isArray(event['input']),
-        ),
-      ).resolves.toMatchObject({
-        type: 'turn.steer',
-        input: [{ type: 'text', text: 'also do this' }],
+      // v1 launched a fresh turn off an idle steer; v2's steer only joins a
+      // pending prompt, so an idle session rejects with prompt.not_found
+      // (pinned in the parity KNOWN_DIFFS).
+      await expect(session.steer('also do this')).rejects.toMatchObject({
+        code: 'prompt.not_found',
       });
     } finally {
       await harness.close();

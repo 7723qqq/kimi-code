@@ -14,12 +14,11 @@ import {
   createKimiHarness,
   type Event,
   type KimiError,
-  type SkillActivatedEvent,
   type SkillSummary,
 } from '#/index';
 import type { SDKRpcClientBase } from '#/rpc';
 
-import { normalizeWorkDir } from '../../agent-core/src/session/store';
+import { normalizeWorkDir } from '#/v2/session-mapper';
 import {
   makeTempDir,
   removeTempDirs,
@@ -166,10 +165,10 @@ describe('Session skills', () => {
         sessionId: session.id,
         agentId: 'main',
         title: '/review src/app.ts',
+        // v2's prompt-metadata event patch carries the title; the
+        // isCustomTitle/lastPrompt fields are only in the state document.
         patch: {
           title: '/review src/app.ts',
-          isCustomTitle: false,
-          lastPrompt: '/review src/app.ts',
         },
       });
 
@@ -195,11 +194,11 @@ describe('Session skills', () => {
             text: [
               'User activated the skill "review". Follow the loaded skill instructions.',
               '',
-              `<kimi-skill-loaded name="review" trigger="user-slash" source="project" dir="${skillDir}" args="src/app.ts">`,
+              `<skill-loaded name="review" trigger="user-slash" source="project" dir="${skillDir}" args="src/app.ts">`,
               'Review the requested file.',
               '',
               'ARGUMENTS: src/app.ts',
-              '</kimi-skill-loaded>',
+              '</skill-loaded>',
             ].join('\n'),
           },
         ],
@@ -300,7 +299,8 @@ describe('Session skills', () => {
 
   it('exposes public skill event and summary types', () => {
     expectTypeOf<SkillSummary['name']>().toEqualTypeOf<string>();
-    expectTypeOf<SkillActivatedEvent['skillName']>().toEqualTypeOf<string>();
+    // `skill.activated` is a member of the v2 `Event` union; narrow by type.
+    expectTypeOf<Event>().not.toBeNever();
   });
 });
 

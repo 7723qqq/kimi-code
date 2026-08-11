@@ -44,6 +44,23 @@ import type { ISessionWorkspaceContext } from '#/session/workspaceContext/worksp
 import type { WorkspaceConfig } from '#/tool/path-access';
 import { sniffImageDimensions } from '#/agent/media/file-type';
 
+// The Rust native module (`@moonshot-ai/kimi-native-tools`) is loadable under
+// vitest (indirectly activated via packages/i18n), which routes sniffing and
+// file-type detection through native fast paths whose results differ from the
+// TS implementations this test asserts against: native sniff does not apply
+// EXIF orientation, and native detection classifies unknown binaries like ZIP
+// as text. Stub only those two entry points so callers use the TS fallback.
+// (Native compress/crop must stay live: the v2 media pipeline is native-only
+// with no jimp fallback yet.)
+vi.mock('#/_base/native-tools', async () => {
+  const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
+  return {
+    ...actual,
+    tryNativeSniffImageDimensions: () => undefined,
+    tryNativeDetectFileType: () => undefined,
+  };
+});
+
 const WORKSPACE: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs: [] };
 
 const PNG_WIDTH = 1920;

@@ -83,7 +83,7 @@ function detailFor(info: BackgroundTaskInfo): string | undefined {
     const reason = truncate(info.stopReason);
     if (reason !== undefined) parts.push(reason);
   }
-  if (info.status === 'timed_out') parts.push('timed out');
+  if (info.status === 'timed_out') parts.push(t('tui.dialogs.tasksBrowser.statusTimedOut'));
   if (info.status === 'lost') {
     parts.push('session restarted before completion');
   }

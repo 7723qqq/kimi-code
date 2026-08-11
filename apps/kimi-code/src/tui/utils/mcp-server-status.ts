@@ -1,6 +1,8 @@
-import type { McpServerInfo, McpServerStatusEvent } from '@moonshot-ai/kimi-code-sdk';
+import type { Event, McpServerInfo } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
+
+type McpServerStatusEvent = Extract<Event, { type: 'mcp.server.status' }>;
 
 export type McpServerStatusSnapshot = McpServerInfo | McpServerStatusEvent['server'];
 
@@ -13,6 +15,7 @@ function mcpStartupStatusPriority(status: McpServerStatusSnapshot['status']): nu
     case 'needs-auth':
       return 1;
     case 'pending':
+    case 'pending-approval':
       return 2;
     case 'connected':
       return 3;
@@ -20,6 +23,8 @@ function mcpStartupStatusPriority(status: McpServerStatusSnapshot['status']): nu
       return 4;
     case 'removed':
       return 5;
+    default:
+      return 6;
   }
 }
 
@@ -50,6 +55,7 @@ export function formatMcpStartupStatusSummary(
         needsAuth++;
         break;
       case 'pending':
+      case 'pending-approval':
         connecting++;
         break;
       case 'connected':

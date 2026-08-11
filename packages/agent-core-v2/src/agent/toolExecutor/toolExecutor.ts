@@ -17,6 +17,7 @@ import type {
   WillExecuteToolEvent,
 } from '#/agent/toolExecutor/toolHooks';
 import type { ToolCall } from '#/kosong/contract/message';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import type { OrderedHookSlot } from '#/hooks';
 import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
 import type { ToolSource } from '#/tool/toolContract';
@@ -25,6 +26,7 @@ export interface ToolCallStartedPayload {
   readonly toolCallId: string;
   readonly name: string;
   readonly args: unknown;
+  readonly display?: ToolInputDisplay | undefined;
 }
 
 export interface ToolExecutorExecuteOptions {

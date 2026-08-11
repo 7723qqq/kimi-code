@@ -81,7 +81,7 @@ interface SourceRow {
   readonly baseUrl?: string;
 }
 
-/** Synthetic `[ Add New Platform ]` action row pinned to the bottom. */
+/** Synthetic Add New Platform action row pinned to the bottom. */
 interface AddRow {
   readonly kind: 'add';
   readonly id: '__add__';

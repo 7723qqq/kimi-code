@@ -78,7 +78,17 @@ export class ExternalHooksRunnerService extends Disposable implements IExternalH
     event: string,
     args: ExternalHooksRunnerTriggerArgs = {},
   ): Promise<HookBlockDecision | undefined> {
-    return blockDecision(event, await this.trigger(event, args));
+    // Permission-gating hooks fail closed: spawn/timeout/error paths block
+    // instead of silently allowing, and an input-preparation failure blocks
+    // too (a hook gate must never degrade into an allow by crashing).
+    try {
+      return blockDecision(event, await this.triggerInner(event, args, true));
+    } catch (error) {
+      return {
+        block: true,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   fireAndForgetTrigger(
@@ -99,6 +109,7 @@ export class ExternalHooksRunnerService extends Disposable implements IExternalH
   private async triggerInner(
     event: string,
     args: ExternalHooksRunnerTriggerArgs,
+    failClosed = false,
   ): Promise<HookResult[]> {
     await this.ready;
     return runMatchedHooks(
@@ -114,6 +125,7 @@ export class ExternalHooksRunnerService extends Disposable implements IExternalH
         },
       },
       this.callbacks,
+      failClosed,
     );
   }
 

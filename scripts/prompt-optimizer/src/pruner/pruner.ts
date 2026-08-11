@@ -5,7 +5,7 @@
  * runs the relevant benchmark cases, and reports impact.
  */
 
-import type { BenchmarkCase, BenchmarkResult, PromptSection, PruneReport, PruneResult } from '../types';
+import type { BenchmarkCase, PromptSection, PruneReport, PruneResult } from '../types';
 import { generateBaselineVariant, generatePruneVariant } from '../prompt-parser';
 import { runSuite, aggregateResults, type LLMCaller, type RunnerConfig } from '../benchmark/runner';
 import { getCasesBySection } from '../benchmark/cases';
@@ -36,7 +36,6 @@ export async function runPruner(
   // 1. Run baseline
   const baselineVariant = generateBaselineVariant(sections);
   const baselineResults = await runSuite(allCases, baselineVariant, config.caller, config.runner);
-  const baselineAgg = aggregateResults(baselineResults);
 
   // 2. For each section, run with that section removed
   const pruneResults: PruneResult[] = [];

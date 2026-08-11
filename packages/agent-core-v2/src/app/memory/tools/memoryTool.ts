@@ -7,7 +7,6 @@
  */
 
 import { z } from 'zod';
-import { isAbsolute, join } from 'pathe';
 
 import { createDecorator } from '#/_base/di/instantiation';
 import { toInputJsonSchema } from '#/tool/input-schema';

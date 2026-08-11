@@ -723,7 +723,7 @@ export default {
         actionsSection: '操作',
         tabInstalled: '已安装',
         tabOfficial: '官方',
-        tabThirdParty: '第三方',
+        tabThirdParty: '精选',
         tabCustom: '自定义',
         enterUpdate: 'Enter 更新',
         enterDetails: 'Enter 详情',
@@ -754,7 +754,7 @@ export default {
         marketplaceSource: '来源：{{source}}',
         openInBrowser: '在浏览器中打开',
         installFromUrlHint: ' 从 GitHub URL（或 zip URL / 本地路径）安装：',
-        installingFromMarketplace: '正在从市场安装 {{label}}…',
+        installingFromMarketplace: '正在安装 {{label}}…',
         pluginId: 'ID {{id}}',
         skillCount_one: '{{count}} 个技能',
         skillCount_other: '{{count}} 个技能',
@@ -1355,6 +1355,17 @@ export default {
 
       // main.ts
       mainError: '错误：{{message}}',
+      // feedback/codebase/packager.ts
+      emptyFeedbackArchive: '无法打包空的反馈归档。',
+      // native/minidb-worker.ts
+      minidbWorkerRuntimeNotConfigured: 'MiniDb worker 运行时未配置',
+      // native/smoke.ts
+      minidbWorkerSearchResultIncorrect: 'MiniDb worker 构建的文本索引返回了错误的搜索结果',
+      nativeManifestNotAvailable: '原生资源清单不可用。',
+      // utils/clipboard/clipboard-text.ts
+      noClipboardCommandAvailable: '没有可用的剪贴板命令。',
+      // utils/process/fd-detect.ts
+      fdDownloadEmptyResponse: '下载 fd 失败：响应体为空',
     },
     messages: {
       agentGroup: {
@@ -1579,6 +1590,7 @@ export default {
         status: {
           connected: '已连接',
           pending: '待处理',
+          pendingApproval: '待审批',
           needsAuth: '需要认证',
           failed: '失败',
           disabled: '已禁用',

@@ -118,6 +118,8 @@ function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
     status,
     turnsUsed: 0,
     tokensUsed: 0,
+    inputTokensUsed: 0,
+    outputTokensUsed: 0,
     wallClockMs: 0,
     createdAt: 1000,
     updatedAt: 2000,
@@ -132,6 +134,8 @@ function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
       turnBudgetReached: false,
       wallClockBudgetReached: false,
       overBudget: false,
+      inputTokensUsed: 0,
+      outputTokensUsed: 0,
     },
     ...overrides,
   };
@@ -856,7 +860,7 @@ describe('KimiTUI resume message replay', () => {
 
     driver.sessionEventHandler.handleEvent(
       {
-        type: 'background.task.terminated',
+        type: 'task.terminated',
         agentId: 'main',
         sessionId: 'ses-replay',
         info: { ...info, status: 'timed_out', endedAt: 2 },
@@ -895,7 +899,7 @@ describe('KimiTUI resume message replay', () => {
       [
         message('user', [{ type: 'text', text: 'Background task lost.' }], {
           origin: {
-            kind: 'background_task',
+            kind: 'task',
             taskId: 'bash-lost0000',
             status: 'lost',
             notificationId: 'task:bash-lost0000:lost',

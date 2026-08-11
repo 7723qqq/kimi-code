@@ -314,7 +314,8 @@ export function createGlobalFacade(scoped: ScopedCaller, scopedStream: ScopedStr
           if (title !== undefined) {
             await scoped(scope, 'sessionMetadata', 'setTitle', [title]);
           }
-          return scoped(scope, 'sessionMetadata', 'read', []) as Promise<SessionMeta>;
+          const meta = (await scoped(scope, 'sessionMetadata', 'read', [])) as SessionMeta;
+          return meta;
         } catch (error) {
           // Clean up the created session on partial failure.
           await scoped(scope, 'sessionLifecycleService', 'delete', [{ id: handle.id }]).catch(() => {});

@@ -20,6 +20,13 @@ import {
   RateLimitError as AnthropicRateLimitError,
 } from '@anthropic-ai/sdk';
 import { describe, it, expect, vi } from 'vitest';
+
+// The Rust native LLM stream replaces the mock SDK client with real network
+// calls when the addon is loadable; force the TS/SDK fallback in tests.
+vi.mock('../src/providers/native-stream', async () => {
+  const actual = await vi.importActual<typeof import('../src/providers/native-stream')>('../src/providers/native-stream');
+  return { ...actual, tryNativeLlmStream: () => undefined, tryNativeLlmStreamIncremental: () => undefined };
+});
 describe('convertAnthropicError', () => {
   it('APIConnectionTimeoutError -> APITimeoutError (not misclassified as connection)', () => {
     const err = new AnthropicTimeoutError({ message: 'timed out' });
@@ -120,47 +127,48 @@ describe('convertAnthropicError', () => {
     expect(result.message).toContain('something went wrong');
   });
 
-  it('AnthropicError "Engine Busy" → APIStatusError(503)', () => {
+  it('AnthropicError "Engine Busy" → ChatProviderError (no longer mapped to 503)', () => {
     const err = new AnthropicError(
       'Xunfei claude request failed with code: 10010, msg: RecvFromEngineError:Engine Busy',
     );
     const result = convertAnthropicError(err);
-    expect(result).toBeInstanceOf(APIStatusError);
-    expect((result as APIStatusError).statusCode).toBe(503);
+    expect(result).toBeInstanceOf(ChatProviderError);
+    expect(result).not.toBeInstanceOf(APIStatusError);
     expect(result.message).toContain('Engine Busy');
   });
 
-  it('AnthropicError "overloaded" → APIStatusError(503)', () => {
+  it('AnthropicError "overloaded" → ChatProviderError (no longer mapped to 503)', () => {
     const err = new AnthropicError('server is overloaded, try again later');
     const result = convertAnthropicError(err);
-    expect(result).toBeInstanceOf(APIStatusError);
-    expect((result as APIStatusError).statusCode).toBe(503);
+    expect(result).toBeInstanceOf(ChatProviderError);
+    expect(result).not.toBeInstanceOf(APIStatusError);
   });
 
-  it('AnthropicError "upstream stream ended" → APIStatusError(503)', () => {
+  it('AnthropicError "upstream stream ended" → ChatProviderError (no longer mapped to 503)', () => {
     const err = new AnthropicError(
       '{"error":{"type":"new_api_error","message":"upstream stream ended without protocol terminator (eof)"},"type":"error"}',
     );
     const result = convertAnthropicError(err);
-    expect(result).toBeInstanceOf(APIStatusError);
-    expect((result as APIStatusError).statusCode).toBe(503);
+    expect(result).toBeInstanceOf(ChatProviderError);
+    expect(result).not.toBeInstanceOf(APIStatusError);
     expect(result.message).toContain('upstream stream ended');
   });
 
-  it('AnthropicError rate-limit message → APIStatusError(429)', () => {
+  it('AnthropicError rate-limit message → ChatProviderError (no longer mapped to 429)', () => {
     const err = new AnthropicError('rate limited: too many requests');
     const result = convertAnthropicError(err);
-    expect(result).toBeInstanceOf(APIStatusError);
-    expect((result as APIStatusError).statusCode).toBe(429);
+    expect(result).toBeInstanceOf(ChatProviderError);
+    expect(result).not.toBeInstanceOf(APIStatusError);
+    expect(result.message).toContain('rate limited');
   });
 
-  it('AnthropicError "Xunfei rate-limit code 11210" → APIProviderRateLimitError', () => {
+  it('AnthropicError "Xunfei rate-limit code 11210" → ChatProviderError (no longer mapped to rate limit)', () => {
     const err = new AnthropicError(
       '{"error":{"message":"Xunfei claude request failed with Sid: abc123 code: 11210, msg: internal error"}}',
     );
     const result = convertAnthropicError(err);
-    expect(result).toBeInstanceOf(APIProviderRateLimitError);
-    expect((result as APIProviderRateLimitError).statusCode).toBe(429);
+    expect(result).toBeInstanceOf(ChatProviderError);
+    expect(result).not.toBeInstanceOf(APIProviderRateLimitError);
     expect(result.message).toContain('Xunfei claude request failed');
   });
 

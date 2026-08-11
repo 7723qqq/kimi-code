@@ -39,6 +39,19 @@ const mocks = vi.hoisted(() => ({
   spawn: vi.fn(),
 }));
 
+// Expected spawn options. On win32 the implementation adds shell:true
+// (npm/pnpm/yarn are .cmd shims; Node throws EINVAL without a shell since
+// CVE-2024-27980) and windowsHide:true for detached background installs, so
+// the assertions below stay valid on every platform (see preflight.ts).
+const FOREGROUND_SPAWN_OPTIONS =
+  process.platform === 'win32'
+    ? { stdio: 'inherit', shell: true }
+    : { stdio: 'inherit' };
+const BACKGROUND_SPAWN_OPTIONS =
+  process.platform === 'win32'
+    ? { detached: true, stdio: 'ignore', shell: true, windowsHide: true }
+    : { detached: true, stdio: 'ignore' };
+
 vi.mock('../../../src/cli/update/cache', () => ({
   readUpdateCache: mocks.readUpdateCache,
 }));
@@ -304,7 +317,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-      { detached: true, stdio: 'ignore' },
+      BACKGROUND_SPAWN_OPTIONS,
     );
   });
 
@@ -369,7 +382,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-      { stdio: 'inherit' },
+      FOREGROUND_SPAWN_OPTIONS,
     );
     expect(stdout.join('')).toContain('Updated @moonshot-ai/kimi-code to 0.5.0');
   });
@@ -395,7 +408,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@moonshot-ai/kimi-code@0.7.0'],
-      { stdio: 'inherit' },
+      FOREGROUND_SPAWN_OPTIONS,
     );
     expect(stdout.join('')).toContain('Updated @moonshot-ai/kimi-code to 0.7.0');
   });
@@ -437,7 +450,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^pnpm(\.cmd)?$/),
       ['add', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-      { stdio: 'inherit' },
+      FOREGROUND_SPAWN_OPTIONS,
     );
   });
 
@@ -475,7 +488,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^yarn(\.cmd)?$/),
       ['global', 'add', '@moonshot-ai/kimi-code@0.5.0'],
-      { stdio: 'inherit' },
+      FOREGROUND_SPAWN_OPTIONS,
     );
   });
 
@@ -491,7 +504,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^bun(\.exe)?$/),
       ['add', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-      { stdio: 'inherit' },
+      FOREGROUND_SPAWN_OPTIONS,
     );
   });
 
@@ -600,7 +613,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-      { detached: true, stdio: 'ignore' },
+      BACKGROUND_SPAWN_OPTIONS,
     );
     expect(writeUpdateInstallState).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -711,7 +724,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       expect.stringMatching(/^npm(\.cmd)?$/),
       ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-      { detached: true, stdio: 'ignore' },
+      BACKGROUND_SPAWN_OPTIONS,
     );
   });
 
@@ -1012,7 +1025,7 @@ describe('runUpdatePreflight', () => {
       expect(mocks.spawn).toHaveBeenCalledWith(
         expect.stringMatching(/^npm(\.cmd)?$/),
         ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-        { detached: true, stdio: 'ignore' },
+        BACKGROUND_SPAWN_OPTIONS,
       );
       expect(track).toHaveBeenCalledWith(
         'update_background_install_started',
@@ -1153,7 +1166,7 @@ describe('runUpdatePreflight', () => {
       expect(mocks.spawn).toHaveBeenCalledWith(
         expect.stringMatching(/^npm(\.cmd)?$/),
         ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-        { detached: true, stdio: 'ignore' },
+        BACKGROUND_SPAWN_OPTIONS,
       );
       expect(track).toHaveBeenCalledWith(
         'update_background_install_started',

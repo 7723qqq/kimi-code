@@ -184,9 +184,11 @@ fn is_win32_drive_relative(path: &str) -> bool {
 
 fn is_absolute(path: &str, path_class: PathClass) -> bool {
     if path_class == PathClass::Win32 {
-        // C:\path, \\server\share, or /path (POSIX-style on Win32 host)
-        path.len() >= 2 && path[..2].chars().next().unwrap().is_ascii_alphabetic()
-            && path.as_bytes()[1] == b':'
+        // C:\path, \\server\share, or /path (POSIX-style on Win32 host).
+        // Byte-based check: `path[..2]` would panic on a multi-byte first
+        // character (non-ASCII relative paths), so never slice mid-char.
+        let bytes = path.as_bytes();
+        (bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':')
             || path.starts_with("\\\\")
             || path.starts_with('/')
     } else {
@@ -334,6 +336,17 @@ mod tests {
     #[test]
     fn test_canonicalize_already_absolute() {
         assert_eq!(canonicalize_path("/foo/bar", "/cwd", PathClass::Posix).unwrap(), "/foo/bar");
+    }
+
+    #[test]
+    fn test_is_absolute_non_ascii_win32() {
+        // Regression: `path[..2]` used to panic on a multi-byte first char
+        // (non-ASCII relative path) in the Win32 branch.
+        assert!(!is_absolute("中文路径/文件", PathClass::Win32));
+        assert!(!is_absolute("日本語", PathClass::Win32));
+        assert!(is_absolute("C:/foo", PathClass::Win32));
+        assert!(is_absolute("/foo", PathClass::Win32));
+        assert!(!is_absolute("foo", PathClass::Win32));
     }
 
     #[test]

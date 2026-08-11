@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { ZipFile } from 'yazl';
@@ -86,10 +86,12 @@ describe('import-store', () => {
 });
 
 describe('resolveSafeTarget (zip-slip guard)', () => {
-  const root = '/tmp/imp/abc';
+  // resolveSafeTarget returns node:path-resolved paths, so the expected
+  // values must be constructed platform-aware (Windows: `G:\tmp\...`).
+  const root = resolve('/tmp/imp/abc');
   it('accepts in-tree paths', () => {
-    expect(resolveSafeTarget(root, 'state.json')).toBe('/tmp/imp/abc/state.json');
-    expect(resolveSafeTarget(root, 'agents/main/wire.jsonl')).toBe('/tmp/imp/abc/agents/main/wire.jsonl');
+    expect(resolveSafeTarget(root, 'state.json')).toBe(join(root, 'state.json'));
+    expect(resolveSafeTarget(root, 'agents/main/wire.jsonl')).toBe(join(root, 'agents/main/wire.jsonl'));
   });
   it('rejects traversal and absolute escapes', () => {
     expect(resolveSafeTarget(root, '../evil')).toBeNull();

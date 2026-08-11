@@ -29,7 +29,6 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
-    "@moonshot-ai/agent-core": "workspace:^",
     "@moonshot-ai/kosong": "workspace:^",
     "@moonshot-ai/protocol": "workspace:^",
     "hono": "^4.7.7",
@@ -39,7 +38,7 @@
     "@types/yauzl": "^2.10.3",
     "@types/yazl": "^2.4.6",
     "tsx": "^4.21.0",
-    "vitest": "4.1.4",
+    "vitest": "4.1.10",
     "yazl": "^3.3.1"
   }
 }

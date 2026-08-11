@@ -12,6 +12,13 @@ import type { GenerateOptions } from '#/provider';
 import type { Tool } from '#/tool';
 import { describe, it, expect, vi } from 'vitest';
 
+// The Rust native LLM stream replaces the mock SDK client with real network
+// calls when the addon is loadable; force the TS/SDK fallback in tests.
+vi.mock('../src/providers/native-stream', async () => {
+  const actual = await vi.importActual<typeof import('../src/providers/native-stream')>('../src/providers/native-stream');
+  return { ...actual, tryNativeLlmStream: () => undefined, tryNativeLlmStreamIncremental: () => undefined };
+});
+
 function makeAnthropicResponse(model: string = 'k25') {
   return {
     id: 'msg_test_123',
@@ -989,7 +996,7 @@ describe('AnthropicChatProvider', () => {
       ]);
     });
 
-    it('video url content rejects unsupported media type', async () => {
+    it('video url content degrades unsupported media type to a text placeholder', async () => {
       const provider = createProvider();
       const history: Message[] = [
         {
@@ -1000,7 +1007,13 @@ describe('AnthropicChatProvider', () => {
           toolCalls: [],
         },
       ];
-      await expect(captureRequestBody(provider, '', [], history)).rejects.toThrow(ChatProviderError);
+      const body = await captureRequestBody(provider, '', [], history);
+
+      const messages = body['messages'] as Array<{ role: string; content: unknown[] }>;
+      const content = messages[0]!.content as Array<{ type: string; text?: string }>;
+      expect(
+        content.some((block) => block.type === 'text' && block.text?.includes('[video omitted')),
+      ).toBe(true);
     });
 
     it('tool result with video content', async () => {

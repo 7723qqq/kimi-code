@@ -1,32 +1,11 @@
-import type {
-  ExportSessionManifest,
-  ResumeSessionResult,
-  ShellEnvironment,
-  TelemetryClient,
-  TelemetryContextPatch,
-  TelemetryProperties,
-} from '@moonshot-ai/agent-core';
-import type { Kaos } from '@moonshot-ai/kaos';
 import type { KimiHostIdentity, OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
-import type { ContentPart } from '@moonshot-ai/kosong';
-
-export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
-export type JsonObject = { readonly [key: string]: JsonValue };
-
-export type Unsubscribe = () => void;
-
-export type { CapabilityStatus } from '@moonshot-ai/agent-core-v2/app/capability/types';
-
-export type {
+import type { ContentPart, ModelCapability } from '@moonshot-ai/kosong';
+import type {
+  AgentContextData,
   AgentReplayRecord,
-  AgentBackgroundTaskInfo,
-  BackgroundConfig,
-  BackgroundTaskInfo,
-  BackgroundTaskStatus,
-  ConfigDiagnostics,
+  AgentTaskInfo,
+  AgentTaskStatus,
   ContextMessage,
-  CronTaskSnapshot,
   ExperimentalFeatureState,
   ExperimentalFlagMap,
   ExperimentalFlagSource,
@@ -35,18 +14,11 @@ export type {
   GoalBudgetReport,
   GoalChange,
   GoalChangeStats,
-  GetCronTasksResult,
   GoalSnapshot,
   GoalStatus,
   GoalToolResult,
-  KimiConfig,
-  KimiConfigPatch,
-  LoopControl,
-  McpServerInfo,
-  McpStartupMetrics,
-  ModelAlias,
-  MoonshotServiceConfig,
-  OAuthRef,
+  PermissionData,
+  PlanData,
   PluginCommandDef,
   PluginGithubMetadata,
   PluginGithubRef,
@@ -54,30 +26,142 @@ export type {
   PluginMcpServerInfo,
   PluginSource,
   PluginSummary,
-  ProcessBackgroundTaskInfo,
   PromptOrigin,
-  ProviderConfig,
-  ProviderType,
-  QuestionBackgroundTaskInfo,
   ReloadSummary,
-  ResumedAgentState,
-  ServicesConfig,
   ShellEnvironment,
   SkillSummary,
-  ThinkingConfig,
   ToolInfo,
-  GlobalMcpServerConfig as McpServerConfig,
-  GlobalMcpServerTestResult as McpTestResult,
-} from '@moonshot-ai/agent-core';
+  UsageStatus,
+} from '@moonshot-ai/agent-core-v2';
+import type { McpServerEntry } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
+import type { AgentCommandInfo } from '@moonshot-ai/agent-core-v2/agent/command/agentCommand';
+import type { CapabilityStatus } from '@moonshot-ai/agent-core-v2/app/capability/types';
+import type {
+  BackgroundConfig,
+  GlobalMcpServerConfig,
+  KimiConfig,
+  KimiConfigPatch,
+  LoopControl,
+  ModelAlias,
+  MoonshotServiceConfig,
+  OAuthRef,
+  ProviderConfig,
+  ProviderType,
+  ServicesConfig,
+  ThinkingConfig,
+} from '#/config-local';
+import type { TelemetryClient, TelemetryContextPatch, TelemetryProperties } from '#/legacy';
 
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
+export type JsonObject = { readonly [key: string]: JsonValue };
+
+export type Unsubscribe = () => void;
+
+export type { CapabilityStatus };
+
+export type { AgentReplayRecord };
+
+export type BackgroundTaskInfo = AgentTaskInfo;
+export type BackgroundTaskStatus = AgentTaskStatus;
+
+/** Warnings from the most recent config.toml load; empty when the config is fully valid. */
+export interface ConfigDiagnostics {
+  readonly warnings: readonly string[];
+}
+
+/** A scheduled cron task snapshot (v1 wire shape, kept as the SDK contract). */
+export interface CronTaskSnapshot {
+  readonly id: string;
+  readonly cron: string;
+  readonly recurring: boolean;
+  readonly createdAt: number;
+  readonly lastFiredAt: number | undefined;
+  /** Post-jitter next fire (epoch ms), or null when no future fire exists. */
+  readonly nextFireAt: number | null;
+}
+
+export interface GetCronTasksResult {
+  readonly tasks: readonly CronTaskSnapshot[];
+}
+
+export type { McpServerEntry as McpServerInfo };
+
+export interface McpStartupMetrics {
+  readonly durationMs: number;
+}
+
+export interface McpTestResult {
+  readonly success: boolean;
+  readonly output: string;
+}
+
+/**
+ * A named entry of the user-global `<KIMI_CODE_HOME>/mcp.json` store — the
+ * v1 wire shape the SDK's MCP surface serves (`GlobalMcpServerConfig` under
+ * the v1 name `McpServerConfig`; the schema type without the name lives in
+ * `#/config-local` for the store internals).
+ */
+export type McpServerConfig = GlobalMcpServerConfig;
+export type { GlobalMcpServerConfig };
+
+export type { PermissionData, PlanData, UsageStatus };
+export type {
+  ContextMessage,
+  PromptOrigin,
+  ExperimentalFeatureState,
+  ExperimentalFlagMap,
+  ExperimentalFlagSource,
+  ExportSessionManifest,
+  GoalBudgetLimits,
+  GoalBudgetReport,
+  GoalChange,
+  GoalChangeStats,
+  GoalSnapshot,
+  GoalStatus,
+  GoalToolResult,
+  PluginCommandDef,
+  PluginGithubMetadata,
+  PluginGithubRef,
+  PluginInfo,
+  PluginMcpServerInfo,
+  PluginSource,
+  PluginSummary,
+  ReloadSummary,
+  ShellEnvironment,
+  SkillSummary,
+  ToolInfo,
+  AgentCommandInfo,
+};
+export type { KimiConfig, KimiConfigPatch };
+export type {
+  BackgroundConfig,
+  LoopControl,
+  ModelAlias,
+  MoonshotServiceConfig,
+  OAuthRef,
+  ProviderConfig,
+  ProviderType,
+  ServicesConfig,
+  ThinkingConfig,
+};
 export type { KimiHostIdentity, OAuthRefreshOutcome };
-export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties };
+export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties } from '#/legacy';
 export type { ContentPart, Role, ThinkingEffort, ToolCall } from '@moonshot-ai/kosong';
-// Contributed commands are an agent-core-v2 seam; the type is re-exported
-// from the v2 engine (v1 sessions report an empty command set).
-export type { AgentCommandInfo } from '@moonshot-ai/agent-core-v2/agent/command/agentCommand';
 
 export type PermissionMode = 'yolo' | 'manual' | 'auto';
+
+/**
+ * Result of beginning a global MCP server OAuth flow (v1 wire shape, kept as
+ * the SDK's public contract).
+ */
+export type BeginGlobalMcpServerAuthResult =
+  | { readonly status: 'already-authorized' }
+  | {
+      readonly status: 'authorization-required';
+      readonly flowId: string;
+      readonly authorizationUrl: string;
+    };
 
 /**
  * Trust state of a workspace directory. Only meaningful on the agent-core-v2
@@ -110,12 +194,6 @@ export interface KimiHarnessOptions {
   readonly telemetry?: TelemetryClient | undefined;
   readonly onOAuthRefresh?: ((outcome: OAuthRefreshOutcome) => void) | undefined;
   readonly sessionStartedProperties?: TelemetryProperties;
-  /**
-   * Optional override for the turn loop runner. When set, every session created
-   * by this harness will use the provided function instead of the built-in JS
-   * turn loop. Used by the Rust agent engine (kimi-agent).
-   */
-  readonly runTurnOverride?: import('@moonshot-ai/agent-core').RunTurnOverride;
 }
 
 export interface CreateSessionOptions {
@@ -126,8 +204,6 @@ export interface CreateSessionOptions {
   readonly permission?: PermissionMode | undefined;
   readonly planMode?: boolean;
   readonly metadata?: JsonObject | undefined;
-  readonly kaos?: Kaos | undefined;
-  readonly persistenceKaos?: Kaos | undefined;
   readonly additionalDirs?: readonly string[];
   /**
    * Main-agent profile name (`--agent`): a builtin profile or one defined by
@@ -157,8 +233,6 @@ export interface RenameSessionInput {
 
 export interface ResumeSessionInput {
   readonly id: string;
-  readonly kaos?: Kaos | undefined;
-  readonly persistenceKaos?: Kaos | undefined;
   readonly additionalDirs?: readonly string[];
   /** Re-select the session's already-bound main profile; a different name fails. */
   readonly agentProfile?: string;
@@ -303,6 +377,73 @@ export interface AddAdditionalDirResult {
   readonly persisted: boolean;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Resumed session snapshot (v1 wire shape, kept as the SDK contract) */
+/* ------------------------------------------------------------------ */
+
+export type AgentType = 'main' | 'sub';
+
+/**
+ * One agent's snapshot within a resumed session — the v1 shape, kept as the
+ * SDK's public contract: `toolStore` and `background` are v1-only concepts
+ * (the v2 engine reports `tasks` instead of `background` and has no
+ * tool-store projection), so the v2 client folds them from the agent wire.
+ */
+export interface ResumedAgentState {
+  readonly type: AgentType;
+  readonly config: ResumedAgentConfigData;
+  readonly context: AgentContextData;
+  readonly replay: readonly AgentReplayRecord[];
+  readonly permission: PermissionData;
+  readonly plan: PlanData;
+  readonly swarmMode?: boolean | undefined;
+  readonly usage: UsageStatus;
+  readonly tools: readonly ToolInfo[];
+  readonly toolStore?: Readonly<Record<string, unknown>>;
+  readonly background: readonly BackgroundTaskInfo[];
+}
+
+/** The per-agent config snapshot of a resumed session (v1 wire shape). */
+export interface ResumedAgentConfigData {
+  readonly cwd: string;
+  readonly provider?: ProviderConfig;
+  readonly modelAlias?: string;
+  readonly modelCapabilities: ModelCapability;
+  readonly profileName?: string;
+  readonly subagentNames?: readonly string[];
+  readonly thinkingEffort: string;
+  readonly systemPrompt: string;
+}
+
+/** Session metadata document (v1 wire shape, kept as the SDK contract). */
+export interface AgentMeta {
+  readonly homedir?: string;
+  readonly type: AgentType;
+  readonly parentAgentId?: string | null;
+  readonly swarmItem?: string;
+}
+
+export interface SessionMeta {
+  createdAt: string;
+  updatedAt: string;
+  title: string;
+  isCustomTitle: boolean;
+  lastPrompt?: string;
+  forkedFrom?: string;
+  /** Absolute working directory the session was created in. */
+  workDir?: string;
+  /** Directories added for this session only. */
+  additionalDirs?: string[];
+  agents: Record<string, AgentMeta>;
+  custom: Record<string, any>;
+}
+
+export interface ResumeSessionResult extends SessionSummary {
+  readonly sessionMetadata: SessionMeta;
+  readonly agents: Readonly<Record<string, ResumedAgentState>>;
+  readonly warning?: string | undefined;
+}
+
 export type ResumedSessionState = Pick<ResumeSessionResult, 'sessionMetadata' | 'agents' | 'warning'>;
 
-export interface ResumedSessionSummary extends SessionSummary, ResumedSessionState { }
+export interface ResumedSessionSummary extends SessionSummary, ResumedSessionState {}

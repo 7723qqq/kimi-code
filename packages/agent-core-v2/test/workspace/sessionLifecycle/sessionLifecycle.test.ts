@@ -685,7 +685,7 @@ describe('SessionLifecycleService', () => {
         key: 'session_index.jsonl',
         record: {
           sessionId: 's1',
-          sessionDir: `/tmp/sessions/${workspaceId}/s1`,
+          sessionDir: join('/tmp', 'sessions', workspaceId, 's1'),
           workDir: '/tmp/proj',
         },
       },
@@ -752,7 +752,7 @@ describe('SessionLifecycleService', () => {
         key: 'session_index.jsonl',
         record: {
           sessionId: 's1',
-          sessionDir: '/tmp/sessions/wd_first_spelling/s1',
+          sessionDir: join('/tmp', 'sessions', 'wd_first_spelling', 's1'),
           workDir: 'c:\\users\\foo\\proj',
         },
       },
@@ -855,7 +855,7 @@ describe('SessionLifecycleService', () => {
 
     expect(ctx?.cwd).toBe(workDir);
     expect(ctx?.workspaceId).toBe(indexedWorkspaceId);
-    expect(ctx?.sessionDir).toBe(`/tmp/sessions/${indexedWorkspaceId}/s1`);
+    expect(ctx?.sessionDir).toBe(join('/tmp', 'sessions', indexedWorkspaceId, 's1'));
   });
 
   it('archive flags metadata, removes agents, publishes the event, and disposes the session', async () => {
@@ -1407,7 +1407,7 @@ describe('SessionLifecycleService', () => {
         stubPair(IProjectLocalConfigService, projectLocalConfigStub(['/tmp/extra'])),
       ]);
       const h = await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });
-      expect(dirsOf(h)).toEqual(['/tmp/extra']);
+      expect(dirsOf(h)).toEqual([resolve('/tmp/extra')]);
     });
 
     it('merges caller additionalDirs and resolves relative paths against workDir', async () => {
@@ -1417,7 +1417,7 @@ describe('SessionLifecycleService', () => {
         workDir: '/tmp/proj',
         additionalDirs: ['../sibling', '/abs/dir'],
       });
-      expect(dirsOf(h)).toEqual(['/tmp/sibling', '/abs/dir']);
+      expect(dirsOf(h)).toEqual([resolve('/tmp/sibling'), resolve('/abs/dir')]);
     });
 
     it('deduplicates project-local and caller dirs after resolving', async () => {
@@ -1429,7 +1429,7 @@ describe('SessionLifecycleService', () => {
         workDir: '/tmp/proj',
         additionalDirs: ['../shared', '/tmp/other'],
       });
-      expect(dirsOf(h)).toEqual(['/tmp/shared', '/tmp/other']);
+      expect(dirsOf(h)).toEqual([resolve('/tmp/shared'), resolve('/tmp/other')]);
     });
 
     it('supports multiple project-local and caller additionalDirs', async () => {
@@ -1441,7 +1441,12 @@ describe('SessionLifecycleService', () => {
         workDir: '/tmp/proj',
         additionalDirs: ['/tmp/c', '/tmp/d'],
       });
-      expect(dirsOf(h)).toEqual(['/tmp/a', '/tmp/b', '/tmp/c', '/tmp/d']);
+      expect(dirsOf(h)).toEqual([
+        resolve('/tmp/a'),
+        resolve('/tmp/b'),
+        resolve('/tmp/c'),
+        resolve('/tmp/d'),
+      ]);
     });
 
     it('loads project-local dirs when resuming a closed session', async () => {
@@ -1467,7 +1472,7 @@ describe('SessionLifecycleService', () => {
       const h = await svc.resume('s1');
 
       expect(h).toBeDefined();
-      expect(dirsOf(h!)).toEqual(['/tmp/extra']);
+      expect(dirsOf(h!)).toEqual([resolve('/tmp/extra')]);
     });
 
     it('fork inherits project-local dirs', async () => {
@@ -1478,7 +1483,7 @@ describe('SessionLifecycleService', () => {
       await svc.create({ sessionId: 'src', workDir: '/tmp/proj' });
       const target = await svc.fork({ sourceSessionId: 'src', newSessionId: 'dst' });
 
-      expect(dirsOf(target)).toEqual(['/tmp/extra']);
+      expect(dirsOf(target)).toEqual([resolve('/tmp/extra')]);
     });
 
     it('create mints a session_-prefixed lowercase id when none is supplied', async () => {

@@ -11,6 +11,13 @@ export interface RunHookOptions {
   readonly cwd?: string;
   readonly env?: Record<string, string>;
   readonly signal?: AbortSignal;
+  /**
+   * When true, execution failures (spawn error, timeout, wait error) resolve
+   * to `block` instead of `allow`. Permission-gating hooks (PreToolUse /
+   * PermissionRequest) should pass this: a hook that crashed must not
+   * silently weaken the gate. Notification hooks keep fail-open semantics.
+   */
+  readonly failClosed?: boolean;
 }
 
 export function buildHookSpawnOptions(options: {
@@ -69,7 +76,10 @@ export async function runHook(
       env: options.env,
     });
   } catch (error) {
-    return allowResult({ stderr: errorMessage(error) });
+    // A permission hook that cannot even spawn must not silently allow.
+    return options.failClosed === true
+      ? blockResult(`Permission hook failed to spawn: ${errorMessage(error)}`, undefined, errorMessage(error))
+      : allowResult({ stderr: errorMessage(error) });
   }
 
   return new Promise<HookResult>((resolve) => {
@@ -108,17 +118,29 @@ export async function runHook(
       },
       (error) => {
         proc.dispose();
+        // Permission hooks fail closed: an errored hook must not silently
+        // weaken the gate.
+        if (options.failClosed === true) {
+          settle(blockResult('Permission hook errored while running', undefined, stderr + errorMessage(error)));
+          return;
+        }
         settle(allowResult({ stdout, stderr: stderr + errorMessage(error) }));
       },
     );
 
     const timeout = setTimeout(() => {
       killProcess(proc);
+      if (options.failClosed === true) {
+        settle(blockResult('Permission hook timed out', undefined, `${stderr} (timed out)`));
+        return;
+      }
       settle(allowResult({ stdout, stderr, timedOut: true }));
     }, timeoutMs);
 
     const onAbort = (): void => {
       killProcess(proc);
+      // Abort means the operation itself is being cancelled; there is no
+      // gate to weaken, so keep allow semantics here.
       settle(allowResult({ stdout, stderr }));
     };
 
@@ -221,6 +243,20 @@ function allowResult(input: {
     exitCode: input.exitCode,
     timedOut: input.timedOut,
     structuredOutput: input.structuredOutput,
+  };
+}
+
+function blockResult(
+  reason: string,
+  stdout: string | undefined,
+  stderr: string | undefined,
+): HookResult {
+  return {
+    action: 'block',
+    message: reason,
+    reason,
+    stdout,
+    stderr,
   };
 }
 

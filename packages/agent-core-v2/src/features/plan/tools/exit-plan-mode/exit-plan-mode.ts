@@ -33,6 +33,7 @@ const ExitPlanModeOptionSchema = z
       .string()
       .min(1)
       .max(80)
+      .refine((label) => label.trim().length > 0, 'Option labels must not be empty.')
       .describe(
         'Short name for this option (1-8 words). Append "(Recommended)" if you recommend this option.',
       ),

@@ -1164,13 +1164,13 @@ describe('ToolCallComponent', () => {
     });
 
     let out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Queued (explore project) · 0 tools');
+    expect(out).toContain('Explore Agent Queued (explore project) · 0 tool(s) · 0s');
     expect(out).not.toContain('Kimi K2.5');
 
     component.updateSubagentMetrics({ modelDisplay: 'Kimi K2.5' });
 
     out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Queued (explore project) · Kimi K2.5 · 0 tools');
+    expect(out).toContain('Explore Agent Queued (explore project) · Kimi K2.5 · 0 tool(s) · 0s');
     expect(component.getSubagentSnapshot().model).toBe('Kimi K2.5');
   });
 
@@ -1711,7 +1711,7 @@ describe('ToolCallComponent', () => {
     it('setBackgroundTaskTerminalStatus does not overwrite a real onSubagentFailed error with the generic', () => {
       const component = makeBackgroundAgentComponent();
       component.onSubagentFailed({ error: 'real crash from subagent' });
-      // background.task.terminated event arrives later without an errorText
+      // task.terminated event arrives later without an errorText
       // override; the friendly generic must NOT clobber the real message.
       component.setBackgroundTaskTerminalStatus('failed');
       expect(component.getSubagentSnapshot().errorText).toBe('real crash from subagent');

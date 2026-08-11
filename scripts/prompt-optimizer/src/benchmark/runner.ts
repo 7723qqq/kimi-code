@@ -114,7 +114,7 @@ export async function runSuite(
       const benchCase = queue.shift()!;
       const promise = runCase(benchCase, variant, caller, config)
         .then((result) => { results.push(result); })
-        .finally(() => { running.splice(running.indexOf(promise), 1); });
+        .finally(() => { void running.splice(running.indexOf(promise), 1); });
       running.push(promise);
     }
     if (running.length > 0) {
@@ -181,7 +181,8 @@ function computeToolAccuracy(
 
   let correct = 0;
   for (const ev of toolEvals) {
-    const toolName = String(ev.params['tool'] ?? '');
+    const rawTool = ev.params['tool'];
+    const toolName = typeof rawTool === 'string' ? rawTool : '';
     const called = toolCalls.some((tc) => tc.name === toolName);
     if (ev.type === 'tool-called' && called) correct++;
     if (ev.type === 'tool-not-called' && !called) correct++;

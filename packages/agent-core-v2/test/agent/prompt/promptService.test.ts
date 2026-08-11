@@ -38,7 +38,7 @@ function harness() {
   const disposables = new DisposableStore();
   onTestFinished(() => disposables.dispose());
   const context = stubContextMemory();
-  const loop = stubLoopWithHooks({ pendingTurnResult: true });
+  const loop = stubLoopWithHooks({ pendingTurnResult: true, settleOnDrain: true });
   const fullCompaction = {
     _serviceBrand: undefined,
     compacting: null,
@@ -194,13 +194,16 @@ describe('AgentPromptService', () => {
     ).toBe(true);
   });
 
-  it('aborts an already completed prompt gracefully', async () => {
+  it('rejects abort for an already completed prompt', async () => {
     const { prompt, context, loop } = harness();
     const active = await prompt.enqueue({ message: message('active') });
     await active.launched;
     loop.drainNextBatch(context);
+    await Promise.resolve(); // let the drained turn settle
 
-    expect(prompt.abort(active.id)).toBe(false);
+    expect(() => prompt.abort(active.id)).toThrowError(
+      expect.objectContaining({ code: ErrorCodes.PROMPT_NOT_FOUND }),
+    );
   });
 
   it('rejects steer for an already completed prompt', async () => {
@@ -209,6 +212,7 @@ describe('AgentPromptService', () => {
     await active.launched;
     const queued = await prompt.enqueue({ message: message('one') });
     loop.drainNextBatch(context);
+    await Promise.resolve(); // let the drained turn settle
 
     await expect(prompt.steer([queued.id])).rejects.toMatchObject({ code: 'prompt.not_found' });
   });
@@ -235,9 +239,11 @@ describe('AgentPromptService', () => {
     const { prompt, context, loop } = harness();
     const active = await prompt.enqueue({ message: message('active') });
     await active.launched;
+    loop.drainNextBatch(context);
+    await Promise.resolve(); // let the drained turn settle
+
     await prompt.inject({ ...message('injection'), origin: { kind: 'injection', variant: 'test' } });
 
     expect(prompt.list()).toEqual({ active: undefined, pending: [] });
-    loop.drainNextBatch(context);
   });
 });

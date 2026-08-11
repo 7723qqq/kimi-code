@@ -1,6 +1,8 @@
 export type UIMode = 'shell' | 'print';
 export type PromptOutputFormat = 'text' | 'stream-json';
 
+import { t } from '#/i18n';
+
 /** Environment variable that sets the default `-p` output format (flag wins). */
 export const OUTPUT_FORMAT_ENV = 'KIMI_MODEL_OUTPUT_FORMAT';
 
@@ -68,28 +70,28 @@ export function validateOptions(
   const prompt = opts.prompt;
   const promptMode = prompt !== undefined;
   if (promptMode && prompt.trim().length === 0) {
-    throw new OptionConflictError('Prompt cannot be empty.');
+    throw new OptionConflictError(t('cli.errors.promptEmpty'));
   }
   if (opts.model !== undefined && opts.model.trim().length === 0) {
-    throw new OptionConflictError('Model cannot be empty.');
+    throw new OptionConflictError(t('cli.errors.modelEmpty'));
   }
   if (!promptMode && opts.outputFormat !== undefined) {
-    throw new OptionConflictError('Output format is only supported in prompt mode.');
+    throw new OptionConflictError(t('cli.errors.outputFormatPromptOnly'));
   }
   if (promptMode && opts.yolo) {
-    throw new OptionConflictError('Cannot combine --prompt with --yolo.');
+    throw new OptionConflictError(t('cli.errors.cannotCombinePromptAndYolo'));
   }
   if (promptMode && opts.auto) {
-    throw new OptionConflictError('Cannot combine --prompt with --auto.');
+    throw new OptionConflictError(t('cli.errors.cannotCombinePromptAndAuto'));
   }
   if (promptMode && opts.plan) {
-    throw new OptionConflictError('Cannot combine --prompt with --plan.');
+    throw new OptionConflictError(t('cli.errors.cannotCombinePromptAndPlan'));
   }
   if (opts.agent !== undefined && opts.agent.trim().length === 0) {
     throw new OptionConflictError('Agent cannot be empty.');
   }
   if (opts.agentFiles.length > 1) {
-    throw new OptionConflictError('--agent-file may only be specified once.');
+    throw new OptionConflictError(t('cli.errors.agentFileOnlyOnce'));
   }
   if (opts.agentFiles.some((file) => file.trim().length === 0)) {
     throw new OptionConflictError('Agent file path cannot be empty.');
@@ -106,13 +108,13 @@ export function validateOptions(
     );
   }
   if (promptMode && opts.session === '') {
-    throw new OptionConflictError('Cannot use --session without an id in prompt mode.');
+    throw new OptionConflictError(t('cli.errors.sessionWithoutIdInPromptMode'));
   }
   if (opts.continue && opts.session !== undefined) {
-    throw new OptionConflictError('Cannot combine --continue, --session.');
+    throw new OptionConflictError(t('cli.errors.cannotCombineContinueAndSession'));
   }
   if (opts.yolo && opts.auto) {
-    throw new OptionConflictError('Cannot combine --yolo with --auto.');
+    throw new OptionConflictError(t('cli.errors.cannotCombineYoloAndAuto'));
   }
   // Validate `KIMI_MODEL_OUTPUT_FORMAT` eagerly in prompt mode so a typo fails
   // fast through the friendly `error:` path instead of mid-run.

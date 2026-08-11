@@ -92,6 +92,15 @@ pub fn bash_exec(config: &BashConfig) -> BashResult {
         }
     }
 
+    // Run the shell in its own process group so a timeout kill can take the
+    // whole tree down (a backgrounded grandchild holding stdout would
+    // otherwise keep the pipes open forever and hang the sync call).
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+
     // Spawn the process.
     let mut child = match cmd.spawn() {
         Ok(c) => c,
@@ -117,8 +126,11 @@ pub fn bash_exec(config: &BashConfig) -> BashResult {
             Ok(Some(status)) => break Some(status),
             Ok(None) => {
                 if start.elapsed() >= timeout_duration {
-                    // Kill the process on timeout.
-                    let _ = child.kill();
+                    // Kill the process tree on timeout: a bare `child.kill()`
+                    // only takes the direct child, and a backgrounded
+                    // grandchild still holding stdout would block the pipe
+                    // read below forever.
+                    kill_process_tree(&mut child);
                     timed_out = true;
                     break None;
                 }
@@ -136,15 +148,25 @@ pub fn bash_exec(config: &BashConfig) -> BashResult {
         }
     };
 
-    // Collect output.
+    // Collect output. Read with a grace deadline: the timeout kill may leave
+    // a backgrounded grandchild holding the pipe, and blocking forever here
+    // would freeze the whole napi call.
     let stdout = if let Some(out) = child.stdout.take() {
-        read_pipe_to_string(out)
+        if timed_out {
+            read_pipe_to_string_timeout(out, POST_KILL_READ_GRACE)
+        } else {
+            read_pipe_to_string(out)
+        }
     } else {
         String::new()
     };
 
     let stderr = if let Some(err) = child.stderr.take() {
-        read_pipe_to_string(err)
+        if timed_out {
+            read_pipe_to_string_timeout(err, POST_KILL_READ_GRACE)
+        } else {
+            read_pipe_to_string(err)
+        }
     } else {
         String::new()
     };
@@ -173,13 +195,45 @@ fn truncate_output(s: &str, max_bytes: usize) -> String {
     if s.len() <= max_bytes {
         s.to_string()
     } else {
-        let truncated = &s[..max_bytes];
+        // Slice on a char boundary: cutting at `max_bytes` directly would
+        // panic when it lands inside a multi-byte UTF-8 character.
+        let end = s.floor_char_boundary(max_bytes);
+        let truncated = &s[..end];
         format!(
             "{}\n\n... (output truncated, {} bytes total)",
             truncated,
             s.len()
         )
     }
+}
+
+/// Kill a process and its descendants.
+///
+/// - Unix: the child was spawned with `process_group(0)`, so signaling the
+///   negative pid (the whole group) takes every descendant down.
+/// - Windows: `taskkill /T` walks the tree; fall back to `child.kill()`.
+fn kill_process_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        let pid = child.id() as i32;
+        let _ = Command::new("kill")
+            .args(["-TERM", &format!("-{pid}")])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    #[cfg(windows)]
+    {
+        let pid = child.id();
+        let _ = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
 }
 
 /// Detect the shell to use for a given command.
@@ -271,6 +325,32 @@ fn read_pipe_to_string<R: Read>(mut reader: R) -> String {
     String::from_utf8_lossy(&buf).to_string()
 }
 
+/// Read a pipe with a hard deadline.
+///
+/// The timeout kill may not always take every descendant down (notably MSYS
+/// bash on Windows: `taskkill /T` does not reliably reach backgrounded
+/// grandchildren). Without a deadline the sync read would hang the whole
+/// napi call forever in that case. On timeout we return what we have; the
+/// reader thread finishes on its own once the pipe actually closes.
+fn read_pipe_to_string_timeout<R: Read + Send + 'static>(
+    mut reader: R,
+    deadline: Duration,
+) -> String {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = reader.read_to_end(&mut buf);
+        let _ = tx.send(String::from_utf8_lossy(&buf).to_string());
+    });
+    match rx.recv_timeout(deadline) {
+        Ok(out) => out,
+        Err(_) => "<output read timed out — a background process still holds the pipe>".to_string(),
+    }
+}
+
+/// Grace period after the timeout kill before we give up on the pipes.
+const POST_KILL_READ_GRACE: Duration = Duration::from_secs(2);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,6 +406,35 @@ mod tests {
             ..Default::default()
         });
         assert!(result.timed_out);
+    }
+
+    #[test]
+    fn test_bash_timeout_with_background_grandchild() {
+        // Regression: a backgrounded grandchild holding stdout used to keep
+        // the pipe open forever after the timeout kill, hanging the sync call.
+        // `sleep 30` bounds the worst case if a platform kill ever fails.
+        let result = bash_exec(&BashConfig {
+            command: "sleep 30 & sleep 30".to_string(),
+            timeout: Some(1),
+            ..Default::default()
+        });
+        assert!(result.timed_out);
+    }
+
+    #[test]
+    fn test_truncate_output_utf8_boundary() {
+        // Regression: slicing at max_bytes used to panic when the boundary
+        // fell inside a multi-byte UTF-8 character.
+        let text = "中文输出".repeat(200_000);
+        let truncated = truncate_output(&text, 512 * 1024);
+        assert!(truncated.contains("output truncated"));
+        assert!(truncated.starts_with("中文输出"));
+    }
+
+    #[test]
+    fn test_truncate_output_short() {
+        let text = "short";
+        assert_eq!(truncate_output(text, 512 * 1024), text);
     }
 
     #[test]

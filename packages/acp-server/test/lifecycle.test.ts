@@ -73,7 +73,9 @@ describe('acp-server session lifecycle', () => {
       client = undefined;
     }
     if (homeDir !== undefined) {
-      await rm(homeDir, { recursive: true, force: true });
+      // maxRetries: a spawned stdio MCP child (cwd = homeDir) can still hold
+      // the temp dir briefly after close — EBUSY/ENOTEMPTY on Windows.
+      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
       homeDir = undefined;
     }
   });
@@ -360,7 +362,9 @@ describe('acp-server session lifecycle', () => {
         .handlerFor({ root: homeDir! });
       const dirs = handler.accessor.get(IWorkspaceDirs);
       await dirs.ready;
-      expect(dirs.additionalDirs).toContain(extraDir);
+      // The engine resolves additional dirs through pathe (posix separators
+      // on every platform), so compare against the toPosix form.
+      expect(dirs.additionalDirs).toContain(extraDir.replaceAll('\\', '/'));
     },
     30_000,
   );

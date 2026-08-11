@@ -36,6 +36,7 @@ import {
 } from '@moonshot-ai/agent-core-v2/workspace/workspaceFs/fs';
 import { z } from 'zod';
 
+import { t } from '../i18n';
 import {
   openApiDocumentEnvelopeJsonSchema,
   openApiDocumentJsonSchema,
@@ -184,7 +185,7 @@ function patchFileDownload(paths: Record<string, unknown>): void {
     },
   });
   setResponse(operation, '404', {
-    description: 'File not found',
+    description: t('v2Errors.fileNotFound'),
     content: jsonContent(errorEnvelopeSchema),
   });
 }

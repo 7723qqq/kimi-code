@@ -58,6 +58,7 @@ import {
 
 import { AuditTrail } from '../audit/trail';
 import { useConnection } from '../connection';
+import { t } from '../i18n';
 import type { SearchHit } from '../search/api';
 import { fetchTranscriptOps, fetchTranscriptPage, TRANSCRIPT_PAGE_SIZE } from '../transcript/api';
 import {
@@ -582,14 +583,14 @@ export function ChatView({
   if (sessionId === null) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-neutral-600">
-        Select a session on the left to open its conversation.
+        {t('chat.selectSessionHint')}
       </div>
     );
   }
   if (!ready) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-neutral-600">
-        Loading session…
+        {t('chat.loadingSession')}
       </div>
     );
   }
@@ -599,8 +600,8 @@ export function ChatView({
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-2 border-b border-neutral-800 px-4 py-2">
           <span className="font-mono text-[11px] text-neutral-400">{sessionId}</span>
-          <Badge tone="sky">agent: {agentId}</Badge>
-          {running ? <Badge tone="amber">turn running</Badge> : <Badge tone="green">idle</Badge>}
+          <Badge tone="sky">{t('chat.agentLabel', { agentId })}</Badge>
+          {running ? <Badge tone="amber">{t('chat.turnRunning')}</Badge> : <Badge tone="green">{t('chat.idle')}</Badge>}
           {state.pendingInteractions.size > 0 ? (
             <Badge tone="amber">{state.pendingInteractions.size} pending</Badge>
           ) : null}
@@ -704,7 +705,7 @@ export function ChatView({
           <div className="flex gap-2">
             <textarea
               className="min-h-[40px] flex-1 resize-y rounded border border-neutral-700 bg-neutral-950 px-3 py-2 text-[13px] text-neutral-100 outline-none focus:border-sky-600"
-              placeholder="Send a prompt to the active agent… (Enter to send, Shift+Enter for newline)"
+              placeholder={t('chat.promptPlaceholder')}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {

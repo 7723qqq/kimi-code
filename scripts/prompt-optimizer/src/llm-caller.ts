@@ -5,9 +5,9 @@
  * then calls the OpenAI-compatible chat completion endpoint.
  */
 
-import { readFileSync, existsSync } from 'fs';
-import { resolve } from 'path';
-import { homedir } from 'os';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { homedir } from 'node:os';
 import type { LLMCaller, ModelResponse, RunnerConfig, ToolDefinition } from './benchmark/runner';
 
 /**
@@ -38,8 +38,6 @@ function extractProvidersFromConfig(configPath: string): { providers: Record<str
   if (defaultModelMatch) defaultModel = defaultModelMatch[1];
 
   const providers: Record<string, ProviderInfo> = {};
-  // Match [providers."name"] or [providers.name] sections
-  const providerRegex = /^\[providers\."?([^"\]]+)"?\]/gm;
   const lines = text.split('\n');
 
   let currentProvider: string | null = null;

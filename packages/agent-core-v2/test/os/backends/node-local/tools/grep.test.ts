@@ -48,6 +48,13 @@ import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-
 import { recordingTelemetry, type TelemetryRecord } from '../../../../app/telemetry/stubs';
 import { registerStateServices } from '../../../../state/stubs';
 
+vi.mock('#/_base/native-tools', async () => {
+  const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
+  return Object.fromEntries(
+    Object.keys(actual).map((key) => [key, () => {}] as const),
+  );
+});
+
 vi.mock('#/os/backends/node-local/tools/rgLocator', () => ({
   ensureRgPath: vi.fn(async () => ({ path: '/mock/rg', source: 'system-path' })),
   rgUnavailableMessage: (cause: unknown) =>

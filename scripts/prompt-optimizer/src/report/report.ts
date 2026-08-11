@@ -5,8 +5,8 @@
  * renders formatted tables, and writes JSON/text outputs.
  */
 
-import { writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync } from 'fs';
-import { resolve, basename } from 'path';
+import { writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync } from 'node:fs';
+import { resolve, basename } from 'node:path';
 import type { BenchmarkResult, PruneReport, ModelProfile } from '../types';
 import { aggregateResults } from '../benchmark/runner';
 

@@ -4,7 +4,6 @@ import type {
   Event,
   KimiHarness,
   Session,
-  TurnEndedEvent,
 } from '@moonshot-ai/kimi-code-sdk';
 
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
@@ -195,7 +194,7 @@ export class BtwPanelController {
   }
 }
 
-function formatBtwTurnEnd(event: TurnEndedEvent): string {
+function formatBtwTurnEnd(event: Extract<Event, { type: 'turn.ended' }>): string {
   if (event.reason === 'cancelled') {
     return t("tui.statusMessages.btwInterrupted");
   }

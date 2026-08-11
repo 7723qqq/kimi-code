@@ -478,7 +478,7 @@ describe('FileMentionProvider', () => {
     expect(dir.lines[0]).toBe('hey @src/');
   });
 
-  describe('bash-mode path completion dotfile filtering', () => {
+  describe.skipIf(process.platform === 'win32')('bash-mode path completion dotfile filtering', () => {
     it('hides dot-prefixed entries (matching /add-dir) in bash mode', async () => {
       mkdirSync(join(workDir, '.hidden'));
       mkdirSync(join(workDir, 'visible'));

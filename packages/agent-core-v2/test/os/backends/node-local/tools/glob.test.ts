@@ -10,8 +10,9 @@
 
 import fs from 'node:fs/promises';
 import os from 'node:os';
-import path from 'node:path';
 import { Readable, type Writable } from 'node:stream';
+
+import { dirname, join } from 'pathe';
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -880,7 +881,7 @@ describe('GlobTool integration (real ripgrep)', () => {
 
   beforeEach(async (testCtx) => {
     if (!runRealRg) testCtx.skip();
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glob-rg-'));
+    tmpDir = await fs.mkdtemp(join(os.tmpdir(), 'glob-rg-'));
     const info = await probeHostEnvironmentFromNode();
     realEnv = {
       _serviceBrand: undefined,
@@ -905,8 +906,8 @@ describe('GlobTool integration (real ripgrep)', () => {
   });
 
   async function touch(rel: string, mtime: Date): Promise<void> {
-    const full = path.join(tmpDir!, rel);
-    await fs.mkdir(path.dirname(full), { recursive: true });
+    const full = join(tmpDir!, rel);
+    await fs.mkdir(dirname(full), { recursive: true });
     await fs.writeFile(full, '');
     await fs.utimes(full, mtime, mtime);
   }
@@ -973,9 +974,9 @@ describe('GlobTool integration (real ripgrep)', () => {
   });
 
   it('returns absolute paths when the search root is outside the workspace', async () => {
-    const externalDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glob-ext-'));
+    const externalDir = await fs.mkdtemp(join(os.tmpdir(), 'glob-ext-'));
     try {
-      const extFile = path.join(externalDir, 'pkg.ts');
+      const extFile = join(externalDir, 'pkg.ts');
       await fs.writeFile(extFile, '');
       const tool = new GlobTool(realFs, realEnv, realProcessService, ws(), noopTelemetryService);
 

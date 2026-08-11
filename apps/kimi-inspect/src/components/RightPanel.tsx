@@ -18,6 +18,7 @@ import { useState } from 'react';
 
 import type { AuditTrail } from '../audit/trail';
 import { useConnection } from '../connection';
+import { t } from '../i18n';
 import { Badge } from '../ui';
 import { AuditPanel } from './audit/AuditPanel';
 import { Inspector } from './Inspector';
@@ -45,15 +46,15 @@ export function RightPanel({
   return (
     <div className="flex h-full w-[440px] shrink-0 flex-col border-l border-neutral-800 bg-neutral-900/30">
       <div className="flex border-b border-neutral-800 text-[11px]">
-        {(['audit', 'agent', 'state'] as const).map((t) => (
+        {(['audit', 'agent', 'state'] as const).map((id) => (
           <button
-            key={t}
+            key={id}
             className={`flex-1 px-2 py-2 font-medium uppercase tracking-wider ${
-              tab === t ? 'bg-neutral-800 text-sky-400' : 'text-neutral-500 hover:text-neutral-300'
+              tab === id ? 'bg-neutral-800 text-sky-400' : 'text-neutral-500 hover:text-neutral-300'
             }`}
-            onClick={() => setTab(t)}
+            onClick={() => setTab(id)}
           >
-            {t === 'audit' ? 'Audit' : t === 'agent' ? 'Agent' : 'State'}
+            {id === 'audit' ? 'Audit' : id === 'agent' ? 'Agent' : 'State'}
           </button>
         ))}
       </div>
@@ -63,7 +64,7 @@ export function RightPanel({
         ) : (
           <div className="p-3 text-[12px] text-neutral-600">
             {sessionId === null
-              ? 'No session selected.'
+              ? t('inspector.noSessionSelected')
               : 'Loading transcript — the audit trail appears once the channel is up.'}
           </div>
         )}
@@ -80,7 +81,7 @@ export function RightPanel({
         <div className="p-3">
           {sessionId === null || !ready ? (
             <div className="text-[12px] text-neutral-600">
-              {sessionId === null ? 'No session selected.' : 'Loading session…'}
+              {sessionId === null ? t('inspector.noSessionSelected') : t('chat.loadingSession')}
             </div>
           ) : (
             <StateCard

@@ -307,7 +307,7 @@ describe('host filesystem change notifications', () => {
     await wait(300);
 
     expect(events.some((e) => e.action === 'created' && e.path.endsWith('nested.txt'))).toBe(true);
-    expect(events.some((e) => e.path.includes('/sub/'))).toBe(true);
+    expect(events.some((e) => e.path.split(/[\\/]/).includes('sub'))).toBe(true);
   });
 
   it('does not report events in non-recursive mode outside the root', async () => {

@@ -7,7 +7,7 @@
  * or the controller is disposed.
  */
 
-import type { Event, Session, ToolCallStartedEvent, ToolResultEvent } from '@moonshot-ai/kimi-code-sdk';
+import type { Event, Session } from '@moonshot-ai/kimi-code-sdk';
 
 import type { WorkflowPanelComponent, WorkflowRunData } from '../components/chrome/workflow-panel';
 
@@ -56,15 +56,15 @@ export class WorkflowPanelController {
   private handleEvent(event: Event): void {
     switch (event.type) {
       case 'tool.call.started':
-        this.handleToolCall(event as ToolCallStartedEvent);
+        this.handleToolCall(event);
         break;
       case 'tool.result':
-        this.handleToolResult(event as ToolResultEvent);
+        this.handleToolResult(event);
         break;
     }
   }
 
-  private handleToolCall(event: ToolCallStartedEvent): void {
+  private handleToolCall(event: Extract<Event, { type: 'tool.call.started' }>): void {
     // Only care about the Workflow tool.
     if (event.name !== 'Workflow') return;
 
@@ -93,7 +93,7 @@ export class WorkflowPanelController {
     }
   }
 
-  private handleToolResult(event: ToolResultEvent): void {
+  private handleToolResult(event: Extract<Event, { type: 'tool.result' }>): void {
     // Check if this is a Workflow tool result.
     // We look for run_id: and status: patterns in the output.
     const output = event.output;

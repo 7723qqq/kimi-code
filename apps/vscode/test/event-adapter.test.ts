@@ -267,7 +267,8 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
       type: 'agent.status.updated',
       sessionId: 'session-1',
       agentId: 'main',
-      contextUsage: 0.25,
+      contextTokens: 32_000,
+      maxContextTokens: 128_000,
       planMode: true,
       usage: {
         currentTurn: {

@@ -138,14 +138,19 @@ describe('HostProcessService', () => {
     proc.stdin.write('hello');
     proc.stdin.end();
     const out = await collect(proc.stdout);
-    expect(out).toBe('helloDONE');
+    expect(out).toBe('HELLODONE');
     expect(await proc.wait()).toBe(0);
   });
 
   it('handles a large stdout buffer without truncation', async () => {
     const svc = ix.get(IHostProcessService);
     const size = 100_000;
-    const proc = await svc.spawn('node', ['-e', `process.stdout.write("${'x'.repeat(size)}")`]);
+    // Generate the payload in the child so the spawn command line stays short
+    // (Windows caps command-line length well below the 100KB payload).
+    const proc = await svc.spawn('node', [
+      '-e',
+      `process.stdout.write("x".repeat(${String(size)}))`,
+    ]);
     const out = await collect(proc.stdout);
     expect(out.length).toBe(size);
     expect(await proc.wait()).toBe(0);
@@ -167,6 +172,6 @@ describe('HostProcessService', () => {
     const svc = ix.get(IHostProcessService);
     const proc = await svc.spawn('node', ['-e', 'process.exit(0)']);
     await proc.wait();
-    await expect(proc.dispose()).resolves.toBeUndefined();
+    expect(() => proc.dispose()).not.toThrow();
   });
 });

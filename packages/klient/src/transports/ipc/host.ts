@@ -6,7 +6,8 @@
  */
 
 import { createServer, type Server, type Socket } from 'node:net';
-import { unlink } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { lstat, unlink } from 'node:fs/promises';
 
 import type { EventSourceRef, IDisposable, ScopeRef } from '../../core/channel.js';
 import { RPCError } from '../../core/errors.js';
@@ -19,14 +20,20 @@ const UNAUTHORIZED = 40100;
 export interface ServeKlientIpcOptions {
   /** A bootstrapped engine app scope (same value `createKlient({ scope })` takes). */
   readonly scope: ScopeLike;
-  /** Unix socket path to listen on. A stale file at the path is removed first. */
+  /** Unix socket path to listen on. A stale socket file at the path is removed first. */
   readonly socketPath: string;
-  /** Optional token; when set, the client's `hello` must carry the same token. */
+  /**
+   * Optional token; when set, the client's `hello` must carry the same token.
+   * When omitted, a random token is generated and exposed on the returned
+   * host — the socket is never left open to every local process.
+   */
   readonly token?: string;
 }
 
 export interface KlientIpcHost {
   readonly socketPath: string;
+  /** The bearer token clients must send in `hello`; always set. */
+  readonly token: string;
   close(): Promise<void>;
 }
 
@@ -49,16 +56,29 @@ function eventSourceFromFrame(frame: IpcFrame): EventSourceRef {
 }
 
 export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<KlientIpcHost> {
+  // The socket grants full engine control (shell execution, permission
+  // changes, session deletion) to any process that can reach it — never
+  // leave it token-less. Generate one when the caller did not supply it.
+  const token = options.token ?? randomBytes(32).toString('hex');
+
   // `clone: false`: the IPC codec (`encodeFrame`) already JSON-serializes
   // every frame at the socket boundary, so the dispatcher's extra JSON
   // round-trip per value would only double the cost of large streaming
   // payloads without adding isolation the codec does not already provide.
   const dispatcher = createMemoryDispatcher(options.scope, { clone: false });
 
-  // Best-effort cleanup of a stale socket file; ignore everything but a real
-  // leftover (ENOENT = nothing to remove).
+  // Best-effort cleanup of a stale socket file. Only a real socket (or a
+  // missing file) is removed — a regular file at the path is a caller bug
+  // and must not be deleted (e.g. a typo'd `~/.bashrc` as the socket path).
   try {
-    await unlink(options.socketPath);
+    const st = await lstat(options.socketPath);
+    if (st.isSocket()) {
+      await unlink(options.socketPath);
+    } else {
+      throw new Error(
+        `refusing to remove non-socket path ${options.socketPath} (file exists and is not a socket)`,
+      );
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
@@ -259,6 +279,7 @@ export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<Kl
 
   return {
     socketPath: options.socketPath,
+    token,
     close: () => {
       for (const socket of connections) {
         socket.destroy();

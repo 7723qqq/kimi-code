@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 // Load the native module
+// eslint-disable-next-line import/extensions -- require() needs the real file extension
 const native = require('../index.js');
 
 // ── Test data ────────────────────────────────────────────────────────────────
@@ -214,8 +215,8 @@ describe('nativeTranslateBatchCached', () => {
 
 describe('nativeTranslateClearCache', () => {
   it('is safe to call on an empty cache', () => {
-    native.nativeTranslateClearCache();
-    native.nativeTranslateClearCache();
+    expect(() => native.nativeTranslateClearCache()).not.toThrow();
+    expect(() => native.nativeTranslateClearCache()).not.toThrow();
     // Should not throw
   });
 

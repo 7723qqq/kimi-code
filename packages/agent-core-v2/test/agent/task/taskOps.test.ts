@@ -149,7 +149,7 @@ describe('task ops (wire-backed)', () => {
     expect(emissions).toEqual([]);
   });
 
-  it('replay ignores a terminated record for a task that was never started', async () => {
+  it('replay keeps a terminated record for a task that was never started as a ghost', async () => {
     const records: WireRecord[] = [
       { type: 'task.terminated', info: info('ghost', 'completed') },
     ] as unknown as WireRecord[];
@@ -162,7 +162,8 @@ describe('task ops (wire-backed)', () => {
       records,
     );
     const model = host.wire.getModel(TaskModel);
-    expect(model.size).toBe(0);
+    expect(model.size).toBe(1);
+    expect(model.get('ghost')).toMatchObject({ taskId: 'ghost', status: 'completed' });
   });
 
   it('dispatch of a terminated event for a non-existent task does not crash', () => {

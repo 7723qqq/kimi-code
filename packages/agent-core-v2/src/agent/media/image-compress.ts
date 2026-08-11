@@ -10,8 +10,11 @@
  * untouched — the common case is a fast, codec-free pass-through.
  *
  * Design notes:
- *  - Pure JS (jimp + a wasm WebP decoder), imported lazily so the codecs are
- *    only paid for when an image actually needs work; startup and the fast
+ *  - The Rust native codec (`kimi-native-tools`) is tried first for the
+ *    decode→resize→encode pipeline. When it is unavailable (its wrapper
+ *    returns `undefined`), a lazy jimp pipeline takes over, decoding WebP
+ *    through a wasm decoder (see ./webp-decode). Both codec paths are only
+ *    paid for when an image actually needs work, so startup and the fast
  *    path stay cheap.
  *  - Best effort: any decode/encode failure returns the original bytes
  *    unchanged (`changed: false`). Callers must verify that this unchanged
@@ -49,6 +52,7 @@ import {
   unsupportedImageMimeFromUrl,
 } from './image-format-policy';
 import { isAnimatedWebp } from './webp-animated';
+import { decodeWebp } from './webp-decode';
 import { tryNativeCompressImage, tryNativeCropImage } from '../../_base/native-tools';
 
 export const MAX_IMAGE_EDGE_PX = 2000;
@@ -59,8 +63,18 @@ export function setConfiguredMaxImageEdgePx(value: number | undefined): void {
   configuredMaxImageEdgePx = value !== undefined && isPositiveInt(value) ? value : undefined;
 }
 
-export function resolveMaxImageEdgePx(): number {
-  return configuredMaxImageEdgePx ?? MAX_IMAGE_EDGE_PX;
+export const MAX_IMAGE_EDGE_ENV = 'KIMI_IMAGE_MAX_EDGE_PX';
+
+export function maxImageEdgeFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number | undefined {
+  return positiveIntFromEnv(env, MAX_IMAGE_EDGE_ENV);
+}
+
+export function resolveMaxImageEdgePx(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number {
+  return maxImageEdgeFromEnv(env) ?? configuredMaxImageEdgePx ?? MAX_IMAGE_EDGE_PX;
 }
 
 export const IMAGE_BYTE_BUDGET = 3.75 * 1024 * 1024;
@@ -74,12 +88,32 @@ export function setConfiguredReadImageByteBudget(value: number | undefined): voi
     value !== undefined && isPositiveInt(value) ? value : undefined;
 }
 
-export function resolveReadImageByteBudget(): number {
-  return configuredReadImageByteBudget ?? READ_IMAGE_BYTE_BUDGET;
+export const READ_IMAGE_BYTE_BUDGET_ENV = 'KIMI_IMAGE_READ_BYTE_BUDGET';
+
+export function readImageByteBudgetFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number | undefined {
+  return positiveIntFromEnv(env, READ_IMAGE_BYTE_BUDGET_ENV);
+}
+
+export function resolveReadImageByteBudget(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number {
+  return readImageByteBudgetFromEnv(env) ?? configuredReadImageByteBudget ?? READ_IMAGE_BYTE_BUDGET;
 }
 
 function isPositiveInt(value: number): boolean {
   return Number.isInteger(value) && value > 0;
+}
+
+function positiveIntFromEnv(
+  env: Readonly<Record<string, string | undefined>>,
+  name: string,
+): number | undefined {
+  const raw = env[name]?.trim();
+  if (raw === undefined || raw.length === 0 || !/^\d+$/.test(raw)) return undefined;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 const JPEG_QUALITY_STEPS = [80, 60, 40, 20] as const;
 
@@ -206,7 +240,41 @@ export async function compressImageForModel(
     });
   }
 
-  return finish('passthrough_unhelpful', passthrough());
+  // The native codec is unavailable — fall back to the lazy jimp pipeline.
+  try {
+    const image = await decodeToJimp(bytes, normalizedMime);
+    const preferLossless = normalizedMime !== 'image/jpeg';
+    const decodedWidth = image.width;
+    const decodedHeight = image.height;
+
+    fitWithinEdge(image, maxEdge);
+
+    const encoded = await encodeWithinBudget(image, {
+      preferLossless,
+      byteBudget,
+      fallbackEdges: FALLBACK_EDGES_PX,
+    });
+
+    const originalPixels = decodedWidth * decodedHeight;
+    const finalPixels = encoded.width * encoded.height;
+    const shrankBytes = encoded.data.length < bytes.length;
+    const shrankPixels = finalPixels < originalPixels;
+    if (!shrankBytes && !shrankPixels) return finish('passthrough_unhelpful', passthrough());
+
+    return finish('compressed', {
+      data: encoded.data,
+      mimeType: encoded.mimeType,
+      width: encoded.width,
+      height: encoded.height,
+      originalWidth: decodedWidth,
+      originalHeight: decodedHeight,
+      changed: true,
+      originalByteLength: bytes.length,
+      finalByteLength: encoded.data.length,
+    });
+  } catch {
+    return finish('passthrough_error', passthrough());
+  }
 }
 
 export interface CompressBase64Result {
@@ -529,7 +597,87 @@ export async function cropImageForModel(
     });
   }
 
-  return fail('decode_failed', 'Image codec not available; native module is required for image operations.');
+  // The native codec is unavailable — fall back to the lazy jimp pipeline.
+  try {
+    const image = await decodeToJimp(bytes, normalizedMime);
+    const originalWidth = image.width;
+    const originalHeight = image.height;
+
+    const x = Math.floor(region.x);
+    const y = Math.floor(region.y);
+    if (
+      x < 0 ||
+      y < 0 ||
+      x >= originalWidth ||
+      y >= originalHeight ||
+      region.width < 1 ||
+      region.height < 1
+    ) {
+      return fail(
+        'out_of_bounds',
+        `Region (x=${String(region.x)}, y=${String(region.y)}, width=${String(region.width)}, ` +
+          `height=${String(region.height)}) lies outside the ${String(originalWidth)}x${String(originalHeight)} image.`,
+      );
+    }
+    const w = Math.min(Math.floor(region.width), originalWidth - x);
+    const h = Math.min(Math.floor(region.height), originalHeight - y);
+    const applied: ImageCropRegion = { x, y, width: w, height: h };
+    image.crop({ x, y, w, h });
+    const preferLossless = normalizedMime !== 'image/jpeg';
+
+    if (options.skipResize === true) {
+      const buffer = preferLossless
+        ? await image.getBuffer('image/png', { deflateLevel: 9 })
+        : await image.getBuffer('image/jpeg', { quality: 90 });
+      if (buffer.length > byteBudget) {
+        return fail(
+          'budget',
+          `The cropped region encodes to ${String(buffer.length)} bytes ` +
+            `(${formatByteSize(buffer.length)}), over the ${String(byteBudget)}-byte ` +
+            `(${formatByteSize(byteBudget)}) per-image limit. ` +
+            'Choose a smaller region, or allow downscaling.',
+        );
+      }
+      return succeed({
+        ok: true,
+        data: new Uint8Array(buffer),
+        mimeType: preferLossless ? 'image/png' : 'image/jpeg',
+        width: image.width,
+        height: image.height,
+        originalWidth,
+        originalHeight,
+        region: applied,
+        resized: false,
+        originalByteLength: bytes.length,
+        finalByteLength: buffer.length,
+      });
+    }
+
+    fitWithinEdge(image, maxEdge);
+    const encoded = await encodeWithinBudget(image, {
+      preferLossless,
+      byteBudget,
+      fallbackEdges: FALLBACK_EDGES_PX,
+    });
+    return succeed({
+      ok: true,
+      data: new Uint8Array(encoded.data),
+      mimeType: encoded.mimeType,
+      width: encoded.width,
+      height: encoded.height,
+      originalWidth,
+      originalHeight,
+      region: applied,
+      resized: encoded.width !== w || encoded.height !== h,
+      originalByteLength: bytes.length,
+      finalByteLength: encoded.data.length,
+    });
+  } catch (error) {
+    return fail(
+      'decode_failed',
+      `Failed to decode the image for cropping: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 
@@ -595,6 +743,102 @@ export function formatByteSize(bytes: number): string {
   if (bytes < 1024) return `${String(bytes)} B`;
   if (bytes < 1024 * 1024) return `${String(Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+
+type JimpImage = Awaited<ReturnType<(typeof import('jimp'))['Jimp']['fromBuffer']>>;
+
+interface EncodedImage {
+  readonly data: Buffer;
+  readonly mimeType: string;
+  readonly width: number;
+  readonly height: number;
+}
+
+interface EncodeOptions {
+  readonly preferLossless: boolean;
+  readonly byteBudget: number;
+  readonly fallbackEdges: readonly number[];
+}
+
+async function decodeToJimp(bytes: Uint8Array, normalizedMime: string): Promise<JimpImage> {
+  const { Jimp } = await import('jimp');
+  if (normalizedMime === 'image/webp') {
+    const decoded = await decodeWebp(bytes);
+    return Jimp.fromBitmap({
+      data: Buffer.from(decoded.data.buffer, decoded.data.byteOffset, decoded.data.byteLength),
+      width: decoded.width,
+      height: decoded.height,
+    });
+  }
+  return Jimp.fromBuffer(Buffer.from(bytes));
+}
+
+async function encodeWithinBudget(image: JimpImage, opts: EncodeOptions): Promise<EncodedImage> {
+  const { preferLossless, byteBudget, fallbackEdges } = opts;
+  let smallest: EncodedImage | null = null;
+
+  const consider = (data: Buffer, mimeType: string): EncodedImage => {
+    const candidate: EncodedImage = { data, mimeType, width: image.width, height: image.height };
+    if (smallest === null || candidate.data.length < smallest.data.length) {
+      smallest = candidate;
+    }
+    return candidate;
+  };
+
+  const jpegLadder = async (): Promise<EncodedImage | null> => {
+    for (const quality of JPEG_QUALITY_STEPS) {
+      const jpeg = await image.getBuffer('image/jpeg', { quality });
+      if (jpeg.length <= byteBudget) return consider(jpeg, 'image/jpeg');
+      consider(jpeg, 'image/jpeg');
+    }
+    return null;
+  };
+
+  if (preferLossless) {
+    const png = await image.getBuffer('image/png', { deflateLevel: 9 });
+    if (png.length <= byteBudget) return consider(png, 'image/png');
+    consider(png, 'image/png');
+
+    for (const edge of fallbackEdges) {
+      if (edge < PNG_RESCALE_FLOOR_PX) break;
+      if (!fitWithinEdge(image, edge)) continue;
+      const smallerPng = await image.getBuffer('image/png', { deflateLevel: 9 });
+      if (smallerPng.length <= byteBudget) return consider(smallerPng, 'image/png');
+      consider(smallerPng, 'image/png');
+    }
+
+    const atFloor = await jpegLadder();
+    if (atFloor !== null) return atFloor;
+    for (const edge of fallbackEdges) {
+      if (edge >= PNG_RESCALE_FLOOR_PX) continue;
+      if (!fitWithinEdge(image, edge)) continue;
+      const atEdge = await jpegLadder();
+      if (atEdge !== null) return atEdge;
+    }
+    return smallest!;
+  }
+
+  const atFitted = await jpegLadder();
+  if (atFitted !== null) return atFitted;
+  for (const edge of fallbackEdges) {
+    if (!fitWithinEdge(image, edge)) continue;
+    const atEdge = await jpegLadder();
+    if (atEdge !== null) return atEdge;
+  }
+
+  return smallest!;
+}
+
+function fitWithinEdge(image: JimpImage, edge: number): boolean {
+  const longest = Math.max(image.width, image.height);
+  if (longest <= edge) return false;
+  const factor = edge / longest;
+  image.resize({
+    w: Math.max(1, Math.round(image.width * factor)),
+    h: Math.max(1, Math.round(image.height * factor)),
+  });
+  return true;
 }
 
 

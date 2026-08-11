@@ -28,6 +28,8 @@ interface TodoListReminderTurnCounts {
 
 export function todoListStaleReminder(input: TodoListReminderInput): string | undefined {
   if (!input.active) return undefined;
+  // Nothing to remind about when there are no tracked todos.
+  if (input.todos.length === 0) return undefined;
 
   const counts = getTodoListReminderTurnCounts(input.history);
   if (

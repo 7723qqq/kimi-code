@@ -8,7 +8,7 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (25 sections · 3 overlay(s))
+# Index (26 sections · 3 overlay(s))
 #   background               src\agent\task\configSection.ts
 #   builtinProductSkills     src\app\skillCatalog\configSection.ts
 #   cron                     src\app\cron\configSection.ts
@@ -17,6 +17,7 @@
 #   experimental             src\app\flag\flag.ts
 #   extraAgentDirs           src\workspace\workspaceAgentProfileLoader\configSection.ts
 #   extraSkillDirs           src\app\skillCatalog\configSection.ts
+#   github                   src\agent\tools\github\flag.ts
 #   hooks                    src\agent\externalHooks\configSection.ts
 #   identity                 src\app\agentIdentity\configSection.ts
 #   image                    src\agent\media\configSection.ts
@@ -133,6 +134,15 @@ extra_agent_dirs = []
 # ##########################################################################
 
 extra_skill_dirs = []
+
+# ##########################################################################
+# github
+#   owner: src\agent\tools\github\flag.ts
+#   scope: core
+# ##########################################################################
+
+[github]
+# token: string
 
 # ##########################################################################
 # hooks

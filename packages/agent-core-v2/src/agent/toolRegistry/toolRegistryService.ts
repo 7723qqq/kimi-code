@@ -32,15 +32,12 @@ interface ToolEntry {
 export class AgentToolRegistryService implements IAgentToolRegistryService {
   declare readonly _serviceBrand: undefined;
   private readonly tools = new Map<string, ToolEntry>();
-  /** Sorted `list()` result, invalidated on register/unregister. */
-  private listCache: readonly ToolInfo[] | undefined;
 
   register(tool: ExecutableTool, options: ToolRegistrationOptions = {}): IDisposable {
     const source = options.source ?? 'builtin';
     const entry: ToolEntry = { tool, source, disclosure: options.disclosure };
     this.unregisterTool(tool.name);
     this.tools.set(tool.name, entry);
-    this.listCache = undefined;
 
     return toDisposable(() => {
       const current = this.tools.get(tool.name);
@@ -50,8 +47,10 @@ export class AgentToolRegistryService implements IAgentToolRegistryService {
   }
 
   list(): readonly ToolInfo[] {
-    if (this.listCache !== undefined) return this.listCache;
-    this.listCache = [...this.tools.values()]
+    // Re-read tool descriptions on every call: tool descriptions can change
+    // dynamically (e.g. the Agent tool reflects the profile catalog), so a
+    // cached list would serve stale contract data to the LLM.
+    return [...this.tools.values()]
       .map(({ tool, source, disclosure }) => ({
         name: tool.name,
         description: tool.description,
@@ -60,7 +59,6 @@ export class AgentToolRegistryService implements IAgentToolRegistryService {
         disclosure,
       }))
       .toSorted((a, b) => a.name.localeCompare(b.name));
-    return this.listCache;
   }
 
   resolveInfo(name: string): ToolInfo | undefined {
@@ -89,7 +87,6 @@ export class AgentToolRegistryService implements IAgentToolRegistryService {
     const entry = this.tools.get(name);
     if (entry === undefined) return undefined;
     this.tools.delete(name);
-    this.listCache = undefined;
     return entry;
   }
 }

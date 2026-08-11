@@ -235,6 +235,6 @@ function mergeLiveTail(
   const tail = contextMessages.slice(transcript.foldedLength);
   return {
     messages: [...transcript.entries, ...tail],
-    times: [...transcript.times, ...tail.map(() => {})],
+    times: [...transcript.times, ...tail.map(() => undefined)],
   };
 }

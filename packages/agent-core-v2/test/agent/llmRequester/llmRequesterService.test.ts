@@ -58,6 +58,7 @@ import { ILogService } from '#/_base/log/log';
 import { Error2, ErrorCodes } from '#/errors';
 import { IWireService } from '#/wire/wire';
 import type { WireRecord } from '#/wire/record';
+import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 
 import { recordingWireLog, registerTestAgentWire } from '../../wire/stubs';
@@ -196,6 +197,7 @@ function createService(
 
   ix.stub(IAgentContextMemoryService, context);
   ix.stub(IAgentToolSelectService, toolSelect);
+  ix.stub(IAgentMicroCompactionService, { compact: (messages) => messages });
   ix.stub(IAgentVideoResolverService, { resolve: async (messages) => messages });
   if (projector === undefined) {
     ix.set(

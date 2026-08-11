@@ -35,7 +35,19 @@ export class GuardianReviewPermissionPolicyService implements PermissionPolicy {
     const verdict = await this.guardian.review(context);
     switch (verdict.verdict) {
       case 'allow':
-        return { kind: 'approve', reason: { guardian: verdict.rationale } };
+        // An LLM-written `allow` only auto-approves when it claims low risk
+        // or explicit user authorization; anything else is downgraded to a
+        // human ask so a prompt-injected reviewer cannot keep waving through
+        // high-risk operations.
+        if (verdict.riskLevel === 'low' || verdict.userAuthorization === 'explicit') {
+          return { kind: 'approve', reason: { guardian: verdict.rationale } };
+        }
+        return {
+          kind: 'ask',
+          reason: {
+            guardian: `guardian allowed but risk=${verdict.riskLevel}, authorization=${verdict.userAuthorization}: ${verdict.rationale}`,
+          },
+        };
       case 'deny':
         return {
           kind: 'ask',

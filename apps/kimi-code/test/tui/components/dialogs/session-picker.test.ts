@@ -6,7 +6,7 @@ import { SessionPickerComponent } from '#/tui/components/dialogs/session-picker'
 vi.mock('#/i18n', () => ({
   t: (key: string, params?: Record<string, string>) => {
     const translations: Record<string, string> = {
-      'migration.badgeImported': '[imported]',
+      'tui.migration.badgeImported': '[imported]',
       'tui.dialogs.sessionPicker.titleCwd': 'Sessions',
       'tui.dialogs.sessionPicker.titleAll': 'All sessions',
       'tui.dialogs.sessionPicker.loading': 'Loading sessions...',

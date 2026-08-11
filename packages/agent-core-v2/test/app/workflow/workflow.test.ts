@@ -407,7 +407,7 @@ describe('workflow sandbox primitives', () => {
       }
     };
 
-    const result = await fetchHook('http://invalid-url-that-definitely-does-not-exist.example/');
+    const result = await fetchHook('http://127.0.0.1:1/');
     expect(result.ok).toBe(false);
     expect(result.status).toBe(0);
     expect(result.body).toBeTruthy();

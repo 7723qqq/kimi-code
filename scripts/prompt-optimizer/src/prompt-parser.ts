@@ -5,7 +5,7 @@
  * and generates variants (with sections removed/modified).
  */
 
-import { readFileSync } from 'fs';
+import { readFileSync } from 'node:fs';
 import type { PromptSection, PromptVariant } from './types';
 
 /**

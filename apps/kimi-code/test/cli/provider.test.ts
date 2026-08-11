@@ -22,7 +22,6 @@ import {
 // asserted without booting a real engine. The real implementations stay in
 // place for everything else the handlers use.
 const harnessRouting = vi.hoisted(() => ({
-  kimiHarnessConstructor: vi.fn(),
   kimiHarnessV2Constructor: vi.fn(),
   harness: undefined as unknown,
 }));
@@ -31,10 +30,6 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
   return {
     ...actual,
-    createKimiHarness: (...args: unknown[]) => {
-      harnessRouting.kimiHarnessConstructor(...args);
-      return harnessRouting.harness;
-    },
     createKimiHarnessV2: (...args: unknown[]) => {
       harnessRouting.kimiHarnessV2Constructor(...args);
       return harnessRouting.harness;
@@ -1126,13 +1121,8 @@ describe('kimi provider catalog add', () => {
 
 describe('kimi provider engine routing', () => {
   beforeEach(() => {
-    harnessRouting.kimiHarnessConstructor.mockClear();
     harnessRouting.kimiHarnessV2Constructor.mockClear();
     harnessRouting.harness = makeHarness({ providers: {} } as KimiConfig).harness;
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
   });
 
   function registerWithDefaultHarness(program: Command): void {
@@ -1146,25 +1136,12 @@ describe('kimi provider engine routing', () => {
     });
   }
 
-  it('builds the v2 harness by default', async () => {
-    vi.stubEnv('KIMI_CODE_LEGACY_FLAG', '');
+  it('builds the v2 harness', async () => {
     const program = new Command('kimi');
     registerWithDefaultHarness(program);
 
     await program.parseAsync(['node', 'kimi', 'provider', 'list'], { from: 'node' });
 
     expect(harnessRouting.kimiHarnessV2Constructor).toHaveBeenCalledTimes(1);
-    expect(harnessRouting.kimiHarnessConstructor).not.toHaveBeenCalled();
-  });
-
-  it('builds the legacy harness when the legacy flag is truthy', async () => {
-    vi.stubEnv('KIMI_CODE_LEGACY_FLAG', '1');
-    const program = new Command('kimi');
-    registerWithDefaultHarness(program);
-
-    await program.parseAsync(['node', 'kimi', 'provider', 'list'], { from: 'node' });
-
-    expect(harnessRouting.kimiHarnessConstructor).toHaveBeenCalledTimes(1);
-    expect(harnessRouting.kimiHarnessV2Constructor).not.toHaveBeenCalled();
   });
 });

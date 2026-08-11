@@ -16,6 +16,7 @@
 // Wire-file parse warnings are appended as info-level entries with no lineNo.
 
 import type { WireEntry } from '../types';
+import { t } from '../i18n';
 
 export type IssueSeverity = 'error' | 'warning' | 'info';
 
@@ -83,7 +84,7 @@ export function computeIssues(
               kind: 'missing_tool_result',
               lineNo,
               summary: `orphan tool.result for #${ev.toolCallId.slice(-8)}`,
-              detail: 'no preceding tool.call seen',
+              detail: t('wireRow.noPrecedingCall'),
             });
           }
           // Runtime failure / partial-output signals carried on the result.

@@ -55,7 +55,6 @@ describe('KimiForCodingProvider OAuth error mapping', () => {
       const auth = resolveAuth();
       const caught = await auth(async () => 'ok').catch((error: unknown) => error);
 
-      expect(caught).toBeInstanceOf(KimiError);
       expect(caught).toMatchObject({
         code: ErrorCodes.PROVIDER_CONNECTION_ERROR,
         message: expect.stringContaining(tokenError.message),

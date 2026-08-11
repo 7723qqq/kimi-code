@@ -1,11 +1,6 @@
-import {
-  ErrorCodes,
-  KimiError,
-  resolveKimiHome,
-  type Logger,
-  type ModelProvider,
-  type ResolvedRuntimeProvider,
-} from '@moonshot-ai/agent-core';
+import { ErrorCodes, KimiError } from '#/legacy';
+import type { Logger } from '#/legacy';
+import type { ModelAlias, ProviderType } from '#/config-local';
 import {
   createKimiDefaultHeaders,
   KIMI_CODE_FLOW_CONFIG,
@@ -21,9 +16,43 @@ import type {
   ProviderConfig as KosongProviderConfig,
   ProviderRequestAuth,
 } from '@moonshot-ai/kosong';
-import { APIStatusError, UNKNOWN_CAPABILITY } from '@moonshot-ai/kosong';
+import { APIStatusError, UNKNOWN_CAPABILITY, type ModelCapability } from '@moonshot-ai/kosong';
+
+import { resolveKimiHome } from '#/config-local';
 
 import { mapOAuthTokenError } from '#/oauth-error';
+
+/**
+ * Localized copies of the v1 provider-manager contracts
+ * (`agent-core/src/session/provider-manager.ts`): the `ModelProvider` /
+ * `ResolvedRuntimeProvider` shapes this provider class implements. Kept so
+ * the SDK does not import `agent-core`; the `Logger` type is the SDK's own
+ * localized logging contract (`#/legacy`).
+ */
+export type AuthorizedRequest = <T>(
+  request: (auth: ProviderRequestAuth) => Promise<T>,
+) => Promise<T>;
+
+export interface ResolvedRuntimeProvider {
+  readonly providerName: string;
+  readonly provider: KosongProviderConfig;
+  readonly modelCapabilities: ModelCapability;
+  /** Declared 'always_thinking' capability — the model cannot disable thinking. */
+  readonly alwaysThinking?: boolean;
+  readonly supportEfforts?: readonly string[];
+  readonly defaultEffort?: string;
+  readonly maxOutputSize?: number;
+  /** Configured provider wire type (`provider.type`), before any model-level protocol override. */
+  readonly type: ProviderType;
+  /** Model-level protocol override (`alias.protocol`); when set, takes precedence over `type` for transport selection. */
+  readonly protocol: ModelAlias['protocol'];
+}
+
+export interface ModelProvider {
+  readonly defaultModel?: string;
+  resolveProviderConfig(model: string): ResolvedRuntimeProvider;
+  resolveAuth?(model: string, options?: { readonly log?: Logger }): AuthorizedRequest | undefined;
+}
 
 export interface KimiForCodingProviderOptions extends KimiHostIdentity {
   readonly homeDir?: string;

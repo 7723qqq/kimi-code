@@ -2,7 +2,7 @@
  * Prompt Optimizer — Configuration loader.
  */
 
-import { resolve } from 'path';
+import { resolve } from 'node:path';
 import type { OptimizerConfig } from './types';
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '../../..');

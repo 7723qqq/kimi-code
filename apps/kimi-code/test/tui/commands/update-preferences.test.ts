@@ -7,14 +7,14 @@ const mocks = vi.hoisted(() => ({
   saveTuiConfig: vi.fn(),
   t: (key: string, params?: Record<string, string | number>) => {
     const translations: Record<string, string> = {
-      'tui.dialogs.config.configAutoUpdateSet': `Automatic updates ${String(params?.['state'] ?? '')}.`,
-      'tui.dialogs.config.configAutoUpdateAlready': `Automatic updates already ${String(params?.['state'] ?? '')}.`,
-      'tui.dialogs.config.configAutoUpdateSaveFailed':
+      'tui.messages.configAutoUpdateSet': `Automatic updates ${String(params?.['state'] ?? '')}.`,
+      'tui.messages.configAutoUpdateAlready': `Automatic updates already ${String(params?.['state'] ?? '')}.`,
+      'tui.messages.configAutoUpdateSaveFailed':
         'Failed to save automatic update setting: {{error}}',
-      'tui.dialogs.config.configAutoUpdateEnabled': 'enabled',
-      'tui.dialogs.config.configAutoUpdateDisabled': 'disabled',
-      'tui.dialogs.config.configPermissionUnchanged': 'Permission mode unchanged: {{mode}}.',
-      'tui.dialogs.config.configPermissionMode': 'Permission mode: {{mode}}',
+      'tui.messages.configAutoUpdateEnabled': 'enabled',
+      'tui.messages.configAutoUpdateDisabled': 'disabled',
+      'tui.messages.configPermissionUnchanged': 'Permission mode unchanged: {{mode}}.',
+      'tui.messages.configPermissionMode': 'Permission mode: {{mode}}',
     };
     return translations[key] ?? key;
   },
@@ -45,6 +45,7 @@ describe('update preference commands', () => {
       state: {
         appState: {
           theme: 'auto' as const,
+          locale: 'en',
           editorCommand: null,
           notifications: { enabled: true, condition: 'unfocused' as const },
           upgrade: { autoInstall: true },
@@ -60,12 +61,14 @@ describe('update preference commands', () => {
 
     expect(mocks.saveTuiConfig).toHaveBeenCalledWith({
       theme: 'auto',
+      locale: 'en',
       editorCommand: null,
       disablePasteBurst: false,
       cacheExpiryHint: true,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: false },
       statusLine: { items: null, command: null },
+      astron: { stream: true, temperature: 1, maxTokens: 32768, searchDisable: true },
     });
     expect(setAppState).toHaveBeenCalledWith({ upgrade: { autoInstall: false } });
     expect(track).toHaveBeenCalledWith('upgrade_preference_changed', { auto_install: false });

@@ -17,7 +17,7 @@
  * Exit code: 0 if no issues found, 1 if any found.
  */
 
-import { readFileSync, readdirSync, statSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, relative, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from 'node:module';
@@ -33,18 +33,6 @@ const SKIP_DIRS = new Set([
 
 // Module definitions
 const MODULES = [
-  {
-    name: 'agent-core',
-    srcDir: 'packages/agent-core/src',
-    localeDir: 'packages/i18n/src/locales',
-    localeEn: 'packages/i18n/src/locales/en.ts',
-    localeZh: 'packages/i18n/src/locales/zh.ts',
-    tPattern: /\bt\(['"]/,
-    importPattern: /t\b.*from\s+['"]@moonshot-ai\/kimi-i18n['"]/,
-    skipDirs: ['i18n-locales'],
-    fileTypes: ['.ts'],
-    tImportName: 't',
-  },
   {
     name: 'kap-server',
     srcDir: 'packages/kap-server/src',
@@ -141,7 +129,9 @@ async function loadTSModule(p) {
     const mod = await import(fileUrl);
     return mod.default || mod;
   } catch (err) {
-    throw new Error(`Cannot load ${p}: ${err.message}`);
+    throw new Error(
+      `Cannot load ${p}: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -205,9 +195,6 @@ function scanFile(filePath, content, moduleInfo, valueToKeys) {
   const lines = content.split('\n');
   const relPath = relative(ROOT, filePath).replace(/\\/g, '/');
 
-  // Check if file already imports/uses t()
-  const tVarPattern = moduleInfo.tImportName === '$t' ? /\$t\b/ : /\bt\b/;
-
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lineNum = i + 1;
@@ -219,7 +206,6 @@ function scanFile(filePath, content, moduleInfo, valueToKeys) {
     // ── Detection 1: Locale value appears hardcoded (not in t() call) ──
     // Only applies to files that already use t() — files without t() imports
     // are expected to have hardcoded strings (they may not be user-facing)
-    const fileUsesT = tVarPattern.test(content);
 
     // Look for locale values appearing as string literals
     for (const [normalizedValue, keys] of valueToKeys) {
@@ -404,7 +390,7 @@ async function main() {
       byType[f.type] = (byType[f.type] || 0) + 1;
     }
     for (const [type, count] of Object.entries(byType)) {
-      console.log(`    ${type}: ${count}`);
+      console.log(`    ${type}: ${Number(count)}`);
     }
 
     // Show sample findings (up to 15)

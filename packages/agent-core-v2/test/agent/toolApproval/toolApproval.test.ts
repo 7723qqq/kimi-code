@@ -241,29 +241,54 @@ describe('AgentToolApprovalService', () => {
   });
 
   describe('requestToolApproval', () => {
-    it('auto-approves when no approval broker is registered', async () => {
+    it('fails closed when no approval broker is registered', async () => {
       const events = subscribeApprovalEvents();
       const svc = make();
+      const feedback = 'No approval surface is available; the request was denied.';
 
       await expect(
         svc.requestToolApproval(makeContext('Bash', { command: 'printf hi' }), ask(), 'fallback-ask'),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({
+        veto: {
+          output: `Tool "Bash" was not run because the user rejected the approval request. Reason: ${feedback}`,
+          isError: true,
+        },
+      });
 
       expect(events.requested).not.toHaveBeenCalled();
-      expect(events.resolved).not.toHaveBeenCalled();
+      expect(events.resolved).toHaveBeenCalledWith({
+        type: 'permission.approval.resolved',
+        sessionId: 'test-session',
+        agentId: 'main',
+        turnId: 1,
+        toolCallId: 'call-Bash',
+        toolName: 'Bash',
+        action: 'Approve Bash',
+        toolInput: { command: 'printf hi' },
+        display: {
+          kind: 'generic',
+          summary: 'Approve Bash',
+          detail: { command: 'printf hi' },
+        },
+        decision: 'rejected',
+        feedback,
+      });
       expect(recorded).toHaveLength(1);
       expect(recorded[0]).toMatchObject({
         toolName: 'Bash',
         sessionApprovalRule: undefined,
-        result: { decision: 'approved' },
+        result: { decision: 'rejected', feedback },
       });
       expect(records).toContainEqual({
         event: 'permission_approval_result',
         properties: expect.objectContaining({
           policy_name: 'fallback-ask',
           tool_name: 'Bash',
-          result: 'approved',
+          permission_mode: 'manual',
+          result: 'no_approval_surface',
+          approval_surface: 'generic',
           session_cache_written: false,
+          has_feedback: false,
         }),
       });
     });

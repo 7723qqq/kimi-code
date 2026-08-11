@@ -9,7 +9,6 @@
  *   where the v1 `SessionMeta` keeps ISO strings and `workDir`.
  * Everything else is a field rename (`custom` ↔ `metadata`).
  */
-import type { AgentMeta, SessionMeta } from '@moonshot-ai/agent-core';
 import type {
   AgentMeta as V2AgentMeta,
   SessionMeta as V2SessionMeta,
@@ -18,7 +17,7 @@ import type {
 
 import { resolve, win32 } from 'node:path';
 
-import type { JsonObject, SessionSummary } from '#/types';
+import type { AgentMeta, JsonObject, SessionMeta, SessionSummary } from '#/types';
 
 /**
  * Mirror of v1's `normalizeWorkDir` (`agent-core/session/store/workdir-key`):
@@ -84,9 +83,11 @@ function v2AgentsToV1(agents: Readonly<Record<string, V2AgentMeta>>): Record<str
   for (const [agentId, agent] of Object.entries(agents)) {
     mapped[agentId] = {
       homedir: agent.homedir,
-      // v2 registers every agent with a type; the fallbacks only cover
-      // documents written before that registration existed.
-      type: agent.type ?? (agentId === 'main' ? 'main' : 'sub'),
+      // v2 registers every agent with a type (`independent` included — a
+      // v2-only kind); v1's meta only knows main/sub, so independent agents
+      // fold onto `sub`, and the fallbacks cover documents written before
+      // the type registration existed.
+      type: agent.type === 'independent' ? 'sub' : (agent.type ?? (agentId === 'main' ? 'main' : 'sub')),
       // v1 persists an explicit null for a parentless agent where v2 leaves
       // the field unset.
       parentAgentId: agent.parentAgentId ?? null,

@@ -1895,6 +1895,7 @@ pub async fn native_github_request(
     body_json: Option<String>,
     paginate: Option<bool>,
     accept: Option<String>,
+    token: Option<String>,
 ) -> NativeGithubResponse {
     tokio::task::spawn_blocking(move || {
         let resp = github::request(
@@ -1904,6 +1905,7 @@ pub async fn native_github_request(
             body_json.as_deref(),
             paginate.unwrap_or(false),
             accept.as_deref(),
+            token,
         );
         NativeGithubResponse {
             status: u32::from(resp.status),

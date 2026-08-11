@@ -1,6 +1,11 @@
 packages:
   - packages/*
+  # kimi-build is a Rust-only package (Cargo-managed deps, no package.json).
+  - '!packages/kimi-build'
   - apps/*
+  # kimi-web source lives outside this repo (prebuilt dist-web is committed
+  # under apps/kimi-code/dist-web); only a stale node_modules dir remains.
+  - '!apps/kimi-web'
   - apps/vis/server
   - apps/vis/web
   - docs

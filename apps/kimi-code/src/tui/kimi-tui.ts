@@ -27,7 +27,7 @@ import { join } from 'node:path';
 import { resolve } from 'pathe';
 
 import type { CLIOptions } from '#/cli/options';
-import { getLocale } from '#/i18n';
+import { getLocale, t } from '#/i18n';
 import {
   MigrationScreenComponent,
   type MigrationScreenResult,
@@ -930,7 +930,7 @@ export class KimiTUI {
     }
 
     if (!this.engineV2 && session === undefined) {
-      throw new Error('Startup session was not initialized.');
+      throw new Error(t('tui.statusMessages.startupSessionNotInitialized'));
     }
     if (session !== undefined) {
       await this.setSession(session);
@@ -1118,7 +1118,7 @@ export class KimiTUI {
     }
     if (text.trim().length === 0) return;
     if (this.state.appState.isReplaying) {
-      this.showError('Cannot send input while session history is replaying.');
+      this.showError(t('tui.statusMessages.cannotSendWhileReplaying'));
       return;
     }
     // Shell commands are stored with a leading `!` so ↑ recall can tell them
@@ -1145,7 +1145,7 @@ export class KimiTUI {
     let session = this.session;
     if (session === undefined) {
       if (!this.engineV2) {
-        this.showError('No active session for shell command.');
+        this.showError(t('tui.statusMessages.noActiveSessionShell'));
         return;
       }
       session = await this.ensureSession();
@@ -1331,14 +1331,14 @@ export class KimiTUI {
       extraction.imageAttachmentIds.length > 0 &&
       !this.supportsCurrentModelCapability('image_in')
     ) {
-      this.showError('Current model does not support image input.');
+      this.showError(t('tui.statusMessages.modelNoImageInput'));
       return false;
     }
     if (
       extraction.videoAttachmentIds.length > 0 &&
       !this.supportsCurrentModelCapability('video_in')
     ) {
-      this.showError('Current model does not support video input.');
+      this.showError(t('tui.statusMessages.modelNoVideoInput'));
       return false;
     }
     return true;
@@ -2046,15 +2046,15 @@ export class KimiTUI {
     // replace the resumed session when creation completes.
     await this.waitForLazyCreation();
     if (targetSessionId === this.state.appState.sessionId) {
-      this.showStatus('Already on this session.');
+      this.showStatus(t('tui.statusMessages.alreadyOnSession'));
       return true;
     }
     if (this.state.appState.streamingPhase !== 'idle') {
-      this.showError('Cannot switch sessions while streaming — press Esc or Ctrl-C first.');
+      this.showError(t('tui.statusMessages.cannotSwitchWhileStreaming'));
       return false;
     }
     if (this.state.appState.isReplaying) {
-      this.showError('Cannot switch sessions while history is replaying.');
+      this.showError(t('tui.statusMessages.cannotSwitchWhileReplaying'));
       return false;
     }
 
@@ -2135,7 +2135,7 @@ export class KimiTUI {
 
   async createNewSession(): Promise<void> {
     if (this.state.appState.isReplaying) {
-      this.showError('Cannot start a new session while history is replaying.');
+      this.showError(t('tui.statusMessages.cannotStartNewWhileReplaying'));
       return;
     }
 
@@ -2303,7 +2303,7 @@ export class KimiTUI {
     const parts: string[] = [];
     switch (response.decision) {
       case 'approved':
-        parts.push(response.scope === 'session' ? 'Approved for session' : 'Approved');
+        parts.push(response.scope === 'session' ? t('tui.statusMessages.approvedForSession') : 'Approved');
         break;
       case 'rejected':
         parts.push('Rejected');
@@ -2687,14 +2687,14 @@ export class KimiTUI {
     openUrl(auth.verificationUriComplete);
     this.state.transcriptContainer.addChild(
       new DeviceCodeBoxComponent({
-        title: 'Sign in to Kimi Code',
+        title: t('tui.chrome.deviceCodeBox.title'),
         url: auth.verificationUriComplete,
         code: auth.userCode,
-        hint: 'Press Ctrl-C to cancel',
+        hint: t('tui.chrome.deviceCodeBox.hint'),
       }),
     );
     this.state.ui.requestRender();
-    return this.showLoginProgressSpinner('Waiting for authorization…');
+    return this.showLoginProgressSpinner(t('tui.statusMessages.waitingForAuthorization'));
   }
 
   // =========================================================================
@@ -2901,7 +2901,7 @@ export class KimiTUI {
     // runShellCommand resolution (which carries background metadata) is a no-op
     // instead of overwriting this view.
     stream.component.finishBackgrounded();
-    stream.entry.content = 'Moved to background.';
+    stream.entry.content = t('tui.messages.shellRun.backgrounded');
     this.shellOutputStreams.delete(commandId);
     // The backgrounded command's notification turn (started by agent-core via
     // appendSystemReminderAndNotify) owns the streaming phase and drains the
@@ -2952,10 +2952,15 @@ export class KimiTUI {
 
     let hint: string;
     if (detached === 0 && alreadyFinished > 0) {
-      hint = alreadyFinished === 1 ? 'Task already finished.' : 'Tasks already finished.';
+      hint =
+        alreadyFinished === 1
+          ? t('tui.statusMessages.taskAlreadyFinished_one')
+          : t('tui.statusMessages.taskAlreadyFinished_other');
     } else if (detached === targets.length) {
       hint =
-        detached === 1 ? 'Moved 1 task to background.' : `Moved ${detached} tasks to background.`;
+        detached === 1
+          ? t('tui.statusMessages.movedOneTaskToBackground')
+          : `Moved ${detached} tasks to background.`;
     } else {
       hint = `Moved ${detached} of ${targets.length} tasks to background.`;
     }
@@ -3413,7 +3418,7 @@ export class KimiTUI {
   private showApprovalPanel(payload: ApprovalPanelData): void {
     this.patchLivePane({ pendingApproval: { data: payload } });
     notifyTerminalOnce(this.state, `approval:${payload.id}`, {
-      title: 'Kimi Code approval required',
+      title: t('tui.messages.kimiTuiApprovalRequired'),
       body: payload.tool_name,
     });
     const panel = new ApprovalPanelComponent(
@@ -3480,7 +3485,7 @@ export class KimiTUI {
   private showQuestionDialog(payload: QuestionPanelData): void {
     this.patchLivePane({ pendingQuestion: { data: payload } });
     notifyTerminalOnce(this.state, `question:${payload.id}`, {
-      title: 'Kimi Code needs your answer',
+      title: t('tui.messages.kimiTuiNeedsAnswer'),
       body: payload.questions[0]?.question,
     });
     const dialog = new QuestionDialogComponent(

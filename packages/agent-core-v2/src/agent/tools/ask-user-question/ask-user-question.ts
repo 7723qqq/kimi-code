@@ -19,6 +19,7 @@ const QuestionOptionSchema = z.object({
   label: z
     .string()
     .min(1)
+    .max(100)
     .describe("Concise display text (1-5 words). If recommended, append '(Recommended)'."),
   description: z.string().default('').describe('Brief explanation of trade-offs or implications.'),
 });

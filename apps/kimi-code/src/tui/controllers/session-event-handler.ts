@@ -1,37 +1,38 @@
 import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 import type {
-  AgentStatusUpdatedEvent,
-  AssistantDeltaEvent,
   BackgroundTaskInfo,
-  BackgroundTaskStartedEvent,
-  BackgroundTaskTerminatedEvent,
-  CompactionCancelledEvent,
-  CompactionCompletedEvent,
-  CompactionStartedEvent,
-  CronFiredEvent,
-  ErrorEvent,
   Event,
   GoalChange,
-  GoalUpdatedEvent,
-  HookResultEvent,
   Session,
   SessionMetaUpdatedEvent,
-  SkillActivatedEvent,
-  PluginCommandActivatedEvent,
-  ThinkingDeltaEvent,
-  ToolCallDeltaEvent,
-  ToolCallStartedEvent,
-  ToolProgressEvent,
-  ToolResultEvent,
-  TurnEndedEvent,
-  TurnStartedEvent,
-  TurnStepCompletedEvent,
-  TurnStepInterruptedEvent,
-  TurnStepRetryingEvent,
-  TurnStepStartedEvent,
   TokenUsage,
-  WarningEvent,
 } from '@moonshot-ai/kimi-code-sdk';
+
+/** Narrowed event shapes consumed by the private handlers below. */
+type StatusUpdatedEvent = Extract<Event, { type: 'agent.status.updated' }>;
+type TurnStartedEvent = Extract<Event, { type: 'turn.started' }>;
+type TurnEndedEvent = Extract<Event, { type: 'turn.ended' }>;
+type TurnStepStartedEvent = Extract<Event, { type: 'turn.step.started' }>;
+type TurnStepCompletedEvent = Extract<Event, { type: 'turn.step.completed' }>;
+type TurnStepInterruptedEvent = Extract<Event, { type: 'turn.step.interrupted' }>;
+type TurnStepRetryingEvent = Extract<Event, { type: 'turn.step.retrying' }>;
+type CronFiredEvent = Extract<Event, { type: 'cron.fired' }>;
+type ErrorEvent = Extract<Event, { type: 'error' }>;
+type WarningEvent = Extract<Event, { type: 'warning' }>;
+type GoalUpdatedEvent = Extract<Event, { type: 'goal.updated' }>;
+type HookResultEvent = Extract<Event, { type: 'hook.result' }>;
+type SkillActivatedEvent = Extract<Event, { type: 'skill.activated' }>;
+type PluginCommandActivatedEvent = Extract<Event, { type: 'plugin_command.activated' }>;
+type ThinkingDeltaEvent = Extract<Event, { type: 'thinking.delta' }>;
+type AssistantDeltaEvent = Extract<Event, { type: 'assistant.delta' }>;
+type ToolCallDeltaEvent = Extract<Event, { type: 'tool.call.delta' }>;
+type ToolCallStartedEvent = Extract<Event, { type: 'tool.call.started' }>;
+type ToolProgressEvent = Extract<Event, { type: 'tool.progress' }>;
+type ToolResultEvent = Extract<Event, { type: 'tool.result' }>;
+type CompactionStartedEvent = Extract<Event, { type: 'compaction.started' }>;
+type CompactionCompletedEvent = Extract<Event, { type: 'compaction.completed' }>;
+type CompactionCancelledEvent = Extract<Event, { type: 'compaction.cancelled' }>;
+type BackgroundTaskEvent = Extract<Event, { type: 'task.started' | 'task.terminated' }>;
 
 import { MoonLoader } from '../components/chrome/moon-loader';
 import { buildGoalMarker } from '../components/messages/goal-markers';
@@ -84,6 +85,7 @@ import type {
   AppState,
   LivePaneState,
   QueuedMessage,
+  SkillActivationTrigger,
   ToolCallBlockData,
   ToolResultBlockData,
   TranscriptEntry,
@@ -134,7 +136,7 @@ function estimateTokensFromText(text: string): number {
   let ascii = 0;
   let nonAscii = 0;
   for (let i = 0; i < text.length; i++) {
-    if (text.codePointAt(i) < 128) ascii++;
+    if ((text.codePointAt(i) ?? 0) < 128) ascii++;
     else nonAscii++;
   }
   return Math.ceil(ascii / 4 + nonAscii);
@@ -312,8 +314,8 @@ export class SessionEventHandler {
       case 'subagent.completed':
       case 'subagent.failed':
         this.subAgentEventHandler.handleLifecycleEvent(event); break;
-      case 'background.task.started':
-      case 'background.task.terminated':
+      case 'task.started':
+      case 'task.terminated':
         this.handleBackgroundTaskEvent(event); break;
       case 'cron.fired': this.handleCronFired(event); break;
       case 'mcp.server.status': this.renderMcpServerStatus(event.server); break;
@@ -683,20 +685,23 @@ export class SessionEventHandler {
     this.host.patchLivePane({ mode: 'waiting' });
   }
 
-  private handleStatusUpdate(event: AgentStatusUpdatedEvent): void {
+  private handleStatusUpdate(event: StatusUpdatedEvent): void {
     const shouldRenderSwarmEnded =
       event.swarmMode === false &&
       this.host.state.appState.swarmMode &&
       this.host.state.swarmModeEntry === 'task';
     const patch: Partial<AppState> = {};
-    if (event.contextUsage !== undefined) patch.contextUsage = event.contextUsage;
+    if (
+      event.contextTokens !== undefined &&
+      event.maxContextTokens !== undefined &&
+      event.maxContextTokens > 0
+    ) {
+      patch.contextUsage = event.contextTokens / event.maxContextTokens;
+    }
     if (event.contextTokens !== undefined) patch.contextTokens = event.contextTokens;
     if (event.maxContextTokens !== undefined) patch.maxContextTokens = event.maxContextTokens;
     if (event.planMode !== undefined) patch.planMode = event.planMode;
     if (event.swarmMode !== undefined) patch.swarmMode = event.swarmMode;
-    if (event.permission !== undefined) {
-      patch.permissionMode = event.permission;
-    }
     if (event.model !== undefined) patch.model = event.model;
     if (event.thinkingEffort !== undefined) patch.thinkingEffort = event.thinkingEffort;
     if (Object.keys(patch).length > 0) this.host.setAppState(patch);
@@ -994,6 +999,7 @@ export class SessionEventHandler {
         );
         return;
       case 'pending':
+      case 'pending-approval':
         this.showMcpServerStatusSpinner(server.name);
         return;
     }
@@ -1048,7 +1054,9 @@ export class SessionEventHandler {
       skillActivationId: event.activationId,
       skillName: event.skillName,
       skillArgs: event.skillArgs,
-      skillTrigger: event.trigger,
+      // v2 declares `trigger` as a plain string; the engine only ever emits
+      // the three `SkillActivationTrigger` values (see SkillActivationOrigin).
+      skillTrigger: event.trigger as SkillActivationTrigger,
     });
   }
 
@@ -1134,9 +1142,7 @@ export class SessionEventHandler {
   // Background task lifecycle
   // ---------------------------------------------------------------------------
 
-  private handleBackgroundTaskEvent(
-    event: BackgroundTaskStartedEvent | BackgroundTaskTerminatedEvent,
-  ): void {
+  private handleBackgroundTaskEvent(event: BackgroundTaskEvent): void {
     const { state } = this.host;
     const { info } = event;
     const previous = this.backgroundTasks.get(info.taskId);
@@ -1154,7 +1160,7 @@ export class SessionEventHandler {
       info.status === 'killed' ||
       info.status === 'lost';
 
-    if (event.type === 'background.task.started') {
+    if (event.type === 'task.started') {
       if (info.kind === 'agent') {
         // A foreground subagent detached via Ctrl+B: flip its card to
         // `◐ backgrounded` so it doesn't look like it completed.
@@ -1169,7 +1175,7 @@ export class SessionEventHandler {
       return;
     }
 
-    if (event.type === 'background.task.terminated' && isTerminal) {
+    if (event.type === 'task.terminated' && isTerminal) {
       if (info.kind === 'agent') {
         // The Agent tool's spawn-success ToolResult is not an error, so the
         // parent toolCall card would otherwise render `✓ Completed` for any

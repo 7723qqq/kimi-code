@@ -3,7 +3,7 @@
  */
 import { toDisposable } from '#/_base/di/lifecycle';
 import { Event } from '#/_base/event';
-import type { IAgentLoopService, LoopErrorHandler, LoopErrorHandlerRegistrationOptions, Step, Turn } from '#/agent/loop/loop';
+import type { IAgentLoopService, LoopErrorHandler, LoopErrorHandlerRegistrationOptions, Step, Turn, TurnResult } from '#/agent/loop/loop';
 import type { StepRequest } from '#/agent/loop/stepRequest';
 import { StepRequestQueue, type StepRequestBatch } from '#/agent/loop/stepRequestQueue';
 import type { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
@@ -15,7 +15,12 @@ import { createHooks } from '#/hooks';
 import type { Op } from '#/wire/op';
 import type { IWireService } from '#/wire/wire';
 
-export interface StubLoopOptions { readonly hasActiveTurn?: boolean; readonly currentId?: string | number; readonly pendingTurnResult?: boolean }
+export interface StubLoopOptions {
+  readonly hasActiveTurn?: boolean;
+  readonly currentId?: string | number;
+  readonly pendingTurnResult?: boolean;
+  readonly settleOnDrain?: boolean;
+}
 export type StubLoop = IAgentLoopService & {
   readonly queue: StepRequestQueue;
   readonly launches: readonly number[];
@@ -49,10 +54,15 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
   const hooks = createHooks(['onWillBeginStep', 'onDidFinishStep']) as IAgentLoopService['hooks'];
   const queue = new StepRequestQueue(); const errorHandlers = registry(); const launches: number[] = []; const cancels: { turnId?: number; reason?: unknown }[] = [];
   let active: Turn | undefined; let nextId = typeof options.currentId === 'number' ? options.currentId : 0;
+  const turnResolvers = new Map<Turn, (result: TurnResult) => void>();
   const startTurn = () => {
     const turn = makeTurn(nextId++);
-    const result = options.pendingTurnResult === true ? new Promise<never>(() => {}) : turn.result;
+    let resolveResult: ((result: TurnResult) => void) | undefined;
+    const result = options.pendingTurnResult === true
+      ? new Promise<TurnResult>((resolve) => { resolveResult = resolve; })
+      : turn.result;
     const configured = { ...turn, result };
+    if (resolveResult !== undefined) turnResolvers.set(configured, resolveResult);
     launches.push(configured.id); active = configured; return configured;
   };
   const stub: StubLoop = {
@@ -75,7 +85,12 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
     tryAcquireQuiescence: () => toDisposable(() => {}),
     hasPendingRequests: () => queue.hasPendingRequests(), registerLoopErrorHandler: errorHandlers.register,
     settled: () => Promise.resolve(),
-    drainNextBatch(context) { const batch = queue.takeNextBatch(); if (!batch) return undefined; materialize(batch.driver, context); for (const r of batch.merged) materialize(r, context); return batch; },
+    drainNextBatch(context) {
+      if (options.settleOnDrain === true && active !== undefined) {
+        turnResolvers.get(active)?.({ type: 'completed', steps: 0, truncated: false });
+      }
+      const batch = queue.takeNextBatch(); if (!batch) return undefined; materialize(batch.driver, context); for (const r of batch.merged) materialize(r, context); return batch;
+    },
   };
   return stub;
 }

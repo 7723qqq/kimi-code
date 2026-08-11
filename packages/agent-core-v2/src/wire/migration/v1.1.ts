@@ -13,7 +13,7 @@ interface V1_0ContextMessage {
 interface V1_0ToolCall {
   readonly type: 'function';
   readonly id: string;
-  readonly function: {
+  readonly function?: {
     readonly name?: string;
     readonly arguments?: string | null;
   };
@@ -21,6 +21,9 @@ interface V1_0ToolCall {
 
 function migrateToolCall(toolCall: V1_0ToolCall): WireMigrationRecord {
   const { function: fn, ...rest } = toolCall;
+  if (fn === undefined) {
+    return { ...toolCall };
+  }
   return {
     ...rest,
     name: fn.name,

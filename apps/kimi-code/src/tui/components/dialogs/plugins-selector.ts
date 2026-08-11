@@ -22,7 +22,7 @@ import type { ColorPalette } from '#/tui/theme/colors';
 import { formatPluginSourceLabel, pluginTrustLabel } from '#/tui/utils/plugin-source-label';
 import { printableChar } from '#/tui/utils/printable-key';
 import { renderTabStrip } from '#/tui/utils/tab-strip';
-import { computeUpdateStatus, type PluginMarketplaceEntry, type PluginUpdateStatus } from '#/utils/plugin-marketplace';
+import { computeUpdateStatus, type PluginMarketplaceEntry } from '#/utils/plugin-marketplace';
 
 import { ChoicePickerComponent } from './choice-picker';
 
@@ -40,14 +40,22 @@ const ELLIPSIS = '…';
 // once the catalog carries the real entry, that row wins and installs
 // normally.
 const WEB_BRIDGE_URL = 'https://www.kimi.com/features/webbridge#local-agent';
+// The description is read lazily on the render path so the locale applied at
+// runtime (not the one detected at import time) is used.
 const WEB_BRIDGE_ENTRY: PluginMarketplaceEntry = {
   id: 'kimi-webbridge',
   displayName: 'Kimi WebBridge',
   source: WEB_BRIDGE_URL,
   tier: 'official',
   homepage: WEB_BRIDGE_URL,
-  description: t('tui.dialogs.pluginsSelector.webBridgeDescription'),
+  get description(): string {
+    return webBridgeDescription();
+  },
 };
+
+function webBridgeDescription(): string {
+  return t('tui.dialogs.pluginsSelector.webBridgeDescription');
+}
 
 // Only the hardcoded pinned row should open the WebBridge install page. Match
 // by reference (not id) so a catalog entry on another tab that happens to

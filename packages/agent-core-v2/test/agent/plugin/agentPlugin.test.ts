@@ -290,9 +290,9 @@ describe('AgentPluginService plugin session-start wiring', () => {
     const catalog = new InMemorySkillCatalog();
     catalog.register({
       ...pluginSkill(),
+      plugin: { id: 'verbose', instructions: 'y'.repeat(10_000) },
       content: 'x'.repeat(50_000),
-      metadata: { plugin: { id: 'verbose', instructions: 'y'.repeat(10_000) } },
-    } as unknown as SkillDefinition);
+    } as SkillDefinition);
 
     ctx = createTestAgent(
       { autoConfigure: true },
@@ -322,10 +322,10 @@ describe('AgentPluginService plugin session-start wiring', () => {
     catalog.register(pluginSkill());
     catalog.register({
       ...pluginSkill(),
+      plugin: { id: 'another', instructions: 'Be helpful.' },
       name: 'another-skill',
       content: 'Another skill content.',
-      metadata: { plugin: { id: 'another', instructions: 'Be helpful.' } },
-    } as unknown as SkillDefinition);
+    } as SkillDefinition);
 
     ctx = createTestAgent(
       { autoConfigure: true },

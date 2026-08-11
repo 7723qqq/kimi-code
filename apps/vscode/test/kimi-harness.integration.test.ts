@@ -220,7 +220,7 @@ model = "mock-model"
 max_context_size = 128000
 ${extra}
 [loop_control]
-max_retries_per_step = 1
+max_attempts_per_step = 1
 `,
     "utf8",
   );

@@ -106,8 +106,18 @@ export function createKimiWebbridgeEntry(ctx: CapabilityEntryContext): Capabilit
       const resp = await fetchImpl(`${baseUrl}/status`, {
         signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
       });
-      if (!resp.ok) return undefined;
-      return (await resp.json()) as DaemonStatus;
+      if (!resp.ok || resp.body === null) return undefined;
+      // FetchLike exposes a Node ReadableStream; read it directly (the
+      // Node stream type is not assignable to DOM Response's BodyInit).
+      const reader = resp.body.getReader();
+      const chunks: Uint8Array[] = [];
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+      const text = Buffer.concat(chunks).toString('utf8');
+      return JSON.parse(text) as DaemonStatus;
     } catch {
       return undefined;
     }

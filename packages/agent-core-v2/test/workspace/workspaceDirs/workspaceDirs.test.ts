@@ -87,6 +87,8 @@ import { IWorkspaceSkillCatalog } from '#/workspace/workspaceSkillCatalog/worksp
 
 import { stubLog } from '../../_base/log/stubs';
 
+const normalizeSlashes = (p: string): string => p.replaceAll('\\', '/');
+
 function workspaceCatalogStub(): IWorkspaceService {
   const workspaces = new Map<string, Workspace>();
   return {
@@ -416,13 +418,13 @@ describe('workspace add-dir (handler chain)', () => {
     expect(result.persisted).toBe(true);
     expect(result.projectRoot).toBe(root);
     expect(result.configPath).toBe(join(root, '.kimi-code', 'local.toml'));
-    expect(result.additionalDirs).toEqual([extra]);
+    expect(result.additionalDirs.map(normalizeSlashes)).toEqual([extra]);
     const toml = await readFile(join(root, '.kimi-code', 'local.toml'), 'utf8');
     expect(toml).toContain('additional_dir');
     expect(toml).toContain(extra);
-    expect(dirsOf(s1)).toEqual([extra]);
+    expect(dirsOf(s1).map(normalizeSlashes)).toEqual([extra]);
     const s2 = await service.create({ sessionId: 's2', workDir: root });
-    expect(dirsOf(s2)).toEqual([extra]);
+    expect(dirsOf(s2).map(normalizeSlashes)).toEqual([extra]);
   });
 
   it('keeps the persisted dir across a handler rebuild (simulated restart)', async () => {
@@ -439,7 +441,7 @@ describe('workspace add-dir (handler chain)', () => {
     const second = buildHost(homeDir);
     const secondHandler = await handlerFor(second, root);
     const s2 = await secondHandler.service.create({ sessionId: 's2', workDir: root });
-    expect(dirsOf(s2)).toEqual([extra]);
+    expect(dirsOf(s2).map(normalizeSlashes)).toEqual([extra]);
   });
 
   it('persist: false stays in handler memory, never touches the disk, and is shared', async () => {
@@ -453,11 +455,11 @@ describe('workspace add-dir (handler chain)', () => {
     const result = await dirs.addDir({ path: extra, persist: false });
 
     expect(result.persisted).toBe(false);
-    expect(result.additionalDirs).toEqual([extra]);
-    expect(dirsOf(s1)).toEqual([extra]);
+    expect(result.additionalDirs.map(normalizeSlashes)).toEqual([extra]);
+    expect(dirsOf(s1).map(normalizeSlashes)).toEqual([extra]);
     await expect(readFile(join(root, '.kimi-code', 'local.toml'), 'utf8')).rejects.toThrow();
     const s2 = await service.create({ sessionId: 's2', workDir: root });
-    expect(dirsOf(s2)).toEqual([extra]);
+    expect(dirsOf(s2).map(normalizeSlashes)).toEqual([extra]);
   });
 
   it('refreshes live session views when another process edits local.toml', async () => {
@@ -475,7 +477,7 @@ describe('workspace add-dir (handler chain)', () => {
     await writeLocalToml();
 
     const deadline = Date.now() + 10_000;
-    while (!dirsOf(s1).includes(extra)) {
+    while (!dirsOf(s1).map(normalizeSlashes).includes(extra)) {
       if (Date.now() > deadline) {
         throw new Error('timed out waiting for watch-driven local.toml reload');
       }
@@ -494,16 +496,16 @@ describe('workspace add-dir (handler chain)', () => {
     const dirs = handler.accessor.get(IWorkspaceDirs);
     const states = handler.accessor.get(IWorkspaceStateService);
 
-    expect(states.get(workspaceDirsFileDirsKey)).toEqual([]);
-    expect(states.get(workspaceDirsEphemeralDirsKey)).toEqual([]);
+    expect(states.get(workspaceDirsFileDirsKey).map(normalizeSlashes)).toEqual([]);
+    expect(states.get(workspaceDirsEphemeralDirsKey).map(normalizeSlashes)).toEqual([]);
 
     await dirs.addDir({ path: persisted, persist: true });
-    expect(states.get(workspaceDirsFileDirsKey)).toEqual([persisted]);
-    expect(states.get(workspaceDirsEphemeralDirsKey)).toEqual([]);
+    expect(states.get(workspaceDirsFileDirsKey).map(normalizeSlashes)).toEqual([persisted]);
+    expect(states.get(workspaceDirsEphemeralDirsKey).map(normalizeSlashes)).toEqual([]);
 
     await dirs.addDir({ path: ephemeral, persist: false });
-    expect(states.get(workspaceDirsFileDirsKey)).toEqual([persisted]);
-    expect(states.get(workspaceDirsEphemeralDirsKey)).toEqual([ephemeral]);
+    expect(states.get(workspaceDirsFileDirsKey).map(normalizeSlashes)).toEqual([persisted]);
+    expect(states.get(workspaceDirsEphemeralDirsKey).map(normalizeSlashes)).toEqual([ephemeral]);
   });
 
   it('unions caller additionalDirs from create options into the shared set', async () => {
@@ -514,9 +516,9 @@ describe('workspace add-dir (handler chain)', () => {
     const { service } = await handlerFor(host, root);
 
     const s1 = await service.create({ sessionId: 's1', workDir: root, additionalDirs: [extra] });
-    expect(dirsOf(s1)).toEqual([extra]);
+    expect(dirsOf(s1).map(normalizeSlashes)).toEqual([extra]);
     const s2 = await service.create({ sessionId: 's2', workDir: root });
-    expect(dirsOf(s2)).toEqual([extra]);
+    expect(dirsOf(s2).map(normalizeSlashes)).toEqual([extra]);
     await expect(readFile(join(root, '.kimi-code', 'local.toml'), 'utf8')).rejects.toThrow();
   });
 });

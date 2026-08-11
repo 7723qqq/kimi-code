@@ -106,6 +106,20 @@ import { stubLog } from '../_base/log/stubs';
 import { stubSkill } from '../app/skillCatalog/stubs';
 import { stdioFixture } from '../mcpCore/stubs';
 
+// Windows keeps file handles open briefly after watcher disposal; retry the
+// recursive rm with a short backoff before giving up.
+async function rmWithRetry(path: string): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rm(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (attempt >= 9) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+}
+
 function workspaceCatalogStub(): IWorkspaceService {
   const workspaces = new Map<string, Workspace>();
   return {
@@ -263,7 +277,7 @@ describe('workspace resource sharing (handler chain)', () => {
   afterEach(async () => {
     host?.dispose();
     host = undefined;
-    await Promise.all(tmpRoots.map((root) => rm(root, { recursive: true, force: true })));
+    await Promise.all(tmpRoots.map(rmWithRetry));
   });
 
   async function makeRoot(prefix: string): Promise<string> {

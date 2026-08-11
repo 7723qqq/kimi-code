@@ -19,11 +19,12 @@
  * (see `AgentMcpService`).
  */
 
+import { join } from 'node:path';
+
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { Emitter } from '#/_base/event';
 import { Error2, ErrorCodes } from '#/errors';
-import { join } from 'pathe';
 import { LifecycleScope } from '#/app/scopes';
 import {
   createScopedChildHandle,

@@ -17,8 +17,8 @@
  *    `choices[0].usage`;
  *  - `kimiOpenAITrait` request params: endpoint chain, `max_tokens` →
  *    `max_completion_tokens` with `extra_body` expansion,
- *    `extra_body.thinking` encoding, no 128k ceiling, `prompt_cache_key`,
- *    and the `strictThinkingValidation` marker;
+ *    `extra_body.thinking` encoding, the 128k ceiling clamp,
+ *    `prompt_cache_key`, and the `strictThinkingValidation` marker;
  *  - `kimiAnthropicTrait` (the `(kimi, anthropic)` registration): thinking
  *    encoding and interleaved-thinking beta stripping;
  *  - `KimiFiles`: an upload failure classifies through
@@ -255,9 +255,9 @@ describe('kimiOpenAITrait request params', () => {
     });
   });
 
-  it('applies no 128k ceiling in withMaxCompletionTokens', () => {
+  it('clamps at the 128k ceiling in withMaxCompletionTokens', () => {
     expect(call(kimiOpenAITrait.withMaxCompletionTokens, 200_000, context)).toEqual({
-      max_completion_tokens: 200_000,
+      max_completion_tokens: 131072,
     });
   });
 

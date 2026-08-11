@@ -86,12 +86,10 @@ describe('SessionApprovalService', () => {
     expect(svc.listPending()).toEqual([]);
   });
 
-  it('enqueue with a duplicate id still parks both requests', () => {
+  it('enqueue with a duplicate id replaces the earlier request', () => {
     const svc = ix.get(ISessionApprovalService);
     svc.enqueue(makeRequest('dup'));
     svc.enqueue(makeRequest('dup'));
-    expect(svc.listPending()).toHaveLength(2);
-    svc.decide('dup', { decision: 'approved' });
     expect(svc.listPending()).toHaveLength(1);
     svc.decide('dup', { decision: 'approved' });
     expect(svc.listPending()).toEqual([]);

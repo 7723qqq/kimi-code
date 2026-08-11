@@ -137,15 +137,14 @@ export function tryNativeQualifyMcpToolName(
   return callNativeSync<string>('nativeQualifyMcpToolName', serverName, toolName);
 }
 
-// ── Image compression (async; available, NOT wired) ─────────────────
-// The Rust codec in `kimi-native-tools` (`image_compress.rs`) now applies EXIF
+// ── Image compression (async; wired into image-compress.ts) ────────
+// The Rust codec in `kimi-native-tools` (`image_compress.rs`) applies EXIF
 // orientation on decode (see `decode_with_orientation`), so its reported
 // dimensions and crop regions live in the same display (EXIF-rotated) space as
-// jimp. However it is intentionally NOT wired into `image-compress.ts`: the
-// `image` crate's JPEG encoder emits different bytes than jimp's mozjpeg, and it
-// does not mirror jimp's PNG-ladder / alpha-drop-as-last-resort strategy, so
-// swapping encoders would change the actual quality/bytes sent to the model.
-// These wrappers are kept available for callers that do not need jimp parity.
+// jimp. It is the primary codec in `image-compress.ts`; when it is unavailable
+// the caller falls back to the jimp pipeline (which mirrors the `image` crate's
+// strategy: PNG ladder first for lossless inputs, then a JPEG quality ladder
+// with the same fallback edges).
 // See rust-migration-analysis.md §6.5.
 export interface NativeCompressImageConfig {
   readonly maxEdge: number;

@@ -170,7 +170,7 @@ export interface PermissionApprovalResultEvent {
   policy_name: string | null;
   tool_name: string;
   permission_mode: TelemetryPermissionMode;
-  result: 'error' | 'approved_for_session' | 'approved' | 'rejected' | 'cancelled';
+  result: 'error' | 'approved_for_session' | 'approved' | 'rejected' | 'cancelled' | 'no_approval_surface';
   approval_surface: string;
   duration_ms: number;
   session_cache_written: boolean;
@@ -226,6 +226,24 @@ export interface CompactionFailedEvent {
   thinking_effort: string;
   error_type: string;
   trace_id?: string;
+}
+
+export interface MicroCompactionFinishedEvent {
+  keep_recent_messages: number;
+  min_content_tokens: number;
+  cache_missed_threshold_ms: number;
+  truncated_marker: string;
+  min_context_usage_ratio: number;
+  truncated_tool_result_count: number;
+  truncated_tool_result_tokens_before: number;
+  truncated_tool_result_tokens_after: number;
+  tokens_before: number;
+  tokens_after: number;
+  previous_cutoff: number;
+  cutoff: number;
+  message_count: number;
+  cache_age_ms: number;
+  thinking_effort: string;
 }
 
 export interface ContextProjectionRepairedEvent {
@@ -669,6 +687,28 @@ export const telemetryEventDefinitions = {
       error_type: 'Error class name',
       trace_id:
         'Trace id of the failed compaction request, from its response headers or its error response; absent when the failure happened before any request or before response headers arrived (network errors), and for non-Kimi protocols',
+    },
+  }),
+  micro_compaction_finished: defineAgentTelemetryEvent<MicroCompactionFinishedEvent>({
+    owner: 'kimi-code',
+    comment: 'Cache-miss micro compaction advances the tool-result truncation cutoff.',
+    properties: {
+      keep_recent_messages: 'Number of trailing messages kept',
+      min_content_tokens: 'Minimum content tokens for a tool result to be truncated',
+      cache_missed_threshold_ms:
+        'Idle time after the last assistant output that counts as a cache miss',
+      truncated_marker: 'Marker text replacing truncated tool results',
+      min_context_usage_ratio: 'Minimum context-window usage ratio for truncation to apply',
+      truncated_tool_result_count: 'Number of tool results truncated by the new cutoff',
+      truncated_tool_result_tokens_before: 'Tokens of the truncated tool results before truncation',
+      truncated_tool_result_tokens_after: 'Tokens of the truncated tool results after truncation',
+      tokens_before: 'Estimated context tokens before the cutoff change',
+      tokens_after: 'Estimated context tokens after the cutoff change',
+      previous_cutoff: 'Cutoff before the change',
+      cutoff: 'Cutoff after the change',
+      message_count: 'History message count',
+      cache_age_ms: 'Age of the last assistant output at detection',
+      thinking_effort: 'Thinking effort level in effect',
     },
   }),
   context_projection_repaired: defineAgentTelemetryEvent<ContextProjectionRepairedEvent>({

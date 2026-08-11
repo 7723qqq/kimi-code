@@ -100,8 +100,8 @@ describe('1.0 to 1.1', () => {
         },
       ]),
     ).toMatchInlineSnapshot(`
-      [wire] metadata                    { "protocol_version": "1.1", "created_at": "<time>" }
-      [wire] context.append_message      { "message": { "role": "assistant", "content": [], "toolCalls": [ { "type": "function", "id": "call_ok", "name": "Bash", "arguments": "{}" } ] } }
+      [wire] metadata                 { "protocol_version": "1.1", "created_at": "<time>" }
+      [wire] context.append_message   { "message": { "role": "assistant", "content": [], "toolCalls": [ { "type": "function", "id": "call_ok", "name": "Bash", "arguments": "{}" } ] } }
     `);
   });
 
@@ -119,8 +119,8 @@ describe('1.0 to 1.1', () => {
         },
       ]),
     ).toMatchInlineSnapshot(`
-      [wire] metadata                    { "protocol_version": "1.1", "created_at": "<time>" }
-      [wire] context.append_message      { "message": { "role": "user", "content": [ { "type": "text", "text": "hello" } ], "toolCalls": [] } }
+      [wire] metadata                 { "protocol_version": "1.1", "created_at": "<time>" }
+      [wire] context.append_message   { "message": { "role": "user", "content": [ { "type": "text", "text": "hello" } ], "toolCalls": [] } }
     `);
   });
 });

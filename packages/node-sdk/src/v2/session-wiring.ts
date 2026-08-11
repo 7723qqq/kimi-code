@@ -7,10 +7,15 @@
  *
  * 1. Event forwarding: subscribe every live agent's `IEventBus` (the agents
  *   present at wiring time plus every later `onDidCreate`, so subagents that
- *   appear mid-turn are covered) and push each event through
- *   {@link translateDomainEvent} into the client's `receiveEvent` — the same
- *   synchronous, in-emission-order delivery v1's push model has (both engines
- *   dispatch to listeners inside the emitter's call stack).
+ *   appear mid-turn are covered) and push each native `DomainEvent` through
+ *   into the client's `receiveEvent`, stamped with the owning
+ *   `sessionId` / `agentId` — the v2 engine's per-agent bus carries neither.
+ *   Delivery stays synchronous, in-emission-order, matching v1's push model.
+ *   No type dropping or renaming happens here anymore: the SDK event channel
+ *   now exposes the v2 `DomainEvent` union verbatim (task lifecycle events
+ *   keep their `task.*` spelling, and v2-only facts like
+ *   `permission.approval.*` / `prompt.*` / `agent.activity.updated` are
+ *   visible to hosts).
  * 2. The approval / question / user-tool bridge: v1's engine calls the
  *   client's `requestApproval` / `requestQuestion` / `toolCall` callbacks
  *   (push), where v2 parks a pending interaction in the session's interaction
@@ -25,13 +30,13 @@
 import type {
   ApprovalRequest,
   ApprovalResponse,
+  Event,
   QuestionRequest,
   QuestionResult,
   ToolCallRequest,
   ToolCallResponse,
   ToolInputDisplay,
-} from '@moonshot-ai/agent-core';
-import type { ProtocolEvent as Event } from '@moonshot-ai/agent-core';
+} from '#/events';
 import {
   IAgentLifecycleService,
   IAgentProfileService,
@@ -51,11 +56,10 @@ import {
   type ISessionScopeHandle,
 } from '@moonshot-ai/agent-core-v2';
 
-import { translateDomainEvent } from '#/v2/event-mapper';
-
 /**
  * The client surface the wiring drives — the base class's own public methods,
- * so the v1 handler semantics are reused rather than re-implemented.
+ * so the v1 handler semantics are reused rather than re-implemented. Events
+ * are delivered stamped with `sessionId` / `agentId` (see {@link Event}).
  */
 export interface SessionEventSink {
   receiveEvent(event: Event): void;
@@ -153,8 +157,7 @@ export class SessionEventWiring {
       agent.accessor.get(IEventBus).subscribe((event) => {
         const enriched =
           event.type === 'agent.status.updated' ? withStatusSnapshot(agent, event) : event;
-        const translated = translateDomainEvent(enriched, sessionId, agentId);
-        if (translated !== undefined) this.sink.receiveEvent(translated);
+        this.sink.receiveEvent({ ...enriched, sessionId, agentId });
       }),
     );
   }

@@ -82,7 +82,12 @@ describe('GuardianReviewPermissionPolicyService', () => {
       circuitOpen: false,
       review: async () => {
         reviewed = true;
-        return { verdict: 'allow' as const, riskLevel: 'low', rationale: 'ok' };
+        return {
+          verdict: 'allow' as const,
+          riskLevel: 'low',
+          userAuthorization: 'unknown',
+          rationale: 'ok',
+        };
       },
     };
     const policy = new GuardianReviewPermissionPolicyService(mockMode('yolo'), guardian as never);
@@ -97,11 +102,47 @@ describe('GuardianReviewPermissionPolicyService', () => {
   it('approves through when the reviewer allows', async () => {
     const policy = new GuardianReviewPermissionPolicyService(
       mockMode('yolo'),
-      mockGuardian(true, { verdict: 'allow', riskLevel: 'low', rationale: 'safe write' }),
+      mockGuardian(true, {
+        verdict: 'allow',
+        riskLevel: 'low',
+        userAuthorization: 'unknown',
+        rationale: 'safe write',
+      }),
     );
     const result = await policy.evaluate(hookContext({}));
     expect(result?.kind).toBe('approve');
     expect((result as { reason?: Record<string, string> }).reason?.['guardian']).toContain('safe write');
+  });
+
+  it('downgrades a reviewer allow to a human ask when risk is not low', async () => {
+    const policy = new GuardianReviewPermissionPolicyService(
+      mockMode('yolo'),
+      mockGuardian(true, {
+        verdict: 'allow',
+        riskLevel: 'medium',
+        userAuthorization: 'unknown',
+        rationale: 'probably fine',
+      }),
+    );
+    const result = await policy.evaluate(hookContext({}));
+    expect(result?.kind).toBe('ask');
+    expect((result as { reason?: Record<string, string> }).reason?.['guardian']).toContain(
+      'probably fine',
+    );
+  });
+
+  it('approves a non-low-risk reviewer allow when authorization is explicit', async () => {
+    const policy = new GuardianReviewPermissionPolicyService(
+      mockMode('yolo'),
+      mockGuardian(true, {
+        verdict: 'allow',
+        riskLevel: 'high',
+        userAuthorization: 'explicit',
+        rationale: 'user asked for it',
+      }),
+    );
+    const result = await policy.evaluate(hookContext({}));
+    expect(result?.kind).toBe('approve');
   });
 
   it('degrades a reviewer deny to a human ask', async () => {

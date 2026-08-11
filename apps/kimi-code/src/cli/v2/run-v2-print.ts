@@ -1,9 +1,8 @@
 /**
  * Native v2 `kimi -p` (print mode) runner.
  *
- * Unlike the v1 path (and the former `V2PromptHarness` / `V2Session` shim), this
- * runner talks to agent-core-v2's native DI services directly — no
- * `PromptHarness`, no SDK-shaped session, no v2→v1 event translation. It:
+ * The print-mode driver talks to agent-core-v2's native DI services directly —
+ * no `PromptHarness`, no SDK-shaped session, no v2→v1 event translation. It:
  *   - `bootstrap()`s the app scope,
  *   - creates / resumes a session and its main agent via native services,
  *   - subscribes to the main agent's per-agent `IEventBus` and renders the
@@ -13,7 +12,8 @@
  *   - applies the print-mode background policy (config-driven, v1-aligned:
  *     `exit` / `drain` / `steer`) before exiting.
  *
- * Selected by `runPrompt` unless `KIMI_CODE_LEGACY_FLAG` is truthy.
+ * Selected unconditionally by `runPrompt` — the agent-core-v2 engine is the
+ * only engine.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -65,6 +65,8 @@ import {
   CLI_USER_AGENT_PRODUCT,
   PROMPT_CLEANUP_TIMEOUT_MS,
 } from '#/constant/app';
+
+import { t } from '#/i18n';
 
 import {
   formatGoalSummaryText,
@@ -439,8 +441,8 @@ async function runNativeTurn(
       const completion = await handle.completion;
       throw new Error(
         completion.state === 'blocked'
-          ? 'Prompt hook blocked the request.'
-          : 'Prompt turn could not be started',
+          ? t('tui.statusMessages.promptBlocked')
+          : t('tui.statusMessages.promptTurnCannotStart'),
       );
     }
     const result = await turn.result;
@@ -791,11 +793,11 @@ export async function applyPrintBackgroundPolicy(
 
 function formatTurnEndingFailure(ending: PrintTurnEnding): string {
   if (ending.error?.code === 'provider.filtered') {
-    return 'Provider safety policy blocked the response.';
+    return t('tui.statusMessages.policyBlocked');
   }
   if (ending.error !== undefined) return `${ending.error.code}: ${ending.error.message}`;
   if (ending.reason === 'blocked') {
-    return 'Prompt hook blocked the request.';
+    return t('tui.statusMessages.promptBlocked');
   }
   return `Prompt turn ended with reason: ${ending.reason}`;
 }
@@ -848,7 +850,7 @@ function formatNativeTurnFailure(result: LoopRunResult): string {
   if (result.type === 'failed') {
     const error = result.error as { readonly code?: string; readonly message?: string } | undefined;
     if (error?.code === 'provider.filtered') {
-      return 'Provider safety policy blocked the response.';
+      return t('tui.statusMessages.policyBlocked');
     }
     if (error?.code !== undefined) {
       return `${error.code}: ${error.message ?? ''}`.trimEnd();

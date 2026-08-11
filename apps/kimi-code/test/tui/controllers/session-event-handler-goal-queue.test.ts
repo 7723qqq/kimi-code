@@ -21,6 +21,8 @@ function fakeGoalSnapshot(objective: string, status: 'active' | 'blocked' | 'pau
     status,
     turnsUsed: 1,
     tokensUsed: 10,
+    inputTokensUsed: 8,
+    outputTokensUsed: 2,
     wallClockMs: 100,
     createdAt: 1000,
     updatedAt: 2000,
@@ -35,6 +37,8 @@ function fakeGoalSnapshot(objective: string, status: 'active' | 'blocked' | 'pau
       turnBudgetReached: false,
       wallClockBudgetReached: false,
       overBudget: false,
+      inputTokensUsed: 8,
+      outputTokensUsed: 2,
     },
   };
 }

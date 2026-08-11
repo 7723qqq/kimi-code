@@ -23,7 +23,6 @@ import {
   applyCatalogProvider,
   catalogProviderModels,
   CatalogFetchError,
-  createKimiHarness,
   createKimiHarnessV2,
   DEFAULT_CATALOG_URL,
   resolveCatalogImport,
@@ -34,10 +33,9 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 import type { Command } from 'commander';
 
+import { t } from '#/i18n';
 import { createKimiCodeHostIdentity, createKimiCodeUserAgent } from '#/cli/version';
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
-
-import { isKimiV2Enabled } from '../experimental-v2';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -175,7 +173,14 @@ export async function handleProviderList(
 
   if (opts.json) {
     deps.stdout.write(
-      `${JSON.stringify({ providers: config.providers, models: config.models ?? {} }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          providers: sanitizeProvidersForOutput(config.providers),
+          models: config.models ?? {},
+        },
+        null,
+        2,
+      )}\n`,
     );
     return;
   }
@@ -454,7 +459,7 @@ async function loadCatalogOrExit(deps: ProviderDeps, url: string): Promise<Catal
 export function registerProviderCommand(parent: Command, deps?: Partial<ProviderDeps>): void {
   const provider = parent
     .command('provider')
-    .description('Manage LLM providers non-interactively.');
+    .description(t('cli.commandDescriptions.provider'));
 
   // Last-resort boundary: handlers report expected failures themselves, but
   // anything that escapes (e.g. a config write rejected because config.toml
@@ -476,8 +481,8 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
 
   provider
     .command('add <url>')
-    .description('Import every provider listed in a custom registry (api.json).')
-    .option('--api-key <key>', 'Registry API key. Falls back to KIMI_REGISTRY_API_KEY.')
+    .description(t('cli.commandDescriptions.providerAdd'))
+    .option('--api-key <key>', t('cli.optionDescriptions.providerApiKey'))
     .action(async (url: string, options: { apiKey?: string }) => {
       const resolved = resolveDeps(deps);
       await runAction(resolved, () => handleProviderAdd(resolved, url, { apiKey: options.apiKey }));
@@ -485,7 +490,7 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
 
   provider
     .command('remove <providerId>')
-    .description('Remove a provider and every model alias that referenced it.')
+    .description(t('cli.commandDescriptions.providerRemove'))
     .action(async (providerId: string) => {
       const resolved = resolveDeps(deps);
       await runAction(resolved, () => handleProviderRemove(resolved, providerId));
@@ -493,8 +498,8 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
 
   provider
     .command('list')
-    .description('Show configured providers and their model counts.')
-    .option('--json', 'Emit the raw providers/models config as JSON.', false)
+    .description(t('cli.commandDescriptions.providerList'))
+    .option('--json', t('cli.optionDescriptions.providerListJson'), false)
     .action(async (options: { json?: boolean }) => {
       const resolved = resolveDeps(deps);
       await runAction(resolved, () => handleProviderList(resolved, { json: options.json === true }));
@@ -502,14 +507,14 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
 
   const catalog = provider
     .command('catalog')
-    .description('Discover and import providers from the public models.dev catalog.');
+    .description(t('cli.commandDescriptions.providerCatalog'));
 
   catalog
     .command('list [providerId]')
-    .description('List providers in the catalog, or models when a providerId is given.')
-    .option('--filter <substring>', 'Case-insensitive id/name substring filter.')
+    .description(t('cli.commandDescriptions.providerCatalogList'))
+    .option('--filter <substring>', t('cli.optionDescriptions.providerCatalogFilter'))
     .option('--url <url>', `Override catalog URL. Defaults to ${DEFAULT_CATALOG_URL}.`)
-    .option('--json', 'Emit the matching catalog slice as JSON.', false)
+    .option('--json', t('cli.optionDescriptions.providerCatalogJson'), false)
     .action(
       async (
         providerId: string | undefined,
@@ -528,9 +533,9 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
 
   catalog
     .command('add <providerId>')
-    .description('Import a known provider from the catalog by id.')
-    .option('--api-key <key>', 'API key for the provider. Falls back to KIMI_REGISTRY_API_KEY.')
-    .option('--default-model <modelId>', 'Mark the imported model as default_model after import.')
+    .description(t('cli.commandDescriptions.providerCatalogAdd'))
+    .option('--api-key <key>', t('cli.optionDescriptions.providerCatalogApiKey'))
+    .option('--default-model <modelId>', t('cli.optionDescriptions.providerCatalogDefaultModel'))
     .option(
       '--base-url <url>',
       'Override the catalog endpoint. Required when the catalog declares none (or an env placeholder).',
@@ -563,10 +568,9 @@ function resolveDeps(overrides: Partial<ProviderDeps> = {}): ResolvedProviderDep
     getHarness:
       overrides.getHarness ??
       (() => {
-        // Same engine gate as the TUI's `/provider` flow: the SDK's v2-backed
-        // harness by default, the legacy agent-core harness when
-        // KIMI_CODE_LEGACY_FLAG is set.
-        harness ??= (isKimiV2Enabled() ? createKimiHarnessV2 : createKimiHarness)({ identity });
+        // Same engine as the TUI's `/provider` flow: the SDK's v2-backed
+        // harness — the agent-core-v2 engine is the only engine.
+        harness ??= createKimiHarnessV2({ identity });
         return harness;
       }),
     stdout: overrides.stdout ?? process.stdout,
@@ -590,6 +594,30 @@ function resolveApiKey(flag: string | undefined, env: NodeJS.ProcessEnv): string
 
 function asManaged(config: KimiConfig): ManagedKimiConfigShape {
   return config as unknown as ManagedKimiConfigShape;
+}
+
+/**
+ * Copy the provider map for `--json` stdout output, stripping secrets so they
+ * never leave the process: `apiKey` on each provider and the `apiKey` inside
+ * the `source` blob (registry imports persist the key there, see
+ * `handleProviderAdd`). All other fields are kept as-is.
+ */
+function sanitizeProvidersForOutput(
+  providers: KimiConfig['providers'],
+): Record<string, Record<string, unknown>> {
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [id, provider] of Object.entries(providers)) {
+    const copy: Record<string, unknown> = { ...provider };
+    delete copy['apiKey'];
+    const source = copy['source'];
+    if (source !== undefined && typeof source === 'object') {
+      const sourceCopy: Record<string, unknown> = { ...source };
+      delete sourceCopy['apiKey'];
+      copy['source'] = sourceCopy;
+    }
+    out[id] = copy;
+  }
+  return out;
 }
 
 function providerSourceLabel(provider: KimiConfig['providers'][string]): string {

@@ -9,7 +9,8 @@
  * the store, the `require*` guards, and the probe result shaping are ported
  * here byte-for-byte from v1 (`agent-core/src/mcp/global-config.ts` and the
  * helpers at the bottom of `agent-core/src/rpc/core-impl.ts`). Validation
- * keeps using v1's own `McpServerConfigSchema` (the v2 schema dropped the
+ * uses the SDK's localized port of v1's `McpServerConfigSchema`
+ * (`src/config-local/schema.ts`; the v2 schema dropped the
  * `auth: 'oauth'` marker field and would strip it on write). The moving
  * parts that DO have v2 counterparts — the OAuth service and the connection
  * manager — are the v2 engine's own classes, instantiated by the caller
@@ -22,11 +23,13 @@ import { dirname, join } from 'node:path';
 import {
   ErrorCodes,
   KimiError,
+} from '#/legacy';
+import {
   McpServerConfigSchema,
   type GlobalMcpServerConfig,
   type McpRemoteServerConfig,
   type McpServerConfig,
-} from '@moonshot-ai/agent-core';
+} from '#/config-local';
 import type { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
 import { atomicWrite } from '@moonshot-ai/agent-core-v2/_base/utils/fs';
 

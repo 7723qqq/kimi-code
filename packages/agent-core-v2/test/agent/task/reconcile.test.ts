@@ -263,7 +263,7 @@ describe('AgentTaskService — loadFromDisk + reconcile', () => {
     });
 
     it('loadFromDisk followed by reconcile is idempotent when called twice', async () => {
-      await persistence.writeTask(persistedProcess({ taskId: 'bash-idempot', pid: 42 }));
+      await persistence.writeTask(persistedProcess({ taskId: 'bash-idempot0', pid: 42 }));
 
       await background.loadFromDisk();
       await background.reconcile();
@@ -273,11 +273,11 @@ describe('AgentTaskService — loadFromDisk + reconcile', () => {
       await background.reconcile();
 
       expect(emittedEvents.length).toBe(emittedBefore);
-      expect(background.getTask('bash-idempot')).toMatchObject({ status: 'lost' });
+      expect(background.getTask('bash-idempot0')).toMatchObject({ status: 'lost' });
     });
 
     it('reconcile does not emit events for tasks that are already marked lost on disk', async () => {
-      await persistence.writeTask(persistedProcess({ taskId: 'bash-already-lost', pid: 1, status: 'lost', endedAt: 1_700_000_010, exitCode: 143 }));
+      await persistence.writeTask(persistedProcess({ taskId: 'bash-already0', pid: 1, status: 'lost', endedAt: 1_700_000_010, exitCode: 143 }));
 
       await background.loadFromDisk();
       await background.reconcile();

@@ -6,8 +6,8 @@
  * Exit code: 0 if all keys are covered, 1 if any key is missing.
  */
 
-import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
-import { resolve, dirname, extname, join, relative } from 'node:path';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { resolve, relative, dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
 
@@ -19,7 +19,6 @@ const ROOT = resolve(__dirname, '..');
 
 const LOCALE_FILE = 'packages/i18n/src/locales/en.ts';
 const SOURCE_DIRS = [
-  'packages/agent-core/src',
   'packages/agent-core-v2/src',
   'packages/kap-server/src',
   'packages/klient/src',
@@ -127,7 +126,7 @@ async function main() {
       const uniqueFiles = [...new Set(files)];
       console.error(`  - ${key}`);
       for (const f of uniqueFiles.slice(0, 5)) {
-        console.error(`      ${f}`);
+        console.error(`      ${String(f)}`);
       }
       if (uniqueFiles.length > 5) {
         console.error(`      ... and ${uniqueFiles.length - 5} more files`);

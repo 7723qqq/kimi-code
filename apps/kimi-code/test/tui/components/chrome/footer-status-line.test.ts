@@ -162,20 +162,36 @@ describe('runStatusLineCommand', () => {
   });
 
   it('trims the line and ignores later lines', async () => {
-    const line = await runStatusLineCommand('printf "first\\nsecond\\n"', payload);
+    // `node <script>` avoids POSIX-only utilities and cmd.exe quoting quirks:
+    // the script file keeps the command line free of quotes and metacharacters
+    // that sh/cmd would mangle differently.
+    const dir = join(tmpdir(), `sl-trims-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(dir, { recursive: true });
+    try {
+      const scriptFile = join(dir, 'out.mjs');
+      writeFileSync(scriptFile, "process.stdout.write('first\\nsecond\\n');\n");
+      const line = await runStatusLineCommand(`node ${scriptFile}`, payload);
 
-    expect(line).toBe('first');
+      expect(line).toBe('first');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('caps the captured output instead of accumulating an unending stream', async () => {
     // 200 KB on a single line, then exit: only the capped prefix is kept.
-    const line = await runStatusLineCommand(
-      'head -c 200000 /dev/zero | tr "\\0" "a"',
-      payload,
-    );
+    const dir = join(tmpdir(), `sl-caps-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(dir, { recursive: true });
+    try {
+      const scriptFile = join(dir, 'out.mjs');
+      writeFileSync(scriptFile, "process.stdout.write('a'.repeat(200000));\n");
+      const line = await runStatusLineCommand(`node ${scriptFile}`, payload);
 
-    expect(line).not.toBeNull();
-    expect(line!.length).toBeLessThanOrEqual(STATUS_LINE_MAX_CAPTURE_BYTES);
+      expect(line).not.toBeNull();
+      expect(line!.length).toBeLessThanOrEqual(STATUS_LINE_MAX_CAPTURE_BYTES);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -210,7 +226,7 @@ describe('FooterComponent status_line command', () => {
 
 describe('StatusLineCommandRunner', () => {
   it('caches the last good line and coalesces refreshes in the same interval', async () => {
-    const runner = new StatusLineCommandRunner('printf "x"', () => {});
+    const runner = new StatusLineCommandRunner('echo x', () => {});
 
     runner.maybeRefresh(payload);
     runner.maybeRefresh(payload);
@@ -249,14 +265,14 @@ describe('StatusLineCommandRunner', () => {
   it('recreates the runner when the command changes', async () => {
     const state: AppState = {
       ...baseState,
-      statusLine: { items: null, command: 'printf "aaa"' },
+      statusLine: { items: null, command: 'echo aaa' },
     };
     const footer = new FooterComponent(state);
     footer.render(120); // kicks the first run
     await new Promise((resolve) => setTimeout(resolve, 450));
     expect(plain(footer.render(120)[0]!)).toContain('aaa');
 
-    footer.setState({ ...state, statusLine: { items: null, command: 'printf "bbb"' } });
+    footer.setState({ ...state, statusLine: { items: null, command: 'echo bbb' } });
     footer.render(120); // kicks the replacement run
     await new Promise((resolve) => setTimeout(resolve, 450));
 

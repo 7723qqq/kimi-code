@@ -11,6 +11,7 @@ const STATUS_PRIORITY: Record<McpServerInfo['status'], number> = {
   failed: 0,
   'needs-auth': 1,
   pending: 2,
+  'pending-approval': 2,
   connected: 3,
   disabled: 4,
   removed: 5,
@@ -22,6 +23,8 @@ function statusLabel(status: McpServerInfo['status']): string {
       return t('tui.messages.mcpStatusPanel.status.connected');
     case 'pending':
       return t('tui.messages.mcpStatusPanel.status.pending');
+    case 'pending-approval':
+      return t('tui.messages.mcpStatusPanel.status.pendingApproval');
     case 'needs-auth':
       return t('tui.messages.mcpStatusPanel.status.needsAuth');
     case 'failed':
@@ -52,6 +55,7 @@ function statusPainter(
       return (text) => currentTheme.fg('error', text);
     case 'needs-auth':
     case 'pending':
+    case 'pending-approval':
       return (text) => currentTheme.fg('warning', text);
     case 'disabled':
     case 'removed':

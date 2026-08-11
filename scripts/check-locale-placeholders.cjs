@@ -12,21 +12,21 @@
  * Exit code 0 = all good, 1 = issues found.
  */
 
-const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
 
 // ── Placeholder extraction ──────────────────────────────────────────────────
 
-/** Matches all {{...}} placeholders (well-formed or not). */
-const PLACEHOLDER_ANY = /\{\{[^}]*\}?\}?/g;
-
 /** Matches only well-formed {{name}} placeholders. */
 const PLACEHOLDER_WELL_FORMED = /\{\{(\w+)\}\}/g;
 
-/** Matches likely broken placeholders: {{...} (missing closing }) or {{...}} (extra }). */
-const PLACEHOLDER_BROKEN = /\{\{[^}]*\}(?!\})|\{\{[^}]*\}\}/g;
+/**
+ * Placeholders where zh legitimately uses a fixed quantifier and does not
+ * render the en plural-marker argument (e.g. en "1 issue{{plural}}" vs
+ * zh "{{count}} 个问题"). Differences limited to these names are expected.
+ */
+const PLURAL_MARKERS = new Set(['plural', 'modelPlural', 'occurrences', 'occurrence']);
 
 /**
  * Recursively collect all string values in a locale object, recording the
@@ -96,7 +96,7 @@ function checkPlaceholderParity(enPath, zhPath) {
     delete require.cache[require.resolve(zhPath)];
     enData = (require(enPath)).default || require(enPath);
     zhData = (require(zhPath)).default || require(zhPath);
-  } catch (err) {
+  } catch {
     // Skip parity check if files can't be loaded (already reported above)
     return errors;
   }
@@ -112,12 +112,12 @@ function checkPlaceholderParity(enPath, zhPath) {
     const zhValue = zhMap.get(key);
     if (zhValue === undefined) continue; // missing key handled by type check
 
-    const enPlaceholders = [...enValue.matchAll(PLACEHOLDER_WELL_FORMED)].map(m => m[1]).sort();
-    const zhPlaceholders = [...zhValue.matchAll(PLACEHOLDER_WELL_FORMED)].map(m => m[1]).sort();
+    const enPlaceholders = [...enValue.matchAll(PLACEHOLDER_WELL_FORMED)].map(m => m[1]).filter(p => !PLURAL_MARKERS.has(p)).sort((a, b) => a.localeCompare(b));
+    const zhPlaceholders = [...zhValue.matchAll(PLACEHOLDER_WELL_FORMED)].map(m => m[1]).filter(p => !PLURAL_MARKERS.has(p)).sort((a, b) => a.localeCompare(b));
 
     if (enPlaceholders.length > 0 && JSON.stringify(enPlaceholders) !== JSON.stringify(zhPlaceholders)) {
       errors.push(
-        `${path.basename(zhPath)} → ${key}: placeholder mismatch\n` +
+        `${path.basename(zhPath)} → ${String(key)}: placeholder mismatch\n` +
         `  en: {{${enPlaceholders.join('}}, {{')}}}\n` +
         `  zh: {{${zhPlaceholders.join('}}, {{')}}}`,
       );
@@ -131,7 +131,6 @@ function checkPlaceholderParity(enPath, zhPath) {
 
 const LOCALE_PAIRS = [
   { en: 'packages/i18n/src/locales/en.ts', zh: 'packages/i18n/src/locales/zh.ts' },
-  { en: 'packages/agent-core/src/i18n-locales/en.ts', zh: 'packages/agent-core/src/i18n-locales/zh.ts' },
   { en: 'apps/kimi-code/src/i18n/locales/en.ts', zh: 'apps/kimi-code/src/i18n/locales/zh.ts' },
   { en: 'packages/kap-server/src/i18n-locales/en.ts', zh: 'packages/kap-server/src/i18n-locales/zh.ts' },
   { en: 'apps/kimi-inspect/src/i18n/locales/en.ts', zh: 'apps/kimi-inspect/src/i18n/locales/zh.ts' },

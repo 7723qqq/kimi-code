@@ -65,7 +65,9 @@ const PROGRESS_URL_RE = /https?:\/\/\S+/g;
 const MAX_LIVE_OUTPUT_CHARS = 50_000;
 
 const DETACH_HINT_DELAY_MS = 10_000;
-const DETACH_HINT_TEXT = t('tui.messages.toolCall.detachHint');
+function getDetachHintText(): string {
+  return t('tui.messages.toolCall.detachHint');
+}
 
 const MAX_PROGRESS_LINES = 24;
 
@@ -365,7 +367,7 @@ export class ToolCallComponent extends Container {
   private buildDetachHintBlock(): void {
     if (!this.detachHintVisible) return;
     if (this.result !== undefined) return;
-    this.addChild(new Text(currentTheme.dim(DETACH_HINT_TEXT), 2, 0));
+    this.addChild(new Text(currentTheme.dim(getDetachHintText()), 2, 0));
   }
 
   // ── Subagent event handlers (delegate to manager) ──

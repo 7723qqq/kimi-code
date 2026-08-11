@@ -13,6 +13,15 @@ import type { ModelRequester } from '#/kosong/model/modelRequester';
 import type { Protocol } from '#/kosong/protocol/protocol';
 import type { IBlobStore } from '#/persistence/interface/blobStore';
 
+// Stub every native-tools export to `undefined` so media sniffing falls back
+// to the TS `detectFileType` path instead of the Rust native fast-path
+// (`nativeDetectFileType` classifies PNG bytes + `.mp4` name as video, which
+// would upload instead of tagging).
+vi.mock('#/_base/native-tools', async () => {
+  const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
+  return Object.fromEntries(Object.keys(actual).map((key) => [key, () => undefined]));
+});
+
 const FILE_ID = 'file_abc';
 const FALLBACK_PATH = '/cache/file_abc.mp4';
 const VIDEO_BYTES = Buffer.from('tiny fake mp4 bytes');

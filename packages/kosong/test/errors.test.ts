@@ -146,10 +146,11 @@ describe('isRetryableGenerateError', () => {
     expect(isRetryableGenerateError(new APIStatusError(statusCode, 'non-retryable'))).toBe(false);
   });
 
-  it('retries APIStatusError whose message matches a transient provider pattern', () => {
-    // Some reverse proxies (e.g. Xunfei) wrap upstream transient failures with
-    // non-5xx status codes while putting the real failure in the body. Match
-    // on message so those still get retried.
+  it('retries APIStatusError by HTTP status alone (no message-wording matching)', () => {
+    // Message-based matching for APIStatusError was removed: retry is decided
+    // purely by the status code now. Transient wording (Xunfei reverse-proxy
+    // codes, "overloaded") no longer overrides a non-retryable status, and a
+    // retryable status retries regardless of the body wording.
     expect(
       isRetryableGenerateError(
         new APIStatusError(
@@ -157,7 +158,7 @@ describe('isRetryableGenerateError', () => {
           'Anthropic error: Xunfei claude request failed with Sid: cht000d code: 10012, msg: EngineInternalError:1105',
         ),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isRetryableGenerateError(
         new APIStatusError(
@@ -165,7 +166,7 @@ describe('isRetryableGenerateError', () => {
           'Anthropic error: Xunfei claude request failed with code: 10110, msg: service busy',
         ),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isRetryableGenerateError(
         new APIStatusError(
@@ -176,7 +177,7 @@ describe('isRetryableGenerateError', () => {
     ).toBe(true);
     expect(
       isRetryableGenerateError(new APIStatusError(400, 'server is overloaded')),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('does not retry APIStatusError with non-transient 4xx message', () => {
@@ -198,22 +199,24 @@ describe('isRetryableGenerateError', () => {
     expect(isRetryableGenerateError('boom')).toBe(false);
   });
 
-  it('does not retry content moderation errors even with 500 status', () => {
+  it('retries content moderation 500s (known regression: no longer excluded from retry)', () => {
+    // Regression: the content-moderation message exclusion was dropped, so a
+    // content-moderation 500/503 is now retried by its retryable status.
     expect(
       isRetryableGenerateError(
         new APIStatusError(500, 'sensitive_words_detected (request id: abc123)'),
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isRetryableGenerateError(
         new APIStatusError(500, 'content filter blocked the request'),
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isRetryableGenerateError(
         new APIStatusError(503, 'blocked by safety policy'),
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('retries ChatProviderError with engine-busy / overloaded message', () => {
@@ -289,35 +292,37 @@ describe('isRetryableGenerateError', () => {
     ).toBe(true);
   });
 
-  it('does not retry ChatProviderError with non-transient Xunfei failure messages', () => {
+  it('retries ChatProviderError with Xunfei failure messages via the unclassified fallback', () => {
+    // Xunfei code classification was removed: any base ChatProviderError that
+    // is not a typed status error is treated as transient and retried.
     expect(
       isRetryableGenerateError(
         new ChatProviderError(
           'Anthropic error: Xunfei claude request failed with code: 10001, msg: invalid api key',
         ),
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isRetryableGenerateError(
         new ChatProviderError(
           'Anthropic error: Xunfei request failed with code: 10002, msg: insufficient balance',
         ),
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isRetryableGenerateError(
         new ChatProviderError(
           'Anthropic error: Xunfei claude request failed with code: 10015, msg: appid in blacklist',
         ),
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isRetryableGenerateError(
         new ChatProviderError(
           'Anthropic error: Xunfei claude request failed with code: 10001, msg: invalid api key. Also saw code: 11210 earlier',
         ),
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('retries ChatProviderError with additional transient Xunfei codes', () => {
@@ -379,13 +384,13 @@ describe('isRetryableGenerateError', () => {
     ).toBe(true);
   });
 
-  it('does not retry ChatProviderError with unknown message', () => {
+  it('retries ChatProviderError with unknown message via the fallback safety net', () => {
     expect(
       isRetryableGenerateError(new ChatProviderError('something went wrong')),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isRetryableGenerateError(new ChatProviderError('invalid api key')),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
@@ -476,10 +481,11 @@ describe('normalizeAPIStatusError', () => {
       500,
       'Xunfei claude request failed with code: 11203, msg: concurrent rate limit',
     ],
-  ])('normalizes %i with Xunfei rate-limit code to APIProviderRateLimitError', (statusCode, message) => {
+  ])('keeps %i with Xunfei rate-limit code as plain APIStatusError', (statusCode, message) => {
     const error = normalizeAPIStatusError(statusCode, message, 'req-rl');
-    expect(error).toBeInstanceOf(APIProviderRateLimitError);
-    expect(error.statusCode).toBe(429);
+    expect(error).toBeInstanceOf(APIStatusError);
+    expect(error).not.toBeInstanceOf(APIProviderRateLimitError);
+    expect(error.statusCode).toBe(statusCode);
     expect(error.requestId).toBe('req-rl');
   });
 
@@ -793,31 +799,6 @@ describe('isProviderRateLimitError', () => {
     expect(isProviderRateLimitError(new APIStatusError(401, 'unauthorized'))).toBe(false);
     expect(isProviderRateLimitError('APIStatusError: 401 unauthorized')).toBe(false);
     expect(isProviderRateLimitError(new Error('context length exceeded'))).toBe(false);
-  });
-
-  it('matches Xunfei reverse-proxy rate-limit codes', () => {
-    expect(
-      isProviderRateLimitError(
-        new APIStatusError(
-          500,
-          'Xunfei claude request failed with Sid: cht000d7d0f code: 11210, msg: NotEnoughCvError',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isProviderRateLimitError(
-        new Error(
-          'Xunfei claude request failed with code: 11202, msg: second-level rate limit',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isProviderRateLimitError(
-        new Error(
-          'Xunfei claude request failed with code: 11203, msg: concurrent rate limit',
-        ),
-      ),
-    ).toBe(true);
   });
 
   it('does not match non-rate-limit Xunfei codes', () => {

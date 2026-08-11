@@ -46,12 +46,16 @@ export class AgentPermissionPolicyService
     this.policies = [
       this.instantiation.createInstance(AutoModeAskUserQuestionDenyPermissionPolicyService),
       this.instantiation.createInstance(UserConfiguredDenyPermissionPolicyService),
-      this.instantiation.createInstance(AutoModeApprovePermissionPolicyService),
       this.instantiation.createInstance(SessionApprovalHistoryPermissionPolicyService),
       this.instantiation.createInstance(UserConfiguredAskPermissionPolicyService),
       this.instantiation.createInstance(UserConfiguredAllowPermissionPolicyService),
       this.instantiation.createInstance(SensitiveFileAccessAskPermissionPolicyService),
       this.instantiation.createInstance(GitControlPathAccessAskPermissionPolicyService),
+      // Auto mode's blanket approve must come AFTER the sensitive-file and
+      // git-control gates: otherwise auto mode would silently write to
+      // `.git/`, `~/.aws`, etc. — weaker protection than yolo mode, which
+      // sits behind those same gates.
+      this.instantiation.createInstance(AutoModeApprovePermissionPolicyService),
       this.instantiation.createInstance(GuardianReviewPermissionPolicyService),
       this.instantiation.createInstance(YoloModeApprovePermissionPolicyService),
       this.instantiation.createInstance(DefaultToolApprovePermissionPolicyService),

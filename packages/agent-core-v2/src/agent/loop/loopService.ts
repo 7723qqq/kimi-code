@@ -52,6 +52,7 @@ import {
   type AgentLLMRequestFinish,
 } from '#/agent/llmRequester/llmRequester';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
@@ -977,7 +978,12 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     }
 
     const toolCallUuids = new Map<string, string>();
-    const toolCallEvents: Array<{ toolCallId: string; name: string; args?: unknown }> = [];
+    const toolCallEvents: Array<{
+      toolCallId: string;
+      name: string;
+      args?: unknown;
+      display?: ToolInputDisplay;
+    }> = [];
     const toolResultEvents: Array<{
       toolCallId: string;
       output: string | ReadonlyArray<import('#/app/llmProtocol/message').ContentPart>;
@@ -989,10 +995,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       signal,
       turnId,
       trace,
-      onToolCall: ({ toolCallId, name, args }) => {
+      onToolCall: ({ toolCallId, name, args, display }) => {
         const callUuid = randomUUID();
         toolCallUuids.set(toolCallId, callUuid);
-        toolCallEvents.push({ toolCallId, name, args });
+        toolCallEvents.push({ toolCallId, name, args, display });
       },
     })) {
       const { result } = toolResult;
@@ -1017,6 +1023,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         toolCallId: event.toolCallId,
         name: event.name,
         args: event.args,
+        display: event.display,
       });
     }
 

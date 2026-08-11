@@ -77,6 +77,7 @@ const V2_RECORD_TYPES: ReadonlySet<string> = new Set([
   'plan.revision',
   'interruptionReminder.recorded',
   'turn.ended',
+  'micro_compaction.clamp',
 ]);
 
 describe('v1 wire vocabulary', () => {
@@ -163,6 +164,7 @@ describe('v1 wire vocabulary', () => {
 describe('conversation-time checkpoint registration', () => {
   const CHECKPOINT_EXEMPT_MODELS: ReadonlySet<string> = new Set([
     'goalForkNotice',
+    'microCompaction',
   ]);
   const CONTEXT_OPS = [
     'context.append_message',

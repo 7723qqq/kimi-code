@@ -6,7 +6,7 @@
  * no matter how many subscriptions), using a fake os watcher.
  */
 
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LifecycleScope } from '#/app/scopes';
@@ -24,7 +24,7 @@ import type { FsChangeEvent } from '#/workspace/workspaceFs/fsWatch';
 import { IWorkspaceFsWatchService } from '#/workspace/workspaceFs/fsWatch';
 import { WorkspaceFsWatchService } from '#/workspace/workspaceFs/fsWatchService';
 
-const WORK_DIR = '/repo';
+const WORK_DIR = resolve('/repo');
 
 void WorkspaceFsWatchService;
 
@@ -97,7 +97,7 @@ function fakeHostFs(gitignore?: string): IHostFileSystem {
   return {
     _serviceBrand: undefined,
     readText: async (p: string) => {
-      if (gitignore !== undefined && p === join(WORK_DIR, '.gitignore')) return gitignore;
+      if (gitignore !== undefined && p === resolve(WORK_DIR, '.gitignore')) return gitignore;
       const err = new Error(`ENOENT: ${p}`) as NodeJS.ErrnoException;
       err.code = 'ENOENT';
       throw err;

@@ -20,6 +20,7 @@ import { diffValue, type DiffNode } from '../../audit/diff';
 import { serializeState } from '../../audit/serialize';
 import type { AuditEntry, AuditTrail } from '../../audit/trail';
 import { tailTrunc } from '../../audit/truncate';
+import { t } from '../../i18n';
 import { Badge } from '../../ui';
 import { plainNode, StateTree } from './StateTree';
 
@@ -130,7 +131,7 @@ export function AuditPanel({ trail }: { trail: AuditTrail }) {
       <div ref={listRef} className="h-56 shrink-0 overflow-y-auto border-b border-neutral-800">
         {entries.length === 0 ? (
           <div className="px-3 py-2 text-[11px] text-neutral-600 italic">
-            Nothing recorded yet — the initial transcript load is still running.
+            {t('chat.auditEmpty')}
           </div>
         ) : null}
         {entries.map((entry, pos) => (

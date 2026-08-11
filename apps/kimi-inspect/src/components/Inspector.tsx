@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { serviceByName } from '../channel';
 import { useConnection } from '../connection';
+import { t } from '../i18n';
 import { type AnyService } from '../panels';
 import { fetchTranscriptPlan, type TranscriptPlanInfo } from '../transcript/api';
 import { ActionButton, Badge, ErrorLine } from '../ui';
@@ -127,7 +128,7 @@ export function Inspector({
       <div className="flex-1 overflow-y-auto p-3">
         {sessionBlocked ? (
           <div className="text-[12px] text-neutral-600">
-            {sessionId === null ? 'No session selected.' : 'Loading session…'}
+            {sessionId === null ? t('inspector.noSessionSelected') : t('chat.loadingSession')}
           </div>
         ) : (
           <>

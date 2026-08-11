@@ -56,4 +56,10 @@ export default {
     indexHtmlNotAFile: 'index.html is not a file',
     paginationMutuallyExclusive: 'before_id and after_id are mutually exclusive',
   },
+  v2Errors: {
+    fileNotFound: 'File not found',
+  },
+  v2Goal: {
+    onlyMainAgent: 'Goals are only supported by the main agent',
+  },
 } as const;

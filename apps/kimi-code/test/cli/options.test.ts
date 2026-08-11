@@ -400,11 +400,13 @@ describe('CLI options parsing', () => {
   });
 
   describe('--agent / --agent-file', () => {
-    it('describes agent selectors as new-session-only', () => {
+    it('describes agent selectors as per-invocation', () => {
       const help = createProgram('0.1.0-test', () => {}, () => {}).helpInformation();
       const normalizedHelp = help.replaceAll(/\s+/g, ' ');
 
-      expect(normalizedHelp).toContain('Agent profile to start the new session with.');
+      expect(normalizedHelp).toContain(
+        'Agent profile to use for this invocation (v2 engine only).',
+      );
       expect(normalizedHelp).not.toContain('print-mode invocation');
     });
 
@@ -501,14 +503,11 @@ describe('CLI options parsing', () => {
       expect(validateOptions(parse(['--agent-file', 'a.md']), {}).uiMode).toBe('shell');
     });
 
-    it('accepts the flags in prompt mode on the default v2 engine', () => {
+    it('accepts the flags in prompt mode', () => {
       const opts = parse(['-p', 'hi', '--agent-file', 'a.md']);
       expect(validateOptions(opts, {}).uiMode).toBe('print');
-    });
-
-    it('accepts the flags in prompt mode with the legacy engine flag', () => {
-      const opts = parse(['-p', 'hi', '--agent', 'reviewer']);
-      expect(validateOptions(opts, { KIMI_CODE_LEGACY_FLAG: '1' }).uiMode).toBe('print');
+      const opts2 = parse(['-p', 'hi', '--agent', 'reviewer']);
+      expect(validateOptions(opts2, {}).uiMode).toBe('print');
     });
   });
 

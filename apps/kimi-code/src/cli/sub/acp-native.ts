@@ -21,6 +21,7 @@
 
 import type { Command } from 'commander';
 
+import { t } from '#/i18n';
 import { getVersion } from '#/cli/version';
 import { KIMI_CODE_HOME_ENV } from '#/constant/app';
 import { getDataDir } from '#/utils/paths';
@@ -33,7 +34,7 @@ export function registerNativeAcpCommand(parent: Command): void {
     .description('Run kimi-code as an Agent Client Protocol (ACP) server over stdio.')
     .option(
       '--login',
-      'Run the device-code login flow then exit (entry point for ACP terminal-auth).',
+      t('cli.optionDescriptions.acpLogin'),
       false,
     )
     .action(async (opts: { login?: boolean }) => {

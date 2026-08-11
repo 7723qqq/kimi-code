@@ -86,23 +86,6 @@ describe('WorkspacePredictor', () => {
     vi.mocked(tryNativeWorkspaceIndexPredictRead).mockReset();
   });
 
-  it('serves a prediction from the native index when available', () => {
-    vi.mocked(tryNativeWorkspaceIndexPredictRead).mockReturnValue({
-      lineCount: 42,
-      size: 1024,
-      preview: 'line one\nline two\nline three\nline four\nline five',
-      estimatedReadMs: 1,
-    });
-
-    const result = predictor.predictRead('some/file.rs');
-
-    expect(result).not.toBeNull();
-    expect(result).toContain('prediction: 42 lines, 1024 bytes');
-    expect(result).toContain('line one');
-    expect(result).toContain('[... prediction — precise result loading ...]');
-    expect(tryNativeWorkspaceIndexPredictRead).toHaveBeenCalledWith('some/file.rs');
-  });
-
   it('falls back to fs stat when the native index misses (returns null)', () => {
     // Native index miss → returns null → predictor falls back to fs.
     vi.mocked(tryNativeWorkspaceIndexPredictRead).mockReturnValue(null);

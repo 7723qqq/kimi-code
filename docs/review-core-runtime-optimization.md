@@ -276,7 +276,7 @@
 - `local.ts:128-141` — Windows kill 每次 spawn 一个 taskkill，加幂等防重入。
 - `local.ts:93-101, ssh.ts:240-257` — exit/error 监听器 settle 后未移除。
 - `local.ts:759-769` — 每 exec spread 整个 process.env（envLayers 为空时已是零拷贝，可维持现状）。
-- `ssh.ts:275-276` — channel 关闭时 signal() 可能同步抛错，与 Promise<void> 签名不符。
+- `ssh.ts:275-276` — channel 关闭时 signal() 可能同步抛错，与 `Promise<void>` 签名不符。
 - `ssh.ts:505-567` — create 未设 keepaliveInterval 默认值，长空闲连接可能被 NAT 断开 [需确认]。
 
 ---
@@ -391,7 +391,7 @@
 |---|---|---|---|
 | 1 | `agent-core` MCP 监听器泄漏（T1/A1） | Agent 增加 dispose；会话回收已完成子代理时执行退订 | 长会话 spawn 100 子代理后对比 `McpConnectionManager.listeners.size` |
 | 2 | `kosong` native fast-path 熔断（T3/K1） | catch 加 warn + 连续 N 次失败跳过 native | 断网/mock 429 验证只发 1 次 SDK 请求且有日志 |
-| 3 | `kosong` native 流逐 token 回调（K2/K3） | ThreadsafeFunction 回调 + signal 传递 | 流式首字延迟对比；Esc 取消 <1s 生效 |
+| 3 | `kosong` native 流逐 token 回调（K2/K3） | ThreadsafeFunction 回调 + signal 传递 | 流式首字延迟对比；Esc 取消 &lt;1s 生效 |
 | 4 | `kap-server` auth statSync 每请求（T7/P5） | 秒级 TTL 缓存 stat | 高频 REST 压测事件循环阻塞消失 |
 | 5 | `klient` IPC 背压（T2/L1） | write false 时 await drain | 慢消费端流式大结果内存平稳 |
 | 6 | `klient` 三重序列化（L2） | IPC host 去 wireClone；in-memory 按需克隆 | 流式 chunk 吞吐/内存对比 |
@@ -421,7 +421,7 @@
 | 20 | `agent-core` session list 并发（A3） | Promise.all 上限 16-32 | 50 session list 延迟对比 |
 | 21 | `apps/kimi-code` shell 输出 debounce（M3） | 50-100ms debounce + 增量 sanitize | 长输出命令 TUI 流畅度 |
 | 22 | `apps/kimi-code` delta 增量解析（M1） | 仅 swarm 工具 parse + 增量 | 大参数流式 CPU 对比 |
-| 23 | `kosong` kimi-schema WeakMap memo（K5） | WeakMap<object,...> 缓存 | 每请求 schema 处理耗时对比 |
+| 23 | `kosong` kimi-schema WeakMap memo（K5） | `WeakMap&lt;object,...&gt;` 缓存 | 每请求 schema 处理耗时对比 |
 | 24 | `kosong` AuthClientLRU 接线（K4） | 构造时传入 LRU | OAuth 场景连接池复用验证 |
 | 25 | `kaos` TextDecoder 单例（s1） | 按 encoding 缓存 | 大文件逐行读耗时对比 |
 | 26 | `agent-core` fsSearch 并行 DFS（A5） | 目录级 Promise.all + 剪枝 | 大仓库搜索延迟对比 |

@@ -867,7 +867,9 @@ export async function buildWireManifest(): Promise<string> {
   // the static pass fills OP_REGISTRY, even for modules index.ts does not load.
   await import('../src/index.ts');
   for (const file of opFiles) {
-    await import(relative(join(PKG, 'scripts'), file));
+    // `import()` with a bare relative path breaks on Windows (backslash
+    // separators are treated as a bare specifier) — load via a file URL.
+    await import(pathToFileURL(file).href);
   }
   const { WIRE_PROTOCOL_VERSION } = (await import('#/wire/migration/migration')) as {
     WIRE_PROTOCOL_VERSION: string;

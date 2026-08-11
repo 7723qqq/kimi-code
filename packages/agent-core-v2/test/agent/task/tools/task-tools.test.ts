@@ -25,9 +25,6 @@ import type { ITaskHandle } from '#/app/task/task';
 import { compileToolArgsValidator, validateToolArgs } from '#/tool/args-validator';
 import type { ProcessTaskInfo } from '#/agent/tools/os/bash/process-task';
 import type { SubagentTaskInfo } from '#/agent/tools/agent/subagent-task';
-import { TaskListTool as V1TaskListTool } from '../../../../../agent-core/src/tools/background/task-list';
-import { TaskOutputTool as V1TaskOutputTool } from '../../../../../agent-core/src/tools/background/task-output';
-import { TaskStopTool as V1TaskStopTool } from '../../../../../agent-core/src/tools/background/task-stop';
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -43,21 +40,6 @@ function context<Input>(
 function outputString(result: { readonly output: string | readonly unknown[] }): string {
   expect(typeof result.output).toBe('string');
   return result.output as string;
-}
-
-interface ModelFacingToolContract {
-  readonly name: string;
-  readonly description: string;
-  readonly parameters: Record<string, unknown>;
-}
-
-function expectModelFacingParity(
-  actual: ModelFacingToolContract,
-  expected: ModelFacingToolContract,
-): void {
-  expect(actual.name).toBe(expected.name);
-  expect(actual.description).toBe(expected.description);
-  expect(JSON.stringify(actual.parameters)).toBe(JSON.stringify(expected.parameters));
 }
 
 function processTask(
@@ -738,12 +720,6 @@ describe('TaskStopTool', () => {
 
 describe('task tool descriptions', () => {
   const tasks = new FakeTaskService();
-
-  it('matches the v1 model-facing contract exactly', () => {
-    expectModelFacingParity(new TaskListTool(tasks), new V1TaskListTool({} as never));
-    expectModelFacingParity(new TaskOutputTool(tasks), new V1TaskOutputTool({} as never));
-    expectModelFacingParity(new TaskStopTool(tasks), new V1TaskStopTool({} as never));
-  });
 
   it('TaskOutput description documents non-blocking snapshots, output_path, and Read', () => {
     const description = new TaskOutputTool(tasks).description;

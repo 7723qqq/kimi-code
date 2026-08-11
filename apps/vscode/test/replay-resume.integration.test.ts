@@ -1,6 +1,6 @@
 /**
  * Scenario: persisted Node SDK sessions are reopened and rendered by the VS Code replay adapter.
- * Responsibilities: restored tool displays and child-agent steps through the public resume state.
+ * Responsibilities: restored tool displays, tool results, and child-agent steps through the public resume state.
  * Wiring: Node SDK, core, storage, and HTTP provider adapter are real; only the remote provider is local.
  * Run: pnpm --filter kimi-code exec vitest run --config vitest.config.ts test/replay-resume.integration.test.ts
  */
@@ -163,7 +163,13 @@ describe("VS Code replay from a public Node SDK resume state", () => {
                 function: {
                   name: "TodoList",
                   arguments: JSON.stringify({
-                    todos: [{ title: "Verify resume", status: "done" }],
+                    todos: [{
+                      id: "T1",
+                      parentId: null,
+                      title: "Verify resume",
+                      status: "done",
+                      description: "Verify resume works",
+                    }],
                   }),
                 },
               },
@@ -203,10 +209,11 @@ describe("VS Code replay from a public Node SDK resume state", () => {
           return_value: expect.objectContaining({
             display: [{
               type: "diff",
-              path: join(rig.workDir, "created.txt"),
+              path: join(rig.workDir, "created.txt").replaceAll("\\", "/"),
               old_text: "",
               new_text: "created content\n",
             }],
+            output: [{ type: "text", text: "Wrote 16 bytes to created.txt" }],
           }),
         }),
       }),
@@ -217,7 +224,13 @@ describe("VS Code replay from a public Node SDK resume state", () => {
         payload: expect.objectContaining({
           tool_call_id: "edit-call-1",
           return_value: expect.objectContaining({
-            display: [{ type: "diff", path: filePath, old_text: "before", new_text: "after" }],
+            display: [{
+              type: "diff",
+              path: filePath.replaceAll("\\", "/"),
+              old_text: "before",
+              new_text: "after",
+            }],
+            output: [{ type: "text", text: "Replaced 1 occurrence in sample.txt" }],
           }),
         }),
       }),
@@ -232,6 +245,7 @@ describe("VS Code replay from a public Node SDK resume state", () => {
               type: "todo",
               items: [{ title: "Verify resume", status: "done" }],
             }],
+            output: [{ type: "text", text: expect.stringContaining("Todo list updated.") }],
           }),
         }),
       }),

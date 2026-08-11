@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { useChatStore } from "@/stores";
 import { bridge } from "@/services";
+import { t } from "@/i18n";
 import type { ChatMessage as ChatMessageType, UIStep, UIStepItem } from "@/stores/chat.store";
 import type { ContentPart } from "shared/legacy-sdk";
 
@@ -186,7 +187,7 @@ function ForkButton({ turnIndex, className }: ForkButtonProps) {
         )}
         onClick={handleFork}
         disabled={isForking || !sessionId}
-        title="Fork conversation from this point"
+        title={t("chatMessage.forkFromPoint")}
       >
         <IconGitFork className="size-3.5" />
       </Button>
@@ -194,7 +195,7 @@ function ForkButton({ turnIndex, className }: ForkButtonProps) {
       <StreamingConfirmDialog
         open={showConfirm}
         onOpenChange={setShowConfirm}
-        title="Fork Conversation"
+        title={t("chatMessage.forkConversation")}
         description={
           isStreaming
             ? "The current conversation is still generating a response. Forking will stop the generation and create a new conversation from this point. Continue?"

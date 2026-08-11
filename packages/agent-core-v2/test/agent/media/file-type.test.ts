@@ -12,7 +12,16 @@
  *   - no header provided → extension-only detection
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// Stub every native-tools export to `undefined` so media sniffing falls back
+// to the TS `detectFileType` / `sniffImageDimensions` paths instead of the
+// Rust native fast-path (`nativeDetectFileType` ignores the TS `mode` /
+// conflict semantics; `nativeSniffImageDimensions` skips EXIF transpose).
+vi.mock('#/_base/native-tools', async () => {
+  const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
+  return Object.fromEntries(Object.keys(actual).map((key) => [key, () => undefined]));
+});
 
 // eslint-disable-next-line import/no-unresolved
 import {

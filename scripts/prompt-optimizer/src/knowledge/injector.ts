@@ -8,7 +8,7 @@
  * registers a `knowledge` provider that fires on each new turn.
  */
 
-import { knowledgeSearch, formatForInjection, type KnowledgeSearchResult } from './adapter';
+import { knowledgeSearch, formatForInjection } from './adapter';
 
 export interface InjectorContext {
   /** Current file paths being worked on */

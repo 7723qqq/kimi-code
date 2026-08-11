@@ -8,6 +8,7 @@ import {
   NATIVE_INSTALL_COMMAND_UNIX,
   NATIVE_INSTALL_COMMAND_WIN,
 } from '#/constant/app';
+import { t } from '#/i18n';
 import { loadTuiConfig } from '#/tui/config';
 
 import { readUpdateCache } from './cache';
@@ -167,7 +168,7 @@ export function renderManualUpdateMessage(
       sourceDesc = 'native (windows). Auto-update is not supported on this platform.';
       break;
     case 'unsupported':
-      sourceDesc = 'unsupported package manager or layout.';
+      sourceDesc = t('tui.statusMessages.updateUnsupportedManager');
       break;
   }
   return (

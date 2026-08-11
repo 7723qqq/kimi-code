@@ -245,14 +245,16 @@ describe('TelemetryService (unit)', () => {
     expect(appender.events).toHaveLength(1);
   });
 
-  it('withContext on a disabled root produces a disabled child; re-enabling root does not affect child', () => {
+  it('withContext on a disabled root produces a child that resumes once the root is re-enabled', () => {
     const appender = new CapturingAppender();
     const root = telemetryWithAppenders(appender);
     root.setEnabled(false);
     const child = root.withContext({});
+    child.track('dropped');
+    expect(appender.events).toHaveLength(0);
     root.setEnabled(true);
     child.track('evt');
-    expect(appender.events).toHaveLength(0);
+    expect(appender.events).toEqual([{ event: 'evt', properties: {} }]);
   });
 
   it('nested withContext chains accumulate context from all ancestors', () => {

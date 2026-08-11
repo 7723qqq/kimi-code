@@ -15,8 +15,8 @@ import type {
   ToolCall,
 } from "../../shared/legacy-sdk";
 import type { UIStreamEvent } from "../../shared/types";
-import { toLegacyToolName } from "./event-adapter";
 import { toLegacyDisplay } from "./tool-display";
+import { toLegacyToolName } from "./event-adapter";
 
 interface SubagentReplayInvocation {
   readonly parentAgentId: string;

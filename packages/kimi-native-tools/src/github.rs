@@ -132,8 +132,11 @@ pub fn request(
     body_json: Option<&str>,
     paginate: bool,
     accept: Option<&str>,
+    token_override: Option<String>,
 ) -> GithubResponse {
-    let token = match resolve_token() {
+    // An explicit per-request token (from the tool config) takes precedence;
+    // otherwise fall back to the environment.
+    let token = match token_override.or_else(resolve_token) {
         Some(t) => t,
         None => {
             return GithubResponse::failure(

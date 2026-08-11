@@ -14,12 +14,10 @@
  * user, or the agent itself acting on the user's behalf).
  */
 
-import { createHash } from 'node:crypto';
 import { join, resolve, isAbsolute } from 'pathe';
 import { readFile, writeFile, readdir, stat } from 'node:fs/promises';
 import { exec as execCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-import { pathToFileURL } from 'node:url';
 
 import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IAgentProfileService } from '#/agent/profile/profile';

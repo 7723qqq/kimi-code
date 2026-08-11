@@ -313,7 +313,7 @@ export class MigrationScreenComponent extends Container implements Focusable {
       if (sum.config.migrated) migratedKinds.push('config');
       if (sum.config.migratedHooks > 0) migratedKinds.push('hooks');
       if (sum.mcp.mergedServers.length > 0) migratedKinds.push('MCP');
-      if (sum.userHistory.copied > 0) migratedKinds.push('REPL history');
+      if (sum.userHistory.copied > 0) migratedKinds.push(t('tui.migration.stepLabelReplHistory'));
       if (sum.skills.copied > 0) migratedKinds.push('skills');
       if (migratedKinds.length > 0) {
         lines.push(chalk.hex(colors.success)(t('tui.migration.kindsMigrated', { kinds: migratedKinds.join(' · ') })));
@@ -528,7 +528,7 @@ function summarizePlan(plan: MigrationPlan): string {
   if (plan.totalSessions > 0) parts.push(`${plan.totalSessions} sessions`);
   if (plan.hasConfig) parts.push('config.toml');
   if (plan.hasMcp) parts.push('mcp.json');
-  if (plan.hasUserHistory) parts.push('REPL history');
+  if (plan.hasUserHistory) parts.push(t('tui.migration.stepLabelReplHistory'));
   return parts.join(' · ');
 }
 

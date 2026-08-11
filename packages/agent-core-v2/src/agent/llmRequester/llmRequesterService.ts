@@ -43,6 +43,8 @@ import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
+import { IInstantiationService } from '#/_base/di/instantiation';
+import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import { IAgentVideoResolverService } from '#/agent/media/videoResolver';
 import { IAgentUsageService } from '#/agent/usage/usage';
 import { IConfigService } from '#/app/config/config';
@@ -182,6 +184,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     @IWireService private readonly wire: IWireService,
     @IEventBus private readonly eventBus: IEventBus,
     @IAgentStateService private readonly states: IAgentStateService,
+    @IInstantiationService private readonly instantiation: IInstantiationService,
   ) {
     this.states.register(llmRequesterLastConfigLogSignatureKey);
     this.states.register(llmRequesterTurnConfigsKey);
@@ -324,6 +327,18 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     }
   }
 
+  // Lazy: resolved on first request so the Agent-scope activation graph stays
+  // acyclic (loop → llmRequester → microCompaction → loop would otherwise
+  // cycle; `microCompaction` registers its own loop hooks and is activated
+  // after the loop).
+  private microCompactionService: IAgentMicroCompactionService | undefined;
+  private get microCompaction(): IAgentMicroCompactionService {
+    this.microCompactionService ??= this.instantiation.invokeFunction((accessor) =>
+      accessor.get(IAgentMicroCompactionService),
+    );
+    return this.microCompactionService;
+  }
+
   private async runRequest(
     request: ResolvedLLMRequest,
     onPart: AgentLLMRequestPartHandler,
@@ -331,6 +346,10 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     onRequestTrace: (traceId: string | undefined) => void,
   ): Promise<AgentLLMRequestFinish> {
     const shaped = this.toolSelect.shapeHistory(request.messages);
+    // Cache-miss micro compaction: replace old oversized tool results in the
+    // outgoing message view with a marker (history stays untouched), mirroring
+    // v1's `context.project` path where the same shaping ran before projection.
+    const shapedForModel = this.microCompaction.compact(shaped);
     let mediaStripSnapshot = this.mediaStripSnapshotForTurn(request.source);
     const requestInput = (projection: RequestProjection) => {
       return {
@@ -338,16 +357,16 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         tools: request.tools,
         messages:
           projection === 'strict'
-            ? this.projector.projectStrict(shaped)
+            ? this.projector.projectStrict(shapedForModel)
             : projection === 'media-degraded'
-              ? this.projector.projectMediaDegraded(shaped)
+              ? this.projector.projectMediaDegraded(shapedForModel)
               : projection === 'media-stripped'
                 ? this.projector.projectMediaStripped(
-                    shaped,
+                    shapedForModel,
                     (mediaStripSnapshot ??=
-                      this.projector.captureMediaStripSnapshot(shaped)),
+                      this.projector.captureMediaStripSnapshot(shapedForModel)),
                   )
-                : this.projector.project(shaped),
+                : this.projector.project(shapedForModel),
       };
     };
 

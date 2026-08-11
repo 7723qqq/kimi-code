@@ -32,7 +32,12 @@
     "idle": "idle",
     "send": "Send",
     "cancel": "Cancel",
-    "tool": "tool"
+    "tool": "tool",
+    "noHitsInSession": "No hits in this session.",
+    "searchHint": "Search user prompts, assistant replies and session titles across every session.",
+    "noHitsForQuery": "No hits for “{{query}}”.",
+    "searchExamples": "examples…",
+    "auditEmpty": "Nothing recorded yet — the initial transcript load is still running."
   },
   "inspector": {
     "tabs": {

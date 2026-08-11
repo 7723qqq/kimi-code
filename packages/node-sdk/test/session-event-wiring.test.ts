@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { Event } from '@moonshot-ai/agent-core';
+import type { Event } from '#/events';
 import {
   IAgentLifecycleService,
   IAgentProfileService,

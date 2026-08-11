@@ -2,12 +2,8 @@ export { KimiHarness } from '#/kimi-harness';
 export type { KimiHarnessRuntimeOptions } from '#/kimi-harness';
 export { Session } from '#/session';
 export { KimiAuthFacade } from '#/auth';
-export { createKimiHarness, SDKRpcClient, type SDKRpcClientOptions } from '#/sdk-rpc-client';
-export {
-  createKimiHarnessV2,
-  SDKRpcClientV2,
-  type SDKRpcClientV2Options,
-} from '#/sdk-rpc-client-v2';
+export { createKimiHarness, createKimiHarnessV2, SDKRpcClientV2 } from '#/sdk-rpc-client-v2';
+export type { SDKRpcClientV2Options } from '#/sdk-rpc-client-v2';
 export {
   createKimiConfigRpc,
   KimiConfigRpcClient,
@@ -44,10 +40,12 @@ export type {
   FetchCatalogOptions,
 } from '#/catalog';
 
-// Locale — forwarded from agent-core so hosts never import @moonshot-ai/agent-core/i18n directly.
-export { setLocale, getLocale } from '@moonshot-ai/agent-core/i18n';
-export type { Locale } from '@moonshot-ai/agent-core/i18n';
+// Locale — forwarded from kimi-i18n so hosts never import the i18n package directly.
+export { setLocale, getLocale } from '@moonshot-ai/kimi-i18n';
+export type { Locale } from '@moonshot-ai/kimi-i18n';
 
+// Error primitives — localized legacy copies (see #/legacy) so the SDK keeps
+// its public `KimiError` / `ErrorCodes` contract without importing agent-core.
 export {
   ErrorCodes,
   KimiError,
@@ -60,36 +58,42 @@ export {
   isKimiError,
   resolveErrorTitle,
   toKimiErrorPayload,
-} from '@moonshot-ai/agent-core';
+} from '#/legacy';
 
-// Diagnostic logging — public surface only.
-// RootLogger / getRootLogger / LoggingConfig stay inside agent-core.
+// Diagnostic logging — public surface only. The implementation is a localized
+// port (see #/legacy/logging); `resolveGlobalLogPath` / `resolveLoggingConfig`
+// come from the v2 engine's log config (identical shape and values).
 export {
   flushDiagnosticLogs,
   flushDiagnosticLogsSync,
   log,
-  redact,
-  resolveGlobalLogPath,
-  resolveKimiHome,
-} from '@moonshot-ai/agent-core';
-export type { LogContext, LogLevel, LogPayload, Logger } from '@moonshot-ai/agent-core';
+  levelEnabled,
+  LOG_LEVEL_RANK,
+} from '#/legacy';
+export type { LogContext, LogLevel, LogPayload, Logger } from '#/legacy';
+export { resolveGlobalLogPath, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
+export { resolveKimiHome, resolveConfigPath } from '#/config-local';
 
-// Host-side config helpers — safe config reader + config path resolution, used
-// by hosts (e.g. the CLI's server telemetry bootstrap) that need to inspect
-// config without spinning up a full KimiCore.
-export { effectiveModelAlias, loadRuntimeConfigSafe, resolveConfigPath } from '@moonshot-ai/agent-core';
-export { limitAgentReplayByTurns } from '@moonshot-ai/agent-core';
-export { parseAgentFileText, resolveAgentPath } from '@moonshot-ai/agent-core';
+// Host-side config helpers — the localized v1 config-document layer (see
+// #/config-local), used by hosts (e.g. the CLI's server telemetry bootstrap)
+// that need to inspect config without spinning up a full engine.
+export {
+  loadRuntimeConfigSafe,
+  readConfigFile,
+  readConfigFileForUpdate,
+  writeConfigFile,
+  type RuntimeConfigLoadResult,
+} from '#/config-local';
+export { effectiveModelAlias, effectiveModelAliases } from '#/legacy';
+export { limitAgentReplayByTurns } from '#/legacy';
+export { parseAgentFileText, resolveAgentPath } from '@moonshot-ai/agent-core-v2';
 // The synthesized `[models]` alias a `[secondary_model]` recipe with patch
 // fields materializes at runtime — hosts filter it out of model pickers.
-export { SECONDARY_DERIVED_MODEL_ALIAS } from '@moonshot-ai/agent-core';
-
-// Rust engine override — hosts wire the Rust agent engine via this hook.
-export type { RunTurnOverride } from '@moonshot-ai/agent-core';
+export { SECONDARY_DERIVED_MODEL_ALIAS } from '#/config-local';
 
 // Process-wide HTTP proxy bootstrap — installed once at CLI startup so all
 // outbound fetch honors HTTP_PROXY / HTTPS_PROXY / NO_PROXY.
-export { installGlobalProxyDispatcher } from '@moonshot-ai/agent-core';
+export { installGlobalProxyDispatcher } from '@moonshot-ai/agent-core-v2/_base/utils/proxy';
 
 // Image compression — ingestion sites (e.g. the CLI's clipboard paste, the ACP
 // adapter) shrink oversized images while constructing the content part, before
@@ -102,6 +106,8 @@ export {
   buildUnsupportedImageNotice,
   compressImageForModel,
   compressBase64ForModel,
+  compressImageContentParts,
+  cropImageForModel,
   gateImageFormatParts,
   isModelAcceptedImageMime,
   normalizeImageMime,
@@ -110,15 +116,15 @@ export {
   sessionMediaOriginalsDir,
   IMAGE_BYTE_BUDGET,
   MAX_IMAGE_EDGE_PX,
-} from '@moonshot-ai/agent-core';
-export { ImageLimits } from '@moonshot-ai/agent-core';
+} from '@moonshot-ai/agent-core-v2';
+export { ImageLimits } from '@moonshot-ai/agent-core-v2';
 export type {
   CompressImageOptions,
   CompressImageResult,
   CompressBase64Result,
   ImageCompressionCaptionInput,
   ImageCompressionTelemetry,
-} from '@moonshot-ai/agent-core';
+} from '@moonshot-ai/agent-core-v2';
 
 // Experimental feature flags — types only. Resolved values come from
 // `KimiHarness.getExperimentalFeatures()` over RPC, not from a re-exported runtime value.
@@ -126,11 +132,7 @@ export type {
   ExperimentalFeatureState,
   ExperimentalFlagMap,
   ExperimentalFlagSource,
-  FlagDefinition,
-  FlagDefinitionInput,
-  FlagId,
-  FlagSurface,
-} from '@moonshot-ai/agent-core';
+} from '@moonshot-ai/agent-core-v2';
 
 export type {
   KimiAuthCompleteFeedbackUploadInput,

@@ -89,6 +89,18 @@ export class WriteTool implements IWriteTool {
   }
 
   private async execution(args: WriteInput, safePath: string): Promise<ExecutableToolResult> {
+    // Reject writes whose target is an existing directory. The underlying fs
+    // write would fail anyway, and native may silently succeed on some
+    // platforms, so the guard runs before the native fast-path.
+    try {
+      const targetStat = await this.fs.stat(safePath);
+      if (targetStat.isDirectory) {
+        return { isError: true, output: t('toolsV2.writeTargetIsDirectory', { path: args.path }) };
+      }
+    } catch {
+      // A stat failure (e.g. ENOENT for a new file) is inconclusive — proceed.
+    }
+
     // ── Native fast-path ─────────────────────────────────────────────────
     // nativeWrite creates parent dirs and writes atomically in Rust.
     const nativeResult = await tryNativeWrite(safePath, args.content, args.mode);

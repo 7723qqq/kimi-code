@@ -1,33 +1,22 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import {
-  ErrorCodes,
-  KimiError,
-  makeErrorPayload,
-  type AgentContextData,
-  type ApprovalRequest,
-  type ApprovalResponse,
-  type BeginGlobalMcpServerAuthResult,
-  type CoreAPI,
-  type ProtocolEvent,
-  type ExperimentalFeatureState,
-  type GetCronTasksResult,
-  type QuestionRequest,
-  type QuestionResult,
-  type RPCMethods,
-  type SDKAPI,
-  type ToolCallRequest,
-  type ToolCallResponse,
-  type SwarmModeTrigger,
-} from '@moonshot-ai/agent-core';
-import type { Kaos } from '@moonshot-ai/kaos';
+import { ErrorCodes, KimiError, makeErrorPayload } from '#/legacy';
 
-import type { ApprovalHandler, QuestionHandler } from '#/events';
+import type { ApprovalHandler, Event, QuestionHandler } from '#/events';
+import type {
+  ApprovalRequest,
+  ApprovalResponse,
+  QuestionRequest,
+  QuestionResult,
+  ToolCallRequest,
+  ToolCallResponse,
+} from '#/events';
 import type {
   AddAdditionalDirInput,
   AddAdditionalDirResult,
   AgentCommandInfo,
   BackgroundTaskInfo,
+  BeginGlobalMcpServerAuthResult,
   ConfigDiagnostics,
   CreateSessionOptions,
   ExportSessionInput,
@@ -35,6 +24,7 @@ import type {
   CreateGoalInput,
   ForkSessionInput,
   GetConfigOptions,
+  GetCronTasksResult,
   McpServerConfig,
   GoalSnapshot,
   GoalToolResult,
@@ -63,6 +53,8 @@ import type {
   Unsubscribe,
   WorkspaceTrustInfo,
 } from '#/types';
+import type { AgentContextData, ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
+import type { SwarmModeTrigger } from '@moonshot-ai/agent-core-v2';
 
 const MAIN_AGENT_ID = 'main';
 
@@ -139,11 +131,9 @@ export interface ReconnectMcpServerRpcInput extends SessionIdRpcInput {
   readonly name: string;
 }
 
-type ResolvedCoreAPI = RPCMethods<CoreAPI>;
-
 export abstract class SDKRpcClientBase {
   private readonly interactiveAgentScope = new AsyncLocalStorage<string>();
-  private readonly eventListeners = new Set<(event: ProtocolEvent) => void>();
+  private readonly eventListeners = new Set<(event: Event) => void>();
   private readonly approvalHandlers = new Map<string, ApprovalHandler>();
   private readonly questionHandlers = new Map<string, QuestionHandler>();
 
@@ -155,7 +145,22 @@ export abstract class SDKRpcClientBase {
     return this.interactiveAgentScope.run(agentId, fn);
   }
 
-  protected abstract getRpc(): Promise<ResolvedCoreAPI>;
+  /**
+   * The v1 RPC pair (and its `CoreAPI` / `RPCMethods` protocol types) is gone
+   * with the v1 client. Base-class methods not overridden by the v2 client
+   * reach this and fail loudly instead of dispatching to a v1 engine. The
+   * `any` return is the deliberate migration pressure valve: the base-class
+   * method bodies below are dead code on the only surviving client (the v2
+   * client overrides every real method), kept only so unimplemented methods
+   * fail with the same coded error instead of a missing-method TypeError.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  protected getRpc(): Promise<any> {
+    throw new KimiError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'This SDK method is not wired to agent-core-v2 yet.',
+    );
+  }
 
   async createSession(input: CreateSessionOptions): Promise<SessionSummary> {
     const rpc = await this.getRpc();
@@ -170,25 +175,9 @@ export abstract class SDKRpcClientBase {
     return summary;
   }
 
-  async createSessionWithKaos(
-    input: CreateSessionOptions,
-    kaos: Kaos,
-    persistenceKaos?: Kaos,
-  ): Promise<SessionSummary> {
-    throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Kaos overrides not supported');
-  }
-
   async resumeSession(input: ResumeSessionInput): Promise<ResumedSessionSummary> {
     const rpc = await this.getRpc();
     return rpc.resumeSession({ ...input, sessionId: input.id });
-  }
-
-  async resumeSessionWithKaos(
-    input: ResumeSessionInput,
-    kaos: Kaos,
-    persistenceKaos?: Kaos,
-  ): Promise<ResumedSessionSummary> {
-    throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Kaos overrides not supported');
   }
 
   async reloadSession(input: ReloadSessionRpcInput): Promise<ResumedSessionSummary> {
@@ -878,14 +867,14 @@ export abstract class SDKRpcClientBase {
     );
   }
 
-  onEvent(listener: (event: ProtocolEvent) => void): Unsubscribe {
+  onEvent(listener: (event: Event) => void): Unsubscribe {
     this.eventListeners.add(listener);
     return () => {
       this.eventListeners.delete(listener);
     };
   }
 
-  receiveEvent(event: ProtocolEvent): void {
+  receiveEvent(event: Event): void {
     for (const listener of this.eventListeners) {
       listener(event);
     }
@@ -963,31 +952,6 @@ export abstract class SDKRpcClientBase {
       output: `SDK custom tool calls are not supported: ${request.toolCallId}`,
       isError: true,
     };
-  }
-
-}
-
-export class ClientAPI implements SDKAPI {
-  constructor(readonly client: SDKRpcClientBase) {}
-
-  emitEvent(event: ProtocolEvent): void {
-    this.client.receiveEvent(event);
-  }
-
-  requestApproval(
-    request: ApprovalRequest & { sessionId: string; agentId: string },
-  ): Promise<ApprovalResponse> {
-    return this.client.requestApproval(request);
-  }
-
-  requestQuestion(
-    request: QuestionRequest & { sessionId: string; agentId: string },
-  ): Promise<QuestionResult> {
-    return this.client.requestQuestion(request);
-  }
-
-  toolCall(request: ToolCallRequest): Promise<ToolCallResponse> {
-    return this.client.toolCall(request);
   }
 }
 

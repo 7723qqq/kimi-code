@@ -271,10 +271,10 @@ export class StreamingUIController {
 
   /**
    * Mark a foreground subagent card as detached-to-background (`◐ backgrounded`).
-   * Routed from a `background.task.started` event whose `info.kind === 'agent'`,
+   * Routed from a `task.started` event whose `info.kind === 'agent'`,
    * keyed by `agentId`. Returns true iff a matching component was found.
    *
-   * Gated to cards that are currently foreground-running: `background.task.started`
+   * Gated to cards that are currently foreground-running: `task.started`
    * also fires for `Agent(run_in_background=true)` launches and for background
    * resumes, and those must not mutate older completed rows that happen to share
    * the same `agentId` (a resume's new card has no parsed `agent_id` yet, so the

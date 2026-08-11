@@ -90,6 +90,15 @@ export class SessionRuntime {
   private legacyApproval: LegacyApprovalFlags;
   private closed = false;
 
+  /**
+   * True once the current display stream has ended (an engine terminal event
+   * or a finished/cancelled host action) and until the next work period
+   * begins. Late subagent events — e.g. an init child still draining its
+   * provider stream after the host action that launched it was cancelled —
+   * belong to a stream the Webview already closed, so they are suppressed.
+   */
+  private turnStreamClosed = false;
+
   constructor(options: SessionRuntimeOptions) {
     this.session = options.session;
     this.broadcast = options.broadcast;
@@ -230,6 +239,7 @@ export class SessionRuntime {
     const actionId = ++this.hostActionSequence;
     this.hostActionActive = true;
     this.activeHostActionId = actionId;
+    this.turnStreamClosed = false;
     this.emitStreamEvent({
       type: "TurnBegin",
       payload: { user_input: input, forkable },
@@ -268,6 +278,7 @@ export class SessionRuntime {
     if (!this.hostActionActive || actionId !== this.activeHostActionId) return;
     this.hostActionActive = false;
     this.activeHostActionId = undefined;
+    this.turnStreamClosed = true;
     this.emitStreamEvent({
       type: "stream_complete",
       result: { status },
@@ -280,6 +291,7 @@ export class SessionRuntime {
     if (!this.hostActionActive || actionId !== this.activeHostActionId) return;
     this.hostActionActive = false;
     this.activeHostActionId = undefined;
+    this.turnStreamClosed = true;
     this.notifyActiveWorkSettled();
   }
 
@@ -447,8 +459,9 @@ export class SessionRuntime {
       }
     }
 
-    if (event.type === "turn.started" && event.agentId === "main" && this.activePrompt !== undefined) {
-      this.activePrompt.started = true;
+    if (event.type === "turn.started" && event.agentId === "main") {
+      this.turnStreamClosed = false;
+      if (this.activePrompt !== undefined) this.activePrompt.started = true;
     }
 
     if (event.type === "tool.call.started") {
@@ -479,6 +492,12 @@ export class SessionRuntime {
     }
 
     if (adapted.event !== undefined) {
+      if (adapted.event.type === "SubagentEvent" && this.turnStreamClosed) {
+        // The main turn / host action that spawned this subagent already
+        // reached its terminal event; its late events must not reopen the
+        // closed Webview display.
+        return;
+      }
       // Errors the core reports while the active turn keeps running (they are
       // not followed by a terminal turn.ended) must not look turn-ending to the
       // Webview — otherwise the UI unlocks mid-turn and the next send collides
@@ -515,6 +534,7 @@ export class SessionRuntime {
   private emitTerminal(terminal: TurnTerminalMetadata): void {
     if (this.terminalKeys.has(terminal.key)) return;
     this.terminalKeys.add(terminal.key);
+    this.turnStreamClosed = true;
 
     if (terminal.reason === "completed") {
       this.emitStreamEvent({

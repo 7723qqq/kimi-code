@@ -21,6 +21,15 @@ import { WriteTool } from '#/agent/tools/os/write/writeTool';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
+// Stub every native-tools binding so the tool exercises the TS fallback path:
+// under vitest the Rust addon can be loaded (via the i18n package) and would
+// otherwise take the native fast-path, bypassing the fake `IHostFileSystem`
+// assertions below. (vitest hoists this mock above the imports.)
+vi.mock('#/_base/native-tools', async () => {
+  const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
+  return Object.fromEntries(Object.keys(actual).map((key) => [key, () => {}]));
+});
+
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');
 
@@ -64,7 +73,14 @@ function createWriteFs(options: WriteFsOptions = {}) {
   const writeText = vi.fn(options.writeText ?? (async () => {}));
   const appendText = vi.fn(options.appendText ?? (async () => {}));
   const stat = vi.fn(
-    options.stat ?? (async () => ({ isFile: false, isDirectory: true, size: 0 })),
+    options.stat ??
+      (() =>
+        // A fresh target file does not exist yet: `stat` fails with ENOENT so
+        // the tool proceeds to create missing parents and write. Tests that
+        // exercise existing paths override `stat` explicitly.
+        Promise.reject(
+          Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' }),
+        )),
   );
   const mkdir = vi.fn(options.mkdir ?? (async () => {}));
   const fs = { cwd: '/', readText, writeText, appendText, stat, mkdir } as unknown as IHostFileSystem;
@@ -301,8 +317,14 @@ describe('WriteTool', () => {
   });
 
   it('writes when the parent directory exists', async () => {
+    // The target is an existing regular file (overwrite); the parent is a
+    // directory. The target-directory guard must not reject this case.
     const { tool, writeText } = makeTool({
-      stat: vi.fn().mockResolvedValue({ isFile: false, isDirectory: true, size: 0 }),
+      stat: vi.fn().mockImplementation((path: string) =>
+        path === '/tmp/exists/file.txt'
+          ? Promise.resolve({ isFile: true, isDirectory: false, size: 0 })
+          : Promise.resolve({ isFile: false, isDirectory: true, size: 0 }),
+      ),
     });
 
     const result = await execute(tool, { path: '/tmp/exists/file.txt', content: 'data' });

@@ -9,7 +9,7 @@
  * protocol, so a local copy stays in sync by definition.
  */
 
-import type { ContentPart, Message, TokenUsage } from '@moonshot-ai/kosong';
+import type { ContentPart, FinishReason, Message, TokenUsage } from '@moonshot-ai/kosong';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -103,15 +103,43 @@ export interface LoopStepBeginEvent {
   readonly step: number;
 }
 
+export type LoopStepStopReason =
+  | 'end_turn'
+  | 'max_tokens'
+  | 'tool_use'
+  | 'filtered'
+  | 'paused'
+  | 'unknown';
+
 export interface LoopStepEndEvent {
   readonly type: 'step.end';
   readonly uuid: string;
   readonly turnId: string;
   readonly step: number;
   readonly usage?: TokenUsage | undefined;
-  readonly finishReason?: string | undefined;
+  readonly finishReason?: LoopStepStopReason | undefined;
   readonly llmFirstTokenLatencyMs?: number | undefined;
   readonly llmStreamDurationMs?: number | undefined;
+  /**
+   * Split of `llmFirstTokenLatencyMs`: in-process request-building time on the
+   * client vs. network + API-server time to the first token. Both `undefined`
+   * when the provider does not report the client/server boundary.
+   */
+  readonly llmRequestBuildMs?: number | undefined;
+  readonly llmServerFirstTokenMs?: number | undefined;
+  /**
+   * Split of `llmStreamDurationMs` (the decode window): time awaiting parts
+   * from the provider vs. time processing parts in-process. Both `undefined`
+   * when the provider stream did not report decode accounting.
+   */
+  readonly llmServerDecodeMs?: number | undefined;
+  readonly llmClientConsumeMs?: number | undefined;
+  /**
+   * Provider diagnostics are optional and must not drive loop control.
+   * Use `finishReason` for normalized behavior.
+   */
+  readonly providerFinishReason?: FinishReason | undefined;
+  readonly rawFinishReason?: string | undefined;
   readonly messageId?: string | undefined;
   readonly traceId?: string;
 }
@@ -334,6 +362,14 @@ export type ContextMessage = Message & {
 // AgentRecord events map + derived record types
 // ════════════════════════════════════════════════════════════════════════════
 
+export interface McpToolCollision {
+  readonly qualified: string;
+  readonly toolName: string;
+  readonly collidesWith:
+    | { readonly kind: 'same_server'; readonly toolName: string }
+    | { readonly kind: 'other_server'; readonly serverName: string };
+}
+
 export interface AgentRecordEvents {
   metadata: {
     protocol_version: string;
@@ -350,6 +386,31 @@ export interface AgentRecordEvents {
   };
   'turn.cancel': { turnId?: number };
   'config.update': AgentConfigUpdateData;
+  /**
+   * v2-engine profile binding (wire protocol 1.5). v1 never writes this
+   * record; the type exists so replay can map a v2 session's profile binding
+   * onto the v1 equivalents (`config.update` + `tools.set_active_tools`).
+   * Field shapes follow the v2 payload: live v2 records carry
+   * `thinkingEffort`, legacy ones may carry `thinkingLevel` instead.
+   */
+  'profile.bind': {
+    modelAlias?: string;
+    profileName?: string;
+    thinkingEffort?: string;
+    thinkingLevel?: string;
+    systemPrompt?: string;
+    /** v2 tool allowlist; absent means "every tool active". */
+    activeToolNames?: readonly string[];
+    /** v2 profile denylist, applied on top of `activeToolNames`. */
+    disallowedTools?: readonly string[];
+    subagents?: readonly string[];
+  };
+  /**
+   * v2-engine transition back to the unrestricted default (every tool
+   * active). v1 has no corresponding state to rebuild; replay treats it as a
+   * no-op so the session-level profile fallback keeps its behavior.
+   */
+  'tools.reset_active_tools': {};
   'permission.set_mode': {
     mode: PermissionMode;
   };
@@ -373,6 +434,20 @@ export interface AgentRecordEvents {
   'micro_compaction.apply': { cutoff: number };
   'context.append_message': { message: ContextMessage };
   'context.append_loop_event': { event: LoopRecordedEvent };
+  /**
+   * A tool result already in history was replaced in-place (Rust engine
+   * prediction fast-path: the precise result overwrites the prediction).
+   * Replayed so a resumed session sees the precise content, not the
+   * prediction.
+   */
+  'context.replace_tool_result': {
+    toolCallId: string;
+    result: {
+      output: string | readonly ContentPart[];
+      isError?: boolean | undefined;
+      note?: string | undefined;
+    };
+  };
   'context.update_token_count': { tokenCount: number };
   'context.clear': {};
   'context.apply_compaction': CompactionResult;
@@ -405,15 +480,45 @@ export interface AgentRecordEvents {
     provider: string;
     model: string;
     modelAlias?: string;
+    /**
+     * Provider-effective thinking effort — for Kimi providers this is derived
+     * from the request body's thinking payload, so env overrides
+     * (`KIMI_MODEL_THINKING_EFFORT`) are already reflected.
+     */
     thinkingEffort?: string;
+    /**
+     * Kimi preserved-thinking passthrough (`thinking.keep`) in effect for
+     * this request — resolved from env, config, and the default, none of
+     * which are otherwise recorded.
+     */
+    thinkingKeep?: string;
+    /** Effective env-driven sampling overrides (Kimi provider only). */
+    temperature?: number;
+    topP?: number;
+    /**
+     * Effective completion-token cap the provider sends on the wire — read
+     * from the effective provider, so provider-side clamping (remaining
+     * context window, transport ceilings) and provider-level defaults (e.g.
+     * Anthropic's required `max_tokens`) are included.
+     */
     maxTokens?: number;
+    betaApi?: boolean;
+    /** Progressive tool disclosure in effect (env flag × model capability). */
     toolSelect: boolean;
     systemPromptHash: string;
+    /**
+     * Inlined only when the request's system prompt differs from the current
+     * `config.update` value (no such caller today; defensive for future ones).
+     */
+    systemPrompt?: string;
     toolsHash: string;
     messageCount: number;
     turnStep?: string;
     attempt?: string;
-    projection?: string;
+    /** Set when this request is a fallback resend (strict rebuild,
+     * media-degraded rebuild, or media-stripped rebuild). */
+    projection?: 'strict' | 'media-degraded' | 'media-stripped';
+    /** Compaction only: messages dropped so far by overflow/empty shrinking. */
     droppedCount?: number;
   };
   'mcp.tools_discovered': {
@@ -425,6 +530,7 @@ export interface AgentRecordEvents {
       parameters: Record<string, unknown>;
     }[];
     enabledNames: readonly string[];
+    collisions?: readonly McpToolCollision[];
   };
 }
 

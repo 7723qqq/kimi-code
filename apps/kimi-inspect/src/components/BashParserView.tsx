@@ -25,6 +25,7 @@ import {
 } from '@moonshot-ai/agent-core-v2/app/bashParser/bashParser';
 
 import { useConnection } from '../connection';
+import { t } from '../i18n';
 import { Badge, errorMessage } from '../ui';
 
 const DEFAULT_SOURCE = `if [ -f config.sh ]; then
@@ -165,7 +166,7 @@ export function BashParserView() {
             }}
           >
             <option value="" disabled>
-              examples…
+              {t('chat.searchExamples')}
             </option>
             {EXAMPLES.map((x) => (
               <option key={x.name} value={x.name}>

@@ -315,6 +315,11 @@ export * from '#/agent/goal/goalService';
 export * from '#/agent/goal/types';
 export * from '#/agent/tools/agent-swarm/agent-swarm';
 import '#/agent/tools/agent-swarm/agentSwarmTool';
+export * from '#/agent/tools/swarm-discussion/swarm-discussion';
+import '#/agent/tools/swarm-discussion/swarmDiscussionTool';
+export * from '#/agent/discussion/context';
+export * from '#/agent/discussion/coordinator';
+export * from '#/agent/discussion/debate-coordinator';
 export * from '#/agent/swarm/swarm';
 export * from '#/agent/swarm/swarmService';
 export * from '#/agent/usage/usage';
@@ -396,6 +401,8 @@ export * from '#/session/subagent/secondaryModelWarningService';
 export * from '#/agent/tools/agent/subagent-task';
 export { AGENT_RUN_PROMPT_ORIGIN } from '#/session/subagent/runAgentTurn';
 export * from '#/session/subagent/mirrorAgentRun';
+export * from '#/session/subagent/persistentSubagent';
+export * from '#/session/subagent/persistentSubagentService';
 import '#/session/subagent/configSection';
 export * from '#/agent/tools/agent/agent';
 import '#/agent/tools/agent/agentTool';
@@ -501,14 +508,16 @@ export * from '#/app/file/fileServiceImpl';
 export {
   buildImageCompressionCaption,
   compressBase64ForModel,
+  compressImageContentParts,
   compressImageForModel,
+  cropImageForModel,
+  formatByteSize,
   gateImageFormatParts,
   IMAGE_BYTE_BUDGET,
   MAX_IMAGE_EDGE_PX,
   READ_IMAGE_BYTE_BUDGET,
   resolveMaxImageEdgePx,
   resolveReadImageByteBudget,
-  type ImageCompressionTelemetry,
 } from '#/agent/media/image-compress';
 export {
   MODEL_ACCEPTED_IMAGE_MIMES,
@@ -521,10 +530,26 @@ export {
   resolveEffectiveImageMime,
   unsupportedImageMimeFromUrl,
 } from '#/agent/media/image-format-policy';
+export { ImageLimits } from '#/agent/media/image-limits';
+export type {
+  CompressAnnotateOptions,
+  CompressedContentParts,
+  CompressImageOptions,
+  CompressImageResult,
+  CompressBase64Result,
+  CropImageOptions,
+  CropImageOutcome,
+  ImageCompressionCaptionInput,
+  ImageCompressionTelemetry,
+  ImageCropRegion,
+  ImageVariantDescription,
+} from '#/agent/media/image-compress';
 export {
+  originalImageCacheDir,
   persistOriginalImage,
   sessionMediaOriginalsDir,
 } from '#/agent/media/image-originals';
+export type { PersistOriginalImageOptions } from '#/agent/media/image-originals';
 export * from '#/app/edit/fileEdit';
 export * from '#/app/edit/fileEditService';
 export * from '#/app/edit/editService';
@@ -535,6 +560,9 @@ export * from '#/app/externalHooksRunner/externalHooksRunner';
 export * from '#/app/externalHooksRunner/externalHooksRunnerService';
 export * from '#/agent/tools/fetch-url/fetch-url';
 import '#/agent/tools/fetch-url/fetchUrlTool';
+export * from '#/agent/tools/github/github';
+export * from '#/agent/tools/github/flag';
+import '#/agent/tools/github/github-tools';
 export * from '#/app/web/web';
 export * from '#/app/web/webService';
 export * from '#/app/web/providers/local-fetch-url';
@@ -573,6 +601,10 @@ export * from '#/agent/fullCompaction/fullCompaction';
 export * from '#/agent/fullCompaction/fullCompactionService';
 export * from '#/agent/fullCompaction/compactionOps';
 export * from '#/agent/fullCompaction/types';
+import '#/agent/microCompaction/flag';
+export * from '#/agent/microCompaction/microCompaction';
+export * from '#/agent/microCompaction/microCompactionOps';
+export * from '#/agent/microCompaction/microCompactionService';
 export * from '#/agent/llmRequester/llmRequester';
 export * from '#/agent/llmRequester/llmRequesterService';
 export * from '#/agent/llmRequester/llmRequestOps';

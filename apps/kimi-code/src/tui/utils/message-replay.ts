@@ -63,7 +63,7 @@ export function appStateFromResumeAgent(agent: ResumedAgentState): Partial<AppSt
   const contextTokens = agent.context.tokenCount;
   const contextUsage = maxContextTokens > 0 ? contextTokens / maxContextTokens : 0;
   return {
-    model: agent.config.modelAlias ?? agent.config.provider?.model ?? '',
+    model: agent.config.modelAlias ?? agent.config.provider?.defaultModel ?? '',
     contextTokens,
     maxContextTokens,
     contextUsage,
@@ -233,14 +233,14 @@ export interface TaskNotificationOrigin {
 }
 
 export type BackgroundTaskNotificationOrigin =
-  | Extract<PromptOrigin, { kind: 'background_task' }>
+  | Extract<PromptOrigin, { kind: 'task' }>
   | TaskNotificationOrigin;
 
 export function backgroundOrigin(
   message: ContextMessage,
 ): BackgroundTaskNotificationOrigin | undefined {
   const origin = message.origin as BackgroundTaskNotificationOrigin | undefined;
-  return origin?.kind === 'background_task' || origin?.kind === 'task' ? origin : undefined;
+  return origin?.kind === 'task' ? origin : undefined;
 }
 
 export function skillActivationFromOrigin(

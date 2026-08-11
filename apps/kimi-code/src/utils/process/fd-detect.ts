@@ -16,6 +16,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 import { KIMI_CODE_CDN_BASE } from '#/constant/app';
+import { t } from '#/i18n';
 import { getBinDir } from '#/utils/paths';
 
 const CANDIDATES = ['fd', 'fdfind'];
@@ -151,7 +152,7 @@ async function downloadFile(url: string, dest: string): Promise<void> {
     throw new Error(`Failed to download fd: ${response.status}`);
   }
   if (response.body === null) {
-    throw new Error('Failed to download fd: empty response body');
+    throw new Error(t('tui.statusMessages.fdDownloadEmptyResponse'));
   }
   await pipeline(Readable.fromWeb(response.body), createWriteStream(dest));
 }

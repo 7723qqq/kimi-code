@@ -32,7 +32,6 @@ describe('kimi acp', () => {
   let stderrSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    vi.stubEnv('KIMI_CODE_LEGACY_FLAG', '');
     vi.mocked(runAcpServer).mockClear();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number | string | null) => {
       throw new ExitCalled(code);
@@ -154,10 +153,10 @@ describe('kimi acp', () => {
       const actual = await importOriginal();
       return {
         ...actual,
-        createKimiHarness: () =>
+        createKimiHarnessV2: () =>
           ({
             auth: { login: loginStub },
-          }) as unknown as ReturnType<typeof actual.createKimiHarness>,
+          }) as unknown as ReturnType<typeof actual.createKimiHarnessV2>,
       };
     });
     vi.resetModules();

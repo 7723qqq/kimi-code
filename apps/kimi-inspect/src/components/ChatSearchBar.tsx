@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { useConnection } from '../connection';
 import { fetchSearchPage, type SearchHit } from '../search/api';
+import { t } from '../i18n';
 import { Badge, ErrorLine, relTime } from '../ui';
 
 const PAGE_SIZE = 20;
@@ -107,7 +108,7 @@ export function ChatSearchBar({
             <ErrorLine error={error} />
           ) : hits === null ? null : hits.length === 0 ? (
             <div className="px-1 py-1 text-[12px] text-neutral-600 italic">
-              No hits in this session.
+              {t('chat.noHitsInSession')}
             </div>
           ) : (
             <div className="flex flex-col gap-1">

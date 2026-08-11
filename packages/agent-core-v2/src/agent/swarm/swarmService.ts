@@ -18,6 +18,9 @@
  * reason. A second veto listener denies the `Agent` tool while swarm mode is
  * active — the enter-reminder is a soft constraint; this veto is the hard
  * enforcement that prevents a single-shot Agent call from slipping through.
+ * Solitary-tool exclusivity (an `AgentSwarm` or `SwarmDiscussion` call must be
+ * the only tool call in its batch, mirroring v1's
+ * `agent-swarm-exclusive-deny` policy) is enforced by the first veto listener.
  */
 
 import { t } from '@moonshot-ai/kimi-i18n';
@@ -57,18 +60,21 @@ export class AgentSwarmService extends Service implements IAgentSwarmService {
     );
     this._register(
       toolExecutor.onBeforeExecuteTool((event) => {
-        const agentSwarmCount = event.toolCalls.filter(
-          (toolCall) => toolCall.name === 'AgentSwarm',
+        const solitaryTools = new Set(['AgentSwarm', 'SwarmDiscussion']);
+        const solitaryCount = event.toolCalls.filter((toolCall) =>
+          solitaryTools.has(toolCall.name),
         ).length;
-        if (agentSwarmCount === 0 || (agentSwarmCount === 1 && event.toolCalls.length === 1)) {
+        if (solitaryCount === 0 || (solitaryCount === 1 && event.toolCalls.length === 1)) {
           return;
         }
         event.veto(
           denyToolExecution(
             this.toolApproval.formatDenyMessage(
-              agentSwarmCount > 1
-                ? multipleAgentSwarmDeniedMessage(event.toolCalls.length > agentSwarmCount)
-                : mixedAgentSwarmDeniedMessage(),
+              solitaryCount > 1
+                ? (event.toolCalls.length > solitaryCount
+                    ? t('toolsV2.swarm.solitaryMultipleDeniedMixed')
+                    : t('toolsV2.swarm.solitaryMultipleDenied'))
+                : t('toolsV2.swarm.solitaryMixedDenied'),
             ),
           ),
         );
@@ -139,16 +145,6 @@ registerScopedService(
   ScopeActivation.OnScopeCreated,
   'swarm',
 );
-
-function multipleAgentSwarmDeniedMessage(hasOtherToolCalls: boolean): string {
-  return hasOtherToolCalls
-    ? t('toolsV2.swarm.multipleDeniedMixed')
-    : t('toolsV2.swarm.multipleDenied');
-}
-
-function mixedAgentSwarmDeniedMessage(): string {
-  return t('toolsV2.swarm.mixedDenied');
-}
 
 function agentDeniedInSwarmModeMessage(): string {
   return t('toolsV2.swarm.agentDeniedInSwarmMode');

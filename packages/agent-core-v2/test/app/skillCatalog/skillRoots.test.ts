@@ -6,6 +6,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { configuredRoots, projectRoots, userRoots } from '#/app/skillCatalog/skillRoots';
 
+async function normalizedRealpath(p: string): Promise<string> {
+  return (await realpath(p)).replaceAll('\\', '/');
+}
+
 describe('skillRoots', () => {
   let root: string;
 
@@ -107,10 +111,10 @@ describe('skillRoots', () => {
       const paths = roots.map((root) => root.path);
 
       expect(roots.every((root) => root.source === 'extra')).toBe(true);
-      expect(paths).toContain(await realpath(homeDir));
-      expect(paths).toContain(await realpath(join(homeDir, 'notes')));
-      expect(paths).toContain(await realpath(absDir));
-      expect(paths).toContain(await realpath(join(root, 'relative')));
+      expect(paths).toContain(await normalizedRealpath(homeDir));
+      expect(paths).toContain(await normalizedRealpath(join(homeDir, 'notes')));
+      expect(paths).toContain(await normalizedRealpath(absDir));
+      expect(paths).toContain(await normalizedRealpath(join(root, 'relative')));
     });
   });
 });

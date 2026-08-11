@@ -143,7 +143,7 @@ export class MemoryStore extends Disposable implements IMemoryStore {
   }
 
   async reconcile(): Promise<void> {
-    const { readdir, stat } = await import('node:fs/promises');
+    const { stat } = await import('node:fs/promises');
     const { join: joinPath } = await import('pathe');
 
     const db = await this.openDb();

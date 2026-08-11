@@ -829,18 +829,28 @@ describe('WsConnectionV1 global target registration', () => {
     expect(removed).toEqual([conn]);
   });
 
-  it('opts only kimi-inspect connections into the event.di.* debug feed on client_hello', async () => {
+  it('never opts a non-kimi-inspect client into the event.di.* debug feed', async () => {
     const socket = new FakeSocket();
     const { broadcaster, diOptIns } = makeGlobalTargetBroadcaster();
     const conn = makeConn(socket, { broadcaster });
 
-    // Another client id (or none) never joins the DI fan-out.
+    // The hello is processed asynchronously — wait for its ack so the
+    // assertion below proves the handshake ran, not that it was skipped.
     socket.emit(
       'message',
       JSON.stringify({ type: 'client_hello', id: 'h1', payload: { client_id: 'kimi-web' } }),
     );
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await vi.waitFor(() =>
+      expect(socket.frames().some((f) => (f as { type: string }).type === 'ack')).toBe(true),
+    );
     expect(diOptIns).toEqual([]);
+    conn.close();
+  });
+
+  it('opts only kimi-inspect connections into the event.di.* debug feed on client_hello', async () => {
+    const socket = new FakeSocket();
+    const { broadcaster, diOptIns } = makeGlobalTargetBroadcaster();
+    const conn = makeConn(socket, { broadcaster });
 
     socket.emit(
       'message',

@@ -88,7 +88,7 @@ export class WorkflowTool implements IWorkflowTool {
           case 'cancel':
             return this.handleCancel(args);
           default:
-            return { output: `Unknown workflow operation: ${args.operation}`, isError: true };
+            return { output: `Unknown workflow operation: ${String(args.operation)}`, isError: true };
         }
       },
     };

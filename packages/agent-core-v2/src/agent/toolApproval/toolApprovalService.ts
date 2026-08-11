@@ -131,7 +131,27 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
     let response: ApprovalResponse;
     const approvalService = this.tryApprovalService();
     if (approvalService === undefined) {
-      response = { decision: 'approved' };
+      // No approval broker registered (headless host without an approval
+      // surface, broken DI wiring, ...). Fail closed: silently auto-approving
+      // here would bypass the permission gate for every `ask` in manual mode.
+      // Telemetry distinguishes this from a real user decision.
+      response = {
+        decision: 'rejected',
+        feedback: 'No approval surface is available; the request was denied.',
+      };
+      this.telemetry.track2('permission_approval_result', {
+        turn_id: context.turnId,
+        tool_call_id: context.toolCall.id,
+        policy_name: origin,
+        tool_name: name,
+        permission_mode: this.modeService.mode,
+        result: 'no_approval_surface',
+        approval_surface: display.kind,
+        duration_ms: Date.now() - startedAt,
+        session_cache_written: false,
+        has_feedback: false,
+        trace_id: context.trace?.traceId,
+      });
     } else {
       this.eventBus.publish({ type: 'permission.approval.requested', ...approvalContext });
       try {
@@ -173,13 +193,13 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
       response.decision === 'approved' && response.scope === 'session'
         ? context.execution.approvalRule
         : undefined;
-    if (approvalService !== undefined) {
-      this.eventBus.publish({
-        type: 'permission.approval.resolved',
-        ...approvalContext,
-        ...response,
-      });
-    }
+    // Always publish the resolution — including the no-broker denial above,
+    // so listeners see every decision instead of a silent gap.
+    this.eventBus.publish({
+      type: 'permission.approval.resolved',
+      ...approvalContext,
+      ...response,
+    });
     this.rulesService.recordApprovalResult({
       turnId: context.turnId,
       toolCallId: context.toolCall.id,

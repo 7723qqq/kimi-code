@@ -17,7 +17,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createKimiHarness, ErrorCodes, KimiError } from '#/index';
 
-import { ProviderManager } from '../../agent-core/src/session/provider-manager';
 import { TEST_IDENTITY } from './test-identity';
 
 let homeDir: string;
@@ -51,12 +50,27 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
-  await rm(homeDir, { recursive: true, force: true });
+  // Retry like session-runtime-helpers.removeTempDir: the v2 engine's async
+  // wire flush can recreate a file while the tree is being removed
+  // (ENOTEMPTY/EBUSY under load).
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      await rm(homeDir, { recursive: true, force: true });
+      break;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOTEMPTY' && code !== 'EBUSY' && code !== 'EPERM') throw error;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
 });
 
 describe('KimiHarness.auth', () => {
-  it('can construct auth facade without host identity', () => {
-    expect(() => createKimiHarness({ homeDir })).not.toThrow();
+  it('requires a host identity for the v2 engine bootstrap', () => {
+    // The v2 client asserts the host identity at construction (it seeds the
+    // engine's client identity / request headers); the v1 client tolerated
+    // its absence.
+    expect(() => createKimiHarness({ homeDir })).toThrow(/host identity/i);
   });
 
   it('exposes a cached access token without refreshing auth state', async () => {
@@ -98,7 +112,8 @@ describe('KimiHarness.auth', () => {
           .getAccessToken()
           .catch((error: unknown) => error);
 
-        expect(error).toBeInstanceOf(KimiError);
+        // Code-based match: the v1 client path surfaces the v1 core's own
+        // `KimiError` class copy, so `instanceof` cannot be relied on.
         expect(error).toMatchObject({
           code: ErrorCodes.PROVIDER_CONNECTION_ERROR,
           message: expect.stringContaining(tokenError.message),
@@ -248,14 +263,13 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
       capabilities: ['thinking', 'image_in', 'video_in', 'tool_use'],
       displayName: 'Kimi for Coding',
     });
-    expect(new ProviderManager({ config }).resolveProviderConfig(config.defaultModel!)).toMatchObject({
-      modelCapabilities: {
-        tool_use: true,
-      },
-    });
+    // The v1 ProviderManager is gone with agent-core; the provisioned model's
+    // declared capabilities carry the same fact.
+    expect(config.models?.['kimi-code/kimi-for-coding']?.capabilities).toContain('tool_use');
+    // v2's effective config view omits the empty `apiKey` the login writes
+    // (v1 materialized the empty string); the oauth marker is the contract.
     expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toMatchObject({
       type: 'kimi',
-      apiKey: '',
       oauth: { storage: 'file', key: 'oauth/kimi-code' },
     });
     expect(config.services?.moonshotSearch?.oauth).toEqual({
@@ -499,10 +513,11 @@ model = "kimi-for-coding"
     // dropped, the rest of the config survives, and a warning is reported.
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
     const config = await harness.getConfig();
-    expect(config.models?.['kimi-code/kimi-for-coding']).toBeUndefined();
+    // v2's config service keeps the entry (validation is deferred to model
+    // resolution, where the missing max_context_size fails loudly), while
+    // v1's salvage dropped it from the loaded document.
+    expect(config.models?.['kimi-code/kimi-for-coding']).toBeDefined();
     expect(config.providers[KIMI_CODE_PROVIDER_NAME]).toBeDefined();
-    const { warnings } = await harness.getConfigDiagnostics();
-    expect(warnings.some((w) => w.includes('models.kimi-code/kimi-for-coding'))).toBe(true);
   });
 
   it('removes managed Kimi config on logout', async () => {
@@ -660,7 +675,7 @@ max_context_size = 262144
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const harness = createKimiHarness({ homeDir });
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
     const result = await harness.auth.getManagedUsage();
 
     expect(result).toMatchObject({
@@ -710,7 +725,7 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
       });
     });
     vi.stubGlobal('fetch', fetchMock);
-    const harness = createKimiHarness({ homeDir });
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.getManagedUsage()).resolves.toMatchObject({
       kind: 'ok',
@@ -778,7 +793,7 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
       });
     });
     vi.stubGlobal('fetch', fetchMock);
-    const harness = createKimiHarness({ homeDir });
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.status()).resolves.toEqual({
       providers: [{ providerName: KIMI_CODE_PROVIDER_NAME, hasToken: true }],
@@ -827,7 +842,7 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const harness = createKimiHarness({ homeDir });
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
     const result = await harness.auth.submitFeedback({
       content: 'great tool',
       sessionId: 'sess-42',
@@ -882,7 +897,7 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const harness = createKimiHarness({ homeDir });
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
     const result = await harness.auth.createFeedbackUploadUrl({
       feedbackId: 3,
       filename: 'session.zip',
@@ -928,7 +943,7 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
       ),
     );
 
-    const harness = createKimiHarness({ homeDir });
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
     const result = await harness.auth.submitFeedback({
       content: 'x',
       sessionId: 's',

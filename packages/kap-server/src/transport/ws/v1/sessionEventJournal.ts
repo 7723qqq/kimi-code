@@ -24,7 +24,7 @@
  */
 
 import { createReadStream } from 'node:fs';
-import { appendFile, mkdir } from 'node:fs/promises';
+import { appendFile, chmod, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { ulid } from 'ulid';
 
@@ -87,6 +87,9 @@ export class SessionEventJournal {
   ) {
     this._seq = lastSeq;
     this.headerPending = isFresh;
+    // Tighten permissions on pre-existing journals (created before the
+    // 0600 standard). Best-effort; failures are non-fatal.
+    void chmod(this.filePath, 0o600).catch(() => {});
   }
 
   /** Highest durable seq appended (0 if none). */
@@ -212,8 +215,12 @@ export class SessionEventJournal {
     this.pendingLines = [];
     if (lines.length === 0) return;
     try {
-      await mkdir(dirname(this.filePath), { recursive: true });
-      await appendFile(this.filePath, lines.join('\n') + '\n', 'utf8');
+      // The journal records full session content (messages, tool args, shell
+      // output) that may include tokens/secrets; the directory and file must
+      // not be world-readable the way default umask modes are. Explicit
+      // 0700/0600 match the credential-file standard in this codebase.
+      await mkdir(dirname(this.filePath), { recursive: true, mode: 0o700 });
+      await appendFile(this.filePath, lines.join('\n') + '\n', { encoding: 'utf8', mode: 0o600 });
     } catch (error) {
       this.logger.warn(
         { filePath: this.filePath, err: error },

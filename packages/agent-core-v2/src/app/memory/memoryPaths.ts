@@ -12,7 +12,6 @@
 
 import { join } from 'pathe';
 import { createHash } from 'node:crypto';
-import { homedir } from 'node:os';
 
 export type MemoryScope = 'global' | 'project' | 'session';
 export type MemoryType = 'note' | 'decision' | 'pattern' | 'lesson' | 'reference';

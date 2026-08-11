@@ -14,7 +14,6 @@ import {
 let dir: string;
 
 beforeEach(async () => {
-  vi.stubEnv('KIMI_CODE_LEGACY_FLAG', '');
   dir = join(tmpdir(), `kimi-doctor-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   await mkdir(dir, { recursive: true });
 });
@@ -101,27 +100,6 @@ describe('kimi doctor', () => {
     expect(out).toContain('SKIP config.toml');
     expect(out).toContain('SKIP tui.toml');
     expect(out).toContain('built-in defaults will apply');
-  });
-
-  it('uses the legacy validator when legacy wins over the experimental flag', async () => {
-    const configPath = join(dir, 'config.toml');
-    const text = '[providers.kimi]\ntype = "kimi"\n';
-    await writeFile(configPath, text, 'utf-8');
-    vi.stubEnv('KIMI_CODE_LEGACY_FLAG', '1');
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '1');
-    const validateConfigToml = vi.fn(async () => undefined);
-    const { deps } = makeDeps();
-
-    const code = await handleDoctor(
-      {
-        ...deps,
-        configRpc: { validateConfigToml } as unknown as NonNullable<DoctorDeps['configRpc']>,
-      },
-      { target: 'config' },
-    );
-
-    expect(code).toBe(0);
-    expect(validateConfigToml).toHaveBeenCalledWith({ text, filePath: configPath });
   });
 
   it('checks only config.toml when the config target is selected', async () => {

@@ -145,6 +145,8 @@
       "footer": {
         "context": "context: {{pct}}%",
         "contextWithTokens": "context: {{pct}}% ({{tokens}}/{{maxTokens}})",
+        "cacheHit": "cache {{pct}}%",
+        "tokenSpeed": "{{speed}} tok/s",
         "goalBadge": "[goal {{dot}} {{status}} · {{elapsed}} · {{turns}}]",
         "statusActive": "active",
         "statusPaused": "paused",
@@ -703,7 +705,7 @@
         "actionsSection": "Actions",
         "tabInstalled": "Installed",
         "tabOfficial": "Official",
-        "tabThirdParty": "Third-party",
+        "tabThirdParty": "Curated",
         "tabCustom": "Custom",
         "enterUpdate": "Enter update",
         "enterDetails": "Enter details",
@@ -732,7 +734,7 @@
         "marketplaceSource": "Source: {{source}}",
         "openInBrowser": "open in browser",
         "installFromUrlHint": " Install from a GitHub URL (or zip URL / local path):",
-        "installingFromMarketplace": "Installing {{label}} from marketplace…",
+        "installingFromMarketplace": "Installing {{label}}…",
         "pluginId": "id {{id}}",
         "skillCount_one": "{{count}} skill",
         "skillCount_other": "{{count}} skills",
@@ -1275,7 +1277,13 @@
       "invalidTuiConfig": "Invalid TUI config in ~/.kimi-code/tui.toml; using defaults.",
       "mediaUploaded": "uploaded",
       "more": "more",
-      "mainError": "error: {{message}}"
+      "mainError": "error: {{message}}",
+      "emptyFeedbackArchive": "Cannot package an empty feedback archive.",
+      "minidbWorkerRuntimeNotConfigured": "MiniDb worker runtime was not configured",
+      "minidbWorkerSearchResultIncorrect": "MiniDb worker-built text index returned an incorrect search result",
+      "nativeManifestNotAvailable": "Native asset manifest is not available.",
+      "noClipboardCommandAvailable": "No clipboard command is available.",
+      "fdDownloadEmptyResponse": "Failed to download fd: empty response body"
     },
     "messages": {
       "agentGroup": {
@@ -1500,6 +1508,7 @@
         "status": {
           "connected": "connected",
           "pending": "pending",
+          "pendingApproval": "pending approval",
           "needsAuth": "needs auth",
           "failed": "failed",
           "disabled": "disabled"

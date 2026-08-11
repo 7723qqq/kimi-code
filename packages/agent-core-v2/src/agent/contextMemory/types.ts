@@ -1,6 +1,17 @@
 import type { ContentPart, Message } from '#/kosong/contract/message';
 
 import type { AgentTaskStatus } from '#/agent/task/task';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
+
+/**
+ * `contextMemory` domain — the per-agent conversation message contract.
+ *
+ * `ContextMessage` extends the wire `Message` with record bookkeeping
+ * (id / providerMessageId / origin / isError / note) and the UI-only
+ * `toolCallDisplays` side channel: input displays keyed by tool call id,
+ * restored from the persisted loop events for resume/replay. The provider
+ * projection (`contextProjector`) never carries this field.
+ */
 
 export type SkillSource = 'project' | 'user' | 'extra' | 'builtin';
 
@@ -111,6 +122,7 @@ export type ContextMessage = Message & {
   readonly origin?: PromptOrigin | undefined;
   readonly isError?: boolean;
   readonly note?: string;
+  readonly toolCallDisplays?: Record<string, ToolInputDisplay> | undefined;
 };
 
 export interface UserMessageRecord {

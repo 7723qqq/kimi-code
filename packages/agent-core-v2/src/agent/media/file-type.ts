@@ -247,6 +247,15 @@ export function sniffImageDimensions(data: Buffer | Uint8Array): ImageDimensions
 
   const native = tryNativeSniffImageDimensions(new Uint8Array(buf));
   if (native) {
+    // The Rust sniffer reports raw pixel dimensions and no EXIF orientation;
+    // re-apply the transpose so callers get display-space dimensions (the
+    // same contract the TS fallback below guarantees).
+    if (native.transposed === undefined && startsWith(buf, [0xff, 0xd8])) {
+      const orientation = readJpegExifOrientation(buf);
+      if (orientation !== null && orientation >= 5) {
+        return { width: native.height, height: native.width, transposed: true };
+      }
+    }
     return { width: native.width, height: native.height, transposed: native.transposed };
   }
 
@@ -288,7 +297,7 @@ export function sniffImageDimensions(data: Buffer | Uint8Array): ImageDimensions
   }
 
   if (startsWith(buf, [0xff, 0xd8])) {
-    let orientation: number | null = null;
+    const orientation = readJpegExifOrientation(buf);
     let offset = 2;
     while (offset + 9 < buf.length) {
       if (buf[offset] !== 0xff) {
@@ -315,14 +324,48 @@ export function sniffImageDimensions(data: Buffer | Uint8Array): ImageDimensions
       }
       const segmentLength = buf.readUInt16BE(offset + 2);
       if (segmentLength < 2) break;
-      if (marker === 0xe1 && orientation === null) {
-        orientation = readExifOrientation(buf, offset + 4, offset + 2 + segmentLength);
-      }
       offset += 2 + segmentLength;
     }
   }
 
   return null;
+}
+
+/**
+ * Scan a JPEG's markers and return the EXIF orientation (1-8) when an APP1
+ * Exif segment is present, or null. Orientation is only meaningful up to the
+ * first SOFn segment (the frame header that carries the pixel dimensions).
+ */
+function readJpegExifOrientation(buf: Buffer): number | null {
+  let orientation: number | null = null;
+  let offset = 2;
+  while (offset + 9 < buf.length) {
+    if (buf[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+    const marker = buf[offset + 1]!;
+    if (
+      marker >= 0xc0 &&
+      marker <= 0xcf &&
+      marker !== 0xc4 &&
+      marker !== 0xc8 &&
+      marker !== 0xcc
+    ) {
+      return orientation;
+    }
+    if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) {
+      offset += 2;
+      continue;
+    }
+    const segmentLength = buf.readUInt16BE(offset + 2);
+    if (segmentLength < 2) break;
+    if (marker === 0xe1 && orientation === null) {
+      orientation = readExifOrientation(buf, offset + 4, offset + 2 + segmentLength);
+    }
+    offset += 2 + segmentLength;
+  }
+  return orientation;
 }
 
 function readExifOrientation(buf: Buffer, start: number, end: number): number | null {

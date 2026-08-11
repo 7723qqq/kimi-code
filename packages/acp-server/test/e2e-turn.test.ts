@@ -39,7 +39,7 @@ describe('acp-server real prompt turn (scripted LLM)', () => {
       client = undefined;
     }
     if (homeDir !== undefined) {
-      await rm(homeDir, { recursive: true, force: true });
+      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
       homeDir = undefined;
     }
   });
@@ -361,14 +361,16 @@ describe('acp-server real prompt turn (scripted LLM)', () => {
     const upgrade = updates.find(
       (u) => u?.sessionUpdate === 'tool_call_update' && u?.locations !== undefined,
     );
-    expect(upgrade?.locations?.[0]?.path).toBe(filePath);
+    // The engine reports the location path posix-normalized on every platform,
+    // while `filePath` here comes from node:path join (backslashes on Windows).
+    expect(upgrade?.locations?.[0]?.path).toBe(filePath.replaceAll('\\', '/'));
 
     // …and the terminal tool_call_update re-attaches the same locations
     // (`tool.result` itself carries no args/display).
     const terminal = updates.find(
       (u) => u?.sessionUpdate === 'tool_call_update' && u?.status === 'completed',
     );
-    expect(terminal?.locations?.[0]?.path).toBe(filePath);
+    expect(terminal?.locations?.[0]?.path).toBe(filePath.replaceAll('\\', '/'));
   }, 30_000);
 
   it('settles as cancelled without launching a turn when cancel arrives during image compression', async () => {
@@ -562,7 +564,7 @@ describe('acp-server prompt error hygiene', () => {
       client = undefined;
     }
     if (homeDir !== undefined) {
-      await rm(homeDir, { recursive: true, force: true });
+      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
       homeDir = undefined;
     }
   });
@@ -609,7 +611,7 @@ describe('acp-server builtin slash commands (local execution, no LLM turn)', () 
       client = undefined;
     }
     if (homeDir !== undefined) {
-      await rm(homeDir, { recursive: true, force: true });
+      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
       homeDir = undefined;
     }
   });
@@ -826,7 +828,7 @@ describe('acp-server terminal reverse-RPC (clientCapabilities.terminal)', () => 
       client = undefined;
     }
     if (homeDir !== undefined) {
-      await rm(homeDir, { recursive: true, force: true });
+      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
       homeDir = undefined;
     }
   });

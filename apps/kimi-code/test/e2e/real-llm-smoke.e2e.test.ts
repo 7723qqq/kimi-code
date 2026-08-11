@@ -14,7 +14,7 @@
 import { mkdirSync } from 'node:fs';
 import process from 'node:process';
 
-import { createKimiHarness, type Event } from '@moonshot-ai/kimi-code-sdk';
+import { createKimiHarnessV2, type Event } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, test } from 'vitest';
 
 import { createKimiCodeHostIdentity, getVersion } from '#/cli/version';
@@ -41,7 +41,7 @@ describe.skipIf(!ENABLED)('SDK e2e — real LLM smoke', () => {
           `[smoke] prompt=${JSON.stringify(prompt)}\n`,
       );
 
-      const harness = createKimiHarness({
+      const harness = createKimiHarnessV2({
         identity: createKimiCodeHostIdentity(version),
       });
 

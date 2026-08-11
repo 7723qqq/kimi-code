@@ -50,6 +50,7 @@ export async function runMatchedHooks(
   event: string,
   args: ExternalHooksRunnerTriggerArgs,
   callbacks: HookRunCallbacks = {},
+  failClosed = false,
 ): Promise<HookResult[]> {
   const matcherValue = matcherValueText(args.matcherValue);
   const cwd = args.cwd ?? '';
@@ -83,6 +84,7 @@ export async function runMatchedHooks(
         cwd: hook.cwd ?? (cwd === '' ? undefined : cwd),
         env: hook.env,
         signal: args.signal,
+        failClosed,
       }),
     ),
   );

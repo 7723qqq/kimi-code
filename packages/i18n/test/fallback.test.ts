@@ -112,7 +112,7 @@ describe('i18n fallback (KIMI_I18N_FORCE_JS=1)', () => {
 
   describe('no single-brace placeholders', () => {
     it('all toolsV2 value strings use {{param}} not {param}', () => {
-      const raw = (en as unknown as Record<string, unknown>).toolsV2 as Record<string, unknown>;
+      const raw = (en as unknown as Record<string, unknown>)['toolsV2'] as Record<string, unknown>;
       const visited = new Set<string>();
 
       function walk(obj: unknown, path: string): void {
@@ -135,6 +135,9 @@ describe('i18n fallback (KIMI_I18N_FORCE_JS=1)', () => {
       }
 
       walk(en, '');
+
+      // Guard against the walk itself silently matching nothing.
+      expect(visited.size).toBeGreaterThan(0);
     });
   });
 

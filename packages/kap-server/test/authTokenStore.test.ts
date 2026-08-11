@@ -132,6 +132,10 @@ describe('tokenStore', () => {
     const rotated = 'r'.repeat(original.length);
     await writePrivateFile(store.tokenPath, rotated);
 
+    // The store probes the token file for freshness at most once per ~1s
+    // (STAT_TTL_MS) — wait past that window so the rewrite is observed.
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+
     expect(store.getToken()).toBe(rotated);
     expect(store.isValid(rotated)).toBe(true);
     expect(store.isValid(original)).toBe(false);

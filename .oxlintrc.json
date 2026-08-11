@@ -118,6 +118,18 @@
       }
     },
     {
+      "files": [
+        "packages/agent-core-v2/src/app/workflow/**/*.ts"
+      ],
+      "rules": {
+        // `?raw` imports of the builtin .js workflow scripts: oxlint resolves
+        // the specifier as a module and reports `default`/`extensions` errors
+        // that do not apply to raw string imports.
+        "import/default": "off",
+        "import/extensions": "off"
+      }
+    },
+    {
       "files": ["packages/kosong/src/providers/**/*.ts"],
 
       "rules": {
@@ -159,6 +171,9 @@
         "eslint/no-unused-vars": "off",
         "eslint/no-unsafe-optional-chaining": "off",
         "jest/valid-expect": "off",
+        // Tests legitimately throw non-Error values to verify defensive
+        // catch-all handlers (e.g. safelyCallListener).
+        "typescript/only-throw-error": "off",
         "unicorn/no-useless-spread": "off",
         "import/no-cycle": "off",
         "typescript/no-meaningless-void-operator": "off",

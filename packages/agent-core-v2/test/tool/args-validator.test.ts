@@ -77,7 +77,7 @@ describe('args-validator (Ajv, format support)', () => {
   it('validates minLength and maxLength on strings', () => {
     expect(validate({ type: 'string', minLength: 2 }, 'ab')).toBeNull();
     expect(validate({ type: 'string', minLength: 2 }, 'a')).toContain('fewer than');
-    expect(validate({ type: 'string', maxLength: 3 }, 'abcd')).toContain('longer than');
+    expect(validate({ type: 'string', maxLength: 3 }, 'abcd')).toContain('more than');
   });
 
   it('validates minimum and maximum on numbers', () => {

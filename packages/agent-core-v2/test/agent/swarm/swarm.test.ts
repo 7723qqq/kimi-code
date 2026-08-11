@@ -267,7 +267,23 @@ describe('AgentSwarmService', () => {
 
     expect(decision).toEqual({
       veto: {
-        output: t('toolsV2.swarm.multipleDenied'),
+        output: t('toolsV2.swarm.solitaryMultipleDenied'),
+        isError: true,
+      },
+    });
+    expect(permissionGateRan).toBe(false);
+    expect(formatDenyMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks a batch mixing AgentSwarm and SwarmDiscussion', async () => {
+    ix.get(IAgentSwarmService);
+    const decision = await fire(
+      hookContext([toolCall('AgentSwarm', 'call_swarm'), toolCall('SwarmDiscussion', 'call_discuss')]),
+    );
+
+    expect(decision).toEqual({
+      veto: {
+        output: t('toolsV2.swarm.solitaryMultipleDenied'),
         isError: true,
       },
     });
@@ -283,12 +299,37 @@ describe('AgentSwarmService', () => {
 
     expect(decision).toEqual({
       veto: {
-        output: t('toolsV2.swarm.mixedDenied'),
+        output: t('toolsV2.swarm.solitaryMixedDenied'),
         isError: true,
       },
     });
     expect(permissionGateRan).toBe(false);
     expect(formatDenyMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks a SwarmDiscussion call mixed with other tools in one batch', async () => {
+    ix.get(IAgentSwarmService);
+    const decision = await fire(
+      hookContext([toolCall('SwarmDiscussion', 'call_discuss'), toolCall('Read', 'call_read')]),
+    );
+
+    expect(decision).toEqual({
+      veto: {
+        output: t('toolsV2.swarm.solitaryMixedDenied'),
+        isError: true,
+      },
+    });
+    expect(permissionGateRan).toBe(false);
+    expect(formatDenyMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('abstains on a single SwarmDiscussion call', async () => {
+    ix.get(IAgentSwarmService);
+    const decision = await fire(hookContext([toolCall('SwarmDiscussion', 'call_discuss')]));
+
+    expect(decision).toBeUndefined();
+    expect(permissionGateRan).toBe(true);
+    expect(formatDenyMessage).not.toHaveBeenCalled();
   });
 
   it('abstains on a single AgentSwarm call', async () => {

@@ -28,6 +28,7 @@ import { join } from 'node:path';
 
 import type { Command } from 'commander';
 
+import { t } from '#/i18n';
 import { getDataDir } from '#/utils/paths';
 
 import { authHeaders, serverOrigin, tryResolveServerToken } from './shared';
@@ -48,9 +49,9 @@ const POLL_INTERVAL_MS = 100;
  */
 export const LEGACY_SERVER_MAX_VERSION = '0.28.0';
 
-/** Deprecation notice printed on every `kimi server kill` run. */
+/** Deprecation notice printed on every legacy kill run. */
 export const DEPRECATED_KILL_NOTICE =
-  '`kimi server kill` is deprecated: it only stops servers started by a version before 0.28.0. Servers started by `kimi web` run in the foreground — stop them with Ctrl+C.\n';
+  `\`${t('tui.statusMessages.serverStopCmd')}\` is deprecated: it only stops servers started by a version before 0.28.0. Servers started by \`kimi web\` run in the foreground — stop them with Ctrl+C.\n`;
 
 /**
  * The fields of the legacy `<home>/server/lock` this command needs. The full

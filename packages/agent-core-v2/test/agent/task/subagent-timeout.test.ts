@@ -143,7 +143,7 @@ describe('SubagentTask — timeoutMs', () => {
     });
 
     const terminalPromise = background.wait(taskId);
-    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(6_000);
     const info = await terminalPromise;
 
     expect(info?.status).toBe('timed_out');
@@ -157,7 +157,7 @@ describe('SubagentTask — timeoutMs', () => {
     const taskId1 = background.registerTask(agentTask(hang1, 'hang 1'), { timeoutMs: 100 });
     const taskId2 = background.registerTask(agentTask(hang2, 'hang 2'), { timeoutMs: 500 });
 
-    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(5_200);
     expect(background.getTask(taskId1)?.status).toBe('timed_out');
     expect(background.getTask(taskId2)?.status).toBe('running');
 

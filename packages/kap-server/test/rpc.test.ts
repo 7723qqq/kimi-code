@@ -617,12 +617,35 @@ describe('server-v2 /api/v1/debug RPC', () => {
   });
 
   it('does not leak stack traces to clients by default', async () => {
-    const { body } = await call<null>('POST', rpc('session', ISessionMetadata, 'read', { sid: 'nope' }));
-    // Stack traces are only surfaced when --debug-endpoints is passed on a
-    // loopback bind; the default test server does not enable them.
-    const json = JSON.stringify(body);
-    expect(json).not.toContain('"stack"');
-    expect(body.code).toBe(40401);
+    // The describe-level server runs with `debugEndpoints: true` (stack traces
+    // surface there by design), so the no-leak contract needs its own default
+    // server without the flag.
+    const leakHome = await mkdtemp(join(tmpdir(), 'kimi-server-v2-rpc-leak-'));
+    const leakServer = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: leakHome,
+      logLevel: 'silent',
+    });
+    try {
+      const leakBase = `http://127.0.0.1:${leakServer.port}`;
+      // Without --debug-endpoints the /api/v1/debug surface is not mounted at
+      // all, so exercise a real route's error envelope: it must never carry a
+      // stack trace on a default server.
+      const res = await fetch(`${leakBase}/api/v1/sessions/nope/skills`, {
+        headers: {
+          authorization: `Bearer ${leakServer.authTokenService.getToken()}`,
+        },
+      });
+      const body = (await res.json()) as Envelope<null>;
+      const json = JSON.stringify(body);
+      expect(json).not.toContain('"stack"');
+      expect(body.code).toBe(40401);
+    } finally {
+      await leakServer.close();
+      await rm(leakHome, { recursive: true, force: true });
+    }
   });
 });
 

@@ -8,9 +8,8 @@
  * Exit code: 0 if all keys match, 1 if any mismatch is found.
  */
 
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { register } from 'node:module';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,11 +23,6 @@ const LOCALE_SOURCES = [
     name: 'i18n (main)',
     en: 'packages/i18n/src/locales/en.ts',
     zh: 'packages/i18n/src/locales/zh.ts',
-  },
-  {
-    name: 'agent-core',
-    en: 'packages/agent-core/src/i18n-locales/en.ts',
-    zh: 'packages/agent-core/src/i18n-locales/zh.ts',
   },
   {
     name: 'kimi-code',
@@ -55,11 +49,6 @@ const LOCALE_SOURCES = [
     en: 'apps/vscode/webview-ui/src/i18n/locales/en.ts',
     zh: 'apps/vscode/webview-ui/src/i18n/locales/zh.ts',
   },
-  {
-    name: 'kimi-web',
-    src: 'apps/kimi-web/src/i18n/locales/index.ts',
-    extract: true,
-  },
 ];
 
 // ── Key collection ───────────────────────────────────────────────────────────
@@ -76,20 +65,17 @@ function collectLeafKeys(obj, prefix = '') {
       keys.push(fullKey);
     }
   }
-  return keys.sort();
+  return keys.sort((a, b) => a.localeCompare(b));
 }
 
 // ── Dynamic TS loader ────────────────────────────────────────────────────────
 
-let tsxAvailable = false;
 try {
   await import('tsx/esm');
-  tsxAvailable = true;
 } catch {
   // tsx might not be installed in CI; try registering manually
   try {
     register('tsx/esm', pathToFileURL(import.meta.url));
-    tsxAvailable = true;
   } catch {
     // Fallback: use require via createRequire for CommonJS TS files
   }
@@ -121,7 +107,8 @@ for (const source of LOCALE_SOURCES) {
     let enData, zhData;
 
     if (source.extract) {
-      // kimi-web: single file exports { messages: { en, zh } }
+      // Unused now that kimi-web source lives outside this repo; kept for
+      // future single-file locale modules: exports { messages: { en, zh } }.
       const mod = await loadModule(source.src);
       const m = mod.default || mod;
       if (m.messages) {
@@ -152,7 +139,7 @@ for (const source of LOCALE_SOURCES) {
       if (missingInZh.length > 0) {
         console.error(`  Missing in zh (${missingInZh.length}):`);
         for (const k of missingInZh.slice(0, 20)) {
-          console.error(`    - ${k}`);
+          console.error(`    - ${String(k)}`);
         }
         if (missingInZh.length > 20) {
           console.error(`    ... and ${missingInZh.length - 20} more`);
@@ -161,7 +148,7 @@ for (const source of LOCALE_SOURCES) {
       if (missingInEn.length > 0) {
         console.error(`  Missing in en (${missingInEn.length}):`);
         for (const k of missingInEn.slice(0, 20)) {
-          console.error(`    - ${k}`);
+          console.error(`    - ${String(k)}`);
         }
         if (missingInEn.length > 20) {
           console.error(`    ... and ${missingInEn.length - 20} more`);

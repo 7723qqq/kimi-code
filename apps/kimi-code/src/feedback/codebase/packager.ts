@@ -5,6 +5,7 @@ import { dirname } from 'node:path';
 
 import { ZipFile } from 'yazl';
 
+import { t } from '#/i18n';
 import type { FeedbackArchive } from '../archive';
 import type { FeedbackCodebaseScanResult } from './types';
 
@@ -36,7 +37,7 @@ async function packageEntries(
   archivePath: string,
 ): Promise<FeedbackArchive> {
   if (entries.length === 0) {
-    throw new Error('Cannot package an empty feedback archive.');
+    throw new Error(t('tui.statusMessages.emptyFeedbackArchive'));
   }
   await mkdir(dirname(archivePath), { recursive: true });
 

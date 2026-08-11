@@ -3,7 +3,6 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  createKimiHarness,
   createKimiHarnessV2,
   flushDiagnosticLogsSync,
   log,
@@ -34,7 +33,6 @@ import { restoreTerminalModes } from '#/utils/terminal-restore';
 
 import type { CLIOptions } from './options';
 import { resolveAgentProfileSelection } from './agent-selection';
-import { isKimiV2Enabled } from './experimental-v2';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
 import { createKimiCodeHostIdentity } from './version';
 
@@ -83,13 +81,11 @@ export async function runShell(
     },
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
   };
-  // The agent-core-v2 route is the default (same engine gate as `kimi -p`):
+  // The agent-core-v2 route is the only engine (same engine as `kimi -p`):
   // the harness is the SDK's v2-backed client, so the whole TUI runs on the
-  // agent-core-v2 engine unless the legacy flag is set.
-  const engineV2 = isKimiV2Enabled();
-  const harness = engineV2
-    ? createKimiHarnessV2(harnessOptions)
-    : createKimiHarness(harnessOptions);
+  // agent-core-v2 engine.
+  const engineV2 = true;
+  const harness = createKimiHarnessV2(harnessOptions);
   startupTrace('harness:created');
   log.info('kimi-code starting', {
     version,

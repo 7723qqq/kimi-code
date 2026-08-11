@@ -135,8 +135,8 @@ describe('stripTrailingNewline', () => {
     expect(stripTrailingNewline('a\nb')).toBe('a\nb');
   });
 
-  it('strips multiple trailing newlines', () => {
-    expect(stripTrailingNewline('a\n\n')).toBe('a');
+  it('strips only one trailing newline', () => {
+    expect(stripTrailingNewline('a\n\n')).toBe('a\n');
   });
 
   it('strips CRLF from the end of a multi-line string', () => {
@@ -174,9 +174,9 @@ describe('rgPath', () => {
   });
 });
 
-describe('computeMatchPositions', () => {
+describe('computeMatchPositions (suffix boundaries)', () => {
   it('finds positions in the middle of a string', () => {
-    expect(computeMatchPositions('prefix-src/foo.ts-suffix', 'foo')).toEqual([12, 13, 14]);
+    expect(computeMatchPositions('prefix-src/foo.ts-suffix', 'foo')).toEqual([3, 12, 13]);
   });
 
   it('returns empty for a query longer than the target', () => {

@@ -15,6 +15,7 @@ import { useMemo, useState } from 'react';
 
 import { serviceByName } from '../channel';
 import { useConnection } from '../connection';
+import { t } from '../i18n';
 import { type AnyService } from '../panels';
 import { InteractionsCard } from './InteractionsCard';
 import { ScopePanels } from './ServicePanels';
@@ -42,22 +43,22 @@ export function SessionPane({ sessionId, ready }: { sessionId: string | null; re
   return (
     <div className="flex h-full w-[420px] shrink-0 flex-col border-l border-neutral-800 bg-neutral-900/30">
       <div className="flex border-b border-neutral-800 text-[11px]">
-        {(['services', 'state'] as const).map((t) => (
+        {(['services', 'state'] as const).map((id) => (
           <button
-            key={t}
+            key={id}
             className={`flex-1 px-2 py-2 font-medium uppercase tracking-wider ${
-              tab === t ? 'bg-neutral-800 text-sky-400' : 'text-neutral-500 hover:text-neutral-300'
+              tab === id ? 'bg-neutral-800 text-sky-400' : 'text-neutral-500 hover:text-neutral-300'
             }`}
-            onClick={() => setTab(t)}
+            onClick={() => setTab(id)}
           >
-            {t === 'services' ? 'Services' : 'State'}
+            {id === 'services' ? 'Services' : 'State'}
           </button>
         ))}
       </div>
       <div className="flex-1 overflow-y-auto p-3">
         {blocked ? (
           <div className="text-[12px] text-neutral-600">
-            {sessionId === null ? 'No session selected.' : 'Loading session…'}
+            {sessionId === null ? t('inspector.noSessionSelected') : t('chat.loadingSession')}
           </div>
         ) : tab === 'services' ? (
           <>

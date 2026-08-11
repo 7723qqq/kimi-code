@@ -67,8 +67,19 @@ export function runAllEvaluators(evaluators: Evaluator[], ctx: EvalContext): {
 
 // ─── Individual evaluator implementations ───────────────────────────────────
 
+/** Coerce a string param; non-string values fall back to '' (or String()). */
+function strParam(params: Record<string, unknown>, name: string): string {
+  const value = params[name];
+  if (typeof value === 'string') return value;
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  return JSON.stringify(value) ?? '';
+}
+
 function evalContains(output: string, params: Record<string, unknown>): number {
-  const target = String(params['text'] ?? '');
+  const target = strParam(params, 'text');
   const caseSensitive = params['caseSensitive'] !== false;
   if (!caseSensitive) {
     return output.toLowerCase().includes(target.toLowerCase()) ? 1 : 0;
@@ -77,7 +88,7 @@ function evalContains(output: string, params: Record<string, unknown>): number {
 }
 
 function evalNotContains(output: string, params: Record<string, unknown>): number {
-  const target = String(params['text'] ?? '');
+  const target = strParam(params, 'text');
   const caseSensitive = params['caseSensitive'] !== false;
   if (!caseSensitive) {
     return output.toLowerCase().includes(target.toLowerCase()) ? 0 : 1;
@@ -86,12 +97,12 @@ function evalNotContains(output: string, params: Record<string, unknown>): numbe
 }
 
 function evalToolCalled(toolCalls: ToolCall[], params: Record<string, unknown>): number {
-  const toolName = String(params['tool'] ?? '');
+  const toolName = strParam(params, 'tool');
   return toolCalls.some((tc) => tc.name === toolName) ? 1 : 0;
 }
 
 function evalToolNotCalled(toolCalls: ToolCall[], params: Record<string, unknown>): number {
-  const toolName = String(params['tool'] ?? '');
+  const toolName = strParam(params, 'tool');
   return toolCalls.some((tc) => tc.name === toolName) ? 0 : 1;
 }
 
@@ -111,8 +122,8 @@ function evalOutputLength(output: string, params: Record<string, unknown>): numb
 }
 
 function evalRegexMatch(output: string, params: Record<string, unknown>): number {
-  const pattern = String(params['pattern'] ?? '');
-  const flags = String(params['flags'] ?? '');
+  const pattern = strParam(params, 'pattern');
+  const flags = strParam(params, 'flags');
   try {
     const regex = new RegExp(pattern, flags);
     return regex.test(output) ? 1 : 0;
@@ -122,8 +133,8 @@ function evalRegexMatch(output: string, params: Record<string, unknown>): number
 }
 
 function evalRegexNotMatch(output: string, params: Record<string, unknown>): number {
-  const pattern = String(params['pattern'] ?? '');
-  const flags = String(params['flags'] ?? '');
+  const pattern = strParam(params, 'pattern');
+  const flags = strParam(params, 'flags');
   try {
     const regex = new RegExp(pattern, flags);
     return regex.test(output) ? 0 : 1;

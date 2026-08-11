@@ -36,6 +36,16 @@ import { ReadTool } from '#/agent/tools/os/read/readTool';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
+// The Rust native tools addon is loadable in the vitest environment (activated
+// indirectly through the workspace), so ReadTool's `tryNativeRead` fast-path
+// reads the real filesystem and bypasses the fake `IHostFileSystem` below —
+// leftover files in /tmp (e.g. from the write suite) leak into results. Stub
+// every native export to return `undefined` so the TS line-iteration path runs.
+vi.mock('#/_base/native-tools', async () => {
+  const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
+  return Object.fromEntries(Object.keys(actual).map((key) => [key, () => undefined]));
+});
+
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');
 

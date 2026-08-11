@@ -475,6 +475,7 @@ export const en = {
     grepTimedOut: 'Grep timed out after {{seconds}}s. Try a more specific path or pattern.',
     grepTimedOutPartial: 'Grep timed out after {{seconds}}s; partial results returned',
     grepFailed: 'Failed to grep: {{reason}}',
+    grepNoResults: 'No matches found. Try a different pattern or path.',
     globTimedOut: 'Glob timed out after {{seconds}}s; partial results returned.',
     globNoSensitiveMatches: 'No non-sensitive matches found ({{count}} sensitive file(s) filtered).',
     globTruncated: 'Only the first {{count}} matches are returned.',
@@ -487,6 +488,7 @@ export const en = {
     writeWrote: 'Wrote {{bytes}} bytes to {{path}}',
     writeFailedParentNotFound: 'Failed to write {{path}}: parent directory does not exist.',
     parentNotDirectory: 'Parent path is not a directory: {{parent}}.',
+    writeTargetIsDirectory: 'Cannot write to {{path}}: it is a directory.',
     editNoChanges: 'No changes to make: old_string and new_string are exactly the same.',
     editReplaced: 'Replaced {{count}} {{occurrences}} in {{path}}',
     occurrence: 'occurrence',
@@ -552,6 +554,11 @@ export const en = {
       solitaryMultipleDenied: 'AgentSwarm/SwarmDiscussion must be called one at a time. Multiple calls are not forbidden, but issue them sequentially: call one, wait for its result, then call the next; or merge the work into a single call when one can cover it.',
       solitaryMultipleDeniedMixed: 'AgentSwarm/SwarmDiscussion must be called one at a time. Multiple calls are not forbidden, but issue them sequentially: call one, wait for its result, then call the next; or merge the work into a single call when one can cover it. These tools also must not be combined with other tools in the same response.',
       solitaryMixedDenied: 'AgentSwarm/SwarmDiscussion must be the only tool call in a model response. Retry with a single call by itself, then call any other tools after it returns.',
+    },
+    discussion: {
+      launching: 'Roundtable discussion: {{topic}}',
+      launchingDebate: 'Structured debate: {{topic}}',
+      agentName: '{{mode}} ({{count}} participants)',
     },
     plugin: {
       cannotInstallLocal: 'Cannot install plugin at {{path}}: {{message}}',

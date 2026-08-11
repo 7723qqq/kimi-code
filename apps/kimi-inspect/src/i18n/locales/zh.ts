@@ -33,6 +33,11 @@ export default {
     send: '发送',
     cancel: '取消',
     tool: '工具',
+    noHitsInSession: '此会话中没有匹配项。',
+    searchHint: '跨所有会话搜索用户提示、助手回复和会话标题。',
+    noHitsForQuery: '“{{query}}” 无匹配结果。',
+    searchExamples: '示例…',
+    auditEmpty: '暂无记录 — 初始会话记录加载中。',
   },
   inspector: {
     tabs: {

@@ -8,7 +8,14 @@ import type { Message, StreamedMessagePart, ToolCall } from '#/message';
 import { AnthropicChatProvider } from '#/providers/anthropic';
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// The Rust native LLM stream replaces the mock SDK client with real network
+// calls when the addon is loadable; force the TS/SDK fallback in tests.
+vi.mock('../../src/providers/native-stream', async () => {
+  const actual = await vi.importActual<typeof import('../../src/providers/native-stream')>('../../src/providers/native-stream');
+  return { ...actual, tryNativeLlmStream: () => undefined, tryNativeLlmStreamIncremental: () => undefined };
+});
 
 import { createFakeProviderHarness } from './fake-provider-harness';
 

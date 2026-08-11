@@ -27,6 +27,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchChannelDescriptors, type ChannelDescriptor, type ChannelScope } from '../channel';
 import { useConnection } from '../connection';
+import { t } from '../i18n';
 import {
   AGENT_PANELS,
   CORE_PANELS,
@@ -436,7 +437,7 @@ function HistoryPane({
                     {r.ok ? 'Response' : 'Error'}
                   </div>
                   {r.ok ? (
-                    <JsonView data={r.result} empty="(no result)" />
+                    <JsonView data={r.result} empty={t('inspector.noResult')} />
                   ) : (
                     <div className="text-[11px] break-words text-red-400">{r.error}</div>
                   )}
@@ -620,14 +621,14 @@ function DynamicServiceCard({
     try {
       argv = buildArgs(parseParamFields(method.params), inputs[method.name] ?? {});
     } catch {
-      setErrors((prev) => ({ ...prev, [method.name]: new Error('arg is not valid JSON') }));
+      setErrors((prev) => ({ ...prev, [method.name]: new Error(t('inspector.argNotValidJson')) }));
       return;
     }
     setBusy(method.name);
     setErrors((prev) => ({ ...prev, [method.name]: null }));
     try {
       const result = await call(svc, method.name, ...argv);
-      setResults((prev) => ({ ...prev, [method.name]: result ?? '(no result)' }));
+      setResults((prev) => ({ ...prev, [method.name]: result ?? t('inspector.noResult') }));
     } catch (error) {
       setErrors((prev) => ({ ...prev, [method.name]: error }));
       onError?.(error);
@@ -763,7 +764,7 @@ function MethodArgInputs({
           <div key={i} className="flex items-center gap-1.5">
             <ArgLabel label={f.label} />
             <ArgInput
-              placeholder="arg (JSON)"
+              placeholder={t('inspector.argJsonPlaceholder')}
               value={values[fieldKey(i)] ?? ''}
               onChange={(v) => onChange(fieldKey(i), v)}
             />

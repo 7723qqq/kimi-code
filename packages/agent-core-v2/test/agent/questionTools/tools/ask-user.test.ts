@@ -522,7 +522,7 @@ describe('AskUserQuestionTool', () => {
 
     it('tracks individual question answer counts correctly', async () => {
       const { tool, telemetryTrack } = makeTool({
-        request: async () => ({} as QuestionResult),
+        request: async () => ({ answers: { Postgres: true } } as QuestionResult),
       });
 
       const result = await executeTool(tool, {
@@ -534,7 +534,7 @@ describe('AskUserQuestionTool', () => {
 
       expect(result.isError).toBe(false);
       expect(telemetryTrack).toHaveBeenCalledWith('question_answered', {
-        answered: 0,
+        answered: 1,
         trace_id: undefined,
       });
     });

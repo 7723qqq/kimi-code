@@ -1,5 +1,7 @@
 import type { AutocompleteItem, SlashCommand } from '@moonshot-ai/pi-tui';
-import type { FlagId } from '@moonshot-ai/kimi-code-sdk';
+
+/** Experimental-flag id surfaced by the engine's flag registry. */
+export type FlagId = string;
 
 export type SlashCommandAvailability = 'always' | 'idle-only';
 

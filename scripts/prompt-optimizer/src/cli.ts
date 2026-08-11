@@ -8,8 +8,8 @@
  *   tsx src/cli.ts probe [--model <model>] [--reps <n>] [--dry-run]
  */
 
-import { writeFileSync, mkdirSync } from 'fs';
-import { resolve } from 'path';
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { loadConfig } from './config';
 import { loadPrompt, generateBaselineVariant, generatePruneVariant } from './prompt-parser';
 import { BENCHMARK_CASES } from './benchmark/cases';

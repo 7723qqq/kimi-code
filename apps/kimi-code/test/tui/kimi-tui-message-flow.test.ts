@@ -398,6 +398,8 @@ function makeActiveGoalSnapshot(): GoalSnapshot {
     goalId: 'g1',
     objective: 'Ship the feature',
     status: 'active',
+    inputTokensUsed: 0,
+    outputTokensUsed: 0,
     turnsUsed: 3,
     tokensUsed: 100,
     wallClockMs: 1000,
@@ -414,6 +416,8 @@ function makeActiveGoalSnapshot(): GoalSnapshot {
       turnBudgetReached: false,
       wallClockBudgetReached: false,
       overBudget: false,
+      inputTokensUsed: 0,
+      outputTokensUsed: 0,
     },
   };
 }
@@ -2255,7 +2259,7 @@ command = "vim"
     driver.state.appState.streamingPhase = 'idle';
     driver.sessionEventHandler.handleEvent(
       {
-        type: 'background.task.started',
+        type: 'task.started',
         agentId: 'main',
         sessionId: 'ses-1',
         turnId: 1,

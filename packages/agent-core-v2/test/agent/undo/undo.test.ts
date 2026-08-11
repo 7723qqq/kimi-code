@@ -241,13 +241,25 @@ describe('AgentConversationUndoService', () => {
     const undo = ctx.get(IAgentConversationUndoService);
     const wire = ctx.get(IWireService);
     ctx.appendTurnExchange('u1', 'a1');
-    wire.dispatch(todoSet({ key: 'todo', value: [{ title: 'kept', status: 'pending' }] }));
+    wire.dispatch(
+      todoSet({
+        key: 'todo',
+        value: [{ id: 'T1', parentId: null, title: 'kept', status: 'open', createdAt: 1, updatedAt: 2 }],
+      }),
+    );
     ctx.appendTurnExchange('u2', 'a2');
-    wire.dispatch(todoSet({ key: 'todo', value: [{ title: 'doomed', status: 'pending' }] }));
+    wire.dispatch(
+      todoSet({
+        key: 'todo',
+        value: [{ id: 'T1', parentId: null, title: 'doomed', status: 'open', createdAt: 1, updatedAt: 3 }],
+      }),
+    );
 
     await undo.undo(1);
 
-    expect(wire.getModel(TodoModel).current).toEqual([{ title: 'kept', status: 'pending' }]);
+    expect(wire.getModel(TodoModel).current).toEqual([
+      { id: 'T1', parentId: null, title: 'kept', status: 'open', createdAt: 1, updatedAt: 2 },
+    ]);
   });
 
   it('restores plan mode and its telemetry mirror to their pre-turn value', async () => {

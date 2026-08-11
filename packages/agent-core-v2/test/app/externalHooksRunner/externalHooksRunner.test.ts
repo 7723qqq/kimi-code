@@ -204,7 +204,7 @@ describe('ExternalHooksRunnerService', () => {
   });
 
   it('does not dedupe hooks that share a command but have different cwd', async () => {
-    const command = nodeCommand('process.stdout.write(process.cwd() + "\\n");');
+    const command = nodeCommand('process.stdout.write(process.cwd());');
     const runner = makeHookRunner([
       { event: 'Stop', command, timeout: 5, cwd: process.cwd() },
       { event: 'Stop', command, timeout: 5, cwd: tmpdir() },
@@ -226,7 +226,7 @@ describe('ExternalHooksRunnerService', () => {
     expect(results).toHaveLength(0);
   });
 
-  it('fails open when trigger input preparation throws', async () => {
+  it('fails closed when trigger input preparation throws', async () => {
     const inputData = {};
     Object.defineProperty(inputData, 'broken', {
       enumerable: true,
@@ -241,9 +241,11 @@ describe('ExternalHooksRunnerService', () => {
     await expect(
       runner.trigger('PreToolUse', { matcherValue: 'Bash', inputData }),
     ).resolves.toEqual([]);
+    // Permission-gating hooks fail closed: a broken gate must block, not
+    // silently allow the tool call.
     await expect(
       runner.triggerBlock('PreToolUse', { matcherValue: 'Bash', inputData }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ block: true, reason: 'broken input' });
   });
 
   it('fails open when fireAndForgetTrigger sees a synchronous trigger error', async () => {

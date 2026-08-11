@@ -33,7 +33,7 @@ import {
   activateSkillResultSchema,
   listSkillsResponseSchema,
 } from '../src/protocol/rest-skill';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -299,21 +299,27 @@ describe('server-v2 /api/v1 skills', () => {
 
       // The activation's user message carries the rendered skill prompt
       // followed by the materialized attachment's path notice — the same
-      // pipeline a prompt submission runs through.
-      const messages = await getJson<{
-        items: Array<{ role: string; content: Array<{ type: string; text?: string }> }>;
-      }>(`/api/v1/sessions/${id}/messages`);
-      const userMsg = messages.body.data.items.find((m) => m.role === 'user');
-      expect(userMsg).toBeDefined();
-      expect(userMsg!.content[0]?.type).toBe('text');
-      expect(userMsg!.content[0]?.text).toContain('User activated the skill "update-config"');
-      const notice = userMsg!.content[1];
-      expect(notice?.type).toBe('text');
-      expect(notice?.text).toContain('Attached file "note.txt"');
-      expect(notice?.text).toContain(`${noteBytes.length} bytes`);
-      const attachedPath = /bytes\): (.+) — open it with the Read tool$/.exec(notice?.text ?? '')?.[1];
-      expect(attachedPath).toBeDefined();
-      expect(attachedPath).toContain('/attachments/');
+      // pipeline a prompt submission runs through. The message lands
+      // asynchronously (and the session can briefly report 40401 / an empty
+      // page while the turn settles), so poll until the notice is visible.
+      let attachedPath: string | undefined;
+      await vi.waitFor(async () => {
+        const messages = await getJson<{
+          items: Array<{ role: string; content: Array<{ type: string; text?: string }> }>;
+        }>(`/api/v1/sessions/${id}/messages`);
+        expect(messages.body.code).toBe(0);
+        const userMsg = messages.body.data.items.find((m) => m.role === 'user');
+        expect(userMsg).toBeDefined();
+        expect(userMsg!.content[0]?.type).toBe('text');
+        expect(userMsg!.content[0]?.text).toContain('User activated the skill "update-config"');
+        const notice = userMsg!.content[1];
+        expect(notice?.type).toBe('text');
+        expect(notice?.text).toContain('Attached file "note.txt"');
+        expect(notice?.text).toContain(`${noteBytes.length} bytes`);
+        attachedPath = /bytes\): (.+) — open it with the Read tool$/.exec(notice?.text ?? '')?.[1];
+        expect(attachedPath).toBeDefined();
+      });
+      expect(attachedPath).toMatch(/[\\/]attachments[\\/]/);
       expect(await readFile(attachedPath!)).toEqual(noteBytes);
     });
 

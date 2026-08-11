@@ -5,9 +5,9 @@
  * passes correct args, and parses the JSON output.
  */
 
-import { execFileSync } from 'child_process';
-import { resolve } from 'path';
-import { existsSync, unlinkSync } from 'fs';
+import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import { existsSync, unlinkSync } from 'node:fs';
 
 const BINARY = resolve(import.meta.dirname, '../../knowledge-rs/target/release/kimi-knowledge.exe');
 const TEST_DB = resolve(import.meta.dirname, '../../knowledge-rs/integration-test.db');

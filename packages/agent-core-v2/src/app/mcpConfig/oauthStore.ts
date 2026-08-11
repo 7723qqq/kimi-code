@@ -12,15 +12,22 @@
  * out-of-engine callers, which run an `McpOAuthService` outside the DI
  * container.
  *
- * Security: tokens are encrypted at rest with AES-256-GCM, keyed from the
- * host machine identity. Legacy plain-text records are still readable.
+ * Security: tokens are encrypted at rest with AES-256-GCM. The key is
+ * derived from the host identity (hostname + machine id + username), so the
+ * ciphertext is useless on any other machine. This is defense in depth on
+ * top of the credential file's 0600 permissions: it protects against
+ * disk/backup exfiltration, not against a same-user process that can read
+ * the home directory (such a process can read the key material too).
+ * Legacy plain-text records are still readable.
  *
  * Read semantics: missing or corrupt JSON resolves to `undefined` (never
  * throws). The provider treats `undefined` as "not stored".
  */
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
-import { hostname } from 'node:os';
+import { hostname, userInfo } from 'node:os';
+import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { LifecycleScope } from '#/app/scopes';
@@ -40,9 +47,61 @@ const CREDENTIALS_SCOPE = 'credentials/mcp';
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 
-/** Derive a 32-byte encryption key from hostname + fixed salt. */
+// ── Host identity for key derivation ─────────────────────────────────────────
+// No native registry/Keychain API exists in Node, so the machine id is read
+// once via the platform's canonical source and cached. Any failure falls
+// back to hostname-only derivation (still better than nothing, and no worse
+// than the previous scheme).
+
+let machineIdCache: string | null | undefined; // undefined = not tried yet
+
+function loadMachineId(): string | undefined {
+  try {
+    if (process.platform === 'win32') {
+      const out = execFileSync(
+        'reg.exe',
+        ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid'],
+        { encoding: 'utf8', timeout: 3000, windowsHide: true },
+      );
+      return /MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)/.exec(out)?.[1];
+    }
+    for (const p of ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
+      try {
+        const id = readFileSync(p, 'utf8').trim();
+        if (id !== '') return id;
+      } catch {
+        // try next source
+      }
+    }
+    if (process.platform === 'darwin') {
+      const out = execFileSync('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], {
+        encoding: 'utf8',
+        timeout: 3000,
+      });
+      return /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(out)?.[1];
+    }
+  } catch {
+    // fall back to hostname-only derivation
+  }
+  return undefined;
+}
+
+function hostMachineId(): string | undefined {
+  if (machineIdCache === undefined) {
+    machineIdCache = loadMachineId() ?? null;
+  }
+  return machineIdCache ?? undefined;
+}
+
+/** Derive a 32-byte encryption key from host identity + fixed salt. */
 function deriveKey(): Buffer {
-  const raw = `${hostname()}:kimi-code-mcp-oauth-v1`;
+  let username: string;
+  try {
+    username = userInfo().username;
+  } catch {
+    username = 'unknown-user';
+  }
+  const raw = `${hostname()}:${hostMachineId() ?? 'no-machine-id'}:${username}:kimi-code-mcp-oauth-v1`;
   return createHash('sha256').update(raw).digest();
 }
 

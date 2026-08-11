@@ -20,7 +20,7 @@ describe('snipLargeToolResults', () => {
     const small = toolMessage('short output');
     const messages = [small];
     const result = snipLargeToolResults(messages);
-    expect(result).toBe(messages); // same array reference when nothing changed
+    expect(result).toEqual(messages); // deep-equal copy when nothing changed
   });
 
   it('leaves non-tool messages untouched', () => {

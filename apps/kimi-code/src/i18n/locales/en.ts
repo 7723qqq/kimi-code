@@ -736,7 +736,7 @@ export default {
         actionsSection: 'Actions',
         tabInstalled: 'Installed',
         tabOfficial: 'Official',
-        tabThirdParty: 'Third-party',
+        tabThirdParty: 'Curated',
         tabCustom: 'Custom',
         enterUpdate: 'Enter update',
         enterDetails: 'Enter details',
@@ -768,7 +768,7 @@ export default {
         marketplaceSource: 'Source: {{source}}',
         openInBrowser: 'open in browser',
         installFromUrlHint: ' Install from a GitHub URL (or zip URL / local path):',
-        installingFromMarketplace: 'Installing {{label}} from marketplace…',
+        installingFromMarketplace: 'Installing {{label}}…',
         pluginId: 'id {{id}}',
         skillCount_one: '{{count}} skill',
         skillCount_other: '{{count}} skills',
@@ -1392,6 +1392,18 @@ export default {
 
       // main.ts
       mainError: 'error: {{message}}',
+      // feedback/codebase/packager.ts
+      emptyFeedbackArchive: 'Cannot package an empty feedback archive.',
+      // native/minidb-worker.ts
+      minidbWorkerRuntimeNotConfigured: 'MiniDb worker runtime was not configured',
+      // native/smoke.ts
+      minidbWorkerSearchResultIncorrect:
+        'MiniDb worker-built text index returned an incorrect search result',
+      nativeManifestNotAvailable: 'Native asset manifest is not available.',
+      // utils/clipboard/clipboard-text.ts
+      noClipboardCommandAvailable: 'No clipboard command is available.',
+      // utils/process/fd-detect.ts
+      fdDownloadEmptyResponse: 'Failed to download fd: empty response body',
     },
     messages: {
       agentGroup: {
@@ -1616,6 +1628,7 @@ export default {
         status: {
           connected: 'connected',
           pending: 'pending',
+          pendingApproval: 'pending approval',
           needsAuth: 'needs auth',
           failed: 'failed',
           disabled: 'disabled',

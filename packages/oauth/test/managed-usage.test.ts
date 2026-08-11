@@ -52,7 +52,7 @@ describe('isManagedKimiCodeBaseUrl', () => {
   });
 
   it('rejects undefined and unparseable values', () => {
-    expect(isManagedKimiCodeBaseUrl()).toBe(false);
+    expect(isManagedKimiCodeBaseUrl(undefined)).toBe(false);
     expect(isManagedKimiCodeBaseUrl('')).toBe(false);
     expect(isManagedKimiCodeBaseUrl('not a url')).toBe(false);
   });

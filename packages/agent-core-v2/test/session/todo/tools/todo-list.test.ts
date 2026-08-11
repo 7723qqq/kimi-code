@@ -181,7 +181,7 @@ describe('TodoListTool', () => {
       signal,
     });
     expect(result).toMatchObject({ isError: false });
-    expect(result.output).toContain('No tasks');
+    expect(result.output).toContain('Todo list is empty.');
   });
 
   it('write mode with multiple in_progress todos still succeeds', async () => {
@@ -211,7 +211,9 @@ describe('TodoListTool', () => {
 
   it('schema accepts a valid single todo', () => {
     expect(
-      TodoListInputSchema.safeParse({ todos: [{ title: 'valid task', status: 'open' }] }).success,
+      TodoListInputSchema.safeParse({
+        todos: [{ id: 'T1', parentId: null, title: 'valid task', status: 'open' }],
+      }).success,
     ).toBe(true);
   });
 });

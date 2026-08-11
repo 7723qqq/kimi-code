@@ -152,7 +152,6 @@ log(`Plan: ${plan.lines.length} search lines`);
 // Phase 2: Search — use native search() for all lines in parallel.
 phase('Search');
 const seenUrls = new Set();
-const allTexts = [];
 
 const searchResults = await parallel(
   plan.lines.map((line) => async () => {
@@ -211,7 +210,7 @@ await parallel(
         }
       }
     } catch (e) {
-      log(`Error reading ${source.url}: ${e}`);
+      log(`Error reading ${source.url}: ${String(e)}`);
     }
   })
 );

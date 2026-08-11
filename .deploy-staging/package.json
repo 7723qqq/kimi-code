@@ -83,7 +83,6 @@
     "node-pty": "^1.1.0"
   },
   "devDependencies": {
-    "@moonshot-ai/acp-adapter": "workspace:^",
     "@moonshot-ai/agent-core": "workspace:^",
     "@moonshot-ai/agent-core-v2": "workspace:^",
     "@moonshot-ai/kap-server": "workspace:^",

@@ -73,7 +73,7 @@ export function isOverloadError(error: unknown): boolean {
     if (statusCode === 503) return true;
     if (statusCode === 529) return true;
     if (statusCode === 500) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : JSON.stringify(error) ?? 'unknown error';
       return /overload/i.test(message);
     }
   }

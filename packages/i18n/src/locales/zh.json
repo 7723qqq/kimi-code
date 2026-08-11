@@ -434,6 +434,7 @@
     "grepTimedOut": "Grep 在 {{seconds}}s 后超时。请尝试更具体的路径或模式。",
     "grepTimedOutPartial": "Grep 在 {{seconds}}s 后超时；返回部分结果",
     "grepFailed": "Grep 失败: {{reason}}",
+    "grepNoResults": "未找到匹配项。请尝试不同的模式或路径。",
     "globTimedOut": "Glob 在 {{seconds}}s 后超时；返回部分结果。",
     "globNoSensitiveMatches": "未找到非敏感匹配项（已过滤 {{count}} 个敏感文件）。",
     "globTruncated": "仅返回前 {{count}} 个匹配项。",
@@ -446,6 +447,7 @@
     "writeWrote": "已写入 {{bytes}} 字节到 {{path}}",
     "writeFailedParentNotFound": "写入 {{path}} 失败：父目录不存在。",
     "parentNotDirectory": "父路径不是目录: {{parent}}。",
+    "writeTargetIsDirectory": "无法写入 {{path}}：它是一个目录。",
     "editNoChanges": "无需更改：old_string 和 new_string 完全相同。",
     "editReplaced": "在 {{path}} 中替换了 {{count}} 处",
     "occurrence": "处",
@@ -508,6 +510,11 @@
       "solitaryMultipleDenied": "AgentSwarm/SwarmDiscussion 必须逐个调用。多次调用并非禁止，但需要顺序执行：调用一个，等待其结果，然后再调用下一个；或者当单次调用可以覆盖时，将工作合并。",
       "solitaryMultipleDeniedMixed": "AgentSwarm/SwarmDiscussion 必须逐个调用。多次调用并非禁止，但需要顺序执行：调用一个，等待其结果，然后再调用下一个；或者当单次调用可以覆盖时，将工作合并。这些工具也不得与同一响应中的其他工具组合使用。",
       "solitaryMixedDenied": "AgentSwarm/SwarmDiscussion 必须是模型响应中唯一的工具调用。请单独重试一次调用，然后在它返回后再调用其他工具。"
+    },
+    "discussion": {
+      "launching": "圆桌讨论：{{topic}}",
+      "launchingDebate": "结构化辩论：{{topic}}",
+      "agentName": "{{mode}}（{{count}} 名参与者）"
     },
     "plugin": {
       "cannotInstallLocal": "无法安装 {{path}} 处的插件: {{message}}",

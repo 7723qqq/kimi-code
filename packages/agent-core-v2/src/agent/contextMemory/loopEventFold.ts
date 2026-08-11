@@ -41,6 +41,7 @@
 import type { FinishReason } from '#/kosong/contract/provider';
 import { createToolMessage, type ContentPart, type ToolCall } from '#/kosong/contract/message';
 import type { TokenUsage } from '#/kosong/contract/usage';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 import type { ContextMessage } from './types';
 import { isVacuousContentPart } from './vacuousContent';
@@ -87,6 +88,7 @@ export type LoopRecordedEvent =
       readonly name: string;
       readonly args?: unknown;
       readonly extras?: Record<string, unknown>;
+      readonly display?: ToolInputDisplay | undefined;
       readonly uuid?: string;
       readonly turnId?: string;
       readonly step?: number;
@@ -167,10 +169,21 @@ export function foldLoopEvent(
         ...(event.extras !== undefined ? { extras: event.extras } : {}),
       };
       ctx.pending.add(event.toolCallId);
-      return bind(appendToOpenAssistant(state, (message) => ({
-        ...message,
-        toolCalls: [...message.toolCalls, call],
-      })), ctx);
+      return bind(
+        appendToOpenAssistant(state, (message) => ({
+          ...message,
+          toolCalls: [...message.toolCalls, call],
+          ...(event.display === undefined
+            ? {}
+            : {
+                toolCallDisplays: {
+                  ...message.toolCallDisplays,
+                  [event.toolCallId]: event.display,
+                },
+              }),
+        })),
+        ctx,
+      );
     }
     case 'tool.result': {
       if (!ctx.pending.has(event.toolCallId)) return state;

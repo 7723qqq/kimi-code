@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -6,15 +6,16 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { createKimiHarness, ImageLimits, KimiHarness, SDKRpcClientBase } from '#/index';
 
+import { removeTempDirs } from './session-runtime-helpers';
 import { recordingTelemetry } from './telemetry';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
 
 afterEach(async () => {
-  for (const dir of tempDirs.splice(0)) {
-    await rm(dir, { recursive: true, force: true });
-  }
+  // removeTempDirs retries on ENOTEMPTY/EBUSY/EPERM, which rm alone hits
+  // intermittently on Windows when a handle is still draining.
+  await removeTempDirs(tempDirs);
 });
 
 /**
@@ -23,7 +24,7 @@ afterEach(async () => {
  */
 class StubRpc extends SDKRpcClientBase {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  protected async getRpc(): Promise<any> {
+  protected override async getRpc(): Promise<any> {
     throw new Error('no core calls expected');
   }
 }
@@ -100,7 +101,9 @@ read_byte_budget = 65536
     try {
       // The core was constructed in-process; its owner-scoped [image] limits
       // must be readable on the harness for prompt-ingestion paths.
-      expect(harness.imageLimits).toBeInstanceOf(ImageLimits);
+      // (No `toBeInstanceOf(ImageLimits)`: the v1 core constructs its own
+      // class copy; behavior is what matters — the v1 client goes away with
+      // the v1 engine.)
       expect(harness.imageLimits?.maxEdgePx()).toBe(1200);
       expect(harness.imageLimits?.readByteBudget()).toBe(65536);
     } finally {
@@ -114,7 +117,6 @@ read_byte_budget = 65536
 
     const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
     try {
-      expect(harness.imageLimits).toBeInstanceOf(ImageLimits);
       expect(harness.imageLimits?.maxEdgePx()).toBe(2000);
       expect(harness.imageLimits?.readByteBudget()).toBe(256 * 1024);
     } finally {

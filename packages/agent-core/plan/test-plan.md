@@ -1,4 +1,0 @@
-# Plan
-
-- Inspect
-- Verify

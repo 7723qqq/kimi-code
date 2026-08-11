@@ -10,6 +10,7 @@
  * Own no scoped state.
  */
 
+import { join as nativeJoin } from 'node:path';
 import { join } from 'pathe';
 
 export function workspacePersistenceScope(sessionsScope: string, workspaceId: string): string {
@@ -21,7 +22,10 @@ export function sessionScopeOf(handlerScope: string, sessionId: string): string 
 }
 
 export function sessionDirOf(homeDir: string, handlerScope: string, sessionId: string): string {
-  return join(homeDir, sessionScopeOf(handlerScope, sessionId));
+  // Native separators: the on-disk session dir is part of the byte-for-byte
+  // v1 layout contract (session_index.jsonl / state.json readers compare it
+  // with node:path-built paths). The scope strings above stay '/' -joined.
+  return nativeJoin(homeDir, sessionScopeOf(handlerScope, sessionId));
 }
 
 export function agentScopeOf(sessionScope: string, agentId: string): string {

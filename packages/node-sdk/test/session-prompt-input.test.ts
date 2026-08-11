@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CoreAPI, RPCMethods } from '@moonshot-ai/agent-core';
 
 import { SDKRpcClientBase } from '../src/rpc';
 import { Session } from '../src/session';
@@ -31,7 +30,7 @@ class CapturingRpc extends SDKRpcClientBase {
     });
   }
 
-  protected async getRpc(): Promise<RPCMethods<CoreAPI>> {
+  protected override async getRpc(): Promise<Record<string, unknown>> {
     this.getRpcCallCount += 1;
     for (const waiter of this.getRpcWaiters) waiter();
     if (this.getRpcDelay !== undefined) await this.getRpcDelay;
@@ -56,7 +55,7 @@ class CapturingRpc extends SDKRpcClientBase {
       clearPlan: async (input: unknown) => {
         this.clearPlanCalls.push(input);
       },
-    } as unknown as RPCMethods<CoreAPI>;
+    };
   }
 }
 

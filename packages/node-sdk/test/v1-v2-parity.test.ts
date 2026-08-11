@@ -1,12 +1,15 @@
 /**
- * Scenario: v1↔v2 parity gate — for every SDK method migrated to
- * agent-core-v2, the v1 harness (`createKimiHarness`) and the v2 harness
- * (`createKimiHarnessV2`) must return identical values on the same fixture
- * home. A method only counts as migrated while its comparison here passes;
- * temporary, understood gaps are pinned explicitly in `KNOWN_DIFFS` so the
- * list can only shrink deliberately, never grow silently.
- * Wiring: real v1 core and real v2 engine, both in-process on a temp
- * KIMI_CODE_HOME; no provider calls.
+ * Scenario: v2 contract gate — the SDK's v2 client (`SDKRpcClientV2` /
+ * `createKimiHarnessV2`) must produce the SDK's public contract shapes on a
+ * fixture home, deterministically across fresh homes. The v1 client is gone
+ * (P3b), so the former v1 comparison slot now runs a second v2 engine on its
+ * own temp home: the `v1` fields of the pair fixtures below are kept under
+ * their historical names only to keep the per-test surgery mechanical, and
+ * the comparisons assert same-engine determinism while the literal
+ * expectations assert the contract values. Pinned per-engine gaps (KNOWN_DIFFS)
+ * are retained only where a projection is still needed for cross-home
+ * normalization.
+ * Wiring: real v2 engine, in-process, two temp homes; no provider calls.
  * Run: pnpm exec vitest run test/v1-v2-parity.test.ts
  */
 import { appendFile, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
@@ -25,7 +28,6 @@ import {
   createKimiHarness,
   createKimiHarnessV2,
   ErrorCodes,
-  SDKRpcClient,
   SDKRpcClientV2,
   type ApprovalRequest,
   type ApprovalResponse,
@@ -56,6 +58,8 @@ import {
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
+
+const toPosix = (p: string): string => p.replaceAll('\\', '/');
 
 afterEach(async () => {
   for (const dir of tempDirs.splice(0)) {
@@ -151,14 +155,29 @@ interface HomePair {
 /**
  * Replace every occurrence of a home prefix with `<HOME>` so values holding
  * absolute paths into a per-engine home compare across the isolated homes.
+ * Walks strings (not JSON text) so both the native (backslash on Windows)
+ * and posix spellings of each prefix are scrubbed — JSON escaping would
+ * otherwise hide the backslash forms from a text-level replace.
  */
 function scrubHomePrefixes(value: unknown, home: HomePair): unknown {
-  let text = JSON.stringify(value);
-  // Longest first, so the more specific spelling wins when they overlap.
-  for (const prefix of [home.raw, home.real].toSorted((a, b) => b.length - a.length)) {
-    text = text.replaceAll(prefix, '<HOME>');
-  }
-  return JSON.parse(text);
+  const spellings = [home.raw, home.real].flatMap((prefix) => [
+    prefix,
+    prefix.replaceAll('\\', '/'),
+  ]);
+  const prefixes = [...new Set(spellings)].toSorted((a, b) => b.length - a.length);
+  const walk = (item: unknown): unknown => {
+    if (typeof item === 'string') {
+      let out = item;
+      for (const prefix of prefixes) out = out.replaceAll(prefix, '<HOME>');
+      return out;
+    }
+    if (Array.isArray(item)) return item.map(walk);
+    if (item !== null && typeof item === 'object') {
+      return Object.fromEntries(Object.entries(item).map(([key, entry]) => [key, walk(entry)]));
+    }
+    return item;
+  };
+  return walk(value);
 }
 
 /**
@@ -293,13 +312,12 @@ const KNOWN_DIFFS = {
   // Session export: `zipPath` is the caller-chosen output (different per
   // engine by construction) — deleted. `sessionDir` compares after the
   // home-prefix scrub (same `<home>/sessions/<workdir-key>/<id>` layout on
-  // both). In the manifest: `exportedAt` is per-run wall clock;
-  // `wireProtocolVersion` is each engine's own wire version (v1 '1.4' vs v2
-  // '1.5' — genuinely different formats); the activity timestamps only exist
-  // on v2 because v1's scanner reads a stale root `wire.jsonl` path (v1
-  // keeps its wire under `agents/main/`, so v1 never reports them — a v1-side
-  // defect, not a v2 divergence); and v1's store materializes the default
-  // title 'New Session' where v2 leaves it unset (same rule as listSessions).
+  // both). In the manifest: `exportedAt`, `sessionFirstActivity` and
+  // `sessionLastActivity` are per-run wall clock (deleted, asserted
+  // typeof-string at the call site); `wireProtocolVersion` is each engine's
+  // own wire version — with both slots on v2 it is the same ('1.5'),
+  // asserted literally at the call site; and the default title 'New
+  // Session' materialization is dropped (same rule as listSessions).
   exportSession: (result: ExportSessionResult, home: HomePair): unknown => {
     const projected = scrubHomePrefixes(result, home) as Record<string, unknown>;
     delete projected['zipPath'];
@@ -324,6 +342,11 @@ function projectGoalSnapshot(snapshot: GoalSnapshot | null): unknown {
   const projected: Record<string, unknown> = { ...snapshot };
   delete projected['goalId'];
   delete projected['wallClockMs'];
+  // `createdAt` / `updatedAt` are per-run wall clock stamps on both slots
+  // (each engine stamps its own transition moments, a few ms apart) — the
+  // same class as `wallClockMs`, so they are projected away too.
+  delete projected['createdAt'];
+  delete projected['updatedAt'];
   return projected;
 }
 
@@ -674,10 +697,12 @@ describe('v1↔v2 return-value parity', () => {
       'parity-project-skill',
     );
     try {
-      const [v1Skills, v2Skills] = await Promise.all([
-        v1.listWorkspaceSkills(workDir),
-        v2.listWorkspaceSkills(workDir),
-      ]);
+      // Both slots share ONE home, and listing a workspace registers it in
+      // the shared `<home>/workspaces.json` (atomic rename). Concurrent
+      // registrations collide on Windows (EPERM on the tmp→dest rename), so
+      // the two engine instances stay sequential here.
+      const v1Skills = await v1.listWorkspaceSkills(workDir);
+      const v2Skills = await v2.listWorkspaceSkills(workDir);
       expect(normalize(v2Skills, 'name')).toEqual(normalize(v1Skills, 'name'));
     } finally {
       await closeAll(v1, v2);
@@ -823,7 +848,7 @@ async function writeSkill(dir: string, name: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 interface PluginParityPair {
-  readonly v1: SDKRpcClient;
+  readonly v1: SDKRpcClientV2;
   readonly v2: SDKRpcClientV2;
   readonly v1Home: HomePair;
   readonly v2Home: HomePair;
@@ -898,7 +923,7 @@ async function makePluginParityPair(): Promise<PluginParityPair> {
   const sourceDir = await makeTempDir('kimi-sdk-parity-plugin-src-');
   await writeFixturePlugin(sourceDir);
   return {
-    v1: new SDKRpcClient({ homeDir: v1HomeDir, identity: TEST_IDENTITY }),
+    v1: new SDKRpcClientV2({ homeDir: v1HomeDir, identity: TEST_IDENTITY }),
     v2: new SDKRpcClientV2({ homeDir: v2HomeDir, identity: TEST_IDENTITY }),
     v1Home: { raw: v1HomeDir, real: await realpath(v1HomeDir) },
     v2Home: { raw: v2HomeDir, real: await realpath(v2HomeDir) },
@@ -1154,7 +1179,7 @@ describe('v1↔v2 plugin parity', () => {
 // ---------------------------------------------------------------------------
 
 interface SessionParityPair {
-  readonly v1: SDKRpcClient;
+  readonly v1: SDKRpcClientV2;
   readonly v2: SDKRpcClientV2;
   readonly v1Home: HomePair;
   readonly v2Home: HomePair;
@@ -1170,7 +1195,7 @@ async function makeSessionParityPair(configToml?: string): Promise<SessionParity
     await writeFile(join(v2HomeDir, 'config.toml'), configToml, 'utf-8');
   }
   return {
-    v1: new SDKRpcClient({ homeDir: v1HomeDir, identity: TEST_IDENTITY }),
+    v1: new SDKRpcClientV2({ homeDir: v1HomeDir, identity: TEST_IDENTITY }),
     v2: new SDKRpcClientV2({ homeDir: v2HomeDir, identity: TEST_IDENTITY }),
     v1Home: { raw: v1HomeDir, real: await realpath(v1HomeDir) },
     v2Home: { raw: v2HomeDir, real: await realpath(v2HomeDir) },
@@ -1540,11 +1565,13 @@ describe('v1↔v2 session lifecycle parity', () => {
         path: persistedDir,
         persist: true,
       });
+      // Both slots run the v2 engine; the workspace-dirs surface reports the
+      // posix spelling regardless of the input's native separators.
       expect(v2Persisted).toEqual(v1Persisted);
       expect(v1Persisted).toMatchObject({
-        additionalDirs: [persistedDir],
-        projectRoot: pair.workDir,
-        configPath: join(pair.workDir, '.kimi-code', 'local.toml'),
+        additionalDirs: [toPosix(persistedDir)],
+        projectRoot: toPosix(pair.workDir),
+        configPath: toPosix(join(pair.workDir, '.kimi-code', 'local.toml')),
         persisted: true,
       });
       const v1SessionOnly = await pair.v1.addAdditionalDir({
@@ -1559,7 +1586,7 @@ describe('v1↔v2 session lifecycle parity', () => {
       });
       expect(v2SessionOnly).toEqual(v1SessionOnly);
       expect(v1SessionOnly).toMatchObject({
-        additionalDirs: [persistedDir, sessionOnlyDir],
+        additionalDirs: [toPosix(persistedDir), toPosix(sessionOnlyDir)],
         persisted: false,
       });
       // v1 requires the active session on both engines.
@@ -1630,7 +1657,7 @@ async function makeAgentParityPair(configToml: string = AGENT_CONFIG_TOML): Prom
   await writeFile(join(v1HomeDir, 'config.toml'), configToml, 'utf-8');
   await writeFile(join(v2HomeDir, 'config.toml'), configToml, 'utf-8');
   return {
-    v1: new SDKRpcClient({ homeDir: v1HomeDir, identity: TEST_IDENTITY }),
+    v1: new SDKRpcClientV2({ homeDir: v1HomeDir, identity: TEST_IDENTITY }),
     v2: new SDKRpcClientV2({ homeDir: v2HomeDir, identity: TEST_IDENTITY }),
     v1Home: { raw: v1HomeDir, real: await realpath(v1HomeDir) },
     v2Home: { raw: v2HomeDir, real: await realpath(v2HomeDir) },
@@ -2178,8 +2205,11 @@ describe('v1↔v2 agent interaction parity', () => {
     try {
       await createOnBoth(pair, { id: 'session_parity_agent_undo_fail' });
       const input = { sessionId: 'session_parity_agent_undo_fail' } as const;
-      // Empty history: v1 is a silent no-op, v2 rejects atomically.
-      await pair.v1.undoHistory({ ...input, count: 1 });
+      // Empty history: v2 rejects atomically (v1 was a silent no-op —
+      // pinned historically).
+      await expect(pair.v1.undoHistory({ ...input, count: 1 })).rejects.toMatchObject({
+        code: 'session.undo_unavailable',
+      });
       await expect(pair.v2.undoHistory({ ...input, count: 1 })).rejects.toMatchObject({
         code: 'session.undo_unavailable',
       });
@@ -2187,11 +2217,11 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v1.importContext({ ...input, content: 'Only turn.', source: "file 'one.md'" }),
         pair.v2.importContext({ ...input, content: 'Only turn.', source: "file 'one.md'" }),
       ]);
-      // More than available: v1 splices the partial suffix out of the live
-      // history and THEN throws request.invalid; v2 prechecks and rejects
-      // with session.undo_unavailable without touching the history.
+      // More than available: v2 prechecks and rejects with
+      // session.undo_unavailable without touching the history (v1 spliced a
+      // partial suffix and then threw request.invalid — pinned historically).
       await expect(pair.v1.undoHistory({ ...input, count: 2 })).rejects.toMatchObject({
-        code: ErrorCodes.REQUEST_INVALID,
+        code: 'session.undo_unavailable',
       });
       await expect(pair.v2.undoHistory({ ...input, count: 2 })).rejects.toMatchObject({
         code: 'session.undo_unavailable',
@@ -2200,7 +2230,7 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v1.getContext(input),
         pair.v2.getContext(input),
       ]);
-      expect(v1Context.history).toHaveLength(0);
+      expect(v1Context.history).toHaveLength(1);
       expect(v2Context.history).toHaveLength(1);
     } finally {
       await closeSessionPair(pair);
@@ -2280,17 +2310,16 @@ describe('v1↔v2 agent interaction parity', () => {
     const restoreEnv = scrubConfigEnv();
     const pair = await makeAgentParityPair();
     try {
-      // Pinned difference: v1 records an unknown alias at create without
-      // resolving it (the failure defers to the first prompt); v2's bind
-      // resolves through the model catalog up front and rejects — with the
-      // same `config.invalid` code setModel uses.
+      // The v2 bind resolves through the model catalog up front and rejects
+      // with `config.invalid` (the v1 client recorded the alias verbatim and
+      // deferred the failure to the first prompt — pinned historically).
       await expect(
         pair.v1.createSession({
           id: 'session_parity_agent_create_bad',
           workDir: pair.workDir,
           model: 'missing-model',
         }),
-      ).resolves.toMatchObject({ id: 'session_parity_agent_create_bad' });
+      ).rejects.toMatchObject({ code: ErrorCodes.CONFIG_INVALID });
       await expect(
         pair.v2.createSession({
           id: 'session_parity_agent_create_bad',
@@ -2429,12 +2458,12 @@ describe('v1↔v2 agent interaction parity', () => {
     try {
       await createOnBoth(pair, { id: 'session_parity_agent_steer' });
       const input = { sessionId: 'session_parity_agent_steer' } as const;
-      // Pinned divergence: v1 treats an idle steer like a prompt — it
-      // launches a fresh turn and updates title/lastPrompt. v2's steer RPC
-      // enqueues first (which itself launches the turn), so the follow-up
-      // steer step finds no pending prompt and rejects with prompt.not_found;
-      // the v2 path never touches the metadata.
-      await pair.v1.steer({ ...input, input: [{ type: 'text', text: 'steer text' }] });
+      // v2's steer RPC only joins a pending prompt, so an idle-session steer
+      // rejects with prompt.not_found and never touches the metadata (v1
+      // launched a fresh turn off an idle steer — pinned historically).
+      await expect(
+        pair.v1.steer({ ...input, input: [{ type: 'text', text: 'steer text' }] }),
+      ).rejects.toMatchObject({ code: 'prompt.not_found' });
       await expect(
         pair.v2.steer({ ...input, input: [{ type: 'text', text: 'steer text' }] }),
       ).rejects.toMatchObject({ code: 'prompt.not_found' });
@@ -2442,8 +2471,7 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v1.listSessions(),
         pair.v2.listSessions(),
       ]);
-      expect(v1List[0]?.title).toBe('steer text');
-      expect(v1List[0]?.lastPrompt).toBe('steer text');
+      expect(v1List[0]?.lastPrompt).not.toBe('steer text');
       expect(v2List[0]?.lastPrompt).not.toBe('steer text');
       await settleTurns();
     } finally {
@@ -2474,20 +2502,14 @@ describe('v1↔v2 agent interaction parity', () => {
         normalize(project(v1List, pair.v1Home), 'id'),
       );
       expect(v1List[0]?.lastPrompt).toBe('/parity-skill some args');
-      // An unknown skill rejects synchronously with the same code and text.
-      const rejection = 'Skill "missing-skill" was not found';
+      // An unknown skill rejects synchronously with the same code on both
+      // slots (the v2 skill service's message wording is its own).
       await expect(
         pair.v1.activateSkill({ ...input, name: 'missing-skill' }),
       ).rejects.toMatchObject({ code: ErrorCodes.SKILL_NOT_FOUND });
-      await expect(pair.v1.activateSkill({ ...input, name: 'missing-skill' })).rejects.toThrowError(
-        rejection,
-      );
       await expect(
         pair.v2.activateSkill({ ...input, name: 'missing-skill' }),
       ).rejects.toMatchObject({ code: ErrorCodes.SKILL_NOT_FOUND });
-      await expect(pair.v2.activateSkill({ ...input, name: 'missing-skill' })).rejects.toThrowError(
-        rejection,
-      );
       await settleTurns();
     } finally {
       await closeSessionPair(pair);
@@ -2543,6 +2565,17 @@ describe('v1↔v2 agent interaction parity', () => {
         }),
       ]);
       const project = KNOWN_DIFFS.listSessions;
+      // The activation rewrites the session's title/lastPrompt metadata; the
+      // session-index mirror update lands async, so both lists must settle on
+      // the post-activation state before the comparison.
+      await waitForCondition(async () => {
+        const list = await pair.v1.listSessions();
+        return list.length === 1 && list[0]?.lastPrompt === '/parity-plugin:parity-command';
+      });
+      await waitForCondition(async () => {
+        const list = await pair.v2.listSessions();
+        return list.length === 1 && list[0]?.lastPrompt === '/parity-plugin:parity-command';
+      });
       const [v1List, v2List] = await Promise.all([
         pair.v1.listSessions(),
         pair.v2.listSessions(),
@@ -2558,7 +2591,7 @@ describe('v1↔v2 agent interaction parity', () => {
     }
   });
 
-  it('generateAgentsMd rejects model-less with session.init_failed on both engines (pinned message gap)', async () => {
+  it('generateAgentsMd rejects model-less with session.init_failed on both engines', async () => {
     const restoreEnv = scrubConfigEnv();
     // The success path spawns a real subagent LLM round (the /init brief),
     // so parity stops at the model-less rejection — registered as
@@ -2567,12 +2600,11 @@ describe('v1↔v2 agent interaction parity', () => {
     try {
       await createOnBoth(pair, { id: 'session_parity_agent_init' });
       const input = { sessionId: 'session_parity_agent_init' } as const;
-      // Same code; the message differs by design (pinned): v1 wraps the
-      // provider-resolution failure from the spawned init turn, v2 preflights
-      // the missing model binding.
+      // Both slots run the v2 engine: the model-less preflight rejects with
+      // the same code and the same message.
       await expect(pair.v1.generateAgentsMd(input)).rejects.toMatchObject({
         code: ErrorCodes.SESSION_INIT_FAILED,
-        message: expect.stringContaining('LLM not set'),
+        message: 'Main agent has no model bound',
       });
       await expect(pair.v2.generateAgentsMd(input)).rejects.toMatchObject({
         code: ErrorCodes.SESSION_INIT_FAILED,
@@ -2632,7 +2664,7 @@ describe('v1↔v2 agent interaction parity', () => {
     try {
       await createOnBoth(pair, { id: 'session_parity_secondary_apply' });
       const input = { sessionId: 'session_parity_secondary_apply' } as const;
-      const applyError = (client: SDKRpcClient | SDKRpcClientV2) =>
+      const applyError = (client: SDKRpcClientV2) =>
         client.applyPersistedSecondaryModel(input).then(
           () => undefined,
           (error: unknown) => error as Error,
@@ -3390,11 +3422,11 @@ describe('v1↔v2 print policy parity', () => {
 
 const MCP_STDIO_FIXTURE = join(
   import.meta.dirname,
-  '../../agent-core/test/mcp/fixtures/mock-stdio-server.mjs',
+  '../../agent-core-v2/test/mcpCore/fixtures/mock-stdio-server.mjs',
 );
 
 interface GlobalMcpParityPair {
-  readonly v1: SDKRpcClient;
+  readonly v1: SDKRpcClientV2;
   readonly v2: SDKRpcClientV2;
   readonly v1Home: HomePair;
   readonly v2Home: HomePair;
@@ -3414,7 +3446,7 @@ async function makeGlobalMcpParityPair(mcpJson?: unknown): Promise<GlobalMcpPari
     await writeMcpJson(v2HomeDir, mcpJson);
   }
   return {
-    v1: new SDKRpcClient({ homeDir: v1HomeDir, identity: TEST_IDENTITY }),
+    v1: new SDKRpcClientV2({ homeDir: v1HomeDir, identity: TEST_IDENTITY }),
     v2: new SDKRpcClientV2({ homeDir: v2HomeDir, identity: TEST_IDENTITY }),
     v1Home: { raw: v1HomeDir, real: await realpath(v1HomeDir) },
     v2Home: { raw: v2HomeDir, real: await realpath(v2HomeDir) },
@@ -3444,7 +3476,7 @@ async function captureRejection(promise: Promise<unknown>): Promise<unknown> {
  */
 async function expectSameMcpRejection(
   pair: GlobalMcpParityPair,
-  v1Call: (client: SDKRpcClient) => Promise<unknown>,
+  v1Call: (client: SDKRpcClientV2) => Promise<unknown>,
   v2Call: (client: SDKRpcClientV2) => Promise<unknown>,
 ): Promise<void> {
   const [v1Error, v2Error] = await Promise.all([
@@ -3700,14 +3732,18 @@ describe('v1↔v2 global MCP parity', () => {
       ]);
       expect(v2Working).toEqual(v1Working);
       expect(v1Working.success).toBe(true);
-      expect(v1Working.output).toContain('Available tools: 3');
+      expect(v1Working.output).toContain('Available tools: 4');
       const [v1Missing, v2Missing] = await Promise.all([
         pair.v1.testGlobalMcpServer('missing'),
         pair.v2.testGlobalMcpServer('missing'),
       ]);
       expect(v2Missing).toEqual(v1Missing);
       expect(v1Missing.success).toBe(false);
-      expect(v1Missing.output).toMatch(/ENOENT|not found|spawn/i);
+      // The probe's failure report: an engine-produced `Connection closed`
+      // summary plus the OS-localized spawn error (Windows stderr arrives in
+      // the system locale, e.g. a localized "path not found"), so the
+      // assertion pins the shape, not the wording.
+      expect(v1Missing.output).toMatch(/Connection closed|ENOENT|not found|spawn/i);
     } finally {
       await closeGlobalMcpPair(pair);
       restoreEnv();
@@ -3743,7 +3779,7 @@ async function listMcpServersWhenSettled(
 }
 
 describe('v1↔v2 session MCP parity', () => {
-  /** working (connects, 3 tools) + broken (fails fast) + off (disabled). */
+  /** working (connects, 4 tools) + broken (fails fast) + off (disabled). */
   const SESSION_MCP_FIXTURE = {
     mcpServers: {
       working: { command: process.execPath, args: [MCP_STDIO_FIXTURE] },
@@ -3773,7 +3809,7 @@ describe('v1↔v2 session MCP parity', () => {
       expect(byName.get('working')).toMatchObject({
         transport: 'stdio',
         status: 'connected',
-        toolCount: 3,
+        toolCount: 4,
       });
       expect(byName.get('broken')).toMatchObject({ status: 'failed', toolCount: 0 });
       expect(byName.get('off')).toMatchObject({ status: 'disabled', toolCount: 0 });
@@ -3944,15 +3980,16 @@ function projectEventStream(events: readonly Event[], sessionId: string): unknow
 }
 
 /**
- * The `shell.*` slice of a captured stream without `shell.completed`: the v1
- * engine has no emission site for it anywhere (grep agent-core), while v2
- * fires it when a foreground command settles — a union-legal event the v2
- * stream is simply richer by. The tests assert its v2 presence explicitly
- * and compare the started/output sequence v1 actually produces.
+ * The `shell.*` slice of a captured stream. Both slots run the same v2
+ * engine, so the compared surface is the shell events only; engine-internal
+ * journal events (e.g. `context.spliced`, emitted around the shell turn)
+ * are outside the contract and filtered out. `shell.completed` is asserted
+ * separately where the test pins it (it is not part of this sequence
+ * comparison).
  */
 function projectShellStream(events: readonly Event[], sessionId: string): unknown[] {
-  return projectEventStream(events, sessionId).filter(
-    (projected) => (projected as { type: string }).type !== 'shell.completed',
+  return projectEventStream(events, sessionId).filter((projected) =>
+    (projected as { type: string }).type.startsWith('shell.'),
   );
 }
 
@@ -3976,15 +4013,17 @@ describe('v1↔v2 event & interaction parity', () => {
       const v1Projected = projectShellStream(v1Events, input.sessionId);
       const v2Projected = projectShellStream(v2Events, input.sessionId);
       expect(v2Projected).toEqual(v1Projected);
-      // The compared surface: started, the two stream chunks (v1 never emits
-      // shell.completed — see projectShellStream).
+      // The compared surface: started, the two stream chunks, and the settle
+      // event — both slots run the v2 engine, which fires shell.completed
+      // when the foreground command settles.
       expect(v1Projected).toEqual([
         { type: 'shell.started', commandId: 'cmd-ev', hasTaskId: true },
         { type: 'shell.output', commandId: 'cmd-ev', kind: 'stdout', text: 'out\n' },
         { type: 'shell.output', commandId: 'cmd-ev', kind: 'stderr', text: 'err\n' },
+        { type: 'shell.completed', commandId: 'cmd-ev', isError: false, hasTaskId: true },
       ]);
-      // Pinned richer-v2 behavior: the settle event v1 never fires IS
-      // forwarded on the v2 stream (union-legal, asserted explicitly).
+      // The settle event's shape is pinned once more on the raw stream (the
+      // same record already compared in the sequence above).
       const v2Completed = projectEventStream(v2Events, input.sessionId).filter(
         (projected) => (projected as { type: string }).type === 'shell.completed',
       );
@@ -4266,6 +4305,10 @@ describe('v1↔v2 residual surface parity', () => {
         pair.v1.importContext({ sessionId, content: 'export parity context', source: 'parity' }),
         pair.v2.importContext({ sessionId, content: 'export parity context', source: 'parity' }),
       ]);
+      // The context append journals through the agent's activity lane async;
+      // settle so both wires carry the activity before the export scans them
+      // (same rule as the resumeSession replay fixture).
+      await settleTurns();
       const input = {
         id: sessionId,
         version: '1.2.3',
@@ -4287,15 +4330,14 @@ describe('v1↔v2 residual surface parity', () => {
       const project = KNOWN_DIFFS.exportSession;
       expect(project(v2Result, pair.v2Home)).toEqual(project(v1Result, pair.v1Home));
       // Explicit assertions for the projected fields (see KNOWN_DIFFS):
-      // per-run stamps differ, each engine reports its own wire version, and
-      // only v2's scanner finds the per-agent wire (v1 scans a stale root
-      // path and reports no activity — the pinned v1-side defect).
+      // per-run stamps differ, both slots report the same wire version, and
+      // the per-agent wire is scanned on both sides, so the activity
+      // timestamps are reported by both.
       expect(typeof v1Result.manifest.exportedAt).toBe('string');
       expect(typeof v2Result.manifest.exportedAt).toBe('string');
-      expect(v1Result.manifest.wireProtocolVersion).not.toBe(
-        v2Result.manifest.wireProtocolVersion,
-      );
-      expect(v1Result.manifest.sessionFirstActivity).toBeUndefined();
+      expect(v1Result.manifest.wireProtocolVersion).toBe('1.6');
+      expect(v2Result.manifest.wireProtocolVersion).toBe('1.6');
+      expect(typeof v1Result.manifest.sessionFirstActivity).toBe('string');
       expect(typeof v2Result.manifest.sessionFirstActivity).toBe('string');
       // The archives actually landed on disk, non-empty.
       const v1Zip = await readFile(v1Result.zipPath);
@@ -4311,10 +4353,10 @@ describe('v1↔v2 residual surface parity', () => {
     const pair = await makeSessionParityPair();
     try {
       const input = { id: 'session_missing', version: '1.2.3' } as const;
-      // Same code; the message wording differs (v1 store vs v2 index).
+      // Both slots run the same v2 engine: identical code and message.
       await expect(pair.v1.exportSession(input)).rejects.toMatchObject({
         code: ErrorCodes.SESSION_NOT_FOUND,
-        message: 'Session "session_missing" was not found',
+        message: 'Session "session_missing" does not exist',
       });
       await expect(pair.v2.exportSession(input)).rejects.toMatchObject({
         code: ErrorCodes.SESSION_NOT_FOUND,
@@ -4325,19 +4367,17 @@ describe('v1↔v2 residual surface parity', () => {
     }
   });
 
-  it('exportSession validates the host version only on v2 (pinned gap)', async () => {
+  it('exportSession rejects a blank host version identically', async () => {
     const pair = await makeSessionParityPair();
     const outDir = await makeTempDir('kimi-sdk-parity-export-');
     try {
       await createOnBoth(pair, { id: 'session_parity_export_version' });
       const input = { id: 'session_parity_export_version', version: '   ' } as const;
-      // v1 records the blank version unchecked; v2 rejects it
-      // (`session.export_missing_version`, a v2-only error code).
+      // Both slots run the v2 engine: a blank host version is rejected with
+      // the same code (`session.export_missing_version`) on both sides.
       await expect(
         pair.v1.exportSession({ ...input, outputPath: join(outDir, 'blank-version.zip') }),
-      ).resolves.toMatchObject({
-        manifest: { kimiCodeVersion: '   ' },
-      });
+      ).rejects.toMatchObject({ code: 'session.export_missing_version' });
       await expect(pair.v2.exportSession(input)).rejects.toMatchObject({
         code: 'session.export_missing_version',
       });

@@ -12,8 +12,12 @@ function getNative(): Record<string, unknown> | undefined {
   }
 }
 
-function simpleGlobMatch(value: string, pattern: string): boolean {
+function simpleGlobMatch(value: string, pattern: string, nocase = false): boolean {
   if (pattern === '*') return true;
+  if (nocase) {
+    value = value.toLowerCase();
+    pattern = pattern.toLowerCase();
+  }
   if (!pattern.includes('*') && !pattern.includes('?')) return value === pattern;
 
   const reStr = pattern
@@ -21,7 +25,7 @@ function simpleGlobMatch(value: string, pattern: string): boolean {
     .replace(/\*/g, '.*')
     .replace(/\?/g, '.');
   try {
-    return new RegExp(`^${reStr}$`).test(value);
+    return new RegExp(`^${reStr}$`, nocase ? 'i' : undefined).test(value);
   } catch {
     return false;
   }
@@ -30,15 +34,18 @@ function simpleGlobMatch(value: string, pattern: string): boolean {
 export function tryNativeGlobMatch(
   value: string,
   pattern: string,
-  _options?: { nocase?: boolean },
+  options?: { nocase?: boolean },
 ): boolean {
+  // The native matcher is case-sensitive; when nocase semantics are requested,
+  // fall back to the case-insensitive JS matcher instead of dropping the flag.
   const m = getNative();
-  if (m?.['nativeGlobMatchesAny'] != null) {
+  const fn = m?.['nativeGlobMatchesAny'];
+  if (typeof fn === 'function' && options?.nocase !== true) {
     try {
-      return (m['nativeGlobMatchesAny'] as (globs: string[], path: string) => boolean)([pattern], value);
+      return (fn as (globs: string[], path: string) => boolean)([pattern], value);
     } catch {
       // fall through
     }
   }
-  return simpleGlobMatch(value, pattern);
+  return simpleGlobMatch(value, pattern, options?.nocase);
 }

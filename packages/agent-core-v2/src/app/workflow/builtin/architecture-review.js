@@ -6,7 +6,7 @@ export const meta = {
 };
 
 // ── Tunables ──────────────────────────────────────────────────────
-const MAX_FILES = 40; const MAX_LINES = 200; const MAX_DEPTH = 6;
+const MAX_FILES = 40; const MAX_LINES = 200;
 
 // ── Structured output shapes ──────────────────────────────────────
 const MODULE_MAP_SHAPE = {
@@ -50,7 +50,6 @@ function truncate(content, maxLines) {
 
 // ── Main ──────────────────────────────────────────────────────────
 const input = typeof args === 'string' ? { root: args } : (args || {});
-const rootDir = input.root || '.';
 const globPattern = input.glob || '**/*.{ts,js,tsx,jsx,mjs,cjs}';
 
 phase('Scan');

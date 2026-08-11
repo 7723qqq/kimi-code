@@ -4,11 +4,15 @@
  * Wiring: real temporary workspace/global-storage/legacy files; no stubbed collaborators.
  * Run: pnpm --filter kimi-code test -- baseline.manager.test.ts
  */
-import { existsSync, writeFileSync } from 'node:fs';
+import fs, { existsSync, writeFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Spy on `node:fs` so the UNC path tests can treat an unreachable network
+// share as a missing file without hitting the real (slow, UNKNOWN) stat error.
+vi.mock('node:fs', { spy: true });
 
 import {
   BaselineManager,
@@ -357,6 +361,14 @@ describe('baseline boundaries (errors, cleanup, and platform paths)', () => {
       id: 'ses-unc',
       workDir: '\\\\Server\\Share\\Workspace',
     };
+    // The share does not exist on any host. Windows surfaces that as a
+    // `UNKNOWN` stat error (after a slow network timeout) instead of ENOENT,
+    // so treat the unreachable UNC path as a missing file explicitly.
+    vi.mocked(fs.statSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('ENOENT: no such file or directory, stat'), {
+        code: 'ENOENT',
+      });
+    });
     await manager.capture(session, '\\\\server\\share\\workspace\\src\\new.ts');
 
     await expect(manager.getContent(session, 'src\\new.ts')).resolves.toBe('');

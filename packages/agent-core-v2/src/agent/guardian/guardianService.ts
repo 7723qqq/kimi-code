@@ -46,7 +46,12 @@ declare module '#/app/event/eventBus' {
 }
 
 export type GuardianVerdict =
-  | { readonly verdict: 'allow'; readonly riskLevel: string; readonly rationale: string }
+  | {
+      readonly verdict: 'allow';
+      readonly riskLevel: string;
+      readonly userAuthorization: string;
+      readonly rationale: string;
+    }
   | { readonly verdict: 'deny'; readonly riskLevel: string; readonly rationale: string }
   | { readonly verdict: 'bypass'; readonly reason: string };
 
@@ -138,7 +143,12 @@ export class GuardianService extends Disposable implements IAgentGuardianService
     const assessment = parseAssessment(text);
     const verdict: GuardianVerdict =
       assessment !== undefined && assessment.outcome === 'allow'
-        ? { verdict: 'allow', riskLevel: assessment.riskLevel, rationale: assessment.rationale }
+        ? {
+            verdict: 'allow',
+            riskLevel: assessment.riskLevel,
+            userAuthorization: assessment.userAuthorization,
+            rationale: assessment.rationale,
+          }
         : {
             verdict: 'deny',
             riskLevel: assessment?.riskLevel ?? 'high',

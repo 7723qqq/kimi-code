@@ -67,15 +67,8 @@ describe('Event public types', () => {
     function handle(event: Event): void {
       switch (event.type) {
         case 'agent.status.updated':
+        case 'agent.activity.updated':
         case 'session.meta.updated':
-        case 'event.session.created':
-        case 'event.session.status_changed':
-        case 'event.session.work_changed':
-        case 'event.workspace.created':
-        case 'event.workspace.updated':
-        case 'event.workspace.deleted':
-        case 'event.config.changed':
-        case 'event.model_catalog.changed':
         case 'goal.updated':
         case 'skill.activated':
         case 'plugin_command.activated':
@@ -108,12 +101,19 @@ describe('Event public types', () => {
         case 'compaction.blocked':
         case 'compaction.cancelled':
         case 'compaction.completed':
+        case 'compaction.stuck':
+        case 'context.spliced':
+        case 'context.undone':
+        case 'checkpoint.restored':
+        case 'guardian.assessment':
+        case 'permission.approval.requested':
+        case 'permission.approval.resolved':
+        case 'plan.revision':
         case 'task.started':
         case 'task.terminated':
-        case 'background.task.started':
-        case 'background.task.terminated':
+        case 'task.notified':
         case 'cron.fired':
-        case 'prompt.submitted':
+        case 'prompt.queued':
         case 'prompt.completed':
         case 'prompt.aborted':
         case 'prompt.steered':

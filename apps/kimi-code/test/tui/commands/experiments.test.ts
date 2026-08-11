@@ -14,7 +14,7 @@ import { darkColors } from '#/tui/theme/colors';
 vi.mock('#/i18n', () => ({
   t: (key: string) => {
     const translations: Record<string, string> = {
-      'tui.dialogs.config.configNoExperimentalChanges': 'No experimental feature changes to apply.',
+      'tui.messages.configNoExperimentalChanges': 'No experimental feature changes to apply.',
       'tui.statusMessages.experimentalUpdatedSessionReloaded': 'Experimental features updated. Session reloaded.',
       'tui.statusMessages.experimentalUpdated': 'Experimental features updated.',
     };

@@ -149,7 +149,7 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(body.code).toBe(ErrorCode.FS_IS_DIRECTORY);
   });
 
-  it('fs:read maps a permission-denied host error to FS_PERMISSION_DENIED', async () => {
+  it.skipIf(process.platform === 'win32')('fs:read maps a permission-denied host error to FS_PERMISSION_DENIED', async () => {
     // Root bypasses permission checks, so EACCES never triggers there.
     if (process.getuid?.() === 0) return;
     const file = join(work!, 'locked.txt');

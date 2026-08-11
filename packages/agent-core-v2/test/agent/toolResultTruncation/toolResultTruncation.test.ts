@@ -63,10 +63,7 @@ describe('ToolResultTruncationService', () => {
 
     const outputPath = renderedOutputPath(rendered);
     expect(outputPath).toContain(
-      join(
-        homeDir,
-        'sessions/workspace/session/agents/main/tool-results/Lookup_Tool-call_lookup-',
-      ),
+      `${homeDir.replaceAll('\\', '/')}/sessions/workspace/session/agents/main/tool-results/Lookup_Tool-call_lookup-`,
     );
     await expect(readFile(outputPath, 'utf8')).resolves.toBe(fullOutput);
   });

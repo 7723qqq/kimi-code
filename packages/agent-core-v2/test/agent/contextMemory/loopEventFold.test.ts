@@ -352,4 +352,68 @@ describe('loop-event fold parity', () => {
 
     expect(folded).toEqual(baseline);
   });
+
+  it('restores tool call displays onto the folded assistant message', () => {
+    context.appendLoopEvent({ type: 'step.begin', uuid: 's4' });
+    context.appendLoopEvent({
+      type: 'tool.call',
+      stepUuid: 's4',
+      toolCallId: 'c-diff',
+      name: 'Edit',
+      args: { path: 'a.txt' },
+      display: { kind: 'diff', path: 'a.txt', before: 'old', after: 'new' },
+    });
+    context.appendLoopEvent({
+      type: 'tool.call',
+      stepUuid: 's4',
+      toolCallId: 'c-todo',
+      name: 'TodoList',
+      args: {},
+      display: { kind: 'todo_list', items: [{ title: 'Ship', status: 'pending' }] },
+    });
+    context.appendLoopEvent({
+      type: 'tool.result',
+      toolCallId: 'c-diff',
+      result: { output: 'Replaced 1 occurrence', isError: false },
+    });
+    context.appendLoopEvent({
+      type: 'tool.result',
+      toolCallId: 'c-todo',
+      result: { output: 'Updated the task list', isError: false },
+    });
+    context.appendLoopEvent({ type: 'step.end', uuid: 's4' });
+    const [assistant] = context.get();
+
+    expect(assistant).toMatchObject({
+      role: 'assistant',
+      toolCalls: [
+        { id: 'c-diff', name: 'Edit' },
+        { id: 'c-todo', name: 'TodoList' },
+      ],
+      toolCallDisplays: {
+        'c-diff': { kind: 'diff', path: 'a.txt', before: 'old', after: 'new' },
+        'c-todo': { kind: 'todo_list', items: [{ title: 'Ship', status: 'pending' }] },
+      },
+    });
+  });
+
+  it('omits toolCallDisplays when no tool call carried a display', () => {
+    context.appendLoopEvent({ type: 'step.begin', uuid: 's5' });
+    context.appendLoopEvent({
+      type: 'tool.call',
+      stepUuid: 's5',
+      toolCallId: 'c1',
+      name: 'Lookup',
+      args: { q: 'moon' },
+    });
+    context.appendLoopEvent({
+      type: 'tool.result',
+      toolCallId: 'c1',
+      result: { output: 'lookup result', isError: false },
+    });
+    context.appendLoopEvent({ type: 'step.end', uuid: 's5' });
+    const [assistant] = context.get();
+
+    expect(assistant?.toolCallDisplays).toBeUndefined();
+  });
 });

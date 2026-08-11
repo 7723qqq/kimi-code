@@ -5,8 +5,7 @@
  * Used by the contextInjector to fetch relevant standards before each turn.
  */
 
-import { execFileSync } from 'child_process';
-import { resolve } from 'path';
+import { execFileSync } from 'node:child_process';
 
 const BINARY = process.env.KIMI_KNOWLEDGE_BIN ?? 'kimi-knowledge';
 

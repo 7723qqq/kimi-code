@@ -32,6 +32,33 @@ function tryNativeWorkspaceIndexPredictRead(_path: string): NativeReadPrediction
   return null;
 }
 
+/**
+ * Local structural stand-ins for the v1 `RunTurnOverride` contract
+ * (agent-core is removed; the Rust engine adapter keeps its own copies of the
+ * input/output shapes it actually touches).
+ */
+interface RunTurnOverrideInput {
+  readonly turnId: string;
+  readonly signal: AbortSignal;
+  readonly llm: { readonly modelName: string };
+  readonly maxSteps?: number;
+  readonly buildMessages: unknown;
+  readonly buildTools: unknown;
+  readonly describeMissingTool: unknown;
+  readonly dispatchEvent: unknown;
+  readonly hooks: unknown;
+  readonly replaceToolResult?: unknown;
+  readonly tools: unknown;
+}
+
+interface RunTurnOverrideResult {
+  stopReason: string;
+  steps: number;
+  usage: { inputOther: number; output: number; inputCacheRead: number; inputCacheCreation: number };
+}
+
+type RunTurnOverride = (input: RunTurnOverrideInput) => Promise<RunTurnOverrideResult>;
+
 /** Token usage carried on step.end (structurally matches kosong's TokenUsage). */
 interface HostTokenUsage {
   inputOther: number;
@@ -214,23 +241,36 @@ class NapiEngine {
   static findModule(): string | null {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fs = require('node:fs') as typeof import('node:fs');
-    const candidates = [
-      // Development: alongside rust-loop.ts in the package directory
+    const candidates: string[] = [
+      // Development / production source tree: the napi build emits a
+      // platform-suffixed name (e.g. kimi_agent.win32-x64-msvc.node), so glob
+      // instead of requiring a fixed `kimi_agent.node` path.
       resolve(import.meta.dirname, 'kimi_agent.node'),
-      // Production: may be bundled elsewhere
       resolve(projectRoot, 'packages/kimi-agent/kimi_agent.node'),
     ];
+    for (const dir of [import.meta.dirname, resolve(projectRoot, 'packages/kimi-agent')]) {
+      try {
+        for (const entry of fs.readdirSync(dir)) {
+          if (entry.endsWith('.node') && entry.startsWith('kimi_agent')) {
+            candidates.push(resolve(dir, entry));
+          }
+        }
+      } catch {
+        // ignore unreadable dirs
+      }
+    }
 
     // SEA exe: the .node file is embedded as a native asset and extracted
     // to a cache directory at runtime. The global helper
     // `__kimi_getNativePackageRoot` (installed by native-assets.ts) returns
     // the cached package root for a given package name.
-    const seaPkgRoot = (
-      globalThis as Record<string, unknown>
-    )['__kimi_getNativePackageRoot']?.('@moonshot-ai/kimi-agent') as
-      | string
-      | null
-      | undefined;
+    const getNativePackageRoot = (globalThis as Record<string, unknown>)[
+      '__kimi_getNativePackageRoot'
+    ];
+    const seaPkgRoot =
+      typeof getNativePackageRoot === 'function'
+        ? (getNativePackageRoot as (pkg: string) => string | null)('@moonshot-ai/kimi-agent')
+        : undefined;
     if (seaPkgRoot !== null && seaPkgRoot !== undefined) {
       // The .node file may be named with a platform suffix (e.g.
       // kimi_agent.win32-x64-msvc.node) or plain kimi_agent.node.
@@ -699,7 +739,7 @@ export function createRunTurnOverride(
   providers?: LlmProviderDef[],
   workspaceRoot?: string,
   options?: RustEngineOptions,
-): import('@moonshot-ai/agent-core').RunTurnOverride | undefined {
+): RunTurnOverride | undefined {
   const mode = initEngine();
   if (mode === 'js') return undefined;
 
@@ -1239,7 +1279,7 @@ export function createRunTurnOverride(
  */
 export function mapStopReason(
   reason: string,
-): Awaited<ReturnType<import('@moonshot-ai/agent-core').RunTurnOverride>>['stopReason'] {
+): RunTurnOverrideResult['stopReason'] {
   switch (reason) {
     case 'EndTurn':
       return 'end_turn' as never;

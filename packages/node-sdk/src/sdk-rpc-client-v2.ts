@@ -130,16 +130,20 @@ import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
-  ensureConfigFile,
   ErrorCodes,
+  ensureConfigFile,
+  getRootLogger,
   HookDefSchema,
   KimiError,
   limitAgentReplayByTurns,
   noopTelemetryClient,
-  type AgentContextData,
-  type BeginGlobalMcpServerAuthResult,
-  type ExperimentalFeatureState,
-} from '@moonshot-ai/agent-core';
+} from '#/legacy';
+import type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
+import { ImageLimits } from '@moonshot-ai/agent-core-v2';
+// `getContext`'s return type is the v2 engine's own `AgentContextData` (the
+// shape the v1 client used is field-identical; the v1 type is gone with it).
+import type { AgentContextData } from '@moonshot-ai/agent-core-v2';
+import type { BeginGlobalMcpServerAuthResult } from '#/types';
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import { MCP_SECTION, type McpSection } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configSection';
 import { IAgentIdentity } from '@moonshot-ai/agent-core-v2/app/agentIdentity/agentIdentity';
@@ -218,8 +222,6 @@ import {
   ProfileErrors,
   promptMetadataTextFromSkill,
   resolveAgentTaskConfig,
-  resolveConfigPath,
-  resolveKimiHome,
   resolveLoggingConfig,
   resolvePrintBackgroundMode,
   summarizeSkill,
@@ -234,6 +236,7 @@ import type { AgentHandle, Klient } from '@moonshot-ai/klient';
 import { createKlient } from '@moonshot-ai/klient/memory';
 import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 
+import { readConfigFile, resolveConfigPath, resolveKimiHome } from '#/config-local';
 import { KimiAuthFacade } from '#/auth';
 import { KimiHarness } from '#/kimi-harness';
 import {
@@ -303,7 +306,6 @@ import {
   planProviderRemoval,
   resolvedConfigToKimiConfig,
 } from '#/v2/config-mapper';
-import { translateGlobalEvent } from '#/v2/event-mapper';
 import { assertImportFits, buildImportContextMessage } from '#/v2/import-context';
 import { foldAgentWireReplay } from '#/v2/resume-replay';
 import {
@@ -424,6 +426,14 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       onRefresh: options.onOAuthRefresh,
     });
 
+    // v1 parity: the v1 client configured the SDK's root diagnostic logger
+    // on construction, so the host-facing `log` / `flushDiagnosticLogs`
+    // surface keeps working after a harness exists. The engine seeds its own
+    // log service to the same global path (logSeed below) — both sinks
+    // append to the same file, matching the v1 single-sink layout as closely
+    // as the dual-engine migration allows.
+    void getRootLogger().configure(resolveLoggingConfig({ homeDir: this.homeDir, env: process.env }));
+
     const identity = assertKimiHostIdentity(this.identity);
     const { app } = bootstrap(
       {
@@ -456,11 +466,24 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       // v1's stream carries `session.meta.updated` (the prompt metadata
       // path) — the one v1-visible fact the v2 engine publishes on the
       // process-global IEventService rather than a per-agent bus. Every other
-      // global-bus type is a daemon/WS-edge event the in-process v1 client
-      // never saw, so the translation filters down to that single type.
+      // global-bus type is a daemon/WS-edge event the in-process SDK client
+      // never saw, so the subscription filters down to that single type.
       this.app.accessor.get(IEventService).subscribe((event) => {
-        const translated = translateGlobalEvent(event);
-        if (translated !== undefined) this.receiveEvent(translated);
+        if (event.type !== 'session.meta.updated') return;
+        const payload = event.payload as
+          | { readonly sessionId?: string; readonly agentId?: string; readonly title?: string }
+          | undefined;
+        if (typeof payload !== 'object' || payload === null) return;
+        this.receiveEvent({
+          type: 'session.meta.updated',
+          sessionId: payload.sessionId ?? '',
+          agentId: payload.agentId ?? MAIN_AGENT_ID,
+          title: payload.title,
+          patch:
+            typeof event.payload === 'object' && event.payload !== null
+              ? (event.payload as Record<string, unknown>)
+              : undefined,
+        });
       }),
       // A session closed without going through this client (archive, an
       // engine-initiated close) drops its wiring with the scope. Close events
@@ -488,6 +511,12 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     }
     await this.klient.close();
     this.app.dispose();
+    // v1 parity: `KimiHarness.close()` drains the SDK's diagnostic log.
+    try {
+      await getRootLogger().flush();
+    } catch {
+      // never let logger flush block process exit
+    }
   }
 
   /**
@@ -526,7 +555,12 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return this.app.accessor;
   }
 
-  protected getRpc(): Promise<never> {
+  /**
+   * The v1 RPC pair (and its `CoreAPI` / `RPCMethods` protocol types) is gone
+   * with the v1 client; every base-class method that still falls through to
+   * `getRpc()` fails loudly via the base class's throw.
+   */
+  override getRpc(): Promise<any> {
     throw new KimiError(
       ErrorCodes.NOT_IMPLEMENTED,
       'This SDK method is not wired to agent-core-v2 yet.',
@@ -948,8 +982,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
         thinkingEffort: profile.thinkingLevel,
         systemPrompt: profile.systemPrompt,
       },
-      context: context as AgentContextData,
-      replay: limitAgentReplayByTurns(folded.replay, replayTurnLimit),
+      context: context as unknown as ResumedAgentState['context'],
+      replay: limitAgentReplayByTurns(folded.replay, replayTurnLimit) as unknown as ResumedAgentState['replay'],
       permission: {
         mode: agent.accessor.get(IAgentPermissionModeService).mode,
         rules: [...agent.accessor.get(IAgentPermissionRulesService).rules],
@@ -1448,16 +1482,14 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
 
   /**
    * Facade (`agentRPCService.getContext`). The v2 `AgentContextData` is the
-   * same wire shape as v1's — the cast only bridges the two packages' type
-   * declarations (v2's origin union carries kinds a v1 client never sees in
-   * practice); the data itself crossed the same JSON boundary on both sides.
+   * SDK contract type now (field-identical with the v1 shape it replaced).
    * Token-count semantics differ by design: v1 reports the running estimate,
    * v2 the provider-measured prefix (`0` until the first LLM round) — pinned
    * in the parity KNOWN_DIFFS.
    */
   override async getContext(input: SessionIdRpcInput): Promise<AgentContextData> {
     const agent = await this.agentFacade(input.sessionId);
-    return agent.getContext() as Promise<AgentContextData>;
+    return agent.getContext();
   }
 
   override async getUsage(input: SessionIdRpcInput): Promise<SessionUsage> {
@@ -2260,12 +2292,33 @@ export function createKimiHarnessV2(options: KimiHarnessOptions): KimiHarness {
     telemetry: rpc.telemetry,
     ensureConfigFile: () => rpc.ensureConfigFile(),
     onClose: () => rpc.close(),
-    // v1-core-owned ingestion limits; the v2 engine has no equivalent yet, so
-    // ingestion falls back to env / built-in defaults like daemon-client hosts.
-    imageLimits: undefined,
+    // v1 parity: owner-scoped [image] limits for prompt-ingestion compression,
+    // resolved from the config file's [image] section (env/built-in defaults
+    // win where v1's ImageLimits said so). Unreadable or invalid config
+    // degrades to undefined — ingestion falls back to env/built-in defaults.
+    imageLimits: resolveConfigImageLimits(rpc.configPath),
     sessionStartedProperties: options.sessionStartedProperties,
   });
 }
+
+function resolveConfigImageLimits(configPath: string): ImageLimits | undefined {
+  try {
+    const image = readConfigFile(configPath).image;
+    return new ImageLimits(process.env, {
+      ...(image?.maxEdgePx !== undefined ? { maxEdgePx: image.maxEdgePx } : {}),
+      ...(image?.readByteBudget !== undefined ? { readByteBudget: image.readByteBudget } : {}),
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The SDK's single harness factory — backed by the agent-core-v2 engine.
+ * Named `createKimiHarness` for the public contract; `createKimiHarnessV2`
+ * is the same factory under its migration-era name.
+ */
+export const createKimiHarness = createKimiHarnessV2;
 
 /** v1's `requiredWorkDir`: reject blank and normalize to the canonical spelling. */
 function normalizeRequiredWorkDir(operation: string, workDir: string): string {

@@ -79,7 +79,7 @@ if (!testGen || !testGen.files || Object.keys(testGen.files).length === 0) retur
 
 const written = [];
 for (const [testPath, content] of Object.entries(testGen.files)) {
-  try { await writeFile(testPath, content); written.push(testPath); } catch (e) { log(`Failed to write ${testPath}: ${e}`); }
+  try { await writeFile(testPath, content); written.push(testPath); } catch (e) { log(`Failed to write ${testPath}: ${String(e)}`); }
 }
 log(`Written: ${written.length} test files`);
 

@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 
 import { MiniDb } from '@moonshot-ai/minidb';
 
+import { t } from '#/i18n';
 import {
   getEmbeddedNativeAssetManifest,
   getNativeCacheBase,
@@ -66,7 +67,7 @@ async function smokeMinidbWorker(): Promise<void> {
       );
     }
     if (!db.search('smoke', 'searchable').some((hit) => hit.key === 'doc-0')) {
-      throw new Error('MiniDb worker-built text index returned an incorrect search result');
+      throw new Error(t('tui.statusMessages.minidbWorkerSearchResultIncorrect'));
     }
   } finally {
     await db?.close().catch(() => {});
@@ -76,7 +77,7 @@ async function smokeMinidbWorker(): Promise<void> {
 
 async function runSmoke(): Promise<void> {
   const manifest = getEmbeddedNativeAssetManifest();
-  if (manifest === null) throw new Error('Native asset manifest is not available.');
+  if (manifest === null) throw new Error(t('tui.statusMessages.nativeManifestNotAvailable'));
   for (const packageName of smokePackages) {
     if (getNativePackageRoot(packageName, { manifest }) === null) {
       throw new Error(`Native package is not available: ${packageName}`);
