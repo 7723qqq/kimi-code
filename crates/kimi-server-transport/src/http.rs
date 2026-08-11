@@ -279,6 +279,408 @@ impl HttpState {
     }
 }
 
+/// kimi-inspect debug surface — `POST /api/v1/debug[/session/:sid[/agent/:aid]]/:service/:method`.
+///
+/// The inspect app's `ProxyChannel` POSTs each service-proxy call as the
+/// method name appended to the service base URL, with the complete argument
+/// array as the JSON body. This routes the used call sites onto the engine
+/// JSON-RPC face (kap-server's `/api/v1/debug` handler, ported to the Rust
+/// server). Unmapped members answer `-32601` so the UI surfaces the missing
+/// mapping instead of a 404.
+async fn debug_rpc(
+    State(state): State<HttpState>,
+    Path(rest): Path<String>,
+    body: String,
+) -> Json<Value> {
+    // `{*rest}` captures the whole remaining path as one string.
+    let segments: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
+    let Some((method, front)) = segments.split_last() else {
+        return Json(err(-32602, &format!("expected /:service/:method (got {rest:?})")));
+    };
+    let method = *method;
+    let Some(service) = front.last().copied() else {
+        return Json(err(-32602, &format!("expected /:service/:method (got {rest:?})")));
+    };
+    let mut session_id: Option<&str> = None;
+    let mut agent_id: Option<&str> = None;
+    let mut i = 0;
+    let scope = &front[..front.len() - 1];
+    while i < scope.len() {
+        match scope[i] {
+            "session" if i + 1 < scope.len() => {
+                session_id = Some(scope[i + 1]);
+                i += 2;
+            }
+            "agent" if i + 1 < scope.len() => {
+                agent_id = Some(scope[i + 1]);
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+    // A body-less POST (inspect property reads) yields an empty body, which
+    // parses to no args; a malformed body degrades to the same.
+    let args: Vec<Value> = serde_json::from_str(&body).unwrap_or_default();
+    let session = session_id.unwrap_or_default();
+    // `session_id` for RPC params; engine RPCs never take the agent id
+    // (the session agent is the only agent), so it only disambiguates scope.
+    let _ = agent_id;
+    Json(debug_dispatch(&state, service, method, &args, session).await)
+}
+
+/// Route one inspect service call to the engine RPC face.
+fn arg(args: &[Value], i: usize) -> Value {
+    args.get(i).cloned().unwrap_or(Value::Null)
+}
+
+async fn debug_dispatch(
+    state: &HttpState,
+    service: &str,
+    method: &str,
+    args: &[Value],
+    session: &str,
+) -> Value {
+    let arg = |i: usize| arg(args, i);
+    // Core-scope services (no session path) first.
+    match (service, method) {
+        // Session lifecycle: resume = create (idempotent) + load persisted state.
+        ("sessionLifecycleService", "resume") => {
+            let sid_arg = arg(0);
+            let sid = sid_arg.as_str().unwrap_or_default().to_string();
+            if sid.is_empty() {
+                return err(-32602, "resume(sessionId)");
+            }
+            let created = state
+                .rpc(kimi_protocol::methods::SESSION_CREATE, json!({ "session_id": sid }))
+                .await;
+            if created["code"].as_i64() != Some(0) {
+                return created;
+            }
+            let loaded = state
+                .rpc(kimi_protocol::methods::SESSION_LOAD, json!({ "session_id": sid }))
+                .await;
+            if loaded["code"].as_i64() != Some(0) {
+                return loaded;
+            }
+            ok(json!({ "id": sid }))
+        }
+        // Session index: list/get/count over `session/list`.
+        ("sessionIndex", "list") => debug_session_list(state, args).await,
+        ("sessionIndex", "get") => {
+            let id_arg = arg(0);
+            let id = id_arg.as_str().unwrap_or_default();
+            let list = state
+                .rpc(kimi_protocol::methods::SESSION_LIST, json!({ "limit": 500 }))
+                .await;
+            let found = list["data"]["sessions"]
+                .as_array()
+                .and_then(|items| items.iter().find(|s| s["id"].as_str() == Some(id)))
+                .cloned();
+            match found {
+                Some(entry) => ok(debug_session_summary(&entry)),
+                None => ok(Value::Null),
+            }
+        }
+        ("sessionIndex", "countActive") => {
+            let list = state
+                .rpc(kimi_protocol::methods::SESSION_LIST, json!({ "limit": 500 }))
+                .await;
+            let count = list["data"]["sessions"]
+                .as_array()
+                .map_or(0, |items| items.iter().filter(|s| s["archived"].as_bool() != Some(true)).count());
+            ok(json!(count))
+        }
+        // Agent profile: model get/set via session RPCs.
+        ("agentProfileService", "setModel") => {
+            let model_arg = arg(0);
+            let model = model_arg.as_str().unwrap_or_default().to_string();
+            state
+                .rpc(
+                    kimi_protocol::methods::SESSION_SET_MODEL,
+                    json!({ "session_id": session, "model": model }),
+                )
+                .await
+        }
+        ("agentProfileService", "getModel" | "hasModel" | "isRunnable") => {
+            let status = state
+                .rpc(
+                    kimi_protocol::methods::SESSION_GET_STATUS,
+                    json!({ "session_id": session }),
+                )
+                .await;
+            match method {
+                "getModel" => ok(json!(status["data"]["model"].as_str().unwrap_or_default())),
+                "hasModel" => ok(json!(status["data"]["model"].as_str().is_some_and(|m| !m.is_empty()))),
+                _ => ok(json!(status["data"]["model"].as_str().is_some_and(|m| !m.is_empty()))),
+            }
+        }
+        ("agentProfileService", "refreshSystemPrompt") => ok(Value::Null),
+        // Agent RPC: prompt / cancel.
+        ("agentRPCService", "prompt") => {
+            let input = arg(0);
+            let text = input["input"]
+                .as_array()
+                .map(|parts| {
+                    parts
+                        .iter()
+                        .filter_map(|p| p["text"].as_str())
+                        .collect::<Vec<_>>()
+                        .join("")
+                })
+                .unwrap_or_default();
+            state
+                .rpc(
+                    kimi_protocol::methods::SESSION_PROMPT,
+                    json!({ "session_id": session, "prompt": text }),
+                )
+                .await
+        }
+        ("agentRPCService", "cancel") => state
+            .rpc(
+                kimi_protocol::methods::SESSION_CANCEL,
+                json!({ "session_id": session }),
+            )
+            .await,
+        // Config read.
+        ("configService", "get") => state.rpc(kimi_protocol::methods::CONFIG_GET, Value::Null).await,
+        ("configService", "getAll") => state.rpc(kimi_protocol::methods::CONFIG_GET, Value::Null).await,
+        ("configService", "reload" | "diagnostics") => {
+            let _ = state.rpc(kimi_protocol::methods::CONFIG_GET, Value::Null).await;
+            ok(Value::Null)
+        }
+        ("authSummaryService", "summarize") => ok(json!([])),
+        ("authSummaryService", "ensureReady") => ok(Value::Null),
+        ("flagService", _) => ok(Value::Null),
+        // Session-scope services.
+        ("sessionMetadata", "read") => {
+            let (status, context, usage) = tokio::join!(
+                state.rpc(kimi_protocol::methods::SESSION_GET_STATUS, json!({ "session_id": session })),
+                state.rpc(kimi_protocol::methods::SESSION_GET_CONTEXT, json!({ "session_id": session })),
+                state.rpc(kimi_protocol::methods::SESSION_GET_USAGE, json!({ "session_id": session })),
+            );
+            let data = json!({
+                "status": status["data"],
+                "context": context["data"],
+                "usage": usage["data"],
+            });
+            ok(data)
+        }
+        ("sessionApprovalService", "listPending") => state
+            .rpc(
+                kimi_protocol::methods::SESSION_APPROVAL_LIST,
+                json!({ "session_id": session }),
+            )
+            .await,
+        ("sessionApprovalService", "decide") => {
+            let id_arg = arg(0);
+            let id = id_arg.as_str().unwrap_or_default();
+            let response = arg(1);
+            let decision = response["decision"].as_str().unwrap_or("rejected");
+            state
+                .rpc(
+                    kimi_protocol::methods::SESSION_APPROVAL_RESOLVE,
+                    json!({
+                        "session_id": session,
+                        "approval_id": id,
+                        "decision": decision,
+                        "feedback": response["feedback"].as_str().unwrap_or_default(),
+                    }),
+                )
+                .await
+        }
+        // Questions surface as tool content answered by the next prompt —
+        // the engine has no separate question RPC (http.rs terminals note).
+        ("sessionQuestionService", "listPending") => ok(json!([])),
+        ("sessionQuestionService", "request" | "enqueue" | "answer" | "dismiss") => ok(Value::Null),
+        ("sessionInteractionService", _) | ("sessionInitService", _) | ("sessionWorkspaceContext", _) => {
+            ok(Value::Null)
+        }
+        ("workspaceService", _) => ok(Value::Null),
+        // Agent-scope services.
+        ("agentGoalService", "getGoal") => state
+            .rpc(
+                kimi_protocol::methods::SESSION_GOAL_GET,
+                json!({ "session_id": session }),
+            )
+            .await,
+        ("agentGoalService", "pauseGoal") => state
+            .rpc(
+                kimi_protocol::methods::SESSION_GOAL_PAUSE,
+                json!({ "session_id": session, "reason": arg(0)["reason"].as_str().unwrap_or_default() }),
+            )
+            .await,
+        ("agentGoalService", "resumeGoal") => state
+            .rpc(
+                kimi_protocol::methods::SESSION_GOAL_RESUME,
+                json!({ "session_id": session, "reason": arg(0)["reason"].as_str().unwrap_or_default() }),
+            )
+            .await,
+        ("agentGoalService", "cancelGoal") => state
+            .rpc(
+                kimi_protocol::methods::SESSION_GOAL_CANCEL,
+                json!({ "session_id": session, "reason": arg(0)["reason"].as_str().unwrap_or_default() }),
+            )
+            .await,
+        ("agentPlanService", "status") => state
+            .rpc(
+                kimi_protocol::methods::SESSION_GET_PLAN,
+                json!({ "session_id": session }),
+            )
+            .await,
+        ("agentPlanService", "enter") => state
+            .rpc(
+                kimi_protocol::methods::SESSION_SET_PLAN_MODE,
+                json!({ "session_id": session, "enabled": true }),
+            )
+            .await,
+        ("agentPlanService", "clear" | "exit" | "cancel" | "recordRevision") => ok(Value::Null),
+        ("agentMcpService", "list") => state
+            .rpc(
+                kimi_protocol::methods::SESSION_LIST_MCP_SERVERS,
+                json!({ "session_id": session }),
+            )
+            .await,
+        ("agentMcpService", "reconnect") => state
+            .rpc(
+                kimi_protocol::methods::SESSION_RECONNECT_MCP_SERVER,
+                json!({ "session_id": session, "name": arg(0).as_str().unwrap_or_default() }),
+            )
+            .await,
+        ("agentPermissionModeService", "mode") => {
+            let status = state
+                .rpc(
+                    kimi_protocol::methods::SESSION_GET_STATUS,
+                    json!({ "session_id": session }),
+                )
+                .await;
+            ok(json!(status["data"]["permission"].as_str().unwrap_or("manual")))
+        }
+        ("agentPermissionModeService", "setMode") => {
+            let mode_arg = arg(0);
+            let mode = mode_arg.as_str().unwrap_or_default();
+            if !matches!(mode, "manual" | "auto" | "yolo") {
+                return err(-32602, "mode must be manual|auto|yolo");
+            }
+            state
+                .rpc(kimi_protocol::methods::PERMISSION_SET_MODE, json!({ "mode": mode }))
+                .await
+        }
+        ("agentPermissionRulesService", "rules" | "sessionApprovalRulePatterns") => ok(json!([])),
+        ("agentPermissionRulesService", "addRules" | "recordApprovalResult") => ok(Value::Null),
+        ("agentTaskService", "list") => state
+            .rpc(kimi_protocol::methods::BG_LIST, json!({}))
+            .await,
+        ("agentTaskService", "stop") => {
+            let task_arg = arg(0);
+            let task_id = task_arg.as_str().unwrap_or_default();
+            let list = state.rpc(kimi_protocol::methods::BG_LIST, json!({})).await;
+            // The engine's `bg/stop` is keyed by its own task id; the inspect
+            // panel passes the id it got from the same listing, so forward
+            // directly and let the engine answer unknown ids.
+            let _ = list;
+            state
+                .rpc(
+                    kimi_protocol::methods::BG_STOP,
+                    json!({ "task_id": task_id, "reason": arg(1).as_str().unwrap_or_default() }),
+                )
+                .await
+        }
+        ("agentTaskService", "stopAll") => {
+            let list = state
+                .rpc(kimi_protocol::methods::BG_LIST, json!({}))
+                .await;
+            let ids: Vec<&str> = list["data"]["tasks"]
+                .as_array()
+                .map(|tasks| tasks.iter().filter_map(|t| t["id"].as_str()).collect())
+                .unwrap_or_default();
+            for id in &ids {
+                let _ = state
+                    .rpc(
+                        kimi_protocol::methods::BG_STOP,
+                        json!({ "task_id": id, "reason": arg(0).as_str().unwrap_or_default() }),
+                    )
+                    .await;
+            }
+            ok(json!(ids))
+        }
+        ("agentToolRegistryService", "list") => ok(json!([])),
+        ("agentUsageService", "status") => state
+            .rpc(
+                kimi_protocol::methods::SESSION_GET_USAGE,
+                json!({ "session_id": session }),
+            )
+            .await,
+        ("agentContextSizeService", "get") => {
+            let context = state
+                .rpc(
+                    kimi_protocol::methods::SESSION_GET_CONTEXT,
+                    json!({ "session_id": session }),
+                )
+                .await;
+            let tokens = context["data"]["token_count"].as_i64().unwrap_or(0);
+            ok(json!({ "size": tokens, "estimated": tokens }))
+        }
+        ("agentSwarmService", "enter" | "exit") => state
+            .rpc(
+                kimi_protocol::methods::SESSION_SET_SWARM_MODE,
+                json!({ "session_id": session, "enabled": method == "enter" }),
+            )
+            .await,
+        ("agentActivityView", "state") => ok(json!({ "background": [] })),
+        _ => {
+            let msg = format!("unmapped debug service/method: {service}/{method}");
+            err(-32601, &msg)
+        }
+    }
+}
+
+/// `sessionIndex.list` — project `session/list` entries into the Page shape.
+async fn debug_session_list(state: &HttpState, args: &[Value]) -> Value {
+    let arg = |i: usize| arg(args, i);
+    let query = arg(0);
+    let limit = query["limit"].as_i64().unwrap_or(100);
+    let list = state
+        .rpc(
+            kimi_protocol::methods::SESSION_LIST,
+            json!({ "limit": limit.min(500) }),
+        )
+        .await;
+    if list["code"].as_i64() != Some(0) {
+        return list;
+    }
+    let entries = list["data"]["sessions"].as_array().cloned().unwrap_or_default();
+    let workspace_ids: Vec<&str> = query["workspaceIds"]
+        .as_array()
+        .map(|ws| ws.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+    let session_id = query["sessionId"].as_str();
+    let items: Vec<Value> = entries
+        .iter()
+        .filter(|s| {
+            let ws_ok = workspace_ids.is_empty()
+                || s["work_dir"].as_str().is_some_and(|w| workspace_ids.iter().any(|id| *id == w));
+            let id_ok = session_id.is_none_or(|id| s["id"].as_str() == Some(id));
+            ws_ok && id_ok
+        })
+        .map(debug_session_summary)
+        .collect();
+    ok(json!({ "items": items, "nextCursor": Value::Null }))
+}
+
+/// Project one `session/list` entry into the inspect `SessionSummary` shape.
+fn debug_session_summary(entry: &Value) -> Value {
+    json!({
+        "id": entry["id"],
+        "workspaceId": entry["work_dir"],
+        "cwd": entry["work_dir"],
+        "title": entry["title"],
+        "lastPrompt": entry["last_prompt"],
+        "createdAt": entry["created_at"],
+        "updatedAt": entry["updated_at"],
+        "archived": entry["archived"].as_bool().unwrap_or(false),
+    })
+}
+
 /// Build the `/api/v1` router.
 pub fn router(state: HttpState) -> Router {
     let middleware = axum::middleware::from_fn_with_state(state.clone(), require_auth);
@@ -383,6 +785,7 @@ pub fn router(state: HttpState) -> Router {
         .route("/api/v1/providers/{id}/refresh", post(providers_refresh_one))
         .route("/api/v1/providers:refresh_oauth", post(providers_refresh_oauth))
         .route("/api/v1/ws", get(ws_upgrade))
+        .route("/api/v1/debug/{*rest}", post(debug_rpc))
         // axum layers are LIFO: the last-added runs first. The host check
         // must run before auth (kap-server hook order parity) so a rebinding
         // attacker is rejected even before the credential gate.
@@ -2685,6 +3088,62 @@ mod tests {
         assert_eq!(resp["code"], 0, "resp: {resp}");
         assert_eq!(resp["msg"], "success", "resp: {resp}");
         assert_eq!(resp["data"]["status"], "ok", "resp: {resp}");
+    }
+
+    #[tokio::test]
+    async fn debug_rpc_rejects_unmapped_service() {
+        let base = spawn_server().await;
+        let resp = reqwest::Client::new()
+            .post(format!("{base}/api/v1/debug/nopeService/nope"))
+            .json(&json!([]))
+            .send()
+            .await
+            .expect("request")
+            .json::<Value>()
+            .await
+            .expect("json");
+        assert_eq!(resp["code"], -32601, "resp: {resp}");
+        assert!(
+            resp["msg"].as_str().is_some_and(|m| m.contains("unmapped debug service")),
+            "msg: {resp}"
+        );
+    }
+
+    #[tokio::test]
+    async fn debug_rpc_parses_scope_and_forwards_to_engine() {
+        let base = spawn_server().await;
+        // Scope + body args are parsed; the health-only processor answers
+        // "unknown method" for engine RPCs, proving the forward path (not a
+        // 404/405).
+        let resp = reqwest::Client::new()
+            .post(format!("{base}/api/v1/debug/session/s-1/agent/a-1/sessionIndex/list"))
+            .json(&json!([{ "limit": 10 }]))
+            .send()
+            .await
+            .expect("request")
+            .json::<Value>()
+            .await
+            .expect("json");
+        assert_ne!(resp["code"], 0, "health-only engine -> RPC error expected: {resp}");
+        assert!(
+            resp["msg"]
+                .as_str()
+                .is_some_and(|m| m.starts_with("Method not found: session/list")),
+            "mapped service must forward to the engine: {resp}"
+        );
+        // Body-less call (property read) also forwards.
+        let resp = reqwest::Client::new()
+            .post(format!("{base}/api/v1/debug/session/s-1/agentGoalService/getGoal"))
+            .send()
+            .await
+            .expect("request")
+            .json::<Value>()
+            .await
+            .expect("json");
+        assert!(
+            resp["msg"].as_str().is_some_and(|m| m.starts_with("Method not found: session/goal_get")),
+            "mapped service must forward: {resp}"
+        );
     }
 
     #[tokio::test]
