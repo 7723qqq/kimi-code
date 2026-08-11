@@ -143,6 +143,23 @@ fn media_source(media: &Value) -> Value {
     out
 }
 
+/// Normalize an engine `GoalSnapshot` onto the v1 wire shape the web mapper
+/// accepts (mappers.ts `toAppGoal` / agentEventProjector.ts `mapGoalSnapshot`
+/// only recognize `active | paused | blocked | complete`). The engine adds
+/// terminal budget states the client vocabulary lacks — `budgetLimited` /
+/// `usageLimited` (serde camelCase of `GoalStatus::BudgetLimited` /
+/// `UsageLimited`) — which would otherwise be filtered out and the goal
+/// silently dropped from the UI. They mean "not resumable", closest to
+/// `blocked`, so they map onto it; `blocked_streak` stays untouched.
+pub fn normalize_goal_snapshot(snapshot: &Value) -> Value {
+    let mut out = snapshot.clone();
+    match out["status"].as_str() {
+        Some("budgetLimited" | "usageLimited") => out["status"] = json!("blocked"),
+        _ => {}
+    }
+    out
+}
+
 /// Wrap one engine context message as a v1 `WireMessage` (snapshot path).
 /// The engine context items carry `role` + `content` in the engine
 /// `ContentPart` shape; `map_content_part` rewrites them onto the v1
@@ -584,24 +601,101 @@ fn project_event(
             // camelCase `GoalSnapshot` — already the v1 wire shape) plus a
             // bare `status` string for diagnostics. The v1 envelope carries
             // just the snapshot; the web mapper reads `payload.snapshot`
-            // (mappers.ts `toAppEvent`), null meaning no active goal.
+            // (mappers.ts `toAppEvent`), null meaning no active goal. The
+            // engine's extra terminal statuses are mapped onto the client
+            // vocabulary (see `normalize_goal_snapshot`).
             vec![(
                 sid,
                 "event.goal.updated".into(),
-                json!({ "snapshot": ev["snapshot"] }),
+                json!({ "snapshot": normalize_goal_snapshot(&ev["snapshot"]) }),
             )]
         }
         "session.compaction.started" => {
             // Engine event (agent.rs `run_compaction`): `source` +
-            // `tokens_before`. Projected so the web client can surface
-            // compaction progress (the engine emits no completion event —
-            // the `session/compact` RPC resolves when it finishes).
+            // `tokens_before`. Projected as the raw agent-core
+            // `event.compaction.started` the web agent projector consumes
+            // (agentEventProjector.ts compaction.started arm → `compactionStarted`
+            // → the compaction progress pill). The engine reports no
+            // `instruction`; the web arm treats it as optional.
+            let source = ev["source"].as_str().unwrap_or("auto");
+            let trigger = if source == "manual" { "manual" } else { "auto" };
             vec![(
                 sid,
-                "event.session.compaction_started".into(),
+                "event.compaction.started".into(),
                 json!({
-                    "source": ev["source"],
+                    "trigger": trigger,
                     "tokens_before": ev["tokens_before"],
+                }),
+            )]
+        }
+        "session.compaction.completed" => {
+            // Transport-synthesized (http.rs `session_compact` broadcasts it
+            // after the engine RPC resolves — the engine emits no completion
+            // event). The web agent projector's compaction.completed arm reads
+            // `result.tokensBefore/tokensAfter/summary` and clears the progress
+            // pill while appending the persistent divider marker.
+            vec![(
+                sid,
+                "event.compaction.completed".into(),
+                json!({ "result": ev["result"] }),
+            )]
+        }
+        "session.compaction.cancelled" => {
+            // Transport-synthesized when the engine `session/compact` RPC
+            // reports nothing was compacted; clears the web progress pill
+            // without appending a divider marker.
+            vec![(
+                sid,
+                "event.compaction.cancelled".into(),
+                json!({}),
+            )]
+        }
+        "session.task.started" => {
+            // Engine event (agent.rs `TaskEventDelegate::on_task_started`):
+            // flat `task_id` / `description` / `kind` / `started_at_ms`. The
+            // web agent projector's task.started arm reads the legacy
+            // `{ info: { taskId, description, status, startedAt, kind } }`
+            // nesting (agentEventProjector.ts), so the flat fields are
+            // regrouped onto it; `kind` passes through ('process' → bash task,
+            // 'agent' → subagent task — the arm checks `info.kind === 'agent'`).
+            vec![(
+                sid,
+                "event.task.started".into(),
+                json!({
+                    "info": {
+                        "taskId": ev["task_id"],
+                        "description": ev["description"],
+                        "status": "running",
+                        "startedAt": ev["started_at_ms"],
+                        "kind": ev["kind"],
+                    }
+                }),
+            )]
+        }
+        "session.task.terminated" => {
+            // Engine event (agent.rs `TaskEventDelegate::on_task_terminated`):
+            // flat fields + terminal `status`. Regrouped onto the web
+            // `{ info }` shape; the status literal is remapped onto the
+            // client vocabulary (`killed` → `cancelled`, `timed_out`/`lost` →
+            // `failed`) exactly like the REST `wire_task` projection, so the
+            // WS row and the REST roster never disagree.
+            let status = match ev["status"].as_str() {
+                Some("killed") => "cancelled",
+                Some("timed_out" | "lost") => "failed",
+                Some(other) => other,
+                None => "completed",
+            };
+            vec![(
+                sid,
+                "event.task.terminated".into(),
+                json!({
+                    "info": {
+                        "taskId": ev["task_id"],
+                        "description": ev["description"],
+                        "status": status,
+                        "endedAt": ev["ended_at_ms"],
+                        "kind": ev["kind"],
+                    }
                 }),
             )]
         }
@@ -635,23 +729,35 @@ fn project_event(
 /// Per-connection v1 protocol state.
 struct V1Conn {
     ws_connection_id: String,
-    seq: AtomicU64,
     subscriptions: Mutex<HashSet<String>>,
     got_client_hello: AtomicBool,
+}
+
+/// Process-wide monotonic event seq. The web client treats `seq` as a durable
+/// per-session watermark (`lastSeqBySession` + the `seq > prevSeq` gates on
+/// turn-end cleanup in useKimiWebClient.processEvent); a per-connection
+/// counter that restarts at 0 on every reconnect would make every replayed
+/// frame compare stale and silently disable those gates. The v1 facade has no
+/// journal, but a monotonic counter keeps reconnect streams strictly ordered
+/// within the process lifetime (a server restart still resets it — the client
+/// recovers via its own reload path).
+static GLOBAL_SEQ: AtomicU64 = AtomicU64::new(0);
+
+fn next_global_seq() -> u64 {
+    GLOBAL_SEQ.fetch_add(1, Ordering::Relaxed) + 1
 }
 
 impl V1Conn {
     fn new() -> Arc<Self> {
         Arc::new(Self {
             ws_connection_id: gen_id("conn_"),
-            seq: AtomicU64::new(0),
             subscriptions: Mutex::new(HashSet::new()),
             got_client_hello: AtomicBool::new(false),
         })
     }
 
     fn next_seq(&self) -> u64 {
-        self.seq.fetch_add(1, Ordering::Relaxed) + 1
+        next_global_seq()
     }
 
     fn subscribe(&self, session_ids: &[String]) -> Vec<String> {
@@ -1344,7 +1450,11 @@ mod tests {
     }
 
     #[test]
-    fn compaction_started_projects_to_v1_envelope() {
+    fn compaction_started_projects_to_agent_event() {
+        // The web agent projector consumes `event.compaction.started` with a
+        // `trigger` (manual/auto) — the previous `event.session.compaction_started`
+        // name fell through toAppEvent's default arm and surfaced an
+        // "Unhandled event" warning instead of the compaction progress pill.
         let shared = V1Shared::new();
         let mut local = HashMap::new();
         let out = project_event(&shared, &mut local, &json!({
@@ -1354,10 +1464,127 @@ mod tests {
             "tokens_before": 12345,
         }));
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].1, "event.session.compaction_started");
+        assert_eq!(out[0].1, "event.compaction.started");
         let p = &out[0].2;
-        assert_eq!(p["source"], json!("manual"));
+        assert_eq!(p["trigger"], json!("manual"));
         assert_eq!(p["tokens_before"], json!(12345));
+
+        // Auto-sourced compactions map onto the "auto" trigger.
+        let out = project_event(&shared, &mut local, &json!({
+            "type": "session.compaction.started",
+            "session_id": "sess_1",
+            "source": "auto",
+            "tokens_before": 999,
+        }));
+        assert_eq!(out[0].2["trigger"], json!("auto"));
+    }
+
+    #[test]
+    fn compaction_completed_and_cancelled_project_to_agent_events() {
+        // Transport-synthesized close-outs (http.rs `session_compact`): the
+        // web projector's compaction.completed arm reads `result.tokensBefore`
+        // / `tokensAfter` / `summary`; cancelled clears the pill without a
+        // divider marker.
+        let shared = V1Shared::new();
+        let mut local = HashMap::new();
+        let out = project_event(&shared, &mut local, &json!({
+            "type": "session.compaction.completed",
+            "session_id": "sess_1",
+            "result": {
+                "tokensBefore": 1000,
+                "tokensAfter": 400,
+                "summary": "Earlier context summarized.",
+            },
+        }));
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].1, "event.compaction.completed");
+        assert_eq!(out[0].2["result"]["tokensBefore"], json!(1000));
+        assert_eq!(out[0].2["result"]["summary"], "Earlier context summarized.");
+
+        let out = project_event(&shared, &mut local, &json!({
+            "type": "session.compaction.cancelled",
+            "session_id": "sess_1",
+        }));
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].1, "event.compaction.cancelled");
+    }
+
+    #[test]
+    fn task_lifecycle_projects_to_agent_events() {
+        // Engine `session.task.*` events are flat; the web agent projector's
+        // task.started / task.terminated arms expect the legacy `{ info }`
+        // nesting (agentEventProjector.ts), so the projection regroups them.
+        let shared = V1Shared::new();
+        let mut local = HashMap::new();
+        let out = project_event(&shared, &mut local, &json!({
+            "type": "session.task.started",
+            "session_id": "sess_1",
+            "task_id": "task_7",
+            "description": "pnpm test",
+            "kind": "process",
+            "started_at_ms": 1762560000000u64,
+        }));
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].1, "event.task.started");
+        let info = &out[0].2["info"];
+        assert_eq!(info["taskId"], "task_7");
+        assert_eq!(info["description"], "pnpm test");
+        assert_eq!(info["status"], "running");
+        assert_eq!(info["startedAt"], json!(1762560000000u64));
+        assert_eq!(info["kind"], "process");
+
+        // An agent-kind task drives the web subagent path (`info.kind === 'agent'`).
+        let out = project_event(&shared, &mut local, &json!({
+            "type": "session.task.started",
+            "session_id": "sess_1",
+            "task_id": "task_8",
+            "description": "explore",
+            "kind": "agent",
+            "started_at_ms": 1762560000000u64,
+        }));
+        assert_eq!(out[0].2["info"]["kind"], "agent");
+
+        // Terminated: status literals remap like the REST `wire_task`
+        // (killed → cancelled, timed_out/lost → failed, others pass through).
+        for (engine_status, expected) in [
+            ("killed", "cancelled"),
+            ("timed_out", "failed"),
+            ("lost", "failed"),
+            ("failed", "failed"),
+            ("completed", "completed"),
+        ] {
+            let out = project_event(&shared, &mut local, &json!({
+                "type": "session.task.terminated",
+                "session_id": "sess_1",
+                "task_id": "task_7",
+                "description": "pnpm test",
+                "kind": "process",
+                "status": engine_status,
+                "ended_at_ms": 1762560600000u64,
+            }));
+            assert_eq!(out[0].1, "event.task.terminated", "{engine_status}");
+            assert_eq!(out[0].2["info"]["status"], expected, "{engine_status}");
+            assert_eq!(out[0].2["info"]["endedAt"], json!(1762560600000u64));
+        }
+    }
+
+    #[test]
+    fn seq_is_monotonic_across_connections() {
+        // Regression: a per-connection counter restarting at 0 on reconnect
+        // made the web client's `seq > lastSeqBySession` gates (turn-end
+        // cleanup) silently dead after every reconnect. The seq must keep
+        // advancing across connections within the process.
+        let a = V1Conn::new();
+        let b = V1Conn::new();
+        let first_a = a.next_seq();
+        let first_b = b.next_seq();
+        let second_a = a.next_seq();
+        assert!(first_a < first_b, "new connections continue the global counter");
+        assert!(first_b < second_a, "seq advances across connections");
+        // A fresh connection starts strictly after every prior seq.
+        let c = V1Conn::new();
+        let first_c = c.next_seq();
+        assert!(second_a < first_c);
     }
     #[test]
     fn goal_updated_projects_snapshot() {
@@ -1393,5 +1620,36 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].1, "event.goal.updated");
         assert!(out[0].2["snapshot"].is_null());
+
+        // Engine terminal budget states the web mapper does not recognize
+        // (mappers.ts toAppGoal only accepts active/paused/blocked/complete)
+        // are mapped onto "blocked" so the goal stays visible instead of
+        // being dropped.
+        let out = project_event(&shared, &mut local, &json!({
+            "type": "session.goal.updated",
+            "session_id": "sess_1",
+            "status": "budgetLimited",
+            "snapshot": {
+                "goalId": "g_1",
+                "objective": "fix tests",
+                "status": "budgetLimited",
+                "turnsUsed": 3,
+            },
+        }));
+        assert_eq!(out[0].2["snapshot"]["goalId"], "g_1");
+        assert_eq!(out[0].2["snapshot"]["status"], "blocked");
+        // Recognized statuses pass through untouched.
+        let out = project_event(&shared, &mut local, &json!({
+            "type": "session.goal.updated",
+            "session_id": "sess_1",
+            "status": "active",
+            "snapshot": {
+                "goalId": "g_2",
+                "objective": "o",
+                "status": "paused",
+                "turnsUsed": 1,
+            },
+        }));
+        assert_eq!(out[0].2["snapshot"]["status"], "paused");
     }
 }

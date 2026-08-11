@@ -1751,13 +1751,15 @@ async fn session_profile(State(state): State<HttpState>, Path(id): Path<String>,
 }
 
 /// `GET /api/v1/sessions/{id}/goal` — the active goal snapshot (camelCase,
-/// same shape as the `goal.updated` event), or `null` when none.
+/// same shape as the `goal.updated` event), or `null` when none. The engine's
+/// extra terminal statuses (`budgetLimited` / `usageLimited`) are mapped onto
+/// the client vocabulary (`blocked`) — see `v1::normalize_goal_snapshot`.
 async fn session_goal(State(state): State<HttpState>, Path(id): Path<String>) -> Json<Value> {
     let body = state.rpc(kimi_protocol::methods::SESSION_GOAL_GET, json!({ "session_id": id })).await;
     if body["code"].as_i64() != Some(0) {
         return Json(body);
     }
-    Json(ok(body["data"]["goal"].clone()))
+    Json(ok(v1::normalize_goal_snapshot(&body["data"]["goal"])))
 }
 
 /// `GET /api/v1/sessions/{id}/warnings` — session-level warnings
@@ -1801,7 +1803,39 @@ async fn session_compact(State(state): State<HttpState>, Path(id): Path<String>,
     if let Some(instruction) = body.get("instruction").and_then(|v| v.as_str()) {
         params["instruction"] = json!(instruction);
     }
-    Json(state.rpc(kimi_protocol::methods::SESSION_COMPACT, params).await)
+    let r = state.rpc(kimi_protocol::methods::SESSION_COMPACT, params).await;
+    // The engine emits only `session.compaction.started` (run_compaction)
+    // and no completion event — the RPC resolves when compaction finishes.
+    // Synthesize the close-out on the event bus so the web client's
+    // compaction progress pill is cleared (completed → divider marker,
+    // cancelled → nothing) via the v1 projection. The engine compacts
+    // synchronously, so the RPC response IS the completion signal.
+    if r["code"].as_i64() == Some(0) {
+        if let Some(events) = &state.events {
+            let data = &r["data"];
+            let close_out = if data["compacted"].as_bool() == Some(true) {
+                json!({
+                    "type": "session.compaction.completed",
+                    "session_id": id,
+                    // The web agent projector reads camelCase result fields
+                    // (tokensBefore/tokensAfter/summary); the engine RPC
+                    // returns snake_case.
+                    "result": {
+                        "tokensBefore": data["tokens_before"],
+                        "tokensAfter": data["tokens_after"],
+                        "summary": data["summary"],
+                    },
+                })
+            } else {
+                json!({
+                    "type": "session.compaction.cancelled",
+                    "session_id": id,
+                })
+            };
+            let _ = events.send(close_out);
+        }
+    }
+    Json(r)
 }
 
 /// `POST /api/v1/sessions/{id}:undo` — remove the last `count` turns.
@@ -3340,5 +3374,86 @@ mod tests {
             assert_eq!(empty[field], 0, "zero field {field}: {empty}");
         }
         assert_eq!(empty["total_cost_usd"], 0.0, "cost: {empty}");
+    }
+
+    /// `POST :compact` synthesizes the compaction close-out the engine never
+    /// emits: `session.compaction.completed` (camelCase result) when something
+    /// was compacted, `session.compaction.cancelled` when nothing was — the
+    /// web client clears its progress pill on either, and appends the divider
+    /// marker only for the completed shape.
+    #[tokio::test]
+    async fn session_compact_synthesizes_close_out_event() {
+        use tokio::sync::broadcast;
+
+        let mut processor = MessageProcessor::new();
+        processor.register(kimi_protocol::methods::SESSION_COMPACT, |_params| async move {
+            Ok(serde_json::json!({
+                "compacted": true,
+                "summary": "Earlier context summarized.",
+                "compacted_count": 12,
+                "tokens_before": 1000,
+                "tokens_after": 400,
+            }))
+        });
+        let (tx, mut rx) = broadcast::channel(16);
+        let state = HttpState::with_events(Arc::new(processor), tx);
+        let resp = session_compact(State(state), Path("sess_1".to_string()), Json(json!({}))).await;
+        assert_eq!(resp.0["code"], 0, "compact: {}", resp.0);
+        let ev = rx.recv().await.expect("completed event");
+        assert_eq!(ev["type"], "session.compaction.completed", "ev: {ev}");
+        assert_eq!(ev["session_id"], "sess_1");
+        // The engine RPC is snake_case; the web projector reads camelCase.
+        assert_eq!(ev["result"]["tokensBefore"], 1000, "ev: {ev}");
+        assert_eq!(ev["result"]["tokensAfter"], 400, "ev: {ev}");
+        assert_eq!(ev["result"]["summary"], "Earlier context summarized.", "ev: {ev}");
+
+        // Nothing compacted → cancelled close-out (clears the pill, no marker).
+        let mut processor = MessageProcessor::new();
+        processor.register(kimi_protocol::methods::SESSION_COMPACT, |_params| async move {
+            Ok(serde_json::json!({ "compacted": false }))
+        });
+        let (tx, mut rx) = broadcast::channel(16);
+        let state = HttpState::with_events(Arc::new(processor), tx);
+        let resp = session_compact(State(state), Path("sess_1".to_string()), Json(json!({}))).await;
+        assert_eq!(resp.0["code"], 0, "compact: {}", resp.0);
+        let ev = rx.recv().await.expect("cancelled event");
+        assert_eq!(ev["type"], "session.compaction.cancelled", "ev: {ev}");
+    }
+
+    /// `GET /sessions/{id}/goal` maps the engine's terminal budget statuses
+    /// (`budgetLimited` / `usageLimited`) onto the client vocabulary
+    /// (`blocked`), matching the `goal.updated` event projection — otherwise
+    /// the web mapper drops the goal entirely (toAppGoal only accepts
+    /// active/paused/blocked/complete).
+    #[tokio::test]
+    async fn session_goal_maps_terminal_budget_statuses() {
+        let mut processor = MessageProcessor::new();
+        processor.register(kimi_protocol::methods::SESSION_GOAL_GET, |_params| async move {
+            Ok(serde_json::json!({
+                "goal": {
+                    "goalId": "g_1",
+                    "objective": "o",
+                    "status": "budgetLimited",
+                    "turnsUsed": 3,
+                    "budget": {
+                        "tokenBudget": null,
+                        "turnBudget": null,
+                        "wallClockBudgetMs": null,
+                        "remainingTokens": null,
+                        "remainingTurns": null,
+                        "remainingWallClockMs": null,
+                        "tokenBudgetReached": true,
+                        "turnBudgetReached": false,
+                        "wallClockBudgetReached": false,
+                        "overBudget": true,
+                    },
+                }
+            }))
+        });
+        let state = HttpState::new(Arc::new(processor));
+        let resp = session_goal(State(state), Path("sess_1".to_string())).await;
+        assert_eq!(resp.0["code"], 0, "goal: {}", resp.0);
+        assert_eq!(resp.0["data"]["status"], "blocked", "goal: {}", resp.0);
+        assert_eq!(resp.0["data"]["goalId"], "g_1", "goal: {}", resp.0);
     }
 }
