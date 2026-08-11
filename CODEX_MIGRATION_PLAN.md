@@ -163,7 +163,7 @@ kimi-cli（clap 分发 + 全局 `--server` + doctor config 检查 + 事件渲染
 - kimi-ui（render_event/transcript/EventSource）；kimi-tui（ratatui 主循环）
 - **61 命令全命令面**（TS 42 条全覆盖）：/approvals /plan /swarm /goal /tasks /btw /endbtw /steer /import /export-md /discuss /workflow /provider /reload-tui 等 + 别名
 - 交互对拍：审批（y/n/s/v + 危险命令检测 8 正则）、Tab 补全（命令/参数/模型/路径/@mention + ghost hint）、选择器（model/session/permission/skills/plugins/provider/tasks）、@mention 文件补全、bash 模式（`!`）、外部编辑器 Ctrl-G、剪贴板图片粘贴、帮助面板、工具结果 chip（Edit/Write/Read/Bash）、会话恢复 replay（history 消息级）、任务浏览器、登录 device flow、主题/locale/设置菜单
-- **简化项（对拍记录，非缺失）**：agent-group/read-group 组卡片（单卡片渲染）；banner 网络拉取（footer 本地 tips）；experiments/multi-llm/feedback/web 提示命令；easter-eggs 未迁移
+- **简化项（对拍记录，非缺失；2026-08-11 复核）**：agent-group/read-group 组卡片（单卡片渲染，定案保留）；banner 网络拉取（footer 本地 tips，定案保留）；experiments/multi-llm/feedback/web 提示命令（**已确认实现**——commands.rs cmd_config 分组，提示指向 config.toml）；easter-eggs 未迁移（定案保留）
 - **测试**：kimi-tui 117 + kimi-ui 11 全绿；TS TUI 已删除（189+123 文件，cba21d159）
 - **剩余**：交互路径对拍测试（D-5）、媒体富卡片（终端图形协议，依赖终端支持，另议）、真实终端手动冒烟
 
