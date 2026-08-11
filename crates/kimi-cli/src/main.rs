@@ -33,6 +33,26 @@ struct Cli {
     /// covers the long form and `-p<value>` attached values.
     #[arg(long = "prompt", short = 'p')]
     prompt: Option<String>,
+    /// Resume the most recently updated session in the current directory
+    /// when entering the TUI (TS `-c/--continue` parity).
+    #[arg(short = 'c', long = "continue")]
+    continue_: bool,
+    /// Enter the TUI in yolo mode (auto-approve, TS `-y/--yolo` parity).
+    #[arg(short = 'y', long = "yolo")]
+    yolo: bool,
+    /// Enter the TUI in auto mode (TS `--auto` parity).
+    #[arg(long)]
+    auto: bool,
+    /// Enter the TUI in plan mode (TS `--plan` parity).
+    #[arg(long)]
+    plan: bool,
+    /// Set the model for the TUI session (TS `-m/--model` parity).
+    #[arg(short = 'm', long = "model")]
+    model: Option<String>,
+    /// Non-interactive output format; only used with `--prompt`/`-p`
+    /// (TS `--output-format` parity; defaults to `text`).
+    #[arg(long, value_enum)]
+    output_format: Option<PrintOutputFormat>,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -1727,7 +1747,7 @@ async fn handle_chat_command(
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     use clap::CommandFactory;
-    let Cli { server, session, command, prompt } = Cli::parse();
+    let Cli { server, session, command, prompt, continue_, yolo, auto, plan, model, output_format } = Cli::parse();
     // Top-level `--prompt`/`-p` (long form or attached value) routes into the
     // `print` subcommand with defaults — TS parity for `kimi --prompt "..."`.
     let command = match command {
@@ -1737,10 +1757,10 @@ async fn main() -> anyhow::Result<()> {
             verbose: false,
             json: false,
             goal: None,
-            model: None,
+            model: model.clone(),
             plan: false,
             continue_: false,
-            output_format: PrintOutputFormat::Text,
+            output_format: output_format.unwrap_or(PrintOutputFormat::Text),
             yolo: false,
             auto: false,
         }),
@@ -1751,16 +1771,47 @@ async fn main() -> anyhow::Result<()> {
         if std::io::stdin().is_terminal() {
             let harness = connect_harness(&server)?;
             // `-S <id>`/`-r <id>` resumes the named session; a value-less
-            // `-S`/`-r` opens the session picker; nothing given starts a
-            // fresh session.
+            // `-S`/`-r` opens the session picker; `-c` resumes the most
+            // recent session in this directory; nothing given starts a fresh
+            // session.
             let mut app = match session {
                 Some(Some(id)) => kimi_tui::App::new(harness, Some(&id)),
                 Some(None) => kimi_tui::App::new(harness, None),
+                None if continue_ => {
+                    // `-c/--continue` (TS parity): resume the most recently
+                    // updated session in the current directory; fall back to
+                    // a fresh session when none matches.
+                    let cwd = std::env::current_dir().ok();
+                    let cwd_str = cwd.as_deref().and_then(|p| p.to_str());
+                    let sessions = harness.list_sessions(100).await?;
+                    let resumed = sessions
+                        .into_iter()
+                        .find(|s| {
+                            cwd_str.is_none_or(|c| s["work_dir"].as_str() == Some(c))
+                        });
+                    match resumed {
+                        Some(summary) => {
+                            let id = summary["id"].as_str().unwrap_or_default().to_string();
+                            kimi_tui::App::new(harness, Some(&id))
+                        }
+                        None => {
+                            let fresh = format!("kimi-{}", std::process::id());
+                            kimi_tui::App::new(harness, Some(&fresh))
+                        }
+                    }
+                }
                 None => {
                     let fresh = format!("kimi-{}", std::process::id());
                     kimi_tui::App::new(harness, Some(&fresh))
                 }
             };
+            // Top-level `-m/-y/--auto/--plan` (TS run-shell parity).
+            app = app.with_startup_options(kimi_tui::app::StartupOptions {
+                model,
+                yolo,
+                auto,
+                plan,
+            });
             return app.run().await;
         }
         let mut cmd = Cli::command();

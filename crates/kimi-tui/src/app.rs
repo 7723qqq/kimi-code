@@ -225,6 +225,17 @@ impl HelpPanel {
     }
 }
 
+/// Startup overrides applied right after the session opens — the top-level
+/// `kimi` flags `-m/--model`, `-y/--yolo`, `--auto`, `--plan` (TS run-shell
+/// parity). Defaults are empty/false so plain `kimi` keeps today's behavior.
+#[derive(Default, Clone)]
+pub struct StartupOptions {
+    pub model: Option<String>,
+    pub yolo: bool,
+    pub auto: bool,
+    pub plan: bool,
+}
+
 /// The `/help` panel rows: a shortcuts section, then every slash command
 /// with its description (pure, tested).
 fn build_help_rows() -> Vec<String> {
@@ -427,6 +438,9 @@ pub struct App {
     pub(crate) image_attachments: Vec<crate::clipboard::ImageAttachment>,
     /// Tool start timestamps (tool_call_id → Instant) for duration display.
     pub(crate) tool_started_at: std::collections::HashMap<String, std::time::Instant>,
+    /// Top-level startup overrides (`kimi -m/-y/--auto/--plan`), applied
+    /// right after the session opens.
+    startup: StartupOptions,
     /// Input-editing state (prompt line, cursor, history, Tab).
     pub(crate) edit: EditorState,
     /// Rendering / view state (transcript, scroll, footer, theme).
@@ -456,7 +470,14 @@ impl App {
             tool_started_at: std::collections::HashMap::new(),
             edit: EditorState::default(),
             view: ViewState::default(),
+            startup: StartupOptions::default(),
         }
+    }
+
+    /// Attach top-level startup overrides (`kimi -m/-y/--auto/--plan`).
+    pub fn with_startup_options(mut self, startup: StartupOptions) -> Self {
+        self.startup = startup;
+        self
     }
 
     /// Run the event loop until the user quits (`/quit` or Ctrl-C).
@@ -490,6 +511,25 @@ impl App {
         }
         // Open the session up front.
         let mut session = self.harness.create_session(&self.session_id).await?;
+        // Resume semantics: create rebuilds a fresh agent, load re-applies
+        // the persisted context + goal for an existing session (no-op for a
+        // brand-new one).
+        let _ = session.load().await;
+        // Apply top-level startup overrides (TS run-shell parity):
+        // `-m <model>` sets the session model, `-y/--auto` the permission
+        // mode, `--plan` opens plan mode. Best-effort — the session stays
+        // usable if a call fails.
+        if let Some(model) = self.startup.model.clone() {
+            let _ = session.set_model(&model).await;
+        }
+        if self.startup.yolo {
+            let _ = session.set_permission("yolo").await;
+        } else if self.startup.auto {
+            let _ = session.set_permission("auto").await;
+        }
+        if self.startup.plan {
+            let _ = session.set_plan_mode(true).await;
+        }
         // Resume semantics: create rebuilds a fresh agent, load re-applies
         // the persisted context + goal for an existing session (no-op for a
         // brand-new one).
