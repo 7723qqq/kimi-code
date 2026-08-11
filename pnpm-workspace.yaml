@@ -1,5 +1,9 @@
 packages:
   - packages/*
+  # Rust-only crates under packages/ have no npm manifest; exclude them so
+  # the pnpm workspace (and sherif) only sees npm packages.
+  - '!packages/kimi-build'
+  - '!packages/kimi-shared'
   - apps/*
   - apps/vis/server
   - apps/vis/web

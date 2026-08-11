@@ -60,6 +60,11 @@
     "vite": "^6.4.3",
     "vitest": "4.1.4"
   },
+  "sherif": {
+    "ignoreRule": [
+      "packages-without-package-json"
+    ]
+  },
   "simple-git-hooks": {
     "pre-commit": "npx lint-staged"
   },
