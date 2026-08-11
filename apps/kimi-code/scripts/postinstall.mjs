@@ -3,7 +3,7 @@
  * Postinstall hook for @moonshot-ai/kimi-code.
  *
  * Goal: when this package is installed globally, ensure typing `kimi`
- * invokes the new TypeScript CLI. The npm `package.json` bin field
+ * invokes the Rust CLI shipped in `bin/`. The npm `package.json` bin field
  * installs a fresh `kimi` shim into the global bin dir; this script
  * removes any pre-existing `kimi` shim left behind by the previous
  * Python CLI (installed via `uv tool install`, `pipx install`,

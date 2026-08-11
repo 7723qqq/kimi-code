@@ -4,7 +4,7 @@
   inputs = {
     # Pinned to the 25.11 release channel because nixpkgs-unstable currently
     # ships nodejs_24 = 24.14.1, which trips the >= 24.15.0 floor that the
-    # native SEA build enforces (see apps/kimi-code/scripts/native/build.mjs).
+    # kimi-web build enforces (see apps/kimi-web/package.json engines).
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
   };
 
@@ -102,17 +102,6 @@
           nodejs = nodejsFor pkgs;
           pnpm = pnpmFor pkgs;
           appPackageJson = builtins.fromJSON (builtins.readFile ./apps/kimi-code/package.json);
-          nativeTarget =
-            if pkgs.stdenv.hostPlatform.isLinux && pkgs.stdenv.hostPlatform.isAarch64 then
-              "linux-arm64"
-            else if pkgs.stdenv.hostPlatform.isLinux then
-              "linux-x64"
-            else if pkgs.stdenv.hostPlatform.isDarwin && pkgs.stdenv.hostPlatform.isAarch64 then
-              "darwin-arm64"
-            else if pkgs.stdenv.hostPlatform.isDarwin then
-              "darwin-x64"
-            else
-              throw "Unsupported Kimi Code native target for ${pkgs.stdenv.hostPlatform.system}";
 
           kimi-code = pkgs.stdenv.mkDerivation (finalAttrs: {
             pname = "kimi-code";
@@ -131,6 +120,9 @@
                   ./tsconfig.json
                   ./vitest.config.ts
                   ./LICENSE
+                  ./Cargo.toml
+                  ./Cargo.lock
+                  ./crates
                 ]
                 ++ workspacePaths
               );
@@ -150,42 +142,18 @@
               pnpm
               (pkgs.pnpmConfigHook.override { inherit pnpm; })
               pkgs.makeWrapper
-            ]
-            # The SEA inject step (kimi-build) invalidates the macOS code
-            # signature on the copied Node executable; build.mjs then re-applies
-            # an ad-hoc signature via `codesign`. The Nix darwin sandbox does
-            # not expose /usr/bin/codesign, so we supply nixpkgs' ad-hoc-only
-            # replacement instead.
-            ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
-              pkgs.darwin.sigtool
+              pkgs.rustc
+              pkgs.cargo
             ];
-
-            # The SEA binary is produced by `kimi-build`-injecting a blob into a
-            # plain Node executable. Stripping rewrites section tables and can
-            # invalidate the injected blob's offsets, so leave the binary
-            # untouched after the build.
-            dontStrip = true;
 
             buildPhase = ''
               runHook preBuild
-              export KIMI_CODE_BUILD_TARGET=${nativeTarget}
-              ${lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
-                # pkgs.darwin.sigtool's codesign supports `--sign -` (ad-hoc)
-                # but not the inspection mode (`-dv`) that 05-verify.mjs runs
-                # afterwards. Disable the verify step for the Nix build; the
-                # release CI keeps it via the unmodified script.
-                substituteInPlace apps/kimi-code/scripts/native/build.mjs \
-                  --replace-fail \
-                    "await runVerifyStep({ requireGatekeeper: false });" \
-                    "// runVerifyStep skipped in nix sandbox (sigtool lacks -dv)"
-              ''}
-              # The SEA blob step (scripts/native/02-sea-blob.mjs) embeds the
-              # Kimi web assets from apps/kimi-code/dist-web and fails if that
-              # directory is missing. Build the web app and stage its assets
-              # before producing the native executable.
+              # Inject the npm distribution version so `kimi upgrade` compares
+              # against the published package correctly.
+              export KIMI_CODE_VERSION=${finalAttrs.version}
+              cargo build --release -p kimi-cli -p kimi-server-transport --bin kimi-server-serve
               pnpm --filter=@moonshot-ai/kimi-web run build
               node apps/kimi-code/scripts/copy-web-assets.mjs
-              pnpm --filter=@moonshot-ai/kimi-code run build:native:sea
               runHook postBuild
             '';
 
@@ -193,8 +161,13 @@
               runHook preInstall
 
               install -Dm755 \
-                "apps/kimi-code/dist-native/bin/${nativeTarget}/kimi" \
+                "target/release/kimi" \
                 "$out/bin/kimi"
+              install -Dm755 \
+                "target/release/kimi-server-serve" \
+                "$out/bin/kimi-server-serve"
+              mkdir -p "$out/share/kimi-code"
+              cp -r apps/kimi-code/dist-web "$out/share/kimi-code/dist-web"
 
               runHook postInstall
             '';

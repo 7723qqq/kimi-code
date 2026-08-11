@@ -6,15 +6,17 @@ This file only contains rules local to `apps/kimi-code`. For cross-repo rules, s
 > - 允许：关键 bug 修复（崩溃 / 数据丢失 / 安全 / 生产日志污染）；测试基线必要适配。
 > - 禁止：新增功能、引擎逻辑、行为修补、UI 微调。新能力一律写 Rust。
 > - 历史：TS TUI 已退役（2026-08-09，`cba21d159`，删除 `src/tui/` + `test/tui/` 共 312 文件），交互 UI 由 Rust `kimi-tui` 提供。`write-tui` 技能只适用于已退役的 TS TUI，**不要**再按它修改本目录。
+> - 历史：TS 入口已退役（2026-08-11，G-7 收尾）：`src/` 全部移入 `retired/kimi-code-src/`，本应用成为纯分发壳。冻结对象（TS 宿主）已不存在，FROZEN 约束不再适用；壳内不得重新引入引擎或 UI 逻辑。
 
-## 当前结构（TS TUI 退役后）
+## 当前结构（G-7 后：纯分发壳）
 
-入口链：`src/main.ts` → `src/cli/commands.ts` → `src/cli/run-shell.ts`。`bin/kimi.mjs` 优先平台 Rust 二进制，回退本 TS 入口。
+本应用不再包含 TS 源码。`bin/kimi.mjs` 是唯一入口：探测并 spawn 平台 Rust 二进制（kimi-cli），找不到时提示 `cargo build --release -p kimi-cli`（错误信息见 bin/kimi.mjs）。
 
-- `src/main.ts`：TS 入口（FROZEN banner）。解析 CLI 参数、update preflight，委托 UI runner。
-- `src/cli/`：CLI 消费面——`run-shell.ts`（Rust 二进制纯转发器）、`native-session*.ts` / `rust-engine.ts` / `session-engine.ts`（Rust 引擎桥接）、`run-prompt.ts` / `prompt-*.ts`（harness 消费）、`sub/`（acp/doctor/export/login/provider/upgrade/vis/web）。
-- `src/shared/`：TS TUI 退役时从 `src/tui/` 移出的共享符号（`tui-config.ts` / `tui-session.ts` / `goal-command.ts` / `slash-command-*` / `terminal-constants.ts` / `theme/`），仅供 CLI 过渡态消费。
-- `src/i18n/`、`src/utils/`、`src/constant/`、`src/migration/`、`src/native/`、`src/feedback/`、`src/generated/`：其余过渡态宿主逻辑。
+- `bin/kimi.mjs`：纯 Rust spawn 壳（无 TS 回退）。`KIMI_RUST_BIN` 可覆盖二进制路径。
+- `dist-web/`：web 前端资产（最终唯一 TS 的产物），由 `pnpm build`（`pnpm -C ../kimi-web run build` + `scripts/copy-web-assets.mjs`）生成，随 npm 包分发，供 Rust `web` 子命令 `--assets` 使用。
+- `scripts/postinstall.mjs` + `scripts/postinstall/`：npm 全局安装时清理旧 Python `kimi-cli` shim（与 TS 无关，保留）。
+- `scripts/update-catalog.mjs`（catalog:update）、`scripts/dev-plugin-marketplace-server.mjs` / `build-plugin-marketplace-cdn.mjs`（plugin marketplace）：与 src 无关的独立工具脚本，保留。
+- `retired/kimi-code-src/`：原 `src/`（TS 入口、i18n、utils、constant、migration、native、feedback、generated 等全部过渡态宿主逻辑），仅存档，不回引。
 
 ## 约束（仍有效）
 

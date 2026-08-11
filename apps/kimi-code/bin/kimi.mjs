@@ -1,16 +1,12 @@
 #!/usr/bin/env node
 /**
- * Kimi Code unified entry (stage F) — prefer the platform Rust binary,
- * fall back to the TS bundle (`dist/main.mjs`) when no binary is present.
+ * Kimi Code unified entry (stage G) — spawns the platform Rust binary.
  *
- * During the migration both tracks coexist behind a single `kimi` bin:
- *
- *   - Rust binary: CI packs `cargo build --release -p kimi-cli` output into
- *     `bin/kimi-<platform>-<arch>[.exe]` (see packages/kimi-code-rust-bin
- *     scripts/pack.mjs for the naming); `KIMI_RUST_BIN` overrides the path
- *     for dev/test.
- *   - TS fallback: `dist/main.mjs` (built by `pnpm build`) keeps working as
- *     today, so existing installs without a Rust binary are unaffected.
+ * The `@moonshot-ai/kimi-code` npm package is a pure distribution shell:
+ * all CLI logic lives in the Rust `kimi-cli` binary, packed by CI into
+ * `bin/kimi-<platform>-<arch>[.exe]` (see packages/kimi-code-rust-bin
+ * scripts/pack.mjs for the naming); `KIMI_RUST_BIN` overrides the path
+ * for dev/test.
  *
  * The wrapper mirrors codex-cli's bin pattern: it spawns the child with
  * inherited stdio, forwards SIGINT/SIGTERM/SIGHUP so interactive sessions
@@ -19,11 +15,9 @@
  */
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, resolve } from 'node:path';
 
 const HERE = import.meta.dirname;
-const TS_ENTRY = resolve(HERE, '..', 'dist', 'main.mjs');
 
 const DEBUG = process.env.KIMI_ENTRY_DEBUG === '1';
 const debug = (message) => {
@@ -64,9 +58,8 @@ function findRustBinary() {
 
 /**
  * The Rust `web` subcommand serves the SPA only when `--assets` is given
- * (API-only otherwise). The TS distribution ships dist-web next to this
- * wrapper, so point the Rust binary at it. The TS fallback resolves assets
- * itself and must never receive the flag.
+ * (API-only otherwise). The npm distribution ships dist-web next to this
+ * wrapper, so point the Rust binary at it.
  */
 function forwardArgs(raw) {
   if (raw[0] !== 'web') return raw;
@@ -120,14 +113,13 @@ const rustBinary = findRustBinary();
 if (rustBinary) {
   debug(`using Rust binary: ${rustBinary}`);
   await runChild(rustBinary, forwardArgs(process.argv.slice(2)));
-} else if (existsSync(TS_ENTRY)) {
-  debug(`Rust binary not found; falling back to TS entry: ${TS_ENTRY}`);
-  await runChild(process.execPath, [TS_ENTRY, ...process.argv.slice(2)]);
 } else {
   console.error(
-    'kimi: no Rust binary found and TS fallback missing at ' + TS_ENTRY +
-    '\n  Build the Rust CLI (`cargo build --release -p kimi-cli`) and copy target/release/kimi(.exe) into bin/, ' +
-    'or build the TS bundle (`pnpm build`) first.',
+    'kimi: no Rust binary found in ' + HERE +
+    '\n  Build the Rust CLI and copy the result into bin/:' +
+    '\n    cargo build --release -p kimi-cli' +
+    '\n  The npm package ships the prebuilt binary via the kimi-code-rust package' +
+    '\n  (packages/kimi-code-rust-bin; see its README for pack instructions).',
   );
   process.exit(1);
 }

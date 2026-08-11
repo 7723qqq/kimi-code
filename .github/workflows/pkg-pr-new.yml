@@ -39,13 +39,6 @@ jobs:
       - name: Build Kimi web assets
         run: pnpm --filter @moonshot-ai/kimi-web run build
 
-      - name: Generate Kimi Code built-in catalog
-        shell: bash
-        run: |
-          CATALOG_FILE="$RUNNER_TEMP/kimi-code-built-in-catalog.json"
-          node apps/kimi-code/scripts/update-catalog.mjs --out "$CATALOG_FILE"
-          echo "KIMI_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
-
       - name: Build Kimi Code package
         run: pnpm --filter @moonshot-ai/kimi-code run build
 

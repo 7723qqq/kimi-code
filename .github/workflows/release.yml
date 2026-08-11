@@ -28,8 +28,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       packages_published: ${{ steps.changesets.outputs.published }}
-      kimi_native_release: ${{ steps.kimi-release.outputs.should_publish }}
-      kimi_release_tag: ${{ steps.kimi-release.outputs.tag }}
     permissions:
       contents: write
       pull-requests: write
@@ -63,23 +61,18 @@ jobs:
           path: "${{ runner.temp }}/rust-bin"
           merge-multiple: true
 
-      - name: Inject Rust binaries into the npm shell package
+      - name: Inject Rust binaries into the npm shell packages
         run: |
-          mkdir -p packages/kimi-code-rust-bin/bin
+          mkdir -p packages/kimi-code-rust-bin/bin apps/kimi-code/bin
           # Each artifact carries the platform binary (kimi-<target>[.exe]
           # + kimi-server-serve-<target>[.exe]); merge all platforms into
-          # the package bin/ so bin/kimi.js finds its binary at install.
+          # both shell packages' bin/ so their launchers find the right
+          # binary at install.
           if [ -d "${{ runner.temp }}/rust-bin" ]; then
             cp -f "${{ runner.temp }}"/rust-bin/* packages/kimi-code-rust-bin/bin/ 2>/dev/null || true
+            cp -f "${{ runner.temp }}"/rust-bin/* apps/kimi-code/bin/ 2>/dev/null || true
           fi
-          ls -la packages/kimi-code-rust-bin/bin/
-
-      - name: Generate Kimi Code built-in catalog
-        shell: bash
-        run: |
-          CATALOG_FILE="$RUNNER_TEMP/kimi-code-built-in-catalog.json"
-          node apps/kimi-code/scripts/update-catalog.mjs --out "$CATALOG_FILE"
-          echo "KIMI_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
+          ls -la packages/kimi-code-rust-bin/bin/ apps/kimi-code/bin/
 
       - name: Build packages
         run: pnpm build
@@ -96,13 +89,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # NPM_TOKEN is not needed with Trusted Publishing (OIDC)
 
-      - name: Resolve Kimi Code native release
-        if: steps.changesets.outputs.published == 'true'
-        id: kimi-release
-        run: node apps/kimi-code/scripts/native/resolve-release.mjs
-        env:
-          CHANGESETS_PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
-
   deploy-docs:
     name: Deploy docs
     needs: release
@@ -112,51 +98,3 @@ jobs:
       contents: read
       pages: write
       id-token: write
-
-  native-artifacts:
-    name: Native release artifact
-    needs: release
-    if: needs.release.outputs.kimi_native_release == 'true'
-    uses: ./.github/workflows/_native-build.yml
-    with:
-      upload-artifact-prefix: kimi-code-native
-      retention-days: 7
-      sign-macos: true
-    secrets:
-      APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_NOTARIZATION_KEY_P8: ${{ secrets.APPLE_NOTARIZATION_KEY_P8 }}
-      APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
-      APPLE_NOTARIZATION_ISSUER_ID: ${{ secrets.APPLE_NOTARIZATION_ISSUER_ID }}
-
-  publish-native-assets:
-    name: Publish native release assets
-    needs:
-      - release
-      - native-artifacts
-    if: needs.release.outputs.kimi_native_release == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Download native artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: kimi-code-native-*
-          path: dist-native-release
-          merge-multiple: true
-
-      - name: Produce manifest.json
-        env:
-          RELEASE_TAG: ${{ needs.release.outputs.kimi_release_tag }}
-        run: node apps/kimi-code/scripts/native/produce-manifest.mjs dist-native-release "$RELEASE_TAG"
-
-      - name: Upload assets to GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.release.outputs.kimi_release_tag }}
-        run: gh release upload "$RELEASE_TAG" dist-native-release/* --clobber

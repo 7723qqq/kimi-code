@@ -7,11 +7,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
 
 const webPort = Number(process.env.WEB_PORT) || 5175;
-// Dev-proxy backend presets: `default` is the kap-server started by the root
-// `pnpm dev:server` (port 58627); `multi` is a second kap-server instance
-// started with `pnpm dev:v2` (port 58628 — instances share the home dir, so
-// both can run at once) for multi-instance debugging. Override with
-// KIMI_BACKEND_DEFAULT_URL / KIMI_BACKEND_MULTI_URL.
+// Dev-proxy backend presets: `default` points at the Rust kimi-server
+// (start it with `cargo run -p kimi-server-transport --bin kimi-server-serve
+// -- --http`); `multi` is a second server instance (port 58628) for
+// multi-instance debugging. Override with KIMI_BACKEND_DEFAULT_URL /
+// KIMI_BACKEND_MULTI_URL.
 const backendPresets = {
   default: process.env.KIMI_BACKEND_DEFAULT_URL || 'http://127.0.0.1:58627',
   multi: process.env.KIMI_BACKEND_MULTI_URL || 'http://127.0.0.1:58628',

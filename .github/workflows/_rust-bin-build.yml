@@ -80,8 +80,13 @@ jobs:
 
       # The Rust CLI is self-contained (no napi addon); kimi-server-serve
       # ships alongside so TS hosts can point KIMI_SERVER_BIN at it.
+      # KIMI_CODE_VERSION carries the npm distribution version so `kimi
+      # upgrade` compares against the published package correctly.
       - name: Build kimi CLI release binary
-        run: cargo build --release -p kimi-cli -p kimi-server-transport --bin kimi-server-serve
+        shell: bash
+        run: |
+          KIMI_CODE_VERSION="$(node -p "require('./apps/kimi-code/package.json').version")" \
+            cargo build --release -p kimi-cli -p kimi-server-transport --bin kimi-server-serve
 
       - name: Setup macOS keychain (release only)
         if: runner.os == 'macOS' && inputs.sign-macos

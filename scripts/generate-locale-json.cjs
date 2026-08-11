@@ -62,6 +62,13 @@ for (const source of LOCALE_SOURCES) {
     extractFn = (mod) => ({ en: mod.default || mod, zh: null }); // will be replaced
   }
 
+  // Skip sources whose files no longer exist (e.g. a retired package),
+  // mirroring the other check scripts' `existsSync` tolerance.
+  if (!fs.existsSync(enPath) || !fs.existsSync(zhPath)) {
+    console.log(`⚠ ${source.out}: locale files not found — skipping`);
+    continue;
+  }
+
   try {
     const enModule = require(enPath);
 
