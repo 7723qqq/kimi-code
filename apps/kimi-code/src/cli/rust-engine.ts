@@ -4,8 +4,8 @@
  * Reads the config and wires the Rust agent engine (kimi-agent). The Rust
  * engine is the only engine since the v1/v2 migration — the engine defaults
  * to Rust even when the `[agent]` section is absent, and a load failure
- * throws instead of degrading to the deprecated JS loop. Falls back to the JS engine (with a
- * diagnostic log) if the Rust addon/binary is not found or fails to start.
+ * throws instead of degrading to the deprecated JS loop; there is no JS
+ * fallback.
  *
  * MultiLLM support: when `agent.multiLlm` lists provider names, those
  * providers are extracted from the config and passed to the Rust engine

@@ -530,9 +530,6 @@ impl App {
         if self.startup.plan {
             let _ = session.set_plan_mode(true).await;
         }
-        // Resume semantics: create rebuilds a fresh agent, load re-applies
-        // the persisted context + goal for an existing session (no-op for a
-        // brand-new one).
         let _ = session.load().await;
         // Rebuild the transcript from the persisted context (resume UX
         // parity): the user sees the conversation history instead of a blank

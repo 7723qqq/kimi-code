@@ -88,6 +88,7 @@ export interface SessionCreateParams {
   skills?: Array<SkillMetadataInput>;
   hooks?: Array<HookDef>;
   native_tools?: boolean;
+  workspace_root?: string | undefined;
 }
 
 export interface MediaContainer {
