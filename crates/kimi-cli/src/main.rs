@@ -218,6 +218,12 @@ fn connect_harness(server: &Option<String>) -> anyhow::Result<kimi_sdk::Harness>
 
 /// The most recently updated persisted session id (session list is ordered
 /// by `updated_at DESC`), if any.
+/// A fresh per-run session id for headless prompts (TS parity: `kimi -p`
+/// never reuses a fixed id, so consecutive runs do not clobber history).
+fn fresh_print_session_id() -> String {
+    format!("kimi-exec-{}", std::process::id())
+}
+
 async fn latest_session_id(client: &mut kimi_server_client::AppServerClient) -> Option<String> {
     let body = client
         .call(kimi_protocol::methods::SESSION_LIST, serde_json::json!({ "limit": 1 }))
@@ -574,8 +580,9 @@ enum Commands {
         /// Override the OAuth host (defaults to the kimi production server).
         #[arg(long)]
         oauth_host: Option<String>,
-        /// Max poll attempts (default 60, ~5s apart).
-        #[arg(long, default_value_t = 60)]
+        /// Max poll attempts (default 180, ~5s apart ≈ 15 min — the device
+        /// code validity window; 60 was too short for browser approval).
+        #[arg(long, default_value_t = 180)]
         max_polls: u32,
     },
     /// Remove the kimi provider credentials from the engine config.
@@ -1700,7 +1707,7 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     };
     match command {
-        Commands::Print { prompt, verbose, json, goal, model, plan, continue_, output_format, yolo, auto } => {
+        Commands::Print { prompt, verbose, json, goal, model, plan, continue_, output_format, yolo: _, auto: _ } => {
             // TS `validateOptions` parity: empty prompt/model are rejected
             // before anything is sent to the engine.
             if prompt.trim().is_empty() {
@@ -1721,14 +1728,22 @@ async fn main() -> anyhow::Result<()> {
             // result contract either way).
             let capture = verbose || std::io::stderr().is_terminal();
             let (mut client, renderer) = connect_with_renderer(&server, capture, stream_json)?;
-            // `--continue` resumes the most recently updated session (session
-            // list is ordered by updated_at DESC); otherwise a fresh id.
-            let session_id = if continue_ {
-                latest_session_id(&mut client)
+            // TS `-p` parity: an explicit `-S <id>`/`-r <id>` resumes that
+            // session for the prompt (a value-less `-S` is meaningless in
+            // prompt mode and rejected); `--continue` resumes the most
+            // recently updated session; otherwise a fresh per-run id (TS
+            // generates a unique session per print — never reuse a fixed id).
+            if matches!(&session, Some(None)) {
+                eprintln!("error: --session requires an id in prompt mode");
+                std::process::exit(1);
+            }
+            let resume = continue_ || matches!(&session, Some(Some(_)));
+            let session_id = match &session {
+                Some(Some(id)) => id.clone(),
+                _ if continue_ => latest_session_id(&mut client)
                     .await
-                    .unwrap_or_else(|| "kimi-exec".to_string())
-            } else {
-                "kimi-exec".to_string()
+                    .unwrap_or_else(fresh_print_session_id),
+                _ => fresh_print_session_id(),
             };
             // `/goal <objective>` prompt prefix (TS `parseHeadlessGoalCreate`
             // parity): the objective is sent as the prompt and a goal is
@@ -1744,8 +1759,10 @@ async fn main() -> anyhow::Result<()> {
                 model,
                 plan,
                 goal,
-                resume: continue_,
-                permission_auto: yolo || auto,
+                resume,
+                // TS `-p` unconditionally runs with permission auto — a
+                // headless prompt must never block on an approval.
+                permission_auto: true,
             };
             let result = kimi_exec::run_prompt_with_setup(
                 &mut client,
@@ -2254,7 +2271,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Acp { login } => {
             if login {
                 // `kimi acp --login` runs the OAuth flow and exits (TS parity).
-                run_kimi_login(&server, None, 60).await?;
+                run_kimi_login(&server, None, 180).await?;
                 return Ok(());
             }
             // ACP stdio server (stage E): initialize + session lifecycle,
@@ -2632,43 +2649,42 @@ async fn main() -> anyhow::Result<()> {
                         // the config so context/capability metadata rides along
                         // without hand-writing.
                         let models = kimi_sdk::catalog::catalog_provider_models(provider);
-                        let selected_model_id = default_model
-                            .as_deref()
-                            .map(str::to_string)
-                            .or_else(|| models.first().map(|m| m.id.clone()));
+                        // Only an explicit `--default-model` sets the default —
+                        // an import without it preserves the user's existing
+                        // defaultModel and thinking config (TS parity; the old
+                        // behavior silently overwrote both).
+                        let selected_model_id = default_model.as_deref().map(str::to_string);
                         let mut config = serde_json::json!({
                             "providers": {},
                             "models": {},
-                            "thinking": { "enabled": false },
                         });
-                        let default_model_key = match (selected_model_id.as_deref(), models.is_empty()) {
-                            (Some(selected), false) => kimi_sdk::catalog::apply_catalog_provider(
+                        let default_model_key = if !models.is_empty() {
+                            kimi_sdk::catalog::apply_catalog_provider(
                                 &mut config,
                                 &id,
                                 &wire,
                                 resolved_base_url.as_deref(),
                                 resolved_key.as_deref(),
                                 &models,
-                                selected,
+                                selected_model_id.as_deref(),
                                 true,
-                            ),
-                            _ => {
-                                // No importable models: fall back to the
-                                // provider-only write (key-less providers and
-                                // catalog entries without a usable list).
-                                let mut provider_cfg = serde_json::json!({ "type": wire });
-                                if let Some(base_url) = &resolved_base_url {
-                                    provider_cfg["baseUrl"] = serde_json::json!(base_url);
-                                }
-                                if let Some(key) = resolved_key {
-                                    provider_cfg["apiKey"] = serde_json::json!(key);
-                                }
-                                config["providers"][&id] = provider_cfg;
-                                if let Some(model) = &default_model {
-                                    config["defaultModel"] = serde_json::json!(model);
-                                }
-                                default_model.unwrap_or_default()
+                            )
+                        } else {
+                            // No importable models: fall back to the
+                            // provider-only write (key-less providers and
+                            // catalog entries without a usable list).
+                            let mut provider_cfg = serde_json::json!({ "type": wire });
+                            if let Some(base_url) = &resolved_base_url {
+                                provider_cfg["baseUrl"] = serde_json::json!(base_url);
                             }
+                            if let Some(key) = resolved_key {
+                                provider_cfg["apiKey"] = serde_json::json!(key);
+                            }
+                            config["providers"][&id] = provider_cfg;
+                            if let Some(model) = &default_model {
+                                config["defaultModel"] = serde_json::json!(model);
+                            }
+                            default_model.unwrap_or_default()
                         };
                         let client = connect(&server)?;
                         let body = client

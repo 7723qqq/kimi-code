@@ -398,7 +398,7 @@ pub fn apply_catalog_provider(
     base_url: Option<&str>,
     api_key: Option<&str>,
     models: &[NormalizedModel],
-    selected_model_id: &str,
+    selected_model_id: Option<&str>,
     thinking: bool,
 ) -> String {
     let mut provider = serde_json::Map::new();
@@ -433,6 +433,12 @@ pub fn apply_catalog_provider(
             .map(|o| o.insert("models".into(), Value::Object(models_map)));
     }
 
+    // Only touch `defaultModel`/`thinking` when a model was explicitly
+    // selected — an import without `--default-model` must preserve the user's
+    // existing default and thinking config (TS parity).
+    let Some(selected_model_id) = selected_model_id else {
+        return String::new();
+    };
     let default_model = format!("{prefix}{selected_model_id}");
     if let Some(obj) = config.as_object_mut() {
         obj.insert("defaultModel".into(), Value::String(default_model.clone()));
@@ -911,7 +917,7 @@ mod tests {
             Some("https://acme.example/v1"),
             Some("sk-test"),
             &[model],
-            "acme-1",
+            Some("acme-1"),
             true,
         );
         assert_eq!(default, "acme/acme-1");

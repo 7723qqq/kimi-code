@@ -595,6 +595,18 @@ fn print_long_prompt_and_attached_value_match_the_subcommand() {
 }
 
 #[test]
+fn print_resumes_explicit_session() {
+    // TS parity: `-p x -S <id>` (or `print -S <id>`) resumes the named
+    // session for the prompt instead of silently running a fresh one — the
+    // persisted session must appear in the listing afterwards.
+    let home = temp_dir("print-resume-session");
+    let out = run(&home, &["print", "-S", "resume-me", "hi"]);
+    assert!(!out.status.success(), "no LLM -> print errors: {}", out.status);
+    let list = run(&home, &["sessions", "--json"]);
+    assert!(stdout(&list).contains("resume-me"), "session listed: {}", stdout(&list));
+}
+
+#[test]
 fn print_continue_resumes_latest_session() {
     // `print --continue` reuses the most recently updated session instead of
     // creating the default kimi-exec session.
@@ -812,13 +824,13 @@ fn print_goal_mode_creates_goal() {
     // print --goal runs create -> goal_create -> prompt; the prompt errors
     // without an LLM but the goal persists on the session.
     let home = temp_dir("print-goal");
-    let out = run(&home, &["print", "--goal", "do the thing", "hi"]);
+    let out = run(&home, &["print", "-S", "goal-test-session", "--goal", "do the thing", "hi"]);
     assert!(!out.status.success(), "no LLM -> print errors: {}", out.status);
 
     // The goal is readable back on the same session via chat /goal-status.
     let cwd = temp_dir("print-goal-cwd");
     let mut child = Command::new(binary())
-        .args(["chat", "-s", "kimi-exec"])
+        .args(["chat", "-s", "goal-test-session"])
         .current_dir(&cwd)
         .env("KIMI_AGENT_HOME", &home)
         .env("HOME", &home)
