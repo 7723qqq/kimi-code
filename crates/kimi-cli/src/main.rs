@@ -53,6 +53,10 @@ struct Cli {
     /// (TS `--output-format` parity; defaults to `text`).
     #[arg(long, value_enum)]
     output_format: Option<PrintOutputFormat>,
+    /// Additional workspace directories to attach to the session (TS
+    /// `--add-dir <dir>` parity; repeatable).
+    #[arg(long = "add-dir", action = clap::ArgAction::Append)]
+    add_dirs: Vec<String>,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -1747,7 +1751,7 @@ async fn handle_chat_command(
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     use clap::CommandFactory;
-    let Cli { server, session, command, prompt, continue_, yolo, auto, plan, model, output_format } = Cli::parse();
+    let Cli { server, session, command, prompt, continue_, yolo, auto, plan, model, output_format, add_dirs } = Cli::parse();
     // Top-level `--prompt`/`-p` (long form or attached value) routes into the
     // `print` subcommand with defaults — TS parity for `kimi --prompt "..."`.
     let command = match command {
@@ -1841,6 +1845,15 @@ async fn main() -> anyhow::Result<()> {
             // stderr is a terminal (script pipes stay clean — stdout keeps the
             // result contract either way).
             let capture = verbose || std::io::stderr().is_terminal();
+            // TS `PromptJsonWriter` parity: stream-json opens with a
+            // `system.version` meta line so consumers can pin the format.
+            if stream_json {
+                println!("{}", serde_json::json!({
+                    "role": "meta",
+                    "type": "system.version",
+                    "version": env!("CARGO_PKG_VERSION"),
+                }));
+            }
             let (mut client, renderer) = connect_with_renderer(&server, capture, stream_json)?;
             // TS `-p` parity: an explicit `-S <id>`/`-r <id>` resumes that
             // session for the prompt (a value-less `-S` is meaningless in
@@ -1908,6 +1921,27 @@ async fn main() -> anyhow::Result<()> {
             if let Some(error) = result.get("error") {
                 eprintln!("error: {}", error["message"].as_str().unwrap_or("unknown"));
                 std::process::exit(1);
+            }
+            // TS `PromptJsonWriter` parity: stream-json closes with a
+            // `session.resume_hint` meta line (machine-readable resume path).
+            if stream_json {
+                println!("{}", serde_json::json!({
+                    "role": "meta",
+                    "type": "session.resume_hint",
+                    "session_id": session_id,
+                    "command": format!("kimi -r {session_id}"),
+                    "content": format!("run `kimi -r {session_id}` to resume this session"),
+                }));
+            }
+            // Attach additional workspace directories (TS `--add-dir`
+            // parity). Best-effort per dir — the session stays usable.
+            for dir in &add_dirs {
+                let _ = client
+                    .call(
+                        kimi_protocol::methods::SESSION_ADD_DIR,
+                        serde_json::json!({ "session_id": session_id, "path": dir }),
+                    )
+                    .await;
             }
             if json {
                 println!("{result}");
@@ -2785,7 +2819,7 @@ async fn main() -> anyhow::Result<()> {
                             if let Some(base_url) = &resolved_base_url {
                                 provider_cfg["baseUrl"] = serde_json::json!(base_url);
                             }
-                            if let Some(key) = resolved_key {
+                            if let Some(key) = &resolved_key {
                                 provider_cfg["apiKey"] = serde_json::json!(key);
                             }
                             config["providers"][&id] = provider_cfg;
@@ -2794,6 +2828,16 @@ async fn main() -> anyhow::Result<()> {
                             }
                             default_model.unwrap_or_default()
                         };
+                        // Persist the registry source blob so the TUI can
+                        // group/refresh providers by catalog URL (TS
+                        // `source: { kind: 'apiJson', url, apiKey }` parity).
+                        if let Some(source) = config["providers"][&id].as_object_mut() {
+                            let mut blob = serde_json::json!({ "kind": "apiJson", "url": catalog_url });
+                            if let Some(key) = &resolved_key {
+                                blob["apiKey"] = serde_json::json!(key);
+                            }
+                            source.insert("source".to_string(), blob);
+                        }
                         let client = connect(&server)?;
                         let body = client
                             .call(
