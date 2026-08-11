@@ -238,6 +238,9 @@ kimi-sdk（Session 45/45 + Harness + catalog 归一化 + config/errors + /btw）
 
 # 8. 已决策记录（历史快照提炼，冲突时以本节省略为准）
 
+## 工具教训
+- **oxlint --fix 全仓批量修复已回退（2026-08-11）**：`consistent-type-imports` 把 Vue SFC 组件 import 误判为纯类型（运行时组件被 `import type`）、`no-useless-undefined` 把 `resolve(undefined)` 改回无参（Promise 联合类型下类型错误）、数组→Set 误改——引入 3 类 typecheck 错误 + 5 个 vitest 失败。**教训：--fix 必须定向（单规则/单文件 + diff 审查），禁止全仓盲修**；Vue SFC 的 import 与 Promise 边界参数是已知误判区。
+
 ## 测试策略
 - **TS 用例平移 → 重写而非平移**（用户定案，2026-08-05）——TS 测试随层退役，Rust 侧重写
 - **vitest 归因修复边界**（2026-08-10 用户质询后定案）：引擎侧修复保留长期价值；TS 层仅做基线必要适配，不深挖过渡层边缘行为（vscode in-process / node-sdk 随 G-6 退役）
