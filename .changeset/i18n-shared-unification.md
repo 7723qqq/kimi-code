@@ -1,8 +1,6 @@
 ---
 "@moonshot-ai/i18n-shared": minor
-"@moonshot-ai/agent-core": patch
 "@moonshot-ai/kimi-code": patch
-"@moonshot-ai/kap-server": patch
 "@moonshot-ai/kimi-web": patch
 "kimi-code": patch
 ---
