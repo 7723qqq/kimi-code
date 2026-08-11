@@ -57,6 +57,10 @@ struct Cli {
     /// `--add-dir <dir>` parity; repeatable).
     #[arg(long = "add-dir", action = clap::ArgAction::Append)]
     add_dirs: Vec<String>,
+    /// Load skills from these directories instead of the auto-discovered
+    /// user/project dirs (TS `--skills-dir <dir>` parity; repeatable).
+    #[arg(long = "skills-dir", action = clap::ArgAction::Append)]
+    skills_dirs: Vec<String>,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -85,6 +89,86 @@ fn parse_headless_goal(prompt: &str) -> Option<String> {
         return None;
     }
     Some(objective.to_string())
+}
+
+/// Split a SKILL.md body into its `---`-fenced frontmatter block and the
+/// remaining markdown content. A missing fence yields an empty meta block
+/// and the full text as content.
+fn split_frontmatter(content: &str) -> (String, String) {
+    let trimmed = content.trim_start_matches('\u{feff}');
+    let Some(rest) = trimmed.strip_prefix("---") else {
+        return (String::new(), content.to_string());
+    };
+    let Some(end) = rest.find("\n---") else {
+        return (String::new(), content.to_string());
+    };
+    // The meta block spans `---\n<lines>\n---`; drop the newline that
+    // separates the opening fence from the first line.
+    let meta = rest[..end].trim_start_matches('\n').to_string();
+    (meta, rest[end + 4..].to_string())
+}
+
+/// Parse one `SKILL.md` file into host-supplied skill metadata (`session/
+/// create` wire shape). Frontmatter `key: value` lines carry `name`,
+/// `description` and `skill_type`; the markdown body becomes `content`.
+/// A missing `name` skips the file — only well-formed skills register.
+fn read_skill_file(path: &std::path::Path) -> Option<serde_json::Value> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let (meta, body) = split_frontmatter(&content);
+    let mut name: Option<String> = None;
+    let mut description = String::new();
+    let mut skill_type = String::new();
+    for line in meta.lines() {
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        match key.trim() {
+            "name" => name = Some(value.trim().to_string()),
+            "description" => description = value.trim().to_string(),
+            "skill_type" => skill_type = value.trim().to_string(),
+            _ => {}
+        }
+    }
+    let name = name?;
+    Some(serde_json::json!({
+        "name": name,
+        "description": description,
+        "skill_type": if skill_type.is_empty() { "prompt" } else { skill_type.as_str() },
+        "dir": path.parent().and_then(|p| p.to_str()),
+        "path": path.to_str().unwrap_or_default(),
+        "content": body.trim_end().to_string(),
+    }))
+}
+
+/// Recursively collect `SKILL.md` files under one directory.
+fn collect_skills(dir: &std::path::Path, out: &mut Vec<serde_json::Value>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_skills(&path, out);
+            continue;
+        }
+        if path.file_name().and_then(|n| n.to_str()) != Some("SKILL.md") {
+            continue;
+        }
+        if let Some(skill) = read_skill_file(&path) {
+            out.push(skill);
+        }
+    }
+}
+
+/// Scan `--skills-dir` directories for `SKILL.md` files (TS `--skills-dir`
+/// parity: load skills from explicit directories). Missing/empty dirs yield
+/// no skills; ordering follows the given dir order.
+fn load_skills_from_dirs(dirs: &[String]) -> Vec<serde_json::Value> {
+    let mut skills = Vec::new();
+    for dir in dirs {
+        collect_skills(std::path::Path::new(dir), &mut skills);
+    }
+    skills
 }
 
 /// The engine's `GoalSnapshot` is camelCase (TS parity), so the summary maps
@@ -1094,6 +1178,87 @@ mod headless_tests {
         assert_eq!(cfg.token.as_deref(), Some("pw-test"));
         std::env::remove_var("KIMI_CODE_PASSWORD");
     }
+
+    #[test]
+    fn skill_frontmatter_parses() {
+        let (meta, body) = split_frontmatter(
+            "---\nname: my-skill\ndescription: Does a thing.\nskill_type: prompt\n---\n# Body\ncontent here\n",
+        );
+        assert_eq!(meta, "name: my-skill\ndescription: Does a thing.\nskill_type: prompt");
+        assert_eq!(body, "\n# Body\ncontent here\n");
+        // No frontmatter: empty meta, full text as content.
+        let (meta, body) = split_frontmatter("plain markdown");
+        assert!(meta.is_empty());
+        assert_eq!(body, "plain markdown");
+    }
+
+    #[test]
+    fn skill_file_scan_builds_metadata() {
+        let dir = std::env::temp_dir().join(format!("kimi-skills-test-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("nested")).unwrap();
+        std::fs::write(
+            dir.join("SKILL.md"),
+            "---\nname: alpha\ndescription: First skill.\n---\n# Alpha\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("nested").join("SKILL.md"),
+            "---\nname: beta\nskill_type: script\n---\n# Beta\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("nested").join("notes.txt"), "not a skill").unwrap();
+        // Malformed: missing name -> skipped.
+        std::fs::create_dir_all(dir.join("broken")).unwrap();
+        std::fs::write(dir.join("broken").join("SKILL.md"), "---\ndescription: no name\n---\n").unwrap();
+
+        let skills = load_skills_from_dirs(&[dir.to_str().unwrap().to_string()]);
+        let names: Vec<&str> = skills.iter().map(|s| s["name"].as_str().unwrap()).collect();
+        // read_dir order is unspecified — compare sorted.
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, vec!["alpha", "beta"]);
+        let alpha = skills.iter().find(|s| s["name"] == "alpha").unwrap();
+        assert_eq!(alpha["description"], "First skill.");
+        assert_eq!(alpha["skill_type"], "prompt", "default skill type");
+        assert!(alpha["content"].as_str().unwrap().contains("# Alpha"));
+        let beta = skills.iter().find(|s| s["name"] == "beta").unwrap();
+        assert_eq!(beta["skill_type"], "script");
+        assert!(beta["dir"].as_str().unwrap().ends_with("nested"));
+        // Missing dir -> empty.
+        assert!(load_skills_from_dirs(&["/definitely/not/a/dir".into()]).is_empty());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn clap_help_localizes_in_zh() {
+        use clap::CommandFactory;
+        // English (default): derive doc comments verbatim.
+        let en_help = Cli::command().render_help().to_string();
+        assert!(en_help.contains("Run one prompt non-interactively"));
+        // zh: dictionary overrides apply.
+        kimi_tui::i18n::set_locale(kimi_tui::i18n::Locale::Zh);
+        let zh_help = localize_cli_command(Cli::command()).render_help().to_string();
+        assert!(
+            zh_help.contains("以非交互方式运行一条提示"),
+            "top-level print about: {zh_help}"
+        );
+        assert!(zh_help.contains("Kimi Code CLI（Rust 优先）"), "about: {zh_help}");
+        // Nested subcommand + arg help (parse `print --help` so global-arg
+        // context is preserved and the localized command builds fully).
+        let cmd = localize_cli_command(Cli::command());
+        let err = cmd.try_get_matches_from(["kimi", "print", "--help"]).unwrap_err();
+        assert_eq!(err.kind(), clap::error::ErrorKind::DisplayHelp);
+        let print_help = err.render().to_string();
+        assert!(print_help.contains("要运行的提示。"), "print help: {print_help}");
+        assert!(print_help.contains("实时打印引擎事件"), "verbose help: {print_help}");
+        let err = localize_cli_command(Cli::command())
+            .try_get_matches_from(["kimi", "provider", "--help"])
+            .unwrap_err();
+        let provider_help = err.render().to_string();
+        assert!(provider_help.contains("列出已配置的提供商"), "provider help: {provider_help}");
+        kimi_tui::i18n::set_locale(kimi_tui::i18n::Locale::En);
+    }
 }
 
 #[cfg(test)]
@@ -1756,10 +1921,268 @@ async fn handle_chat_command(
     }
 }
 
+/// Apply the active locale to clap's derive help texts. English keeps the
+/// derive doc comments verbatim; `zh` overrides about/help at runtime so the
+/// parser logic stays derive-generated (`Cli::from_arg_matches`). Clap's
+/// auto-generated bits (usage lines, error messages) stay English — help
+/// text is the localized surface, matching the TS Commander port.
+fn localize_cli_command(mut cmd: clap::Command) -> clap::Command {
+    use kimi_tui::i18n::{t, Locale};
+    if kimi_tui::i18n::active_locale() != Locale::Zh {
+        return cmd;
+    }
+    cmd = cmd.about(t("cli.help.about"));
+    for (id, key) in [
+        ("server", "cli.help.arg.server"),
+        ("session", "cli.help.arg.session"),
+        ("prompt", "cli.help.arg.prompt"),
+        ("continue_", "cli.help.arg.continue"),
+        ("yolo", "cli.help.arg.yolo"),
+        ("auto", "cli.help.arg.auto"),
+        ("plan", "cli.help.arg.plan"),
+        ("model", "cli.help.arg.model"),
+        ("output_format", "cli.help.arg.output-format"),
+        ("add_dirs", "cli.help.arg.add-dir"),
+        ("skills_dirs", "cli.help.arg.skills-dir"),
+    ] {
+        let text = t(key);
+        cmd = cmd.mut_arg(id, move |a| a.help(text));
+    }
+    // (name, about key, [(arg id, help key)]) — ids are derive field names.
+    let subcommands: &[(&str, &str, &[(&str, &str)])] = &[
+        (
+            "print",
+            "cli.help.cmd.print",
+            &[
+                ("prompt", "cli.help.arg.prompt-text"),
+                ("verbose", "cli.help.arg.verbose"),
+                ("json", "cli.help.arg.json"),
+                ("goal", "cli.help.arg.goal"),
+                ("model", "cli.help.arg.session-model"),
+                ("plan", "cli.help.arg.plan-mode"),
+                ("continue_", "cli.help.arg.print-continue"),
+                ("output_format", "cli.help.arg.print-output-format"),
+                ("yolo", "cli.help.arg.print-yolo"),
+                ("auto", "cli.help.arg.print-auto"),
+            ][..],
+        ),
+        (
+            "sessions",
+            "cli.help.cmd.sessions",
+            &[
+                ("limit", "cli.help.arg.limit"),
+                ("json", "cli.help.arg.json"),
+            ][..],
+        ),
+        (
+            "resume",
+            "cli.help.cmd.resume",
+            &[
+                ("session_id", "cli.help.arg.session-id"),
+                ("prompt", "cli.help.arg.prompt-text"),
+                ("verbose", "cli.help.arg.verbose"),
+                ("json", "cli.help.arg.json"),
+                ("goal", "cli.help.arg.goal"),
+                ("model", "cli.help.arg.session-model"),
+                ("plan", "cli.help.arg.plan-mode"),
+                ("output_format", "cli.help.arg.print-output-format"),
+                ("yolo", "cli.help.arg.print-yolo"),
+                ("auto", "cli.help.arg.print-auto"),
+            ][..],
+        ),
+        (
+            "config",
+            "cli.help.cmd.config",
+            &[
+                ("set", "cli.help.arg.set"),
+                ("delete", "cli.help.arg.delete"),
+            ][..],
+        ),
+        ("doctor", "cli.help.cmd.doctor", &[][..]),
+        ("health", "cli.help.cmd.health", &[][..]),
+        (
+            "export",
+            "cli.help.cmd.export",
+            &[
+                ("session_id", "cli.help.arg.export-session-id"),
+                ("output", "cli.help.arg.export-output"),
+                ("yes", "cli.help.arg.export-yes"),
+                ("include_global_log", "cli.help.arg.include-global-log"),
+                ("no_include_global_log", "cli.help.arg.no-include-global-log"),
+            ][..],
+        ),
+        (
+            "chat",
+            "cli.help.cmd.chat",
+            &[
+                ("session", "cli.help.arg.chat-session"),
+                ("continue_", "cli.help.arg.chat-continue"),
+                ("model", "cli.help.arg.chat-model"),
+            ][..],
+        ),
+        (
+            "acp",
+            "cli.help.cmd.acp",
+            &[("login", "cli.help.arg.acp-login")][..],
+        ),
+        (
+            "completions",
+            "cli.help.cmd.completions",
+            &[("shell", "cli.help.arg.shell")][..],
+        ),
+        (
+            "login",
+            "cli.help.cmd.login",
+            &[
+                ("oauth_host", "cli.help.arg.oauth-host"),
+                ("max_polls", "cli.help.arg.max-polls"),
+            ][..],
+        ),
+        ("logout", "cli.help.cmd.logout", &[][..]),
+        ("upgrade", "cli.help.cmd.upgrade", &[][..]),
+        ("migrate", "cli.help.cmd.migrate", &[][..]),
+        (
+            "web",
+            "cli.help.cmd.web",
+            &[
+                ("port", "cli.help.arg.port"),
+                ("host", "cli.help.arg.host"),
+                ("dangerous_bypass_auth", "cli.help.arg.dangerous-bypass-auth"),
+                ("no_open", "cli.help.arg.no-open"),
+                ("assets", "cli.help.arg.assets"),
+                ("allowed_hosts", "cli.help.arg.allowed-hosts"),
+            ][..],
+        ),
+        ("vis", "cli.help.cmd.vis", &[][..]),
+        // `provider` and `doctor` carry nested subcommand enums handled below.
+        ("provider", "cli.help.cmd.provider", &[][..]),
+    ];
+    for (name, about, args) in subcommands {
+        let about_text = t(about);
+        cmd = cmd.mut_subcommand(name, move |c| {
+            let mut c = c.about(about_text);
+            for (id, key) in *args {
+                let text = t(key);
+                c = c.mut_arg(id, move |a| a.help(text));
+            }
+            c
+        });
+    }
+    // `provider` sub-commands (list/add/remove/catalog) and their args.
+    let provider_args: &[(&str, &str, &[(&str, &str)])] = &[
+        ("list", "cli.help.cmd.pv-list", &[("json", "cli.help.arg.json")][..]),
+        (
+            "add",
+            "cli.help.cmd.pv-add",
+            &[
+                ("url", "cli.help.arg.url"),
+                ("api_key", "cli.help.arg.api-key"),
+            ][..],
+        ),
+        ("remove", "cli.help.cmd.pv-remove", &[("id", "cli.help.arg.provider-id")][..]),
+        (
+            "catalog",
+            "cli.help.cmd.pv-catalog",
+            &[][..],
+        ),
+    ];
+    cmd = cmd.mut_subcommand("provider", move |provider| {
+        let mut provider = provider.clone();
+        for (name, about, args) in provider_args {
+            let about_text = t(about);
+            provider = provider.mut_subcommand(name, move |c| {
+                let mut c = c.about(about_text);
+                for (id, key) in *args {
+                    let text = t(key);
+                    c = c.mut_arg(id, move |a| a.help(text));
+                }
+                c
+            });
+        }
+        provider
+    });
+    // `provider catalog` sub-commands (list/search/add) and their args.
+    let catalog_args: &[(&str, &str, &[(&str, &str)])] = &[
+        (
+            "list",
+            "cli.help.cmd.cat-list",
+            &[
+                ("provider_id", "cli.help.arg.cat-provider-id"),
+                ("filter", "cli.help.arg.cat-filter"),
+                ("json", "cli.help.arg.json"),
+                ("url", "cli.help.arg.cat-url"),
+            ][..],
+        ),
+        (
+            "search",
+            "cli.help.cmd.cat-search",
+            &[
+                ("query", "cli.help.arg.query"),
+                ("url", "cli.help.arg.cat-url"),
+            ][..],
+        ),
+        (
+            "add",
+            "cli.help.cmd.cat-add",
+            &[
+                ("id", "cli.help.arg.cat-id"),
+                ("api_key", "cli.help.arg.cat-api-key"),
+                ("default_model", "cli.help.arg.default-model"),
+                ("url", "cli.help.arg.cat-url"),
+                ("base_url", "cli.help.arg.base-url"),
+            ][..],
+        ),
+    ];
+    cmd = cmd.mut_subcommand("provider", move |provider| {
+        let mut provider = provider.clone();
+        provider = provider.mut_subcommand("catalog", move |catalog| {
+            let mut catalog = catalog.clone();
+            for (name, about, args) in catalog_args {
+                let about_text = t(about);
+                catalog = catalog.mut_subcommand(name, move |c| {
+                    let mut c = c.about(about_text);
+                    for (id, key) in *args {
+                        let text = t(key);
+                        c = c.mut_arg(id, move |a| a.help(text));
+                    }
+                    c
+                });
+            }
+            catalog
+        });
+        provider
+    });
+    // `doctor` sub-targets (config/tui).
+    let doctor_args: &[(&str, &str, &[(&str, &str)])] = &[
+        ("config", "cli.help.cmd.dt-config", &[("path", "cli.help.arg.path")][..]),
+        ("tui", "cli.help.cmd.dt-tui", &[("path", "cli.help.arg.path")][..]),
+    ];
+    cmd = cmd.mut_subcommand("doctor", move |doctor| {
+        let mut doctor = doctor.clone();
+        for (name, about, args) in doctor_args {
+            let about_text = t(about);
+            doctor = doctor.mut_subcommand(name, move |c| {
+                let mut c = c.about(about_text);
+                for (id, key) in *args {
+                    let text = t(key);
+                    c = c.mut_arg(id, move |a| a.help(text));
+                }
+                c
+            });
+        }
+        doctor
+    });
+    cmd
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    use clap::CommandFactory;
-    let Cli { server, session, command, prompt, continue_, yolo, auto, plan, model, output_format, add_dirs } = Cli::parse();
+    use clap::{CommandFactory, FromArgMatches};
+    // Parse through a locale-aware Command: `--help`/errors keep clap's
+    // standard exit behavior, while zh help texts come from the dictionary.
+    let cli = Cli::from_arg_matches(&localize_cli_command(Cli::command()).get_matches())
+        .unwrap_or_else(|e| e.exit());
+    let Cli { server, session, command, prompt, continue_, yolo, auto, plan, model, output_format, add_dirs, skills_dirs } = cli;
     // Top-level `--prompt`/`-p` (long form or attached value) routes into the
     // `print` subcommand with defaults — TS parity for `kimi --prompt "..."`.
     let command = match command {
@@ -1826,7 +2249,7 @@ async fn main() -> anyhow::Result<()> {
             });
             return app.run().await;
         }
-        let mut cmd = Cli::command();
+        let mut cmd = localize_cli_command(Cli::command());
         cmd.print_help()?;
         println!();
         println!("interactive TUI needs a terminal — use `kimi chat` for a plain-text REPL or `kimi -p \"...\"` for one-shot runs");
@@ -1901,6 +2324,7 @@ async fn main() -> anyhow::Result<()> {
                 // TS `-p` unconditionally runs with permission auto — a
                 // headless prompt must never block on an approval.
                 permission_auto: true,
+                skills: load_skills_from_dirs(&skills_dirs),
             };
             let result = kimi_exec::run_prompt_with_setup(
                 &mut client,
@@ -2030,6 +2454,10 @@ async fn main() -> anyhow::Result<()> {
             let (client, renderer) = connect_with_renderer(&server, capture, stream_json)?;
             let native_llm = kimi_exec::native_llm_from_config();
             let mut create_params = serde_json::json!({ "session_id": session_id });
+            let skills = load_skills_from_dirs(&skills_dirs);
+            if !skills.is_empty() {
+                create_params["skills"] = serde_json::to_value(&skills).unwrap_or_default();
+            }
             if let Some(nllm) = native_llm {
                 create_params["native_llm"] = serde_json::to_value(&nllm).unwrap_or_default();
             }
@@ -2345,6 +2773,10 @@ async fn main() -> anyhow::Result<()> {
             let mut create_params = serde_json::json!({ "session_id": session_id });
             if let Ok(cwd) = std::env::current_dir() {
                 create_params["work_dir"] = serde_json::json!(cwd);
+            }
+            let skills = load_skills_from_dirs(&skills_dirs);
+            if !skills.is_empty() {
+                create_params["skills"] = serde_json::to_value(&skills).unwrap_or_default();
             }
             let created = client
                 .call(kimi_protocol::methods::SESSION_CREATE, create_params)

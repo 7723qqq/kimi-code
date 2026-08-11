@@ -1181,6 +1181,380 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "the vis frontend ships with the TS distribution (npm wrapper) — not bundled in the Rust build",
         "vis 前端随 TS 分发提供（npm wrapper）——未包含在 Rust 构建中",
     ),
+    // ── clap help texts (`cli.help.*`) ───────────────────────────────────
+    // `localize_cli_command` in kimi-cli overrides the derive doc comments
+    // with these when the active locale is zh; English keeps the derive
+    // docs verbatim, so these `en` values mirror them for reference/tests.
+    ("cli.help.about", "Kimi Code CLI (Rust-first)", "Kimi Code CLI（Rust 优先）"),
+    (
+        "cli.help.arg.server",
+        "Drive a separate server process (`kimi-server-serve`) over stdio instead of an embedded in-process server.",
+        "通过 stdio 驱动独立服务进程（`kimi-server-serve`），而不是使用进程内嵌服务器。",
+    ),
+    (
+        "cli.help.arg.session",
+        "Resume an existing session: with no subcommand, enters the interactive TUI bound to that session. A value-less `-S`/`-r` opens the session picker.",
+        "恢复已有会话：不带子命令时进入绑定该会话的交互式 TUI；不带值的 `-S`/`-r` 打开会话选择器。",
+    ),
+    (
+        "cli.help.arg.prompt",
+        "Run one prompt non-interactively (the documented `kimi --prompt \"...\"` form; `-p` as the first token still resolves to the `print` subcommand).",
+        "以非交互方式运行一条提示（即文档中的 `kimi --prompt \"...\"` 形式；`-p` 作为首个参数仍通过别名解析到 `print` 子命令）。",
+    ),
+    (
+        "cli.help.arg.continue",
+        "Resume the most recently updated session in the current directory when entering the TUI.",
+        "进入 TUI 时恢复当前目录中最近更新的会话。",
+    ),
+    (
+        "cli.help.arg.yolo",
+        "Enter the TUI in yolo mode (auto-approve).",
+        "以 yolo 模式进入 TUI（自动批准）。",
+    ),
+    (
+        "cli.help.arg.auto",
+        "Enter the TUI in auto mode.",
+        "以自动权限模式进入 TUI。",
+    ),
+    (
+        "cli.help.arg.plan",
+        "Enter the TUI in plan mode.",
+        "以计划模式进入 TUI。",
+    ),
+    (
+        "cli.help.arg.model",
+        "Set the model for the session.",
+        "设置会话的模型。",
+    ),
+    (
+        "cli.help.arg.output-format",
+        "Non-interactive output format; only used with `--prompt`/`-p` (defaults to `text`).",
+        "非交互输出格式；仅与 `--prompt`/`-p` 一起使用（默认 `text`）。",
+    ),
+    (
+        "cli.help.arg.add-dir",
+        "Additional workspace directories to attach to the session (repeatable).",
+        "为本会话附加额外的工作区目录（可重复）。",
+    ),
+    (
+        "cli.help.arg.skills-dir",
+        "Load skills from these directories instead of the auto-discovered user/project dirs (repeatable).",
+        "从这些目录加载 skills，替代自动发现的用户和项目目录（可重复）。",
+    ),
+    ("cli.help.cmd.print", "Run one prompt non-interactively.", "以非交互方式运行一条提示。"),
+    ("cli.help.cmd.sessions", "List persisted sessions.", "列出已持久化的会话。"),
+    (
+        "cli.help.cmd.resume",
+        "Resume a session and run a prompt on it.",
+        "恢复一个会话并对其运行提示。",
+    ),
+    (
+        "cli.help.cmd.config",
+        "Show the engine config (model/provider); with `--set`, write a value.",
+        "显示引擎配置（模型/提供商）；配合 `--set` 写入值。",
+    ),
+    ("cli.help.cmd.doctor", "Environment + config diagnostics.", "环境与配置诊断。"),
+    ("cli.help.cmd.health", "Engine health check.", "引擎健康检查。"),
+    (
+        "cli.help.cmd.export",
+        "Export a session as a ZIP archive.",
+        "将会话导出为 ZIP 归档。",
+    ),
+    (
+        "cli.help.cmd.chat",
+        "Interactive chat loop (stage-D prototype: plain text, no ratatui).",
+        "交互式聊天循环（阶段 D 原型：纯文本，无 ratatui）。",
+    ),
+    (
+        "cli.help.cmd.acp",
+        "Serve the Agent Client Protocol (ACP) over stdio.",
+        "通过 stdio 提供 Agent Client Protocol（ACP）服务。",
+    ),
+    (
+        "cli.help.cmd.completions",
+        "Generate a shell completion script.",
+        "生成 shell 补全脚本。",
+    ),
+    (
+        "cli.help.cmd.provider",
+        "Provider management from the models.dev catalog.",
+        "基于 models.dev 目录的提供商管理。",
+    ),
+    (
+        "cli.help.cmd.login",
+        "Log in via the kimi OAuth device flow.",
+        "通过 kimi OAuth 设备码流程登录。",
+    ),
+    (
+        "cli.help.cmd.logout",
+        "Remove the kimi provider credentials from the engine config.",
+        "从引擎配置中移除 kimi 提供商凭据。",
+    ),
+    (
+        "cli.help.cmd.upgrade",
+        "Update the CLI to the latest version (managed by the distribution).",
+        "将 CLI 更新到最新版本（由分发机制管理）。",
+    ),
+    (
+        "cli.help.cmd.migrate",
+        "Migrate legacy kimi-cli data — a one-time step handled by the TS distribution.",
+        "迁移旧 kimi-cli 数据——由 TS 分发处理的一次性步骤。",
+    ),
+    (
+        "cli.help.cmd.web",
+        "Launch the web UI server (the Rust `/api/v1` + WS surface; the SPA frontend is served from `--assets` when given).",
+        "启动 Web UI 服务（Rust `/api/v1` + WS 接口；给定 `--assets` 时从此目录提供 SPA 前端）。",
+    ),
+    (
+        "cli.help.cmd.vis",
+        "Launch the visualization frontend (ships with the TS distribution).",
+        "启动可视化前端（随 TS 分发提供）。",
+    ),
+    ("cli.help.arg.prompt-text", "The prompt to run.", "要运行的提示。"),
+    (
+        "cli.help.arg.verbose",
+        "Print engine events (progress/deltas) as they arrive.",
+        "实时打印引擎事件（进度/增量）。",
+    ),
+    (
+        "cli.help.arg.json",
+        "Print the raw RPC result JSON instead of the rendered transcript.",
+        "打印原始 RPC 结果 JSON，而不是渲染后的记录文本。",
+    ),
+    (
+        "cli.help.arg.goal",
+        "Create a goal on the session before prompting (goal mode).",
+        "提示前在会话上创建目标（目标模式）。",
+    ),
+    (
+        "cli.help.arg.session-model",
+        "Set the session model before prompting.",
+        "提示前设置会话模型。",
+    ),
+    (
+        "cli.help.arg.plan-mode",
+        "Enable plan mode before prompting.",
+        "提示前启用计划模式。",
+    ),
+    (
+        "cli.help.arg.print-continue",
+        "Resume the most recently updated session instead of a fresh one (mutually exclusive with `-S <id>`/`-r <id>`).",
+        "恢复最近更新的会话而不是新建（与 `-S <id>`/`-r <id>` 互斥）。",
+    ),
+    (
+        "cli.help.arg.print-output-format",
+        "Output format: `text` (default) or `stream-json` (JSONL).",
+        "输出格式：`text`（默认）或 `stream-json`（JSONL）。",
+    ),
+    (
+        "cli.help.arg.print-yolo",
+        "Auto-approve tool calls (permission mode auto).",
+        "自动批准工具调用（自动权限模式）。",
+    ),
+    (
+        "cli.help.arg.print-auto",
+        "Auto permission mode (mutually exclusive with --yolo).",
+        "自动权限模式（与 --yolo 互斥）。",
+    ),
+    (
+        "cli.help.arg.limit",
+        "Max sessions to list.",
+        "最多列出的会话数。",
+    ),
+    (
+        "cli.help.arg.session-id",
+        "Session id to resume.",
+        "要恢复的会话 ID。",
+    ),
+    (
+        "cli.help.arg.set",
+        "Set a config value (repeatable), e.g. `--set defaultModel=kimi-k2` or `--set providers.anthropic.apiKey=sk-…`. Values are strings.",
+        "设置配置值（可重复），如 `--set defaultModel=kimi-k2` 或 `--set providers.anthropic.apiKey=sk-…`。值为字符串。",
+    ),
+    (
+        "cli.help.arg.delete",
+        "Delete a config section entry (repeatable), e.g. `--delete providers.kimi` or `--delete models.kimi-k2`. Only section-level entries (`providers.<id>`, `models.<alias>`) can be removed.",
+        "删除配置节条目（可重复），如 `--delete providers.kimi` 或 `--delete models.kimi-k2`。只能删除节级条目（`providers.<id>`、`models.<alias>`）。",
+    ),
+    ("cli.help.arg.path", "Path to the file (defaults to the first found).", "文件路径（默认使用找到的第一个）。"),
+    ("cli.help.cmd.dt-config", "Validate a specific config.toml file.", "验证指定的 config.toml 文件。"),
+    (
+        "cli.help.cmd.dt-tui",
+        "Validate a specific tui.toml file (syntax only).",
+        "验证指定的 tui.toml 文件（仅语法）。",
+    ),
+    (
+        "cli.help.arg.export-session-id",
+        "Session id to export (defaults to the most recent session).",
+        "要导出的会话 ID（默认最近的会话）。",
+    ),
+    (
+        "cli.help.arg.export-output",
+        "Output zip path (defaults to `<session_id>.zip` in the cwd).",
+        "输出 zip 路径（默认当前目录下的 `<session_id>.zip`）。",
+    ),
+    (
+        "cli.help.arg.export-yes",
+        "Pick the most recent session without confirmation.",
+        "不确认直接选择最近的会话。",
+    ),
+    (
+        "cli.help.arg.include-global-log",
+        "Include the global log file in the archive (default on).",
+        "在归档中包含全局日志文件（默认开启）。",
+    ),
+    (
+        "cli.help.arg.no-include-global-log",
+        "Omit the global log file from the archive (the default is to include it; this flips that default off).",
+        "从归档中排除全局日志文件（默认包含；此选项翻转默认值）。",
+    ),
+    (
+        "cli.help.arg.chat-session",
+        "Session id to reuse (defaults to a fresh `chat-<pid>` one).",
+        "要复用的会话 ID（默认新建 `chat-<pid>` 会话）。",
+    ),
+    (
+        "cli.help.arg.chat-continue",
+        "Resume the most recently updated session instead of a fresh one.",
+        "恢复最近更新的会话而不是新建。",
+    ),
+    (
+        "cli.help.arg.chat-model",
+        "Set the session model at startup.",
+        "启动时设置会话模型。",
+    ),
+    (
+        "cli.help.arg.acp-login",
+        "Run the kimi OAuth login flow instead of serving.",
+        "运行 kimi OAuth 登录流程而不是提供服务。",
+    ),
+    ("cli.help.arg.shell", "Target shell.", "目标 shell。"),
+    ("cli.help.cmd.pv-list", "List configured providers (from the engine config; apiKey masked).", "列出已配置的提供商（来自引擎配置；apiKey 掩码显示）。"),
+    (
+        "cli.help.cmd.pv-add",
+        "Import providers from a registry api.json URL (the model catalog is such a registry).",
+        "从注册表 api.json URL 导入提供商（模型目录即此类注册表）。",
+    ),
+    (
+        "cli.help.cmd.pv-remove",
+        "Remove a provider from the engine config.",
+        "从引擎配置中移除提供商。",
+    ),
+    (
+        "cli.help.cmd.pv-catalog",
+        "Browse the model catalog (models.dev) and import providers from it.",
+        "浏览模型目录（models.dev）并从中导入提供商。",
+    ),
+    (
+        "cli.help.arg.url",
+        "Registry / catalog URL.",
+        "注册表/目录 URL。",
+    ),
+    (
+        "cli.help.arg.api-key",
+        "API key for the imported providers (falls back to the env var when absent).",
+        "导入提供商的 API key（缺省时回退到环境变量）。",
+    ),
+    (
+        "cli.help.arg.provider-id",
+        "Provider id (e.g. `openai`, `anthropic`, `kimi`).",
+        "提供商 ID（如 `openai`、`anthropic`、`kimi`）。",
+    ),
+    (
+        "cli.help.cmd.cat-list",
+        "List catalog providers, optionally drilled into one.",
+        "列出目录提供商，可选深入查看一个。",
+    ),
+    (
+        "cli.help.cmd.cat-search",
+        "Search catalog providers/models by keyword.",
+        "按关键字搜索目录提供商/模型。",
+    ),
+    (
+        "cli.help.cmd.cat-add",
+        "Import one catalog provider into the engine config.",
+        "将一个目录提供商导入引擎配置。",
+    ),
+    (
+        "cli.help.arg.cat-provider-id",
+        "Optional provider id to drill into (shows its models).",
+        "可选的提供商 ID（显示其模型）。",
+    ),
+    (
+        "cli.help.arg.cat-filter",
+        "Case-insensitive id/name substring filter.",
+        "不区分大小写的 id/名称子串过滤。",
+    ),
+    (
+        "cli.help.arg.cat-url",
+        "Catalog URL override (tests / mirrors).",
+        "目录 URL 覆盖（测试/镜像）。",
+    ),
+    (
+        "cli.help.arg.query",
+        "Keyword to match against provider and model names.",
+        "与提供商和模型名称匹配的关键字。",
+    ),
+    (
+        "cli.help.arg.cat-id",
+        "Catalog provider id (e.g. `openai`, `anthropic`).",
+        "目录提供商 ID（如 `openai`、`anthropic`）。",
+    ),
+    (
+        "cli.help.arg.cat-api-key",
+        "API key (falls back to the provider's env var when absent).",
+        "API key（缺省时回退到提供商的 env var）。",
+    ),
+    (
+        "cli.help.arg.default-model",
+        "Set this model as the engine default.",
+        "将此模型设为引擎默认。",
+    ),
+    (
+        "cli.help.arg.base-url",
+        "Explicit base URL (required when the import resolution reports `needs-base-url`; wins over the catalog endpoint otherwise).",
+        "显式 base URL（导入解析报告 `needs-base-url` 时必需；否则优先于目录端点）。",
+    ),
+    (
+        "cli.help.arg.oauth-host",
+        "Override the OAuth host (defaults to the kimi production server).",
+        "覆盖 OAuth 主机（默认 kimi 生产服务器）。",
+    ),
+    (
+        "cli.help.arg.max-polls",
+        "Max poll attempts (default 180, ~5s apart ≈ 15 min — the device code validity window).",
+        "最大轮询次数（默认 180，间隔约 5 秒 ≈ 15 分钟——设备码有效期窗口）。",
+    ),
+    (
+        "cli.help.arg.port",
+        "Port to serve on (default 58627).",
+        "服务端口（默认 58627）。",
+    ),
+    (
+        "cli.help.arg.host",
+        "Host to bind (default 127.0.0.1).",
+        "绑定主机（默认 127.0.0.1）。",
+    ),
+    (
+        "cli.help.arg.dangerous-bypass-auth",
+        "Disable bearer auth (dev mode).",
+        "禁用 Bearer 认证（开发模式）。",
+    ),
+    (
+        "cli.help.arg.no-open",
+        "Do not open the browser automatically.",
+        "不自动打开浏览器。",
+    ),
+    (
+        "cli.help.arg.assets",
+        "Serve the bundled SPA from this directory.",
+        "从此目录提供打包的 SPA。",
+    ),
+    (
+        "cli.help.arg.allowed-hosts",
+        "Extra allowed Host headers / domain suffixes (DNS-rebinding allowlist).",
+        "额外允许的 Host 头/域名后缀（DNS 反绑白名单）。",
+    ),
 ];
 
 #[cfg(test)]

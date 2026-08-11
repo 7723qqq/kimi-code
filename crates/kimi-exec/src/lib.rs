@@ -22,6 +22,10 @@ pub struct PromptSetup {
     /// Set the permission gate to auto before prompting (`--yolo`/`--auto`
     /// parity — a headless run must not stall on tool approvals).
     pub permission_auto: bool,
+    /// Host-supplied skill metadata (`--skills-dir` parity): flat records
+    /// registered on the session at create, like the TUI host hands the
+    /// engine. Empty = no custom skills.
+    pub skills: Vec<serde_json::Value>,
 }
 
 /// Run one prompt: create a session, prompt it, return the wire result.
@@ -51,6 +55,9 @@ pub async fn run_prompt_with_setup(
         // Record the workspace on the record so `--continue` can resume
         // within the same directory (TS `listSessions({ workDir })` parity).
         create_params["work_dir"] = serde_json::json!(cwd);
+    }
+    if !setup.skills.is_empty() {
+        create_params["skills"] = serde_json::to_value(&setup.skills).unwrap_or_default();
     }
     if let Some(nllm) = native_llm {
         create_params["native_llm"] = serde_json::to_value(&nllm).unwrap_or_default();
@@ -176,6 +183,7 @@ mod tests {
             goal: Some("setup goal".into()),
             resume: false,
             permission_auto: false,
+            skills: vec![],
         };
         let result =
             run_prompt_with_setup(&mut client, "s-setup", "hello", native_llm_from_config(), &setup).await;
