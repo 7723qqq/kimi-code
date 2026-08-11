@@ -1151,6 +1151,36 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.",
         "缺少 API 密钥。请传 --api-key <key> 或设置 KIMI_REGISTRY_API_KEY。",
     ),
+    (
+        "cli.web.tokenGenerated",
+        "generated server.token at {0}",
+        "已生成 server.token：{0}",
+    ),
+    (
+        "cli.web.tokenPersistFailed",
+        "could not persist server.token at {0}; running lenient",
+        "无法持久化 server.token：{0}；以宽松模式运行",
+    ),
+    (
+        "cli.chat.banner",
+        "chat session {0} — type /help for commands",
+        "聊天会话 {0} — 输入 /help 查看命令",
+    ),
+    (
+        "cli.doctor.allValid",
+        "All checked config files are valid.",
+        "所有检查的配置文件均有效。",
+    ),
+    (
+        "cli.doctor.issuesFound",
+        "Kimi doctor found {0} issue{1}.",
+        "Kimi doctor 发现 {0} 个问题。",
+    ),
+    (
+        "cli.vis.notBundled",
+        "the vis frontend ships with the TS distribution (npm wrapper) — not bundled in the Rust build",
+        "vis 前端随 TS 分发提供（npm wrapper）——未包含在 Rust 构建中",
+    ),
 ];
 
 #[cfg(test)]

@@ -380,10 +380,16 @@ fn web_auth_config(no_auth: bool) -> kimi_server_transport::http::AuthConfig {
                     let _ = std::fs::create_dir_all(parent);
                 }
                 if std::fs::write(&path, &token).is_ok() {
-                    eprintln!("generated server.token at {path}");
+                    eprintln!(
+                        "{}",
+                        kimi_tui::i18n::t_fmt("cli.web.tokenGenerated", &[path.clone()])
+                    );
                     Some(token)
                 } else {
-                    eprintln!("could not persist server.token at {path}; running lenient");
+                    eprintln!(
+                        "{}",
+                        kimi_tui::i18n::t_fmt("cli.web.tokenPersistFailed", &[path.clone()])
+                    );
                     None
                 }
             }
@@ -860,12 +866,14 @@ fn check_tui_file(path: &std::path::Path, explicit: bool) -> (String, Option<Str
 /// Print the doctor verdict line; exit 1 when any check failed (TS parity).
 fn finish_doctor(issue_count: usize) {
     if issue_count == 0 {
-        println!("All checked config files are valid.");
+        println!("{}", kimi_tui::i18n::t("cli.doctor.allValid"));
     } else {
         eprintln!(
-            "Kimi doctor found {} issue{}.",
-            issue_count,
-            if issue_count == 1 { "" } else { "s" }
+            "{}",
+            kimi_tui::i18n::t_fmt(
+                "cli.doctor.issuesFound",
+                &[issue_count.to_string(), if issue_count == 1 { "".into() } else { "s".into() }],
+            )
         );
         std::process::exit(1);
     }
@@ -2368,7 +2376,10 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             if std::io::stderr().is_terminal() {
-                eprintln!("chat session {session_id} — type /help for commands");
+                eprintln!(
+                    "{}",
+                    kimi_tui::i18n::t_fmt("cli.chat.banner", &[session_id.clone()])
+                );
             }
             let stdin = std::io::stdin();
             let mut line = String::new();
@@ -2482,9 +2493,7 @@ async fn main() -> anyhow::Result<()> {
             // The vis frontend stays in the TS distribution (pure UI); the
             // Rust build has no bundled frontend. Fail loudly rather than
             // pretending to launch.
-            eprintln!(
-                "the vis frontend ships with the TS distribution (npm wrapper) — not bundled in the Rust build"
-            );
+            eprintln!("{}", kimi_tui::i18n::t("cli.vis.notBundled"));
             std::process::exit(1);
         }
         Commands::Provider { cmd } => {
