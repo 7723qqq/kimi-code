@@ -212,7 +212,11 @@ export function execFileText(
   args: readonly string[],
   timeoutMs: number,
 ): Promise<string | undefined> {
-  return new Promise((resolve) => {
+  // `resolve` is explicitly optional-arg so the bare `resolve()` error path
+  // stays valid: tsc rejects a missing required arg, and oxlint simplifies
+  // `resolve(undefined)` back to `resolve()` — the explicit signature keeps
+  // both tools happy.
+  return new Promise<string | undefined>((resolve: (value?: string | undefined) => void) => {
     execFile(
       file,
       [...args],
