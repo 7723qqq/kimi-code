@@ -37,9 +37,19 @@ struct Cli {
     /// when entering the TUI (TS `-c/--continue` parity).
     #[arg(short = 'c', long = "continue")]
     continue_: bool,
+    /// Hidden TS legacy alias: `-C` == `--continue` (commands.ts maps it
+    /// onto `continue`).
+    #[arg(short = 'C', hide = true)]
+    continue_c: bool,
     /// Enter the TUI in yolo mode (auto-approve, TS `-y/--yolo` parity).
     #[arg(short = 'y', long = "yolo")]
     yolo: bool,
+    /// Hidden TS legacy aliases: `--yes`/`--auto-approve` map onto yolo
+    /// (commands.ts `yoloValue` parity).
+    #[arg(long = "yes", hide = true)]
+    yes: bool,
+    #[arg(long = "auto-approve", hide = true)]
+    auto_approve: bool,
     /// Enter the TUI in auto mode (TS `--auto` parity).
     #[arg(long)]
     auto: bool,
@@ -74,21 +84,85 @@ enum PrintOutputFormat {
     StreamJson,
 }
 
-/// Parse a `/goal <objective>` headless prompt prefix (TS
-/// `parseHeadlessGoalCreate` parity): the objective is sent as the prompt and
-/// a goal is created on the session first. Any other prompt (or a bare
-/// `/goal`) runs as a normal prompt.
-fn parse_headless_goal(prompt: &str) -> Option<String> {
+/// Resolve the effective print output format (TS `resolveOutputFormat`
+/// parity): explicit flag wins, then `KIMI_MODEL_OUTPUT_FORMAT` (prompt mode
+/// only — this is always prompt mode), then `text`. An invalid env value
+/// fails fast with the TS error text.
+fn resolve_output_format(flag: Option<PrintOutputFormat>) -> Result<PrintOutputFormat, String> {
+    if let Some(format) = flag {
+        return Ok(format);
+    }
+    let raw = std::env::var("KIMI_MODEL_OUTPUT_FORMAT").unwrap_or_default();
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Ok(PrintOutputFormat::Text);
+    }
+    match raw {
+        "text" => Ok(PrintOutputFormat::Text),
+        "stream-json" => Ok(PrintOutputFormat::StreamJson),
+        other => Err(kimi_tui::i18n::t_fmt(
+            "cli.opts.invalidOutputFormatEnv",
+            &[other.to_string()],
+        )),
+    }
+}
+
+/// A parsed headless `/goal` create command (TS `parseHeadlessGoalCreate`
+/// parity). `replace` mirrors the TS grammar (`/goal replace <objective>`).
+#[derive(Debug)]
+struct HeadlessGoalCreate {
+    objective: String,
+    replace: bool,
+}
+
+/// TS `MAX_GOAL_OBJECTIVE_LENGTH` parity.
+const MAX_GOAL_OBJECTIVE_LENGTH: usize = 4000;
+
+/// Parse a `/goal <objective>` headless prompt prefix: the objective is sent
+/// as the prompt and a goal is created on the session first. Control
+/// subcommands (`pause`/`resume`/`cancel`/`status`) and a bare `/goal` yield
+/// `None` — those run as a normal prompt (TS parity). Malformed creates
+/// (missing objective after `replace`/`--`, over-long objectives) return an
+/// error message.
+fn parse_headless_goal(prompt: &str) -> Result<Option<HeadlessGoalCreate>, String> {
     let trimmed = prompt.trim();
-    let rest = trimmed.strip_prefix("/goal")?;
+    let Some(rest) = trimmed.strip_prefix("/goal") else {
+        return Ok(None);
+    };
     if !rest.is_empty() && !rest.starts_with(|c: char| c.is_whitespace()) {
-        return None; // `/goalX` — not a goal command.
+        return Ok(None); // `/goalX` — not a goal command.
     }
-    let objective = rest.trim();
+    let args = rest.trim();
+    if args.is_empty() || args == "status" {
+        return Ok(None); // bare `/goal` — not a create.
+    }
+    let tokens: Vec<&str> = args.split_whitespace().collect();
+    let first = tokens[0];
+    if matches!(first, "pause" | "resume" | "cancel") && tokens.len() == 1 {
+        return Ok(None); // control subcommand — falls through to a prompt.
+    }
+    let mut index = 0;
+    let mut replace = false;
+    if tokens[index] == "replace" {
+        replace = true;
+        index += 1;
+    }
+    // `--` ends subcommand parsing so an objective can begin with a reserved
+    // word (e.g. `/goal -- pause the rollout`).
+    if tokens.get(index) == Some(&"--") {
+        index += 1;
+    }
+    let objective = tokens[index..].join(" ");
     if objective.is_empty() {
-        return None;
+        return Err(kimi_tui::i18n::t("cli.goal.provideObjective").to_string());
     }
-    Some(objective.to_string())
+    if objective.chars().count() > MAX_GOAL_OBJECTIVE_LENGTH {
+        return Err(kimi_tui::i18n::t_fmt(
+            "cli.goal.objectiveTooLong",
+            &[MAX_GOAL_OBJECTIVE_LENGTH.to_string()],
+        ));
+    }
+    Ok(Some(HeadlessGoalCreate { objective, replace }))
 }
 
 /// Split a SKILL.md body into its `---`-fenced frontmatter block and the
@@ -222,6 +296,38 @@ fn terminal_columns() -> Option<u16> {
         .and_then(|c| c.trim().parse().ok())
 }
 
+/// Days-to-civil-date conversion (Hinnant's `civil_from_days` algorithm),
+/// used for UTC timestamps without a chrono/time dependency.
+fn utc_datetime(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
+    let days = secs.div_euclid(86_400);
+    let rem = secs.rem_euclid(86_400);
+    let (hour, min, sec) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { y + 1 } else { y };
+    (year, month as u32, day as u32, hour as u32, min as u32, sec as u32)
+}
+
+/// Default export zip name (TS `defaultExportZipName` parity):
+/// `kimi-debug-<first-8-id-chars>-<UTC YYYYMMDD-HHMMSS>.zip` — the timestamp
+/// keeps consecutive exports from clobbering each other.
+fn default_export_zip_name(session_id: &str) -> String {
+    let short: String = session_id.chars().take(8).collect();
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let (y, mo, d, h, mi, s) = utc_datetime(secs);
+    format!("kimi-debug-{short}-{y:04}{mo:02}{d:02}-{h:02}{mi:02}{s:02}.zip")
+}
+
 /// JSONL output writer for `--output-format stream-json` (TS
 /// `PromptJsonWriter` parity): assistant text + tool calls accumulate and are
 /// flushed as `{role:"assistant", …}` messages; tool results emit
@@ -251,7 +357,12 @@ impl JsonlWriter {
             Some("session.tool.started") => {
                 let id = event["tool_call_id"].as_str().unwrap_or("").to_string();
                 let name = event["tool_name"].as_str().unwrap_or("").to_string();
-                let args_str = serde_json::to_string(&event["arguments"]).unwrap_or_default();
+                // TS `stringifyJsonValue` parity: strings pass through
+                // verbatim, other values are compact JSON.
+                let args_str = match &event["arguments"] {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => serde_json::to_string(other).unwrap_or_default(),
+                };
                 self.tool_calls.push(serde_json::json!({
                     "type": "function",
                     "id": id,
@@ -261,7 +372,12 @@ impl JsonlWriter {
             Some("session.tool.settled") => {
                 lines.extend(self.flush());
                 let tool_call_id = event["tool_call_id"].as_str().unwrap_or("").to_string();
-                let content = event["content"].as_str().unwrap_or("").to_string();
+                // TS `stringifyToolOutput` parity: strings pass through
+                // verbatim, other values are compact JSON.
+                let content = match &event["content"] {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => serde_json::to_string(other).unwrap_or_default(),
+                };
                 lines.push(
                     serde_json::json!({
                         "role": "tool",
@@ -498,6 +614,39 @@ fn generate_token() -> String {
     )
 }
 
+/// `kimi web rotate-token` (TS `rotateServerToken` parity): mint a fresh
+/// persistent bearer token and rewrite `<KIMI_CODE_HOME>/server.token` so the
+/// previous one stops working (a running server picks the file up on its next
+/// auth check).
+fn rotate_server_token() -> anyhow::Result<()> {
+    let token = generate_token();
+    let path = format!("{}/server.token", kimi_code_home());
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, &token)?;
+    println!("{}", kimi_tui::i18n::t("cli.web.tokenRotated"));
+    println!();
+    println!("  {}", kimi_tui::i18n::t_fmt("cli.web.newToken", &[token]));
+    Ok(())
+}
+
+/// Provider display label (TS `providerSourceLabel` parity): `apiJson(<url>)`
+/// for registry-imported providers, `oauth`, or `inline`.
+fn provider_source_label(provider: &serde_json::Value) -> String {
+    if let Some(source) = provider.get("source") {
+        if source.get("kind").and_then(|k| k.as_str()) == Some("apiJson") {
+            if let Some(url) = source.get("url").and_then(|u| u.as_str()) {
+                return format!("apiJson({url})");
+            }
+        }
+    }
+    if provider.get("oauth").is_some() {
+        return "oauth".to_string();
+    }
+    "inline".to_string()
+}
+
 /// Run the kimi OAuth device-code login flow and persist the granted token
 /// as `providers.kimi.apiKey` (shared by `kimi login` and `kimi acp --login`).
 /// Build a CONFIG_SET patch that removes `provider_id` plus every model
@@ -630,9 +779,10 @@ enum Commands {
         /// (mutually exclusive with `-S <id>`/`-r <id>`).
         #[arg(long = "continue", conflicts_with = "session")]
         continue_: bool,
-        /// Output format: `text` (default) or `stream-json` (JSONL).
-        #[arg(long, value_enum, default_value_t = PrintOutputFormat::Text)]
-        output_format: PrintOutputFormat,
+        /// Output format: `text` (default) or `stream-json` (JSONL). Falls
+        /// back to `KIMI_MODEL_OUTPUT_FORMAT`, then `text` (TS parity).
+        #[arg(long, value_enum)]
+        output_format: Option<PrintOutputFormat>,
         /// Auto-approve tool calls (permission mode auto).
         #[arg(long)]
         yolo: bool,
@@ -670,9 +820,10 @@ enum Commands {
         /// Enable plan mode before prompting.
         #[arg(long)]
         plan: bool,
-        /// Output format: `text` (default) or `stream-json` (JSONL).
-        #[arg(long, value_enum, default_value_t = PrintOutputFormat::Text)]
-        output_format: PrintOutputFormat,
+        /// Output format: `text` (default) or `stream-json` (JSONL). Falls
+        /// back to `KIMI_MODEL_OUTPUT_FORMAT`, then `text` (TS parity).
+        #[arg(long, value_enum)]
+        output_format: Option<PrintOutputFormat>,
         /// Auto-approve tool calls (permission mode auto).
         #[arg(long)]
         yolo: bool,
@@ -765,6 +916,14 @@ enum Commands {
     /// Migrate legacy kimi-cli data — a one-time step handled by the TS
     /// distribution (the Rust binary does not bundle the migration screen).
     Migrate,
+    /// Deprecated — use `kimi web` instead (TS parity: every `kimi server …`
+    /// invocation lands on the same deprecation notice, exit 1).
+    Server {
+        /// Legacy arguments are swallowed so bare and subcommand invocations
+        /// behave identically (TS `allowUnknownOption` + `allowExcessArguments`).
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, hide = true)]
+        args: Vec<String>,
+    },
     /// Launch the web UI server (the Rust `/api/v1` + WS surface; the SPA
     /// frontend is served from `--assets` when given, otherwise it ships with
     /// the TS distribution).
@@ -772,8 +931,9 @@ enum Commands {
         /// Port to serve on (default 58627).
         #[arg(long, default_value_t = 58627)]
         port: u16,
-        /// Host to bind (default 127.0.0.1).
-        #[arg(long, default_value = "127.0.0.1")]
+        /// Host to bind (default 127.0.0.1; a value-less `--host` binds all
+        /// interfaces — TS `parseHost` parity).
+        #[arg(long, num_args = 0..=1, default_value = "127.0.0.1", default_missing_value = "0.0.0.0")]
         host: String,
         /// Disable bearer auth (dev mode).
         #[arg(long)]
@@ -785,12 +945,22 @@ enum Commands {
         #[arg(long)]
         assets: Option<String>,
         /// Extra allowed Host headers / domain suffixes (DNS-rebinding
-        /// allowlist; TS `--allowed-host <host...>` parity).
+        /// allowlist; TS `--allowed-host <host...>` parity — entries may be
+        /// comma-separated).
         #[arg(long, num_args = 1..)]
         allowed_hosts: Vec<String>,
+        #[command(subcommand)]
+        cmd: Option<WebCmd>,
     },
     /// Launch the visualization frontend (ships with the TS distribution).
     Vis,
+}
+
+/// Sub-commands of `kimi web`.
+#[derive(Subcommand)]
+enum WebCmd {
+    /// Generate a new persistent server token (invalidates the previous one).
+    RotateToken,
 }
 
 /// Sub-commands of `kimi provider`.
@@ -1087,23 +1257,34 @@ fn cli_render(event: &serde_json::Value) -> CliRender {
 }
 
 #[cfg(test)]
-#[cfg(test)]
 mod headless_tests {
     use super::*;
 
     #[test]
     fn parses_goal_prefix() {
+        let parse = |p: &str| parse_headless_goal(p).unwrap().map(|g| g.objective);
+        assert_eq!(parse("/goal build the thing"), Some("build the thing".into()));
+        assert_eq!(parse("/goal\nmulti line"), Some("multi line".into()));
+        assert_eq!(parse("hello world"), None);
+        assert_eq!(parse("/goal"), None); // bare — not a create
+        assert_eq!(parse("/goalX"), None); // not a goal command
+        // TS `parseGoalCommand` parity: control subcommands fall through to a
+        // normal prompt; `replace`/`--` strip cleanly.
+        assert_eq!(parse("/goal pause"), None);
+        assert_eq!(parse("/goal status"), None);
+        assert_eq!(parse("/goal cancel"), None);
+        assert_eq!(parse("/goal replace ship it"), Some("ship it".into()));
+        assert_eq!(parse("/goal -- pause the rollout"), Some("pause the rollout".into()));
+        assert_eq!(parse("/goal replace -- status quo"), Some("status quo".into()));
+        // `replace` lands in the flag; malformed creates error (asserted via
+        // the locale-aware dictionary so concurrent zh-help tests can't race).
+        let parsed = parse_headless_goal("/goal replace ship it").unwrap().unwrap();
+        assert!(parsed.replace);
         assert_eq!(
-            parse_headless_goal("/goal build the thing"),
-            Some("build the thing".into())
+            parse_headless_goal("/goal replace").unwrap_err(),
+            kimi_tui::i18n::t("cli.goal.provideObjective")
         );
-        assert_eq!(
-            parse_headless_goal("/goal\nmulti line"),
-            Some("multi line".into())
-        );
-        assert_eq!(parse_headless_goal("hello world"), None);
-        assert_eq!(parse_headless_goal("/goal"), None); // bare — not a create
-        assert_eq!(parse_headless_goal("/goalX"), None); // not a goal command
+        assert!(parse_headless_goal(&format!("/goal {}", "x".repeat(4001))).is_err());
     }
 
     #[test]
@@ -1258,6 +1439,66 @@ mod headless_tests {
         let provider_help = err.render().to_string();
         assert!(provider_help.contains("列出已配置的提供商"), "provider help: {provider_help}");
         kimi_tui::i18n::set_locale(kimi_tui::i18n::Locale::En);
+    }
+
+    #[test]
+    fn output_format_resolves_flag_env_and_text() {
+        // Flag wins.
+        assert_eq!(
+            resolve_output_format(Some(PrintOutputFormat::StreamJson)).unwrap(),
+            PrintOutputFormat::StreamJson
+        );
+        // Env fallback (prompt mode only — this is always prompt mode).
+        std::env::set_var("KIMI_MODEL_OUTPUT_FORMAT", "stream-json");
+        assert_eq!(resolve_output_format(None).unwrap(), PrintOutputFormat::StreamJson);
+        // Default text.
+        std::env::remove_var("KIMI_MODEL_OUTPUT_FORMAT");
+        assert_eq!(resolve_output_format(None).unwrap(), PrintOutputFormat::Text);
+        // Invalid env fails fast with the TS message (asserted via the
+        // locale-aware dictionary so concurrent zh-help tests can't race).
+        std::env::set_var("KIMI_MODEL_OUTPUT_FORMAT", "nope");
+        let err = resolve_output_format(None).unwrap_err();
+        assert!(
+            err.contains("KIMI_MODEL_OUTPUT_FORMAT") && err.contains("nope") && err.contains("stream-json"),
+            "err: {err}"
+        );
+        std::env::remove_var("KIMI_MODEL_OUTPUT_FORMAT");
+    }
+
+    #[test]
+    fn utc_datetime_matches_known_epochs() {
+        assert_eq!(utc_datetime(0), (1970, 1, 1, 0, 0, 0));
+        assert_eq!(utc_datetime(1_700_000_000), (2023, 11, 14, 22, 13, 20));
+        assert_eq!(utc_datetime(86_400), (1970, 1, 2, 0, 0, 0));
+        // Leap-year day: 2024-02-29 12:34:56 UTC.
+        let secs = 1_709_210_096;
+        assert_eq!(utc_datetime(secs), (2024, 2, 29, 12, 34, 56));
+        let name = default_export_zip_name("session-1234567890");
+        // First 8 id chars ("session-") + timestamp, mirroring TS slice(0, 8).
+        assert!(name.starts_with("kimi-debug-session--"), "name: {name}");
+        assert!(name.ends_with(".zip"), "name: {name}");
+        // 8 short chars + YYYYMMDD-HHMMSS timestamp + .zip.
+        assert_eq!(name.len(), "kimi-debug-session--20240101-000000.zip".len());
+    }
+
+    #[test]
+    fn provider_source_label_matches_ts() {
+        assert_eq!(provider_source_label(&serde_json::json!({})), "inline");
+        assert_eq!(
+            provider_source_label(&serde_json::json!({ "oauth": { "enabled": true } })),
+            "oauth"
+        );
+        assert_eq!(
+            provider_source_label(&serde_json::json!({
+                "source": { "kind": "apiJson", "url": "https://registry.example/api.json" }
+            })),
+            "apiJson(https://registry.example/api.json)"
+        );
+        // A non-apiJson source falls back to inline (TS parity).
+        assert_eq!(
+            provider_source_label(&serde_json::json!({ "source": { "kind": "other" } })),
+            "inline"
+        );
     }
 }
 
@@ -2041,6 +2282,7 @@ fn localize_cli_command(mut cmd: clap::Command) -> clap::Command {
         ("logout", "cli.help.cmd.logout", &[][..]),
         ("upgrade", "cli.help.cmd.upgrade", &[][..]),
         ("migrate", "cli.help.cmd.migrate", &[][..]),
+        ("server", "cli.help.cmd.server", &[][..]),
         (
             "web",
             "cli.help.cmd.web",
@@ -2182,9 +2424,64 @@ async fn main() -> anyhow::Result<()> {
     // standard exit behavior, while zh help texts come from the dictionary.
     let cli = Cli::from_arg_matches(&localize_cli_command(Cli::command()).get_matches())
         .unwrap_or_else(|e| e.exit());
-    let Cli { server, session, command, prompt, continue_, yolo, auto, plan, model, output_format, add_dirs, skills_dirs } = cli;
+    let Cli {
+        server,
+        session,
+        command,
+        prompt,
+        continue_,
+        continue_c,
+        yolo,
+        yes,
+        auto_approve,
+        auto,
+        plan,
+        model,
+        output_format,
+        add_dirs,
+        skills_dirs,
+    } = cli;
+    // TS `commands.ts` parity: hidden `-C` aliases `--continue`; hidden
+    // `--yes`/`--auto-approve` alias `--yolo` (legacy shell flags the TS
+    // parser accepts and forwards).
+    let continue_ = continue_ || continue_c;
+    let yolo = yolo || yes || auto_approve;
+    // TS `validateOptions` parity for the top-level surface (the `print`/
+    // `resume` subcommands carry their own clap-level conflicts).
+    if model.as_deref().is_some_and(|m| m.trim().is_empty()) {
+        eprintln!("error: {}", kimi_tui::i18n::t("cli.print.modelEmpty"));
+        std::process::exit(1);
+    }
+    if continue_ && session.is_some() {
+        eprintln!("error: {}", kimi_tui::i18n::t("cli.opts.continueSessionConflict"));
+        std::process::exit(1);
+    }
+    if yolo && auto {
+        eprintln!("error: {}", kimi_tui::i18n::t("cli.opts.yoloAutoConflict"));
+        std::process::exit(1);
+    }
     // Top-level `--prompt`/`-p` (long form or attached value) routes into the
     // `print` subcommand with defaults — TS parity for `kimi --prompt "..."`.
+    // TS parity: `--prompt` conflicts with the mode flags (validateOptions
+    // "Cannot combine --prompt with ...").
+    if prompt.is_some() && (yolo || auto || plan) {
+        let key = if yolo {
+            "cli.opts.promptYoloConflict"
+        } else if auto {
+            "cli.opts.promptAutoConflict"
+        } else {
+            "cli.opts.promptPlanConflict"
+        };
+        eprintln!("error: {}", kimi_tui::i18n::t(key));
+        std::process::exit(1);
+    }
+    // `--output-format` only means something in prompt mode (TS parity); any
+    // other use — TUI entry or an explicit subcommand — is an option conflict.
+    let synthesized_prompt = command.is_none() && prompt.is_some();
+    if !synthesized_prompt && output_format.is_some() {
+        eprintln!("error: {}", kimi_tui::i18n::t("cli.opts.outputFormatNotPrompt"));
+        std::process::exit(1);
+    }
     let command = match command {
         Some(cmd) => Some(cmd),
         None => prompt.map(|prompt| Commands::Print {
@@ -2195,7 +2492,7 @@ async fn main() -> anyhow::Result<()> {
             model: model.clone(),
             plan: false,
             continue_: false,
-            output_format: output_format.unwrap_or(PrintOutputFormat::Text),
+            output_format,
             yolo: false,
             auto: false,
         }),
@@ -2256,7 +2553,7 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     };
     match command {
-        Commands::Print { prompt, verbose, json, goal, model, plan, continue_, output_format, yolo: _, auto: _ } => {
+        Commands::Print { prompt, verbose, json, goal, model, plan, continue_, output_format, yolo, auto } => {
             // TS `validateOptions` parity: empty prompt/model are rejected
             // before anything is sent to the engine.
             if prompt.trim().is_empty() {
@@ -2267,6 +2564,28 @@ async fn main() -> anyhow::Result<()> {
                 eprintln!("error: {}", kimi_tui::i18n::t("cli.print.modelEmpty"));
                 std::process::exit(1);
             }
+            // TS parity: `-p` conflicts with `--yolo`/`--auto` (the top-level
+            // `--prompt` path rejects them too; `--plan` stays a functional
+            // Rust print extension). The flags are otherwise no-ops here —
+            // headless runs always use permission auto.
+            if yolo || auto {
+                eprintln!(
+                    "error: {}",
+                    kimi_tui::i18n::t(if yolo {
+                        "cli.opts.promptYoloConflict"
+                    } else {
+                        "cli.opts.promptAutoConflict"
+                    })
+                );
+                std::process::exit(1);
+            }
+            let output_format = match resolve_output_format(output_format) {
+                Ok(format) => format,
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    std::process::exit(1);
+                }
+            };
             let stream_json = output_format == PrintOutputFormat::StreamJson;
             if json && stream_json {
                 eprintln!("error: {}", kimi_tui::i18n::t("cli.print.jsonStreamConflict"));
@@ -2308,8 +2627,21 @@ async fn main() -> anyhow::Result<()> {
             };
             // `/goal <objective>` prompt prefix (TS `parseHeadlessGoalCreate`
             // parity): the objective is sent as the prompt and a goal is
-            // created first. An explicit `--goal` wins over the prefix.
-            let goal = goal.or_else(|| parse_headless_goal(&prompt));
+            // created first. An explicit `--goal` wins over the prefix. The
+            // parsed `replace` flag is not plumbed through `PromptSetup`
+            // (kimi-exec owns the create) — the objective strips cleanly
+            // either way.
+            let goal = match goal {
+                Some(goal) => Some(goal),
+                None => match parse_headless_goal(&prompt) {
+                    Ok(Some(parsed)) => Some(parsed.objective),
+                    Ok(None) => None,
+                    Err(message) => {
+                        eprintln!("error: {message}");
+                        std::process::exit(1);
+                    }
+                },
+            };
             let has_goal = goal.is_some();
             // Goal mode is applied inside run_prompt_with_setup, AFTER the
             // (idempotent) create — creating the goal first and then letting
@@ -2443,6 +2775,13 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Resume { session_id, prompt, verbose, json, goal, model, plan, output_format, yolo, auto } => {
+            let output_format = match resolve_output_format(output_format) {
+                Ok(format) => format,
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    std::process::exit(1);
+                }
+            };
             let stream_json = output_format == PrintOutputFormat::StreamJson;
             if json && stream_json {
                 eprintln!("error: {}", kimi_tui::i18n::t("cli.print.jsonStreamConflict"));
@@ -2505,8 +2844,16 @@ async fn main() -> anyhow::Result<()> {
                     std::process::exit(1);
                 }
             }
-            // `/goal <objective>` prompt prefix (Print parity).
-            let goal = goal.or_else(|| parse_headless_goal(&prompt));
+            // `/goal <objective>` prompt prefix (Print parity); the parsed
+            // `replace` flag rides into the goal create below.
+            let parsed_goal = match parse_headless_goal(&prompt) {
+                Ok(parsed) => parsed,
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    std::process::exit(1);
+                }
+            };
+            let goal = goal.or_else(|| parsed_goal.as_ref().map(|p| p.objective.clone()));
             // Resume: restore the persisted context + goal BEFORE creating a
             // new goal — the load's durable-state restore would otherwise
             // overwrite the freshly created goal.
@@ -2522,6 +2869,7 @@ async fn main() -> anyhow::Result<()> {
                         serde_json::json!({
                             "session_id": session_id,
                             "objective": objective,
+                            "replace": parsed_goal.as_ref().map(|p| p.replace).unwrap_or(false),
                         }),
                     )
                     .await;
@@ -2906,7 +3254,23 @@ async fn main() -> anyhow::Result<()> {
             println!("  npm i -g kimi-code@latest && kimi migrate");
             println!("(the Rust distribution does not bundle the legacy migration screen)");
         }
-        Commands::Web { port, host, dangerous_bypass_auth, no_open, assets, allowed_hosts } => {
+        Commands::Server { .. } => {
+            // TS `DEPRECATED_SERVER_NOTICE` parity: every `kimi server …`
+            // invocation — bare or with any legacy subcommand/flag — prints
+            // the notice and exits 1.
+            eprintln!("{}", kimi_tui::i18n::t("cli.server.deprecated"));
+            std::process::exit(1);
+        }
+        Commands::Web { port, host, dangerous_bypass_auth, no_open, assets, allowed_hosts, cmd } => {
+            if matches!(cmd, Some(WebCmd::RotateToken)) {
+                return rotate_server_token();
+            }
+            // TS `parseAllowedHostArgs` parity: comma-separated entries split.
+            let allowed_hosts: Vec<String> = allowed_hosts
+                .into_iter()
+                .flat_map(|h| h.split(',').map(str::trim).map(str::to_string).collect::<Vec<_>>())
+                .filter(|s| !s.is_empty())
+                .collect();
             // Launch the Rust web server in-process (API + WS + optional SPA
             // assets). This replaces the TS `startRustServerForeground` path;
             // the SPA itself ships with the TS distribution unless `--assets`
@@ -2943,38 +3307,68 @@ async fn main() -> anyhow::Result<()> {
                         .as_object()
                         .cloned()
                         .unwrap_or_default();
+                    // TS parity: `models=` counts model aliases referencing
+                    // the provider; `source=` labels apiJson(url)/oauth/inline.
+                    let models = config["result"]["models"]
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default();
                     if json {
-                        let masked: serde_json::Map<String, serde_json::Value> = providers
+                        // TS parity: emit `{providers, models}` with `apiKey`
+                        // (and nested `source.apiKey`) stripped — never echoed.
+                        let redacted: serde_json::Map<String, serde_json::Value> = providers
                             .into_iter()
                             .map(|(id, p)| {
                                 let mut p = p;
-                                if p.get("apiKey").is_some() {
-                                    p["apiKey"] = serde_json::json!("***");
+                                if let Some(obj) = p.as_object_mut() {
+                                    obj.remove("apiKey");
+                                    if let Some(source) =
+                                        obj.get_mut("source").and_then(|s| s.as_object_mut())
+                                    {
+                                        source.remove("apiKey");
+                                    }
                                 }
                                 (id, p)
                             })
                             .collect();
                         println!(
                             "{}",
-                            serde_json::to_string_pretty(&serde_json::Value::Object(masked))
-                                .unwrap_or_default()
+                            serde_json::to_string_pretty(&serde_json::json!({
+                                "providers": redacted,
+                                "models": models,
+                            }))
+                            .unwrap_or_default()
                         );
                         return Ok(());
+                    }
+                    if providers.is_empty() {
+                        println!("{}", kimi_tui::i18n::t("cli.provider.noProviders"));
+                        return Ok(());
+                    }
+                    let mut aliases_by_provider: std::collections::HashMap<&str, usize> =
+                        std::collections::HashMap::new();
+                    for (_, model) in &models {
+                        if let Some(pid) = model["provider"].as_str() {
+                            *aliases_by_provider.entry(pid).or_insert(0) += 1;
+                        }
                     }
                     let mut ids: Vec<&String> = providers.keys().collect();
                     ids.sort();
                     for id in ids {
                         let p = &providers[id];
                         let provider_type = p["type"].as_str().unwrap_or("");
-                        let model = p["model"].as_str().unwrap_or("");
-                        let has_key = p.get("apiKey").is_some();
+                        let count = aliases_by_provider.get(id.as_str()).copied().unwrap_or(0);
                         println!(
-                            "{id}  type={provider_type}  model={model}  apiKey={}",
-                            if has_key { "***" } else { "none" }
+                            "{id}  type={provider_type}  models={count}  source={}",
+                            provider_source_label(p)
                         );
                     }
-                    if providers.is_empty() {
-                        println!("no providers configured — use `kimi provider catalog add <id>` or `kimi provider add <url>`");
+                    if let Some(default) = config["result"]["defaultModel"].as_str() {
+                        println!();
+                        println!(
+                            "{}",
+                            kimi_tui::i18n::t_fmt("cli.provider.defaultModel", &[default.to_string()])
+                        );
                     }
                 }
                 // `kimi provider add <url>` — import every provider from a
@@ -3087,7 +3481,13 @@ async fn main() -> anyhow::Result<()> {
                             Ok(catalog) => {
                                 if let Some(pid) = provider_id {
                                     let Some(provider) = catalog.get(&pid) else {
-                                        eprintln!("error: provider \"{pid}\" not in the catalog");
+                                        eprintln!(
+                                            "{}",
+                                            kimi_tui::i18n::t_fmt(
+                                                "cli.provider.catalogProviderMissing",
+                                                &[pid.clone(), catalog_url.to_string()]
+                                            )
+                                        );
                                         std::process::exit(1);
                                     };
                                     if json {
@@ -3124,6 +3524,25 @@ async fn main() -> anyhow::Result<()> {
                                             .unwrap_or_default()
                                     );
                                 } else {
+                                    // TS parity: an empty match prints a
+                                    // message instead of nothing.
+                                    if providers.is_empty() {
+                                        if let Some(f) = filter {
+                                            println!(
+                                                "{}",
+                                                kimi_tui::i18n::t_fmt(
+                                                    "cli.provider.catalogNoMatch",
+                                                    &[f.to_string()]
+                                                )
+                                            );
+                                        } else {
+                                            println!(
+                                                "{}",
+                                                kimi_tui::i18n::t("cli.provider.catalogEmpty")
+                                            );
+                                        }
+                                        return Ok(());
+                                    }
                                     for (id, provider) in providers {
                                         println!(
                                             "{id}  {}  ({} models)",
@@ -3186,6 +3605,20 @@ async fn main() -> anyhow::Result<()> {
                     CatalogCmd::Add { id, api_key, default_model, url, base_url } => {
                         let catalog_url =
                             url.as_deref().unwrap_or(kimi_sdk::catalog::DEFAULT_CATALOG_URL);
+                        // TS parity: the API key is required — explicit flag
+                        // or KIMI_REGISTRY_API_KEY (no provider-env fallback),
+                        // checked before any network fetch.
+                        let resolved_key = api_key
+                            .filter(|k| !k.trim().is_empty())
+                            .or_else(|| {
+                                std::env::var("KIMI_REGISTRY_API_KEY")
+                                    .ok()
+                                    .filter(|k| !k.trim().is_empty())
+                            });
+                        let Some(resolved_key) = resolved_key else {
+                            eprintln!("{}", kimi_tui::i18n::t("cli.provider.missingApiKey"));
+                            std::process::exit(1);
+                        };
                         let catalog =
                             match kimi_sdk::catalog::fetch_catalog(catalog_url).await {
                                 Ok(c) => c,
@@ -3195,17 +3628,15 @@ async fn main() -> anyhow::Result<()> {
                                 }
                             };
                         let Some(provider) = catalog.get(&id) else {
-                            eprintln!("error: provider \"{id}\" not in the catalog");
+                            eprintln!(
+                                "{}",
+                                kimi_tui::i18n::t_fmt(
+                                    "cli.provider.catalogProviderMissing",
+                                    &[id.clone(), catalog_url.to_string()]
+                                )
+                            );
                             std::process::exit(1);
                         };
-                        // Resolve the API key: explicit flag, the provider's
-                        // env var, or none (key-less provider for now).
-                        let resolved_key = api_key.or_else(|| {
-                            provider
-                                .env
-                                .first()
-                                .and_then(|env| std::env::var(env).ok())
-                        });
                         // Wire + endpoint decision (kosong
                         // `resolveCatalogImport` parity).
                         let resolution =
@@ -3232,6 +3663,20 @@ async fn main() -> anyhow::Result<()> {
                         // the config so context/capability metadata rides along
                         // without hand-writing.
                         let models = kimi_sdk::catalog::catalog_provider_models(provider);
+                        // TS parity: an explicit `--default-model` must be one
+                        // of the provider's importable models.
+                        if let Some(dm) = &default_model {
+                            if !models.iter().any(|m| m.id == *dm) {
+                                eprintln!(
+                                    "{}",
+                                    kimi_tui::i18n::t_fmt(
+                                        "cli.provider.catalogModelNotIn",
+                                        &[dm.clone(), id.clone()]
+                                    )
+                                );
+                                std::process::exit(1);
+                            }
+                        }
                         // Only an explicit `--default-model` sets the default —
                         // an import without it preserves the user's existing
                         // defaultModel and thinking config (TS parity; the old
@@ -3247,22 +3692,19 @@ async fn main() -> anyhow::Result<()> {
                                 &id,
                                 &wire,
                                 resolved_base_url.as_deref(),
-                                resolved_key.as_deref(),
+                                Some(resolved_key.as_str()),
                                 &models,
                                 selected_model_id.as_deref(),
                                 true,
                             )
                         } else {
                             // No importable models: fall back to the
-                            // provider-only write (key-less providers and
-                            // catalog entries without a usable list).
+                            // provider-only write.
                             let mut provider_cfg = serde_json::json!({ "type": wire });
                             if let Some(base_url) = &resolved_base_url {
                                 provider_cfg["baseUrl"] = serde_json::json!(base_url);
                             }
-                            if let Some(key) = &resolved_key {
-                                provider_cfg["apiKey"] = serde_json::json!(key);
-                            }
+                            provider_cfg["apiKey"] = serde_json::json!(resolved_key);
                             config["providers"][&id] = provider_cfg;
                             if let Some(model) = &default_model {
                                 config["defaultModel"] = serde_json::json!(model);
@@ -3274,9 +3716,7 @@ async fn main() -> anyhow::Result<()> {
                         // `source: { kind: 'apiJson', url, apiKey }` parity).
                         if let Some(source) = config["providers"][&id].as_object_mut() {
                             let mut blob = serde_json::json!({ "kind": "apiJson", "url": catalog_url });
-                            if let Some(key) = &resolved_key {
-                                blob["apiKey"] = serde_json::json!(key);
-                            }
+                            blob["apiKey"] = serde_json::json!(resolved_key);
                             source.insert("source".to_string(), blob);
                         }
                         let client = connect(&server)?;
@@ -3372,7 +3812,7 @@ async fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("zip_base64 decode failed: {e}"))?;
             let out_path = match output {
                 Some(p) => std::path::PathBuf::from(p),
-                None => std::path::PathBuf::from(format!("{resolved_id}.zip")),
+                None => std::path::PathBuf::from(default_export_zip_name(&resolved_id)),
             };
             std::fs::write(&out_path, &bytes)?;
             println!("{}", out_path.display());

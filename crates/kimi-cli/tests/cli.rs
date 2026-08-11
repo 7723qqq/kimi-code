@@ -639,7 +639,7 @@ fn print_continue_resumes_latest_session() {
     let out = child.wait_with_output().expect("wait");
     assert!(out.status.success(), "chat exits 0: {}", out.status);
 
-    let mut child = Command::new(binary())
+    let child = Command::new(binary())
         .args(["print", "--continue", "hi"])
         .current_dir(&cwd)
         .env("KIMI_AGENT_HOME", &home)
@@ -943,7 +943,14 @@ fn export_with_session_id_writes_zip() {
 
     let out = run(&home, &["export", "export-me"]);
     assert!(out.status.success(), "export exits 0: {}", out.status);
-    assert!(stdout(&out).contains("export-me.zip"), "path printed: {}", stdout(&out));
+    // TS parity: the default zip name is `kimi-debug-<shortId>-<timestamp>.zip`
+    // (first 8 id chars) rather than `<id>.zip`.
+    let printed = stdout(&out);
+    assert!(
+        printed.trim().starts_with("kimi-debug-export-m-") && printed.trim().ends_with(".zip"),
+        "default zip name: {printed}"
+    );
+    assert!(!printed.contains("export-me.zip"), "no fixed <id>.zip name: {printed}");
 }
 
 #[test]
@@ -1052,15 +1059,18 @@ fn provider_catalog_list_from_catalog() {
 #[test]
 fn provider_list_lists_configured_providers() {
     let home = temp_dir("provider-list");
-    // Fresh home: no configured providers -> the list prints the empty hint.
+    // Fresh home: no configured providers -> the TS "No providers
+    // configured." hint (exit 0).
     let output = run(&home, &["provider", "list"]);
     assert!(output.status.success(), "provider list exits 0: {}", output.status);
-    assert!(
-        stdout(&output).contains("no providers configured"),
+    assert_eq!(
+        stdout(&output).trim(),
+        "No providers configured.",
         "empty hint: {}",
         stdout(&output)
     );
-    // A configured provider shows up with a masked apiKey.
+    // A configured provider shows up with TS's `type=`/`models=`/`source=`
+    // fields and never leaks the raw apiKey.
     let cfg = home.join("config.toml");
     std::fs::write(
         &cfg,
@@ -1071,8 +1081,21 @@ fn provider_list_lists_configured_providers() {
     assert!(output.status.success(), "provider list exits 0: {}", output.status);
     let out = stdout(&output);
     assert!(out.contains("mock"), "listed provider: {out}");
-    assert!(out.contains("***"), "apiKey masked: {out}");
+    assert!(out.contains("type=openai"), "type field: {out}");
+    assert!(out.contains("models=0"), "model count: {out}");
+    assert!(out.contains("source=inline"), "source label: {out}");
     assert!(!out.contains("sk-test"), "raw apiKey must not leak: {out}");
+
+    // `--json` emits `{providers, models}` with apiKey stripped entirely
+    // (TS parity) rather than masked.
+    let output = run(&home, &["provider", "list", "--json"]);
+    assert!(output.status.success(), "provider list --json exits 0: {}", output.status);
+    let value: serde_json::Value =
+        serde_json::from_str(stdout(&output).trim()).expect("provider JSON");
+    assert!(value["providers"]["mock"].is_object(), "providers key: {value}");
+    assert!(value["providers"]["mock"].get("apiKey").is_none(), "apiKey stripped: {value}");
+    assert!(value["models"].is_object(), "models key: {value}");
+    assert!(!stdout(&output).contains("sk-test"), "json must not leak: {}", stdout(&output));
 }
 
 #[test]
@@ -1264,9 +1287,13 @@ fn provider_catalog_add_requires_base_url_when_catalog_has_none() {
     });
     let url = format!("http://{addr}");
 
-    // Without --base-url the import refuses with a hint.
+    // Without --base-url the import refuses with a hint (an API key alone is
+    // not enough — the catalog entry has no endpoint).
     let home = temp_dir("provider-add-nourl");
-    let output = run(&home, &["provider", "catalog", "add", "gateway", "--url", &url]);
+    let output = run(
+        &home,
+        &["provider", "catalog", "add", "gateway", "--api-key", "sk-test", "--url", &url],
+    );
     assert!(!output.status.success(), "must refuse: {}", stdout(&output));
     assert!(
         stderr(&output).contains("--base-url"),
@@ -1274,14 +1301,16 @@ fn provider_catalog_add_requires_base_url_when_catalog_has_none() {
         stderr(&output)
     );
 
-    // With --base-url the import proceeds (provider-only — the gateway
-    // entry's model carries no context limit, so no aliases are written).
+    // With --base-url and an API key the import proceeds (provider-only — the
+    // gateway entry's model carries no context limit, so no aliases are
+    // written). TS parity: catalog add requires an API key (--api-key or
+    // KIMI_REGISTRY_API_KEY).
     let home2 = temp_dir("provider-add-url");
     let output = run(
         &home2,
         &[
             "provider", "catalog", "add", "gateway", "--base-url",
-            "https://gateway.example/v1", "--url", &url,
+            "https://gateway.example/v1", "--url", &url, "--api-key", "sk-test",
         ],
     );
     assert!(output.status.success(), "add: {}", stderr(&output));
@@ -1290,4 +1319,213 @@ fn provider_catalog_add_requires_base_url_when_catalog_has_none() {
         serde_json::from_str(stdout(&cfg).trim()).expect("config JSON");
     assert_eq!(value["providers"]["gateway"]["type"], "openai");
     assert_eq!(value["providers"]["gateway"]["baseUrl"], "https://gateway.example/v1");
+}
+
+/// One-shot fixture catalog server (no network dependency), mirroring the
+/// accept loop used by the provider-add tests above. Serves up to `accepts`
+/// requests.
+fn fixture_catalog_server(body: &'static str, accepts: usize) -> String {
+    use std::io::{Read, Write};
+    let listener = match std::net::TcpListener::bind("127.0.0.1:0") {
+        Ok(l) => l,
+        Err(e) => panic!("fixture bind: {e}"),
+    };
+    let addr = listener.local_addr().expect("addr");
+    std::thread::spawn(move || {
+        for _ in 0..accepts {
+            if let Ok((mut stream, _peer)) = listener.accept() {
+                let mut buf = [0u8; 8192];
+                let _ = stream.read(&mut buf);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.shutdown(std::net::Shutdown::Write);
+                let mut drain = [0u8; 1024];
+                let _ = stream.read(&mut drain);
+            }
+        }
+    });
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    format!("http://{addr}")
+}
+
+#[test]
+fn top_level_hidden_aliases_are_accepted() {
+    // TS `commands.ts` parity: hidden `-C` (continue) and `--yes` /
+    // `--auto-approve` (yolo) parse on the top level — a non-TTY bare
+    // invocation prints help + the interactive hint and exits 0.
+    let home = temp_dir("hidden-aliases");
+    for args in [&["-C"][..], &["--yes"][..], &["--auto-approve"][..]] {
+        let out = run(&home, args);
+        assert!(out.status.success(), "{args:?} exits 0: {}", out.status);
+        assert!(stdout(&out).contains("Usage:"), "{args:?} prints help");
+    }
+}
+
+#[test]
+fn top_level_option_conflicts_are_rejected() {
+    // TS `validateOptions` parity for the top-level surface (the `print`
+    // subcommand keeps its own clap-level conflicts).
+    let home = temp_dir("opts-conflicts");
+    let cases: &[(&[&str], &str)] = &[
+        (&["-c", "-S", "s1"], "Cannot combine --continue, --session."),
+        (&["-C", "-S", "s1"], "Cannot combine --continue, --session."),
+        (&["-y", "--auto"], "Cannot combine --yolo with --auto."),
+        (&["--yes", "--auto"], "Cannot combine --yolo with --auto."),
+        (&["--prompt", "hi", "--plan"], "Cannot combine --prompt with --plan."),
+        (&["--prompt", "hi", "-y"], "Cannot combine --prompt with --yolo."),
+        (
+            &["--output-format", "text"],
+            "Output format is only supported in prompt mode.",
+        ),
+        (&["--model", ""], "Model cannot be empty."),
+    ];
+    for (args, expected) in cases {
+        let out = run(&home, args);
+        assert!(!out.status.success(), "{args:?} must fail: {}", out.status);
+        assert!(
+            stderr(&out).contains(expected),
+            "{args:?}: expected {expected:?} in stderr: {}",
+            stderr(&out)
+        );
+    }
+}
+
+#[test]
+fn print_output_format_env_is_validated() {
+    // TS `resolveOutputFormat` parity: KIMI_MODEL_OUTPUT_FORMAT drives the
+    // -p output format; an invalid value fails fast before any engine work.
+    let home = temp_dir("print-env-fmt");
+    let cwd = temp_dir("print-env-fmt-cwd");
+    for args in [&["print", "hi"][..], &["--prompt", "hi"]] {
+        let out = Command::new(binary())
+            .args(args)
+            .current_dir(&cwd)
+            .env("KIMI_AGENT_HOME", &home)
+            .env("KIMI_CODE_HOME", &home)
+            .env("HOME", &home)
+            .env("KIMI_MODEL_OUTPUT_FORMAT", "nope")
+            .output()
+            .expect("spawn kimi");
+        assert!(!out.status.success(), "{args:?} invalid env must fail");
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("Invalid KIMI_MODEL_OUTPUT_FORMAT value \"nope\""),
+            "{args:?} stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
+#[test]
+fn web_rotate_token_rewrites_server_token() {
+    let home = temp_dir("web-rotate");
+    let out = run(&home, &["web", "rotate-token"]);
+    assert!(out.status.success(), "rotate-token exits 0: {}", out.status);
+    assert!(
+        stdout(&out).contains("New server token:"),
+        "stdout: {}",
+        stdout(&out)
+    );
+    let token = home.join("server.token");
+    assert!(token.exists(), "server.token written");
+    let first = std::fs::read_to_string(&token).expect("read token");
+    assert!(!first.trim().is_empty(), "token non-empty");
+    // Rotation invalidates the previous value.
+    let out = run(&home, &["web", "rotate-token"]);
+    assert!(out.status.success(), "second rotate exits 0: {}", out.status);
+    let second = std::fs::read_to_string(&token).expect("read token");
+    assert_ne!(first, second, "token rotated");
+}
+
+#[test]
+fn server_command_prints_deprecation_notice() {
+    // TS `DEPRECATED_SERVER_NOTICE` parity: bare `kimi server` and legacy
+    // invocations exit 1 with the notice (not a clap parse error).
+    let home = temp_dir("server-deprecated");
+    for args in [
+        &["server"][..],
+        &["server", "kill"][..],
+        &["server", "--port", "1234"][..],
+    ] {
+        let out = run(&home, args);
+        assert_eq!(out.status.code(), Some(1), "{args:?} exits 1: {}", out.status);
+        assert!(
+            stderr(&out).contains("`kimi server` has been deprecated"),
+            "{args:?} notice: {}",
+            stderr(&out)
+        );
+    }
+}
+
+#[test]
+fn provider_catalog_add_requires_api_key() {
+    // TS parity: catalog add needs an API key (--api-key or
+    // KIMI_REGISTRY_API_KEY), checked before any fetch.
+    let home = temp_dir("provider-cat-key");
+    let out = run(&home, &["provider", "catalog", "add", "acme"]);
+    assert!(!out.status.success(), "must fail without a key");
+    assert!(stderr(&out).contains("Missing API key"), "stderr: {}", stderr(&out));
+}
+
+#[test]
+fn provider_catalog_add_rejects_unknown_default_model() {
+    // TS parity: `--default-model` must name an importable model of the
+    // provider.
+    let fixture = r#"{
+      "acme": {
+        "id": "acme",
+        "name": "Acme",
+        "api": "https://acme.example/v1",
+        "env": ["ACME_API_KEY"],
+        "models": {
+          "acme-1": { "id": "acme-1", "name": "Acme 1", "status": "active",
+            "limit": { "context": 128000 },
+            "modalities": { "input": ["text"], "output": ["text"] } }
+        }
+      }
+    }"#;
+    let url = fixture_catalog_server(fixture, 1);
+    let home = temp_dir("provider-cat-dm");
+    let out = run(
+        &home,
+        &[
+            "provider", "catalog", "add", "acme", "--api-key", "sk-test",
+            "--default-model", "nope", "--url", &url,
+        ],
+    );
+    assert!(!out.status.success(), "unknown default model must fail");
+    assert!(
+        stderr(&out).contains("Model \"nope\" is not in provider \"acme\""),
+        "stderr: {}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn provider_catalog_list_no_match_prints_message() {
+    // TS parity: an empty filter match prints a message instead of nothing.
+    let fixture = r#"{
+      "acme": {
+        "id": "acme",
+        "name": "Acme",
+        "api": "https://acme.example/v1",
+        "models": { }
+      }
+    }"#;
+    let url = fixture_catalog_server(fixture, 2);
+    let home = temp_dir("provider-cat-nomatch");
+    let out = run(&home, &["provider", "catalog", "list", "--filter", "zzzz", "--url", &url]);
+    assert!(out.status.success(), "no-match exits 0: {}", out.status);
+    assert_eq!(stdout(&out).trim(), "No providers in catalog match \"zzzz\".");
+    // A drill into an unknown provider exits 1 with the TS message.
+    let out = run(&home, &["provider", "catalog", "list", "nope", "--url", &url]);
+    assert!(!out.status.success(), "unknown provider must fail");
+    assert!(
+        stderr(&out).contains("Provider \"nope\" not found in catalog at"),
+        "stderr: {}",
+        stderr(&out)
+    );
 }

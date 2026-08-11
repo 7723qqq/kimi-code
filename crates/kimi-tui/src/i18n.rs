@@ -1181,6 +1181,117 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "the vis frontend ships with the TS distribution (npm wrapper) — not bundled in the Rust build",
         "vis 前端随 TS 分发提供（npm wrapper）——未包含在 Rust 构建中",
     ),
+
+    // ── top-level option validation (TS `validateOptions` parity) ────────
+    (
+        "cli.opts.continueSessionConflict",
+        "Cannot combine --continue, --session.",
+        "不能同时使用 --continue 与 --session。",
+    ),
+    (
+        "cli.opts.yoloAutoConflict",
+        "Cannot combine --yolo with --auto.",
+        "不能同时使用 --yolo 与 --auto。",
+    ),
+    (
+        "cli.opts.promptYoloConflict",
+        "Cannot combine --prompt with --yolo.",
+        "不能同时使用 --prompt 与 --yolo。",
+    ),
+    (
+        "cli.opts.promptAutoConflict",
+        "Cannot combine --prompt with --auto.",
+        "不能同时使用 --prompt 与 --auto。",
+    ),
+    (
+        "cli.opts.promptPlanConflict",
+        "Cannot combine --prompt with --plan.",
+        "不能同时使用 --prompt 与 --plan。",
+    ),
+    (
+        "cli.opts.outputFormatNotPrompt",
+        "Output format is only supported in prompt mode.",
+        "输出格式仅支持在提示模式下使用。",
+    ),
+    (
+        "cli.opts.invalidOutputFormatEnv",
+        "Invalid KIMI_MODEL_OUTPUT_FORMAT value \"{0}\". Expected one of: text, stream-json.",
+        "无效的 KIMI_MODEL_OUTPUT_FORMAT 值 \"{0}\"。期望值为：text、stream-json。",
+    ),
+
+    // ── headless goal prefix (TS `parseHeadlessGoalCreate` parity) ───────
+    (
+        "cli.goal.provideObjective",
+        "Provide a goal objective, e.g. `/goal Ship feature X`.",
+        "请提供目标描述，例如：`/goal 实现功能 X`。",
+    ),
+    (
+        "cli.goal.objectiveTooLong",
+        "Goal objective is too long (max {0} characters). Reference long details by file path.",
+        "目标描述过长（最多 {0} 个字符）。请通过文件路径引用详细内容。",
+    ),
+
+    // ── web token rotation (`kimi web rotate-token`, TS parity) ──────────
+    (
+        "cli.web.tokenRotated",
+        "The previous token is now invalid. A running server picks up the new token automatically.",
+        "之前的令牌已失效。运行中的服务器会自动使用新令牌。",
+    ),
+    (
+        "cli.web.newToken",
+        "New server token: {0}",
+        "新的服务器令牌：{0}",
+    ),
+
+    // ── deprecated `kimi server` shim (TS `DEPRECATED_SERVER_NOTICE`) ─────
+    (
+        "cli.server.deprecated",
+        "`kimi server` has been deprecated and no longer works.\n\
+         Use `kimi web` instead — it runs the local server in the foreground and opens the web UI (`--no-open` to skip).\n\
+         To stop a server started by a version before 0.28.0, use `kimi server kill`.\n\
+         This notice will be removed in the next major version of Kimi Code.",
+        "`kimi server` 已弃用，不再可用。\n\
+         请改用 `kimi web`——它在前台运行本地服务器并打开 Web UI（可用 `--no-open` 跳过）。\n\
+         如需停止 0.28.0 之前版本启动的服务器，请使用 `kimi server kill`。\n\
+         此提示将在下一个主版本中移除。",
+    ),
+
+    // ── provider management output (TS `sub/provider.ts` parity) ──────────
+    (
+        "cli.provider.noProviders",
+        "No providers configured.",
+        "未配置任何提供商。",
+    ),
+    (
+        "cli.provider.defaultModel",
+        "Default model: {0}",
+        "默认模型：{0}",
+    ),
+    (
+        "cli.provider.catalogNoMatch",
+        "No providers in catalog match \"{0}\".",
+        "目录中没有匹配 \"{0}\" 的提供商。",
+    ),
+    (
+        "cli.provider.catalogEmpty",
+        "Catalog is empty.",
+        "目录为空。",
+    ),
+    (
+        "cli.provider.catalogProviderMissing",
+        "Provider \"{0}\" not found in catalog at {1}.",
+        "目录 {1} 中找不到提供商 \"{0}\"。",
+    ),
+    (
+        "cli.provider.catalogModelNotIn",
+        "Model \"{0}\" is not in provider \"{1}\". Run \"kimi provider catalog list {1}\" to see available ids.",
+        "模型 \"{0}\" 不属于提供商 \"{1}\"。运行 \"kimi provider catalog list {1}\" 查看可用 id。",
+    ),
+    (
+        "cli.provider.catalogNoModels",
+        "Provider \"{0}\" lists no usable models in this catalog.",
+        "提供商 \"{0}\" 在此目录中没有可用模型。",
+    ),
     // ── clap help texts (`cli.help.*`) ───────────────────────────────────
     // `localize_cli_command` in kimi-cli overrides the derive doc comments
     // with these when the active locale is zh; English keeps the derive
@@ -1309,6 +1420,11 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "cli.help.cmd.vis",
         "Launch the visualization frontend (ships with the TS distribution).",
         "启动可视化前端（随 TS 分发提供）。",
+    ),
+    (
+        "cli.help.cmd.server",
+        "Deprecated — use `kimi web` instead.",
+        "已弃用——请改用 `kimi web`。",
     ),
     ("cli.help.arg.prompt-text", "The prompt to run.", "要运行的提示。"),
     (
