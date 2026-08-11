@@ -525,7 +525,7 @@ async fn get_plan_is_null_without_plan_mode() {
 }
 
 #[tokio::test]
-async fn compact_errors_without_native_llm() {
+async fn compact_uses_host_llm_step_without_a_native_provider() {
     let _guard = home("compact").await.0;
     let harness = Harness::embedded_with_llm_step(Some(fake_llm())).expect("embedded");
     let mut session = harness.create_session("s-compact").await.expect("create");
@@ -533,10 +533,11 @@ async fn compact_errors_without_native_llm() {
     let body = session.prompt("fill the context").await;
     assert!(body.get("error").is_none(), "prompt: {body}");
 
-    // A bare harness has no summarizer, so a manual compact must fail closed
-    // instead of silently dropping history (TS: compact rejection path).
+    // Dual-channel compaction (G-2): a bare harness has no native provider,
+    // but the host LLM step now serves as the summarizer — compact must
+    // succeed instead of failing closed with `compaction.unable`.
     let result = session.compact().await;
-    assert!(result.is_err(), "compact must error without a delegate: {result:?}");
+    assert!(result.is_ok(), "compact must succeed via the host LLM step: {result:?}");
 }
 
 #[tokio::test]
