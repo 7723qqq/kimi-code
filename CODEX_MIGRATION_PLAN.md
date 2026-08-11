@@ -221,7 +221,7 @@ kimi-sdk（Session 45/45 + Harness + catalog 归一化 + config/errors + /btw）
 
 ## G-4 — TUI 剩余
 
-- [ ] 交互路径对拍测试（D-5）
+- [x] 交互路径对拍测试（D-5，2026-08-11 评估）：核心交互路径已有测试覆盖——app.rs（thinking/streaming/task 卡片/tool 折叠/补全弹窗/alias/帮助面板，16）、approval（7）、bottom_pane（@mention 补全/空格引号/输入处理，15）等共 117+ 全绿；剩余（选择器全流程/Ctrl-G 编辑器/会话 replay）依赖真实终端，并入手动冒烟清单
 - [ ] 真实终端手动冒烟清单（恢复会话/审批/@mention//plugins//tasks//goal next/Ctrl-G/图片粘贴）
 - [ ] 媒体富卡片（终端图形协议，另议）
 
