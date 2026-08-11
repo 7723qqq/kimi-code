@@ -912,6 +912,7 @@ enum Commands {
     /// Remove the kimi provider credentials from the engine config.
     Logout,
     /// Update the CLI to the latest version (managed by the distribution).
+    #[command(alias = "update")]
     Upgrade,
     /// Migrate legacy kimi-cli data — a one-time step handled by the TS
     /// distribution (the Rust binary does not bundle the migration screen).
@@ -2417,6 +2418,121 @@ fn localize_cli_command(mut cmd: clap::Command) -> clap::Command {
     cmd
 }
 
+// ── `kimi upgrade` — self-update check (TS `cli/sub/upgrade.ts` parity) ──
+
+/// Version the binary was built for. Release builds of the Rust
+/// distribution inject the published npm package version at compile time
+/// via `KIMI_CODE_VERSION`; dev/test builds fall back to the crate version
+/// (0.1.0). Compile-time injection is preferred over reading a version file
+/// from `KIMI_CODE_HOME` because the Rust binary has no installer to write
+/// one — a missing/unreadable file would need a fragile runtime fallback on
+/// every invocation.
+const LOCAL_VERSION: &str = match option_env!("KIMI_CODE_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
+/// npm `latest` manifest endpoint. Override with `KIMI_UPGRADE_REGISTRY`
+/// (a full URL — integration tests point it at a local mock registry).
+const DEFAULT_UPGRADE_REGISTRY: &str = "https://registry.npmjs.org/@moonshot-ai/kimi-code/latest";
+
+/// npm package the CLI is distributed as (TS `NPM_PACKAGE_NAME` parity).
+const NPM_PACKAGE_NAME: &str = "@moonshot-ai/kimi-code";
+
+/// Fetch the `latest` version string from the npm registry manifest.
+/// Failures are returned as user-facing messages (never panics).
+async fn fetch_latest_version(registry: &str) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .user_agent(format!("kimi-cli/{LOCAL_VERSION}"))
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+    let response = client
+        .get(registry)
+        .send()
+        .await
+        .map_err(|e| format!("request to {registry} failed: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("registry returned HTTP {}", response.status()));
+    }
+    let manifest: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("failed to parse registry response: {e}"))?;
+    manifest
+        .get("version")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+        .ok_or_else(|| "registry response has no \"version\" field".to_owned())
+}
+
+/// Compare two semver-ish version strings (`[v]major.minor.patch[-pre]`).
+/// Pre-release versions sort below their release; missing segments are 0.
+/// No semver crate dependency — this covers the registry `latest` shape.
+fn compare_versions(a: &str, b: &str) -> Option<std::cmp::Ordering> {
+    fn parse(v: &str) -> Option<(Vec<u64>, bool)> {
+        let core = v.trim().strip_prefix('v').unwrap_or(v.trim());
+        let (core, pre) = match core.split_once('-') {
+            Some((c, p)) => (c, !p.is_empty()),
+            None => (core, false),
+        };
+        let mut nums = Vec::new();
+        for part in core.split('.') {
+            if part.is_empty() {
+                return None;
+            }
+            nums.push(part.parse().ok()?);
+        }
+        if nums.is_empty() {
+            return None;
+        }
+        Some((nums, pre))
+    }
+    let (an, apre) = parse(a)?;
+    let (bn, bpre) = parse(b)?;
+    // `0.30.0-beta.1` < `0.30.0` (pre-release sorts before its release).
+    if apre != bpre {
+        return Some(if apre { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater });
+    }
+    for i in 0..an.len().max(bn.len()) {
+        let x = an.get(i).copied().unwrap_or(0);
+        let y = bn.get(i).copied().unwrap_or(0);
+        if x != y {
+            return Some(x.cmp(&y));
+        }
+    }
+    Some(std::cmp::Ordering::Equal)
+}
+
+/// `kimi upgrade` — TS `handleUpgrade` non-interactive path parity: report
+/// the local vs npm `latest` version and print the install command when an
+/// update is available. Exit codes match TS: 0 on success/no-update, 1 on
+/// check failure.
+async fn run_upgrade() -> i32 {
+    let registry = std::env::var("KIMI_UPGRADE_REGISTRY")
+        .unwrap_or_else(|_| DEFAULT_UPGRADE_REGISTRY.to_owned());
+    let latest = match fetch_latest_version(&registry).await {
+        Ok(version) => version,
+        Err(reason) => {
+            eprintln!("error: upgrade check failed: {reason}");
+            return 1;
+        }
+    };
+    let Some(ordering) = compare_versions(LOCAL_VERSION, &latest) else {
+        eprintln!("error: invalid local version: {LOCAL_VERSION}");
+        return 1;
+    };
+    if ordering == std::cmp::Ordering::Less {
+        println!(
+            "A newer version of {NPM_PACKAGE_NAME} is available ({LOCAL_VERSION} -> {latest})."
+        );
+        println!("To update, run: npm i -g {NPM_PACKAGE_NAME}@latest");
+    } else {
+        println!("{NPM_PACKAGE_NAME} is up to date ({latest}).");
+    }
+    0
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     use clap::{CommandFactory, FromArgMatches};
@@ -3239,12 +3355,13 @@ async fn main() -> anyhow::Result<()> {
             apply_provider_removal(&server, "kimi", "logged out — kimi provider removed from config").await?;
         }
         Commands::Upgrade => {
-            // Self-update is owned by the distribution (npm wrapper / package
-            // manager), not the Rust binary — give the user the right lever
-            // instead of a silent unknown-subcommand.
-            println!("upgrade is managed by your package manager:");
-            println!("  npm i -g kimi-code@latest        # TS distribution");
-            println!("  npm i -g kimi-code-rust-bin@latest  # Rust-first wrapper");
+            // TS `handleUpgrade` parity: check the npm registry for the
+            // latest version and print the install command when an update
+            // is available.
+            let code = run_upgrade().await;
+            if code != 0 {
+                std::process::exit(code);
+            }
         }
         Commands::Migrate => {
             // Legacy data migration (~/.kimi -> ~/.kimi-code) is a one-time
@@ -3819,6 +3936,30 @@ async fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod upgrade_tests {
+    use super::*;
+
+    #[test]
+    fn compare_versions_orders_core_segments() {
+        use std::cmp::Ordering::*;
+        assert_eq!(compare_versions("0.1.0", "0.30.1"), Some(Less));
+        assert_eq!(compare_versions("0.30.1", "0.30.1"), Some(Equal));
+        assert_eq!(compare_versions("0.31.0", "0.30.1"), Some(Greater));
+        // Missing segments count as 0.
+        assert_eq!(compare_versions("0.30", "0.30.0"), Some(Equal));
+        assert_eq!(compare_versions("1", "1.0.1"), Some(Less));
+        // Optional `v` prefix.
+        assert_eq!(compare_versions("v0.30.0", "0.30.0"), Some(Equal));
+        // Pre-release sorts below its release (pre strings don't participate
+        // in comparison — the registry `latest` tag is always a stable build).
+        assert_eq!(compare_versions("0.30.0-beta.1", "0.30.0"), Some(Less));
+        assert_eq!(compare_versions("0.30.0-beta.2", "0.30.0-alpha.9"), Some(Equal));
+        // Unparseable versions are not comparable.
+        assert_eq!(compare_versions("not-a-version", "0.1.0"), None);
+    }
 }
 
 

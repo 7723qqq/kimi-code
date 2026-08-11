@@ -1613,6 +1613,7 @@ dependencies = [
  "kimi-server-transport",
  "kimi-tui",
  "kimi-ui",
+ "reqwest",
  "serde_json",
  "tokio",
  "toml",

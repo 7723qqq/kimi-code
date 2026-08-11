@@ -14,6 +14,7 @@ anyhow = "1"
 axum = "0.8"
 base64 = "0.22"
 clap = { workspace = true }
+reqwest = { workspace = true }
 kimi-agent = { path = "../../packages/kimi-agent" }
 kimi-exec = { path = "../kimi-exec" }
 kimi-oauth = { path = "../kimi-oauth" }

@@ -3,7 +3,7 @@
 //! engine's config lookup (project `.kimi-code/config.toml`, user config)
 //! never leaks real settings in.
 
-use std::io::BufRead;
+use std::io::{BufRead, Read, Write};
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -33,6 +33,7 @@ fn run(home: &Path, args: &[&str]) -> Output {
         .env("HOME", home)
         .env_remove("KIMI_MODEL")
         .env_remove("KIMI_MODEL_API_KEY")
+        .env_remove("KIMI_UPGRADE_REGISTRY")
         .output()
         .expect("spawn kimi")
 }
@@ -510,12 +511,14 @@ fn chat_goal_lifecycle() {
 fn upgrade_and_frontend_commands_are_recognized() {
     // Stage-C "待" surface: the Rust CLI recognizes TS-owned commands instead
     // of erroring "unknown subcommand". `web` now launches the in-process
-    // server (spawned separately below); `upgrade`/`vis` keep the hint/error.
+    // server (spawned separately below); the live `upgrade` command checks a
+    // registry (exercised against a mock in the `upgrade_*` tests below), so
+    // here help-level recognition is asserted; `vis` keeps the error.
     let home = temp_dir("recognized");
-    let out = run(&home, &["upgrade"]);
-    assert!(out.status.success(), "upgrade exits 0: {}", out.status);
+    let out = run(&home, &["--help"]);
+    assert!(out.status.success(), "help exits 0: {}", out.status);
     let text = stdout(&out);
-    assert!(text.contains("package manager"), "upgrade hint: {text}");
+    assert!(text.contains("upgrade"), "help lists upgrade: {text}");
     let out = run(&home, &["migrate"]);
     assert!(out.status.success(), "migrate exits 0: {}", out.status);
     let text = stdout(&out);
@@ -558,6 +561,92 @@ fn upgrade_and_frontend_commands_are_recognized() {
     let _ = child.kill();
     let _ = child.wait();
     assert!(ok, "kimi web serves /api/v1/health");
+}
+
+/// Serve fixed `latest`-manifest JSON on an ephemeral local listener. The
+/// thread answers one request (the upgrade command sends exactly one) and
+/// exits; returns the registry URL plus the thread handle.
+fn mock_registry(body: &str) -> (String, std::thread::JoinHandle<()>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mock registry");
+    let addr = listener.local_addr().expect("mock registry addr");
+    let body = body.to_string();
+    let handle = std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            // Drain the request line + headers before replying (a plain
+            // write-on-accept reply is not reliably consumed by the client).
+            let mut buf = [0u8; 2048];
+            let _ = stream.read(&mut buf);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+    (format!("http://{addr}/"), handle)
+}
+
+/// `run()` plus a `KIMI_UPGRADE_REGISTRY` override — upgrade tests must
+/// never hit the real npm registry.
+fn run_with_registry(home: &Path, registry: &str, args: &[&str]) -> Output {
+    let n = CWD_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let cwd = temp_dir(&format!("cwd{n}"));
+    Command::new(binary())
+        .args(args)
+        .current_dir(&cwd)
+        .env("KIMI_AGENT_HOME", home)
+        .env("KIMI_CODE_HOME", home)
+        .env("HOME", home)
+        .env("KIMI_UPGRADE_REGISTRY", registry)
+        .env_remove("KIMI_MODEL")
+        .env_remove("KIMI_MODEL_API_KEY")
+        .output()
+        .expect("spawn kimi")
+}
+
+#[test]
+fn upgrade_reports_new_version_and_install_command() {
+    let home = temp_dir("upgrade-new");
+    let (url, server) =
+        mock_registry(r#"{"name":"@moonshot-ai/kimi-code","version":"9.9.9"}"#);
+    let out = run_with_registry(&home, &url, &["upgrade"]);
+    let _ = server.join();
+    assert!(out.status.success(), "upgrade exits 0: {}", out.status);
+    let text = stdout(&out);
+    assert!(text.contains("9.9.9"), "latest version shown: {text}");
+    assert!(
+        text.contains("npm i -g @moonshot-ai/kimi-code@latest"),
+        "install command shown: {text}"
+    );
+}
+
+#[test]
+fn upgrade_reports_up_to_date() {
+    let home = temp_dir("upgrade-current");
+    // 0.0.0 < the local crate version (0.1.0 in dev/test builds).
+    let (url, server) = mock_registry(r#"{"version":"0.0.0"}"#);
+    let out = run_with_registry(&home, &url, &["upgrade"]);
+    let _ = server.join();
+    assert!(out.status.success(), "upgrade exits 0: {}", out.status);
+    assert!(stdout(&out).contains("up to date"), "stdout: {}", stdout(&out));
+}
+
+#[test]
+fn upgrade_network_failure_is_friendly() {
+    let home = temp_dir("upgrade-fail");
+    // Bind an ephemeral port, then drop the listener: the child's request is
+    // refused, which must surface as a friendly error — not a panic.
+    let dead = std::net::TcpListener::bind("127.0.0.1:0").expect("bind dead port");
+    let url = format!("http://{}/", dead.local_addr().unwrap());
+    drop(dead);
+    let out = run_with_registry(&home, &url, &["upgrade"]);
+    assert_eq!(out.status.code(), Some(1), "upgrade exits 1 on failure");
+    assert!(
+        stderr(&out).contains("upgrade check failed"),
+        "friendly error: {}",
+        stderr(&out)
+    );
 }
 
 #[test]
