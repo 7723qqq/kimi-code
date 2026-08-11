@@ -9,7 +9,7 @@ import {
   type MigrationPlan,
   type MigrationReport,
   type MigrationScope,
-} from "@moonshot-ai/migration-legacy";
+} from "../migration-legacy/index.js";
 
 const FULL_MIGRATION_SCOPE = {
   config: true,

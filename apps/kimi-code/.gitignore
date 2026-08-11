@@ -7,5 +7,6 @@ agents/
 # clone (before any build has produced the `.ts`).
 src/generated/vis-web-asset.ts
 
-# Copied from packages/pi-tui/native at build time by scripts/copy-native-assets.mjs
+# Legacy pi-tui native prebuilds (pi-tui retired 2026-08-11); keep ignoring
+# any leftover copies.
 native/

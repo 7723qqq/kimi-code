@@ -41,7 +41,6 @@ describe('resolveTargetDeps', () => {
     const names = deps.map((d) => d.resolvedName);
     expect(names).toContain('@mariozechner/clipboard');
     expect(names).toContain('@mariozechner/clipboard-darwin-arm64');
-    expect(names).toContain('@moonshot-ai/pi-tui');
   });
 
   it('picks the right clipboard subpackage per target', () => {
@@ -54,25 +53,6 @@ describe('resolveTargetDeps', () => {
     expect(
       resolveTargetDeps('win32-arm64').map((d) => d.resolvedName),
     ).toContain('@mariozechner/clipboard-win32-arm64-msvc');
-  });
-
-  it('encodes pi-tui native file path per target', () => {
-    const linuxPiTui = resolveTargetDeps('linux-arm64').find(
-      (d) => d.resolvedName === '@moonshot-ai/pi-tui',
-    );
-    expect(linuxPiTui?.nativeFileRelatives).toEqual([]);
-    const macPiTui = resolveTargetDeps('darwin-x64').find(
-      (d) => d.resolvedName === '@moonshot-ai/pi-tui',
-    );
-    expect(macPiTui?.nativeFileRelatives).toEqual([
-      'native/darwin/prebuilds/darwin-x64/darwin-modifiers.node',
-    ]);
-    const winArmPiTui = resolveTargetDeps('win32-arm64').find(
-      (d) => d.resolvedName === '@moonshot-ai/pi-tui',
-    );
-    expect(winArmPiTui?.nativeFileRelatives).toEqual([
-      'native/win32/prebuilds/win32-arm64/win32-console-mode.node',
-    ]);
   });
 
   it('throws on unsupported target', () => {
@@ -90,11 +70,5 @@ describe('nativeDeps registry shape', () => {
     const target = nativeDeps.find((d) => d.id === 'clipboard-target');
     expect(target?.collect).toBe('native-files');
     expect(target?.parent).toBe('clipboard-host');
-  });
-
-  it('has pi-tui (collect=native-file-only, no parent)', () => {
-    const piTui = nativeDeps.find((d) => d.id === 'pi-tui');
-    expect(piTui?.collect).toBe('native-file-only');
-    expect(piTui?.parent).toBe(null);
   });
 });

@@ -1,5 +1,4 @@
 import { createRequire } from 'node:module';
-import { resolve } from 'node:path';
 
 import { defineConfig } from 'tsdown';
 
@@ -7,7 +6,6 @@ import { rawTextPlugin } from '../../build/raw-text-plugin.mjs';
 
 const require = createRequire(import.meta.url);
 const pkg = require('./package.json') as { version: string };
-const root = import.meta.dirname;
 
 export default defineConfig({
   entry: ['./src/extension.ts'],
@@ -18,9 +16,6 @@ export default defineConfig({
   dts: false,
   sourcemap: false,
   plugins: [rawTextPlugin()],
-  alias: {
-    '@moonshot-ai/migration-legacy': resolve(root, '../../packages/migration-legacy/src/index.ts'),
-  },
   define: {
     __EXTENSION_VERSION__: JSON.stringify(pkg.version),
   },

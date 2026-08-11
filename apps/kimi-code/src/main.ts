@@ -43,7 +43,6 @@ import { runUpdatePreflight } from './cli/update/preflight';
 import { createKimiCodeHostIdentity, getVersion } from './cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, PROCESS_NAME } from './constant/app';
 import { cleanupStaleNativeCacheForCurrent } from './native/native-assets';
-import { installNativeModuleHook } from './native/module-hook';
 import { runNativeAssetSmokeIfRequested } from './native/smoke';
 
 /**
@@ -90,11 +89,6 @@ export async function handleMainCommand(
   return { headlessCompleted: false };
 }
 
-/** `kimi migrate`: launch the migration screen only, then exit. */
-async function handleMigrateCommand(version: string): Promise<void> {
-  await runShell(MIGRATE_CLI_OPTIONS, version, { migrateOnly: true });
-}
-
 export async function handleUpgradeCommand(version: string): Promise<void> {
   const telemetryBootstrap = createCliTelemetryBootstrap();
   const telemetryClient: TelemetryClient = {
@@ -126,19 +120,6 @@ export async function handleUpgradeCommand(version: string): Promise<void> {
   process.exit(exitCode);
 }
 
-/** A neutral CLIOptions value — `kimi migrate` never opens a chat session. */
-const MIGRATE_CLI_OPTIONS: CLIOptions = {
-  session: undefined,
-  continue: false,
-  yolo: false,
-  auto: false,
-  plan: false,
-  model: undefined,
-  outputFormat: undefined,
-  prompt: undefined,
-  skillsDirs: [],
-};
-
 export function main(): void {
   process.title = PROCESS_NAME;
   installCrashHandlers();
@@ -146,7 +127,6 @@ export function main(): void {
   // before any client is constructed. No-op when no proxy variable is set; an
   // invalid proxy URL is reported and ignored rather than aborting startup.
   installGlobalProxyDispatcher();
-  installNativeModuleHook();
   if (runNativeAssetSmokeIfRequested()) return;
 
   // Start the background cleanup of stale native cache. Fire-and-forget; must not block startup or throw.
@@ -204,17 +184,6 @@ export function main(): void {
           );
           process.exit(1);
         });
-    },
-    () => {
-      void handleMigrateCommand(version).catch(async (error: unknown) => {
-        const operation = t('startup.operations.runMigration');
-        await logStartupFailure(operation, error);
-        process.stderr.write(formatStartupError(error, { operation }));
-        process.stderr.write(
-          `${t('startup.error.seeLog', { path: resolveGlobalLogPath(resolveKimiHome()) })}\n`,
-        );
-        process.exit(1);
-      });
     },
     (entry, args) => {
       void runPluginNodeEntry(entry, args).catch(async (error: unknown) => {

@@ -6,6 +6,12 @@ settings:
 
 catalogs:
   default:
+    pathe:
+      specifier: ^2.0.3
+      version: 2.0.3
+    smol-toml:
+      specifier: ^1.6.1
+      version: 1.6.1
     zod:
       specifier: 4.3.6
       version: 4.3.6
@@ -92,12 +98,6 @@ importers:
       '@moonshot-ai/i18n-shared':
         specifier: workspace:^
         version: link:../../packages/i18n-shared
-      '@moonshot-ai/migration-legacy':
-        specifier: workspace:^
-        version: link:../../packages/migration-legacy
-      '@moonshot-ai/pi-tui':
-        specifier: workspace:^
-        version: link:../../packages/pi-tui
       '@moonshot-ai/vis-server':
         specifier: workspace:^
         version: link:../vis/server
@@ -364,9 +364,6 @@ importers:
       '@moonshot-ai/i18n-shared':
         specifier: workspace:^
         version: link:../../packages/i18n-shared
-      '@moonshot-ai/migration-legacy':
-        specifier: workspace:^
-        version: link:../../packages/migration-legacy
       '@radix-ui/react-accordion':
         specifier: ^1.2.12
         version: 1.2.16(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -403,6 +400,9 @@ importers:
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      pathe:
+        specifier: 'catalog:'
+        version: 2.0.3
       radix-ui:
         specifier: ^1.4.3
         version: 1.6.2(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -433,6 +433,9 @@ importers:
       shadcn:
         specifier: ^3.6.2
         version: 3.8.5(@types/node@22.19.17)(babel-plugin-macros@3.1.0)(typescript@6.0.2)
+      smol-toml:
+        specifier: 'catalog:'
+        version: 1.6.1
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -442,6 +445,9 @@ importers:
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
+      zod:
+        specifier: 'catalog:'
+        version: 4.3.6
       zustand:
         specifier: ^5
         version: 5.0.14(@types/react@19.2.14)(immer@11.1.11)(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5))
@@ -543,34 +549,6 @@ importers:
       vitest:
         specifier: 4.1.4
         version: 4.1.4(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.3(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
-
-  packages/migration-legacy:
-    dependencies:
-      pathe:
-        specifier: ^2.0.3
-        version: 2.0.3
-      smol-toml:
-        specifier: ^1.6.1
-        version: 1.6.1
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-
-  packages/pi-tui:
-    dependencies:
-      get-east-asian-width:
-        specifier: 1.6.0
-        version: 1.6.0
-      marked:
-        specifier: 18.0.5
-        version: 18.0.5
-    devDependencies:
-      '@xterm/headless':
-        specifier: 5.5.0
-        version: 5.5.0
-      chalk:
-        specifier: ^5.4.1
-        version: 5.6.2
 
 packages:
 
@@ -4531,9 +4509,6 @@ packages:
   '@xterm/addon-fit@0.11.0':
     resolution: {integrity: sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g==}
 
-  '@xterm/headless@5.5.0':
-    resolution: {integrity: sha512-5xXB7kdQlFBP82ViMJTwwEc3gKCLGKR/eoxQm4zge7GPBl86tCdI0IdPJjoKd8mUSFXz5V7i/25sfsEkP4j46g==}
-
   '@xterm/xterm@6.0.0':
     resolution: {integrity: sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg==}
 
@@ -6665,11 +6640,6 @@ packages:
 
   marked@16.4.2:
     resolution: {integrity: sha512-TI3V8YYWvkVf3KJe1dRkpnjs68JUPyEa5vjKrp1XEEJUAOaQc+Qj+L1qWbPd0SJuAdQkFU0h73sXXqwDYxsiDA==}
-    engines: {node: '>= 20'}
-    hasBin: true
-
-  marked@18.0.5:
-    resolution: {integrity: sha512-S6GcvALHg6K4ohtu4E7x0a1AqhAjp6cV8KhLSyN9qVapnzJkusVBxZRcIU9AeYsbe6P1hKDusSbEOzGyyuce6w==}
     engines: {node: '>= 20'}
     hasBin: true
 
@@ -13067,8 +13037,6 @@ snapshots:
 
   '@xterm/addon-fit@0.11.0': {}
 
-  '@xterm/headless@5.5.0': {}
-
   '@xterm/xterm@6.0.0': {}
 
   accepts@2.0.0:
@@ -15269,8 +15237,6 @@ snapshots:
       supports-hyperlinks: 3.2.0
 
   marked@16.4.2: {}
-
-  marked@18.0.5: {}
 
   marked@9.1.6: {}
 

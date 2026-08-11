@@ -27,18 +27,6 @@ const clipboardSubpackageByTarget = Object.freeze({
   'win32-x64': '@mariozechner/clipboard-win32-x64-msvc',
 });
 
-// pi-tui ships platform-specific native helpers (no Linux build):
-// - darwin: Shift-modifier detection for Terminal.app Shift+Enter
-// - win32: enable ENABLE_VIRTUAL_TERMINAL_INPUT so Shift+Tab is distinguishable
-const piTuiNativeFileByTarget = Object.freeze({
-  'darwin-arm64': ['native/darwin/prebuilds/darwin-arm64/darwin-modifiers.node'],
-  'darwin-x64': ['native/darwin/prebuilds/darwin-x64/darwin-modifiers.node'],
-  'linux-arm64': [],
-  'linux-x64': [],
-  'win32-arm64': ['native/win32/prebuilds/win32-arm64/win32-console-mode.node'],
-  'win32-x64': ['native/win32/prebuilds/win32-x64/win32-console-mode.node'],
-});
-
 export function isSupportedTarget(target) {
   return SUPPORTED_TARGETS.includes(target);
 }
@@ -72,17 +60,6 @@ export const nativeDeps = Object.freeze([
     name: (target) => clipboardSubpackageByTarget[target],
     collect: 'native-files',
     parent: 'clipboard-host',
-  },
-  {
-    id: 'pi-tui',
-    name: () => '@moonshot-ai/pi-tui',
-    // pi-tui's JS is bundled into main.cjs, so only the platform-specific
-    // native helper (.node under native/) ships alongside the binary — its
-    // dist/ JS is intentionally NOT collected (it stays in the bundle). This
-    // keeps the SEA native-asset payload small. Linux has no native helper.
-    collect: 'native-file-only',
-    parent: null,
-    nativeFileRelatives: (target) => piTuiNativeFileByTarget[target] ?? [],
   },
   {
     id: 'kimi-native-tools',

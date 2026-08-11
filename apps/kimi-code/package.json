@@ -52,7 +52,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "pnpm -C ../kimi-web run build && tsdown && node scripts/copy-native-assets.mjs && node scripts/copy-web-assets.mjs",
+    "build": "pnpm -C ../kimi-web run build && tsdown && node scripts/copy-web-assets.mjs",
     "prebuild": "node scripts/build-vis-asset.mjs",
     "catalog:update": "node scripts/update-catalog.mjs --out dist/built-in-catalog.json",
     "smoke": "node scripts/smoke.mjs",
@@ -87,8 +87,6 @@
   },
   "devDependencies": {
     "@moonshot-ai/i18n-shared": "workspace:^",
-    "@moonshot-ai/migration-legacy": "workspace:^",
-    "@moonshot-ai/pi-tui": "workspace:^",
     "@moonshot-ai/vis-server": "workspace:^",
     "@moonshot-ai/vis-web": "workspace:*",
     "@types/semver": "^7.7.0",

@@ -91,7 +91,6 @@ describe('CLI options parsing', () => {
         () => {
           throw new Error('main action should not run');
         },
-        () => {},
         (entry, args) => {
           pluginRunnerCalls.push({ entry, args });
         },
@@ -409,7 +408,6 @@ describe('CLI options parsing', () => {
           throw new Error('main action should not run');
         },
         () => {},
-        () => {},
         () => {
           upgradeCalls += 1;
         },
@@ -432,7 +430,6 @@ describe('CLI options parsing', () => {
         () => {
           throw new Error('main action should not run');
         },
-        () => {},
         () => {},
         () => {
           upgradeCalls += 1;
@@ -467,7 +464,6 @@ describe('CLI options parsing', () => {
         'login',
         'doctor',
         'vis',
-        'migrate',
         'upgrade',
       ]);
     });
