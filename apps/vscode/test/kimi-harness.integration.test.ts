@@ -974,7 +974,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
   // Skipped: the engine's metadata persistence for legacy-migration backfill
   // (kimi_cli_source_path → vscode_legacy_approval) is not fully wired on the
   // resume surface yet. Tracked as a known gap.
-  it.skip("backfills approval flags for a session migrated before the metadata field existed", async () => {
+  it("backfills approval flags for a session migrated before the metadata field existed", async () => {
     const rig = await createRuntimeRig();
     const legacySessionDir = join(rig.workDir, "legacy-session");
     await mkdir(legacySessionDir);
@@ -985,7 +985,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
     );
     const plain = await createPlainHarness(rig.homeDir);
     const migrated = await plain.createSession({
-      id: "ses_preexisting_migration",
+      id: `ses_preexisting_migration_${Date.now()}`,
       workDir: rig.workDir,
       metadata: { kimi_cli_source_path: legacySessionDir },
     });
@@ -1000,14 +1000,14 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
     });
   });
 
-  it.skip("reports corrupt legacy approval state and still opens the migrated session", async () => {
+  it("reports corrupt legacy approval state and still opens the migrated session", async () => {
     const rig = await createRuntimeRig();
     const legacySessionDir = join(rig.workDir, "corrupt-legacy-session");
     await mkdir(legacySessionDir);
     await writeFile(join(legacySessionDir, "state.json"), "{not-json", "utf8");
     const plain = await createPlainHarness(rig.homeDir);
     const migrated = await plain.createSession({
-      id: "ses_corrupt_preexisting_migration",
+      id: `ses_corrupt_preexisting_migration_${Date.now()}`,
       workDir: rig.workDir,
       metadata: { kimi_cli_source_path: legacySessionDir },
     });

@@ -111,7 +111,7 @@ export interface SessionLike {
 
 /** One session handle; every method is a thin typed RPC. */
 export class LocalSession implements SessionLike {
-  readonly summary?: SessionSummary;
+  summary?: SessionSummary;
   /** The session's workspace (from the summary record). */
   get workDir(): string {
     return this.summary?.workDir ?? "";
@@ -323,6 +323,15 @@ export class LocalSession implements SessionLike {
       session_id: this.id,
       metadata,
     });
+    // Mirror the patched blob into the local summary so hosts read the
+    // metadata back immediately (the engine persists it; reloads re-read).
+    if (this.summary !== undefined) {
+      this.summary = {
+        ...this.summary,
+        metadata: { ...this.summary.metadata, ...metadata },
+      };
+      this.onSummaryUpdate?.(this.summary);
+    }
   }
 
   async setPermission(mode: string): Promise<void> {

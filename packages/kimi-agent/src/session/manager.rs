@@ -235,6 +235,31 @@ impl SessionManager {
         Ok(Some(updated))
     }
 
+    /// Patch the session's custom metadata (shallow merge of the incoming
+    /// object over the persisted blob) and persist it — the live agent's
+    /// in-memory metadata is updated separately by the caller. Returns `None`
+    /// when the session is unknown (SDK `updateMetadata` parity).
+    pub fn update_metadata(
+        &mut self,
+        id: &str,
+        patch: &serde_json::Value,
+    ) -> anyhow::Result<Option<SessionRecord>> {
+        let Some(record) = self.sessions.get_mut(id) else {
+            return Ok(None);
+        };
+        let mut metadata = record.metadata.as_object().cloned().unwrap_or_default();
+        if let Some(patch_obj) = patch.as_object() {
+            for (key, value) in patch_obj {
+                metadata.insert(key.clone(), value.clone());
+            }
+        }
+        record.metadata = serde_json::Value::Object(metadata);
+        record.updated_at = Self::iso_now();
+        let updated = record.clone();
+        self.save_to_store(&updated)?;
+        Ok(Some(updated))
+    }
+
     /// Mark a session as archived: set `metadata.archived = true`, persist it,
     /// and drop it from the live agent cache so it no longer lists as active
     /// (SDK `archiveSession` parity). The record itself is kept — archive is

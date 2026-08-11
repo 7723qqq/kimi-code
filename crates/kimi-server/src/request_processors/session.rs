@@ -1341,8 +1341,17 @@ impl Processor for SessionProcessor {
                             input.session_id
                         ))
                     })?;
-                    agent.update_metadata(input.metadata);
-                    Ok(serde_json::json!({ "ok": true, "metadata": agent.metadata }))
+                    agent.update_metadata(input.metadata.clone());
+                    // Persist the patched blob so `session/list` and resume
+                    // surfaces see it (previously in-memory only — metadata
+                    // written here vanished from the store).
+                    let record = manager
+                        .update_metadata(&input.session_id, &input.metadata)
+                        .map_err(|e| JsonRpcError::internal_error(e.to_string()))?;
+                    Ok(serde_json::json!({
+                        "ok": true,
+                        "metadata": record.map(|r| r.metadata).unwrap_or(input.metadata)
+                    }))
                 })
             },
         );
