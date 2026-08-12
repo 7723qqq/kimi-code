@@ -67,7 +67,6 @@
         ./packages/i18n
         ./packages/i18n-shared
         ./packages/kap-server
-        ./packages/kaos
         ./packages/kimi-native-tools
         ./packages/kimi-agent
         ./packages/klient
@@ -78,7 +77,6 @@
         ./packages/oauth
         ./packages/pi-tui
         ./packages/protocol
-        ./packages/server
         ./packages/telemetry
         ./packages/transcript
         ./packages/tree-sitter-bash
@@ -97,7 +95,6 @@
         "@moonshot-ai/kimi-i18n"
         "@moonshot-ai/i18n-shared"
         "@moonshot-ai/kap-server"
-        "@moonshot-ai/kaos"
         "@moonshot-ai/kosong"
         "@moonshot-ai/migration-legacy"
         "@moonshot-ai/minidb"
@@ -108,7 +105,6 @@
         "@moonshot-ai/klient"
         "@moonshot-ai/pi-tui"
         "@moonshot-ai/protocol"
-        "@moonshot-ai/server"
         "@moonshot-ai/kimi-telemetry"
         "@moonshot-ai/transcript"
         "@moonshot-ai/tree-sitter-bash"

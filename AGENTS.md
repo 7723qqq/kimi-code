@@ -147,40 +147,32 @@ Debug visualization tool for kimi-code sessions. Composed of `vis/server` (backe
 
 ```
 packages/
-  agent-core/        — Unified agent engine (v1)
-  agent-core-v2/     — Agent engine v2 (DI × Scope architecture)
-  kosong/            — LLM / provider abstraction layer
-  kaos/              — Execution environment & file/process abstractions
-  klient/            — Client SDK (contract-driven facade over agent-core-v2)
-  kap-server/        — Kimi Code local server (REST + WebSocket)
-  server/            — Legacy local REST + WebSocket server
-  node-sdk/          — Public TypeScript SDK (@moonshot-ai/kimi-code-sdk)
-  protocol/          — Shared REST + WS protocol schemas (Zod types)
-  transcript/        — Isomorphic transcript rendering data layer
-  i18n/              — Shared i18n infrastructure (t() with en/zh support)
-  i18n-shared/       — Shared i18n core (types, locale detection, web-safe)
-  oauth/             — Kimi OAuth and managed auth utilities
-  telemetry/         — Shared client-side telemetry infrastructure
-  minidb/            — Embedded JSON document store (snapshot + WAL, full-text index)
-  server-e2e/        — Live e2e tests against a running server (KIMI_SERVER_URL)
-  tree-sitter-bash/  — Pure-TypeScript bash parser (deterministic budget)
-  migration-legacy/  — Data migration from kimi-cli (~/.kimi/) to kimi-code (~/.kimi-code/)
-  pi-tui/            — Terminal UI framework (upstream dependency, node:test suite)
-  kimi-native-tools/ — Rust native Node addon (napi-rs)
-  kimi-build/        — Rust native build tool (SEA binary injection)
-  kimi-agent/        — Rust agent engine (experimental)
-  kosong/            — LLM provider abstraction
+  acp-server/          — Agent Client Protocol (ACP) host over the v2 engine
+  agent-core-v2/       — Agent engine v2 (DI × Scope architecture)
+  i18n/                — Shared i18n infrastructure (t() with en/zh support)
+  i18n-shared/         — Shared i18n core (types, locale detection, web-safe)
+  kap-server/          — Kimi Code local server (REST + WebSocket)
+  kimi-agent/          — Rust agent engine (experimental)
+  kimi-build/          — Rust native build tool (SEA binary injection)
+  kimi-native-tools/   — Rust native Node addon (napi-rs)
+  klient/              — Client SDK (contract-driven facade over agent-core-v2)
+  kosong/              — LLM / provider abstraction layer
+  migration-legacy/    — Data migration from kimi-cli (~/.kimi/) to kimi-code (~/.kimi-code/)
+  minidb/              — Embedded JSON document store (snapshot + WAL, full-text index)
+  node-sdk/            — Public TypeScript SDK (@moonshot-ai/kimi-code-sdk)
+  oauth/               — Kimi OAuth and managed auth utilities
+  pi-tui/              — Terminal UI framework (upstream dependency, node:test suite)
+  protocol/            — Shared REST + WS protocol schemas (Zod types)
+  telemetry/           — Shared client-side telemetry infrastructure
+  transcript/          — Isomorphic transcript rendering data layer
+  tree-sitter-bash/    — Pure-TypeScript bash parser (deterministic budget)
 ```
 
 #### Key Package Details
 
-**`agent-core`** (v0.15.6) — The unified agent engine. Includes Agent, Session, profile, skills, tools, plan, permission, background, records, the in-process DI service layer (`src/services/`), and other core capabilities. The `Agent` class must be usable on its own — the constructor must not force a `Session` instance. Key submodules: `agent/`, `config/`, `flags/`, `loop/`, `rpc/`, `session/`.
-
 **`agent-core-v2`** (v0.2.0) — Next-gen agent engine with DI × Scope architecture. Service interfaces, DI containers, scope-bound session management. Consumed by `kap-server` and `klient`. Includes dependency graph analysis, domain layer linting, and contract type generation scripts.
 
 **`kosong`** (v0.6.0) — The LLM / provider abstraction layer. Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
-
-**`kaos`** (v0.1.6) — Execution environment abstraction. File system operations, process management, SSH execution via `ssh2`. Used by the tool execution system.
 
 **`klient`** (v0.1.0) — Client SDK. A contract-driven facade over agent-core-v2 with aggregated `global.*` / `session(id).*` / `agent(id).*` methods, zod validation on every call, and transport abstraction (ipc or memory). Also hosts e2e suites.
 
