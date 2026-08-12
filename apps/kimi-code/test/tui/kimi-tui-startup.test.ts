@@ -326,6 +326,24 @@ describe('KimiTUI startup', () => {
     });
   });
 
+  it('mounts the docked fullscreen layout when KIMI_CODE_TUI_FULL_SCREEN=1', async () => {
+    const harness = makeHarness(makeSession());
+    vi.stubEnv('KIMI_CODE_TUI_FULL_SCREEN', '1');
+    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    vi.unstubAllEnvs();
+
+    // buildLayout() runs in the constructor: fullscreen keeps the root
+    // children list empty and mounts the layout root instead.
+    expect(driver.state.ui.mode).toBe('fullscreen');
+    expect(driver.state.ui.children).toHaveLength(0);
+
+    await expect(driver.init()).resolves.toBe(false);
+    (driver as unknown as { mountFooter(): void }).mountFooter();
+
+    // Dock = 5 chrome containers + footer wrap, below the transcript viewport.
+    expect(driver.state.dockContainer?.children).toHaveLength(6);
+  });
+
   it('shows a session-less notice on v2 startup', async () => {
     const harness = makeHarness(makeSession());
     const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
