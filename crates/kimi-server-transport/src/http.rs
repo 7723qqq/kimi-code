@@ -1433,15 +1433,26 @@ async fn session_detail_rpc(
     let context = state
         .rpc(kimi_protocol::methods::SESSION_GET_CONTEXT, json!({ "session_id": id }))
         .await;
-    if status["code"].as_i64() != Some(0) {
-        return None;
-    }
+    // The list entry is the source of existence — a session without a live
+    // agent (archived) answers an error on status/context but is still
+    // readable (detail/restore must work for archived sessions).
     Some((list_entry, status, context))
 }
 
 /// `GET /api/v1/sessions` — persisted sessions as v1 `WireSession` records
 /// (`{ items, has_more }`), the shape kimi-web's session list expects.
-async fn sessions_list_v1(State(state): State<HttpState>) -> Json<Value> {
+/// `?archived_only=true` filters to archived sessions (the web archive tab);
+/// the archive state itself comes from the engine summary's
+/// `metadata.archived`, projected by `v1::wire_session`.
+async fn sessions_list_v1(
+    State(state): State<HttpState>,
+    Query(query): Query<Value>,
+) -> Json<Value> {
+    let archived_only = match query.get("archived_only") {
+        Some(Value::Bool(b)) => *b,
+        Some(Value::String(s)) => s == "true" || s == "1",
+        _ => false,
+    };
     let list = state
         .rpc(kimi_protocol::methods::SESSION_LIST, json!({ "limit": 500 }))
         .await;
@@ -1453,6 +1464,9 @@ async fn sessions_list_v1(State(state): State<HttpState>) -> Json<Value> {
     };
     let mut items = Vec::with_capacity(entries.len());
     for entry in &entries {
+        if archived_only && !v1::session_archived(entry) {
+            continue;
+        }
         let id = entry["id"].as_str().unwrap_or_default();
         let status = state
             .rpc(kimi_protocol::methods::SESSION_GET_STATUS, json!({ "session_id": id }))
@@ -1865,13 +1879,53 @@ async fn session_restore(State(state): State<HttpState>, Path(id): Path<String>)
 
 /// `POST /api/v1/sessions/{id}/prompts:steer` — steer queued prompts into the
 /// active turn (`{ prompt_ids }` → `{ steered, prompt_ids }`).
+///
+/// The engine `session/steer` takes content (`input: ContentPart[]`), not
+/// prompt ids, so the transport maps each id to the text of the matching
+/// async submit (`POST /sessions/{id}/prompts` records `prompt_id` +
+/// `prompt_text` in the turn context; the web client submits then steers
+/// immediately). Unknown ids — a steer without a preceding submit, or after
+/// the turn ended — are a clear 400 instead of the engine's opaque
+/// `missing field 'input'` deserialization error.
 async fn session_steer(State(state): State<HttpState>, Path(id): Path<String>, Json(body): Json<Value>) -> Json<Value> {
     let prompt_ids = body.get("prompt_ids").cloned().unwrap_or(json!([]));
-    let r = state.rpc(kimi_protocol::methods::SESSION_STEER, json!({ "session_id": id, "prompt_ids": prompt_ids })).await;
+    let Some(prompt_ids) = prompt_ids.as_array() else {
+        return Json(err(-32602, "prompt_ids must be a string[]"));
+    };
+    if prompt_ids.is_empty() || !prompt_ids.iter().all(|v| v.is_string()) {
+        return Json(err(-32602, "prompt_ids must be a non-empty string[]"));
+    }
+    let mut texts = Vec::new();
+    let mut missing = Vec::new();
+    for pid in prompt_ids {
+        let pid = pid.as_str().expect("checked above");
+        match state.v1.prompt_text_for(&id, pid) {
+            Some(text) => texts.push(text),
+            None => missing.push(pid),
+        }
+    }
+    if !missing.is_empty() {
+        return Json(err(
+            -32602,
+            &format!(
+                "cannot steer prompt_id(s) {}: no matching submitted prompt for session {id} \
+                 (the engine steers by content; steer must follow an async submit immediately)",
+                missing.join(", ")
+            ),
+        ));
+    }
+    let input: Vec<Value> = texts
+        .into_iter()
+        .map(|text| json!({ "type": "text", "text": text }))
+        .collect();
+    let r = state
+        .rpc(kimi_protocol::methods::SESSION_STEER, json!({ "session_id": id, "input": input }))
+        .await;
     if r["code"].as_i64() != Some(0) {
         return Json(r);
     }
-    Json(ok(json!({ "steered": true, "prompt_ids": body.get("prompt_ids").cloned().unwrap_or(json!([])) })))
+    let steered = r["data"]["queued"].as_bool().unwrap_or(false);
+    Json(ok(json!({ "steered": steered, "prompt_ids": prompt_ids })))
 }
 
 /// `POST /api/v1/sessions/{id}/prompts/{prompt_id}:abort` — cancel the running

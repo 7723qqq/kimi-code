@@ -504,6 +504,232 @@ async fn http_v1_prompt_async_returns_immediately_and_resets_busy() {
 }
 
 #[tokio::test]
+async fn http_v1_steer_maps_prompt_id_to_submitted_text() {
+    let (base, serving) = spawn_http("steer").await;
+    let client = reqwest::Client::new();
+    let cwd = std::env::temp_dir().to_string_lossy().into_owned();
+
+    let resp = client
+        .post(format!("{base}/api/v1/sessions"))
+        .json(&serde_json::json!({ "metadata": { "cwd": cwd } }))
+        .send()
+        .await
+        .expect("create")
+        .json::<serde_json::Value>()
+        .await
+        .expect("json");
+    assert_eq!(resp["code"], 0, "create: {resp}");
+    let sid = resp["data"]["id"].as_str().expect("id").to_string();
+
+    // Async submit records the prompt_id + text the steer resolves.
+    let resp = client
+        .post(format!("{base}/api/v1/sessions/{sid}/prompts"))
+        .json(&serde_json::json!({
+            "content": [{ "type": "text", "text": "steer me now" }],
+        }))
+        .send()
+        .await
+        .expect("prompt")
+        .json::<serde_json::Value>()
+        .await
+        .expect("json");
+    assert_eq!(resp["code"], 0, "prompt: {resp}");
+    let prompt_id = resp["data"]["prompt_id"].as_str().expect("prompt_id").to_string();
+
+    // Steer right after the submit — the engine gets the prompt's text as
+    // `input` and queues it (the session exists → queued=true → steered=true).
+    let resp = client
+        .post(format!("{base}/api/v1/sessions/{sid}/prompts/steer"))
+        .json(&serde_json::json!({ "prompt_ids": [prompt_id] }))
+        .send()
+        .await
+        .expect("steer")
+        .json::<serde_json::Value>()
+        .await
+        .expect("json");
+    assert_eq!(resp["code"], 0, "steer: {resp}");
+    assert_eq!(resp["data"]["steered"], true, "steered: {resp}");
+    assert_eq!(resp["data"]["prompt_ids"], serde_json::json!([prompt_id]), "echo: {resp}");
+
+    // An unknown prompt id is a clear error, not the engine's opaque
+    // `missing field 'input'` deserialization failure.
+    let resp = client
+        .post(format!("{base}/api/v1/sessions/{sid}/prompts/steer"))
+        .json(&serde_json::json!({ "prompt_ids": ["prompt_never_submitted"] }))
+        .send()
+        .await
+        .expect("steer-unknown")
+        .json::<serde_json::Value>()
+        .await
+        .expect("json");
+    assert_ne!(resp["code"], 0, "unknown id must fail: {resp}");
+    let msg = resp["msg"].as_str().unwrap_or_default();
+    assert!(
+        msg.contains("prompt_id") && msg.contains("steer"),
+        "clear steer error: {resp}"
+    );
+
+    // Malformed prompt_ids payloads are rejected up front.
+    for bad in [
+        serde_json::json!({ "prompt_ids": "not-an-array" }),
+        serde_json::json!({ "prompt_ids": [] }),
+        serde_json::json!({ "prompt_ids": [42] }),
+    ] {
+        let resp = client
+            .post(format!("{base}/api/v1/sessions/{sid}/prompts/steer"))
+            .json(&bad)
+            .send()
+            .await
+            .expect("steer-bad")
+            .json::<serde_json::Value>()
+            .await
+            .expect("json");
+        assert_ne!(resp["code"], 0, "malformed must fail: {resp}");
+        assert!(
+            resp["msg"].as_str().unwrap_or_default().contains("prompt_ids"),
+            "validation msg: {resp}"
+        );
+    }
+
+    serving.abort();
+}
+
+#[tokio::test]
+async fn http_v1_archive_projects_metadata_and_archived_only_filters() {
+    let (base, serving) = spawn_http("archive").await;
+    let client = reqwest::Client::new();
+    let cwd = std::env::temp_dir().to_string_lossy().into_owned();
+
+    // Two sessions: A gets archived, B stays active.
+    let mut sids = Vec::new();
+    for _ in 0..2 {
+        let resp = client
+            .post(format!("{base}/api/v1/sessions"))
+            .json(&serde_json::json!({ "metadata": { "cwd": cwd } }))
+            .send()
+            .await
+            .expect("create")
+            .json::<serde_json::Value>()
+            .await
+            .expect("json");
+        assert_eq!(resp["code"], 0, "create: {resp}");
+        sids.push(resp["data"]["id"].as_str().expect("id").to_string());
+    }
+    let (a, b) = (sids[0].as_str(), sids[1].as_str());
+
+    // Archive A — the engine stores `metadata.archived = true`; the v1 wire
+    // must project it top-level (regression: it used to read a top-level key
+    // the engine never sends, so archived sessions always looked active).
+    let resp = client
+        .post(format!("{base}/api/v1/sessions/{a}/archive"))
+        .send()
+        .await
+        .expect("archive")
+        .json::<serde_json::Value>()
+        .await
+        .expect("json");
+    assert_eq!(resp["code"], 0, "archive: {resp}");
+
+    // Plain list: A is archived, B is not.
+    let resp = client
+        .get(format!("{base}/api/v1/sessions"))
+        .send()
+        .await
+        .expect("list")
+        .json::<serde_json::Value>()
+        .await
+        .expect("json");
+    assert_eq!(resp["code"], 0, "list: {resp}");
+    let items = resp["data"]["items"].as_array().expect("items");
+    let a_item = items.iter().find(|s| s["id"] == a).expect("A listed");
+    assert_eq!(a_item["archived"], true, "A archived: {resp}");
+    let b_item = items.iter().find(|s| s["id"] == b).expect("B listed");
+    assert_eq!(b_item["archived"], false, "B active: {resp}");
+
+    // `?archived_only=true` (the web archive tab) returns only A.
+    let resp = client
+        .get(format!("{base}/api/v1/sessions?archived_only=true"))
+        .send()
+        .await
+        .expect("archived-list")
+        .json::<serde_json::Value>()
+        .await
+        .expect("json");
+    assert_eq!(resp["code"], 0, "archived list: {resp}");
+    let items = resp["data"]["items"].as_array().expect("items");
+    assert!(
+        items.iter().all(|s| s["archived"] == true),
+        "only archived: {resp}"
+    );
+    assert!(
+        items.iter().any(|s| s["id"] == a),
+        "A in archived list: {resp}"
+    );
+    assert!(
+        !items.iter().any(|s| s["id"] == b),
+        "B excluded from archived list: {resp}"
+    );
+
+    // `?archived_only=false` → everything; `?archived_only=1` is the string
+    // form of `true` (the web client sends booleans, urlencoded as strings).
+    let resp = client
+        .get(format!("{base}/api/v1/sessions?archived_only=false"))
+        .send()
+        .await
+        .expect("all-list")
+        .json::<serde_json::Value>()
+        .await
+        .expect("json");
+    let items = resp["data"]["items"].as_array().expect("items");
+    assert!(
+        items.iter().any(|s| s["id"] == a) && items.iter().any(|s| s["id"] == b),
+        "archived_only=false returns all: {resp}"
+    );
+    let resp = client
+        .get(format!("{base}/api/v1/sessions?archived_only=1"))
+        .send()
+        .await
+        .expect("archived-list-string")
+        .json::<serde_json::Value>()
+        .await
+        .expect("json");
+    let items = resp["data"]["items"].as_array().expect("items");
+    assert_eq!(
+        items.len(),
+        1,
+        "archived_only=1 acts as true (only A): {resp}"
+    );
+    assert_eq!(items[0]["id"], a, "string-true filter: {resp}");
+
+    // Restore A → archived flag clears and the archive tab drops it.
+    let resp = client
+        .post(format!("{base}/api/v1/sessions/{a}/restore"))
+        .send()
+        .await
+        .expect("restore")
+        .json::<serde_json::Value>()
+        .await
+        .expect("json");
+    assert_eq!(resp["code"], 0, "restore: {resp}");
+    assert_eq!(resp["data"]["archived"], false, "restored: {resp}");
+    let resp = client
+        .get(format!("{base}/api/v1/sessions?archived_only=true"))
+        .send()
+        .await
+        .expect("archived-list-2")
+        .json::<serde_json::Value>()
+        .await
+        .expect("json");
+    let items = resp["data"]["items"].as_array().expect("items");
+    assert!(
+        !items.iter().any(|s| s["id"] == a),
+        "A restored, out of archive tab: {resp}"
+    );
+
+    serving.abort();
+}
+
+#[tokio::test]
 async fn http_v1_extended_routes() {
     // The remaining v1 session surface the web client uses: profile updates,
     // goal/warnings reads, messages page, compact/undo/abort, tasks, skill

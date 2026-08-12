@@ -12,9 +12,16 @@
 //! `session.turn.ended`, …) onto the `event.*` envelopes the frontend
 //! understands.
 //!
-//! Reference (kept in sync with, never diverged from): the TS definitions in
+//! Reference (kept in sync with, not a port of): the TS definitions in
 //! `apps/kimi-web/src/api/daemon/{wire,ws,mappers,agentEventProjector}.ts` and
-//! `packages/kap-server/src/transport/ws/v1/wsConnectionV1.ts`.
+//! `packages/kap-server/src/transport/ws/v1/wsConnectionV1.ts`. The web clients
+//! are the consumers of these shapes and the source of truth for what the
+//! envelopes must look like; where the retired TS daemon and the Rust engine
+//! diverge (event vocabulary, field naming), the Rust projection follows the
+//! engine — e.g. `session.tool.started` / `session.tool.settled` project onto
+//! the v1 message lifecycle (`event.message.updated` with `tool_use` parts +
+//! role="tool" `event.message.created`), not the agent-core `tool.call.*`
+//! event names the client-side agent projector would otherwise consume.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -39,6 +46,13 @@ fn zero_usage() -> Value {
         "context_limit": 0,
         "turn_count": 0,
     })
+}
+
+/// The engine `session/list` summary reports the archived flag in
+/// `metadata.archived` (set by kimi-agent `manager::archive_session`); the
+/// v1 wire projects it top-level. Absent → false (never archived).
+pub fn session_archived(list_entry: &Value) -> bool {
+    list_entry["metadata"]["archived"].as_bool().unwrap_or(false)
 }
 
 /// Assemble a v1 `WireSession` record from the engine `session/list`,
@@ -69,10 +83,7 @@ pub fn wire_session(list_entry: &Value, status: &Value, context: &Value, busy: b
         "created_at": list_entry["created_at"].as_str().unwrap_or_default(),
         "updated_at": list_entry["updated_at"].as_str().unwrap_or_default(),
         "busy": busy,
-        // The engine `session/list` summary carries no archived flag today;
-        // read it when present so a future engine that reports it projects
-        // through (defaults to false otherwise).
-        "archived": list_entry["archived"].as_bool().unwrap_or(false),
+        "archived": session_archived(list_entry),
         "metadata": { "cwd": work_dir },
         "agent_config": { "model": model },
         "usage": zero_usage(),
@@ -250,6 +261,18 @@ impl V1Shared {
             .contains_key(session_id)
     }
 
+    /// Resolve the submitted prompt text for a prompt id — the v1 steer path.
+    /// The engine `session/steer` takes content (`input` parts), while the web
+    /// client steers by the `prompt_id` its async submit returned; the
+    /// transport maps id → text from the turn context it recorded at submit.
+    /// Only the most recent submit per session is resolvable (the context is
+    /// dropped once the turn ends).
+    pub fn prompt_text_for(&self, session_id: &str, prompt_id: &str) -> Option<String> {
+        let turns = self.turns.lock().unwrap_or_else(|e| e.into_inner());
+        let ctx = turns.get(session_id)?;
+        (ctx.prompt_id == prompt_id).then(|| ctx.prompt_text.clone())
+    }
+
     /// Access (mutably) the turn context for a session, if any.
     fn with_turn<R>(&self, session_id: &str, f: impl FnOnce(&mut TurnContext) -> R) -> Option<R> {
         let mut turns = self.turns.lock().unwrap_or_else(|e| e.into_inner());
@@ -284,6 +307,13 @@ struct LocalTurnState {
     /// here; the turn-end `message.updated` reconstruction reads it to keep
     /// the thinking block visible after the streamed deltas stop).
     think: String,
+    /// v1-shape `tool_use` content parts for the current turn, in call order
+    /// (wire.ts `WireMessageContent`). `session.tool.started` appends here and
+    /// re-emits the full message content via `event.message.updated`; the
+    /// turn-end reconstruction keeps them so the tool cards survive the final
+    /// content swap (the reducer's `messageUpdated` replaces content
+    /// wholesale, so any part missing here is dropped from the transcript).
+    tools: Vec<Value>,
     /// Wall-clock arrival of `turn.started` (drives `durationMs` on
     /// `turn.ended`).
     started_at: Option<std::time::Instant>,
@@ -340,6 +370,21 @@ fn iso_from_ms(ms: u64) -> String {
 
 // ── Engine event → v1 event projection ───────────────────────────────────
 
+/// Reconstruct the assistant message content for the live path: the streamed
+/// thinking block (if any) ahead of the accumulated reply text, then the v1
+/// `tool_use` parts in call order. Mirrors the delta order the reducer
+/// accumulated plus the tool cards the live path renders; used both for the
+/// per-tool `event.message.updated` refresh and the turn-end close-out.
+fn reconstruct_content(state: &LocalTurnState) -> Vec<Value> {
+    let mut content = Vec::new();
+    if !state.think.is_empty() {
+        content.push(json!({ "type": "thinking", "thinking": state.think }));
+    }
+    content.push(json!({ "type": "text", "text": state.text }));
+    content.extend(state.tools.iter().cloned());
+    content
+}
+
 /// Project one engine event into zero or more v1 `event.*` envelopes.
 ///
 /// Returns `(session_id, type, payload)` triples; the WS facade assigns the
@@ -390,6 +435,7 @@ fn project_event(
                     prompt_text: ctx.prompt_text,
                     text: ctx.buffer,
                     think: String::new(),
+                    tools: Vec::new(),
                     started_at: Some(std::time::Instant::now()),
                 },
             );
@@ -529,13 +575,10 @@ fn project_event(
             )];
             if let Some(state) = state {
                 // Reconstruct the final content with the streamed thinking
-                // block (if any) ahead of the reply text, mirroring the delta
-                // order the reducer accumulated.
-                let mut content = Vec::new();
-                if !state.think.is_empty() {
-                    content.push(json!({ "type": "thinking", "thinking": state.think }));
-                }
-                content.push(json!({ "type": "text", "text": state.text }));
+                // block (if any) ahead of the reply text and the live tool
+                // cards, mirroring the order the delta/replace projections
+                // accumulated (see `reconstruct_content`).
+                let content = reconstruct_content(&state);
                 out.push((
                     sid.clone(),
                     "event.message.updated".into(),
@@ -695,6 +738,70 @@ fn project_event(
                         "status": status,
                         "endedAt": ev["ended_at_ms"],
                         "kind": ev["kind"],
+                    }
+                }),
+            )]
+        }
+        "session.tool.started" => {
+            // Engine event (agent.rs `ToolEventInterceptor`): flat
+            // `tool_call_id` / `tool_name` / `arguments`. The web transcript
+            // renders tool cards from the assistant message content, so the
+            // projection appends a v1 `tool_use` part (wire.ts) to the
+            // connection-local content and re-emits the whole message via
+            // `event.message.updated` — the reducer's `messageUpdated`
+            // replaces content wholesale, so the delta-accumulated text/think
+            // must ride along or the swap drops them.
+            let Some(state) = local.get_mut(&sid) else {
+                // No in-flight turn context (REST-only turn / missed
+                // turn.started) — nothing to attach the card to.
+                return Vec::new();
+            };
+            state.tools.push(json!({
+                "type": "tool_use",
+                "tool_call_id": ev["tool_call_id"],
+                "tool_name": ev["tool_name"],
+                "input": ev["arguments"],
+            }));
+            let message_id = state.assistant_msg_id.clone();
+            vec![(
+                sid,
+                "event.message.updated".into(),
+                json!({
+                    "message_id": message_id,
+                    "content": reconstruct_content(state),
+                }),
+            )]
+        }
+        "session.tool.settled" => {
+            // Engine event (agent.rs `ToolEventInterceptor`): the settled
+            // result arrives flat (`content` + `is_error`). The web transcript
+            // renders tool results as a standalone role="tool" message whose
+            // `tool_result` part pairs with the assistant message's `tool_use`
+            // card by tool_call_id — the same shape the REST snapshot path
+            // projects via `wire_message_from_context` / `map_content_part`.
+            let Some(state) = local.get(&sid) else {
+                return Vec::new();
+            };
+            let mut result = json!({
+                "type": "tool_result",
+                "tool_call_id": ev["tool_call_id"],
+                "output": ev["content"],
+            });
+            if let Some(is_error) = ev.get("is_error") {
+                result["is_error"] = is_error.clone();
+            }
+            vec![(
+                sid.clone(),
+                "event.message.created".into(),
+                json!({
+                    "message": {
+                        "id": gen_id("msg_"),
+                        "session_id": sid,
+                        "role": "tool",
+                        "content": [result],
+                        "created_at": iso_now(),
+                        "prompt_id": state.prompt_id,
+                        "parent_message_id": null,
                     }
                 }),
             )]
@@ -1274,6 +1381,171 @@ mod tests {
     }
 
     #[test]
+    fn tool_lifecycle_projects_to_transcript_events() {
+        // Regression: the engine's `session.tool.started` / `session.tool.settled`
+        // had no projection, so live tool calls never appeared in the web
+        // transcript. The projection goes through the v1 message lifecycle —
+        // `event.message.updated` carrying the `tool_use` part (the web
+        // `tool.call.started` agent arm is dead on this path: it needs the
+        // agent projector's `currentAssistantMsgId`, which v1 protocol frames
+        // never set) and a role="tool" `event.message.created` for the result.
+        let shared = V1Shared::new();
+        let mut local = HashMap::new();
+        let sid = "sess_1";
+        shared.begin_turn(
+            sid,
+            TurnContext {
+                prompt_id: "p_1".into(),
+                user_message_id: "m_user".into(),
+                assistant_msg_id: "m_assistant".into(),
+                prompt_text: "hello".into(),
+                buffer: String::new(),
+            },
+        );
+        project_event(&shared, &mut local, &json!({
+            "type": "session.turn.started",
+            "session_id": sid,
+            "turn_id": 1,
+        }));
+
+        let delta = project_event(&shared, &mut local, &json!({
+            "type": "llm.delta",
+            "session_id": sid,
+            "part": { "type": "text", "text": "let me check " },
+        }));
+        assert_eq!(delta[0].2["delta"]["text"], "let me check ");
+
+        // started → event.message.updated with the tool_use part appended;
+        // the accumulated text rides along (the reducer swaps content
+        // wholesale).
+        let started = project_event(&shared, &mut local, &json!({
+            "type": "session.tool.started",
+            "session_id": sid,
+            "tool_call_id": "call_1",
+            "tool_name": "Grep",
+            "arguments": { "q": "foo", "path": "." },
+        }));
+        assert_eq!(started.len(), 1);
+        assert_eq!(started[0].1, "event.message.updated");
+        let p = &started[0].2;
+        assert_eq!(p["message_id"], "m_assistant");
+        assert_eq!(p["content"][0]["type"], "text");
+        assert_eq!(p["content"][0]["text"], "let me check ");
+        assert_eq!(p["content"][1]["type"], "tool_use");
+        assert_eq!(p["content"][1]["tool_call_id"], "call_1");
+        assert_eq!(p["content"][1]["tool_name"], "Grep");
+        assert_eq!(p["content"][1]["input"]["q"], "foo");
+        // v1 wire field names only — the engine field names must not leak.
+        assert!(p["content"][1].get("id").is_none());
+        assert!(p["content"][1].get("name").is_none());
+        assert!(p["content"][1].get("arguments").is_none());
+
+        // settled → role="tool" message with the tool_result part pairing by
+        // tool_call_id (the shape `map_content_part` projects on the REST path).
+        let settled = project_event(&shared, &mut local, &json!({
+            "type": "session.tool.settled",
+            "session_id": sid,
+            "tool_call_id": "call_1",
+            "tool_name": "Grep",
+            "content": "ok",
+            "is_error": false,
+        }));
+        assert_eq!(settled.len(), 1);
+        assert_eq!(settled[0].1, "event.message.created");
+        let msg = &settled[0].2["message"];
+        assert_eq!(msg["role"], "tool");
+        assert_eq!(msg["session_id"], sid);
+        assert_eq!(msg["prompt_id"], "p_1");
+        assert_eq!(msg["content"][0]["type"], "tool_result");
+        assert_eq!(msg["content"][0]["tool_call_id"], "call_1");
+        assert_eq!(msg["content"][0]["output"], "ok");
+        assert_eq!(msg["content"][0]["is_error"], false);
+        assert!(msg["id"].as_str().unwrap_or_default().starts_with("msg_"));
+
+        // Text streamed after the tool call still appends to slot 0 (content[0]
+        // is text), so the delta index alignment stays valid mid-turn.
+        let delta = project_event(&shared, &mut local, &json!({
+            "type": "llm.delta",
+            "session_id": sid,
+            "part": { "type": "text", "text": "done" },
+        }));
+        assert_eq!(delta[0].2["delta"]["text"], "done");
+
+        // A second tool call accumulates in call order.
+        let started = project_event(&shared, &mut local, &json!({
+            "type": "session.tool.started",
+            "session_id": sid,
+            "tool_call_id": "call_2",
+            "tool_name": "Bash",
+            "arguments": "echo hi",
+        }));
+        assert_eq!(started[0].2["content"][1]["tool_call_id"], "call_1");
+        assert_eq!(started[0].2["content"][2]["tool_call_id"], "call_2");
+        // String arguments pass through as-is.
+        assert_eq!(started[0].2["content"][2]["input"], "echo hi");
+
+        // Error results carry the flag through.
+        let settled = project_event(&shared, &mut local, &json!({
+            "type": "session.tool.settled",
+            "session_id": sid,
+            "tool_call_id": "call_2",
+            "tool_name": "Bash",
+            "content": "boom",
+            "is_error": true,
+        }));
+        assert_eq!(settled[0].2["message"]["content"][0]["is_error"], true);
+        assert_eq!(settled[0].2["message"]["content"][0]["output"], "boom");
+
+        // turn.ended keeps the tool cards in the final content reconstruction
+        // (the close-out `event.message.updated` swaps the whole content).
+        let ended = project_event(&shared, &mut local, &json!({
+            "type": "session.turn.ended",
+            "session_id": sid,
+            "turn_id": 1,
+            "stop_reason": "Completed",
+            "steps": 1,
+        }));
+        let updated = ended
+            .iter()
+            .find(|e| e.1 == "event.message.updated")
+            .expect("close-out message.updated");
+        assert_eq!(updated.2["content"][0]["type"], "text");
+        assert_eq!(updated.2["content"][0]["text"], "let me check done");
+        assert_eq!(updated.2["content"][1]["type"], "tool_use");
+        assert_eq!(updated.2["content"][1]["tool_call_id"], "call_1");
+        assert_eq!(updated.2["content"][2]["type"], "tool_use");
+        assert_eq!(updated.2["content"][2]["tool_call_id"], "call_2");
+        assert_eq!(updated.2["content"].as_array().map(|a| a.len()), Some(3));
+    }
+
+    #[test]
+    fn tool_events_without_turn_context_project_to_nothing() {
+        // No turn.started snapshot for this session (host-driven turn or a
+        // projector that joined late): there is no assistant message to attach
+        // the card to, so both events project nothing and leave no state.
+        let shared = V1Shared::new();
+        let mut local = HashMap::new();
+        assert!(project_event(&shared, &mut local, &json!({
+            "type": "session.tool.started",
+            "session_id": "sess_1",
+            "tool_call_id": "call_1",
+            "tool_name": "Grep",
+            "arguments": { "q": "x" },
+        }))
+        .is_empty());
+        assert!(project_event(&shared, &mut local, &json!({
+            "type": "session.tool.settled",
+            "session_id": "sess_1",
+            "tool_call_id": "call_1",
+            "tool_name": "Grep",
+            "content": "ok",
+            "is_error": false,
+        }))
+        .is_empty());
+        assert!(local.is_empty());
+    }
+
+    #[test]
     fn unknown_events_project_to_nothing() {
         let shared = V1Shared::new();
         let mut local = HashMap::new();
@@ -1393,20 +1665,24 @@ mod tests {
     }
 
     #[test]
-    fn archived_reads_list_entry_flag() {
+    fn archived_reads_list_entry_metadata_flag() {
         let list = json!({
             "id": "sess_1",
             "title": "t",
             "created_at": "2026-01-01T00:00:00.000Z",
             "updated_at": "2026-01-01T00:00:00.000Z",
             "work_dir": "G:/repo",
-            "archived": true,
+            // The engine `session/list` summary reports archive state in
+            // `metadata.archived` (kimi-agent `archive_session`); the v1 wire
+            // projects it top-level.
+            "metadata": { "archived": true },
         });
         let status = json!({ "data": { "model": "kimi" } });
         let context = json!({ "data": { "history": [] } });
         let ws = wire_session(&list, &status, &context, false);
         assert_eq!(ws["archived"], true);
-        // Absent flag (today's engine summary) keeps the false default.
+        assert_eq!(session_archived(&list), true);
+        // Absent flag (never-archived sessions) keeps the false default.
         let plain = json!({
             "id": "sess_1",
             "title": "t",
@@ -1416,6 +1692,18 @@ mod tests {
         });
         let ws = wire_session(&plain, &status, &context, false);
         assert_eq!(ws["archived"], false);
+        assert_eq!(session_archived(&plain), false);
+        // A top-level key (legacy/never emitted by the engine) must not leak
+        // through — the metadata flag is the single source of truth.
+        let legacy = json!({
+            "id": "sess_1",
+            "title": "t",
+            "created_at": "2026-01-01T00:00:00.000Z",
+            "updated_at": "2026-01-01T00:00:00.000Z",
+            "work_dir": "G:/repo",
+            "archived": true,
+        });
+        assert_eq!(session_archived(&legacy), false, "top-level key ignored");
     }
 
     #[test]
