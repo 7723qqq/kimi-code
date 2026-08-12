@@ -801,6 +801,53 @@ fn upgrade_reports_up_to_date() {
 }
 
 #[test]
+fn upgrade_suggests_install_command_per_package_manager() {
+    // codex CODEX_MANAGED_BY_* parity: the npm wrapper injects a single
+    // KIMI_MANAGED_BY_* var; pnpm/bun installs get the matching command.
+    // Each invocation gets its own mock registry (one request per server).
+    let home = temp_dir("upgrade-manager");
+
+    let run_with_manager = |manager: &str| {
+        let (url, server) = mock_registry(r#"{"version":"9.9.9"}"#);
+        let n = CWD_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let cwd = temp_dir(&format!("cwd{n}"));
+        let out = Command::new(binary())
+            .args(["upgrade"])
+            .current_dir(&cwd)
+            .env("KIMI_AGENT_HOME", &home)
+            .env("KIMI_CODE_HOME", &home)
+            .env("HOME", &home)
+            .env("KIMI_UPGRADE_REGISTRY", &url)
+            .env(format!("KIMI_MANAGED_BY_{manager}"), "1")
+            .env_remove("KIMI_MODEL")
+            .env_remove("KIMI_MODEL_API_KEY")
+            .output()
+            .expect("spawn kimi");
+        let _ = server.join();
+        out
+    };
+
+    let pnpm = run_with_manager("PNPM");
+    assert!(
+        stdout(&pnpm).contains("pnpm add -g @moonshot-ai/kimi-code@latest"),
+        "pnpm command: {}",
+        stdout(&pnpm)
+    );
+    let bun = run_with_manager("BUN");
+    assert!(
+        stdout(&bun).contains("bun install -g @moonshot-ai/kimi-code@latest"),
+        "bun command: {}",
+        stdout(&bun)
+    );
+    let npm = run_with_manager("NPM");
+    assert!(
+        stdout(&npm).contains("npm i -g @moonshot-ai/kimi-code@latest"),
+        "npm command: {}",
+        stdout(&npm)
+    );
+}
+
+#[test]
 fn upgrade_network_failure_is_friendly() {
     let home = temp_dir("upgrade-fail");
     // Bind an ephemeral port, then drop the listener: the child's request is

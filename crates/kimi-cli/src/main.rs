@@ -2687,6 +2687,21 @@ const DEFAULT_UPGRADE_REGISTRY: &str = "https://registry.npmjs.org/@moonshot-ai/
 /// npm package the CLI is distributed as (TS `NPM_PACKAGE_NAME` parity).
 const NPM_PACKAGE_NAME: &str = "@moonshot-ai/kimi-code";
 
+/// Install command for the detected package manager (codex
+/// `CODEX_MANAGED_BY_*` parity): the npm wrapper probes npm/pnpm/bun and
+/// injects a single `KIMI_MANAGED_BY_*` env var; absent means npm (or an
+/// unknown manager), which is the safe default.
+fn install_command_for() -> String {
+    let package = format!("{NPM_PACKAGE_NAME}@latest");
+    if std::env::var_os("KIMI_MANAGED_BY_PNPM").is_some() {
+        format!("pnpm add -g {package}")
+    } else if std::env::var_os("KIMI_MANAGED_BY_BUN").is_some() {
+        format!("bun install -g {package}")
+    } else {
+        format!("npm i -g {package}")
+    }
+}
+
 /// Fetch the `latest` version string from the npm registry manifest.
 /// Failures are returned as user-facing messages (never panics).
 async fn fetch_latest_version(registry: &str) -> Result<String, String> {
@@ -2774,7 +2789,7 @@ async fn run_upgrade() -> i32 {
         println!(
             "A newer version of {NPM_PACKAGE_NAME} is available ({LOCAL_VERSION} -> {latest})."
         );
-        println!("To update, run: npm i -g {NPM_PACKAGE_NAME}@latest");
+        println!("To update, run: {}", install_command_for());
     } else {
         println!("{NPM_PACKAGE_NAME} is up to date ({latest}).");
     }
