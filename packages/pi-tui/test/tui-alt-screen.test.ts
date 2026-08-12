@@ -1304,20 +1304,32 @@ describe("TuiAltScreen", () => {
 		const mainScreenRestoreIndex = terminal.events.findIndex(
 			(event) => event.type === "write" && event.data.includes("\x1b[?1049l"),
 		);
+		// The exit sequence is written on its own before the document replay,
+		// so a render failure can never strand the terminal on the alt buffer.
+		const documentReplayIndex = terminal.events.findIndex(
+			(event, index) =>
+				index > mainScreenRestoreIndex && event.type === "write" && event.data.includes("first"),
+		);
 		assert.ok(altScreenEnterIndex >= 0 && altScreenEnterIndex < startIndex);
 		assert.ok(mouseDisableIndex >= 0 && mouseDisableIndex < stopIndex);
 		assert.ok(mainScreenRestoreIndex > stopIndex);
+		assert.ok(documentReplayIndex > mainScreenRestoreIndex);
 
 		const restoreEvent = terminal.events[mainScreenRestoreIndex];
 		assert.strictEqual(restoreEvent?.type, "write");
 		if (restoreEvent?.type === "write") {
-			assert.ok(restoreEvent.data.includes("first"));
-			assert.ok(restoreEvent.data.includes("second"));
-			assert.ok(restoreEvent.data.includes("third"));
-			assert.ok(restoreEvent.data.includes("fourth"));
-			assert.ok(restoreEvent.data.includes("fifth"));
-			assert.ok(restoreEvent.data.includes("sixth"));
-			assert.ok(restoreEvent.data.indexOf("first") < restoreEvent.data.indexOf("sixth"));
+			assert.ok(!restoreEvent.data.includes("first"));
+		}
+		const replayEvent = terminal.events[documentReplayIndex];
+		assert.strictEqual(replayEvent?.type, "write");
+		if (replayEvent?.type === "write") {
+			assert.ok(replayEvent.data.includes("first"));
+			assert.ok(replayEvent.data.includes("second"));
+			assert.ok(replayEvent.data.includes("third"));
+			assert.ok(replayEvent.data.includes("fourth"));
+			assert.ok(replayEvent.data.includes("fifth"));
+			assert.ok(replayEvent.data.includes("sixth"));
+			assert.ok(replayEvent.data.indexOf("first") < replayEvent.data.indexOf("sixth"));
 		}
 	});
 });

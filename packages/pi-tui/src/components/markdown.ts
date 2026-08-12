@@ -451,6 +451,17 @@ export class Markdown implements Component {
 		};
 	}
 
+	private renderLatexSafely(source: string, display: boolean, fallback: string): string {
+		try {
+			return renderLatex(source, { display }) ?? fallback;
+		} catch (error) {
+			if (!(error instanceof RangeError)) throw error;
+			// Pathological LaTeX (e.g. nesting deep enough to overflow the stack) must
+			// never break the render frame; fall back to the raw source text.
+			return fallback;
+		}
+	}
+
 	private renderToken(
 		token: Token,
 		width: number,
@@ -506,7 +517,7 @@ export class Markdown implements Component {
 				const latexToken = token as LatexToken;
 				const rendered =
 					!latexToken.pending && this.options.renderLatex !== false
-						? (renderLatex(latexToken.text, { display: true }) ?? latexToken.raw.trim())
+						? this.renderLatexSafely(latexToken.text, true, latexToken.raw.trim())
 						: latexToken.raw.trim();
 				for (const line of rendered.split("\n")) {
 					lines.push(this.applyDefaultStyle(line));
@@ -646,7 +657,7 @@ export class Markdown implements Component {
 					const latexToken = token as LatexToken;
 					const rendered =
 						!latexToken.pending && this.options.renderLatex !== false
-							? (renderLatex(latexToken.text) ?? latexToken.raw)
+							? this.renderLatexSafely(latexToken.text, false, latexToken.raw)
 							: latexToken.raw;
 					result += applyTextWithNewlines(rendered);
 					break;

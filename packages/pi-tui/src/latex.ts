@@ -675,6 +675,14 @@ const LAYOUT_MARKER_PATTERN = /\u{f0000}(\d+)\u{f0001}/gu;
 const TRAILING_LAYOUT_MARKER_PATTERN = /\u{f0000}(\d+)\u{f0001}$/u;
 const PROTECTED_SPACE = "\u{f0002}";
 
+/** Maximum brace-group / nested-parser recursion depth; deeper input is treated as
+ * unsupported so renderLatex returns undefined instead of overflowing the stack. */
+const MAX_PARSE_DEPTH = 256;
+
+/** Defensive cap for renderLayout's fraction expansion; the parser depth cap keeps
+ * this unreachable in practice. */
+const MAX_RENDER_LAYOUT_DEPTH = 256;
+
 function padLayoutLine(line: string, width: number, centered = false): string {
 	const padding = Math.max(0, width - visibleWidth(line));
 	const left = centered ? Math.floor(padding / 2) : 0;
@@ -706,7 +714,13 @@ function joinLayouts(layouts: readonly Layout[]): Layout {
 	};
 }
 
-function renderLayout(source: string, nodes: readonly LayoutNode[]): Layout {
+function renderLayout(source: string, nodes: readonly LayoutNode[], depth = 0): Layout {
+	if (depth >= MAX_RENDER_LAYOUT_DEPTH) {
+		// Defensive depth guard: the parser's group-depth cap should make this
+		// unreachable, but keep the renderer bounded so a malformed node graph can
+		// never overflow the stack.
+		return { lines: [source], width: visibleWidth(source), baseline: 0 };
+	}
 	const renderedLines: string[] = [];
 	let firstBaseline = 0;
 	for (const sourceLine of source.split("\n")) {
@@ -732,8 +746,8 @@ function renderLayout(source: string, nodes: readonly LayoutNode[]): Layout {
 				layouts.push({ lines: [text], width: visibleWidth(text), baseline: 0 });
 			}
 			if (node.type === "fraction") {
-				const numerator = renderLayout(node.numerator, nodes);
-				const denominator = renderLayout(node.denominator, nodes);
+				const numerator = renderLayout(node.numerator, nodes, depth + 1);
+				const denominator = renderLayout(node.denominator, nodes, depth + 1);
 				const contentWidth = Math.max(numerator.width, denominator.width, 1);
 				const width = contentWidth + 2;
 				layouts.push({
@@ -801,11 +815,13 @@ class LatexParser {
 	private position = 0;
 	private supported = true;
 	private stackFractions = true;
+	private depth = 0;
 
-	constructor(source: string, layoutNodes: LayoutNode[], display: boolean) {
+	constructor(source: string, layoutNodes: LayoutNode[], display: boolean, depth = 0) {
 		this.source = source;
 		this.layoutNodes = layoutNodes;
 		this.display = display;
+		this.depth = depth;
 	}
 
 	render(): string | undefined {
@@ -817,6 +833,20 @@ class LatexParser {
 	}
 
 	private parseSequence(endCharacter?: string): string {
+		if (this.depth >= MAX_PARSE_DEPTH) {
+			// Pathologically nested groups/commands are unsupported: bail out and let
+			// render() return undefined per the documented contract instead of
+			// overflowing the stack.
+			this.supported = false;
+			return "";
+		}
+		this.depth++;
+		const result = this.parseSequenceInner(endCharacter);
+		this.depth--;
+		return result;
+	}
+
+	private parseSequenceInner(endCharacter?: string): string {
 		let result = "";
 		while (this.position < this.source.length) {
 			const character = this.source[this.position]!;
@@ -1137,10 +1167,19 @@ class LatexParser {
 	}
 
 	private parseRequiredArgument(stackFractions = true): string {
+		if (this.depth >= MAX_PARSE_DEPTH) {
+			// Same depth budget as parseSequence: command arguments that recurse through
+			// parseCommand (e.g. \frac chains) must be capped too so render() returns
+			// undefined instead of overflowing the stack.
+			this.supported = false;
+			return "";
+		}
+		this.depth++;
 		const previousStackFractions = this.stackFractions;
 		this.stackFractions = previousStackFractions && stackFractions;
 		const value = this.parseRequiredArgumentValue();
 		this.stackFractions = previousStackFractions;
+		this.depth--;
 		return value;
 	}
 
@@ -1334,7 +1373,7 @@ class LatexParser {
 	}
 
 	private renderNested(source: string, stackFractions = true): string {
-		const rendered = new LatexParser(source, this.layoutNodes, this.display && stackFractions).render();
+		const rendered = new LatexParser(source, this.layoutNodes, this.display && stackFractions, this.depth + 1).render();
 		if (rendered === undefined) {
 			this.supported = false;
 			return source;

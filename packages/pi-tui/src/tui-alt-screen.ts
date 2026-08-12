@@ -1235,14 +1235,30 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		return result;
 	}
 
+	private renderLayoutFrameGuarded(root: Component, width: number, height: number): LayoutFrame | undefined {
+		try {
+			return renderLayoutFrame(root, width, height, () => this.requestRender());
+		} catch (error) {
+			if (!(error instanceof RangeError)) throw error;
+			// Defensive: deeply nested component trees can still overflow the JS stack
+			// (e.g. through container render chains) despite layout.ts's depth cap.
+			// Keep the previous frame on screen instead of letting one pathological
+			// render take down the render loop. (No console output here: writing to
+			// stdout/stderr mid-frame would corrupt the alt-screen rendering.)
+			return undefined;
+		}
+	}
+
 	protected override doRender(): void {
 		if (this.stopped || !this.altScreenActive) return;
 		const width = Math.max(1, this.terminal.columns);
 		const height = Math.max(1, this.terminal.rows);
 		const root = this.layoutRoot ?? this.implicitScrollView;
-		let nextLayout = renderLayoutFrame(root, width, height, () => this.requestRender());
+		let nextLayout = this.renderLayoutFrameGuarded(root, width, height);
+		if (nextLayout === undefined) return;
 		if (this.refreshSearch(nextLayout)) {
-			nextLayout = renderLayoutFrame(root, width, height, () => this.requestRender());
+			nextLayout = this.renderLayoutFrameGuarded(root, width, height);
+			if (nextLayout === undefined) return;
 		}
 		let screen = nextLayout.lines.map((line) => line.replace(OSC133_ZONE_PREFIX, ""));
 		screen = this.applySearchHighlights(screen, nextLayout);

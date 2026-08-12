@@ -303,4 +303,26 @@ describe("viewport layout", () => {
 		assert.strictEqual(first.root.children[0]?.lines?.length, 1);
 		assert.strictEqual(second.root.children[0]?.lines?.length, 3);
 	});
+
+	it("renders component nesting below the layout depth cap", () => {
+		const depth = 100;
+		let root: VStack = new VStack([{ component: new Text("x", 0, 0), basis: 1 }]);
+		for (let i = 1; i < depth; i++) root = new VStack([{ component: root, basis: 1 }]);
+
+		const frame = renderLayoutFrame(root, 10, 1, () => {});
+		assert.deepStrictEqual(visibleLines(frame.lines), ["x"]);
+	});
+
+	it("skips pathologically deep component nesting instead of overflowing the stack", () => {
+		// 2_000 exceeds the layout depth cap (512) and used to overflow the JS stack
+		// before the cap existed; the deep subtree is skipped, the frame stays valid.
+		const depth = 2_000;
+		let root: VStack = new VStack([{ component: new Text("x", 0, 0), basis: 1 }]);
+		for (let i = 1; i < depth; i++) root = new VStack([{ component: root, basis: 1 }]);
+
+		const frame = renderLayoutFrame(root, 10, 1, () => {});
+		assert.ok(frame.root);
+		assert.deepStrictEqual(frame.lines.length, 1);
+		assert.deepStrictEqual(visibleLines(frame.lines), [""]);
+	});
 });

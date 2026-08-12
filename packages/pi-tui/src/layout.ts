@@ -7,6 +7,10 @@ import { extractAnsiCode, getGraphemeCellRange, sliceByColumn, visibleWidth } fr
 
 const OSC133_ZONE_PREFIX = /^(?:\x1b\]133;[ABC](?:\x07|\x1b\\))+/;
 
+/** Maximum component-tree layout depth; subtrees beyond this are skipped so that
+ * programmatically nested components cannot overflow the JS stack. */
+const MAX_LAYOUT_DEPTH = 512;
+
 export interface LayoutRect {
 	x: number;
 	y: number;
@@ -105,8 +109,21 @@ function layoutComponent(
 	width: number,
 	height: number | undefined,
 	clip: LayoutRect,
+	depth = 0,
 ): LayoutBox {
 	const safeWidth = Math.max(1, Math.floor(width));
+	if (depth > MAX_LAYOUT_DEPTH) {
+		// Deep-subtree guard: skip layout for components nested beyond the cap so
+		// pathological component trees cannot overflow the stack; the frame simply
+		// paints nothing for this subtree.
+		return {
+			component,
+			rect: { x, y, width: safeWidth, height: 0 },
+			clip: intersect(clip, { x, y, width: safeWidth, height: 0 }),
+			children: [],
+			layer: 0,
+		};
+	}
 	const node = getLayoutNode(component);
 	if (!node) {
 		const lines = renderCached(context, component, safeWidth);
@@ -138,6 +155,7 @@ function layoutComponent(
 			contentWidth,
 			undefined,
 			clip,
+			depth + 1,
 		);
 		const contentHeight = childBox.rect.height;
 		const viewportHeight = height === undefined ? contentHeight : Math.max(0, Math.floor(height));
@@ -182,7 +200,16 @@ function layoutComponent(
 		for (let index = 0; index < entries.length; index++) {
 			box.children.push(
 				withParent(
-					layoutComponent(context, entries[index]!.component, x, childY, safeWidth, sizes[index]!, box.clip),
+					layoutComponent(
+						context,
+						entries[index]!.component,
+						x,
+						childY,
+						safeWidth,
+						sizes[index]!,
+						box.clip,
+						depth + 1,
+					),
 					box,
 				),
 			);
@@ -230,7 +257,16 @@ function layoutComponent(
 		} else {
 			box.children.push(
 				withParent(
-					layoutComponent(context, entries[index]!.component, childX, childY, childWidth, childHeight, box.clip),
+					layoutComponent(
+						context,
+						entries[index]!.component,
+						childX,
+						childY,
+						childWidth,
+						childHeight,
+						box.clip,
+						depth + 1,
+					),
 					box,
 				),
 			);

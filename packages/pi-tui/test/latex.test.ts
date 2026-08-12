@@ -481,4 +481,23 @@ R\left(\frac{\pi}{4}\right)
 			assert.strictEqual(renderLatex(source), undefined);
 		}
 	});
+
+	it("returns undefined for pathologically deep brace nesting instead of overflowing the stack", () => {
+		// 8_000 exceeds the parser's depth cap (256) and used to overflow the JS
+		// stack before the cap existed; the documented contract is undefined.
+		const depth = 8_000;
+		assert.strictEqual(renderLatex("{".repeat(depth) + "x" + "}".repeat(depth)), undefined);
+	});
+
+	it("returns undefined for pathologically deep command-argument nesting instead of overflowing the stack", () => {
+		// The \frac chain recurses through parseRequiredArgumentValue -> parseCommand
+		// (not parseSequence), so it needs its own depth budget.
+		const depth = 8_000;
+		assert.strictEqual(renderLatex("\\frac".repeat(depth) + "x" + "}".repeat(depth)), undefined);
+	});
+
+	it("renders brace nesting below the depth cap", () => {
+		const depth = 100;
+		assert.strictEqual(renderLatex("{".repeat(depth) + "x" + "}".repeat(depth)), "x");
+	});
 });

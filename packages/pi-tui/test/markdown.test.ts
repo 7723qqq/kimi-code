@@ -727,6 +727,16 @@ describe("Markdown component", () => {
 			assert.deepStrictEqual(lines, ["A map ℂ³ → ℂ³, xy, x-y, -x, 1/2, and s → ∞."]);
 		});
 
+		it("falls back to raw source for pathologically deep LaTeX nesting", () => {
+			// Deeply nested braces make renderLatex bail out (documented contract);
+			// the Markdown renderer must not throw and must keep the raw text.
+			const depth = 8_000;
+			const source = `$$${"{".repeat(depth)}x${"}".repeat(depth)}$$`;
+			const markdown = new Markdown(source, 0, 0, defaultMarkdownTheme);
+
+			assert.doesNotThrow(() => markdown.render(80));
+		});
+
 		it("renders display dollar delimiters without Markdown escape corruption", () => {
 			const markdown = new Markdown(
 				String.raw`Before
