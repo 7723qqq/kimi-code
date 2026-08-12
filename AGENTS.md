@@ -458,6 +458,8 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 ## Commit Convention (Conventional Commits)
 
+- Commit messages follow Conventional Commits (`feat:`, `fix:`, `chore:`, ...). PR titles are enforced by the `pr-title-checker.yml` workflow.
+
 ## Where to Update Instructions
 
 - Hard rules that affect almost every task: update the root `AGENTS.md`.

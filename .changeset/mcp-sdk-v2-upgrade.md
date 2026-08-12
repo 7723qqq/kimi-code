@@ -1,6 +1,5 @@
 ---
 '@moonshot-ai/kimi-code': patch
-'@moonshot-ai/agent-core': patch
 '@moonshot-ai/agent-core-v2': patch
 ---
 
