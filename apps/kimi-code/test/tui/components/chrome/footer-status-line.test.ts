@@ -140,13 +140,27 @@ describe('FooterComponent status_line items', () => {
 
 describe('runStatusLineCommand', () => {
   it('passes the payload as JSON on stdin and returns the first stdout line', async () => {
-    const line = await runStatusLineCommand('cat', payload);
+    // `node <script>` avoids POSIX-only utilities (cat) and cmd.exe quoting
+    // quirks: the script file keeps the command line free of quotes and
+    // metacharacters that sh/cmd would mangle differently.
+    const dir = join(tmpdir(), `sl-cat-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(dir, { recursive: true });
+    try {
+      const scriptFile = join(dir, 'cat.mjs');
+      writeFileSync(
+        scriptFile,
+        "let data = '';\nprocess.stdin.setEncoding('utf-8');\nprocess.stdin.on('data', (c) => { data += c; });\nprocess.stdin.on('end', () => { process.stdout.write(data.split('\\n')[0]); });\n",
+      );
+      const line = await runStatusLineCommand(`""${process.execPath}" ${scriptFile}"`, payload);
 
-    expect(line).not.toBeNull();
-    const parsed = JSON.parse(line!);
-    expect(parsed.model).toBe('kimi-k2');
-    expect(parsed.gitBranch).toBe('main');
-    expect(parsed.cwd).toBe('/tmp/project');
+      expect(line).not.toBeNull();
+      const parsed = JSON.parse(line!);
+      expect(parsed.model).toBe('kimi-k2');
+      expect(parsed.gitBranch).toBe('main');
+      expect(parsed.cwd).toBe('/tmp/project');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('returns null on a nonzero exit', async () => {
@@ -170,7 +184,7 @@ describe('runStatusLineCommand', () => {
     try {
       const scriptFile = join(dir, 'out.mjs');
       writeFileSync(scriptFile, "process.stdout.write('first\\nsecond\\n');\n");
-      const line = await runStatusLineCommand(`node ${scriptFile}`, payload);
+      const line = await runStatusLineCommand(`""${process.execPath}" ${scriptFile}"`, payload);
 
       expect(line).toBe('first');
     } finally {
@@ -185,7 +199,7 @@ describe('runStatusLineCommand', () => {
     try {
       const scriptFile = join(dir, 'out.mjs');
       writeFileSync(scriptFile, "process.stdout.write('a'.repeat(200000));\n");
-      const line = await runStatusLineCommand(`node ${scriptFile}`, payload);
+      const line = await runStatusLineCommand(`""${process.execPath}" ${scriptFile}"`, payload);
 
       expect(line).not.toBeNull();
       expect(line!.length).toBeLessThanOrEqual(STATUS_LINE_MAX_CAPTURE_BYTES);
@@ -197,18 +211,26 @@ describe('runStatusLineCommand', () => {
 
 describe('FooterComponent status_line command', () => {
   it('swaps line 1 to the command output once it lands', async () => {
-    const state: AppState = {
-      ...baseState,
-      statusLine: { items: null, command: 'printf "my-custom-status"' },
-    };
-    const footer = new FooterComponent(state);
+    const dir = join(tmpdir(), `sl-swap-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(dir, { recursive: true });
+    try {
+      const scriptFile = join(dir, 'out.mjs');
+      writeFileSync(scriptFile, "process.stdout.write('my-custom-status\\n');\n");
+      const state: AppState = {
+        ...baseState,
+        statusLine: { items: null, command: `""${process.execPath}" ${scriptFile}"` },
+      };
+      const footer = new FooterComponent(state);
 
-    // Before the first run completes the built-in layout is still shown.
-    expect(plain(footer.render(120)[0]!)).toContain('kimi-k2');
+      // Before the first run completes the built-in layout is still shown.
+      expect(plain(footer.render(120)[0]!)).toContain('kimi-k2');
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, 200));
 
-    expect(plain(footer.render(120)[0]!)).toContain('my-custom-status');
+      expect(plain(footer.render(120)[0]!)).toContain('my-custom-status');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('keeps the built-in layout when the command fails', async () => {
@@ -240,13 +262,13 @@ describe('StatusLineCommandRunner', () => {
     mkdirSync(dir, { recursive: true });
     try {
       const counterFile = join(dir, 'count');
-      const scriptFile = join(dir, 'count.sh');
+      const scriptFile = join(dir, 'count.mjs');
       writeFileSync(counterFile, '0');
       writeFileSync(
         scriptFile,
-        '#!/bin/sh\nn=$(cat "$1")\necho $((n+1)) > "$1"\nprintf "run-%s" "$n"\n',
+        "import { readFileSync, writeFileSync } from 'node:fs';\nconst file = process.argv[2];\nconst n = Number(readFileSync(file, 'utf-8'));\nwriteFileSync(file, String(n + 1));\nprocess.stdout.write(`run-${n}`);\n",
       );
-      const runner = new StatusLineCommandRunner(`sh ${scriptFile} ${counterFile}`, () => {});
+      const runner = new StatusLineCommandRunner(`""${process.execPath}" ${scriptFile}" ${counterFile}`, () => {});
 
       runner.maybeRefresh(payload);
       await new Promise((resolve) => setTimeout(resolve, 250));

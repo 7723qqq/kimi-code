@@ -14,6 +14,7 @@
 
 import { Service } from '#/_base/di/service';
 import { Error2, ErrorCodes } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService, type IAgentScopeHandle } from '#/_base/di/scope';
 import type { TokenUsage } from '#/kosong/contract/usage';
@@ -69,7 +70,7 @@ export class PersistentSubagentService extends Service implements IPersistentSub
     await this.catalog.ready;
     const profile = this.catalog.get(options.profileName);
     if (profile === undefined) {
-      throw new Error2(ErrorCodes.PROFILE_UNKNOWN, `Unknown agent type: "${options.profileName}"`, {
+      throw new Error2(ErrorCodes.PROFILE_UNKNOWN, t('v2Errors.unknownAgentType', { type: options.profileName }), {
         details: { profileName: options.profileName },
       });
     }
@@ -111,7 +112,7 @@ export class PersistentSubagentService extends Service implements IPersistentSub
     signal.throwIfAborted();
     const entry = this.persistentChildren.get(agentId);
     if (entry === undefined || entry.callerAgentId !== ownerAgentId) {
-      throw new Error(`Persistent subagent "${agentId}" not found`);
+      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, t('v2Errors.subagentNotFound', { agentId }));
     }
     const caller = this.requireAgent(ownerAgentId, 'Caller agent');
     const child = this.requireAgent(agentId, 'Agent instance');
@@ -146,10 +147,10 @@ export class PersistentSubagentService extends Service implements IPersistentSub
     await this.lifecycle.remove(agentId);
   }
 
-  private requireAgent(agentId: string, label: string): IAgentScopeHandle {
+  private requireAgent(agentId: string, _label: string): IAgentScopeHandle {
     const handle = this.lifecycle.get(agentId);
     if (handle === undefined) {
-      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `${label} "${agentId}" does not exist`, {
+      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, t('v2Errors.subagentNotFound', { agentId }), {
         details: { agentId },
       });
     }

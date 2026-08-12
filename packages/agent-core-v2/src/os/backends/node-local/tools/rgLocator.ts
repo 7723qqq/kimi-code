@@ -21,6 +21,7 @@ import { basename, join } from 'pathe';
 
 import { abortable } from '#/_base/utils/abort';
 import { ErrorCodes, Error2 } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 
 const RG_VERSION = '15.0.0';
 const RG_BASE_URL = 'https://code.kimi.com/kimi-code/rg';
@@ -102,7 +103,7 @@ async function resolveRgPath(
   if (options.allowCachedFallback === true) {
     return downloadRgWithLock(probe, shareDir);
   }
-  throw new Error2(ErrorCodes.OS_FS_UNAVAILABLE, 'ripgrep (rg) is not available on PATH');
+  throw new Error2(ErrorCodes.OS_FS_UNAVAILABLE, t('v2Errors.rgNotAvailable'));
 }
 
 export async function findExistingRg(

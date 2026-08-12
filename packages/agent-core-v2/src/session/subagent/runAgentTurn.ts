@@ -21,6 +21,7 @@ import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { Error2, ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentLoopService, type Turn, type TurnResult } from '#/agent/loop/loop';
 import { IAgentUsageService } from '#/agent/usage/usage';
@@ -58,7 +59,7 @@ export async function runAgentTurn(
           origin: AGENT_RUN_PROMPT_ORIGIN,
         } })).launched
       : await promptService.retry();
-  if (turn === undefined) throw new Error2(ErrorCodes.INTERNAL, 'Agent turn could not be started');
+  if (turn === undefined) throw new Error2(ErrorCodes.INTERNAL, t('v2Errors.agentTurnCouldNotStart'));
 
   if (options.onReady !== undefined) {
     void turn.ready.then(() => options.onReady?.()).catch(() => {});

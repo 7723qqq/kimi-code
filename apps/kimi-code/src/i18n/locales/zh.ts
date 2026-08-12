@@ -750,6 +750,8 @@ export default {
         tabHintMarketplace: ' Tab 切换 · ↑↓ 导航 · Enter 打开/安装 · Esc 取消',
         loadingMarketplace: '正在加载市场…',
         marketplaceUnavailable: '市场不可用：{{message}}',
+        pluginMarketplaceEntrySourceRequired: '插件市场条目 {{id}} 必须定义 "source"。',
+        pluginMarketplaceEntryFieldRequired: '插件市场条目 {{index}} 必须定义 "{{field}}"。',
         useCustomTabHint: '使用"自定义"标签页从 URL 安装。',
         noPluginsFound: '未找到插件。',
         marketplaceCount: '已安装 {{installed}} · 可用 {{available}}',
@@ -1227,6 +1229,7 @@ export default {
       providerMultipleImported: '已从 {{url}} 导入 {{count}} 个提供商（{{modelCount}} 个模型）：',
       providerDefaultSet: '默认模型已设置为 {{id}}/{{model}}。',
       providerCatalogFetchFailed: '从 {{url}} 获取目录失败{{suffix}}：{{error}}',
+      providerCatalogFallbackWarning: '警告：无法访问 {{url}}；正在使用内置的 models.dev 目录快照。',
       // tui/commands/provider.ts
       addProviderTitle: '添加第三方提供商',
       selectProviderTitle: '选择提供商',
@@ -1318,6 +1321,7 @@ export default {
       goalNoGoalFound: '目标：未找到目标。',
       // run-prompt.ts
       sessionNotFound: '会话 "{{sessionId}}" 未找到。',
+      sessionDifferentDirectory: '会话 "{{sessionId}}" 是在其他目录下创建的。',
       noModelPrompt:
         '未配置模型。请运行 `kimi` 并使用 /login 登录后重试；或在 config.toml 中设置 default_model。',
       // sub/server/run.ts
@@ -1326,6 +1330,8 @@ export default {
       serverLogsOff: '关闭',
       serverLogsUseLevel: '使用 --log-level info 开启',
       serverStopCmd: 'kimi server kill',
+      legacyKillNoRunning: '没有正在运行的旧版 Kimi 服务器。',
+      legacyKillOutcome: '旧版 Kimi 服务器（pid {{pid}}）{{outcome}}。',
       // sub/plugin-run-node.ts
       pluginRootRequired: '运行插件节点入口需要设置 KIMI_PLUGIN_ROOT。',
       pluginEntryOutsideRoot: '插件节点入口必须在 KIMI_PLUGIN_ROOT 内：{{entry}}',

@@ -55,7 +55,8 @@ import { inputTotal, type TokenUsage } from '#/kosong/contract/usage';
 import { IEventBus } from '#/app/event/eventBus';
 import type { CompactionFailedEvent, CompactionFinishedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ErrorCodes, Error2, isCodedError, isError2, toKimiErrorPayload, unwrapErrorCause } from "#/errors";
+import { ErrorCodes, Error2, isCodedError, isError2, toKimiErrorPayload, unwrapErrorCause } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 import { IWireService } from '#/wire/wire';
 import compactionInstructionTemplate from './compaction-instruction.md?raw';
 import {
@@ -378,7 +379,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   private validateCompactionStart(source: CompactionBeginData['source']): number {
     const history = this.context.get();
     if (history.length === 0) {
-      throw new Error2(ErrorCodes.COMPACTION_UNABLE, 'No messages to compact in current history.');
+      throw new Error2(ErrorCodes.COMPACTION_UNABLE, t('v2Errors.compactionNoMessages'));
     }
     if (source === 'manual' && this.loopService.status().state !== 'idle') {
       throw new Error2(

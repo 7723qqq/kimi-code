@@ -34,6 +34,7 @@ import type { ToolUpdate } from '#/tool/toolContract';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IEventBus } from '#/app/event/eventBus';
 import { Error2, ErrorCodes } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 
 import {
   IAgentShellCommandService,
@@ -203,7 +204,7 @@ export class AgentShellCommandService implements IAgentShellCommandService {
   private ensureBashTool() {
     const bash = this.toolRegistry.resolve('Bash');
     if (bash === undefined) {
-      throw new Error2(ErrorCodes.INTERNAL, 'Bash tool is not registered.');
+      throw new Error2(ErrorCodes.INTERNAL, t('v2Errors.bashToolNotRegistered'));
     }
     return bash;
   }

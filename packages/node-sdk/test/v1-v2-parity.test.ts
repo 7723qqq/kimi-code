@@ -1627,6 +1627,9 @@ default_provider = "fixture-provider"
 default_model = "fixture-model"
 default_permission_mode = "auto"
 
+[shell]
+preference = "bash"
+
 [providers.fixture-provider]
 type = "kimi"
 api_key = "fixture-api-key"
@@ -2666,7 +2669,7 @@ describe('v1↔v2 agent interaction parity', () => {
       const input = { sessionId: 'session_parity_secondary_apply' } as const;
       const applyError = (client: SDKRpcClientV2) =>
         client.applyPersistedSecondaryModel(input).then(
-          () => undefined,
+          () => {},
           (error: unknown) => error as Error,
         );
 

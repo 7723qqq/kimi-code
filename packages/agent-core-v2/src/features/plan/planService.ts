@@ -29,6 +29,7 @@ import { type IDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { unwrapErrorCause } from '#/_base/errors/errors';
 import { Error2, ErrorCodes } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 import { generateHeroSlug } from '#/_base/utils/hero-slug';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
@@ -51,8 +52,9 @@ import { IBlobStore } from '#/persistence/interface/blobStore';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IWireService } from '#/wire/wire';
 import type { ToolFileAccess } from '#/tool/toolContract';
+import type {
+  IAgentPlanService} from './plan';
 import {
-  IAgentPlanService,
   type PlanData,
   type PlanFilePath,
 } from './plan';
@@ -183,7 +185,7 @@ export class AgentPlanService extends Service implements IAgentPlanService {
 
   async enter(id = this.createPlanId(), createFile = false): Promise<void> {
     if (this.isActive) {
-      throw new Error2(ErrorCodes.SESSION_PLAN_MODE_INVALID, 'Already in plan mode');
+      throw new Error2(ErrorCodes.SESSION_PLAN_MODE_INVALID, t('v2Errors.planModeAlreadyActive'));
     }
 
     const planFilePath = this.planFilePathFor(id);

@@ -165,7 +165,7 @@ export async function runV2Print(
   }
   for (const diagnostic of configService.diagnostics()) {
     if (diagnostic.severity === 'warning') {
-      stderr.write(`Warning: ${diagnostic.message}\n`);
+      stderr.write(t('tui.statusMessages.warningLabel', { warning: diagnostic.message }) + '\n');
     }
   }
 
@@ -314,7 +314,7 @@ async function resolveNativeSession(
   const resumeById = async (id: string): Promise<ISessionScopeHandle> => {
     const session = await resumeSessionById(app.accessor, id);
     if (session === undefined) {
-      throw new Error(`Session "${id}" not found.`);
+      throw new Error(t('tui.statusMessages.sessionNotFound', { sessionId: id }));
     }
     return session;
   };
@@ -335,14 +335,14 @@ async function resolveNativeSession(
   if (opts.session !== undefined) {
     const target = await index.get(opts.session);
     if (target === undefined) {
-      throw new Error(`Session "${opts.session}" not found.`);
+      throw new Error(t('tui.statusMessages.sessionNotFound', { sessionId: opts.session }));
     }
     if (target.cwd !== undefined && resolve(target.cwd) !== resolve(workDir)) {
       stderr.write(
         `Session "${opts.session}" was created under a different directory.\n` +
           `  cd "${target.cwd}" && kimi -r ${opts.session}\n\n`,
       );
-      throw new Error(`Session "${opts.session}" was created under a different directory.`);
+      throw new Error(t('tui.statusMessages.sessionDifferentDirectory', { sessionId: opts.session }));
     }
     const session = await resumeById(opts.session);
     const agent = await ensureMainAgent(session);
@@ -377,7 +377,7 @@ async function resolveNativeSession(
         goalModel: configuredModel(opts.model, currentModel),
       };
     }
-    stderr.write(`No sessions to continue under "${workDir}"; starting a fresh session.\n`);
+    stderr.write(t('tui.statusMessages.noSessionsToContinue', { workDir }) + '\n');
   }
 
   const model = requireConfiguredModel(opts.model, defaultModel);
@@ -466,7 +466,7 @@ async function runNativeTurn(
           drain: () => drainBackgroundTasks(session, taskConfig?.printWaitCeilingS),
           turnEndings,
           skipTurnId: turn.id,
-          warn: (message) => stderr.write(`Warning: ${message}\n`),
+          warn: (message) => stderr.write(t('tui.statusMessages.warningLabel', { warning: message }) + '\n'),
           now: () => Date.now(),
           goalActive: () => goalService.getGoal().goal?.status === 'active',
           cronNextFireAt: () => cronService.getNextFireTime(),

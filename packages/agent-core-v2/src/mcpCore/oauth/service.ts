@@ -29,6 +29,7 @@ import { auth } from '@modelcontextprotocol/client';
 import type { OAuthClientProvider } from '@modelcontextprotocol/client';
 
 import { ErrorCodes, Error2, isError2 } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 
 import { startCallbackServer, type CallbackServer } from './callback-server';
 import { McpOAuthClientProvider } from './provider';
@@ -155,7 +156,7 @@ export class McpOAuthService {
 
     const complete: BeginAuthorizationResult['complete'] = async (opts = {}) => {
       if (settled) {
-        throw new Error2(ErrorCodes.MCP_OAUTH_FAILED, 'OAuth flow already completed or cancelled');
+        throw new Error2(ErrorCodes.MCP_OAUTH_FAILED, t('v2Errors.mcpOAuthFlowAlreadyDone'));
       }
       try {
         const { code, state } = await callbackServer.waitForCode({

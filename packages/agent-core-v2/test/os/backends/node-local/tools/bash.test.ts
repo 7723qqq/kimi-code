@@ -18,8 +18,9 @@ import { PassThrough, Readable, type Writable } from 'node:stream';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import type {
+  IAgentTaskService} from '#/agent/task/task';
 import {
-  IAgentTaskService,
   type AgentTask,
   type AgentTaskInfo,
   type AgentTaskOutputSnapshot,
@@ -1218,6 +1219,99 @@ describe('BashTool', () => {
 
     const argv = exec.mock.calls[0]?.[0] as readonly string[];
     expect(argv[2]).toBe("cd '/workspace' && ls 2>nul");
+  });
+
+  it('spawns PowerShell with -NoProfile -NonInteractive and a Set-Location prefix', async () => {
+    const powershellEnv: IHostEnvironment = {
+      _serviceBrand: undefined,
+      osKind: 'Windows',
+      osArch: 'x64',
+      osVersion: 'test',
+      shellPath: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+      shellName: 'pwsh',
+      pathClass: 'win32',
+      homeDir: 'C:\\Users\\test',
+      ready: Promise.resolve(),
+    };
+    const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
+    const tool = bashTool(runner, powershellEnv, createTestCtx('C:\\Users\\me\\project'));
+
+    await executeTool(tool, context({ command: 'Get-ChildItem', timeout: 60 }));
+
+    const argv = exec.mock.calls[0]?.[0] as readonly string[];
+    expect(argv[0]).toBe('C:\\Program Files\\PowerShell\\7\\pwsh.exe');
+    expect(argv[1]).toBe('-NoProfile');
+    expect(argv[2]).toBe('-NonInteractive');
+    expect(argv[3]).toBe('-Command');
+    expect(argv[4]).toBe("Set-Location -LiteralPath 'C:\\Users\\me\\project'; Get-ChildItem");
+  });
+
+  it('rewrites nul-redirect to $null for PowerShell', async () => {
+    const powershellEnv: IHostEnvironment = {
+      _serviceBrand: undefined,
+      osKind: 'Windows',
+      osArch: 'x64',
+      osVersion: 'test',
+      shellPath: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+      shellName: 'powershell',
+      pathClass: 'win32',
+      homeDir: 'C:\\Users\\test',
+      ready: Promise.resolve(),
+    };
+    const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
+    const tool = bashTool(runner, powershellEnv, createTestCtx('C:\\Users\\me\\project'));
+
+    await executeTool(tool, context({ command: 'Get-ChildItem 2>nul', timeout: 60 }));
+
+    const argv = exec.mock.calls[0]?.[0] as readonly string[];
+    expect(argv[4]).toBe("Set-Location -LiteralPath 'C:\\Users\\me\\project'; Get-ChildItem 2>$null");
+  });
+
+  it('spawns cmd.exe with /d /s /c and a cd /d prefix', async () => {
+    const cmdEnv: IHostEnvironment = {
+      _serviceBrand: undefined,
+      osKind: 'Windows',
+      osArch: 'x64',
+      osVersion: 'test',
+      shellPath: 'C:\\Windows\\System32\\cmd.exe',
+      shellName: 'cmd',
+      pathClass: 'win32',
+      homeDir: 'C:\\Users\\test',
+      ready: Promise.resolve(),
+    };
+    const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
+    const tool = bashTool(runner, cmdEnv, createTestCtx('C:\\Users\\me\\project'));
+
+    await executeTool(tool, context({ command: 'dir', timeout: 60 }));
+
+    const argv = exec.mock.calls[0]?.[0] as readonly string[];
+    expect(argv[0]).toBe('C:\\Windows\\System32\\cmd.exe');
+    expect(argv[1]).toBe('/d');
+    expect(argv[2]).toBe('/s');
+    expect(argv[3]).toBe('/c');
+    expect(argv[4]).toBe('cd /d "C:\\Users\\me\\project" && dir');
+  });
+
+  it('documents PowerShell semantics in the shell description', () => {
+    const powershellEnv: IHostEnvironment = {
+      _serviceBrand: undefined,
+      osKind: 'Windows',
+      osArch: 'x64',
+      osVersion: 'test',
+      shellPath: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+      shellName: 'pwsh',
+      pathClass: 'win32',
+      homeDir: 'C:\\Users\\test',
+      ready: Promise.resolve(),
+    };
+    const { runner } = createTestRunner(processWithOutput());
+    const tool = bashTool(runner, powershellEnv);
+
+    const description = tool.description;
+    expect(description).toContain('`pwsh`');
+    expect(description).toContain('**Shell semantics (PowerShell):**');
+    expect(description).toContain('Get-ChildItem');
+    expect(description).toContain('$env:VAR');
   });
 
   it('exposes a shell description that documents /bin/bash, TaskOutput/TaskStop, safety and efficiency sections, and background semantics', () => {

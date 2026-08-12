@@ -23,6 +23,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { downloadToFile, runCommand } from '../host';
+import { t } from '@moonshot-ai/kimi-i18n';
 import type {
   CapabilityDetectResult,
   CapabilityEntry,
@@ -213,13 +214,13 @@ export function createKimiWebbridgeEntry(ctx: CapabilityEntryContext): Capabilit
         setTimeout(resolve, START_POLL_INTERVAL_MS);
       });
     }
-    throw new Error(`WebBridge daemon did not come up on ${baseUrl} — check ~/.kimi-webbridge/logs`);
+    throw new Error(t('v2Errors.webbridgeDaemonNotUp', { baseUrl }));
   }
 
   async function install(report: CapabilityInstallReporter): Promise<void> {
     const asset = binaryAssetName(ctx.platform, ctx.arch);
     if (asset === undefined) {
-      throw new Error(`kimi-webbridge is not supported on ${ctx.platform}/${ctx.arch}`);
+      throw new Error(t('v2Errors.webbridgeUnsupportedPlatform', { platform: ctx.platform, arch: ctx.arch }));
     }
 
     const before = await detect();
@@ -240,7 +241,7 @@ export function createKimiWebbridgeEntry(ctx: CapabilityEntryContext): Capabilit
         timeout: START_TIMEOUT_MS,
       });
       if (started.code !== 0) {
-        throw new Error(`kimi-webbridge start failed: ${started.stderr || started.stdout}`);
+        throw new Error(t('v2Errors.webbridgeStartFailed', { detail: started.stderr || started.stdout }));
       }
       await waitForDaemon();
     }
@@ -289,7 +290,7 @@ export function createKimiWebbridgeEntry(ctx: CapabilityEntryContext): Capabilit
       });
       if (ctx.platform !== 'win32') await chmod(binPath, 0o755);
     } finally {
-      await rm(staging, { force: true }).catch(() => undefined);
+      await rm(staging, { force: true }).catch(() => {});
     }
   }
 
@@ -312,7 +313,7 @@ async function renameAcrossDevicesFallback(from: string, to: string): Promise<vo
     await copyFile(from, sibling);
     await rename(sibling, to);
   } finally {
-    await rm(sibling, { force: true }).catch(() => undefined);
+    await rm(sibling, { force: true }).catch(() => {});
   }
   await rm(from, { force: true });
 }

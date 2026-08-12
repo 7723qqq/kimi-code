@@ -49,6 +49,7 @@ import {
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 import { IOAuthService } from '#/app/auth/auth';
 import { AuthErrors } from '#/app/auth/errors';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
@@ -103,8 +104,8 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
   ): Promise<RefreshProviderModelsResponse> {
     const run = this.refreshChain.then(() => this.doRefreshProviderModels(options));
     this.refreshChain = run.then(
-      () => undefined,
-      () => undefined,
+      () => {},
+      () => {},
     );
     return run;
   }
@@ -288,7 +289,7 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
       oauthRef as unknown as OAuthRef | undefined,
     );
     if (tokenProvider === undefined) {
-      throw new Error2(AuthErrors.codes.AUTH_TOKEN_MISSING, 'OAuth token provider is not configured.', {
+      throw new Error2(AuthErrors.codes.AUTH_TOKEN_MISSING, t('v2Errors.oauthTokenProviderNotConfigured'), {
         details: { provider_id: providerName },
       });
     }

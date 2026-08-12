@@ -11,6 +11,7 @@
 
 import { Service } from '#/_base/di/service';
 import { Error2, ErrorCodes } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 import { LifecycleScope } from '#/app/scopes';
 import {
   type IAgentScopeHandle,
@@ -56,7 +57,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
   run(agentId: string, request: AgentRunRequest, opts: RunAgentOptions): Promise<AgentRunHandle> {
     const handle = this.agentLifecycle.get(agentId);
     if (handle === undefined) {
-      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `Agent "${agentId}" does not exist`, {
+      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, t('v2Errors.agentDoesNotExist', { agentId }), {
         details: { agentId },
       });
     }

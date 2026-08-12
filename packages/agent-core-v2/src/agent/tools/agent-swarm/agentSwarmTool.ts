@@ -183,7 +183,7 @@ export class AgentSwarmTool implements IAgentSwarmTool {
       }
       const targetProfile = this.catalog.get(profileName);
       if (targetProfile === undefined) {
-        throw new Error2(ErrorCodes.PROFILE_UNKNOWN, `Unknown agent type: "${profileName}"`, {
+        throw new Error2(ErrorCodes.PROFILE_UNKNOWN, t('v2Errors.unknownAgentType', { type: profileName }), {
           details: { profileName },
         });
       }

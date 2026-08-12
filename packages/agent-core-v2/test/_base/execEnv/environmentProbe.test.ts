@@ -28,6 +28,7 @@ interface StubOpts {
   readonly env?: Record<string, string | undefined>;
   readonly existingPaths?: readonly string[];
   readonly execFileResults?: Readonly<Record<string, string>>;
+  readonly shellPreference?: string;
 }
 
 function stubDeps(opts: StubOpts): HostEnvironmentProbeDeps {
@@ -41,6 +42,7 @@ function stubDeps(opts: StubOpts): HostEnvironmentProbeDeps {
     isFile: async (path: string) => existing.has(path),
     execFileText: async (file: string, args: readonly string[]) =>
       opts.execFileResults?.[execFileKey(file, args)],
+    shellPreference: opts.shellPreference,
   };
 }
 
@@ -131,5 +133,163 @@ describe('probeHostEnvironment', () => {
         }),
       ),
     ).rejects.toThrow(/Git Bash was not found/);
+  });
+
+  it('prefers PowerShell 7 over Git Bash on win32', async () => {
+    const env = await probeHostEnvironment(
+      stubDeps({
+        platform: 'win32',
+        env: { PATH: 'C:\\Program Files\\PowerShell\\7;C:\\Program Files\\Git\\bin' },
+        existingPaths: [
+          'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+          'C:\\Program Files\\Git\\bin\\bash.exe',
+        ],
+      }),
+    );
+    expect(env.shellName).toBe('pwsh');
+    expect(env.shellPath).toBe('C:\\Program Files\\PowerShell\\7\\pwsh.exe');
+  });
+
+  it('falls back to Windows PowerShell when pwsh is absent', async () => {
+    const env = await probeHostEnvironment(
+      stubDeps({
+        platform: 'win32',
+        env: { PATH: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0;C:\\Program Files\\Git\\bin' },
+        existingPaths: [
+          'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+          'C:\\Program Files\\Git\\bin\\bash.exe',
+        ],
+      }),
+    );
+    expect(env.shellName).toBe('powershell');
+    expect(env.shellPath).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  });
+
+  it('finds pwsh in the standard install location when it is not on PATH', async () => {
+    const env = await probeHostEnvironment(
+      stubDeps({
+        platform: 'win32',
+        env: { PATH: 'C:\\Windows\\system32' },
+        existingPaths: ['C:\\Program Files\\PowerShell\\7\\pwsh.exe'],
+      }),
+    );
+    expect(env.shellName).toBe('pwsh');
+    expect(env.shellPath).toBe('C:\\Program Files\\PowerShell\\7\\pwsh.exe');
+  });
+
+  it('finds Windows PowerShell in its fixed location when it is not on PATH', async () => {
+    const env = await probeHostEnvironment(
+      stubDeps({
+        platform: 'win32',
+        env: { PATH: 'C:\\Windows\\system32' },
+        existingPaths: ['C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'],
+      }),
+    );
+    expect(env.shellName).toBe('powershell');
+    expect(env.shellPath).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  });
+
+  it('falls back to Git Bash when no PowerShell is on PATH', async () => {
+    const env = await probeHostEnvironment(
+      stubDeps({
+        platform: 'win32',
+        env: { PATH: 'C:\\Program Files\\Git\\bin' },
+        existingPaths: ['C:\\Program Files\\Git\\bin\\bash.exe'],
+      }),
+    );
+    expect(env.shellName).toBe('bash');
+    expect(env.shellPath).toBe('C:\\Program Files\\Git\\bin\\bash.exe');
+  });
+
+  it('honors KIMI_SHELL_PATH override with PowerShell semantics', async () => {
+    const env = await probeHostEnvironment(
+      stubDeps({
+        platform: 'win32',
+        env: {
+          KIMI_SHELL_PATH: 'C:\\Tools\\pwsh.exe',
+          PATH: 'C:\\Program Files\\Git\\bin',
+        },
+        existingPaths: ['C:\\Tools\\pwsh.exe', 'C:\\Program Files\\Git\\bin\\bash.exe'],
+      }),
+    );
+    expect(env.shellName).toBe('pwsh');
+    expect(env.shellPath).toBe('C:\\Tools\\pwsh.exe');
+  });
+
+  it('honors KIMI_SHELL_PATH override with cmd semantics', async () => {
+    const env = await probeHostEnvironment(
+      stubDeps({
+        platform: 'win32',
+        env: { KIMI_SHELL_PATH: 'C:\\Windows\\System32\\cmd.exe' },
+        existingPaths: ['C:\\Windows\\System32\\cmd.exe'],
+      }),
+    );
+    expect(env.shellName).toBe('cmd');
+    expect(env.shellPath).toBe('C:\\Windows\\System32\\cmd.exe');
+  });
+
+  it('rejects a KIMI_SHELL_PATH that points to a missing file', async () => {
+    await expect(
+      probeHostEnvironment(
+        stubDeps({
+          platform: 'win32',
+          env: { KIMI_SHELL_PATH: 'C:\\missing\\bash.exe' },
+          existingPaths: [],
+        }),
+      ),
+    ).rejects.toThrow(/KIMI_SHELL_PATH/);
+  });
+
+  it('pins bash via shellPreference even when PowerShell is on PATH', async () => {
+    const env = await probeHostEnvironment(
+      stubDeps({
+        platform: 'win32',
+        shellPreference: 'bash',
+        env: { PATH: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0;C:\\Program Files\\Git\\bin' },
+        existingPaths: [
+          'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+          'C:\\Program Files\\Git\\bin\\bash.exe',
+        ],
+      }),
+    );
+    expect(env.shellName).toBe('bash');
+    expect(env.shellPath).toBe('C:\\Program Files\\Git\\bin\\bash.exe');
+  });
+
+  it('pins cmd via shellPreference', async () => {
+    const env = await probeHostEnvironment(
+      stubDeps({
+        platform: 'win32',
+        shellPreference: 'cmd',
+        env: { PATH: 'C:\\Windows\\System32' },
+        existingPaths: ['C:\\Windows\\System32\\cmd.exe'],
+      }),
+    );
+    expect(env.shellName).toBe('cmd');
+    expect(env.shellPath).toBe('C:\\Windows\\System32\\cmd.exe');
+  });
+
+  it('falls back to the default priority when the pinned shell is unavailable', async () => {
+    const env = await probeHostEnvironment(
+      stubDeps({
+        platform: 'win32',
+        shellPreference: 'pwsh',
+        env: { PATH: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0' },
+        existingPaths: ['C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'],
+      }),
+    );
+    expect(env.shellName).toBe('powershell');
+  });
+
+  it('treats auto as the default priority', async () => {
+    const env = await probeHostEnvironment(
+      stubDeps({
+        platform: 'win32',
+        shellPreference: 'auto',
+        env: { PATH: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0' },
+        existingPaths: ['C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'],
+      }),
+    );
+    expect(env.shellName).toBe('powershell');
   });
 });

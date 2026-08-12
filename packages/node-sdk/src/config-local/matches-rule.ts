@@ -6,6 +6,8 @@
  * only needs the syntax check.
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
+
 export interface ParsedPattern {
   readonly toolName: string;
   readonly argPattern?: string;
@@ -18,7 +20,7 @@ export interface ParsedPattern {
 export function parsePattern(pattern: string): ParsedPattern {
   const trimmed = pattern.trim();
   if (trimmed.length === 0) {
-    throw new Error('permission pattern: empty string');
+    throw new Error(t('v2Errors.permissionPatternEmpty'));
   }
 
   const openIdx = trimmed.indexOf('(');
@@ -27,13 +29,13 @@ export function parsePattern(pattern: string): ParsedPattern {
   }
 
   if (!trimmed.endsWith(')')) {
-    throw new Error(`permission pattern: missing closing paren in "${pattern}"`);
+    throw new Error(t('v2Errors.permissionPatternMissingParen', { pattern }));
   }
 
   const toolName = trimmed.slice(0, openIdx);
   const argPattern = trimmed.slice(openIdx + 1, -1);
   if (toolName.length === 0) {
-    throw new Error(`permission pattern: empty tool name in "${pattern}"`);
+    throw new Error(t('v2Errors.permissionPatternEmptyTool', { pattern }));
   }
   if (argPattern.length === 0) {
     return { toolName };

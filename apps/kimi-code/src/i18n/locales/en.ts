@@ -764,6 +764,8 @@ export default {
         tabHintMarketplace: ' Tab switch · ↑↓ navigate · Enter open/install · Esc cancel',
         loadingMarketplace: 'Loading marketplace…',
         marketplaceUnavailable: 'Marketplace unavailable: {{message}}',
+        pluginMarketplaceEntrySourceRequired: 'Plugin marketplace entry {{id}} must define "source".',
+        pluginMarketplaceEntryFieldRequired: 'Plugin marketplace entry {{index}} must define "{{field}}".',
         useCustomTabHint: 'Use the Custom tab to install from a URL.',
         noPluginsFound: 'No plugins found.',
         marketplaceCount: '{{installed}} installed · {{available}} available',
@@ -1262,6 +1264,7 @@ export default {
         'Imported {{count}} provider{{plural}} ({{modelCount}} model{{modelPlural}}) from {{url}}:',
       providerDefaultSet: 'Default model set to {{id}}/{{model}}.',
       providerCatalogFetchFailed: 'Failed to fetch catalog from {{url}}{{suffix}}: {{error}}',
+      providerCatalogFallbackWarning: 'Warning: failed to reach {{url}}; using the built-in models.dev catalog snapshot.',
       // tui/commands/provider.ts
       addProviderTitle: 'Add a Third-party Provider',
       selectProviderTitle: 'Select a provider',
@@ -1355,6 +1358,7 @@ export default {
       goalNoGoalFound: 'Goal: no goal found.',
       // run-prompt.ts
       sessionNotFound: 'Session "{{sessionId}}" not found.',
+      sessionDifferentDirectory: 'Session "{{sessionId}}" was created under a different directory.',
       noModelPrompt:
         'No model configured. Run `kimi` and use /login to sign in, then retry; or set default_model in config.toml.',
       // sub/server/run.ts
@@ -1363,6 +1367,8 @@ export default {
       serverLogsOff: 'off',
       serverLogsUseLevel: 'use --log-level info to enable',
       serverStopCmd: 'kimi server kill',
+      legacyKillNoRunning: 'No running legacy Kimi server.',
+      legacyKillOutcome: 'Legacy Kimi server (pid {{pid}}) {{outcome}}.',
       // sub/plugin-run-node.ts
       pluginRootRequired: 'KIMI_PLUGIN_ROOT is required to run a plugin node entry.',
       pluginEntryOutsideRoot: 'Plugin node entry must be inside KIMI_PLUGIN_ROOT: {{entry}}',

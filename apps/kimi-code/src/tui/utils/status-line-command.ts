@@ -49,6 +49,11 @@ export function runStatusLineCommand(
         // Own process group on POSIX so a timeout can drop the whole tree,
         // not just the shell wrapper.
         detached: !isWin,
+        // Pass the command string to cmd.exe verbatim: without this, Node
+        // re-quotes the arguments and a command whose executable path
+        // contains spaces (e.g. `"C:\Program Files\nodejs\node.exe" x.mjs`)
+        // is mangled before cmd.exe's own /s quoting rules apply.
+        windowsVerbatimArguments: isWin,
       });
     } catch {
       finish(null);

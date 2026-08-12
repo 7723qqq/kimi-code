@@ -40,6 +40,7 @@
 
 import type { ILogger } from '#/_base/log/log';
 import type { ISessionProcessRunner } from '#/session/process/processRunner';
+import { t } from '@moonshot-ai/kimi-i18n';
 
 export const DEFAULT_AGENT_PROFILE_NAME = 'agent';
 
@@ -151,6 +152,6 @@ export function normalizeAgentProfile(input: AgentProfileInput): AgentProfile {
     };
   }
   throw new Error(
-    `Agent profile "${input.name}" must define systemPrompt or renderSystemPrompt.`,
+    t('v2Errors.agentProfileSystemPromptRequired', { name: input.name }),
   );
 }

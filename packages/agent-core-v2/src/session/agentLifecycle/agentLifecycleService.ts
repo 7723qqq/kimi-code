@@ -25,6 +25,7 @@ import { IInstantiationService } from '#/_base/di/instantiation';
 import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { Emitter } from '#/_base/event';
 import { Error2, ErrorCodes } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 import { LifecycleScope } from '#/app/scopes';
 import {
   createScopedChildHandle,
@@ -202,12 +203,12 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   async fork(sourceAgentId: string, opts?: ForkAgentOptions): Promise<IAgentScopeHandle> {
     const source = this.handles.get(sourceAgentId);
     if (source === undefined) {
-      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `Source agent "${sourceAgentId}" does not exist`, {
+      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, t('v2Errors.sourceAgentDoesNotExist', { sourceAgentId }), {
         details: { agentId: sourceAgentId },
       });
     }
     if (opts?.agentId !== undefined && this.handles.has(opts.agentId)) {
-      throw new Error2(ErrorCodes.AGENT_ALREADY_EXISTS, `Agent "${opts.agentId}" already exists`, {
+      throw new Error2(ErrorCodes.AGENT_ALREADY_EXISTS, t('v2Errors.agentAlreadyExists', { agentId: opts.agentId }), {
         details: { agentId: opts.agentId },
       });
     }
@@ -259,7 +260,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     await handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed');
     const loop = handle.accessor.get(IAgentLoopService);
     const compaction = handle.accessor.get(IAgentFullCompactionService).compacting;
-    const compactionSettled = compaction?.promise.catch(() => undefined) ?? Promise.resolve();
+    const compactionSettled = compaction?.promise.catch(() => {}) ?? Promise.resolve();
     const reason = abortError('Agent removed');
     for (const turnId of loop.status().pendingTurnIds) {
       loop.cancel(turnId, reason);

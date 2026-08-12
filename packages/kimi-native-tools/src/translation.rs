@@ -22,7 +22,7 @@
 
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 // ---------------------------------------------------------------------------
 // Core engine
@@ -171,7 +171,7 @@ pub fn translate_batch(
 /// let msg = t.translate(locale_json, fallback_json, "common.ok", None);
 /// ```
 pub struct CachedTranslator {
-    cache: RwLock<HashMap<String, Value>>,
+    cache: RwLock<HashMap<String, Arc<Value>>>,
 }
 
 impl CachedTranslator {
@@ -182,20 +182,27 @@ impl CachedTranslator {
         }
     }
 
-    /// Parse (or retrieve from cache) a JSON string into a Value.
-    fn parse(&self, json: &str) -> Value {
+    /// Parse (or retrieve from cache) a JSON string into an `Arc<Value>`.
+    ///
+    /// Cache hits return an `Arc` clone (reference-count bump, O(1)) instead
+    /// of deep-cloning the whole parsed tree on every call. Misses are
+    /// serialized under a single write lock, so concurrent callers parse at
+    /// most once.
+    fn parse(&self, json: &str) -> Arc<Value> {
         // Fast path: check cache (read lock)
         if let Some(cached) = self.cache.read().unwrap().get(json) {
             return cached.clone();
         }
 
-        // Slow path: parse and cache (write lock)
-        let value: Value =
-            serde_json::from_str(json).expect("locale JSON must be valid");
-        self.cache
-            .write()
-            .unwrap()
-            .insert(json.to_string(), value.clone());
+        // Slow path: parse and cache (write lock, re-checked to avoid
+        // duplicate parsing when two threads miss concurrently).
+        let mut cache = self.cache.write().unwrap();
+        if let Some(cached) = cache.get(json) {
+            return cached.clone();
+        }
+        let value: Arc<Value> =
+            Arc::new(serde_json::from_str(json).expect("locale JSON must be valid"));
+        cache.insert(json.to_string(), value.clone());
         value
     }
 

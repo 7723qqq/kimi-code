@@ -9,6 +9,7 @@ import {
   KIMI_CODE_PLUGIN_MARKETPLACE_URL,
   KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV,
 } from '#/constant/app';
+import { t } from '#/i18n';
 
 export const PLUGIN_MARKETPLACE_TIERS = ['official', 'curated'] as const;
 
@@ -198,9 +199,9 @@ function resolveMarketplaceLocation(source: string, workDir: string): Marketplac
 }
 
 async function getSourceCheckoutMarketplaceLocation(): Promise<MarketplaceLocation | undefined> {
-  const sourceDir = dirname(fileURLToPath(import.meta.url));
+  const sourceDir = import.meta.dirname;
   const marketplacePath = resolve(sourceDir, '../../../../plugins/marketplace.json');
-  const info = await stat(marketplacePath).catch(() => undefined);
+  const info = await stat(marketplacePath).catch(() => {});
   if (info?.isFile() !== true) return undefined;
   return { raw: marketplacePath, kind: 'local', resolved: marketplacePath };
 }
@@ -233,7 +234,7 @@ function parseMarketplaceEntry(
     stringField(value, 'url') ??
     stringField(value, 'downloadUrl');
   if (source === undefined) {
-    throw new Error(`Plugin marketplace entry ${id} must define "source".`);
+    throw new Error(t('tui.dialogs.pluginsSelector.pluginMarketplaceEntrySourceRequired', { id }));
   }
   const resolvedSource = resolveEntrySource(source, location);
   return {
@@ -406,7 +407,7 @@ function resolveLocalPath(input: string, workDir: string): string {
 function requiredString(value: Record<string, unknown>, field: string, index: number): string {
   const result = stringField(value, field);
   if (result === undefined) {
-    throw new Error(`Plugin marketplace entry ${index + 1} must define "${field}".`);
+    throw new Error(t('tui.dialogs.pluginsSelector.pluginMarketplaceEntryFieldRequired', { index: index + 1, field }));
   }
   return result;
 }

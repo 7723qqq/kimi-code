@@ -110,7 +110,8 @@ import {
 import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
 import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
-import { ErrorCodes, Error2 } from "#/errors";
+import { ErrorCodes, Error2 } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
@@ -800,7 +801,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   private get model(): string {
     const modelAlias = this.modelAlias;
     if (modelAlias === undefined) {
-      throw new Error2(ErrorCodes.MODEL_NOT_CONFIGURED, 'Model not set');
+      throw new Error2(ErrorCodes.MODEL_NOT_CONFIGURED, t('errors.modelNotConfigured'));
     }
     return modelAlias;
   }

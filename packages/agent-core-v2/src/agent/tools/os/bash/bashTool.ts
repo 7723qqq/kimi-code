@@ -97,7 +97,44 @@ async function disposeProcess(proc: IProcess): Promise<void> {
 }
 
 function renderBashDescription(shellName: string): string {
-  return renderPrompt(bashDescriptionTemplate, { ...SHELL_TIMEOUT_VARS, SHELL_NAME: shellName });
+  return renderPrompt(bashDescriptionTemplate, {
+    ...SHELL_TIMEOUT_VARS,
+    SHELL_NAME: shellName,
+    SHELL_SEMANTICS: shellSemanticsBlock(shellName),
+  });
+}
+
+function shellSemanticsBlock(shellName: string): string {
+  switch (shellName) {
+    case 'powershell':
+    case 'pwsh':
+      return (
+        '**Shell semantics (PowerShell):**\n' +
+        '- Use PowerShell syntax: `Get-ChildItem` (not `ls`), `Get-Content` (not `cat`), `Set-Location` (not `cd`), `$env:VAR` (not `$VAR`), `$null` (not `/dev/null`).\n' +
+        (shellName === 'pwsh'
+          ? '- `&&` chains commands (PowerShell 7+); `;` separates statements.\n'
+          : '- `;` separates statements; `&&` is NOT supported (Windows PowerShell 5.1) — chain with `if ($LASTEXITCODE -eq 0) { ... }` or issue separate calls.\n') +
+        '- `|` pipes objects, not text — use `Out-String` or `ConvertTo-Json` when you need text output.\n' +
+        '- Environment variables: `$env:NAME` to read, `$env:NAME = "value"` to set.\n' +
+        '- Paths are Windows-style (`C:\\Users\\...`); use `Join-Path` / `Split-Path` instead of string concatenation.\n' +
+        '- `where.exe` (not `which`), `Get-Command` to locate executables.\n'
+      );
+    case 'cmd':
+      return (
+        '**Shell semantics (cmd.exe):**\n' +
+        '- Use cmd syntax: `dir` (not `ls`), `type` (not `cat`), `cd /d` to change drives, `%VAR%` for environment variables.\n' +
+        '- `&&` chains commands; `|` pipes text; `> file` / `>> file` redirect.\n' +
+        '- Paths are Windows-style (`C:\\Users\\...`).\n' +
+        '- `where` (not `which`) to locate executables.\n'
+      );
+    default:
+      return (
+        '**Shell semantics (bash):**\n' +
+        '- POSIX/bash syntax: `ls`, `cat`, `cd`, `$VAR`, `/dev/null`.\n' +
+        '- `&&` chains commands; `|` pipes text; `> file` / `>> file` redirect.\n' +
+        '- `which <command>` to confirm a command exists before relying on it.\n'
+      );
+  }
 }
 
 function withoutBackgroundDescription(description: string): string {
@@ -129,6 +166,8 @@ export class BashTool implements IBashTool {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(BashInputSchema);
 
   private readonly isWindowsBash: boolean;
+  private readonly isWindowsPowerShell: boolean;
+  private readonly isWindowsCmd: boolean;
 
   private readonly renderedDescription: string;
 
@@ -140,7 +179,11 @@ export class BashTool implements IBashTool {
     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @IConfigService private readonly config: IConfigService,
   ) {
-    this.isWindowsBash = this.env.osKind === 'Windows';
+    this.isWindowsBash = this.env.osKind === 'Windows' && this.env.shellName === 'bash';
+    this.isWindowsPowerShell =
+      this.env.osKind === 'Windows' &&
+      (this.env.shellName === 'powershell' || this.env.shellName === 'pwsh');
+    this.isWindowsCmd = this.env.osKind === 'Windows' && this.env.shellName === 'cmd';
     this.renderedDescription = renderBashDescription(this.env.shellName);
   }
 
@@ -191,12 +234,7 @@ export class BashTool implements IBashTool {
   }
 
   private spawn(effectiveCwd: string, command: string): Promise<IProcess> {
-    const shellCwd = this.isWindowsBash ? windowsPathToPosixPath(effectiveCwd) : effectiveCwd;
-    const shellArgs = [
-      this.env.shellPath,
-      '-c',
-      `cd ${shellQuote(shellCwd)} && ${command}`,
-    ];
+    const shellArgs = this.windowsShellArgs(effectiveCwd, command);
 
     const noninteractiveEnv: Record<string, string> = {
       NO_COLOR: '1',
@@ -206,6 +244,38 @@ export class BashTool implements IBashTool {
     };
 
     return this.runner.exec(shellArgs, { env: noninteractiveEnv });
+  }
+
+  /**
+   * Build the shell invocation for the detected shell.
+   *
+   * - bash (POSIX or Git Bash): `bash -c 'cd <cwd> && <command>'` with the
+   *   cwd quoted for POSIX and converted to a POSIX path on Windows.
+   * - PowerShell: `pwsh|powershell -NoProfile -NonInteractive -Command
+   *   "Set-Location -LiteralPath '<cwd>'; <command>"` — native PowerShell
+   *   semantics, no POSIX emulation.
+   * - cmd: `cmd.exe /d /s /c "cd /d <cwd> && <command>"`.
+   */
+  private windowsShellArgs(effectiveCwd: string, command: string): string[] {
+    if (this.isWindowsPowerShell) {
+      const script = `Set-Location -LiteralPath '${effectiveCwd.replaceAll("'", "''")}'; ${command}`;
+      return [this.env.shellPath, '-NoProfile', '-NonInteractive', '-Command', script];
+    }
+    if (this.isWindowsCmd) {
+      return [
+        this.env.shellPath,
+        '/d',
+        '/s',
+        '/c',
+        `cd /d "${effectiveCwd.replaceAll('"', '""')}" && ${command}`,
+      ];
+    }
+    const shellCwd = this.isWindowsBash ? windowsPathToPosixPath(effectiveCwd) : effectiveCwd;
+    return [
+      this.env.shellPath,
+      '-c',
+      `cd ${shellQuote(shellCwd)} && ${command}`,
+    ];
   }
 
   private async execution(
@@ -219,7 +289,7 @@ export class BashTool implements IBashTool {
 
     const startsInBackground = args.run_in_background === true;
     const foregroundTimeoutMs = normalizeTimeoutMs(args.timeout, false);
-    const command = this.isWindowsBash ? rewriteWindowsNullRedirect(args.command) : args.command;
+    const command = this.rewriteCommandForShell(args.command);
     const effectiveCwd = args.cwd ?? this.ctx.cwd;
     const description = startsInBackground ? args.description!.trim() : foregroundDescription(args);
     const timeoutMs = startsInBackground
@@ -314,6 +384,12 @@ export class BashTool implements IBashTool {
     } finally {
       collectForegroundOutput = false;
     }
+  }
+
+  private rewriteCommandForShell(command: string): string {
+    if (this.isWindowsBash) return rewriteWindowsNullRedirect(command);
+    if (this.isWindowsPowerShell) return rewritePowerShellNullRedirect(command);
+    return command;
   }
 
   private validateRunRequest(
@@ -500,4 +576,10 @@ const WINDOWS_NUL_REDIRECT = /(\d?&?>+\s*)[Nn][Uu][Ll](?=\s|$|[|&;)\n])/g;
 
 function rewriteWindowsNullRedirect(command: string): string {
   return command.replace(WINDOWS_NUL_REDIRECT, '$1/dev/null');
+}
+
+const POWERSHELL_NUL_REDIRECT = /(\d?&?>+\s*)[Nn][Uu][Ll](?=\s|$|[|&;)\n])/g;
+
+function rewritePowerShellNullRedirect(command: string): string {
+  return command.replace(POWERSHELL_NUL_REDIRECT, '$1$null');
 }

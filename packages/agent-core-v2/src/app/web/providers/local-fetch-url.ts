@@ -249,7 +249,7 @@ async function resolveSafeFetchTarget(url: string, allowPrivate: boolean): Promi
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error2(ErrorCodes.WEB_INVALID_URL, `Invalid URL: "${url}"`, { details: { url } });
+    throw new Error2(ErrorCodes.WEB_INVALID_URL, t('toolsV2.fetchUrl.invalidUrl', { url }), { details: { url } });
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error2(
@@ -264,14 +264,14 @@ async function resolveSafeFetchTarget(url: string, allowPrivate: boolean): Promi
   if (allowPrivate) return { host, port };
   if (isIP(host) !== 0) {
     if (isBlockedAddress(host)) {
-      throw new Error2(ErrorCodes.WEB_PRIVATE_ADDRESS, `Refusing to fetch private address: "${host}"`, {
+      throw new Error2(ErrorCodes.WEB_PRIVATE_ADDRESS, t('toolsV2.fetchUrl.privateAddress', { host }), {
         details: { host },
       });
     }
     return { host, port };
   }
   if (host === 'localhost' || host.endsWith('.localhost')) {
-    throw new Error2(ErrorCodes.WEB_PRIVATE_ADDRESS, `Refusing to fetch private host: "${host}"`, {
+    throw new Error2(ErrorCodes.WEB_PRIVATE_ADDRESS, t('toolsV2.fetchUrl.privateHost', { host }), {
       details: { host },
     });
   }

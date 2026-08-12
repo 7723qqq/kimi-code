@@ -105,7 +105,7 @@ export async function handleLegacyKillCommand(deps: LegacyKillDeps): Promise<voi
 
   const lock = await deps.readLock();
   if (lock === undefined) {
-    deps.stdout.write('No running legacy Kimi server.\n');
+    deps.stdout.write(t('tui.statusMessages.legacyKillNoRunning') + '\n');
     return;
   }
 
@@ -113,13 +113,13 @@ export async function handleLegacyKillCommand(deps: LegacyKillDeps): Promise<voi
     // Stale lock from a server that died without releasing it; sweep it so the
     // cleanup is done in one run.
     await deps.removeLock().catch(() => {});
-    deps.stdout.write('No running legacy Kimi server.\n');
+    deps.stdout.write(t('tui.statusMessages.legacyKillNoRunning') + '\n');
     return;
   }
 
   const outcome = await killLegacyServer(lock, deps);
   await deps.removeLock().catch(() => {});
-  deps.stdout.write(`Legacy Kimi server (pid ${String(lock.pid)}) ${outcome}.\n`);
+  deps.stdout.write(t('tui.statusMessages.legacyKillOutcome', { pid: String(lock.pid), outcome }) + '\n');
 }
 
 /**

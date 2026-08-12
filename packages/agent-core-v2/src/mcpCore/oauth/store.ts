@@ -13,11 +13,12 @@ import { createHash } from 'node:crypto';
 import { basename } from 'pathe';
 
 import { ErrorCodes, Error2 } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 
 export function sanitizeStoreKey(name: string): string {
   const safe = basename(name).replaceAll(/[^a-zA-Z0-9_-]/g, '_').replaceAll(/_+/g, '_');
   if (safe.length === 0 || safe.startsWith('.')) {
-    throw new Error2(ErrorCodes.CONFIG_INVALID, `Invalid MCP OAuth store key: "${name}"`);
+    throw new Error2(ErrorCodes.CONFIG_INVALID, t('v2Errors.mcpOAuthStoreKeyInvalid', { name }));
   }
   return safe;
 }

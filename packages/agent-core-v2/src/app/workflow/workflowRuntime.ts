@@ -23,6 +23,7 @@ import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifec
 import { IAgentProfileService } from '#/agent/profile/profile';
 import type { ISessionSubagentService } from '#/session/subagent/subagent';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { t } from '@moonshot-ai/kimi-i18n';
 import type { ILogService } from '#/_base/log/log';
 import type { WorkflowRunEntry, AgentOpts } from './workflowTypes';
 import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';
@@ -94,10 +95,10 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
       entry.agentCount++;
       const result = await spawnAgent(prompt, agentOpts ?? {}, deps, entry);
       return result;
-    } catch (err) {
+    } catch (error) {
       deps.log.warn('workflow.agent.failed', {
         label: agentOpts?.label,
-        error: err instanceof Error ? err.message : String(err),
+        error: error instanceof Error ? error.message : String(error),
       });
       return null;
     } finally {
@@ -164,12 +165,12 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
         windowsHide: true,
       });
       return { stdout: result.stdout ?? '', stderr: result.stderr ?? '', exitCode: 0 };
-    } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'code' in err && 'stdout' in err && 'stderr' in err) {
-        const cmdErr = err as { code: number | string; stdout: string; stderr: string };
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'code' in error && 'stdout' in error && 'stderr' in error) {
+        const cmdErr = error as { code: number | string; stdout: string; stderr: string };
         return { stdout: cmdErr.stdout ?? '', stderr: cmdErr.stderr ?? '', exitCode: typeof cmdErr.code === 'number' ? cmdErr.code : 1 };
       }
-      return { stdout: '', stderr: String(err), exitCode: 1 };
+      return { stdout: '', stderr: String(error), exitCode: 1 };
     }
   };
 
@@ -186,8 +187,8 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
       });
       const body = await response.text();
       return { ok: response.ok, status: response.status, body };
-    } catch (err) {
-      return { ok: false, status: 0, body: String(err) };
+    } catch (error) {
+      return { ok: false, status: 0, body: String(error) };
     }
   };
 
@@ -204,10 +205,10 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
         url: r.url ?? '',
         snippet: r.snippet ?? '',
       }));
-    } catch (err) {
+    } catch (error) {
       deps.log.warn('workflow.search.failed', {
         runId: entry.runId,
-        error: err instanceof Error ? err.message : String(err),
+        error: error instanceof Error ? error.message : String(error),
       });
       return [];
     }
@@ -306,7 +307,7 @@ async function spawnAgent(
   const callerData = caller?.accessor.get(IAgentProfileService).data();
   const modelAlias = opts.model ?? callerData?.modelAlias;
   if (modelAlias === undefined) {
-    throw new Error('Cannot spawn workflow agent: caller has no model bound');
+    throw new Error(t('v2Errors.callerAgentNoModel'));
   }
 
   // Create a subagent.
@@ -378,22 +379,22 @@ function parseJsonResult(text: string): unknown {
 
 function resolveInWorkspace(root: string, path: string): string {
   if (isAbsolute(path) || path.split(/[/\\]/).includes('..')) {
-    throw new Error(`Path escapes workspace root: ${path}`);
+    throw new Error(t('v2Errors.pathEscapesWorkspace', { path }));
   }
   const resolved = resolve(join(root, path));
   const rootWithSep = resolve(root).replace(/[/\\]+$/, '');
   if (resolved !== rootWithSep && !resolved.startsWith(`${rootWithSep}/`)) {
-    throw new Error(`Path escapes workspace root: ${path}`);
+    throw new Error(t('v2Errors.pathEscapesWorkspace', { path }));
   }
   return resolved;
 }
 
 function globToRegex(pattern: string): RegExp {
   let regex = pattern
-    .replace(/\./g, '\\.')
-    .replace(/\*\*/g, '.*')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\?/g, '[^/]');
+    .replaceAll(/\./g, '\\.')
+    .replaceAll(/\*\*/g, '.*')
+    .replaceAll(/\*/g, '[^/]*')
+    .replaceAll(/\?/g, '[^/]');
   return new RegExp(regex);
 }
 

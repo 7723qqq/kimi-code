@@ -20,6 +20,7 @@ import { Service } from '#/_base/di/service';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2, ErrorCodes } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 
 import { IAgentCommandService, type AgentCommandInfo } from './agentCommand';
 import { CommandContribution } from './commandContribution';
@@ -53,7 +54,7 @@ export class AgentCommandService extends Service implements IAgentCommandService
   async run(name: string, args = ''): Promise<void> {
     const record = this.find(name);
     if (record === undefined) {
-      throw new Error2(ErrorCodes.REQUEST_INVALID, `Unknown command "${name}"`);
+      throw new Error2(ErrorCodes.REQUEST_INVALID, t('v2Errors.unknownCommand', { name }));
     }
     await this.instantiationService.invokeFunction((accessor) =>
       record.value.run({ args, get: <T>(id: ServiceIdentifier<T>): T => accessor.get(id) }),

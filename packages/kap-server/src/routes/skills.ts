@@ -116,6 +116,7 @@ import {
 import { join } from 'node:path';
 import { z } from 'zod';
 
+import { t } from '../i18n';
 import { errEnvelope, okEnvelope } from '../envelope';
 import {
   assertPromptFileRefs,
@@ -323,7 +324,7 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
           await catalog.ready;
           const skill = catalog.catalog.getSkill(parsed.id);
           if (skill === undefined) {
-            throw new Error2(ErrorCodes.SKILL_NOT_FOUND, `Skill "${parsed.id}" was not found`);
+            throw new Error2(ErrorCodes.SKILL_NOT_FOUND, t('errors.skillNotFound'));
           }
           if (!isUserActivatableSkillType(skill.metadata.type)) {
             throw new Error2(
@@ -362,8 +363,8 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
         );
         requestLog(req)?.info({ session_id, skill_name: parsed.id }, 'skill activated');
         reply.send(okEnvelope({ activated: true, skill_name: parsed.id }, req.id));
-      } catch (err) {
-        sendMappedError(reply, req.id, err);
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
       }
     },
   );

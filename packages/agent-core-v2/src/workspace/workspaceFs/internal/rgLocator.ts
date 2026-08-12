@@ -20,6 +20,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { ErrorCodes, Error2 } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 
 export type RgResolutionSource = 'system-path' | 'share-bin-cached';
 
@@ -77,7 +78,7 @@ export async function ensureRgPath(
     }
   }
 
-  throw new Error2(ErrorCodes.OS_FS_UNAVAILABLE, 'ripgrep (rg) is not available on PATH');
+  throw new Error2(ErrorCodes.OS_FS_UNAVAILABLE, t('v2Errors.rgNotAvailable'));
 }
 
 export function rgUnavailableMessage(cause: unknown): string {

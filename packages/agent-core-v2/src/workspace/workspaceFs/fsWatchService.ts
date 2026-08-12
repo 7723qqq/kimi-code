@@ -23,6 +23,7 @@ import { Emitter, type Event } from '#/_base/event';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, Error2 } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
   type HostFsChange,
@@ -121,7 +122,7 @@ export class WorkspaceFsWatchService extends Service implements IWorkspaceFsWatc
       (content) => {
         this.matcher.add(content);
       },
-      () => undefined,
+      () => {},
     );
   }
 
@@ -146,12 +147,12 @@ export class WorkspaceFsWatchService extends Service implements IWorkspaceFsWatc
 
   private resolveWithin(inputPath: string): string {
     if (inputPath === '' || inputPath === '/') {
-      throw new Error2(ErrorCodes.FS_PATH_ESCAPES, `path "${inputPath}" rejected (empty)`, {
+      throw new Error2(ErrorCodes.FS_PATH_ESCAPES, t('v2Errors.pathRejectedEmpty', { path: inputPath }), {
         details: { path: inputPath, reason: 'empty' },
       });
     }
     if (isAbsolute(inputPath)) {
-      throw new Error2(ErrorCodes.FS_PATH_ESCAPES, `path "${inputPath}" rejected (absolute)`, {
+      throw new Error2(ErrorCodes.FS_PATH_ESCAPES, t('v2Errors.pathRejectedAbsolute', { path: inputPath }), {
         details: { path: inputPath, reason: 'absolute' },
       });
     }
@@ -159,13 +160,13 @@ export class WorkspaceFsWatchService extends Service implements IWorkspaceFsWatc
     if (segments.some((s) => s === '..')) {
       throw new Error2(
         ErrorCodes.FS_PATH_ESCAPES,
-        `path "${inputPath}" rejected (dotdot segment)`,
+        t('v2Errors.pathRejectedDotdot', { path: inputPath }),
         { details: { path: inputPath, reason: 'dotdot_segment' } },
       );
     }
     const abs = isAbsolute(inputPath) ? resolve(inputPath) : resolve(this.workDir, inputPath);
     if (!this.isWithinWorkspace(abs)) {
-      throw new Error2(ErrorCodes.FS_PATH_ESCAPES, `path "${inputPath}" escapes workspace`, {
+      throw new Error2(ErrorCodes.FS_PATH_ESCAPES, t('v2Errors.pathEscapesWorkspace', { path: inputPath }), {
         details: { path: inputPath, reason: 'resolved_outside' },
       });
     }

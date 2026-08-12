@@ -1,28 +1,12 @@
-import type { Locale, MessageValue } from '@moonshot-ai/i18n-shared/types';
+import type { Locale, TranslationKey as SharedTranslationKey } from '@moonshot-ai/i18n-shared/types';
 import { interpolate } from '@moonshot-ai/i18n-shared/core';
+import { detectLocaleNode } from '@moonshot-ai/i18n-shared/detect';
+import { en } from './locales/en';
+import { zh } from './locales/zh';
 
 export type { Locale } from '@moonshot-ai/i18n-shared/types';
 
-type Join<K, P> = K extends string | number
-  ? P extends string | number
-    ? `${K}.${P}`
-    : never
-  : never;
-
-type Paths<T> = T extends MessageValue
-  ? T extends string
-    ? never
-    : {
-        [K in keyof T]-?: K extends string | number
-          ? Join<K, Paths<T[K]>> | K
-          : never;
-      }[keyof T]
-  : never;
-
-export type TranslationKey = Paths<typeof import('./locales/en').default>;
-
-import { en } from './locales/en';
-import { zh } from './locales/zh';
+export type TranslationKey = SharedTranslationKey<typeof en>;
 
 // ── Pre-computed flat lookup maps ───────────────────────────────────────────
 // Converts nested message trees to flat Map<dotPath, string> at module init,
@@ -107,20 +91,7 @@ const localeJsonMap: Record<Locale, string> = {
 
 // ── Locale detection ────────────────────────────────────────────────────────
 
-let currentLocale: Locale;
-
-function detectLocale(): Locale {
-  const envLang = process.env['KIMI_LANG'];
-  if (envLang === 'zh' || envLang?.startsWith('zh')) {
-    return 'zh';
-  }
-  if (envLang === 'en' || envLang?.startsWith('en')) {
-    return 'en';
-  }
-  return 'en';
-}
-
-currentLocale = detectLocale();
+let currentLocale: Locale = detectLocaleNode();
 
 export function setLocale(locale: Locale): void {
   if (locale === 'en' || locale === 'zh') {

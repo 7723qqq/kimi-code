@@ -18,6 +18,7 @@ import {
 } from '#/_base/di/scope';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { Error2, ErrorCodes } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 import { ILogService } from '#/_base/log/log';
 import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
 import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
@@ -37,14 +38,14 @@ export class RestGateway implements IRestGateway {
   private agent(sessionId: string, agentId: string): IAgentScopeHandle {
     const session = this.liveSession(sessionId);
     if (session === undefined) {
-      throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `unknown session '${sessionId}'`, {
+      throw new Error2(ErrorCodes.SESSION_NOT_FOUND, t('v2Errors.unknownSession', { sessionId }), {
         details: { sessionId },
       });
     }
     const agents = session.accessor.get(IAgentLifecycleService);
     const agent = agents.get(agentId);
     if (agent === undefined) {
-      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `unknown agent '${agentId}'`, {
+      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, t('v2Errors.unknownAgent', { agentId }), {
         details: { agentId, sessionId },
       });
     }
@@ -56,7 +57,7 @@ export class RestGateway implements IRestGateway {
       const handle = handler.accessor.get(ISessionLifecycleService).get(sessionId);
       if (handle !== undefined) return handle;
     }
-    return undefined;
+    return;
   }
 
   async prompt(

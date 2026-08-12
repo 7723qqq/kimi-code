@@ -42,13 +42,13 @@ const MS_PER_MINUTE = 60_000;
 
 export function parseCronExpression(expr: string): ParsedCronExpression {
   if (typeof expr !== 'string') {
-    throw new Error2(ErrorCodes.CRON_EXPRESSION_INVALID, 'cron expression must be a string', {
+    throw new Error2(ErrorCodes.CRON_EXPRESSION_INVALID, t('v2Errors.cronExpressionMustBeString'), {
       details: { received: typeof expr },
     });
   }
   const trimmed = expr.trim();
   if (trimmed === '') {
-    throw new Error2(ErrorCodes.CRON_EXPRESSION_INVALID, 'cron expression is empty');
+    throw new Error2(ErrorCodes.CRON_EXPRESSION_INVALID, t('v2Errors.cronExpressionEmpty'));
   }
   const fields = trimmed.split(/\s+/);
   if (fields.length !== 5) {
@@ -135,7 +135,7 @@ function addTerm(out: Set<number>, term: string, min: number, max: number, name:
     rangePart = term.slice(0, slash);
     const stepStr = term.slice(slash + 1);
     if (stepStr === '') {
-      throw new Error2(ErrorCodes.CRON_EXPRESSION_INVALID, `cron ${name} step is empty in "${term}"`, {
+      throw new Error2(ErrorCodes.CRON_EXPRESSION_INVALID, t('v2Errors.cronStepEmpty', { name, term }), {
         details: { field: name, term },
       });
     }

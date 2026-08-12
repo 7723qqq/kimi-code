@@ -21,7 +21,7 @@ import * as nodeOs from 'node:os';
 import * as nodePath from 'node:path';
 
 export type OsKind = string;
-export type ShellName = 'bash' | 'sh';
+export type ShellName = 'bash' | 'sh' | 'powershell' | 'pwsh' | 'cmd';
 export type PathClass = 'posix' | 'win32';
 
 export interface HostEnvironmentInfo {
@@ -46,6 +46,12 @@ export interface HostEnvironmentProbeDeps {
     args: readonly string[],
     timeoutMs: number,
   ) => Promise<string | undefined>;
+  /**
+   * Optional shell preference (`auto` | `bash` | `powershell` | `pwsh` |
+   * `cmd`). `auto` keeps the platform default priority; an explicit value
+   * pins the shell. `KIMI_SHELL_PATH` still wins over this.
+   */
+  readonly shellPreference?: string;
 }
 
 const GIT_EXEC_PATH_TIMEOUT_MS = 5_000;
@@ -80,18 +86,17 @@ export async function probeHostEnvironment(
   const pathClass: PathClass = deps.platform === 'win32' ? 'win32' : 'posix';
 
   if (deps.platform === 'win32') {
-    const shellPath = await locateWindowsGitBash(deps);
+    const shell = await locateWindowsShell(deps);
     return {
       osKind,
       osArch,
       osVersion,
-      shellName: 'bash',
-      shellPath,
+      shellName: shell.name,
+      shellPath: shell.path,
       pathClass,
       homeDir: deps.homeDir,
     };
   }
-
   const candidates: readonly string[] = ['/bin/bash', '/usr/bin/bash', '/usr/local/bin/bash'];
   let found: string | undefined;
   for (const p of candidates) {
@@ -122,16 +127,175 @@ export async function probeHostEnvironment(
   };
 }
 
-async function locateWindowsGitBash(deps: HostEnvironmentProbeDeps): Promise<string> {
-  const checked: string[] = [];
+interface LocatedShell {
+  readonly name: ShellName;
+  readonly path: string;
+}
 
+/**
+ * Locate the Windows shell to run commands with.
+ *
+ * Priority:
+ *   1. `KIMI_SHELL_PATH` — explicit override, honored verbatim (its basename
+ *      decides the shell semantics: pwsh/powershell → PowerShell, cmd → cmd,
+ *      anything else → bash).
+ *   2. PowerShell 7 (`pwsh.exe`) — the modern, cross-platform shell.
+ *   3. Windows PowerShell (`powershell.exe`) — always present on Windows.
+ *   4. Git Bash — POSIX compatibility layer (previous default).
+ *   5. `cmd.exe` — last resort, always present.
+ *
+ * PowerShell is preferred over Git Bash so Windows users get native shell
+ * semantics (PowerShell syntax, `Get-ChildItem`, `$env:`, …) instead of a
+ * POSIX emulation layer. Git Bash remains the fallback for hosts that only
+ * have Git for Windows installed.
+ */
+async function locateWindowsShell(deps: HostEnvironmentProbeDeps): Promise<LocatedShell> {
   const override = deps.env['KIMI_SHELL_PATH']?.trim();
   if (override !== undefined && override.length > 0) {
-    checked.push(override);
     if (await deps.isFile(override)) {
-      return override;
+      return { name: shellNameFromPath(override), path: override };
+    }
+    throw new Error(
+      `KIMI_SHELL_PATH points to a missing file: ${override}. Checked: ${override}.`,
+    );
+  }
+
+  // An explicit `[shell] preference` pins the shell; `auto` keeps the
+  // platform default priority below.
+  const preference = deps.shellPreference?.trim();
+  if (preference !== undefined && preference.length > 0 && preference !== 'auto') {
+    const pinned = await locatePinnedShell(preference, deps);
+    if (pinned !== undefined) return pinned;
+  }
+
+  const pwsh = await findExecutableOnPath('pwsh.exe', deps.env['PATH'], deps.platform, deps.isFile);
+  if (pwsh !== undefined) {
+    return { name: 'pwsh', path: pwsh };
+  }
+  // pwsh may be installed outside PATH (e.g. per-user installs); probe the
+  // standard locations before falling back to Windows PowerShell.
+  const pwshCandidates = [
+    'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+    'C:\\Program Files (x86)\\PowerShell\\7\\pwsh.exe',
+  ];
+  const localAppData = deps.env['LOCALAPPDATA']?.trim();
+  if (localAppData !== undefined && localAppData.length > 0) {
+    pwshCandidates.push(`${localAppData}\\Programs\\PowerShell\\7\\pwsh.exe`);
+  }
+  for (const candidate of pwshCandidates) {
+    if (await deps.isFile(candidate)) {
+      return { name: 'pwsh', path: candidate };
     }
   }
+
+  const powershell = await findExecutableOnPath(
+    'powershell.exe',
+    deps.env['PATH'],
+    deps.platform,
+    deps.isFile,
+  );
+  if (powershell !== undefined) {
+    return { name: 'powershell', path: powershell };
+  }
+  // Windows PowerShell ships in a fixed location; probe it directly in case
+  // it is missing from PATH.
+  const powershellCandidates = [
+    'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    'C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe',
+  ];
+  for (const candidate of powershellCandidates) {
+    if (await deps.isFile(candidate)) {
+      return { name: 'powershell', path: candidate };
+    }
+  }
+
+  const gitBash = await locateWindowsGitBash(deps);
+  return { name: 'bash', path: gitBash };
+}
+
+/**
+ * Resolve an explicit `[shell] preference` to a concrete shell. Returns
+ * `undefined` when the requested shell cannot be located, so the caller
+ * falls through to the default priority (and the user sees the probe error
+ * only when nothing at all is available).
+ */
+async function locatePinnedShell(
+  preference: string,
+  deps: HostEnvironmentProbeDeps,
+): Promise<LocatedShell | undefined> {
+  switch (preference) {
+    case 'pwsh': {
+      const onPath = await findExecutableOnPath('pwsh.exe', deps.env['PATH'], deps.platform, deps.isFile);
+      if (onPath !== undefined) return { name: 'pwsh', path: onPath };
+      const candidates = [
+        'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+        'C:\\Program Files (x86)\\PowerShell\\7\\pwsh.exe',
+      ];
+      const localAppData = deps.env['LOCALAPPDATA']?.trim();
+      if (localAppData !== undefined && localAppData.length > 0) {
+        candidates.push(`${localAppData}\\Programs\\PowerShell\\7\\pwsh.exe`);
+      }
+      for (const candidate of candidates) {
+        if (await deps.isFile(candidate)) return { name: 'pwsh', path: candidate };
+      }
+      return undefined;
+    }
+    case 'powershell': {
+      const onPath = await findExecutableOnPath('powershell.exe', deps.env['PATH'], deps.platform, deps.isFile);
+      if (onPath !== undefined) return { name: 'powershell', path: onPath };
+      const candidates = [
+        'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+        'C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe',
+      ];
+      for (const candidate of candidates) {
+        if (await deps.isFile(candidate)) return { name: 'powershell', path: candidate };
+      }
+      return undefined;
+    }
+    case 'bash': {
+      try {
+        return { name: 'bash', path: await locateWindowsGitBash(deps) };
+      } catch {
+        return undefined;
+      }
+    }
+    case 'cmd': {
+      const onPath = await findExecutableOnPath('cmd.exe', deps.env['PATH'], deps.platform, deps.isFile);
+      if (onPath !== undefined) return { name: 'cmd', path: onPath };
+      const candidates = [
+        'C:\\Windows\\System32\\cmd.exe',
+        'C:\\Windows\\SysWOW64\\cmd.exe',
+      ];
+      for (const candidate of candidates) {
+        if (await deps.isFile(candidate)) return { name: 'cmd', path: candidate };
+      }
+      return undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+function shellNameFromPath(path: string): ShellName {
+  const base = path.split(/[\\/]/).pop()?.toLowerCase() ?? '';
+  if (base === 'pwsh.exe' || base === 'pwsh') return 'pwsh';
+  if (base === 'powershell.exe' || base === 'powershell') return 'powershell';
+  if (base === 'cmd.exe' || base === 'cmd') return 'cmd';
+  return 'bash';
+}
+
+async function findExecutableOnPath(
+  name: string,
+  pathEnv: string | undefined,
+  platform: string,
+  isFile: (p: string) => Promise<boolean>,
+): Promise<string | undefined> {
+  const found = await findExecutablesOnPath(name, pathEnv, platform, isFile);
+  return found[0];
+}
+
+async function locateWindowsGitBash(deps: HostEnvironmentProbeDeps): Promise<string> {
+  const checked: string[] = [];
 
   const gitExecutables = await findExecutablesOnPath(
     'git.exe',
@@ -258,9 +422,15 @@ function dedupeWindowsPaths(paths: readonly string[]): readonly string[] {
 }
 
 let cachedProbe: Promise<HostEnvironmentInfo> | undefined;
+let cachedProbePreference: string | undefined;
 
-export function probeHostEnvironmentFromNode(): Promise<HostEnvironmentInfo> {
-  if (cachedProbe !== undefined) return cachedProbe;
+export function probeHostEnvironmentFromNode(
+  shellPreference?: string,
+): Promise<HostEnvironmentInfo> {
+  const preference = shellPreference ?? 'auto';
+  if (cachedProbe !== undefined && cachedProbePreference === preference) {
+    return cachedProbe;
+  }
   const platform = process.platform;
   const env = process.env as Record<string, string | undefined>;
   const isFile = async (path: string): Promise<boolean> => {
@@ -279,7 +449,9 @@ export function probeHostEnvironmentFromNode(): Promise<HostEnvironmentInfo> {
     env,
     isFile,
     execFileText,
+    shellPreference: preference,
   });
+  cachedProbePreference = preference;
   return cachedProbe;
 }
 
@@ -317,7 +489,7 @@ export async function execFileText(
       { encoding: 'utf8', timeout: timeoutMs, windowsHide: true },
       (error, stdout) => {
         if (error !== null) {
-          resolve(undefined);
+          resolve();
           return;
         }
         resolve(stdout);

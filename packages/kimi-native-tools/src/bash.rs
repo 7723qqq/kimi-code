@@ -47,7 +47,9 @@ impl Default for BashConfig {
 ///
 /// Behavior:
 ///   - On Unix: runs via `/bin/bash -c <command>`.
-///   - On Windows: runs via Git Bash or `cmd.exe /c <command>`.
+///   - On Windows: runs via PowerShell 7 / Windows PowerShell / Git Bash /
+///     `cmd.exe` (in that order of preference), or the `KIMI_SHELL_PATH`
+///     override.
 ///   - Captures stdout and stderr.
 ///   - Applies timeout (default 60s, max 300s for foreground).
 ///   - Returns exit code, stdout, stderr, and timeout flag.
@@ -57,10 +59,12 @@ pub fn bash_exec(config: &BashConfig) -> BashResult {
         .unwrap_or(DEFAULT_TIMEOUT_S)
         .min(MAX_TIMEOUT_S);
 
-    let (shell, shell_arg) = detect_shell_for(&config.command);
+    let (shell, shell_args) = detect_shell_for(&config.command);
 
     let mut cmd = Command::new(&shell);
-    cmd.arg(&shell_arg);
+    for arg in &shell_args {
+        cmd.arg(arg);
+    }
     cmd.arg(&config.command);
 
     // Set working directory.
@@ -239,36 +243,104 @@ fn kill_process_tree(child: &mut std::process::Child) {
 /// Detect the shell to use for a given command.
 ///
 /// On Windows, .bat/.cmd files must be run via `cmd.exe` because Git Bash
-/// does not recognize the `.bat` extension. For all other commands, Git Bash
-/// is preferred (when available) for POSIX compatibility.
-fn detect_shell_for(command: &str) -> (String, String) {
+/// does not recognize the `.bat` extension. For all other commands, the
+/// detection order is: `KIMI_SHELL_PATH` override → PowerShell 7 (`pwsh.exe`)
+/// → Windows PowerShell (`powershell.exe`) → Git Bash → `cmd.exe`. PowerShell
+/// is preferred over Git Bash so Windows users get native shell semantics.
+///
+/// Returns the shell executable and the argument prefix (before the command
+/// itself). PowerShell gets `-NoProfile -NonInteractive` so user profiles are
+/// skipped and nothing waits on interactive input.
+fn detect_shell_for(command: &str) -> (String, Vec<String>) {
     #[cfg(unix)]
     {
         let _ = command;
-        ("/bin/bash".to_string(), "-c".to_string())
+        ("/bin/bash".to_string(), vec!["-c".to_string()])
     }
     #[cfg(windows)]
     {
         if is_bat_command(command) {
-            return ("cmd.exe".to_string(), "/c".to_string());
+            return ("cmd.exe".to_string(), vec!["/c".to_string()]);
         }
         detect_shell()
     }
 }
 
 #[cfg(unix)]
-fn detect_shell() -> (String, String) {
-    ("/bin/bash".to_string(), "-c".to_string())
+fn detect_shell() -> (String, Vec<String>) {
+    ("/bin/bash".to_string(), vec!["-c".to_string()])
 }
 
 #[cfg(windows)]
-fn detect_shell() -> (String, String) {
-    // Try Git Bash first.
-    if let Ok(git_bash) = which_bash() {
-        return (git_bash, "-c".to_string());
+fn detect_shell() -> (String, Vec<String>) {
+    // Explicit override wins.
+    if let Ok(override_path) = std::env::var("KIMI_SHELL_PATH") {
+        let trimmed = override_path.trim();
+        if !trimmed.is_empty() {
+            return (trimmed.to_string(), shell_args_for(trimmed));
+        }
     }
-    // Fall back to cmd.exe.
-    ("cmd.exe".to_string(), "/c".to_string())
+
+    // PowerShell 7 first — the modern, cross-platform shell.
+    if let Some(pwsh) = which("pwsh.exe") {
+        return (pwsh, powershell_args());
+    }
+    // Windows PowerShell — always present on Windows.
+    if let Some(powershell) = which("powershell.exe") {
+        return (powershell, powershell_args());
+    }
+    // Git Bash — POSIX compatibility layer (previous default).
+    if let Ok(git_bash) = which_bash() {
+        return (git_bash, vec!["-c".to_string()]);
+    }
+    // cmd.exe — last resort, always present.
+    ("cmd.exe".to_string(), vec!["/c".to_string()])
+}
+
+/// PowerShell invocation prefix: skip user profiles and never wait on
+/// interactive input, mirroring the TS BashTool.
+#[cfg(windows)]
+fn powershell_args() -> Vec<String> {
+    vec![
+        "-NoProfile".to_string(),
+        "-NonInteractive".to_string(),
+        "-Command".to_string(),
+    ]
+}
+
+/// Pick the argument style for an explicit `KIMI_SHELL_PATH` override based
+/// on the executable's basename.
+#[cfg(windows)]
+fn shell_args_for(path: &str) -> Vec<String> {
+    let base = path
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or(path)
+        .to_ascii_lowercase();
+    if base == "pwsh.exe" || base == "pwsh" || base == "powershell.exe" || base == "powershell" {
+        powershell_args()
+    } else if base == "cmd.exe" || base == "cmd" {
+        vec!["/c".to_string()]
+    } else {
+        vec!["-c".to_string()]
+    }
+}
+
+/// Locate an executable on PATH (Windows).
+#[cfg(windows)]
+fn which(name: &str) -> Option<String> {
+    if let Ok(output) = Command::new("where").arg(name).output() {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if let Some(first_line) = stdout.lines().next() {
+                let trimmed = first_line.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Check if the command is invoking a .bat or .cmd file.
@@ -355,6 +427,25 @@ const POST_KILL_READ_GRACE: Duration = Duration::from_secs(2);
 mod tests {
     use super::*;
 
+    /// The shell the tests run under on this host (Windows prefers
+    /// PowerShell; Unix uses bash). Test commands are written to be valid in
+    /// both where possible.
+    #[cfg(windows)]
+    fn is_powershell() -> bool {
+        let (shell, _) = detect_shell();
+        let base = shell
+            .rsplit(['\\', '/'])
+            .next()
+            .unwrap_or(&shell)
+            .to_ascii_lowercase();
+        base == "pwsh.exe" || base == "powershell.exe"
+    }
+
+    #[cfg(not(windows))]
+    fn is_powershell() -> bool {
+        false
+    }
+
     #[test]
     fn test_bash_simple_command() {
         let result = bash_exec(&BashConfig {
@@ -368,8 +459,13 @@ mod tests {
 
     #[test]
     fn test_bash_stderr() {
+        let command = if is_powershell() {
+            "Write-Error error; exit 0".to_string()
+        } else {
+            "echo error >&2".to_string()
+        };
         let result = bash_exec(&BashConfig {
-            command: "echo error >&2".to_string(),
+            command,
             ..Default::default()
         });
         assert_eq!(result.exit_code, 0);
@@ -378,8 +474,13 @@ mod tests {
 
     #[test]
     fn test_bash_nonzero_exit() {
+        let command = if is_powershell() {
+            "exit 42".to_string()
+        } else {
+            "exit 42".to_string()
+        };
         let result = bash_exec(&BashConfig {
-            command: "exit 42".to_string(),
+            command,
             ..Default::default()
         });
         assert_eq!(result.exit_code, 42);
@@ -388,8 +489,13 @@ mod tests {
     #[test]
     fn test_bash_with_cwd() {
         let dir = tempfile::tempdir().unwrap();
+        let command = if is_powershell() {
+            "Get-Location".to_string()
+        } else {
+            "pwd".to_string()
+        };
         let result = bash_exec(&BashConfig {
-            command: "pwd".to_string(),
+            command,
             cwd: Some(dir.path().to_str().unwrap().to_string()),
             ..Default::default()
         });
@@ -400,8 +506,13 @@ mod tests {
 
     #[test]
     fn test_bash_timeout() {
+        let command = if is_powershell() {
+            "Start-Sleep -Seconds 10".to_string()
+        } else {
+            "sleep 10".to_string()
+        };
         let result = bash_exec(&BashConfig {
-            command: "sleep 10".to_string(),
+            command,
             timeout: Some(1),
             ..Default::default()
         });
@@ -413,8 +524,13 @@ mod tests {
         // Regression: a backgrounded grandchild holding stdout used to keep
         // the pipe open forever after the timeout kill, hanging the sync call.
         // `sleep 30` bounds the worst case if a platform kill ever fails.
+        let command = if is_powershell() {
+            "Start-Job { Start-Sleep -Seconds 30 }; Start-Sleep -Seconds 30".to_string()
+        } else {
+            "sleep 30 & sleep 30".to_string()
+        };
         let result = bash_exec(&BashConfig {
-            command: "sleep 30 & sleep 30".to_string(),
+            command,
             timeout: Some(1),
             ..Default::default()
         });
@@ -439,8 +555,13 @@ mod tests {
 
     #[test]
     fn test_bash_multiline_output() {
+        let command = if is_powershell() {
+            "'line1\nline2\nline3'".to_string()
+        } else {
+            "echo 'line1\nline2\nline3'".to_string()
+        };
         let result = bash_exec(&BashConfig {
-            command: "echo 'line1\nline2\nline3'".to_string(),
+            command,
             ..Default::default()
         });
         assert_eq!(result.exit_code, 0);
@@ -451,8 +572,13 @@ mod tests {
 
     #[test]
     fn test_bash_with_env() {
+        let command = if is_powershell() {
+            "$env:TEST_VAR".to_string()
+        } else {
+            "echo $TEST_VAR".to_string()
+        };
         let result = bash_exec(&BashConfig {
-            command: "echo $TEST_VAR".to_string(),
+            command,
             env: Some(vec![("TEST_VAR".to_string(), "hello_world".to_string())]),
             ..Default::default()
         });

@@ -23,6 +23,7 @@ import { IModelCatalog } from '#/kosong/model/catalog';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2, ErrorCodes } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 import { linkAbortSignal } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { IAgentProfileService } from '#/agent/profile/profile';
@@ -151,13 +152,13 @@ export class SessionSwarmService implements ISessionSwarmService {
     await this.catalog.ready;
     const profile = this.catalog.get(options.profileName);
     if (profile === undefined) {
-      throw new Error2(ErrorCodes.PROFILE_UNKNOWN, `Unknown agent type: "${options.profileName}"`, {
+      throw new Error2(ErrorCodes.PROFILE_UNKNOWN, t('v2Errors.unknownAgentType', { type: options.profileName }), {
         details: { profileName: options.profileName },
       });
     }
     const callerData = caller.accessor.get(IAgentProfileService).data();
     if (callerData.modelAlias === undefined) {
-      throw new Error2(ErrorCodes.MODEL_NOT_CONFIGURED, 'Caller agent has no model bound', {
+      throw new Error2(ErrorCodes.MODEL_NOT_CONFIGURED, t('v2Errors.callerAgentNoModel'), {
         details: { agentId: callerAgentId },
       });
     }
@@ -263,10 +264,10 @@ export class SessionSwarmService implements ISessionSwarmService {
     };
   }
 
-  private requireHandle(agentId: string, label: string): IAgentScopeHandle {
+  private requireHandle(agentId: string, _label: string): IAgentScopeHandle {
     const handle = this.lifecycle.get(agentId);
     if (handle === undefined) {
-      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `${label} "${agentId}" does not exist`, {
+      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, t('v2Errors.subagentNotFound', { agentId }), {
         details: { agentId },
       });
     }
@@ -286,7 +287,7 @@ export class SessionSwarmService implements ISessionSwarmService {
   private async requireOwnedSubagent(callerAgentId: string, agentId: string): Promise<void> {
     const meta = await this.agentMeta(agentId);
     if (!isSubagentMeta(meta)) {
-      throw new Error2(ErrorCodes.AGENT_NOT_A_SUBAGENT, `Agent instance "${agentId}" is not a subagent`, {
+      throw new Error2(ErrorCodes.AGENT_NOT_A_SUBAGENT, t('v2Errors.subagentNotSubagent', { agentId }), {
         details: { agentId },
       });
     }

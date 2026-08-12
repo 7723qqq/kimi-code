@@ -14,6 +14,8 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { BugIndicatingError } from '#/_base/errors/errors';
 import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
 import { applyLoginShellPathFromNode } from '#/_base/execEnv/loginShellPath';
+import { IConfigService } from '#/app/config/config';
+import { SHELL_SECTION, type ShellConfig } from '#/os/configSection';
 
 import {
   type HostEnvironmentInfo,
@@ -29,13 +31,23 @@ export class HostEnvironmentService implements IHostEnvironment {
   private _info?: HostEnvironmentInfo;
   readonly ready: Promise<void>;
 
-  constructor() {
+  constructor(@IConfigService private readonly config: IConfigService) {
     this.ready = Promise.all([
-      probeHostEnvironmentFromNode().then((info) => {
+      this.config.ready.then(() => probeHostEnvironmentFromNode(this.shellPreference())).then((info) => {
         this._info = info;
       }),
       applyLoginShellPathFromNode(),
     ]).then(() => {});
+  }
+
+  private shellPreference(): string | undefined {
+    try {
+      const section = this.config.get<ShellConfig | undefined>(SHELL_SECTION);
+      return section?.preference;
+    } catch {
+      // Config may not be loaded yet; the probe falls back to `auto`.
+      return undefined;
+    }
   }
 
   private require(field: keyof HostEnvironmentInfo): never | HostEnvironmentInfo[typeof field] {

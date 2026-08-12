@@ -32,6 +32,7 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { ContentPart } from '#/kosong/contract/message';
 import { IEventBus } from '#/app/event/eventBus';
 import { ErrorCodes, Error2 } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 import { OrderedHookSlot } from '#/hooks';
 import { IWireService } from '#/wire/wire';
 
@@ -134,11 +135,11 @@ export class AgentPromptService implements IAgentPromptService {
   }
 
   async steer(promptIds: readonly string[]): Promise<readonly PromptHandle[]> {
-    if (promptIds.length === 0) throw new Error2(ErrorCodes.REQUEST_INVALID, 'prompt_ids must not be empty');
-    if (this.active === undefined) throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, 'no active prompt to steer into');
+    if (promptIds.length === 0) throw new Error2(ErrorCodes.REQUEST_INVALID, t('v2Errors.promptIdsEmpty'));
+    if (this.active === undefined) throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, t('v2Errors.noActivePrompt'));
     const ids = new Set(promptIds);
     if (ids.size !== promptIds.length || this.pending.filter((item) => ids.has(item.id)).length !== ids.size) {
-      throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, 'one or more prompts are not pending');
+      throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, t('v2Errors.promptsNotPending'));
     }
     const selected = this.pending.filter((item) => ids.has(item.id));
     for (const item of selected) this.pending.splice(this.pending.indexOf(item), 1);
@@ -150,7 +151,7 @@ export class AgentPromptService implements IAgentPromptService {
       this.wire.dispatch(steerTurn({ input: materialized.content, origin: materialized.origin ?? USER_PROMPT_ORIGIN }));
     }, () => {});
     const turn = (await this.loop.enqueue(request).assigned).turn;
-    if (turn === undefined) throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, 'no active turn to steer into');
+    if (turn === undefined) throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, t('v2Errors.noActiveTurnToSteer'));
     for (const item of selected) { item.state = 'steered'; item.launchedDeferred.resolve(turn); }
     this.steered.set(this.active.id, [...(this.steered.get(this.active.id) ?? []), ...selected]);
     this.eventBus.publish({ type: 'prompt.steered', activePromptId: this.active.id, promptIds: selected.map((x) => x.id), content: rerouted.content as ContentPart[], steeredAt: new Date().toISOString() });
@@ -162,7 +163,7 @@ export class AgentPromptService implements IAgentPromptService {
     const index = this.pending.findIndex((item) => item.id === promptId);
     if (index < 0) throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, `prompt ${promptId} not found`);
     const [item] = this.pending.splice(index, 1) as [Record];
-    item.state = 'cancelled'; item.launchedDeferred.resolve(undefined);
+    item.state = 'cancelled'; item.launchedDeferred.resolve();
     item.completionDeferred.resolve({ promptId, result: undefined, state: 'cancelled' });
     this.publishAborted(promptId);
     return true;
@@ -192,7 +193,7 @@ export class AgentPromptService implements IAgentPromptService {
       if (this.fullCompaction.compacting !== null && this.loop.status().state !== 'running') { this.pending.unshift(item); return; }
       const { message, captions } = this.extractCompressionCaptions(item.message);
       if (await this.blockedByHook(message, false)) {
-        this.appendPrompt(message, captions); item.state = 'blocked'; item.launchedDeferred.resolve(undefined);
+        this.appendPrompt(message, captions); item.state = 'blocked'; item.launchedDeferred.resolve();
         item.completionDeferred.resolve({ promptId: item.id, result: undefined, state: 'blocked' });
         this.publishCompleted(item.id, 'blocked'); return;
       }
@@ -202,7 +203,7 @@ export class AgentPromptService implements IAgentPromptService {
       void turn.result.then((result) => this.settle(item, result));
     } catch {
       item.state = 'failed';
-      item.launchedDeferred.resolve(undefined);
+      item.launchedDeferred.resolve();
       item.completionDeferred.resolve({ promptId: item.id, result: undefined, state: 'failed' });
       this.publishCompleted(item.id, 'failed');
     } finally {

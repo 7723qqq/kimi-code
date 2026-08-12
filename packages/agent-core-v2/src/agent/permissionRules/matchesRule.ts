@@ -1,6 +1,7 @@
 import { tryNativeGlobMatch } from '../../tool/native-glob-match';
 
 import { Error2, ErrorCodes } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 import type { RunnableToolExecution } from '#/tool/toolContract';
 import type { PermissionRule } from './permissionRules';
 
@@ -32,7 +33,7 @@ export interface PermissionRuleMatchInput {
 export function parsePattern(pattern: string): ParsedPattern {
   const trimmed = pattern.trim();
   if (trimmed.length === 0) {
-    throw new Error2(ErrorCodes.VALIDATION_FAILED, 'permission pattern: empty string');
+    throw new Error2(ErrorCodes.VALIDATION_FAILED, t('v2Errors.permissionPatternEmpty'));
   }
 
   const openIdx = trimmed.indexOf('(');
@@ -41,13 +42,13 @@ export function parsePattern(pattern: string): ParsedPattern {
   }
 
   if (!trimmed.endsWith(')')) {
-    throw new Error2(ErrorCodes.VALIDATION_FAILED, `permission pattern: missing closing paren in "${pattern}"`);
+    throw new Error2(ErrorCodes.VALIDATION_FAILED, t('v2Errors.permissionPatternMissingParen', { pattern }));
   }
 
   const toolName = trimmed.slice(0, openIdx);
   const argPattern = trimmed.slice(openIdx + 1, -1);
   if (toolName.length === 0) {
-    throw new Error2(ErrorCodes.VALIDATION_FAILED, `permission pattern: empty tool name in "${pattern}"`);
+    throw new Error2(ErrorCodes.VALIDATION_FAILED, t('v2Errors.permissionPatternEmptyTool', { pattern }));
   }
   if (argPattern.length === 0) {
     return { toolName };

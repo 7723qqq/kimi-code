@@ -47,6 +47,7 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2, ErrorCodes } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IEventService } from '#/app/event/event';
@@ -171,7 +172,7 @@ export class OAuthService extends Disposable implements IOAuthService {
       },
     });
     const fastPath: Promise<OAuthFlowStart | undefined> = loginPromise.then(async () => {
-      if (state.device !== undefined) return undefined;
+      if (state.device !== undefined) return;
       this.log.info('oauth startLogin: toolkit resolved without device code (already authenticated)', {
         provider,
       });
@@ -295,8 +296,8 @@ export class OAuthService extends Disposable implements IOAuthService {
   refreshOAuthProviderModels(): Promise<RefreshOAuthProviderModelsResponse> {
     const run = this.refreshChain.then(() => this.doRefreshOAuthProviderModels());
     this.refreshChain = run.then(
-      () => undefined,
-      () => undefined,
+      () => {},
+      () => {},
     );
     return run;
   }
@@ -320,7 +321,7 @@ export class OAuthService extends Disposable implements IOAuthService {
       });
       const tokenProvider = this.resolveTokenProvider(KIMI_CODE_PROVIDER_NAME, auth.oauthRef);
       if (tokenProvider === undefined) {
-        throw new Error2(ErrorCodes.AUTH_TOKEN_MISSING, 'OAuth token provider is not configured.', {
+        throw new Error2(ErrorCodes.AUTH_TOKEN_MISSING, t('v2Errors.oauthTokenProviderNotConfigured'), {
           details: { provider_id: KIMI_CODE_PROVIDER_NAME },
         });
       }
@@ -543,8 +544,8 @@ export class OAuthService extends Disposable implements IOAuthService {
       await this.config.replace(SERVICES_SECTION, next.services);
     }
     if (cleanup.defaultModelCleared) {
-      await this.config.replace(DEFAULT_MODEL_SECTION, undefined);
-      await this.config.replace(THINKING_SECTION, undefined);
+      await this.config.replace(DEFAULT_MODEL_SECTION);
+      await this.config.replace(THINKING_SECTION);
     }
   }
 

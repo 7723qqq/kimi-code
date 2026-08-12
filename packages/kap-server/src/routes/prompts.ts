@@ -36,6 +36,7 @@ import {
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
 import { ErrorCode } from '../protocol/error-codes';
+import { t } from '../i18n';
 import {
   promptAbortResponseSchema,
   promptListResponseSchema,
@@ -92,7 +93,7 @@ async function resolveSession(core: Scope, sessionId: string): Promise<ISessionS
   // `undefined` only when the session is unknown or its workspace is gone.
   const session = await resumeSessionById(core.accessor, sessionId);
   if (session === undefined) {
-    throw new Error2('session.not_found', `session ${sessionId} does not exist`);
+    throw new Error2('session.not_found', t('errors.sessionNotFound'));
   }
   return session;
 }
@@ -111,7 +112,7 @@ async function resolvePromptFromSession(session: ISessionScopeHandle, agentId?: 
       ? await ensureMainAgent(session)
       : session.accessor.get(IAgentLifecycleService).get(agentId);
   if (agent === undefined) {
-    throw new Error2('agent.not_found', `agent ${agentId} does not exist`);
+    throw new Error2('agent.not_found', t('errors.agentNotFound'));
   }
   return {
     prompt: agent.accessor.get(IAgentPromptService),
@@ -231,12 +232,12 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
             telemetry,
             resolveOriginalsDir: async () => {
               const session = await resumeSessionById(core.accessor, session_id);
-              if (session === undefined) return undefined;
+              if (session === undefined) return;
               return sessionMediaOriginalsDir(session.accessor.get(ISessionContext).sessionDir);
             },
             resolveAttachmentsDir: async () => {
               const session = await resumeSessionById(core.accessor, session_id);
-              if (session === undefined) return undefined;
+              if (session === undefined) return;
               return join(session.accessor.get(ISessionContext).sessionDir, 'attachments');
             },
           },

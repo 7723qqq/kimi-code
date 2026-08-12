@@ -80,6 +80,9 @@ describe('server-v2 /api/v1/debug RPC', () => {
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-rpc-'));
+    // Pin the shell to bash so shell-command tests use POSIX syntax on every
+    // host (the default Windows shell is PowerShell).
+    await writeFile(join(home, 'config.toml'), '[shell]\npreference = "bash"\n', 'utf-8');
     server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent', debugEndpoints: true });
     base = `http://127.0.0.1:${server.port}`;
   });

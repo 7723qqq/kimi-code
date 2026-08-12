@@ -8,6 +8,7 @@ import { isAbsolute, resolve } from 'pathe';
 
 import { proxyEnvForChild, reconcileChildNoProxy } from '#/_base/utils/proxy';
 import { ErrorCodes, Error2 } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 
 import {
   buildRequestOptions,
@@ -56,7 +57,7 @@ export class StdioMcpClient implements MCPClient {
       );
     }
     if (config.command === undefined || config.command.trim().length === 0) {
-      throw new Error2(ErrorCodes.CONFIG_INVALID, 'MCP stdio command must not be empty');
+      throw new Error2(ErrorCodes.CONFIG_INVALID, t('v2Errors.mcpStdioCommandEmpty'));
     }
     this.transport = new StdioClientTransport({
       command: config.command,
@@ -78,7 +79,7 @@ export class StdioMcpClient implements MCPClient {
 
   async connect(): Promise<void> {
     if (this.closed) {
-      throw new Error2(ErrorCodes.MCP_STARTUP_FAILED, 'MCP stdio client is closed');
+      throw new Error2(ErrorCodes.MCP_STARTUP_FAILED, t('v2Errors.mcpStdioClientClosed'));
     }
     if (this.started) return;
     this.started = true;
@@ -91,7 +92,7 @@ export class StdioMcpClient implements MCPClient {
     }
     if (this.closed) {
       await this.closeStartedClient();
-      throw new Error2(ErrorCodes.MCP_STARTUP_FAILED, 'MCP stdio client was closed during startup');
+      throw new Error2(ErrorCodes.MCP_STARTUP_FAILED, t('v2Errors.mcpStdioClientClosedDuringStartup'));
     }
     this.ready = true;
   }

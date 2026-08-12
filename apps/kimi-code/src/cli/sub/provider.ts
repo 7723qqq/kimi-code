@@ -85,7 +85,7 @@ export async function handleProviderAdd(
 
   const trimmedUrl = url.trim();
   if (trimmedUrl.length === 0) {
-    deps.stderr.write('Registry URL is required.\n');
+    deps.stderr.write(t('tui.statusMessages.providerUrlRequired') + '\n');
     deps.exit(1);
   }
 
@@ -103,13 +103,13 @@ export async function handleProviderAdd(
     entries = await fetchCustomRegistry(source, { userAgent: createKimiCodeUserAgent() });
   } catch (error) {
     const suffix = error instanceof CustomRegistryApiError ? ` (HTTP ${String(error.status)})` : '';
-    deps.stderr.write(`Failed to fetch registry${suffix}: ${errorMessage(error)}\n`);
+    deps.stderr.write(t('tui.statusMessages.providerFetchFailed', { suffix, error: errorMessage(error) }) + '\n');
     deps.exit(1);
   }
 
   const entryList = Object.values(entries);
   if (entryList.length === 0) {
-    deps.stderr.write(`Registry at ${trimmedUrl} contained no usable providers.\n`);
+    deps.stderr.write(t('tui.statusMessages.providerNoUsable', { url: trimmedUrl }) + '\n');
     deps.exit(1);
   }
 
@@ -156,11 +156,11 @@ export async function handleProviderRemove(
   await harness.ensureConfigFile();
   const config = await harness.getConfig();
   if (config.providers[providerId] === undefined) {
-    deps.stderr.write(`Provider "${providerId}" not found.\n`);
+    deps.stderr.write(t('tui.statusMessages.providerNotFound', { id: providerId }) + '\n');
     deps.exit(1);
   }
   await harness.removeProvider(providerId);
-  deps.stdout.write(`Removed provider "${providerId}".\n`);
+  deps.stdout.write(t('tui.statusMessages.providerRemoved', { id: providerId }) + '\n');
 }
 
 export async function handleProviderList(
@@ -194,7 +194,7 @@ export async function handleProviderList(
 
   const providerIds = Object.keys(config.providers).toSorted();
   if (providerIds.length === 0) {
-    deps.stdout.write('No providers configured.\n');
+    deps.stdout.write(t('tui.statusMessages.providerNoneConfigured') + '\n');
     return;
   }
 
@@ -275,9 +275,9 @@ export async function handleCatalogList(
 
   if (entries.length === 0) {
     if (filter !== undefined) {
-      deps.stdout.write(`No providers in catalog match "${filter}".\n`);
+      deps.stdout.write(t('tui.statusMessages.providerCatalogNoMatch', { filter }) + '\n');
     } else {
-      deps.stdout.write('Catalog is empty.\n');
+      deps.stdout.write(t('tui.statusMessages.providerCatalogEmpty') + '\n');
     }
     return;
   }
@@ -436,7 +436,7 @@ export async function handleCatalogAdd(
     );
   }
   if (opts.defaultModel !== undefined) {
-    deps.stdout.write(`Default model set to ${providerId}/${opts.defaultModel}.\n`);
+    deps.stdout.write(t('tui.statusMessages.providerDefaultSet', { id: providerId, model: opts.defaultModel }) + '\n');
   }
 }
 
@@ -445,13 +445,13 @@ async function loadCatalogOrExit(deps: ProviderDeps, url: string): Promise<Catal
     const loaded = await fetchCatalogOrBuiltIn(url, { userAgent: createKimiCodeUserAgent() });
     if (loaded.fromBuiltIn) {
       deps.stderr.write(
-        `Warning: failed to reach ${url}; using the built-in models.dev catalog snapshot.\n`,
+        t('tui.statusMessages.providerCatalogFallbackWarning', { url }) + '\n',
       );
     }
     return loaded.catalog;
   } catch (error) {
     const suffix = error instanceof CatalogFetchError ? ` (HTTP ${String(error.status)})` : '';
-    deps.stderr.write(`Failed to fetch catalog from ${url}${suffix}: ${errorMessage(error)}\n`);
+    deps.stderr.write(t('tui.statusMessages.providerCatalogFetchFailed', { url, suffix, error: errorMessage(error) }) + '\n');
     deps.exit(1);
   }
 }
