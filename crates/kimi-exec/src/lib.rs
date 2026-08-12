@@ -159,8 +159,99 @@ pub async fn run_prompt_in_process(prompt: &str) -> anyhow::Result<serde_json::V
 mod tests {
     use super::*;
 
+    /// Serializes tests that pin the engine home via process-global env vars
+    /// (`KIMI_AGENT_HOME` / `KIMI_CODE_HOME` / `HOME`): cargo runs tests in
+    /// parallel but the process env is global, so every test here — each
+    /// boots an in-process server that reads the engine config + session
+    /// store from the env-pointed home — would read the others' files. The
+    /// lock is held for the whole test (home must stay pinned while the
+    /// server reads it), matching the kimi-acp `STORE_LOCK` pattern.
+    static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// RAII restore of a process env var — drop-safe: the previous value is
+    /// put back even when the test panics mid-flight, so a failed assertion
+    /// cannot leave the home pinned for other parallel tests (same pattern
+    /// as `kimi-server-transport/tests/http_e2e.rs::EnvGuard`).
+    struct EnvGuard {
+        name: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let previous = std::env::var_os(name);
+            std::env::set_var(name, value);
+            Self { name, previous }
+        }
+
+        fn remove(name: &'static str) -> Self {
+            let previous = std::env::var_os(name);
+            std::env::remove_var(name);
+            Self { name, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(previous) => std::env::set_var(self.name, previous),
+                None => std::env::remove_var(self.name),
+            }
+        }
+    }
+
+    /// Point the engine at an empty temp home and strip the ambient LLM env
+    /// surface, so the "no LLM -> engine error" assertions hold regardless of
+    /// the developer's real `~/.kimi-code` config (mirrors the temp-home
+    /// pattern of `kimi-cli/tests/cli.rs`). Env vars are restored and the
+    /// temp dir removed on drop.
+    struct TestHome {
+        /// Restored before the lock is released (see `Drop`; field drop
+        /// order keeps the lock last).
+        envs: Vec<EnvGuard>,
+        _lock: std::sync::MutexGuard<'static, ()>,
+        path: std::path::PathBuf,
+    }
+
+    impl TestHome {
+        fn new(tag: &str) -> Self {
+            let _lock = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let path = std::env::temp_dir().join(format!("kimi-exec-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("mkdir");
+            // Neutralize the config/LLM env surface that could leak a real
+            // provider into the engine: `KIMI_CONFIG_PATH` is the highest
+            // config priority, `KIMI_MODEL_*` synthesizes a native LLM
+            // without any config file, and `KIMI_AGENT_HOME`/`KIMI_CODE_HOME`/
+            // `HOME` point the session store + user config at the temp dir.
+            let envs = vec![
+                EnvGuard::set("KIMI_AGENT_HOME", &path),
+                EnvGuard::set("KIMI_CODE_HOME", &path),
+                EnvGuard::set("HOME", &path),
+                EnvGuard::remove("KIMI_CONFIG_PATH"),
+                EnvGuard::remove("KIMI_MODEL"),
+                EnvGuard::remove("KIMI_MODEL_NAME"),
+                EnvGuard::remove("KIMI_MODEL_API_KEY"),
+                EnvGuard::remove("KIMI_MODEL_BASE_URL"),
+            ];
+            Self { envs, _lock, path }
+        }
+    }
+
+    impl Drop for TestHome {
+        fn drop(&mut self) {
+            // Restore env vars before the lock is released — a lock-first
+            // drop would let a waiting test set the home, then get clobbered
+            // by this restore. The lock releases via the field drop order
+            // (`envs` declared first).
+            self.envs.clear();
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
     #[tokio::test]
     async fn run_prompt_creates_then_prompts() {
+        let _home = TestHome::new("creates-then-prompts");
         let server = kimi_server::Server::build().expect("server");
         let mut client = AppServerClient::InProcess(kimi_server::in_process::spawn(server.processor));
         let result = run_prompt(&mut client, "s-exec", "hello", native_llm_from_config()).await;
@@ -176,12 +267,14 @@ mod tests {
 
     #[tokio::test]
     async fn run_prompt_in_process_builds_server() {
+        let _home = TestHome::new("in-process-builds-server");
         let result = run_prompt_in_process("hi").await.expect("run");
         assert!(result.get("error").is_some(), "no LLM -> engine error expected");
     }
 
     #[tokio::test]
     async fn run_prompt_with_setup_applies_model_and_plan() {
+        let _home = TestHome::new("setup-applies-model-and-plan");
         let server = kimi_server::Server::build().expect("server");
         let mut client = AppServerClient::InProcess(kimi_server::in_process::spawn(server.processor));
         let setup = PromptSetup {
@@ -220,6 +313,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_prompt_resume_restores_persisted_goal() {
+        let _home = TestHome::new("resume-restores-persisted-goal");
         let server = kimi_server::Server::build().expect("server");
         let mut client = AppServerClient::InProcess(kimi_server::in_process::spawn(server.processor));
         // Seed a persisted session with a goal.
@@ -259,6 +353,7 @@ mod tests {
 
     #[tokio::test]
     async fn goal_create_without_replace_rejects_existing_goal() {
+        let _home = TestHome::new("goal-create-without-replace");
         let server = kimi_server::Server::build().expect("server");
         let mut client = AppServerClient::InProcess(kimi_server::in_process::spawn(server.processor));
         let created = client.session_create("s-no-replace").await;
@@ -315,6 +410,7 @@ mod tests {
 
     #[tokio::test]
     async fn goal_create_with_replace_swaps_existing_goal() {
+        let _home = TestHome::new("goal-create-with-replace");
         let server = kimi_server::Server::build().expect("server");
         let mut client = AppServerClient::InProcess(kimi_server::in_process::spawn(server.processor));
         let created = client.session_create("s-replace").await;
