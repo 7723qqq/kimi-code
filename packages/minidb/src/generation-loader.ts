@@ -51,6 +51,8 @@ import type { TextBuildCheckpoint } from './worker/text-build.js';
 import { ValueReader } from './value-reader.js';
 import { frameToOps, walApplySlicer } from './recovery.js';
 import type { RecoveryMode, RecoveryInfo, ValueMode, RecoveredOp } from './recovery.js';
+import { MaintenanceCancelledError } from './maintenance.js';
+import { WorkerTextBuildError } from './worker/text-build.js';
 import { scanFrameRefsFdAsync } from './codec.js';
 import { toKStr } from './value-codec.js';
 import type { Store } from './store.js';
@@ -460,14 +462,25 @@ export class GenerationLoader<V> {
         // Large corpora take the memory-bounded build (worker/inline core +
         // rebase) pinned at the manifest's checkpoint — the staged ti.build
         // aggregates the whole term->postings map in RAM and OOMs at scale.
-        // The bounded build is discardable: on ANY failure the staged
-        // rebuild below is the fallback (it reads the already-loaded store,
-        // so opens always complete).
+        // The bounded build is discardable: on any failure except
+        // cancellation (see below) the staged rebuild below is the fallback
+        // (it reads the already-loaded store, so opens always complete).
         const tRebuild = performance.now();
         let hosted: 'worker' | 'inline' | null = null;
         try {
           hosted = await this.deps.boundedTextBuild(def.name, ti, def, manifest.checkpoint);
-        } catch {
+        } catch (error) {
+          // Cancellation is not a build failure: a cancelled worker-slot wait
+          // throws MaintenanceCancelledError and an aborted worker build
+          // throws WorkerTextBuildError.aborted. Both must fast-fail the open
+          // (the abort is the caller's signal, not a cue to burn minutes of
+          // main-thread tokenization in the staged rebuild).
+          if (
+            error instanceof MaintenanceCancelledError ||
+            (error instanceof WorkerTextBuildError && error.aborted)
+          ) {
+            throw error;
+          }
           /* fall through to the staged rebuild */
         }
         if (hosted === null) await ti.build(this.deps.textRecords());

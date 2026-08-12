@@ -378,7 +378,16 @@ export class WorkerSlots {
         cleanup();
         resolve(() => this.release());
       };
+      // Register the listener FIRST, then re-check: an abort landing between
+      // the `signal?.aborted` check above and the listener registration would
+      // otherwise hang this waiter for the full waitMs and then silently
+      // resolve(null). The re-check runs onAbort directly, which removes the
+      // just-registered listener and rejects before the waiter is queued.
       signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
       this.waiters.push(grant);
     });
   }

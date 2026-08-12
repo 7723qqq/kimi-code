@@ -779,10 +779,19 @@ export class GenerationBuilder<V> {
       // Windows cannot rename a directory with open files inside: the
       // committed bases' live handles sit in the tmp dir, so close them first
       // (repointPostings reopens at the final path below). POSIX keeps the
-      // handles valid across the rename — no close needed there.
+      // handles valid across the rename — no close needed there. While a base
+      // is closed, flag it pending so concurrent searches raise
+      // TextIndexBuildingError instead of silently reading (and caching) an
+      // empty base; the repoint below reopens and clears the flag.
       if (process.platform === 'win32') {
-        for (const [, tb] of textBuilds) tb.ti.close();
-        for (const [, { ti }] of workerTargets) ti.close();
+        for (const [, tb] of textBuilds) {
+          tb.ti.basePending = true;
+          tb.ti.close();
+        }
+        for (const [, { ti }] of workerTargets) {
+          ti.basePending = true;
+          ti.close();
+        }
       }
       await publishGeneration(this.deps.dir(), tmpName, id, { stats: this.deps.stats });
       // Repoint EVERY live base this build (re)published into the CURRENT
@@ -794,13 +803,28 @@ export class GenerationBuilder<V> {
       // reads from inside the CURRENT generation. POSIX: same inode (the
       // hard link), just update the path string; win32: close + reopen there.
       for (const [name, tb] of textBuilds) {
-        tb.ti.repointPostings(path.join(generationDir(this.deps.dir(), id), textPostingsFile(name)));
+        const reopened = tb.ti.repointPostings(path.join(generationDir(this.deps.dir(), id), textPostingsFile(name)));
+        if (reopened) {
+          tb.ti.basePending = false;
+          // The closed window may have admitted empty reads into the cache
+          // before this fix or through direct readBase callers — drop them.
+          tb.ti.clearCache();
+        }
       }
       for (const [name, { ti }] of workerTargets) {
-        ti.repointPostings(path.join(generationDir(this.deps.dir(), id), textPostingsFile(name)));
+        const reopened = ti.repointPostings(path.join(generationDir(this.deps.dir(), id), textPostingsFile(name)));
+        if (reopened) {
+          ti.basePending = false;
+          ti.clearCache();
+        }
       }
       for (const [name, ti] of textClean) {
-        if (cleanPostings.has(name)) ti.repointPostings(path.join(generationDir(this.deps.dir(), id), textPostingsFile(name)));
+        if (!cleanPostings.has(name)) continue;
+        const reopened = ti.repointPostings(path.join(generationDir(this.deps.dir(), id), textPostingsFile(name)));
+        if (reopened) {
+          ti.basePending = false;
+          ti.clearCache();
+        }
       }
 
       this.generationInfo = { id, createdAt: manifest.createdAt, walCheckpoint: sealedOffset, records: imageRecords.size };

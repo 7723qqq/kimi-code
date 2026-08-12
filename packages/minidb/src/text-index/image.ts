@@ -241,9 +241,10 @@ export async function attachImageAsync(
  *  generation directory (same file, final name). On Windows an open handle
  *  would have blocked the directory rename, so the caller closes before the
  *  rename and reopens here; POSIX just updates the path (the fd stays valid
- *  across the rename). A reopen failure degrades reads to delta-only until
- *  the next build, exactly like commitBuild's reopen failure. */
-export function repointPostings(s: Pick<TextIndexImageState, 'pf'>, newPath: string): void {
+ *  across the rename). Returns false when the reopen failed — the caller
+ *  keeps the index's `basePending` flag set so searches raise
+ *  TextIndexBuildingError instead of silently reading an empty base. */
+export function repointPostings(s: Pick<TextIndexImageState, 'pf'>, newPath: string): boolean {
   if (process.platform === 'win32') {
     // The caller (generation-builder) closes every live base before the
     // publish rename on Windows; the handle is then null here and must be
@@ -253,11 +254,13 @@ export function repointPostings(s: Pick<TextIndexImageState, 'pf'>, newPath: str
     s.pf = null;
     try {
       s.pf = PostingsFile.open(newPath);
+      return true;
     } catch {
-      /* degrade to delta-only reads; the next successful build fixes it */
+      /* delta-only reads stay blocked by basePending; the next build fixes it */
+      return false;
     }
-    return;
   }
-  if (!s.pf) return;
+  if (!s.pf) return false;
   s.pf.path = newPath;
+  return true;
 }

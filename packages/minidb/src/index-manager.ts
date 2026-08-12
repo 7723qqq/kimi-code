@@ -398,7 +398,7 @@ export class IndexManager {
     for (const idx of this.staged.values()) insertDoc(idx, pk, doc);
   }
 
-  remove(pk: string, _doc: unknown): void {
+  remove(pk: string, _doc?: unknown): void {
     for (const idx of this.indexes.values()) removeFromIndex(idx, pk);
     for (const idx of this.staged.values()) removeFromIndex(idx, pk);
   }

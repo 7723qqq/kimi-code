@@ -218,7 +218,7 @@ export class GenFileWriter {
     version: number,
   ) {
     const w = new ByteWriter(8);
-    for (let i = 0; i < 4; i++) w.u8(magic.codePointAt(i));
+    for (let i = 0; i < 4; i++) w.u8(magic.codePointAt(i) ?? 0);
     w.u32(version);
     const head = w.buf.subarray(0, w.off);
     this.chunks.push(Buffer.from(head));

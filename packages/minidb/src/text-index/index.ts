@@ -385,7 +385,10 @@ export class TextIndex {
           try {
             this.pf = PostingsFile.open(targetPath);
           } catch {
-            /* old handle unrecoverable; the next successful build fixes it */
+            // Old handle unrecoverable: flag the base unavailable so searches
+            // raise TextIndexBuildingError instead of silently reading empty
+            // postings; the next successful build clears it.
+            this.basePending = true;
           }
         }
         throw error;
@@ -642,7 +645,11 @@ export class TextIndex {
     let arr = this.cacheGet(term);
     if (!arr) {
       arr = entry && this.pf ? this.pf.read(entry) : [];
-      this.cachePut(term, arr);
+      // A null pf (publish/reopen window, failed reopen) reads an EMPTY base:
+      // never cache that as the term's postings — it would poison every later
+      // query until the next base commit. Negative caching for genuinely
+      // absent terms (entry === undefined) stays.
+      if (entry === undefined || this.pf !== null) this.cachePut(term, arr);
     }
     const m = new Map<number, number>();
     for (const [id, f] of arr) m.set(id, f);
@@ -683,7 +690,9 @@ export class TextIndex {
           let arr = this.cacheGet(term);
           if (!arr) {
             arr = entry && this.pf ? await this.pf.readAsync(entry) : [];
-            cacheable = arr;
+            // A null pf reads an empty base — never cache that (see the
+            // synchronous twin); negative caching for absent terms stays.
+            cacheable = entry === undefined || this.pf !== null ? arr : null;
           }
           const m = new Map<number, number>();
           for (const [id, f] of arr) m.set(id, f);
@@ -948,8 +957,8 @@ export class TextIndex {
    *  rename and reopens here; POSIX just updates the path (the fd stays valid
    *  across the rename). A reopen failure degrades reads to delta-only until
    *  the next build, exactly like commitBuild's reopen failure. */
-  repointPostings(newPath: string): void {
-    repointPostingsImpl(this, newPath);
+  repointPostings(newPath: string): boolean {
+    return repointPostingsImpl(this, newPath);
   }
 
   /** Close the underlying postings file. */
