@@ -52,7 +52,7 @@ afterEach(async () => {
 });
 
 describe('Session.steer', () => {
-  it('rejects an idle-session steer with prompt.not_found (v2 pinned)', async () => {
+  it('launches a fresh turn off an idle steer (v1 parity)', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-steer-work-');
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
@@ -60,12 +60,15 @@ describe('Session.steer', () => {
     try {
       const session = await harness.createSession({ id: 'ses_steer_wire', workDir });
 
-      // v1 launched a fresh turn off an idle steer; v2's steer only joins a
-      // pending prompt, so an idle session rejects with prompt.not_found
-      // (pinned in the parity KNOWN_DIFFS).
-      await expect(session.steer('also do this')).rejects.toMatchObject({
-        code: 'prompt.not_found',
-      });
+      // v1 treats an idle steer like a prompt — it launches a fresh turn and
+      // updates title/lastPrompt. v2's steer enqueues first (which itself
+      // launches the turn) and converges on the same end state: the launched
+      // turn is returned instead of rejecting.
+      await expect(session.steer('also do this')).resolves.toBeUndefined();
+      const listed = await harness.listSessions({ workDir });
+      const steered = listed.find((item) => item.id === 'ses_steer_wire');
+      expect(steered?.title).toBe('also do this');
+      expect(steered?.lastPrompt).toBe('also do this');
     } finally {
       await harness.close();
     }

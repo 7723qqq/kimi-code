@@ -26,9 +26,28 @@ const toPosix = (p: string): string => p.replaceAll('\\', '/');
 
 const tempDirs: string[] = [];
 
+/**
+ * Windows keeps file handles (antivirus, fs watchers, lazy minidb flush) alive
+ * briefly after close, so a bare `rm` can fail with ENOTEMPTY/EBUSY/EPERM.
+ * Retry briefly before giving up.
+ */
+async function removeDirWithRetry(dir: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await rm(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOTEMPTY' && code !== 'EBUSY' && code !== 'EPERM') throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+    }
+  }
+  await rm(dir, { recursive: true, force: true });
+}
+
 afterEach(async () => {
   for (const dir of tempDirs.splice(0)) {
-    await rm(dir, { recursive: true, force: true });
+    await removeDirWithRetry(dir);
   }
 });
 

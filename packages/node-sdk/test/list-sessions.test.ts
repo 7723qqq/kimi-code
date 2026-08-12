@@ -143,7 +143,7 @@ describe('KimiHarness.listSessions', () => {
     }
   });
 
-  it('serves the full set as one terminal page on the v1 engine', async () => {
+  it('pages the full set with a keyset cursor', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const harness = createKimiHarness({
@@ -155,14 +155,11 @@ describe('KimiHarness.listSessions', () => {
       await harness.createSession({ id: 'ses_v1_page_a', workDir });
       await harness.createSession({ id: 'ses_v1_page_b', workDir });
 
-      // The v1 engine has no paged listing: `limit` is ignored and the whole
-      // filtered set comes back as a single page without a cursor.
+      // The harness now backs onto the v2 engine, which pages by id keyset:
+      // `limit: 1` returns a single item and a cursor pointing at it.
       const page = await harness.listSessionsPage({ workDir, limit: 1 });
-      expect(page.items.map((item) => item.id).toSorted()).toEqual([
-        'ses_v1_page_a',
-        'ses_v1_page_b',
-      ]);
-      expect(page.nextCursor).toBeUndefined();
+      expect(page.items).toHaveLength(1);
+      expect(page.nextCursor).toBe(page.items[0]?.id);
     } finally {
       await harness.close();
     }

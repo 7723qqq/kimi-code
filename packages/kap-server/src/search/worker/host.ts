@@ -95,7 +95,7 @@ export interface SearchWorkerHostOptions {
   readonly readyTimeoutMs?: number;
   /** Grace period for the drain-on-close before terminate() (ms). Default 30_000. */
   readonly closeTimeoutMs?: number;
-  /** Watchdog budget per query/lifecycle request (ms). Default 60_000. */
+  /** Watchdog budget per query request (ms). Default 60_000. */
   readonly requestTimeoutMs?: number;
   /** Watchdog budget per sync/reindex request (ms). Default 30 min. */
   readonly syncTimeoutMs?: number;
@@ -127,10 +127,12 @@ const STABLE_SESSION_MS = 60_000;
 const BACKOFF_BASE_MS = 500;
 const BACKOFF_CAP_MS = 10_000;
 /**
- * Watchdog budgets per request. Queries and lifecycle calls are expected to
- * be bounded (the query path carries its own work budgets); sync/reindex of
- * a large corpus legitimately takes minutes, so their leash is long — the
- * watchdog exists to catch a WEDGED worker, not to police slow work.
+ * Watchdog budgets per request. Queries are expected to be bounded (the
+ * query path carries its own work budgets); sync/reindex/open of a large
+ * corpus legitimately takes minutes — as does status/refresh on a read-only
+ * core (status awaits refresh; both replay minutes of WAL delta) — so their
+ * leash is long. The watchdog exists to catch a WEDGED worker, not to
+ * police slow work.
  */
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 const DEFAULT_SYNC_TIMEOUT_MS = 30 * 60_000;
@@ -294,13 +296,17 @@ export class SearchWorkerHost {
       // first open over a huge corpus replays the full WAL / runs full
       // recovery with no wall-clock budget of its own, and killing it at
       // the short leash would discard all progress into a backoff loop.
+      // `status`/`refresh` ride the long leash too: a read-only core's
+      // status() awaits refresh(), and a refresh over a large WAL delta
+      // legitimately replays for minutes — the watchdog exists to catch a
+      // WEDGED worker, not to police slow work.
       // `close` gets no watchdog: doDispose races it against closeTimeoutMs,
       // and a shorter request leash would misjudge a legitimate drain as a
       // wedged worker.
       let watchdog: ReturnType<typeof setTimeout> | undefined;
       if (type !== 'close') {
         const timeoutMs =
-          type === 'sync' || type === 'reindex' || type === 'open'
+          type === 'sync' || type === 'reindex' || type === 'open' || type === 'refresh' || type === 'status'
             ? this.options.syncTimeoutMs ?? DEFAULT_SYNC_TIMEOUT_MS
             : this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
         watchdog = setTimeout(() => this.onRequestTimeout(id), timeoutMs);

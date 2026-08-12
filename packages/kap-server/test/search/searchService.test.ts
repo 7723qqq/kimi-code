@@ -2632,8 +2632,12 @@ describe('search worker host (stage 4)', () => {
 
   it('times out a wedged request and terminates the worker (watchdog)', { timeout: 30_000 }, async () => {
     const dir = join(home!, 'search-index');
-    // Swallow `status` while the gate is up: the request is never delivered,
+    // Swallow `search` while the gate is up: the request is never delivered,
     // so only the watchdog can settle it. The respawned worker is ungated.
+    // A query is the only RPC that still rides the short request leash —
+    // `status`/`refresh` share the long sync leash (a refresh over a large
+    // WAL delta legitimately runs for minutes; the watchdog catches a WEDGED
+    // worker, not slow work).
     let gate = true;
     const host = new SearchWorkerHost({
       dir,
@@ -2643,7 +2647,7 @@ describe('search worker host (stage 4)', () => {
         const worker = new Worker(url, { workerData: data, execArgv });
         const original = worker.postMessage.bind(worker);
         worker.postMessage = ((message: unknown, ...rest: unknown[]) => {
-          if (gate && (message as { type?: string } | null)?.type === 'status') return true;
+          if (gate && (message as { type?: string } | null)?.type === 'search') return true;
           return original(message as Parameters<Worker['postMessage']>[0], ...(rest as never[]));
         }) as Worker['postMessage'];
         return worker;
@@ -2652,7 +2656,23 @@ describe('search worker host (stage 4)', () => {
     hosts.push(host);
     await host.ensureOpen();
 
-    const wedged = host.status();
+    const wedged = host.search({
+      q: {
+        query: 'wedged',
+        mode: 'terms',
+        termsQuery: ['wedged'],
+        op: 'AND',
+        sort: 'time_desc',
+        pageSize: 10,
+      },
+      budgets: {
+        literalCandidateCap: 100,
+        maxTextHits: 100,
+        postingsVisitBudget: 100_000,
+        queryDeadlineMs: 5_000,
+        queryTextBudgetChars: 100_000,
+      },
+    });
     wedged.catch(() => {});
     await expect(wedged).rejects.toMatchObject({ code: 'crashed' });
     await expect(wedged).rejects.toThrow(/timed out/);
