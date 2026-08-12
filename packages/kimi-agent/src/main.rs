@@ -1243,17 +1243,53 @@ async fn main() -> anyhow::Result<()> {
     RpcServer::register_arc(&server, types::methods::SESSION_GET_CONTEXT, move |params| {
         let mgr = mgr.clone();
         Box::pin(async move {
-            let input: types::SessionGoalParams = serde_json::from_value(params)
+            let input: types::SessionGetContextParams = serde_json::from_value(params)
                 .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
             let mut manager = mgr.lock().await;
-            let agent = manager.get_agent(&input.session_id).ok_or_else(|| {
-                types::JsonRpcError::internal_error(format!(
-                    "no agent for session: {}",
-                    input.session_id
-                ))
-            })?;
-            serde_json::to_value(agent.context.data())
-                .map_err(|e| types::JsonRpcError::internal_error(format!("serialize context: {e}")))
+            let data = {
+                let agent = manager.get_agent(&input.session_id).ok_or_else(|| {
+                    types::JsonRpcError::internal_error(format!(
+                        "no agent for session: {}",
+                        input.session_id
+                    ))
+                })?;
+                agent.context.data()
+            };
+            // Resume replay surface (include_subagents): Task/swarm children
+            // persist their conversations under their agent_id in the same
+            // store; summarize them when the host opts in. The page is
+            // effectively unbounded (100k) — subagent summaries are small
+            // and never user-facing.
+            let subagents = if input.include_subagents.unwrap_or(false) {
+                manager
+                    .list_persisted(100_000, 0)
+                    .map_err(|e| types::JsonRpcError::internal_error(e.to_string()))?
+                    .into_iter()
+                    .filter(|record| record.is_subagent())
+                    .map(|record| {
+                        let message_count = record
+                            .state_json
+                            .get("context")
+                            .and_then(|v| v.as_array())
+                            .map(|context| context.len())
+                            .unwrap_or(0);
+                        types::SubagentSummaryRpc {
+                            agent_id: record.id,
+                            title: String::new(),
+                            message_count,
+                            updated_at: record.updated_at,
+                        }
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            serde_json::to_value(types::SessionGetContextResult {
+                history: data.history,
+                token_count: data.token_count,
+                subagents,
+            })
+            .map_err(|e| types::JsonRpcError::internal_error(format!("serialize context: {e}")))
         })
     });
 
@@ -1821,11 +1857,16 @@ async fn main() -> anyhow::Result<()> {
         Box::pin(async move {
             let input: types::SessionListParams =
                 serde_json::from_value(params).unwrap_or_default();
+            let include_subagents = input.include_subagents.unwrap_or(false);
             let manager = mgr.lock().await;
             let sessions = manager
                 .list_persisted(input.limit.unwrap_or(50), input.offset.unwrap_or(0))
                 .map_err(|e| types::JsonRpcError::internal_error(e.to_string()))?
                 .into_iter()
+                // Default: main sessions only. Subagent records (Task/swarm
+                // children persisted under their agent_id) are replay data,
+                // not user sessions — including them pollutes the list.
+                .filter(|record| include_subagents || !record.is_subagent())
                 .map(|record| {
                     // The rich session record (work_dir/title) lives inside
                     // state_json; degrade gracefully to the id-only shape.

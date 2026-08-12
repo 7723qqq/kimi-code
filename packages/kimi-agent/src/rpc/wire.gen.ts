@@ -304,6 +304,11 @@ export interface SessionIdParams {
   session_id: string;
 }
 
+export interface SessionGetContextParams {
+  session_id: string;
+  include_subagents?: boolean | undefined;
+}
+
 export interface SessionForkParams {
   /** The source session to fork from. */
   session_id: string;
@@ -539,6 +544,7 @@ export interface SessionRenameParams {
 export interface SessionListParams {
   limit?: number | undefined;
   offset?: number | undefined;
+  include_subagents?: boolean | undefined;
 }
 
 export type ContentBlock =
@@ -722,6 +728,22 @@ export interface SessionSummaryRpc {
 
 export interface SessionListResult {
   sessions: Array<SessionSummaryRpc>;
+}
+
+export interface SubagentSummaryRpc {
+  /** The child agent id — the session id the conversation was persisted under (`task_id` for tracked Task children, `swarm-<ts>-<rand>` for swarm children). */
+  agent_id: string;
+  title?: string;
+  /** Message count (context history length). */
+  message_count: number;
+  /** ISO-8601 last-write timestamp of the persisted record. */
+  updated_at: string;
+}
+
+export interface SessionGetContextResult {
+  history: Array<ContextMessage>;
+  token_count: number;
+  subagents?: Array<SubagentSummaryRpc>;
 }
 
 export interface PluginSummaryRpc {

@@ -5690,3 +5690,156 @@ fn work_dir_metadata_persistence_and_cancel_compact() {
     let _ = child.kill();
     let _ = child.wait();
 }
+
+/// include_subagents reading surface (CODEX §1.4.2): `session/list` filters
+/// subagent records (Task/swarm children persisted under their agent_id) by
+/// default and includes them on request; `session/get_context` with
+/// `include_subagents: true` returns the subagent session summaries the
+/// resume replay surface consumes.
+#[test]
+fn session_list_and_context_include_subagents() {
+    let binary = match find_binary() {
+        Some(b) => b,
+        None => {
+            eprintln!("Skipping test: kimi-agent binary not built.");
+            return;
+        }
+    };
+    let home =
+        std::env::temp_dir().join(format!("kimi-agent-it-subagents-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&home);
+
+    // Seed a subagent-shaped record (Agent::durable_state — no SessionRecord
+    // key fields) before spawning the binary, so the test process never
+    // contends with the engine on the same db file.
+    {
+        use kimi_agent::persistence::session_store::{SessionRecord, SessionStore};
+        use kimi_agent::persistence::store::SqliteStore;
+        let store = SessionStore::new(
+            SqliteStore::open(home.join("sessions.db")).expect("open test session store"),
+        );
+        store
+            .save_session(&SessionRecord {
+                id: "task-abc12345".to_string(),
+                created_at: "2025-01-01T00:00:00Z".to_string(),
+                updated_at: "2025-01-01T01:00:00Z".to_string(),
+                config_json: serde_json::Value::Null,
+                state_json: serde_json::json!({
+                    "goal": null,
+                    "context": [
+                        {"role": "user", "content": "inspect the workspace"},
+                        {"role": "assistant", "content": "one finding"},
+                    ],
+                    "turn_counter": 1,
+                    "token_count": 12,
+                    "metadata": {},
+                }),
+            })
+            .expect("seed subagent record");
+    }
+
+    let mut child = Command::new(&binary)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("KIMI_AGENT_HOME", &home)
+        .env("KIMI_CODE_HOME", &home)
+        .spawn()
+        .expect("spawn kimi-agent");
+    let mut stdin = child.stdin.take().expect("stdin");
+    let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
+
+    let mut client_like = |id: u32, method: &str, params: serde_json::Value| {
+        let req = serde_json::json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+        writeln!(stdin, "{req}").unwrap();
+        stdin.flush().unwrap();
+        let mut buf = String::new();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            assert!(Instant::now() <= deadline, "timed out on {method}");
+            buf.clear();
+            if stdout.read_line(&mut buf).unwrap_or(0) == 0 {
+                panic!("stdout closed during {method}");
+            }
+            let Ok(msg) = serde_json::from_str::<serde_json::Value>(buf.trim()) else {
+                continue;
+            };
+            if msg.get("method").is_none() && msg.get("id") == Some(&serde_json::json!(id)) {
+                return msg;
+            }
+        }
+    };
+
+    // A main session, persisted alongside the seeded subagent record.
+    let created = client_like(
+        1,
+        "session/create",
+        serde_json::json!({
+            "session_id": "it-subagent-main",
+            "homedir": "/work/x",
+            "system_prompt": "test",
+            "model": "mock",
+            "goal_enabled": false,
+        }),
+    );
+    assert!(created.get("error").is_none(), "create failed: {created}");
+    let saved = client_like(
+        2,
+        "session/save",
+        serde_json::json!({"session_id": "it-subagent-main"}),
+    );
+    assert_eq!(saved["result"]["ok"], true);
+
+    // Default list: main sessions only — the subagent record is filtered.
+    let listed = client_like(3, "session/list", serde_json::json!({}));
+    let records = listed["result"]["sessions"].as_array().expect("sessions array");
+    assert!(
+        records.iter().any(|r| r["id"] == "it-subagent-main"),
+        "main session must be listed: {listed}"
+    );
+    assert!(
+        !records.iter().any(|r| r["id"] == "task-abc12345"),
+        "subagent record must be filtered from the default list: {listed}"
+    );
+
+    // Opt-in list: the subagent record shows up.
+    let opted = client_like(
+        4,
+        "session/list",
+        serde_json::json!({"include_subagents": true}),
+    );
+    let records = opted["result"]["sessions"].as_array().expect("sessions array");
+    assert!(
+        records.iter().any(|r| r["id"] == "task-abc12345"),
+        "subagent record must appear with include_subagents: {opted}"
+    );
+
+    // Resume surface: get_context without the flag carries no subagents …
+    let ctx = client_like(
+        5,
+        "session/get_context",
+        serde_json::json!({"session_id": "it-subagent-main"}),
+    );
+    assert!(
+        ctx["result"].get("subagents").is_none(),
+        "no subagents field by default: {ctx}"
+    );
+
+    // … and with the flag carries the subagent summaries (agent_id + count).
+    let ctx = client_like(
+        6,
+        "session/get_context",
+        serde_json::json!({
+            "session_id": "it-subagent-main",
+            "include_subagents": true,
+        }),
+    );
+    let subagents = ctx["result"]["subagents"].as_array().expect("subagents array");
+    assert_eq!(subagents.len(), 1, "expected one subagent summary: {ctx}");
+    assert_eq!(subagents[0]["agent_id"], "task-abc12345");
+    assert_eq!(subagents[0]["message_count"], 2);
+    assert_eq!(subagents[0]["updated_at"], "2025-01-01T01:00:00Z");
+
+    let _ = child.kill();
+    let _ = child.wait();
+}

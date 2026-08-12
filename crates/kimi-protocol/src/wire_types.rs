@@ -95,6 +95,16 @@ pub struct SessionIdParams {
     pub session_id: String,
 }
 
+/// Input for `session/get_context` — session id plus the resume replay
+/// switch: when `include_subagents` is true, the result carries subagent
+/// session summaries (Task/swarm children persisted under their agent_id).
+#[derive(Debug, Deserialize)]
+pub struct SessionGetContextParams {
+    pub session_id: String,
+    #[serde(default)]
+    pub include_subagents: Option<bool>,
+}
+
 /// Input for session/fork.
 #[derive(Debug, Deserialize)]
 pub struct SessionForkParams {
@@ -472,6 +482,12 @@ pub struct SessionListParams {
     pub limit: Option<usize>,
     #[serde(default)]
     pub offset: Option<usize>,
+    /// When true, subagent sessions (Task/swarm children persisted under
+    /// their agent_id — see `run_child_agent_persistent_with_model`) are
+    /// included in `sessions`. Default false: the list is main sessions
+    /// only — subagent records are replay data, not user sessions.
+    #[serde(default)]
+    pub include_subagents: Option<bool>,
 }
 
 /// A message in the conversation history.
@@ -799,6 +815,39 @@ pub struct SessionSummaryRpc {
 #[derive(Debug, Serialize)]
 pub struct SessionListResult {
     pub sessions: Vec<SessionSummaryRpc>,
+}
+
+/// A subagent session summary returned by `session/get_context` when
+/// `include_subagents` is true. Task/swarm children persist their
+/// conversation in the same `sessions` table keyed by agent id, so
+/// `agent_id` IS the record's session id — the two are one value.
+#[derive(Debug, Serialize)]
+pub struct SubagentSummaryRpc {
+    /// The child agent id — the session id the conversation was persisted
+    /// under (`task_id` for tracked Task children, `swarm-<ts>-<rand>` for
+    /// swarm children).
+    pub agent_id: String,
+    /// Display title. Subagent records carry no title of their own; hosts
+    /// render the task description or agent id instead. Kept for symmetry
+    /// with `SessionSummaryRpc`.
+    #[serde(default)]
+    pub title: String,
+    /// Message count (context history length).
+    pub message_count: usize,
+    /// ISO-8601 last-write timestamp of the persisted record.
+    pub updated_at: String,
+}
+
+/// Result of `session/get_context` when `include_subagents` is requested:
+/// the context snapshot plus subagent session summaries. `subagents` is
+/// omitted when empty, keeping the wire identical to `AgentContextData`
+/// for callers that do not opt in.
+#[derive(Debug, Serialize)]
+pub struct SessionGetContextResult {
+    pub history: Vec<crate::context::ContextMessage>,
+    pub token_count: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subagents: Vec<SubagentSummaryRpc>,
 }
 
 /// A plugin summary returned by `plugin/list` (and embedded in `plugin/get`).

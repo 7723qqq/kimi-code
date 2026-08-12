@@ -47,7 +47,7 @@
 ## 1.4 已知缺口（不阻塞主线的记录）
 
 1. ~~**compaction summarizer 双通道**~~ ✅ **已补（2026-08-10）**：`LlmCompactionDelegate`（任意 `LLM` 实现）+ `ensure_compaction_delegate` 宿主分支——无 native LLM 的 host-proxy 会话经 `HostLlmProxy`（`HostCallbacks::llm_chat`）走宿主通道 compact（原报 `compaction.unable`）；单测 + stdio 集成适配（`session_compact_host_proxy_gets_a_summarizer_delegate`）
-2. **子代理 replay 数据源**：🔶 部分补（2026-08-10）：Task 工具子代理在任务被跟踪时（task_service 存在）经 `run_child_agent_persistent_with_model` 持久化对话到 session store（agent_id = task_id，swarm 同一机制）——resume 面的**数据源已建立**；剩余：resume/session RPC 的 `include_subagents` 读取面（引擎无此参数）待补，vscode replay 测试仍跳过
+2. ~~**子代理 replay 数据源**~~ ✅ **已补（2026-08-10 数据源 + 2026-08-11 读取面）**：Task 工具子代理在任务被跟踪时（task_service 存在）经 `run_child_agent_persistent_with_model` 持久化对话到 session store（agent_id = task_id，swarm 同一机制）；读取面：`session/list` 支持 `include_subagents`（默认过滤子代理记录，opt-in 全量），`session/get_context` 支持 `include_subagents` → 响应 `subagents` 摘要列表（agent_id/消息数/updated_at，`SubagentSummaryRpc`）；单测 + stdio 集成（`session_list_and_context_include_subagents`）。**宿主接线待定**：vscode harness 的 `includeSubagents` 尚未透传到 RPC、replay-adapter 消费的是完整 replay 而非摘要（`parentAgentId` 关联引擎未持久化）——vscode 为白名单包，改需单独确认
 3. **用户真实 config.toml 损坏**：`duplicate defaultModel`（defaultModel 与 default_model 并存）导致 Rust TOML 严格解析拒绝整个配置（用户禁止修改真实文件，隔离配置验证绕开；建议用户侧删 camelCase 行）
 
 > **2026-08-10 收口复核**：原第 4-6 项已消失——vscode typecheck 全过（`replay-adapter.ts` 错误已随 sdk-local 完成消除）；kosong 已退役（flaky 测试随包）；发布打包已接入 CI（`_rust-bin-build.yml` + release 注入）；**vscode legacy backfill 已闭环**（kimi-runtime.ts 迁移会话读 `kimi_cli_source_path` → 写 `vscode_legacy_approval` metadata → session-runtime 消费，create/resume 全链路完整）。另：apps/kimi-code 的 `@moonshot-ai/kimi-agent` devDep 已删（全仓无真实 import，仅注释引用 wire.gen）。

@@ -115,6 +115,25 @@ impl SessionStore {
     }
 }
 
+impl SessionRecord {
+    /// True when this record is a subagent session — a Task/swarm child
+    /// persisted under its agent_id (`TaskInfoBase.agent_id`):
+    ///
+    /// - main sessions serialize `state_json` from
+    ///   `crate::session::types::SessionRecord` (a valid shape), while
+    /// - subagent children write `Agent::durable_state()` (context / goal /
+    ///   metadata …), which lacks the record's key fields and fails (or
+    ///   fails the shape check) on deserialization.
+    ///
+    /// Unreadable or shape-invalid legacy records classify as subagent —
+    /// they are not trustworthy main sessions either way.
+    pub fn is_subagent(&self) -> bool {
+        serde_json::from_value::<crate::session::types::SessionRecord>(self.state_json.clone())
+            .map(|record| !record.is_valid_shape())
+            .unwrap_or(true)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,5 +203,64 @@ mod tests {
 
         store.delete_session("sess-1").unwrap();
         assert!(store.load_session("sess-1").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_is_subagent_classifies_records() {
+        use crate::session::types::{ModelConfig, SessionRecord as MainSessionRecord};
+
+        let store = SessionStore::new(SqliteStore::in_memory().unwrap());
+
+        // Main-session shape: state_json is a serialized SessionRecord.
+        let mut main = MainSessionRecord::new("sess-main", ModelConfig::default());
+        main.title = "main".to_string();
+        main.work_dir = "/work".to_string();
+        main.agent_state = serde_json::json!({
+            "goal": null,
+            "context": [{"role": "user", "content": "hi"}],
+            "metadata": {},
+        });
+        store
+            .save_session(&SessionRecord {
+                id: main.id.clone(),
+                created_at: main.created_at.clone(),
+                updated_at: main.updated_at.clone(),
+                config_json: Value::Null,
+                state_json: serde_json::to_value(&main).unwrap(),
+            })
+            .unwrap();
+
+        // Subagent shape: Agent::durable_state() — no SessionRecord key
+        // fields (id/created_at/updated_at), so deserialization fails.
+        store
+            .save_session(&SessionRecord {
+                id: "task-abc12345".into(),
+                created_at: "2025-01-01T00:00:00Z".into(),
+                updated_at: "2025-01-01T01:00:00Z".into(),
+                config_json: Value::Null,
+                state_json: serde_json::json!({
+                    "goal": null,
+                    "context": [
+                        {"role": "user", "content": "a"},
+                        {"role": "assistant", "content": "b"},
+                    ],
+                    "turn_counter": 1,
+                    "token_count": 12,
+                    "metadata": {},
+                }),
+            })
+            .unwrap();
+
+        let all = store.list_sessions(100, 0).unwrap();
+        let main = all.iter().find(|r| r.id == "sess-main").unwrap();
+        let sub = all.iter().find(|r| r.id == "task-abc12345").unwrap();
+        assert!(
+            !main.is_subagent(),
+            "main-session record must not classify as subagent"
+        );
+        assert!(
+            sub.is_subagent(),
+            "durable-state record must classify as subagent"
+        );
     }
 }
