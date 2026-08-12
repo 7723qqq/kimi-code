@@ -62,7 +62,10 @@ export class AgentTranscript {
     for (const op of ops) {
       const result = applyOperation(state, op);
       if (result.gap) {
-        gap = { target: (op as { target: AppendTarget }).target, ...result.gap };
+        // Keep the FIRST gap: it marks the earliest divergence point, which is
+        // the correct anchor for any caller-side resync decision (later gaps
+        // are consequences of the same desync).
+        gap ??= { target: (op as { target: AppendTarget }).target, ...result.gap };
         continue;
       }
       if (!result.changed) continue;

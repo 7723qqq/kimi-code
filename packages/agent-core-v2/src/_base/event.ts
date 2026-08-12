@@ -116,34 +116,44 @@ export class AsyncEmitter<T extends IWaitUntil> extends Emitter<T> {
       ]);
     }
 
-    while (this._asyncDeliveryQueue.size > 0 && !signal.aborted) {
-      const [deliver, eventData] = this._asyncDeliveryQueue.shift()!;
-      const thenables: Promise<unknown>[] = [];
+    try {
+      while (this._asyncDeliveryQueue.size > 0 && !signal.aborted) {
+        const [deliver, eventData] = this._asyncDeliveryQueue.shift()!;
+        const thenables: Promise<unknown>[] = [];
 
-      const event = {
-        ...eventData,
-        signal,
-        waitUntil: (p: Promise<unknown>): void => {
-          if (Object.isFrozen(thenables)) {
-            throw new Error('waitUntil can NOT be called asynchronously');
-          }
-          thenables.push(p);
-        },
-      } as T;
+        const event = {
+          ...eventData,
+          signal,
+          waitUntil: (p: Promise<unknown>): void => {
+            if (Object.isFrozen(thenables)) {
+              throw new Error('waitUntil can NOT be called asynchronously');
+            }
+            thenables.push(p);
+          },
+        } as T;
 
-      try {
-        deliver(event);
-      } catch (error) {
-        onUnexpectedError(error);
-        continue;
-      }
-
-      void Object.freeze(thenables);
-      const settled = await Promise.allSettled(thenables);
-      for (const result of settled) {
-        if (result.status === 'rejected') {
-          onUnexpectedError(result.reason);
+        try {
+          deliver(event);
+        } catch (error) {
+          onUnexpectedError(error);
+          continue;
         }
+
+        void Object.freeze(thenables);
+        const settled = await Promise.allSettled(thenables);
+        for (const result of settled) {
+          if (result.status === 'rejected') {
+            onUnexpectedError(result.reason);
+          }
+        }
+      }
+    } finally {
+      // If the signal aborted mid-delivery, drop every entry still queued for
+      // this fire. Otherwise the NEXT fire would deliver them with the OLD data
+      // and the NEW signal — out of order and at the wrong time, and the queue
+      // would keep accumulating stale entries.
+      if (signal.aborted) {
+        this._asyncDeliveryQueue?.clear();
       }
     }
   }
@@ -162,7 +172,10 @@ export function handleVetos(
 
   for (const valueOrPromise of vetos) {
     if (valueOrPromise === true) {
-      return Promise.resolve(true);
+      // Same semantics as a promise resolving to `true` below: record the veto
+      // but keep evaluating the remaining vetos (a single shared result).
+      lazyValue = true;
+      continue;
     }
     if (typeof valueOrPromise === 'boolean') {
       continue;

@@ -696,7 +696,6 @@ export class OpenAILegacyChatProvider implements ChatProvider {
           }
         }
         try {
-          options?.onRequestSent?.();
           const nativeConfig = {
             provider: 'openai-legacy' as const,
             url: `${this._baseUrl ?? 'https://api.openai.com/v1'}/chat/completions`,
@@ -711,10 +710,15 @@ export class OpenAILegacyChatProvider implements ChatProvider {
           // native path only when the streaming binding is unavailable.
           const incremental = await tryNativeLlmStreamIncremental(nativeConfig);
           if (incremental !== undefined) {
+            // Report only once a request actually went out — the SDK path below
+            // reports its own, so never report here before knowing the native
+            // branch is used (a binding-unavailable/fallback path would double).
+            options?.onRequestSent?.();
             return incremental;
           }
           const nativeResult = await tryNativeLlmStream(nativeConfig);
           if (nativeResult !== undefined) {
+            options?.onRequestSent?.();
             if (nativeResult.traceId && options?.onTraceId) {
               options.onTraceId(nativeResult.traceId);
             }

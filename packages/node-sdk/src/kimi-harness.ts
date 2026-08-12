@@ -3,7 +3,7 @@ import {
   KimiError,
   withTelemetryContext,
 } from '#/legacy';
-import { ImageLimits } from '@moonshot-ai/agent-core-v2';
+import type { ImageLimits } from '@moonshot-ai/agent-core-v2';
 import type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
 
 import { capabilityRpc, Session } from '#/session';
@@ -221,7 +221,15 @@ export class KimiHarness {
   }
 
   async closeSession(id: string): Promise<void> {
-    await this.activeSessions.get(id)?.close();
+    const cached = this.activeSessions.get(id);
+    if (cached !== undefined) {
+      await cached.close();
+      return;
+    }
+    // The session exists server-side but was never materialized through this
+    // harness — close it directly (the RPC materializes + closes by id) so the
+    // server-side session isn't leaked.
+    await this.rpc.closeSession({ sessionId: normalizeSessionId(id) });
   }
 
   async deleteSession(id: string): Promise<void> {
@@ -412,7 +420,7 @@ export class KimiHarness {
         options.signal,
       );
     } catch (error) {
-      await this.rpc.cancelGlobalMcpServerAuth(started.flowId).catch(() => undefined);
+      await this.rpc.cancelGlobalMcpServerAuth(started.flowId).catch(() => {});
       throw error;
     }
   }

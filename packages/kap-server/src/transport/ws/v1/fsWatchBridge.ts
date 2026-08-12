@@ -111,12 +111,20 @@ export class FsWatchBridge {
       return { code: FS_WATCH_CODE.SESSION_NOT_FOUND, msg: 'session not found' };
     }
     const sw = resolved;
+    // A `resolveSession` call that just materialized a SessionWatch holds a
+    // live fs-watch subscription even before any path is added. If an error
+    // path returns before we attach a conn, tear that subscription down so the
+    // watch doesn't leak for a session that will never be watched.
+    const fail = (code: number, msg: string): FsWatchAck => {
+      if (sw.conns.size === 0) this.teardownSession(sw);
+      return { code, msg };
+    };
 
     const normalized: string[] = [];
     for (const raw of rawPaths) {
       const rel = this.normalize(sw, raw);
       if (rel === undefined) {
-        return { code: FS_WATCH_CODE.PATH_ESCAPES, msg: 'fs.path_escapes_session' };
+        return fail(FS_WATCH_CODE.PATH_ESCAPES, 'fs.path_escapes_session');
       }
       normalized.push(rel);
     }
@@ -129,7 +137,7 @@ export class FsWatchBridge {
     }
     const current = this.connPathCount.get(conn.id) ?? 0;
     if (current + toAdd.length > MAX_PATHS_PER_CONNECTION) {
-      return { code: FS_WATCH_CODE.LIMIT_EXCEEDED, msg: 'fs.watch_limit_exceeded' };
+      return fail(FS_WATCH_CODE.LIMIT_EXCEEDED, 'fs.watch_limit_exceeded');
     }
 
     if (entry === undefined) {
@@ -267,7 +275,7 @@ export class FsWatchBridge {
     return {
       code: FS_WATCH_CODE.OK,
       msg: 'success',
-      watched_paths: entry === undefined ? [] : [...entry.paths].sort(),
+      watched_paths: entry === undefined ? [] : [...entry.paths].toSorted(),
       current_count: this.countFor(conn.id),
     };
   }

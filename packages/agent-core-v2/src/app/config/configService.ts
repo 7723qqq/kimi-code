@@ -376,6 +376,8 @@ export class ConfigService extends Disposable implements IConfigService {
     if (Object.prototype.hasOwnProperty.call(this.memory, domain)) {
       return this.memory[domain] as T;
     }
+    // Rebuild on every read: env bindings + overlays must reflect the CURRENT
+    // process environment, which can change at any time without a reload.
     return this.freshEffective()[domain] as T;
   }
 

@@ -172,6 +172,12 @@ export class SessionEventWiring {
   private bridgeNewPendingInteractions(): void {
     if (this.disposed) return;
     const pending = this.session.accessor.get(ISessionInteractionService).listPending();
+    const pendingIds = new Set(pending.map((interaction) => interaction.id));
+    // Forget ids that are no longer pending (they've resolved and left the
+    // pending set), so the dedupe set stays bounded over a long session.
+    for (const id of this.bridgedInteractionIds) {
+      if (!pendingIds.has(id)) this.bridgedInteractionIds.delete(id);
+    }
     for (const interaction of pending) {
       if (this.bridgedInteractionIds.has(interaction.id)) continue;
       this.bridgedInteractionIds.add(interaction.id);

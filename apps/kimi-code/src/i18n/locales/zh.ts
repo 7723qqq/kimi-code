@@ -137,6 +137,8 @@ export default {
       cannotCombineYoloAndAuto: '--yolo 不能与 --auto 同时使用。',
       agentOnlyOnce: '--agent 只能指定一次。',
       agentFileOnlyOnce: '--agent-file 只能指定一次。',
+      agentEmpty: 'Agent 不能为空。',
+      agentFilePathEmpty: 'Agent 文件路径不能为空。',
     },
   },
   startup: {
@@ -1835,6 +1837,9 @@ export default {
       bgAgentStarted: '{{subject}} 已在后台启动',
       bgAgentCompleted: '{{subject}} 已在后台完成',
       bgAgentFailed: '{{subject}} 在后台失败',
+      bgAgentLost: '{{subject}} 在后台失联',
+      bgAgentKilled: '{{subject}} 已停止',
+      bgAgentTimedOut: '{{subject}} 在后台超时',
       // tui/utils/mcp-server-status.ts
       mcpStatusFailed: '{{count}} 个失败',
       mcpStatusNeedsAuth: '{{count}} 个需要认证',

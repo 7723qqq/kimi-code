@@ -98,6 +98,11 @@ export class StateRegistry extends Disposable implements IStateRegistry {
     if (!this.values.has(key.name)) {
       throw new BugIndicatingError(`state key '${key.name}' is not registered`);
     }
+    const previous = this.values.get(key.name);
+    // Skip the no-op write: hot paths (turn counters, trace ids, disposing
+    // flags) re-set the same primitive value frequently and would otherwise
+    // spam every `onDidChange` / `onDidChangeAny` subscriber.
+    if (Object.is(previous, value)) return;
     this.values.set(key.name, value);
     this.keyEmitters.get(key.name)?.fire(value);
     this.anyEmitter.fire({ key: key.name, value });

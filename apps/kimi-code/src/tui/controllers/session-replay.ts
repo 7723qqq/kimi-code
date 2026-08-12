@@ -18,6 +18,7 @@ import type { TUIState } from '../tui-state';
 import type {
   AppState,
   BackgroundAgentMetadata,
+  BackgroundAgentStatusPhase,
   ToolResultBlockData,
   TranscriptEntry,
 } from '../types';
@@ -513,14 +514,15 @@ export class SessionReplayRenderer {
         });
         return;
       case 'completion':
-        this.host.appendTranscriptEntry(
-          replayEntry(
+        this.host.appendTranscriptEntry({
+          ...replayEntry(
             context,
             'assistant',
             buildGoalCompletionMessage(record.snapshot),
             'markdown',
           ),
-        );
+          goalCompletionData: true,
+        });
         return;
       case 'lifecycle': {
         const lifecycleChange: GoalReplayLifecycleChange = { ...change, kind: 'lifecycle' };
@@ -735,26 +737,15 @@ export class SessionReplayRenderer {
           ? undefined
           : task.thinkingEffort,
     };
-    let status = formatBackgroundAgentTranscript(
-      origin.status === 'completed' ? 'completed' : 'failed',
-      meta,
-    );
-    if (origin.status === 'lost') {
-      status = {
-        ...status,
-        headline: status.headline.replace(' failed in background', ' lost in background'),
-      };
-    } else if (origin.status === 'killed') {
-      status = {
-        ...status,
-        headline: status.headline.replace(' failed in background', ' stopped'),
-      };
-    } else if (origin.status === 'timed_out') {
-      status = {
-        ...status,
-        headline: status.headline.replace(' failed in background', ' timed out'),
-      };
-    }
+    const phase: BackgroundAgentStatusPhase =
+      origin.status === 'completed' ||
+      origin.status === 'failed' ||
+      origin.status === 'lost' ||
+      origin.status === 'killed' ||
+      origin.status === 'timed_out'
+        ? origin.status
+        : 'failed';
+    const status = formatBackgroundAgentTranscript(phase, meta);
     this.host.appendTranscriptEntry({
       ...replayEntry(context, 'status', status.headline, 'plain'),
       detail: status.detail,

@@ -149,7 +149,11 @@ export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<Kl
       const id = typeof frame.id === 'string' ? frame.id : '';
       switch (frame.type) {
         case 'hello': {
-          if (options.token !== undefined && frame.token !== options.token) {
+          // Validate against the resolved token (the caller-supplied one or the
+          // generated one exposed on `host.token`). Validating `options.token`
+          // instead would accept every `hello` when the caller omitted a token,
+          // silently disabling the auth the generated token is meant to provide.
+          if (frame.token !== token) {
             send({ type: 'error', id: 'hello', code: UNAUTHORIZED, msg: 'unauthorized' });
             socket.end();
             return;

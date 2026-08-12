@@ -60,6 +60,12 @@ export class LinkedList<E> {
     return node.element;
   }
 
+  clear(): void {
+    this._first = Node.Undefined;
+    this._last = Node.Undefined;
+    this._size = 0;
+  }
+
   private _remove(node: Node<E>): void {
     if (node.prev !== Node.Undefined && node.next !== Node.Undefined) {
       const anchor = node.prev as Node<E>;

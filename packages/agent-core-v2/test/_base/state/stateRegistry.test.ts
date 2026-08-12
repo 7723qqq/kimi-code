@@ -84,6 +84,17 @@ describe('StateRegistry', () => {
     ]);
   });
 
+  it('does not notify when set writes the same primitive value', () => {
+    const registry = new StateRegistry();
+    registry.register(countKey);
+    const seen: number[] = [];
+    registry.onDidChange(countKey)((value) => seen.push(value));
+    registry.set(countKey, 1);
+    registry.set(countKey, 1);
+    registry.set(countKey, 2);
+    expect(seen).toEqual([1, 2]);
+  });
+
   it('silences change events after dispose', () => {
     const registry = new StateRegistry();
     registry.register(countKey);

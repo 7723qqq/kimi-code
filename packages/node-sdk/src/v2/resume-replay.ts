@@ -164,6 +164,13 @@ function foldWireRecords(records: readonly WireRecord[]): FoldedAgentReplay {
    * fold is immutable), so its record is re-pointed at the current object;
    * a vacuous assistant dropped at `step.end` removes its record; appended
    * messages (tool results, flushed deferred messages) emit in order.
+   *
+   * This depends on the v2 fold being append-only with tail-only splice
+   * deletes (see the loopEventFold semantics in the module header): a
+   * message's index is stable while it exists, and new messages only appear
+   * beyond `prev.length`. If a future fold ever re-orders mid-history, the
+   * guards below keep the record alive (re-pointed at the original object)
+   * rather than silently dropping or mis-pointing it.
    */
   const syncContext = (
     prev: readonly ContextMessage[],
@@ -183,11 +190,20 @@ function foldWireRecords(records: readonly WireRecord[]): FoldedAgentReplay {
             // step.end settle) — re-point the record at the new object.
             openAssistantMessage = current;
             record.message = current;
-          } else {
-            // Vacuous assistant dropped at step.end — remove its record.
+          } else if (!next.includes(openAssistantMessage)) {
+            // The open assistant is gone from the new context (vacuous
+            // assistant dropped at step.end) — remove its record. Only when
+            // it's truly absent: if a fold ever re-ordered (not tail-splice)
+            // the message would still be present but shifted, and removing
+            // would wrongly drop it.
             replay.splice(openAssistantRecord, 1);
             openAssistantRecord = undefined;
             openAssistantMessage = undefined;
+          } else {
+            // Still present but shifted by a non-append-only fold. Keep the
+            // record alive and pointed at the original object rather than
+            // dropping or mis-pointing it.
+            record.message = openAssistantMessage;
           }
         }
       }
@@ -224,7 +240,7 @@ function foldWireRecords(records: readonly WireRecord[]): FoldedAgentReplay {
     if (event.type === 'step.begin') {
       // The fold appended the open assistant; its record is the last emitted
       // one (v1 emitted at step.begin too). Track it for in-place updates.
-      const assistant = context[context.length - 1];
+      const assistant = context.at(-1);
       if (assistant !== undefined && assistant.role === 'assistant') {
         openAssistantRecord = replay.length - 1;
         openAssistantMessage = assistant;
@@ -252,7 +268,7 @@ function foldWireRecords(records: readonly WireRecord[]): FoldedAgentReplay {
         const removed = new Set(context);
         resetFold(context);
         context = [];
-          openAssistantRecord = undefined;
+        openAssistantRecord = undefined;
         openAssistantMessage = undefined;
         removeRecordsForMessages(removed);
         break;
@@ -263,7 +279,7 @@ function foldWireRecords(records: readonly WireRecord[]): FoldedAgentReplay {
         if (removed.size > 0) {
           context = context.filter((message) => !removed.has(message));
           resetFold(context);
-              openAssistantRecord = undefined;
+          openAssistantRecord = undefined;
           openAssistantMessage = undefined;
           removeRecordsForMessages(removed);
         }

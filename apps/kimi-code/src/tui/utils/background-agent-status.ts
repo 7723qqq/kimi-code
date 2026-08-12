@@ -28,7 +28,13 @@ export function formatBackgroundAgentTranscript(
       ? t('tui.messages.bgAgentStarted', { subject })
       : phase === 'completed'
         ? t('tui.messages.bgAgentCompleted', { subject })
-        : t('tui.messages.bgAgentFailed', { subject });
+        : phase === 'lost'
+          ? t('tui.messages.bgAgentLost', { subject })
+          : phase === 'killed'
+            ? t('tui.messages.bgAgentKilled', { subject })
+            : phase === 'timed_out'
+              ? t('tui.messages.bgAgentTimedOut', { subject })
+              : t('tui.messages.bgAgentFailed', { subject });
   const tail = phase === 'failed' ? normalizeBackgroundField(extras?.error) : undefined;
   const detailParts = [
     normalizeBackgroundField(meta.model),

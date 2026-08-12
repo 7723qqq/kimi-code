@@ -320,11 +320,20 @@ async function fetchWithTimeout(
 function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted === true) return Promise.reject(abortError());
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
+    let settled = false;
+    // Settle once and always drop the abort listener so a long-lived / reused
+    // signal doesn't accumulate a stale listener on every sleep.
+    const settle = (settleWith: () => void): void => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', onAbort);
+      settleWith();
+    };
+    const timer = setTimeout(() => settle(resolve), ms);
     timer.unref?.();
     const onAbort = (): void => {
       clearTimeout(timer);
-      reject(abortError());
+      settle(() => reject(abortError()));
     };
     signal?.addEventListener('abort', onAbort, { once: true });
   });

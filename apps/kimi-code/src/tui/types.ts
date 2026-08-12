@@ -144,7 +144,13 @@ export interface BackgroundAgentMetadata {
   readonly effort?: string;
 }
 
-export type BackgroundAgentStatusPhase = 'started' | 'completed' | 'failed';
+export type BackgroundAgentStatusPhase =
+  | 'started'
+  | 'completed'
+  | 'failed'
+  | 'lost'
+  | 'killed'
+  | 'timed_out';
 
 export interface BackgroundAgentStatusData {
   readonly phase: BackgroundAgentStatusPhase;
@@ -217,6 +223,10 @@ export interface TranscriptEntry {
   compactionData?: CompactionTranscriptData;
   cronData?: CronTranscriptData;
   goalData?: GoalTranscriptData;
+  /** Set on the derived 'assistant' card built from a goal-completion snapshot
+   * (distinct from real model-authored text; lets rendering avoid localizing /
+   * string-matching the message content to pick the goal-completion card). */
+  goalCompletionData?: boolean;
   imageAttachmentIds?: readonly number[];
   skillActivationId?: string;
   skillName?: string;

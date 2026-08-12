@@ -345,7 +345,10 @@ export class TasksBrowserController {
       return;
     }
     const current = state.tasksBrowser;
-    if (current === undefined || current !== browser) return;
+    // Re-validate after the await: a second concurrent open may have already
+    // attached a viewer while we were fetching, and overwriting it here would
+    // leak its poll timer and leave its UI children dangling.
+    if (current === undefined || current !== browser || current.viewer !== undefined) return;
 
     const info = this.host.backgroundTasks.get(taskId);
     const viewer = new TaskOutputViewer(

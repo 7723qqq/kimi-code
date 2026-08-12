@@ -102,7 +102,7 @@ export class EditorKeyboardController {
         return entry.slice(1);
       }
       editor.setInputMode('prompt');
-      return undefined;
+      return;
     };
 
     // Save/restore the input mode alongside pi-tui's history draft. Without
@@ -314,12 +314,15 @@ export class EditorKeyboardController {
         ) {
           return;
         }
-        host.state.queuedMessages = queued.filter((m) => m.mode === 'bash');
-        if (!editorIsBash) editor.setText('');
         const session = host.session;
         if (host.state.appState.model.trim().length === 0 || session === undefined) {
           host.showError(getLlmNotSetMessage());
         } else {
+          // Mutate the queue/editor only after the guard passes, so an
+          // early-return here never drops the user's queued non-bash items or
+          // the draft text.
+          host.state.queuedMessages = queued.filter((m) => m.mode === 'bash');
+          if (!editorIsBash) editor.setText('');
           host.steerMessage(session, items);
         }
       }

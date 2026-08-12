@@ -139,6 +139,8 @@ export default {
       cannotCombineYoloAndAuto: 'Cannot combine --yolo with --auto.',
       agentOnlyOnce: '--agent may only be specified once.',
       agentFileOnlyOnce: '--agent-file may only be specified once.',
+      agentEmpty: 'Agent cannot be empty.',
+      agentFilePathEmpty: 'Agent file path cannot be empty.',
     },
   },
   startup: {
@@ -1879,6 +1881,9 @@ export default {
       bgAgentStarted: '{{subject}} started in background',
       bgAgentCompleted: '{{subject}} completed in background',
       bgAgentFailed: '{{subject}} failed in background',
+      bgAgentLost: '{{subject}} lost in background',
+      bgAgentKilled: '{{subject}} stopped',
+      bgAgentTimedOut: '{{subject}} timed out',
       // tui/utils/mcp-server-status.ts
       mcpStatusFailed: '{{count}} failed',
       mcpStatusNeedsAuth: '{{count}} need auth',

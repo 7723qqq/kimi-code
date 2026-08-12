@@ -21,9 +21,10 @@ export class AsyncEventQueue<T> implements AsyncIterable<T>, AsyncIterator<T> {
   private error: unknown;
   private failed = false;
   private ended = false;
+  private closed = false;
 
   push(value: T): void {
-    if (this.failed || this.ended) return;
+    if (this.failed || this.ended || this.closed) return;
     const waiter = this.waiters.shift();
     if (waiter !== undefined) {
       waiter.resolve({ done: false, value });
@@ -33,7 +34,7 @@ export class AsyncEventQueue<T> implements AsyncIterable<T>, AsyncIterator<T> {
   }
 
   end(): void {
-    if (this.failed || this.ended) return;
+    if (this.failed || this.ended || this.closed) return;
     this.ended = true;
     for (const waiter of this.waiters.splice(0)) {
       waiter.resolve({ done: true, value: undefined });
@@ -41,7 +42,7 @@ export class AsyncEventQueue<T> implements AsyncIterable<T>, AsyncIterator<T> {
   }
 
   fail(error: unknown): void {
-    if (this.failed || this.ended) return;
+    if (this.failed || this.ended || this.closed) return;
     this.error = error;
     this.failed = true;
     if (this.values.length > 0) return;
@@ -61,9 +62,35 @@ export class AsyncEventQueue<T> implements AsyncIterable<T>, AsyncIterator<T> {
     if (this.ended) {
       return Promise.resolve({ done: true, value: undefined });
     }
+    if (this.closed) {
+      return Promise.resolve({ done: true, value: undefined });
+    }
     return new Promise<IteratorResult<T>>((resolve, reject) => {
       this.waiters.push({ resolve, reject });
     });
+  }
+
+  // Called by `for await` when the consumer breaks/exits early. Drain the
+  // buffered values and settle any parked waiters so nothing is leaked for the
+  // remainder of the queue's lifetime.
+  return(): Promise<IteratorResult<T>> {
+    this.closed = true;
+    this.values.length = 0;
+    for (const waiter of this.waiters.splice(0)) {
+      waiter.resolve({ done: true, value: undefined });
+    }
+    return Promise.resolve({ done: true, value: undefined });
+  }
+
+  // Called by `for await` if the consumer's body throws. Clean up like
+  // `return()` but reject the parked waiters with the error.
+  throw(error?: unknown): Promise<IteratorResult<T>> {
+    this.closed = true;
+    this.values.length = 0;
+    for (const waiter of this.waiters.splice(0)) {
+      waiter.reject(error);
+    }
+    return Promise.reject(error);
   }
 
   [Symbol.asyncIterator](): AsyncIterator<T> {

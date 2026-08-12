@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import { ErrorCodes, KimiError, makeErrorPayload } from '#/legacy';
+import { ErrorCodes, KimiError, log, makeErrorPayload } from '#/legacy';
 
 import type { ApprovalHandler, Event, QuestionHandler } from '#/events';
 import type {
@@ -875,8 +875,14 @@ export abstract class SDKRpcClientBase {
   }
 
   receiveEvent(event: Event): void {
+    // Isolate each listener so one throwing listener can't break delivery to
+    // the rest or let the error escape into the engine's event dispatch.
     for (const listener of this.eventListeners) {
-      listener(event);
+      try {
+        listener(event);
+      } catch (error) {
+        log.error('Event listener threw', { error: error instanceof Error ? error.message : String(error) });
+      }
     }
   }
 

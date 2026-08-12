@@ -88,13 +88,13 @@ export function validateOptions(
     throw new OptionConflictError(t('cli.errors.cannotCombinePromptAndPlan'));
   }
   if (opts.agent !== undefined && opts.agent.trim().length === 0) {
-    throw new OptionConflictError('Agent cannot be empty.');
+    throw new OptionConflictError(t('cli.errors.agentEmpty'));
   }
   if (opts.agentFiles.length > 1) {
     throw new OptionConflictError(t('cli.errors.agentFileOnlyOnce'));
   }
   if (opts.agentFiles.some((file) => file.trim().length === 0)) {
-    throw new OptionConflictError('Agent file path cannot be empty.');
+    throw new OptionConflictError(t('cli.errors.agentFilePathEmpty'));
   }
   if (opts.agent !== undefined && opts.agentFiles.length > 0) {
     throw new OptionConflictError('Cannot combine --agent with --agent-file.');

@@ -2233,7 +2233,7 @@ export class KimiTUI {
         }
         return null;
       case 'assistant': {
-        if (entry.content.trimStart().startsWith('✓ Goal complete')) {
+        if (entry.goalCompletionData === true) {
           return new GoalCompletionMessageComponent(entry.content);
         }
         const component = new AssistantMessageComponent();

@@ -37,7 +37,7 @@ export class TranscriptStore {
       transcript = new AgentTranscript(agentId);
       this.#agents.set(agentId, transcript);
     }
-    if (descriptor && this.#descriptors.get(agentId) !== descriptor) {
+    if (descriptor && !descriptorEquals(this.#descriptors.get(agentId), descriptor)) {
       this.#descriptors.set(agentId, descriptor);
       this.#emitRoster();
     }
@@ -57,7 +57,7 @@ export class TranscriptStore {
 
   /** Merge or replace an agent's roster descriptor. */
   describeAgent(descriptor: AgentDescriptor): void {
-    if (this.#descriptors.get(descriptor.agentId) !== descriptor) {
+    if (!descriptorEquals(this.#descriptors.get(descriptor.agentId), descriptor)) {
       this.#descriptors.set(descriptor.agentId, descriptor);
       this.#emitRoster();
     }
@@ -82,4 +82,21 @@ export class TranscriptStore {
     const agents = this.agents();
     for (const listener of this.#rosterListeners) listener(agents);
   }
+}
+
+/**
+ * Structural equality over the all-primitive descriptor fields, so an
+ * unchanged descriptor arriving as a fresh object (polling / repeated ensure)
+ * doesn't emit a spurious roster broadcast.
+ */
+function descriptorEquals(a: AgentDescriptor | undefined, b: AgentDescriptor): boolean {
+  if (a === undefined) return false;
+  return (
+    a.agentId === b.agentId &&
+    a.type === b.type &&
+    a.parentAgentId === b.parentAgentId &&
+    a.label === b.label &&
+    a.createdAt === b.createdAt &&
+    a.disposedAt === b.disposedAt
+  );
 }

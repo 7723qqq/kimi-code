@@ -100,6 +100,11 @@ export type LoopInterruptReason = 'aborted' | 'max_steps' | 'error';
 
 const DEFAULT_MAX_STEPS = 100;
 const ABSOLUTE_MAX_STEPS = 200;
+// Safety net for `maxStepsPerTurn: 0` (unbounded turns): cap how many
+// consecutive loop iterations may end in a recovery `continue` without a step
+// completing. Guards against a broken error handler that keeps "handling" the
+// same failure without consuming the queue or enqueuing progress.
+const MAX_CONSECUTIVE_LOOP_RECOVERIES = 1000;
 export const loopNextReservedTurnIdKey = defineState<number | undefined>(
   'loop.nextReservedTurnId',
   () => undefined as number | undefined,
@@ -301,8 +306,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   private cancelQueuedTurn(turnId: number, cancellation: unknown): boolean {
     const index = this.pendingTurns.findIndex((job) => job.turn.id === turnId);
     if (index < 0) return false;
-    const [job] = this.pendingTurns.splice(index, 1);
+    const job = this.pendingTurns[index];
     if (job === undefined || job.turn.state !== 'queued') return false;
+    this.pendingTurns.splice(index, 1);
     this.wire.dispatch(cancelTurn({ turnId, target: 'queued', reason: cancelReasonFor(cancellation) }));
     for (const step of job.steps.values()) step.cancel(cancellation);
     job.controller.abort(cancellation);
@@ -420,9 +426,13 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   private enqueueStep(job: TurnJob, request: StepRequest, options?: StepEnqueueOptions): Step {
     const existing = job.steps.get(request.id);
-    if (existing !== undefined && existing.state !== 'cancelled') {
+    // Only a live (queued/running) step may be reused. A terminal step
+    // (completed/failed/cancelled) must not be flipped back to `queued` — that
+    // would silently discard the original result and double-settle the old
+    // result promise. Retrying after a failure creates a fresh step (and thus a
+    // fresh result) so the retry outcome is actually delivered.
+    if (existing !== undefined && (existing.state === 'queued' || existing.state === 'running')) {
       job.queue.enqueue(request, options?.at ?? 'tail');
-      existing.state = 'queued';
       return existing;
     }
     const controller = new AbortController();
@@ -632,6 +642,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   async run(options: LoopRunOptions): Promise<LoopRunResult> {
     const runtime = this.createLoopRuntime(options);
+    let consecutiveRecoveries = 0;
     try {
       while (true) {
         try {
@@ -647,10 +658,16 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             options.onStarted,
           );
           const completed = this.completeLoopStep(runtime, result);
+          consecutiveRecoveries = 0;
           if (completed !== undefined) return completed;
         } catch (error) {
           const disposition = await this.handleLoopStepError(runtime, error);
           if (disposition.type === 'return') return disposition.result;
+          // A recovery `continue`: the step did not complete this iteration.
+          consecutiveRecoveries++;
+          if (consecutiveRecoveries > MAX_CONSECUTIVE_LOOP_RECOVERIES) {
+            return { type: 'failed', error, steps: runtime.steps };
+          }
         }
       }
     } finally {

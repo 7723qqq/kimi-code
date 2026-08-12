@@ -7,6 +7,7 @@ import type {
   SessionMetaUpdatedEvent,
   TokenUsage,
 } from '@moonshot-ai/kimi-code-sdk';
+import { log } from '@moonshot-ai/kimi-code-sdk';
 
 /** Narrowed event shapes consumed by the private handlers below. */
 type StatusUpdatedEvent = Extract<Event, { type: 'agent.status.updated' }>;
@@ -747,6 +748,7 @@ export class SessionEventHandler {
         kind: 'assistant',
         renderMode: 'markdown',
         content: buildGoalCompletionMessage(event.snapshot),
+        goalCompletionData: true,
       });
       state.ui.requestRender();
       return;
@@ -805,6 +807,15 @@ export class SessionEventHandler {
             return;
           }
           this.goalCompletionTurnEnded = false;
+        })
+        .catch((error) => {
+          // An unexpected failure must not surface as an unhandled rejection;
+          // reset the pending state so a later turn can retry the promotion.
+          this.queuedGoalPromotionPending = false;
+          this.goalCompletionTurnEnded = false;
+          log.error('Failed to promote queued goal', {
+            error: error instanceof Error ? error.message : String(error),
+          });
         })
         .finally(() => {
           this.queuedGoalPromotionInFlight = false;

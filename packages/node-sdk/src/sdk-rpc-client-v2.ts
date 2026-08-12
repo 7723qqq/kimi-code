@@ -136,6 +136,7 @@ import {
   HookDefSchema,
   KimiError,
   limitAgentReplayByTurns,
+  log,
   noopTelemetryClient,
 } from '#/legacy';
 import type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
@@ -506,6 +507,16 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       wiring.dispose();
     }
     this.sessionWirings.clear();
+    // Cancel any in-flight global MCP OAuth authorizations so they can't
+    // outlive the client and hold resources.
+    for (const { flow } of this.globalMcpOAuthFlows.values()) {
+      try {
+        await flow.cancel();
+      } catch {
+        // best-effort: never let teardown fail on OAuth cancellation
+      }
+    }
+    this.globalMcpOAuthFlows.clear();
     for (const subscription of this.appSubscriptions) {
       subscription.dispose();
     }
@@ -533,9 +544,18 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     if (client === undefined) return;
     const telemetry = this.app.accessor.get(ITelemetryService);
     telemetry.setAppender(client);
-    void this.configReady.then(() => {
-      telemetry.setEnabled(this.engineAccessor.get(IConfigService).get('telemetry') !== false);
-    });
+    void this.configReady.then(
+      () => {
+        telemetry.setEnabled(this.engineAccessor.get(IConfigService).get('telemetry') !== false);
+      },
+      (error) => {
+        // Don't let a config-read failure surface as an unhandled rejection.
+        log.error('Failed to read telemetry config', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      },
+    );
   }
 
   /**
@@ -1439,7 +1459,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     try {
       this.engineAccessor.get(IModelCatalog).get(secondary.model);
     } catch (error) {
-      throw wrapSubagentModelError(error, secondary.model, undefined);
+      throw wrapSubagentModelError(error, secondary.model);
     }
     session.accessor
       .get(ISessionSecondaryModelWarningService)
@@ -1515,7 +1535,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     ]);
     const profile = agent.accessor.get(IAgentProfileService).data();
     const capability = profile.modelCapabilities;
-    const maxContextTokens = capability.max_input_tokens ?? capability.max_context_tokens;
+    // Both capability fields can be absent; default to 0 so the returned
+    // `maxContextTokens` always satisfies its `number` contract (matching the
+    // base class, which uses `?? 0`).
+    const maxContextTokens = capability.max_input_tokens ?? capability.max_context_tokens ?? 0;
     const contextTokens = context.tokenCount;
     // Deliberately unclamped, same as the base class (>100% is the documented
     // overflow signal on this path).

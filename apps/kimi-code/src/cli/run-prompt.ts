@@ -35,6 +35,11 @@ import type { CLIOptions } from './options';
  * cleanup is still bounded by `timeoutMs`, so this can't hang the run forever.
  */
 export async function raceWithTimeout(promise: Promise<void>, timeoutMs: number): Promise<void> {
+  // A non-positive timeout would make the timer fire immediately and silently
+  // skip waiting entirely — reject clearly-invalid values instead.
+  if (timeoutMs < 0) {
+    throw new RangeError(`raceWithTimeout: timeoutMs must be >= 0, got ${timeoutMs}`);
+  }
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   // Attach the catch eagerly (synchronously) so `promise` is always consumed and
@@ -109,6 +114,8 @@ export function installPromptTerminationCleanup(
     try {
       await cleanup();
     } finally {
+      // Exit regardless of cleanup outcome; the cleanup rejection propagates to
+      // the (already-exiting) caller.
       promptProcess.exit(signalExitCode(signal));
     }
   };
@@ -129,5 +136,6 @@ export function signalExitCode(signal: NodeJS.Signals): number {
   if (signal === 'SIGINT') return 128 + os.constants.signals.SIGINT;
   if (signal === 'SIGHUP') return 128 + os.constants.signals.SIGHUP;
   if (signal === 'SIGTERM') return 128 + os.constants.signals.SIGTERM;
-  return 143;
+  // Fall back to the SIGTERM convention (128 + 15) for any unhandled signal.
+  return 128 + (os.constants.signals.SIGTERM ?? 15);
 }
