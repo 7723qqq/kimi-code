@@ -532,11 +532,11 @@ fn upgrade_and_frontend_commands_are_recognized() {
     let out = run(&home, &["migrate"]);
     assert!(out.status.success(), "migrate exits 0: {}", out.status);
     let text = stdout(&out);
-    assert!(text.contains("TS distribution"), "migrate hint: {text}");
+    assert!(text.contains("no longer provided"), "migrate hint: {text}");
     let out = run(&home, &["vis"]);
     assert!(!out.status.success(), "vis exits non-zero");
     let err = stderr(&out);
-    assert!(err.contains("TS distribution"), "vis: {err}");
+    assert!(err.contains("not bundled"), "vis: {err}");
     // `kimi web --no-open --port <ephemeral>` serves the API: probe /health,
     // then let Ctrl-C-less shutdown via killing the child.
     let mut child = Command::new(binary())
@@ -1024,13 +1024,47 @@ fn print_continue_empty_home_falls_back_to_default_session() {
 
 #[test]
 fn doctor_tui_validates_specific_file() {
-    // `doctor tui <path>` (TS parity): valid TOML -> OK; invalid -> ERROR + 1.
+    // `doctor tui <path>` (TS parity): valid TOML + valid field types -> OK;
+    // a type error in a known field or a syntax error -> ERROR + exit 1.
     let home = temp_dir("doctor-tui");
     let valid = home.join("tui-valid.toml");
-    std::fs::write(&valid, "[theme]\naccent = \"#ff0000\"\n").expect("write valid");
+    std::fs::write(
+        &valid,
+        "theme = \"dark\"\nlocale = \"zh\"\ndisable_paste_burst = true\n[notifications]\nenabled = false\n",
+    )
+    .expect("write valid");
     let out = run(&home, &["doctor", "tui", valid.to_str().expect("path")]);
     assert!(out.status.success(), "valid tui exits 0: {}", out.status);
     assert!(stdout(&out).contains("OK tui.toml"), "stdout: {}", stdout(&out));
+
+    // Unknown fields are ignored (TS Zod strip), including the old
+    // `[theme]`-table shape's accent key when theme is a plain string.
+    let unknown = home.join("tui-unknown.toml");
+    std::fs::write(&unknown, "theme = \"auto\"\nunknown_key = 123\n").expect("write");
+    let out = run(&home, &["doctor", "tui", unknown.to_str().expect("path")]);
+    assert!(out.status.success(), "unknown fields are stripped: {}", stderr(&out));
+
+    // Known-field type error (TS `TuiConfigFileSchema`): `theme` must be a
+    // string — a `[theme]` table is a type error, not valid config.
+    let semantic = home.join("tui-semantic.toml");
+    std::fs::write(&semantic, "[theme]\naccent = \"#ff0000\"\n").expect("write semantic");
+    let out = run(&home, &["doctor", "tui", semantic.to_str().expect("path")]);
+    assert!(!out.status.success(), "semantic error exits 1");
+    assert!(
+        stderr(&out).contains("field `theme`: expected a string"),
+        "stderr names the bad field: {}",
+        stderr(&out)
+    );
+
+    let locale_bad = home.join("tui-locale.toml");
+    std::fs::write(&locale_bad, "locale = \"fr\"\n").expect("write locale");
+    let out = run(&home, &["doctor", "tui", locale_bad.to_str().expect("path")]);
+    assert!(!out.status.success(), "bad locale exits 1");
+    assert!(
+        stderr(&out).contains("field `locale`: expected \"en\" or \"zh\""),
+        "locale issue: {}",
+        stderr(&out)
+    );
 
     let invalid = home.join("tui-invalid.toml");
     std::fs::write(&invalid, "theme = { accent = }\n").expect("write invalid");
@@ -1334,6 +1368,106 @@ fn export_with_session_id_writes_zip() {
         "default zip name: {printed}"
     );
     assert!(!printed.contains("export-me.zip"), "no fixed <id>.zip name: {printed}");
+}
+
+#[test]
+fn print_add_dir_flag_attaches_before_prompt() {
+    // `print --add-dir <dir>` (TS parity): the dirs are attached in the
+    // setup step, before the prompt. The prompt itself fails fast without an
+    // LLM, but the run must reach it — i.e. the flag is accepted, the session
+    // is created and add_dir succeeds before the missing-LLM error surfaces.
+    let home = temp_dir("print-add-dir");
+    let cwd = temp_dir("print-add-dir-cwd");
+    let extra = temp_dir("print-add-dir-extra");
+    let out = Command::new(binary())
+        .args(["--add-dir", extra.to_str().unwrap(), "-p", "hi"])
+        .current_dir(&cwd)
+        .env("KIMI_AGENT_HOME", &home)
+        .env("KIMI_CODE_HOME", &home)
+        .env("HOME", &home)
+        .env_remove("KIMI_MODEL")
+        .env_remove("KIMI_MODEL_API_KEY")
+        .output()
+        .expect("spawn kimi print");
+    assert!(!out.status.success(), "no LLM -> print errors: {}", out.status);
+    assert!(stderr(&out).contains("error"), "stderr: {}", stderr(&out));
+    // The session was created (and the add-dir applied before the prompt
+    // failed) — the engine error must not mention the add-dir itself.
+    assert!(
+        !stderr(&out).contains("add_dir"),
+        "add_dir applied before the prompt error: {}",
+        stderr(&out)
+    );
+    let list = run(&home, &["sessions", "--json"]);
+    assert!(
+        stdout(&list).contains("kimi-exec"),
+        "default session created: {}",
+        stdout(&list)
+    );
+}
+
+#[test]
+fn export_auto_pick_filters_work_dir_and_confirms_on_eof() {
+    // TS parity: auto-picking the previous session filters by the cwd, and a
+    // non-TTY stdin EOF confirms the export (default yes) instead of erroring.
+    let home = temp_dir("export-workdir");
+    let cwd_a = temp_dir("export-workdir-a");
+    let mut child = Command::new(binary())
+        .args(["chat", "-s", "export-a"])
+        .current_dir(&cwd_a)
+        .env("KIMI_AGENT_HOME", &home)
+        .env("KIMI_CODE_HOME", &home)
+        .env("HOME", &home)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn kimi chat");
+    {
+        use std::io::Write;
+        child.stdin.as_mut().expect("stdin").write_all(b"/quit\n").expect("write");
+    }
+    assert!(child.wait_with_output().expect("wait").status.success());
+
+    // From the same directory, no id + no -y: stdin EOF defaults to yes and
+    // the most recent session under THIS cwd is exported.
+    let out = Command::new(binary())
+        .args(["export"])
+        .current_dir(&cwd_a)
+        .env("KIMI_AGENT_HOME", &home)
+        .env("KIMI_CODE_HOME", &home)
+        .env("HOME", &home)
+        .output()
+        .expect("spawn kimi export");
+    assert!(
+        out.status.success(),
+        "EOF confirm exports: {} — {}",
+        out.status,
+        stderr(&out)
+    );
+    assert!(
+        stdout(&out).trim().starts_with("kimi-debug-export-a-"),
+        "exported the cwd-matching session: {}",
+        stdout(&out)
+    );
+
+    // From a different directory the session is filtered out: no previous
+    // session (TS `listSessions({ workDir })` parity).
+    let cwd_b = temp_dir("export-workdir-b");
+    let out = Command::new(binary())
+        .args(["export", "-y"])
+        .current_dir(&cwd_b)
+        .env("KIMI_AGENT_HOME", &home)
+        .env("KIMI_CODE_HOME", &home)
+        .env("HOME", &home)
+        .output()
+        .expect("spawn kimi export");
+    assert_eq!(out.status.code(), Some(1), "other-dir export finds nothing");
+    assert!(
+        stderr(&out).contains("No previous session"),
+        "stderr explains the filter: {}",
+        stderr(&out)
+    );
 }
 
 #[test]

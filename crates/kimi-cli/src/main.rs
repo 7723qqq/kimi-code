@@ -1085,7 +1085,8 @@ enum Commands {
         #[command(subcommand)]
         cmd: Option<WebCmd>,
     },
-    /// Launch the visualization frontend (ships with the TS distribution).
+    /// Launch the visualization frontend (a separate app — not bundled with
+    /// the Rust CLI; see `cli.vis.notBundled`).
     Vis,
 }
 
@@ -1181,8 +1182,8 @@ enum DoctorTarget {
         #[arg(value_name = "path")]
         path: Option<String>,
     },
-    /// Validate a specific tui.toml file (syntax only — TS `doctor tui`
-    /// parity; the engine has no theme engine yet).
+    /// Validate a specific tui.toml file (parse + known-field types — TS
+    /// `doctor tui` parity; the engine has no theme engine yet).
     Tui {
         /// Path to the tui.toml file (defaults to the first found).
         #[arg(value_name = "path")]
@@ -1230,8 +1231,12 @@ fn check_config_file(path: &std::path::Path, explicit: bool) -> (String, Option<
     }
 }
 
-/// Check one tui.toml file: existence, then TOML parse (TS `doctor tui`
-/// parity; the engine has no TUI config parser yet, so syntax only).
+/// Check one tui.toml file: existence, TOML parse, then field-level semantic
+/// checks (TS `parseTuiConfig` parity — the Zod file schema type-checks the
+/// known fields and strips unknown ones). The engine has no structured TUI
+/// config parser, so the known-field schema is mirrored here: Rust's own
+/// writers store `editor` as a top-level string (TS stores `[editor] command`),
+/// so both shapes are accepted.
 fn check_tui_file(path: &std::path::Path, explicit: bool) -> (String, Option<String>) {
     if !path.exists() {
         let message = if explicit {
@@ -1243,11 +1248,122 @@ fn check_tui_file(path: &std::path::Path, explicit: bool) -> (String, Option<Str
     }
     match std::fs::read_to_string(path) {
         Ok(text) => match text.parse::<toml::Value>() {
-            Ok(_) => ("OK".to_string(), None),
+            Ok(value) => {
+                let issues = validate_tui_value(&value);
+                if issues.is_empty() {
+                    ("OK".to_string(), None)
+                } else {
+                    ("ERROR".to_string(), Some(issues.join("\n")))
+                }
+            }
             Err(e) => ("ERROR".to_string(), Some(e.to_string())),
         },
         Err(e) => ("ERROR".to_string(), Some(e.to_string())),
     }
+}
+
+/// Field-level semantic checks for a parsed tui.toml (TS `TuiConfigFileSchema`
+/// parity): known fields are type-checked, unknown fields are ignored like
+/// Zod's default strip, and an empty file passes (TS returns the defaults).
+fn validate_tui_value(value: &toml::Value) -> Vec<String> {
+    let mut issues = Vec::new();
+    let Some(table) = value.as_table() else {
+        return vec!["root must be a TOML table".to_string()];
+    };
+    for (key, value) in table {
+        match key.as_str() {
+            "theme" => {
+                if !value.is_str() {
+                    issues.push("field `theme`: expected a string".to_string());
+                }
+            }
+            "locale" => match value.as_str() {
+                Some(locale) if locale == "en" || locale == "zh" => {}
+                _ => issues.push("field `locale`: expected \"en\" or \"zh\"".to_string()),
+            },
+            "editor" => {
+                // Rust persists `editor = "cmd"`; TS persists `[editor] command`.
+                match value {
+                    toml::Value::String(_) => {}
+                    toml::Value::Table(table) => {
+                        if let Some(command) = table.get("command") {
+                            if !command.is_str() {
+                                issues.push("field `editor.command`: expected a string".to_string());
+                            }
+                        }
+                    }
+                    _ => issues.push("field `editor`: expected a string or an [editor] table".to_string()),
+                }
+            }
+            "disable_paste_burst" => {
+                if !value.is_bool() {
+                    issues.push("field `disable_paste_burst`: expected a boolean".to_string());
+                }
+            }
+            "notifications" => match value {
+                toml::Value::Table(table) => {
+                    if let Some(enabled) = table.get("enabled") {
+                        if !enabled.is_bool() {
+                            issues.push("field `notifications.enabled`: expected a boolean".to_string());
+                        }
+                    }
+                    if let Some(condition) = table.get("notification_condition") {
+                        match condition.as_str() {
+                            Some("unfocused") | Some("always") => {}
+                            _ => issues.push(
+                                "field `notifications.notification_condition`: expected \"unfocused\" or \"always\""
+                                    .to_string(),
+                            ),
+                        }
+                    }
+                }
+                _ => issues.push("field `notifications`: expected a table".to_string()),
+            },
+            "upgrade" => match value {
+                toml::Value::Table(table) => {
+                    if let Some(auto_install) = table.get("auto_install") {
+                        if !auto_install.is_bool() {
+                            issues.push("field `upgrade.auto_install`: expected a boolean".to_string());
+                        }
+                    }
+                }
+                _ => issues.push("field `upgrade`: expected a table".to_string()),
+            },
+            "astron" => match value {
+                toml::Value::Table(table) => {
+                    if let Some(stream) = table.get("stream") {
+                        if !stream.is_bool() {
+                            issues.push("field `astron.stream`: expected a boolean".to_string());
+                        }
+                    }
+                    if let Some(temperature) = table.get("temperature") {
+                        if !is_number(temperature) {
+                            issues.push("field `astron.temperature`: expected a number".to_string());
+                        }
+                    }
+                    if let Some(max_tokens) = table.get("max_tokens") {
+                        if !is_number(max_tokens) {
+                            issues.push("field `astron.max_tokens`: expected a number".to_string());
+                        }
+                    }
+                    if let Some(search_disable) = table.get("search_disable") {
+                        if !search_disable.is_bool() {
+                            issues.push("field `astron.search_disable`: expected a boolean".to_string());
+                        }
+                    }
+                }
+                _ => issues.push("field `astron`: expected a table".to_string()),
+            },
+            // Unknown fields are ignored (TS Zod strip).
+            _ => {}
+        }
+    }
+    issues
+}
+
+/// TOML numbers come as integer or float; the TS Zod `z.number()` accepts both.
+fn is_number(value: &toml::Value) -> bool {
+    value.is_integer() || value.is_float()
 }
 
 /// One `STATUS label(12) path` line per checked file, with indented detail
@@ -3043,6 +3159,10 @@ async fn main() -> anyhow::Result<()> {
                 // headless prompt must never block on an approval.
                 permission_auto: true,
                 skills: load_skills_from_dirs(&skills_dirs),
+                // TS `--add-dir` parity: attached inside the setup step,
+                // AFTER the (idempotent) create but BEFORE the prompt — a
+                // post-prompt attach would only apply from the next run.
+                add_dirs,
             };
             let result = kimi_exec::run_prompt_with_setup(
                 &mut client,
@@ -3082,16 +3202,6 @@ async fn main() -> anyhow::Result<()> {
                     "command": format!("kimi -r {session_id}"),
                     "content": format!("run `kimi -r {session_id}` to resume this session"),
                 }));
-            }
-            // Attach additional workspace directories (TS `--add-dir`
-            // parity). Best-effort per dir — the session stays usable.
-            for dir in &add_dirs {
-                let _ = client
-                    .call(
-                        kimi_protocol::methods::SESSION_ADD_DIR,
-                        serde_json::json!({ "session_id": session_id, "path": dir }),
-                    )
-                    .await;
             }
             if json {
                 println!("{result}");
@@ -3396,7 +3506,7 @@ async fn main() -> anyhow::Result<()> {
             // summary as an extra block before the file checks. The whole
             // report lands on stderr when any check failed (TS parity).
             // `kimi doctor tui [path]` — validate one specific tui.toml file
-            // (TS `doctor tui` parity): existence, then TOML parse.
+            // (TS `doctor tui` parity): existence, TOML parse, field types.
             if let Some(DoctorTarget::Tui { path }) = target {
                 let resolved = match path {
                     Some(p) => std::path::PathBuf::from(p),
@@ -3612,8 +3722,8 @@ async fn main() -> anyhow::Result<()> {
             // driving the engine through the SDK harness.
             let harness = connect_harness(&server)?;
             let stdin = tokio::io::stdin();
-            let mut stdout = tokio::io::stdout();
-            kimi_acp::serve(harness, stdin, &mut stdout).await;
+            let stdout = tokio::io::stdout();
+            kimi_acp::serve(harness, stdin, stdout).await;
         }
         Commands::Completions { shell } => {
             use clap::CommandFactory;
@@ -3638,12 +3748,11 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Migrate => {
-            // Legacy data migration (~/.kimi -> ~/.kimi-code) is a one-time
-            // host-level step owned by the TS distribution; the Rust binary
-            // does not bundle the migration engine or screen.
-            println!("migrating legacy kimi-cli data is a one-time step handled by the TS distribution:");
-            println!("  npm i -g kimi-code@latest && kimi migrate");
-            println!("(the Rust distribution does not bundle the legacy migration screen)");
+            // Legacy data migration (~/.kimi -> ~/.kimi-code) was a one-time
+            // host-level step of the retired TS distribution; the command was
+            // removed with it and the Rust CLI keeps only this notice
+            // placeholder (migration is no longer provided).
+            println!("{}", kimi_tui::i18n::t("cli.migrate.retired"));
         }
         Commands::Server { .. } => {
             // TS `DEPRECATED_SERVER_NOTICE` parity: every `kimi server …`
@@ -3701,9 +3810,9 @@ async fn main() -> anyhow::Result<()> {
             .await?;
         }
         Commands::Vis => {
-            // The vis frontend stays in the TS distribution (pure UI); the
-            // Rust build has no bundled frontend. Fail loudly rather than
-            // pretending to launch.
+            // The vis frontend is a separate app (@moonshot-ai/vis); the Rust
+            // CLI does not bundle it. Fail loudly rather than pretending to
+            // launch.
             eprintln!("{}", kimi_tui::i18n::t("cli.vis.notBundled"));
             std::process::exit(1);
         }
@@ -4159,28 +4268,25 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Export { session_id, output, yes, include_global_log, no_include_global_log } => {
             let include_global_log = include_global_log || !no_include_global_log;
-            let client = connect(&server)?;
+            let mut client = connect(&server)?;
             // Resolve the session id: explicit, or the most recent session
-            // (TS parity: interactive confirm on a TTY, otherwise require
-            // `-y` to pick the most recent session).
+            // created under the current directory (TS `findPreviousSession`
+            // parity — `listSessions({ workDir })` filters by the cwd, so a
+            // session from another workspace is never auto-picked).
             let resolved_id = match session_id {
                 Some(id) if !id.trim().is_empty() => id,
                 _ => {
-                    let list = client
-                        .call(kimi_protocol::methods::SESSION_LIST, serde_json::json!({ "limit": 1 }))
-                        .await;
-                    if let Some(error) = list.get("error") {
-                        eprintln!("error: {}", error["message"].as_str().unwrap_or("unknown"));
-                        std::process::exit(1);
-                    }
-                    let sessions = list["result"]["sessions"].as_array().cloned().unwrap_or_default();
-                    let Some(first) = sessions.into_iter().next() else {
+                    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                    let cwd = cwd.to_string_lossy().into_owned();
+                    let Some(id) = latest_session_id(&mut client, Some(&cwd)).await else {
                         eprintln!("No previous session found to export.");
                         std::process::exit(1);
                     };
-                    let id = first["id"].as_str().unwrap_or("").to_string();
-                    if !yes && std::io::stdin().is_terminal() {
-                        // Interactive confirm (TS parity): `Y/n`, default yes.
+                    if !yes {
+                        // TS `confirmPreviousSession` parity: read one line of
+                        // stdin (readline) — an EOF / empty answer defaults to
+                        // yes, so a non-TTY run with no input confirms instead
+                        // of erroring; `echo n | kimi export` still cancels.
                         eprint!("Export session {id}? [Y/n] ");
                         std::io::Write::flush(&mut std::io::stderr()).ok();
                         let mut answer = String::new();
@@ -4190,11 +4296,6 @@ async fn main() -> anyhow::Result<()> {
                             println!("Export cancelled.");
                             return Ok(());
                         }
-                    } else if !yes {
-                        eprintln!(
-                            "no session id given; pass one or use -y to pick the most recent session"
-                        );
-                        std::process::exit(1);
                     }
                     eprintln!("exporting most recent session: {id}");
                     id

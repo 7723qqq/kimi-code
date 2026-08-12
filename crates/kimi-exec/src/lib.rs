@@ -29,6 +29,12 @@ pub struct PromptSetup {
     /// registered on the session at create, like the TUI host hands the
     /// engine. Empty = no custom skills.
     pub skills: Vec<serde_json::Value>,
+    /// Additional workspace directories attached BEFORE the prompt (TS
+    /// `--add-dir` parity): `session/add_dir` per dir, applied after the
+    /// (idempotent) create and any resume load so both fresh and resumed
+    /// sessions see them from the first turn — a post-prompt attach would
+    /// only apply from the next run.
+    pub add_dirs: Vec<String>,
 }
 
 /// Run one prompt: create a session, prompt it, return the wire result.
@@ -110,6 +116,20 @@ pub async fn run_prompt_with_setup(
             .call(
                 kimi_protocol::methods::PERMISSION_SET_MODE,
                 serde_json::json!({ "session_id": session_id, "mode": "auto" }),
+            )
+            .await;
+        if body.get("error").is_some() {
+            return body;
+        }
+    }
+    for dir in &setup.add_dirs {
+        // TS `startNativeSession` parity: additional directories are attached
+        // right after create/resume, before the prompt — a failure aborts the
+        // run like the other setup steps (TS throws).
+        let body = client
+            .call(
+                kimi_protocol::methods::SESSION_ADD_DIR,
+                serde_json::json!({ "session_id": session_id, "path": dir }),
             )
             .await;
         if body.get("error").is_some() {
@@ -285,6 +305,7 @@ mod tests {
             resume: false,
             permission_auto: false,
             skills: vec![],
+            add_dirs: vec![],
         };
         let result =
             run_prompt_with_setup(&mut client, "s-setup", "hello", native_llm_from_config(), &setup).await;
@@ -462,6 +483,82 @@ mod tests {
         assert_eq!(
             goal["result"]["goal"]["objective"], "goal two",
             "replace swapped the goal: {goal}"
+        );
+    }
+
+    #[tokio::test]
+    async fn setup_add_dirs_attaches_before_prompt_fresh_and_resumed() {
+        let _home = TestHome::new("setup-add-dirs");
+        let server = kimi_server::Server::build().expect("server");
+        let mut client = AppServerClient::InProcess(kimi_server::in_process::spawn(server.processor));
+        let extra = std::env::temp_dir()
+            .join(format!("kimi-exec-extra-{}", std::process::id()))
+            .to_string_lossy()
+            .into_owned();
+        std::fs::create_dir_all(&extra).expect("mkdir extra");
+        // The engine stores the canonical form (Windows adds the `\\?\`
+        // extended-length prefix), so compare canonical-to-canonical.
+        let extra_canonical = std::fs::canonicalize(&extra)
+            .expect("canonicalize extra")
+            .to_string_lossy()
+            .into_owned();
+
+        // Fresh path: the setup attaches the dirs after create, before the
+        // prompt (which fails without an LLM).
+        let setup = PromptSetup { add_dirs: vec![extra.clone()], ..Default::default() };
+        let result =
+            run_prompt_with_setup(&mut client, "s-dirs", "hi", native_llm_from_config(), &setup).await;
+        assert!(result.get("error").is_some(), "no LLM -> prompt errors: {result}");
+        // A second (idempotent) add reads back the attached dirs — the setup
+        // must have applied them already.
+        let readback = client
+            .call(
+                kimi_protocol::methods::SESSION_ADD_DIR,
+                serde_json::json!({ "session_id": "s-dirs", "path": &extra }),
+            )
+            .await;
+        let dirs = readback["result"]["additional_dirs"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            dirs.iter().any(|d| d.as_str() == Some(extra_canonical.as_str())),
+            "fresh session has the add-dir attached: {readback}"
+        );
+
+        // Resume path (TS `resumeSession` also forwards additionalDirs): the
+        // persisted session gets the dirs on resume too.
+        let created = client.session_create("s-dirs-resume").await;
+        assert!(created.get("error").is_none(), "create: {created}");
+        client
+            .call(
+                kimi_protocol::methods::SESSION_SAVE,
+                serde_json::json!({ "session_id": "s-dirs-resume" }),
+            )
+            .await;
+        let setup = PromptSetup { resume: true, add_dirs: vec![extra.clone()], ..Default::default() };
+        let result = run_prompt_with_setup(
+            &mut client,
+            "s-dirs-resume",
+            "hi",
+            native_llm_from_config(),
+            &setup,
+        )
+        .await;
+        assert!(result.get("error").is_some(), "no LLM -> prompt errors: {result}");
+        let readback = client
+            .call(
+                kimi_protocol::methods::SESSION_ADD_DIR,
+                serde_json::json!({ "session_id": "s-dirs-resume", "path": &extra }),
+            )
+            .await;
+        let dirs = readback["result"]["additional_dirs"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            dirs.iter().any(|d| d.as_str() == Some(extra_canonical.as_str())),
+            "resumed session has the add-dir attached: {readback}"
         );
     }
 }
