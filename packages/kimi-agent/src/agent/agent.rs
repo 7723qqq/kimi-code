@@ -504,6 +504,10 @@ pub(crate) struct SubagentInterceptor {
     /// tracked task, append the child's result, and settle it — so subagent
     /// work is visible, persistent, and notifiable like any background task.
     pub task_service: Option<std::sync::Arc<std::sync::Mutex<crate::task::TaskService>>>,
+    /// Shared wire-record store inherited from the parent agent. When set,
+    /// the Task subagent appends its own records under its agent id (vis
+    /// subagent timeline); `None` (tests, hosts that opted out) disables.
+    pub record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
 }
 
 impl HostCallbacks for SubagentInterceptor {
@@ -580,6 +584,7 @@ impl HostCallbacks for SubagentInterceptor {
         let max_steps = self.max_steps_per_turn;
         let child_depth = self.depth + 1;
         let hooks = self.hooks.clone();
+        let record_store = self.record_store.clone();
         // Exact replay pairing: the child's persisted session record carries
         // this tool call id, so hosts can attach the child replay to the
         // `Task` call that spawned it instead of guessing by FIFO order.
@@ -665,6 +670,7 @@ impl HostCallbacks for SubagentInterceptor {
                         id,
                         model_override,
                         Some(parent_tool_call_id),
+                        record_store,
                     )
                     .await
                     .map(|(_agent_id, text)| text)
@@ -1407,6 +1413,7 @@ impl Agent {
                 },
                 profile_registry: self.profile_registry.clone(),
                 task_service: Some(self.task.clone()),
+                record_store: self.record_store.clone(),
             });
         }
         // AgentSwarm interceptor (native parallel subagent dispatch): spawns
@@ -1430,6 +1437,7 @@ impl Agent {
                 } else {
                     Some(self.external_hooks.clone())
                 },
+                record_store: self.record_store.clone(),
             });
         }
         // SwarmDiscussion interceptor (native roundtable/debate): drives the
@@ -3671,6 +3679,7 @@ mod tests {
             task_service: Some(std::sync::Arc::new(std::sync::Mutex::new(
                 crate::task::TaskService::new(crate::task::TaskServiceConfig::default()),
             ))),
+            record_store: None,
         }
     }
 
@@ -3724,6 +3733,67 @@ mod tests {
         assert!(stamped[0].is_subagent(), "record must classify as a subagent session");
         // The summary reader's contract: message_count comes from context.
         assert!(stamped[0].state_json["context"].is_array());
+    }
+
+    #[test]
+    fn task_subagent_writes_wire_records() {
+        // A Task child inherits the parent's record store, so its own turns,
+        // messages and tool calls are appended under its agent id — closing
+        // the "subagents don't write records" gap (G-2 replay).
+        let inner: Arc<dyn HostCallbacks> = Arc::new(TaskCompletingHost);
+        let homedir = temp_test_homedir();
+        let record_store = std::sync::Arc::new(
+            crate::persistence::RecordStore::new(
+                crate::persistence::store::SqliteStore::in_memory().unwrap(),
+            ),
+        );
+        let interceptor = task_interceptor_with(inner, Some(homedir.clone()));
+        let mut interceptor = interceptor;
+        interceptor.record_store = Some(record_store.clone());
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let resp = rt.block_on(async {
+            interceptor
+                .execute_tool(ToolExecuteRequest {
+                    session_id: None,
+                    turn_id: "t".into(),
+                    tool_call_id: "task-call-rec-1".into(),
+                    tool_name: "Task".into(),
+                    arguments: serde_json::json!({ "prompt": "do the thing" }),
+                    force_precise: false,
+                })
+                .await
+                .unwrap()
+        });
+        assert!(!resp.is_error, "{}", resp.content);
+
+        // The child's agent id = the tracked task id; find it from the session store.
+        let path = std::path::Path::new(&homedir).join(".kimi-agent").join("sessions.db");
+        let store = crate::persistence::session_store::SessionStore::new(
+            crate::persistence::store::SqliteStore::open(&path).unwrap(),
+        );
+        let sessions = store.list_sessions(100, 0).unwrap();
+        let child_id = sessions
+            .iter()
+            .find(|r| r.is_subagent())
+            .map(|r| r.id.clone())
+            .expect("child session must exist");
+        // The record store's session_id must equal the child's agent id.
+        let records = record_store.get_records(&child_id, None, 1_000).unwrap();
+        assert!(
+            !records.is_empty(),
+            "child agent `{child_id}` must have wire records"
+        );
+        assert!(
+            records.iter().any(|r| r.record_type == "turn.started"),
+            "child records must include turn.started"
+        );
+        assert!(
+            records
+                .iter()
+                .any(|r| r.record_type == "message.append"),
+            "child records must include message.append"
+        );
     }
 
     // ── SearchKnowledge tool wiring ──────────────────────────────────────

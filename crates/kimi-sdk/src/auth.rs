@@ -296,9 +296,8 @@ mod tests {
         let previous = std::env::var_os("KIMI_CODE_BASE_URL");
         std::env::remove_var("KIMI_CODE_BASE_URL");
         assert_eq!(kimi_code_base_url(), "https://api.kimi.com/coding/v1");
-        match previous {
-            Some(value) => std::env::set_var("KIMI_CODE_BASE_URL", value),
-            None => {}
+        if let Some(value) = previous {
+            std::env::set_var("KIMI_CODE_BASE_URL", value);
         }
     }
 }

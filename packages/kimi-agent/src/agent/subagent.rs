@@ -123,6 +123,7 @@ pub(crate) async fn run_child_agent(
         false,
         None,
         None,
+        None,
     )
     .await
     .map(|(_, text)| text)
@@ -160,6 +161,7 @@ pub(crate) async fn run_child_agent_with_model(
         false,
         model_override,
         None,
+        None,
     )
     .await
     .map(|(_, text)| text)
@@ -188,6 +190,7 @@ pub(crate) async fn run_child_agent_persistent_with_model(
     agent_id: &str,
     model_override: Option<String>,
     parent_tool_call_id: Option<String>,
+    record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
 ) -> Result<(String, String), String> {
     run_child_agent_core(
         host,
@@ -204,6 +207,7 @@ pub(crate) async fn run_child_agent_persistent_with_model(
         false,
         model_override,
         parent_tool_call_id,
+        record_store,
     )
     .await
 }
@@ -227,6 +231,7 @@ pub(crate) async fn resume_child_agent(
     hooks: Option<Arc<crate::hooks::external::HookManager>>,
     agent_id: &str,
     parent_tool_call_id: Option<String>,
+    record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
 ) -> Result<(String, String), String> {
     run_child_agent_core(
         host,
@@ -243,6 +248,7 @@ pub(crate) async fn resume_child_agent(
         true,
         None,
         parent_tool_call_id,
+        record_store,
     )
     .await
 }
@@ -272,6 +278,7 @@ async fn run_child_agent_core(
     resume: bool,
     model_override: Option<String>,
     parent_tool_call_id: Option<String>,
+    record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
 ) -> Result<(String, String), String> {
     // SubagentStart hooks: fire-and-forget before spawning.
     if let Some(manager) = hooks.as_ref() {
@@ -351,6 +358,7 @@ async fn run_child_agent_core(
             native_llm,
             max_steps_per_turn: max_steps,
             permission: Some(permission),
+            record_store,
             ..Default::default()
         },
     );

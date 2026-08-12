@@ -585,6 +585,7 @@ fn check_web_log_level(level: Option<&str>) -> Result<(), String> {
 /// serve-binary resolution: `KIMI_CODE_PASSWORD`, then
 /// `<KIMI_CODE_HOME>/server.token` (generated + persisted when absent), or
 /// lenient with `--dangerous-bypass-auth`.
+#[allow(clippy::too_many_arguments)]
 async fn run_web(
     host: &str,
     port: u16,
@@ -698,13 +699,13 @@ fn web_auth_config(no_auth: bool) -> kimi_server_transport::http::AuthConfig {
                 if std::fs::write(&path, &token).is_ok() {
                     eprintln!(
                         "{}",
-                        kimi_tui::i18n::t_fmt("cli.web.tokenGenerated", &[path.clone()])
+                        kimi_tui::i18n::t_fmt("cli.web.tokenGenerated", std::slice::from_ref(&path))
                     );
                     Some(token)
                 } else {
                     eprintln!(
                         "{}",
-                        kimi_tui::i18n::t_fmt("cli.web.tokenPersistFailed", &[path.clone()])
+                        kimi_tui::i18n::t_fmt("cli.web.tokenPersistFailed", std::slice::from_ref(&path))
                     );
                     None
                 }
@@ -2532,6 +2533,7 @@ async fn handle_chat_command(
 /// parser logic stays derive-generated (`Cli::from_arg_matches`). Clap's
 /// auto-generated bits (usage lines, error messages) stay English — help
 /// text is the localized surface, matching the TS Commander port.
+#[allow(clippy::type_complexity)]
 fn localize_cli_command(mut cmd: clap::Command) -> clap::Command {
     use kimi_tui::i18n::{t, Locale};
     if kimi_tui::i18n::active_locale() != Locale::Zh {
@@ -3245,7 +3247,7 @@ async fn main() -> anyhow::Result<()> {
             }
             // Resume hint (TS parity): points at the persisted session so a
             // one-shot run can be continued interactively.
-            eprintln!("{}", kimi_tui::i18n::t_fmt("cli.print.resumeHint", &[session_id.clone()]));
+            eprintln!("{}", kimi_tui::i18n::t_fmt("cli.print.resumeHint", std::slice::from_ref(&session_id)));
         }
         Commands::Sessions { limit, json } => {
             let client = connect(&server)?;
@@ -3658,7 +3660,7 @@ async fn main() -> anyhow::Result<()> {
             if std::io::stderr().is_terminal() {
                 eprintln!(
                     "{}",
-                    kimi_tui::i18n::t_fmt("cli.chat.banner", &[session_id.clone()])
+                    kimi_tui::i18n::t_fmt("cli.chat.banner", std::slice::from_ref(&session_id))
                 );
             }
             let stdin = std::io::stdin();
@@ -4056,7 +4058,7 @@ async fn main() -> anyhow::Result<()> {
                                                 "{}",
                                                 kimi_tui::i18n::t_fmt(
                                                     "cli.provider.catalogNoMatch",
-                                                    &[f.to_string()]
+                                                    std::slice::from_ref(&f)
                                                 )
                                             );
                                         } else {

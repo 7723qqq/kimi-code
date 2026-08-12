@@ -77,7 +77,7 @@ async fn harness_exposes_engine_events() {
 
     // Approval surface: empty list; unknown resolve -> false.
     assert!(harness.approvals(Some("s-events")).await.expect("approvals").is_empty());
-    assert_eq!(harness.resolve_approval("nope", true, None).await.expect("resolve"), false);
+    assert!(!harness.resolve_approval("nope", true, None).await.expect("resolve"));
 
     // Goal lifecycle on a session handle (pure state ops).
     let mut session = harness.create_session("s-goal").await.expect("create goal session");
@@ -431,7 +431,7 @@ async fn harness_close_fork_rename_sessions() {
     assert_eq!(rec["title"], "Renamed", "title: {rec}");
 
     // Fork copies the session under a new id.
-    let _ = session.save().await.expect("save for fork");
+    session.save().await.expect("save for fork");
     let mut fork = harness
         .fork_session("s-cf", "s-fork", None)
         .await

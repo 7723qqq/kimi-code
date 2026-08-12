@@ -443,13 +443,11 @@ pub async fn test_global_mcp_server(server: &GlobalMcpServerConfig) -> Result<Mc
     }
     // Pre-flight the executable: a missing absolute/relative path spawns and
     // immediately closes, which hides the ENOENT the probe should surface.
-    if command.contains('/') || command.contains('\\') {
-        if !Path::new(&command).exists() {
-            return Ok(McpTestResult {
-                success: false,
-                output: format!("spawn {command} ENOENT"),
-            });
-        }
+    if (command.contains('/') || command.contains('\\')) && !Path::new(&command).exists() {
+        return Ok(McpTestResult {
+            success: false,
+            output: format!("spawn {command} ENOENT"),
+        });
     }
     let args = server.config.args.clone().unwrap_or_default();
     let mut transport = kimi_agent::mcp::transport_stdio::MCPStdioTransport::spawn(
@@ -476,7 +474,7 @@ pub async fn test_global_mcp_server(server: &GlobalMcpServerConfig) -> Result<Mc
                     for tool in &list.tools {
                         match &tool.description {
                             Some(desc) if !desc.is_empty() => {
-                                lines.push(format!("- {}{}", tool.name, format!(": {desc}")));
+                                lines.push(format!("- {}: {desc}", tool.name));
                             }
                             _ => lines.push(format!("- {}", tool.name)),
                         }

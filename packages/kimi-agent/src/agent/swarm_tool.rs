@@ -70,6 +70,10 @@ pub(crate) struct SwarmToolInterceptor {
     /// External lifecycle hooks (optional): SubagentStart/Stop fire around
     /// each child turn.
     pub hooks: Option<Arc<crate::hooks::external::HookManager>>,
+    /// Shared wire-record store inherited from the parent agent. When set,
+    /// swarm children append their own records under their agent ids (vis
+    /// subagent timeline); `None` (tests, hosts that opted out) disables.
+    pub record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
 }
 
 impl SwarmToolInterceptor {
@@ -250,6 +254,7 @@ impl HostCallbacks for SwarmToolInterceptor {
         let subagent_type = subagent_type.clone();
         let swarm = self.swarm.clone();
         let hooks = self.hooks.clone();
+        let record_store = self.record_store.clone();
         // Exact replay pairing: every child spawned (or resumed) by this
         // call persists this tool call id into its session record.
         let parent_tool_call_id = req.tool_call_id.clone();
@@ -307,6 +312,7 @@ impl HostCallbacks for SwarmToolInterceptor {
                 let hooks = hooks.clone();
                 let model_override = model_override.clone();
                 let parent_tool_call_id = parent_tool_call_id.clone();
+                let record_store = record_store.clone();
                 // Resume entries reuse their persisted agent id; fresh item
                 // spawns get a new stable id so the model can resume them
                 // from a later call.
@@ -327,6 +333,7 @@ impl HostCallbacks for SwarmToolInterceptor {
                                 hooks.clone(),
                                 &id,
                                 Some(parent_tool_call_id.clone()),
+                                record_store.clone(),
                             )
                             .await
                             .map(|(_, text)| text)
@@ -346,6 +353,7 @@ impl HostCallbacks for SwarmToolInterceptor {
                                 &agent_id,
                                 model_override,
                                 Some(parent_tool_call_id.clone()),
+                                record_store.clone(),
                             )
                             .await
                             .map(|(_, text)| text)
@@ -488,6 +496,7 @@ mod tests {
             depth: 0,
             swarm: Arc::new(Mutex::new(SwarmMode::new())),
             hooks: None,
+            record_store: None,
         }
     }
 

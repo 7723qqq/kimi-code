@@ -519,7 +519,7 @@ mod tests {
 
     #[test]
     fn picker_renders_description_and_notice() {
-        let items = vec![PickerItem::new("m1", "Model One").with_description("desc one")];
+        let items = [PickerItem::new("m1", "Model One").with_description("desc one")];
         let opts = PickerOptions::new("models").notice("↑/↓ navigate");
         let mut terminal = Terminal::new(TestBackend::new(50, 8)).unwrap();
         terminal

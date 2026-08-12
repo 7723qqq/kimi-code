@@ -344,7 +344,7 @@ async fn goal_continuation_drives_turns_until_complete() {
 
     // And at least one goal lifecycle event was emitted on the stream.
     let goal_event = wait_for_event(&mut events, |e| {
-        e["type"].as_str().map_or(false, |t| t.contains("goal"))
+        e["type"].as_str().is_some_and(|t| t.contains("goal"))
     })
     .await;
     assert_eq!(goal_event["session_id"], "s-goal-cont", "goal event: {goal_event}");

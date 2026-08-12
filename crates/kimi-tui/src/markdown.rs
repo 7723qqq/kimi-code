@@ -329,8 +329,8 @@ fn render_table(builder: &TableBuilder, theme: Theme) -> Vec<RenderLine<'static>
             line.push(Span::styled(" │ ", border));
         }
         // Rows can be ragged; pad the missing trailing cells.
-        for i in row.len()..ncols {
-            line.push(Span::raw(" ".repeat(widths[i] + 2)));
+        for w in widths.iter().take(ncols).skip(row.len()) {
+            line.push(Span::raw(" ".repeat(*w + 2)));
             line.push(Span::styled(" │ ", border));
         }
         out.push(RenderLine::from(line));

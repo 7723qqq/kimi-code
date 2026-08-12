@@ -696,15 +696,14 @@ async fn run_builtin_command(
     if let Some(e) = body.get("error") {
         return format!("/{name} failed: {}", e["message"].as_str().unwrap_or("unknown"));
     }
-    let report = match name {
+    match name {
         "compact" => "Compaction complete.".to_string(),
         "status" => format_status_report(&body["result"]),
         "usage" => format_usage_report(&body["result"]),
         "mcp" => format_mcp_report(&body["result"]),
         "tasks" => format_tasks_report(&body["result"]),
         _ => String::new(),
-    };
-    report
+    }
 }
 
 fn format_status_report(status: &serde_json::Value) -> String {
@@ -1031,7 +1030,7 @@ async fn handle(
                 Ok(sessions) => {
                     let sessions: Vec<serde_json::Value> = sessions
                         .into_iter()
-                        .filter(|s| cwd.map_or(true, |c| s["work_dir"].as_str() == Some(c)))
+                        .filter(|s| cwd.is_none_or(|c| s["work_dir"].as_str() == Some(c)))
                         .map(|s| {
                             let title = s["title"].as_str().filter(|t| !t.is_empty());
                             serde_json::json!({
@@ -1193,7 +1192,7 @@ async fn handle(
                         }));
                     }
                     SlashIntent::Builtin { name, args } => {
-                        let text = run_builtin_command(harness, &session_id, &name, &args).await;
+                        let text = run_builtin_command(harness, session_id, &name, &args).await;
                         // The report streams as an agent_message_chunk via the
                         // `_deltas` channel (serve turns it into a preamble
                         // notification); the response carries no assistant text.
@@ -1216,7 +1215,7 @@ async fn handle(
                 Ok(parts) => parts,
                 Err(e) => return error(-32602, &e),
             };
-            match prompt_parts_stream(harness, &session_id, serde_json::json!(parts)).await {
+            match prompt_parts_stream(harness, session_id, serde_json::json!(parts)).await {
                 Ok((text, deltas)) => {
                     // The serve layer turns `_deltas` into session/update
                     // agent_message_chunk notifications (chunk-granular live
@@ -1319,6 +1318,10 @@ async fn handle(
 
 #[cfg(test)]
 mod tests {
+    // Tests serialize on STORE_LOCK (a std Mutex) to isolate the process-global
+    // KIMI_AGENT_HOME/KIMI_CODE_HOME env vars across tokio tests. Holding the
+    // guard across an await is intentional serialization, not a deadlock risk.
+    #![allow(clippy::await_holding_lock)]
     use super::*;
     use tokio::io::{duplex, AsyncReadExt};
 

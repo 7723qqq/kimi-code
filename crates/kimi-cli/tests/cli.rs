@@ -706,14 +706,13 @@ fn web_allow_remote_shutdown_route_stops_server() {
         }
     }
     assert!(healthy, "kimi web serves /api/v1/health");
-    let _ = std::net::TcpStream::connect(("127.0.0.1", 28630)).and_then(|mut stream| {
+    let _ = std::net::TcpStream::connect(("127.0.0.1", 28630)).map(|mut stream| {
         use std::io::{Read, Write};
         let _ = stream.write_all(
             b"POST /api/v1/shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         );
         let mut buf = [0u8; 512];
         let _ = stream.read(&mut buf);
-        Ok(())
     });
     let mut exited = false;
     for _ in 0..40 {
