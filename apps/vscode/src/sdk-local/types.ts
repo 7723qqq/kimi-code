@@ -305,6 +305,18 @@ export interface KimiConfig {
   readonly [key: string]: unknown;
 }
 
+/** One subagent record summary (engine `session/get_context` `subagents[]`
+ *  wire entry, snake_case → camelCase). `agentId` is the session id the
+ *  child conversation was persisted under. */
+export interface SubagentSummary {
+  readonly agentId: string;
+  readonly title?: string;
+  /** Context history length of the persisted child conversation. */
+  readonly messageCount: number;
+  /** ISO-8601 last-write timestamp of the persisted record. */
+  readonly updatedAt: string;
+}
+
 /** A session status snapshot (`session/get_status` result, explicit fields). */
 export interface SessionStatus {
   readonly model?: string;

@@ -17,7 +17,7 @@ import {
 } from "./mcp-config";
 import { testGlobalMcpServer } from "./mcp-test";
 import { EngineRpcClient, METHODS } from "./rpc-client";
-import { LocalSession } from "./session";
+import { buildSubagentResumeStates, LocalSession } from "./session";
 import { listWorkspaceSkills } from "./skills";
 import type {
   KimiAuthFacade,
@@ -26,6 +26,7 @@ import type {
   McpTestResult,
   SessionSummary,
   SkillSummary,
+  SubagentSummary,
 } from "./types";
 
 /** Wire `NativeLlmConfig` shape (kimi-agent `rpc/wire.gen.ts`). */
@@ -109,20 +110,29 @@ class LocalKimiHarnessImpl implements LocalKimiHarness {
     this.homeDir = options.homeDir ?? "";
     this.uiMode = options.uiMode;
     this.identity = options.identity;
-    this.rpc = new EngineRpcClient(
-      options.binary,
-      // The engine process resolves its own config; point it at the same
-      // home the host uses so `config/get` and the native-LLM derivation
-      // agree with the host's view.
-      options.homeDir !== undefined && options.homeDir.length > 0
-        ? {
-            KIMI_CODE_HOME: options.homeDir,
-            KIMI_CONFIG_PATH: join(options.homeDir, "config.toml"),
-          }
-        : undefined,
-    );
+    this.rpc = new EngineRpcClient(options.binary, this.engineEnv(options.homeDir));
     this.auth = new LocalKimiAuth(this.rpc);
     this.mcpStore = new GlobalMcpConfigStore(this.homeDir.length > 0 ? this.homeDir : undefined);
+  }
+
+  /** Engine process env: point it at the same home the host uses so
+   *  `config/get` and the native-LLM derivation agree with the host's view.
+   *  `KIMI_AGENT_HOME` is only injected when the host process has none — it
+   *  shares the engine's session store with Task/swarm child sessions (the
+   *  engine's `child_session_store` default is `<home>/.kimi-agent/`), so
+   *  `session/get_context` subagent summaries resolve in production. Tests
+   *  set it themselves via vitest env. */
+  private engineEnv(homeDir: string | undefined): Record<string, string> | undefined {
+    if (homeDir === undefined || homeDir.length === 0) return undefined;
+    const env: Record<string, string> = {
+      KIMI_CODE_HOME: homeDir,
+      KIMI_CONFIG_PATH: join(homeDir, "config.toml"),
+    };
+    const existing = process.env["KIMI_AGENT_HOME"];
+    if (existing === undefined || existing.length === 0) {
+      env["KIMI_AGENT_HOME"] = join(homeDir, ".kimi-agent");
+    }
+    return env;
   }
 
   async createSession(options: CreateSessionOptions): Promise<LocalSession> {
@@ -215,16 +225,46 @@ class LocalKimiHarnessImpl implements LocalKimiHarness {
       .call(METHODS.SESSION_GET_STATUS, { session_id: sessionId })
       .catch(() => null);
     const history = await this.rpc
-      .call(METHODS.SESSION_GET_CONTEXT, { session_id: sessionId })
+      .call(METHODS.SESSION_GET_CONTEXT, {
+        session_id: sessionId,
+        include_subagents: input.includeSubagents ?? false,
+      })
       .catch(() => null);
-    session.setResumeState(
-      LocalSession.resumeStateFromContext(
-        sessionId,
-        summary?.workDir,
-        history,
-        (context ?? {}) as Record<string, unknown>,
-      ),
+    const resumeState = LocalSession.resumeStateFromContext(
+      sessionId,
+      summary?.workDir,
+      history,
+      (context ?? {}) as Record<string, unknown>,
     );
+    // Subagent replay wiring (include_subagents): the engine returns child
+    // session summaries on the context page; assemble each into the
+    // `state.agents` / `sessionMetadata.agents` shape the replay adapter
+    // reads. The engine persists no parent linkage — see
+    // `buildSubagentResumeStates` for the reconstruction contract.
+    if (input.includeSubagents === true) {
+      const rawHistory = history as Record<string, unknown> | null;
+      const summaries = Array.isArray(rawHistory?.["subagents"])
+        ? (rawHistory["subagents"] as Record<string, unknown>[])
+            .map(mapSubagentSummary)
+            .filter((summary) => summary.agentId.length > 0)
+        : [];
+      if (summaries.length > 0) {
+        const subagents = buildSubagentResumeStates(
+          resumeState.agents["main"]?.replay ?? [],
+          summaries,
+        );
+        session.setResumeState({
+          ...resumeState,
+          agents: { ...resumeState.agents, ...subagents.agents },
+          sessionMetadata: {
+            ...resumeState.sessionMetadata,
+            agents: { ...resumeState.sessionMetadata.agents, ...subagents.metadata },
+          },
+        });
+        return session;
+      }
+    }
+    session.setResumeState(resumeState);
     return session;
   }
 
@@ -415,6 +455,17 @@ function mapSessionSummary(raw: Record<string, unknown>): SessionSummary {
     ...(raw["metadata"] !== undefined && typeof raw["metadata"] === "object"
       ? { metadata: raw["metadata"] as Record<string, unknown> }
       : {}),
+  };
+}
+
+/** Map a `session/get_context` `subagents[]` wire entry (snake_case) onto
+ *  the local `SubagentSummary` surface (camelCase). */
+function mapSubagentSummary(raw: Record<string, unknown>): SubagentSummary {
+  return {
+    agentId: typeof raw["agent_id"] === "string" ? raw["agent_id"] : "",
+    ...(typeof raw["title"] === "string" ? { title: raw["title"] } : {}),
+    messageCount: typeof raw["message_count"] === "number" ? raw["message_count"] : 0,
+    updatedAt: typeof raw["updated_at"] === "string" ? raw["updated_at"] : "",
   };
 }
 

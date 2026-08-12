@@ -12,13 +12,16 @@ import { METHODS } from "./rpc-client";
 import type {
   AgentReplayRecord,
   ApprovalRequest,
+  ContentPart,
   ContextMessage,
   EngineEvent,
   PromptInput,
   QuestionRequest,
+  ResumedAgentState,
   ResumedSessionState,
   SessionStatus,
   SessionSummary,
+  SubagentSummary,
 } from "./types";
 
 /** Approval handler (node-sdk `ApprovalHandler` parity). */
@@ -75,6 +78,114 @@ export function replayFromContext(raw: unknown): readonly unknown[] {
     records.push({ type: "message", message: mapContextMessage(message) });
   }
   return records;
+}
+
+/** One native `Task`-tool subagent invocation found in the main replay:
+ *  the delegated prompt (from the assistant tool-call arguments) paired
+ *  with the child's final answer (the tool message the engine persisted). */
+interface TaskInvocation {
+  readonly prompt: string;
+  readonly answer: string;
+}
+
+/** Assemble the subagent `agents` / `sessionMetadata.agents` slices of a
+ *  resume state from the engine's `session/get_context` `subagents[]`
+ *  summaries.
+ *
+ *  The Rust engine persists each Task/swarm child's conversation under its
+ *  agent_id, but exposes no wire method to read it back (`session/get_context`
+ *  serves in-memory agents only) and stores no parent↔child linkage — the
+ *  summary list is a global subagent record page. The resume surface can
+ *  therefore only reconstruct a child step from the main replay: the `Task`
+ *  tool call's `prompt` argument plus the tool message content (the child's
+ *  final answer text). Invocations pair with summaries in order (single
+ *  subagent per Task call; the order is the store's last-write order).
+ *  Extra summaries / orphaned calls on either side are dropped. */
+export function buildSubagentResumeStates(
+  mainReplay: readonly AgentReplayRecord[],
+  summaries: readonly SubagentSummary[],
+): {
+  readonly agents: Record<string, ResumedAgentState>;
+  readonly metadata: Record<string, { readonly parentAgentId: string }>;
+} {
+  const invocations = collectTaskInvocations(mainReplay);
+  const pairs = Math.min(invocations.length, summaries.length);
+  const agents: Record<string, ResumedAgentState> = {};
+  const metadata: Record<string, { readonly parentAgentId: string }> = {};
+  for (let index = 0; index < pairs; index += 1) {
+    const summary = summaries[index]!;
+    const invocation = invocations[index]!;
+    const replay: readonly AgentReplayRecord[] = [
+      {
+        type: "message",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: invocation.prompt }],
+          toolCalls: [],
+        },
+      },
+      {
+        type: "message",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: invocation.answer }],
+          toolCalls: [],
+        },
+      },
+    ];
+    agents[summary.agentId] = { replay, config: {}, plan: null };
+    // The adapter only accepts children whose metadata parent matches the
+    // parent agent key; the engine persists no parent linkage, so the main
+    // agent is the parent of every summary on the main session's page.
+    metadata[summary.agentId] = { parentAgentId: "main" };
+  }
+  return { agents, metadata };
+}
+
+/** Walk the main replay for native `Task`-tool invocations: assistant
+ *  messages carrying a `Task` call, paired with the next `tool` message for
+ *  the same call id (the child's persisted final answer). */
+function collectTaskInvocations(
+  mainReplay: readonly AgentReplayRecord[],
+): readonly TaskInvocation[] {
+  const invocations: TaskInvocation[] = [];
+  const pending = new Map<string, { readonly prompt: string }>();
+  for (const record of mainReplay) {
+    if (record.type !== "message" || record.message === undefined) continue;
+    const { message } = record;
+    if (message.role === "assistant") {
+      for (const call of message.toolCalls) {
+        if (call.name !== "Task") continue;
+        pending.set(call.id, { prompt: readTaskPrompt(call.arguments) });
+      }
+      continue;
+    }
+    if (message.role !== "tool" || message.toolCallId === undefined) continue;
+    const call = pending.get(message.toolCallId);
+    if (call === undefined) continue;
+    pending.delete(message.toolCallId);
+    invocations.push({ prompt: call.prompt, answer: textOf(message.content) });
+  }
+  return invocations;
+}
+
+/** Read the `prompt` string out of a Task tool call's JSON arguments. */
+function readTaskPrompt(argumentsValue: string | null | undefined): string {
+  if (argumentsValue === undefined || argumentsValue === null) return "";
+  try {
+    const parsed = JSON.parse(argumentsValue) as { prompt?: unknown };
+    return typeof parsed["prompt"] === "string" ? parsed["prompt"] : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Join the text parts of a context content array (tool results are text). */
+function textOf(content: readonly ContentPart[]): string {
+  return content
+    .filter((part): part is Extract<ContentPart, { type: "text" }> => part.type === "text")
+    .map((part) => part.text)
+    .join("");
 }
 
 /** The session surface hosts consume (implemented by `LocalSession`;

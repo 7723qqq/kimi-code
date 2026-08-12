@@ -449,22 +449,59 @@ impl Processor for SessionProcessor {
             })
         });
 
-        // `session/get_context` — full context snapshot.
+        // `session/get_context` — the session's context snapshot (history +
+        // token count). With `include_subagents`, the response also carries
+        // persisted Task/swarm child summaries (the resume-replay surface;
+        // main.rs parity): children persist their conversations under their
+        // agent_id in the same store, and the host fetches each child's own
+        // history by id.
         let mgr = self.state.manager.clone();
         processor.register(kimi_protocol::methods::SESSION_GET_CONTEXT, move |params| {
             let mgr = mgr.clone();
             Box::pin(async move {
-                let input: SessionGoalParams = serde_json::from_value(params)
-                    .map_err(|e| JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+                let input: kimi_agent::rpc::types::SessionGetContextParams =
+                    serde_json::from_value(params)
+                        .map_err(|e| JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
                 let mut manager = mgr.lock().await;
-                let agent = manager.get_agent(&input.session_id).ok_or_else(|| {
-                    JsonRpcError::internal_error(format!(
-                        "no agent for session: {}",
-                        input.session_id
-                    ))
-                })?;
-                serde_json::to_value(agent.context.data())
-                    .map_err(|e| JsonRpcError::internal_error(format!("serialize context: {e}")))
+                let data = {
+                    let agent = manager.get_agent(&input.session_id).ok_or_else(|| {
+                        JsonRpcError::internal_error(format!(
+                            "no agent for session: {}",
+                            input.session_id
+                        ))
+                    })?;
+                    agent.context.data()
+                };
+                let subagents = if input.include_subagents.unwrap_or(false) {
+                    manager
+                        .list_persisted(100_000, 0)
+                        .map_err(|e| JsonRpcError::internal_error(e.to_string()))?
+                        .into_iter()
+                        .filter(|record| record.is_subagent())
+                        .map(|record| {
+                            let message_count = record
+                                .state_json
+                                .get("context")
+                                .and_then(|v| v.as_array())
+                                .map(|context| context.len())
+                                .unwrap_or(0);
+                            kimi_agent::rpc::types::SubagentSummaryRpc {
+                                agent_id: record.id,
+                                title: String::new(),
+                                message_count,
+                                updated_at: record.updated_at,
+                            }
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                serde_json::to_value(kimi_agent::rpc::types::SessionGetContextResult {
+                    history: data.history,
+                    token_count: data.token_count,
+                    subagents,
+                })
+                .map_err(|e| JsonRpcError::internal_error(format!("serialize context: {e}")))
             })
         });
 

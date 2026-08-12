@@ -176,12 +176,19 @@ describe("VS Code replay from a public Node SDK resume state", () => {
       ]);
     });
     const session = await rig.harness.createSession({
-      id: "ses_vscode_replay_displays",
+      // Unique id per run: the engine store is shared (vitest env
+      // KIMI_AGENT_HOME), so a fixed id would resume stale records from an
+      // earlier run instead of this rig's own turn.
+      id: `ses_vscode_replay_displays_${Date.now()}`,
       workDir: rig.workDir,
       model: MODEL_ALIAS,
     });
     await session.setPermission("yolo");
     await runPrompt(session, "Update the file and checklist");
+    // Persist before resume: the resume path re-creates the session and
+    // loads from the store (SESSION_LOAD); without an explicit save the
+    // engine would restore whatever the store last held for this id.
+    await rig.harness.closeSession(session.id);
     await session.close();
 
     const resumed = await rig.harness.resumeSession({
@@ -215,10 +222,11 @@ describe("VS Code replay from a public Node SDK resume state", () => {
     );
   });
 
-  // Skipped: subagent replay under the Rust engine is not yet defined — the
-  // engine's native `Task` tool produces no host-visible subagent records for
-  // the resume surface to restore. Tracked as a known gap.
-  it.skip("restores a child step under its original Agent tool call", async () => {
+  // Restores a native `Task` child under its original tool call: the harness
+  // resume path (`includeSubagents`) reconstructs the child step from the
+  // main context (Task prompt + persisted answer) and the replay adapter
+  // routes it under the Task tool call id.
+  it("restores a child step under its original Agent tool call", async () => {
     const rig = await createReplayRig();
     const childAnswer = `Subagent restored evidence. ${"Detailed persisted finding. ".repeat(10)}`;
     let requestCount = 0;
@@ -261,12 +269,15 @@ describe("VS Code replay from a public Node SDK resume state", () => {
       ]);
     });
     const session = await rig.harness.createSession({
-      id: "ses_vscode_replay_subagent",
+      // Unique id per run — see the first test for the store-sharing caveat.
+      id: `ses_vscode_replay_subagent_${Date.now()}`,
       workDir: rig.workDir,
       model: MODEL_ALIAS,
     });
     await session.setPermission("yolo");
     await runPrompt(session, "Delegate this inspection");
+    // Persist before resume (SESSION_LOAD source; see the first test).
+    await rig.harness.closeSession(session.id);
     await session.close();
 
     const resumed = await rig.harness.resumeSession({

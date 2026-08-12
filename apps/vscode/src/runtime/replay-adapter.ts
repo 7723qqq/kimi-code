@@ -225,6 +225,19 @@ function buildSubagentReplayIndex(state: ResumedSessionState): SubagentReplayInd
       string,
       { readonly name: string; readonly startedAt: number; readonly order: number }
     >();
+    // Children of this parent without an explicit linkage, in state order.
+    // The Rust engine persists no parent↔child relation and its native
+    // `Task` tool result carries the child's plain answer text (no
+    // `agent_id:` header), so each Task tool result pairs with the next
+    // unclaimed child record (the resume surface's only ordering).
+    const unclaimed = Object.entries(state.agents)
+      .filter(
+        ([id, agent]) =>
+          id !== parentAgentId &&
+          agent !== undefined &&
+          state.sessionMetadata.agents[id]?.parentAgentId === parentAgentId,
+      )
+      .map(([id]) => id);
     for (const record of parent.replay ?? []) {
       if (record.type !== "message") continue;
       const { message } = record;
@@ -237,8 +250,20 @@ function buildSubagentReplayIndex(state: ResumedSessionState): SubagentReplayInd
       }
       if (message.role !== "tool" || message.toolCallId === undefined) continue;
       const call = calls.get(message.toolCallId);
-      if (call === undefined || (call.name !== "Agent" && call.name !== "AgentSwarm")) continue;
-      for (const childAgentId of subagentIdsFromResult(call.name, message.content)) {
+      if (
+        call === undefined ||
+        (call.name !== "Agent" && call.name !== "AgentSwarm" && call.name !== "Task")
+      ) {
+        continue;
+      }
+      let childIds: readonly string[];
+      if (call.name === "Task") {
+        const claimed = unclaimed.shift();
+        childIds = claimed === undefined ? [] : [claimed];
+      } else {
+        childIds = subagentIdsFromResult(call.name, message.content);
+      }
+      for (const childAgentId of childIds) {
         const metadata = state.sessionMetadata.agents[childAgentId];
         if (metadata?.parentAgentId !== parentAgentId || state.agents[childAgentId] === undefined) {
           continue;
@@ -264,6 +289,15 @@ function buildSubagentReplayIndex(state: ResumedSessionState): SubagentReplayInd
   for (const [childAgentId, entries] of byChild) {
     entries.sort(compareInvocation);
     const replay = state.agents[childAgentId]?.replay ?? [];
+    // Replays without a time axis (Rust-engine children synthesized from the
+    // main context) cannot be windowed by invocation time — each summary
+    // maps to exactly one invocation, so they attach wholesale. Older SDK
+    // shapes carry timestamps and keep the per-invocation windowing.
+    const hasTimeline = replay.some((record) => (record.time ?? 0) > 0);
+    if (!hasTimeline) {
+      entries[0]!.records = replay;
+      continue;
+    }
     for (const [index, invocation] of entries.entries()) {
       const next = entries[index + 1];
       invocation.records = replay.filter(
