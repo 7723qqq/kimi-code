@@ -334,18 +334,28 @@ export class ReadTool implements IReadTool {
       // ── Native fast-path ─────────────────────────────────────────────
       // nativeRead handles line counting, offset, limits, CRLF, and
       // truncation in Rust — ~5x faster than the async line iterator.
-      const nativeResult = await tryNativeRead(safePath, {
-        lineOffset: lineOffset,
-        nLines: effectiveLimit,
-      });
+      // Skip it for UTF-16 content: the native reader only accepts UTF-8,
+      // while the TS path transcodes UTF-16 to UTF-8 for display.
+      const nativeResult =
+        detectedEncoding === undefined
+          ? await tryNativeRead(safePath, {
+              lineOffset: lineOffset,
+              nLines: effectiveLimit,
+            })
+          : undefined;
       if (nativeResult && !nativeResult.error) {
         // Split the native output: content before <system> is output,
-        // the <system>...</system> block is the note.
+        // the <system>...</system> block is the note. The block may be
+        // preceded by a newline (normal reads) or start the content
+        // directly (empty output, e.g. offset past EOF).
         const systemIdx = nativeResult.content.lastIndexOf('\n<system>');
         if (systemIdx >= 0) {
           const output = nativeResult.content.slice(0, systemIdx);
           const note = nativeResult.content.slice(systemIdx + 1); // includes <system>...</system>
           return { output, note };
+        }
+        if (nativeResult.content.startsWith('<system>')) {
+          return { output: '', note: nativeResult.content };
         }
         // If no <system> tag (e.g. empty file), use content as-is
         return { output: nativeResult.content };

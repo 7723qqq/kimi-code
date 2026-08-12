@@ -482,7 +482,7 @@ export async function execFileText(
   args: readonly string[],
   timeoutMs: number,
 ): Promise<string | undefined> {
-  return new Promise((resolve) => {
+  return new Promise<string | undefined>((resolve) => {
     nodeExecFile(
       file,
       [...args],

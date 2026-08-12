@@ -157,7 +157,7 @@ pub fn read_file(config: &ReadConfig) -> ReadResult {
 
     if scan.total_lines == 0 {
         return ReadResult {
-            content: String::new(),
+            content: "<system>No lines read from file. Total lines in file: 0.</system>".to_string(),
             line_count: 0,
             error: None,
         };
@@ -269,6 +269,7 @@ fn scan_and_read_forward(
     let mut total_bytes = 0usize;
     let mut truncated_line_numbers = Vec::new();
     let mut max_lines_reached = false;
+    let mut bytes_truncated = false;
 
     loop {
         line.clear();
@@ -317,12 +318,15 @@ fn scan_and_read_forward(
 
         let stripped = strip_trailing_lf(&line);
         let (rendered_line, was_truncated) = render_line(stripped, line_no, flags.style());
-        if was_truncated {
-            truncated_line_numbers.push(line_no);
-        }
         let line_bytes = rendered_line.len() + 1;
         if total_bytes + line_bytes > MAX_BYTES && !rendered.is_empty() {
-            break;
+            // Byte budget exhausted: stop collecting but keep counting
+            // total_lines so the finish note reports the real file size.
+            bytes_truncated = true;
+            continue;
+        }
+        if was_truncated {
+            truncated_line_numbers.push(line_no);
         }
         total_bytes += line_bytes;
         rendered.push(rendered_line);
@@ -338,7 +342,7 @@ fn scan_and_read_forward(
 
     if total_lines == 0 {
         return ReadResult {
-            content: String::new(),
+            content: "<system>No lines read from file. Total lines in file: 0.</system>".to_string(),
             line_count: 0,
             error: None,
         };
@@ -361,7 +365,7 @@ fn scan_and_read_forward(
         start_line,
         total_lines,
         max_lines_reached,
-        total_bytes >= MAX_BYTES,
+        bytes_truncated || total_bytes >= MAX_BYTES,
         &truncated_line_numbers,
         flags.style(),
         max_lines,
@@ -382,10 +386,13 @@ fn scan_and_read_tail(
     tail_count: usize,
     n_lines: Option<u32>,
 ) -> ReadResult {
+    // `line_offset` locates the START of the window (the last `tail_count`
+    // lines); `n_lines` then caps how many of those are returned, matching
+    // the TS implementation. Without `n_lines`, the whole window is shown.
     let effective_limit = n_lines
         .map(|n| (n as usize).min(MAX_LINES))
         .unwrap_or(tail_count.min(MAX_LINES));
-    let keep = tail_count.min(MAX_LINES).max(effective_limit);
+    let keep = tail_count.min(MAX_LINES);
 
     let file = match File::open(path) {
         Ok(f) => f,
@@ -452,30 +459,34 @@ fn scan_and_read_tail(
 
     if total_lines == 0 {
         return ReadResult {
-            content: String::new(),
+            content: "<system>No lines read from file. Total lines in file: 0.</system>".to_string(),
             line_count: 0,
             error: None,
         };
     }
 
     let mut entries: Vec<(usize, String)> = ring.into_iter().collect();
+    // The ring holds the last `keep` lines (the tail window). `n_lines`
+    // caps the returned count from the START of that window, matching the
+    // TS implementation (offset locates the window, n_lines the count).
     if entries.len() > effective_limit {
-        let skip = entries.len() - effective_limit;
-        entries = entries.into_iter().skip(skip).collect();
+        entries.truncate(effective_limit);
     }
 
     let line_ending_style = flags.style();
     let mut rendered = Vec::new();
     let mut total_bytes = 0usize;
     let mut truncated_line_numbers = Vec::new();
+    let mut bytes_truncated = false;
     for (line_no, raw_line) in entries.iter().rev() {
         let (rendered_line, was_truncated) = render_line(raw_line, *line_no, line_ending_style);
-        if was_truncated {
-            truncated_line_numbers.push(*line_no);
-        }
         let line_bytes = rendered_line.len() + 1;
         if total_bytes + line_bytes > MAX_BYTES && !rendered.is_empty() {
+            bytes_truncated = true;
             break;
+        }
+        if was_truncated {
+            truncated_line_numbers.push(*line_no);
         }
         total_bytes += line_bytes;
         rendered.push(rendered_line);
@@ -489,7 +500,7 @@ fn scan_and_read_tail(
         start_line,
         total_lines,
         false,
-        total_bytes >= MAX_BYTES,
+        bytes_truncated || total_bytes >= MAX_BYTES,
         &truncated_line_numbers,
         line_ending_style,
         requested_lines,
@@ -751,5 +762,19 @@ mod tests {
         });
         assert!(result.error.is_none());
         assert_eq!(result.line_count, 0);
+        assert!(result.content.contains("No lines read from file"));
+    }
+
+    #[test]
+    fn test_read_offset_past_eof() {
+        let f = write_temp(b"line1\nline2\n");
+        let result = read_file(&ReadConfig {
+            path: f.path().to_str().unwrap().to_string(),
+            line_offset: Some(5),
+            n_lines: Some(10),
+        });
+        assert!(result.error.is_none());
+        assert!(result.content.contains("Line 5 exceeds the total number of lines (2)"));
+        assert!(result.content.starts_with("<system>"));
     }
 }
