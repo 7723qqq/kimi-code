@@ -489,7 +489,7 @@ export async function execFileText(
       { encoding: 'utf8', timeout: timeoutMs, windowsHide: true },
       (error, stdout) => {
         if (error !== null) {
-          resolve();
+          resolve(undefined);
           return;
         }
         resolve(stdout);
