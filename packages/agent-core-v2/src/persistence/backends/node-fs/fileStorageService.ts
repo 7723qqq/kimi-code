@@ -41,6 +41,14 @@ import { toStorageIoError } from '#/persistence/interface/storage';
 
 const WATCH_DEBOUNCE_MS = 150;
 
+/** Bounded retry for the append mkdir→open ENOENT teardown race. */
+const APPEND_ENOENT_RETRIES = 3;
+const APPEND_ENOENT_RETRY_DELAY_MS = 10;
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function isEnoent(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === 'ENOENT';
 }
@@ -127,20 +135,32 @@ export class FileStorageService implements IFileSystemStorageService {
     const filePath = this.path(scope, key);
     const dir = dirname(filePath);
     try {
-      await mkdir(dir, { recursive: true, mode: this.dirMode });
-
-      const fh = await open(filePath, 'a', this.fileMode);
-      try {
-        if (data.byteLength > 0) {
-          await fh.writeFile(data);
+      // Teardown can remove the directory between the `mkdir` and the `open`,
+      // making the `open` fail transiently with ENOENT (a background append-log
+      // flush racing a session/agent teardown). Re-create the directory and
+      // retry a bounded number of times instead of letting the append fail and
+      // wedge the whole log / drop the batch.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await mkdir(dir, { recursive: true, mode: this.dirMode });
+          const fh = await open(filePath, 'a', this.fileMode);
+          try {
+            if (data.byteLength > 0) {
+              await fh.writeFile(data);
+            }
+            if (options.durable !== false) {
+              await fh.sync();
+            }
+          } finally {
+            await fh.close();
+          }
+          await this.syncDirOnce(dir);
+          return;
+        } catch (error) {
+          if (attempt >= APPEND_ENOENT_RETRIES || !isEnoent(error)) throw error;
+          await sleepMs(APPEND_ENOENT_RETRY_DELAY_MS);
         }
-        if (options.durable !== false) {
-          await fh.sync();
-        }
-      } finally {
-        await fh.close();
       }
-      await this.syncDirOnce(dir);
     } catch (error) {
       throw toStorageIoError(error, { path: filePath, op: 'append' });
     }
@@ -206,7 +226,7 @@ export class FileStorageService implements IFileSystemStorageService {
         timer = undefined;
       }
       const closeResult = watcher?.close();
-      if (closeResult !== undefined) void closeResult.catch(() => undefined);
+      if (closeResult !== undefined) void closeResult.catch(() => {});
       watcher = undefined;
     };
 
