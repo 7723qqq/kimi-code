@@ -163,7 +163,7 @@ export class AgentPromptService implements IAgentPromptService {
     const index = this.pending.findIndex((item) => item.id === promptId);
     if (index < 0) throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, `prompt ${promptId} not found`);
     const [item] = this.pending.splice(index, 1) as [Record];
-    item.state = 'cancelled'; item.launchedDeferred.resolve();
+    item.state = 'cancelled'; item.launchedDeferred.resolve(undefined);
     item.completionDeferred.resolve({ promptId, result: undefined, state: 'cancelled' });
     this.publishAborted(promptId);
     return true;
@@ -193,7 +193,7 @@ export class AgentPromptService implements IAgentPromptService {
       if (this.fullCompaction.compacting !== null && this.loop.status().state !== 'running') { this.pending.unshift(item); return; }
       const { message, captions } = this.extractCompressionCaptions(item.message);
       if (await this.blockedByHook(message, false)) {
-        this.appendPrompt(message, captions); item.state = 'blocked'; item.launchedDeferred.resolve();
+        this.appendPrompt(message, captions); item.state = 'blocked'; item.launchedDeferred.resolve(undefined);
         item.completionDeferred.resolve({ promptId: item.id, result: undefined, state: 'blocked' });
         this.publishCompleted(item.id, 'blocked'); return;
       }
@@ -203,7 +203,7 @@ export class AgentPromptService implements IAgentPromptService {
       void turn.result.then((result) => this.settle(item, result));
     } catch {
       item.state = 'failed';
-      item.launchedDeferred.resolve();
+      item.launchedDeferred.resolve(undefined);
       item.completionDeferred.resolve({ promptId: item.id, result: undefined, state: 'failed' });
       this.publishCompleted(item.id, 'failed');
     } finally {
