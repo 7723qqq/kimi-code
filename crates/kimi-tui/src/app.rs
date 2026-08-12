@@ -447,6 +447,18 @@ pub struct App {
     pub(crate) view: ViewState,
 }
 
+/// Whether a goal status is terminal. Snapshot serde form (camelCase
+/// engine `GoalStatus`): `complete` / `blocked` / `budgetLimited` /
+/// `usageLimited` end the goal; `active` / `paused` keep running.
+/// `cancelled` / `failed` are legacy TS shapes the Rust engine never
+/// emits, kept for compatibility.
+fn goal_status_is_terminal(status: &str) -> bool {
+    matches!(
+        status,
+        "complete" | "blocked" | "budgetLimited" | "usageLimited" | "cancelled" | "failed"
+    )
+}
+
 impl App {
     /// Push a plain line onto the transcript (the common case).
     pub(crate) fn push_line(&mut self, line: TranscriptLine) {
@@ -967,6 +979,21 @@ impl App {
         }
     }
 
+    /// Apply a `session.goal.updated` event to the TUI state: refresh the
+    /// footer goal badge from the snapshot and report whether the goal hit a
+    /// terminal state (the caller then promotes the next queued goal). The
+    /// engine event carries `{type, session_id, snapshot, status}` where
+    /// `snapshot` is the camelCase `GoalSnapshot` (or null when the goal was
+    /// cleared) and the top-level `status` is a Debug-formatted diagnostic
+    /// string — so all TUI logic reads the snapshot's own `status` field.
+    pub(crate) fn apply_goal_event(&mut self, event: &serde_json::Value) -> bool {
+        let snapshot = &event["snapshot"];
+        let status = snapshot["status"].as_str().unwrap_or("");
+        // Update the footer goal badge from the live snapshot.
+        self.view.footer.goal = crate::footer::format_goal_badge(snapshot);
+        goal_status_is_terminal(status)
+    }
+
     /// Start the next queued goal (if any) after the current one ended.
     /// Peeks first so a failed `create_goal` doesn't lose the entry.
     pub(crate) async fn maybe_promote_goal(&mut self) {
@@ -1014,12 +1041,9 @@ impl App {
             // Auto-promote the next queued goal when the current one reached
             // a terminal state (TS `promoteNextQueuedGoal` parity). The
             // event still renders as a status line below.
-            let status = event["goal"]["status"].as_str().unwrap_or("");
-            if matches!(status, "complete" | "cancelled" | "blocked" | "failed") {
+            if self.apply_goal_event(&event) {
                 self.maybe_promote_goal().await;
             }
-            // Update the footer goal badge from the live snapshot.
-            self.view.footer.goal = crate::footer::format_goal_badge(&event["goal"]);
         }
         if r#type == "llm.delta" {
             // Live model output: thinking deltas accumulate on a transient
@@ -2078,6 +2102,155 @@ mod tests {
     
 
     
+
+    #[test]
+    fn goal_terminal_status_table() {
+        // Engine terminal states trigger promotion; live/paused/empty don't.
+        for status in [
+            "complete",
+            "blocked",
+            "budgetLimited",
+            "usageLimited",
+            "cancelled",
+            "failed",
+        ] {
+            assert!(goal_status_is_terminal(status), "{status} must be terminal");
+        }
+        for status in ["active", "paused", ""] {
+            assert!(
+                !goal_status_is_terminal(status),
+                "{status:?} must not be terminal"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn goal_updated_snapshot_drives_badge() {
+        // Pin En so the badge's "turns" label is stable.
+        crate::i18n::set_locale(crate::i18n::Locale::En);
+        let mut app = App::new(
+            kimi_sdk::Harness::embedded().expect("harness"),
+            Some("s-goal-badge"),
+        );
+
+        // Live snapshot → badge shows; not terminal.
+        let active = serde_json::json!({
+            "type": "session.goal.updated",
+            "session_id": "s-goal-badge",
+            "snapshot": { "status": "active", "turnsUsed": 3 },
+            "status": "Active",
+        });
+        assert!(!app.apply_goal_event(&active), "active is not terminal");
+        assert_eq!(
+            app.view.footer.goal.as_deref(),
+            Some("[goal ● active · 3 turns]"),
+            "live badge from the snapshot"
+        );
+
+        // Paused → hollow dot; not terminal.
+        let paused = serde_json::json!({
+            "type": "session.goal.updated",
+            "snapshot": { "status": "paused", "turnsUsed": 5 },
+            "status": "Paused",
+        });
+        assert!(!app.apply_goal_event(&paused), "paused is not terminal");
+        assert_eq!(
+            app.view.footer.goal.as_deref(),
+            Some("[goal ○ paused · 5 turns]"),
+            "paused badge from the snapshot"
+        );
+
+        // Engine terminal statuses promote; the badge clears for the
+        // unrecoverable ones.
+        for status in ["complete", "budgetLimited", "usageLimited"] {
+            let terminal = serde_json::json!({
+                "type": "session.goal.updated",
+                "snapshot": { "status": status, "turnsUsed": 9 },
+                "status": "Complete",
+            });
+            assert!(app.apply_goal_event(&terminal), "{status} is terminal");
+            assert!(app.view.footer.goal.is_none(), "terminal badge clears");
+        }
+        // `blocked` is also terminal (promotes the queue) but resumable, so
+        // the footer keeps showing it as a hollow-dot badge.
+        let blocked = serde_json::json!({
+            "type": "session.goal.updated",
+            "snapshot": { "status": "blocked", "turnsUsed": 9 },
+            "status": "Blocked",
+        });
+        assert!(app.apply_goal_event(&blocked), "blocked is terminal");
+        assert_eq!(
+            app.view.footer.goal.as_deref(),
+            Some("[goal ○ blocked · 9 turns]"),
+            "blocked stays visible as a resumable badge"
+        );
+
+        // Cleared goal (null snapshot) → badge clears, not terminal.
+        let cleared = serde_json::json!({
+            "type": "session.goal.updated",
+            "snapshot": null,
+            "status": "none",
+        });
+        assert!(!app.apply_goal_event(&cleared), "cleared is not terminal");
+        assert!(app.view.footer.goal.is_none(), "cleared badge clears");
+
+        // Legacy TS statuses the Rust engine never emits stay compatible.
+        for status in ["cancelled", "failed"] {
+            let legacy = serde_json::json!({
+                "type": "session.goal.updated",
+                "snapshot": { "status": status, "turnsUsed": 1 },
+            });
+            assert!(app.apply_goal_event(&legacy), "{status} treated as terminal");
+        }
+    }
+
+    #[tokio::test]
+    async fn goal_terminal_event_promotes_queued_goal() {
+        let mut app = App::new(
+            kimi_sdk::Harness::embedded().expect("harness"),
+            Some("s-goal-promote"),
+        );
+        app.session = Some(app.harness.create_session(&app.session_id).await.unwrap());
+
+        let _ = crate::goal_queue::append_goal(&app.session_id, "next task").unwrap();
+
+        // Non-terminal event leaves the queue untouched.
+        let active = serde_json::json!({
+            "type": "session.goal.updated",
+            "snapshot": { "status": "active", "turnsUsed": 1 },
+        });
+        assert!(!app.apply_goal_event(&active), "active is not terminal");
+        assert_eq!(
+            crate::goal_queue::read_queue(&app.session_id).unwrap().len(),
+            1,
+            "queue survives non-terminal events"
+        );
+
+        // Terminal event → maybe_promote_goal creates it on the real session
+        // and removes the queue entry.
+        let terminal = serde_json::json!({
+            "type": "session.goal.updated",
+            "snapshot": { "status": "complete", "turnsUsed": 2 },
+        });
+        assert!(app.apply_goal_event(&terminal), "complete is terminal");
+        app.maybe_promote_goal().await;
+
+        assert!(
+            crate::goal_queue::read_queue(&app.session_id).unwrap().is_empty(),
+            "promoted goal leaves the queue"
+        );
+        let current = app.session.as_mut().unwrap().goal().await.unwrap();
+        assert_eq!(
+            current["goal"]["objective"].as_str(),
+            Some("next task"),
+            "the queued objective became the active goal: {current}"
+        );
+
+        // Cleanup the queue file (session store is in-memory in tests).
+        if let Some(path) = crate::goal_queue::queue_path(&app.session_id) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 
     
 }

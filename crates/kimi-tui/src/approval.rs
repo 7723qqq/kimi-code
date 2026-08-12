@@ -52,11 +52,11 @@ fn truncate_preview(lines: &mut Vec<String>) {
 
 /// Human-readable preview lines for a pending approval's arguments — the
 /// tool-specific display blocks (TS `approval-panel` DisplayBlock parity,
-/// simplified — no syntax highlighting or diff clustering): Edit renders
-/// old/new hunks, Write renders the file content (truncated), Bash the
-/// command, Read/Grep/Glob/FsSearch/WebSearch/WebFetch their target,
-/// AskUserQuestion the question + options, TodoList the items. Falls back
-/// to the raw JSON for other tools.
+/// simplified — no syntax highlighting): Edit renders a clustered LCS diff
+/// of old/new hunks (see [`crate::diff`]), Write renders the file content
+/// (truncated), Bash the command, Read/Grep/Glob/FsSearch/WebSearch/WebFetch
+/// their target, AskUserQuestion the question + options, TodoList the items.
+/// Falls back to the raw JSON for other tools.
 /// First dangerous-command pattern matched in `command` (TS `detectDanger`
 /// parity): returns the i18n key of the first hit, or `None`. The Bash
 /// approval preview appends a ⚠ line when a pattern matches.

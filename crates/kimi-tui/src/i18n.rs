@@ -615,11 +615,6 @@ static MESSAGES: &[(&str, &str, &str)] = &[
     ),
     ("tui.goal.replaced", "goal replaced: {0}", "目标已替换：{0}"),
     ("tui.goal.created", "goal created: {0}", "目标已创建：{0}"),
-    (
-        "tui.goal.nextUnsupported",
-        "goal queueing is not supported in the Rust TUI — use a plain objective",
-        "Rust TUI 不支持目标排队 — 请直接输入目标",
-    ),
     ("tui.goal.show", "goal: {0}", "目标：{0}"),
     (
         "tui.goal.queued",
@@ -1178,8 +1173,13 @@ static MESSAGES: &[(&str, &str, &str)] = &[
     ),
     (
         "cli.vis.notBundled",
-        "the vis frontend ships with the TS distribution (npm wrapper) — not bundled in the Rust build",
-        "vis 前端随 TS 分发提供（npm wrapper）——未包含在 Rust 构建中",
+        "the vis frontend is a separate app (@moonshot-ai/vis) — not bundled with the Rust CLI",
+        "vis 前端是独立应用（@moonshot-ai/vis）——未随 Rust CLI 分发",
+    ),
+    (
+        "cli.migrate.retired",
+        "legacy data migration is no longer provided (removed with the TS distribution)",
+        "历史数据迁移已不再提供（已随 TS 发行版移除）",
     ),
 
     // ── top-level option validation (TS `validateOptions` parity) ────────
