@@ -318,6 +318,44 @@ describe('FullCompaction', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('holds the loop quiescence lease for the full manual compaction', async () => {
+    const ctx = testAgent();
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    let release!: () => void;
+    const canCompact = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started!: () => void;
+    const compactionStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const hook = ctx.get(IAgentFullCompactionService).hooks.onWillCompact.register(
+      'test-quiescence',
+      async (_task, next) => {
+        started();
+        await canCompact;
+        await next();
+      },
+    );
+    ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
+
+    expect(ctx.get(IAgentFullCompactionService).begin({ source: 'manual' })).toBe(true);
+    await compactionStarted;
+    expect(ctx.get(IAgentLoopService).tryAcquireQuiescence()).toBeUndefined();
+
+    release();
+    await ctx.get(IAgentFullCompactionService).compacting?.promise;
+    const lease = ctx.get(IAgentLoopService).tryAcquireQuiescence();
+    expect(lease).toBeDefined();
+    lease?.dispose();
+    hook.dispose();
+  });
+
   it('refreshes the active profile system prompt after compaction without resetting active tools', async () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'kimi-compact-refresh-home-'));
     const workDir = mkdtempSync(join(tmpdir(), 'kimi-compact-refresh-work-'));
@@ -1460,6 +1498,7 @@ describe('FullCompaction', () => {
 
     ctx.get(IAgentFullCompactionService).begin({ source: 'auto', instruction: undefined });
     await completed;
+    await ctx.wire.flush();
 
     const events = ctx.newEvents();
     const compactedPrefixSizes = ctx.llmCalls.map((call) =>
@@ -3306,11 +3345,13 @@ describe('goal reminder re-injection after full compaction', () => {
     await ctx.untilTurnEnd();
 
     expect(ctx.llmCalls.length).toBeGreaterThanOrEqual(2);
-    expect(goalReminderCount(ctx.llmCalls[0]!.history)).toBe(0);
+    // The goal reminder now enters at the first step head (before the
+    // overflow triggers compaction), so the summarizer request sees it too.
+    expect(goalReminderCount(ctx.llmCalls[0]!.history)).toBe(1);
     expect(goalReminderCount(ctx.llmCalls[1]!.history)).toBe(1);
   });
 
-  it('counts the re-injected goal reminder into the post-compaction token floor', async () => {
+  it('re-injects the goal reminder at the first step after compaction', async () => {
     const records: TelemetryRecord[] = [];
     const ctx = testAgent({ telemetry: recordingTelemetry(records) });
     ctx.configure({
@@ -3326,12 +3367,14 @@ describe('goal reminder re-injection after full compaction', () => {
     await ctx.rpc.beginCompaction({});
     await completed;
 
+    // Re-injection is deferred to the next step head, so nothing is appended
+    // at compaction time and the token floor is exactly the compaction result.
     const reminderMessages = ctx.context
       .get()
       .filter(
         (message) => message.origin?.kind === 'injection' && message.origin.variant === 'goal',
       );
-    expect(reminderMessages).toHaveLength(1);
+    expect(reminderMessages).toHaveLength(0);
 
     const tokensAfter = records.find((record) => record.event === 'compaction_finished')
       ?.properties?.['tokens_after'];
@@ -3342,12 +3385,12 @@ describe('goal reminder re-injection after full compaction', () => {
       }
     ).lastCompactedTokenCount;
     expect(floor).toBe(ctx.get(IAgentTokenCountingService).get().size);
-    expect(floor!).toBeGreaterThan(tokensAfter as number);
+    expect(floor).toBe(tokensAfter);
 
     ctx.mockNextResponse({ type: 'text', text: 'Reply after compaction.' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'next prompt' }] });
     await ctx.untilTurnEnd();
-    expect(goalReminderCount(ctx.llmCalls.at(-1)!.history)).toBe(2);
+    expect(goalReminderCount(ctx.llmCalls.at(-1)!.history)).toBe(1);
   });
 
   it('replays a deferred prompt whose first request carries the re-injected goal reminder', async () => {
