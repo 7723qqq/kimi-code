@@ -26,10 +26,14 @@ use crate::turn_loop::types as loop_types;
 /// settles (engine-native, goal, MCP, knowledge, or host) — reports
 /// `session.tool.started` / `session.tool.settled` over `host/event`, so a
 /// thin client can draw tool cards without owning the loop. Sits outermost
-/// on the interceptor chain to observe all of it.
+/// on the interceptor chain to observe all of it. Also mirrors the calls
+/// into the wire-record store (`tool.call` / `tool.result`) for the vis
+/// timeline.
 struct ToolEventInterceptor {
     inner: Arc<dyn HostCallbacks>,
     session_id: Option<String>,
+    record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
+    turn_id: String,
 }
 impl HostCallbacks for ToolEventInterceptor {
     fn supports_tool_lifecycle(&self) -> bool { self.inner.supports_tool_lifecycle() }
@@ -37,6 +41,8 @@ impl HostCallbacks for ToolEventInterceptor {
     fn execute_tool(&self, req: ToolExecuteRequest) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
         let inner = self.inner.clone();
         let session_id = self.session_id.clone();
+        let record_store = self.record_store.clone();
+        let turn_id = self.turn_id.clone();
         Box::pin(async move {
             let tool_call_id = req.tool_call_id.clone();
             let tool_name = req.tool_name.clone();
@@ -47,6 +53,20 @@ impl HostCallbacks for ToolEventInterceptor {
                 "tool_name": tool_name,
                 "arguments": req.arguments,
             }));
+            if let Some(store) = &record_store {
+                if let Some(sid) = &session_id {
+                    let _ = store.append_wire(
+                        sid,
+                        &turn_id,
+                        crate::persistence::record_store::RECORD_TYPE_TOOL_CALL,
+                        serde_json::json!({
+                            "tool_call_id": tool_call_id,
+                            "name": tool_name,
+                            "input": req.arguments,
+                        }),
+                    );
+                }
+            }
             let result = inner.execute_tool(req).await;
             let (content, is_error) = match &result {
                 Ok(resp) => (truncate_for_event(&resp.content), resp.is_error),
@@ -60,6 +80,21 @@ impl HostCallbacks for ToolEventInterceptor {
                 "content": content,
                 "is_error": is_error,
             }));
+            if let Some(store) = &record_store {
+                if let Some(sid) = &session_id {
+                    let _ = store.append_wire(
+                        sid,
+                        &turn_id,
+                        crate::persistence::record_store::RECORD_TYPE_TOOL_RESULT,
+                        serde_json::json!({
+                            "tool_call_id": tool_call_id,
+                            "name": tool_name,
+                            "output": content,
+                            "is_error": is_error,
+                        }),
+                    );
+                }
+            }
             result
         })
     }
@@ -868,10 +903,19 @@ pub struct Agent {
     /// Host-owned custom metadata (shallow-merged via `session/update_metadata`).
     /// Persisted as part of agent_state on save.
     pub metadata: serde_json::Value,
+    /// Shared wire-record store (SQLite `records` table). When set, engine
+    /// events (turns, messages, tool calls, usage, goals, compaction) are
+    /// appended for the vis timeline & wire views. `None` disables writing
+    /// (subagents, tests, hosts that opted out).
+    pub record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
     /// Monotonic turn ID counter.
     turn_id_counter: u32,
     /// Whether the agent has an active turn.
     has_active_turn: bool,
+    /// Turn id of the in-flight (or most recent) turn, as a string for the
+    /// records table. `None` before the first turn; events outside a turn
+    /// (e.g. a goal RPC) fall back to the placeholder `"0"`.
+    current_turn_id: Option<String>,
 }
 
 impl Agent {
@@ -978,8 +1022,10 @@ impl Agent {
             approval: options.approval.clone().unwrap_or_default(),
             metadata: serde_json::json!({}),
             undo_checkpoints: Vec::new(),
+            record_store: options.record_store.clone(),
             turn_id_counter: 0,
             has_active_turn: false,
+            current_turn_id: None,
         }
     }
 
@@ -1144,6 +1190,7 @@ impl Agent {
     ) -> Result<TurnResult, Box<dyn std::error::Error + Send + Sync>> {
         let turn_id = self.next_turn_id();
         self.has_active_turn = true;
+        self.current_turn_id = Some(turn_id.to_string());
         // Swap (read + clear) the cancel flag at the turn boundary: a cancel
         // that landed before this turn starts aborts this turn instead of
         // being swallowed (probe_cancel parity — never blindly reset).
@@ -1154,6 +1201,10 @@ impl Agent {
                 "session_id": self.session_id,
                 "turn_id": turn_id,
             }));
+            self.record_wire(
+                crate::persistence::record_store::RECORD_TYPE_TURN_STARTED,
+                serde_json::json!({ "turn_id": turn_id.to_string() }),
+            );
             let result = crate::agent::types::TurnResult {
                 stop_reason: loop_types::LoopTurnStopReason::Aborted,
                 steps: 0,
@@ -1166,6 +1217,14 @@ impl Agent {
                 "turn_id": turn_id,
                 "stop_reason": "Aborted",
             }));
+            self.record_wire(
+                crate::persistence::record_store::RECORD_TYPE_TURN_ENDED,
+                serde_json::json!({
+                    "turn_id": turn_id.to_string(),
+                    "reason": "Aborted",
+                    "steps": 0,
+                }),
+            );
             return Ok(result);
         }
         // Lifecycle event for thin clients (session-owned surface): the host
@@ -1175,10 +1234,21 @@ impl Agent {
             "session_id": self.session_id,
             "turn_id": turn_id,
         }));
+        self.record_wire(
+            crate::persistence::record_store::RECORD_TYPE_TURN_STARTED,
+            serde_json::json!({ "turn_id": turn_id.to_string() }),
+        );
 
         // Append user input to context.
         let is_user_origin = matches!(&origin, crate::context::types::MessageOrigin::User);
-        self.context.append_user_message(&input, origin);
+        self.context.append_user_message(&input, origin.clone());
+        self.record_message_append(
+            "user",
+            input,
+            None,
+            None,
+            Some(origin),
+        );
 
         // Record a state checkpoint at real user-prompt boundaries so `/undo`
         // can rewind plan mode and task notifications along with the history
@@ -1208,6 +1278,13 @@ impl Agent {
         };
         if !steered.is_empty() {
             self.context.append_user_message(&steered, crate::context::types::MessageOrigin::User);
+            self.record_message_append(
+                "user",
+                steered,
+                None,
+                None,
+                Some(crate::context::types::MessageOrigin::User),
+            );
         }
 
         // Build RunTurnInput for the loop.
@@ -1396,6 +1473,8 @@ impl Agent {
         callbacks = Arc::new(ToolEventInterceptor {
             inner: callbacks,
             session_id: self.session_id.clone(),
+            record_store: self.record_store.clone(),
+            turn_id: turn_id.to_string(),
         });
 
         // ── Tool definitions: native + goal ──
@@ -1592,7 +1671,13 @@ impl Agent {
         // that transcript), so this is a no-op there.
         for message in &result.new_messages {
             if let Some(ctx_message) = loop_message_to_context_message(message) {
-                let _ = self.context.append_message(ctx_message);
+                let _ = self.context.append_message(ctx_message.clone());
+                if let Ok(data) = serde_json::to_value(&ctx_message) {
+                    self.record_wire(
+                        crate::persistence::record_store::RECORD_TYPE_MESSAGE_APPEND,
+                        data,
+                    );
+                }
             }
         }
 
@@ -1600,6 +1685,14 @@ impl Agent {
         if let Some(ref mut goal) = self.goal {
             goal.increment_turn();
             goal.record_token_usage(result.usage.total_tokens.max(0) as u64);
+            if let Some(snapshot) = goal.get_goal().goal {
+                if let Ok(data) = serde_json::to_value(&snapshot) {
+                    self.record_wire(
+                        crate::persistence::record_store::RECORD_TYPE_GOAL_UPDATED,
+                        data,
+                    );
+                }
+            }
         }
 
         // Accumulate session usage under the active model alias so
@@ -1612,6 +1705,16 @@ impl Agent {
             .unwrap_or_else(|| "unknown".to_string());
         self.usage
             .record(&usage_model, &result.usage, crate::usage::UsageRecordScope::Session);
+
+        self.record_wire(
+            crate::persistence::record_store::RECORD_TYPE_USAGE_UPDATED,
+            serde_json::json!({
+                "model": usage_model,
+                "input_tokens": result.usage.input_tokens,
+                "output_tokens": result.usage.output_tokens,
+                "total_tokens": result.usage.total_tokens,
+            }),
+        );
 
         self.callbacks.emit_event(serde_json::json!({
             "type": "session.usage.updated",
@@ -1629,6 +1732,14 @@ impl Agent {
             "stop_reason": format!("{:?}", result.stop_reason),
             "steps": result.steps,
         }));
+        self.record_wire(
+            crate::persistence::record_store::RECORD_TYPE_TURN_ENDED,
+            serde_json::json!({
+                "turn_id": turn_id.to_string(),
+                "reason": format!("{:?}", result.stop_reason),
+                "steps": result.steps,
+            }),
+        );
 
         Ok(TurnResult {
             stop_reason: result.stop_reason,
@@ -1663,7 +1774,14 @@ impl Agent {
             // explains why nothing ran.
             self.context
                 .append_user_message(&input, crate::context::types::MessageOrigin::User);
-            self.context.append_message(crate::context::types::ContextMessage {
+            self.record_message_append(
+                "user",
+                input,
+                None,
+                None,
+                Some(crate::context::types::MessageOrigin::User),
+            );
+            let block_message = crate::context::types::ContextMessage {
                 role: "assistant".to_string(),
                 content: vec![crate::context::types::ContentPart::Text { text: block_text.clone() }],
                 tool_calls: vec![],
@@ -1672,7 +1790,14 @@ impl Agent {
                     blocked: Some(true),
                 }),
                 ..Default::default()
-            });
+            };
+            self.context.append_message(block_message.clone());
+            if let Ok(data) = serde_json::to_value(&block_message) {
+                self.record_wire(
+                    crate::persistence::record_store::RECORD_TYPE_MESSAGE_APPEND,
+                    data,
+                );
+            }
             self.callbacks.emit_event(serde_json::json!({
                 "type": "session.hook.result",
                 "session_id": self.session_id,
@@ -2086,12 +2211,20 @@ any partial output shown above is incomplete. The user's next message continues 
     ) -> Result<Option<crate::context::compaction_handoff::ContextCompactionShape>, crate::compaction::CompactionError>
     {
         let used_tokens = self.context.token_count_with_pending();
+        let source_lower = format!("{source:?}").to_lowercase();
         self.callbacks.emit_event(serde_json::json!({
             "type": "session.compaction.started",
             "session_id": self.session_id,
-            "source": format!("{source:?}").to_lowercase(),
+            "source": source_lower,
             "tokens_before": used_tokens,
         }));
+        self.record_wire(
+            crate::persistence::record_store::RECORD_TYPE_COMPACTION_STARTED,
+            serde_json::json!({
+                "trigger": source_lower,
+                "tokens_before": used_tokens,
+            }),
+        );
         // PreCompact hooks: fire-and-forget with the pressure context (TS:
         // hook input carries the token tally). Non-fatal — a slow hook never
         // blocks compaction.
@@ -2121,6 +2254,15 @@ any partial output shown above is incomplete. The user's next message continues 
         // unit-testable without an LLM.
         let input = crate::compaction::native_delegate::compaction_result_to_shape_input(&result);
         let shape = self.context.apply_compaction(&input);
+        self.record_wire(
+            crate::persistence::record_store::RECORD_TYPE_COMPACTION_COMPLETED,
+            serde_json::json!({
+                "trigger": format!("{source:?}").to_lowercase(),
+                "tokens_before": used_tokens,
+                "tokens_after": self.context.token_count_with_pending(),
+                "summary": shape.summary,
+            }),
+        );
         // PostCompact hooks: fire-and-forget with the outcome.
         if self
             .external_hooks
@@ -2218,6 +2360,12 @@ any partial output shown above is incomplete. The user's next message continues 
             .as_ref()
             .and_then(|s| serde_json::to_value(s).ok())
             .unwrap_or(serde_json::Value::Null);
+        if snapshot_json.is_object() {
+            self.record_wire(
+                crate::persistence::record_store::RECORD_TYPE_GOAL_UPDATED,
+                snapshot_json.clone(),
+            );
+        }
         self.callbacks.emit_event(serde_json::json!({
             "type": "session.goal.updated",
             "session_id": self.session_id,
@@ -2390,6 +2538,53 @@ any partial output shown above is incomplete. The user's next message continues 
         let id = self.turn_id_counter;
         self.turn_id_counter += 1;
         id
+    }
+
+    /// Append a wire record for this session's current turn.
+    ///
+    /// No-op when the agent has no record store or no session id (subagents,
+    /// tests, hosts that opted out). Events outside any turn (e.g. goal RPCs
+    /// before the first turn) use the placeholder turn id `"0"`. Failures are
+    /// swallowed — a lost record must never change engine behaviour.
+    fn record_wire(&self, record_type: &str, data: serde_json::Value) {
+        let Some(store) = &self.record_store else { return };
+        let Some(session_id) = &self.session_id else { return };
+        let turn_id = self
+            .current_turn_id
+            .clone()
+            .unwrap_or_else(|| "0".to_string());
+        let _ = store.append_wire(session_id, &turn_id, record_type, data);
+    }
+
+    /// Append a `message.append` record carrying the full ContextMessage
+    /// shape (role/content/tool_calls/tool_call_id/origin). Skips empty
+    /// payloads, mirroring `ContextMemory::append_user_message`'s early
+    /// return. Serialization failures are swallowed like any record error.
+    fn record_message_append(
+        &self,
+        role: &str,
+        content: Vec<crate::context::types::ContentPart>,
+        tool_calls: Option<Vec<crate::context::types::ToolCall>>,
+        tool_call_id: Option<String>,
+        origin: Option<crate::context::types::MessageOrigin>,
+    ) {
+        if content.is_empty() && tool_calls.as_ref().map(|t| t.is_empty()).unwrap_or(true) {
+            return;
+        }
+        let message = crate::context::types::ContextMessage {
+            role: role.to_string(),
+            content,
+            tool_calls: tool_calls.unwrap_or_default(),
+            tool_call_id,
+            origin,
+            ..Default::default()
+        };
+        if let Ok(data) = serde_json::to_value(&message) {
+            self.record_wire(
+                crate::persistence::record_store::RECORD_TYPE_MESSAGE_APPEND,
+                data,
+            );
+        }
     }
 
     /// Download every distinct `kimi://file/<id>` image URL referenced in the

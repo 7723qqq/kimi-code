@@ -30,10 +30,58 @@ pub struct RecordStore {
     store: SqliteStore,
 }
 
+// ── Wire record types (vis timeline / wire view contract) ─────────────────
+//
+// These constants are the single source of truth for the `record_type` column
+// of the `records` table. Stage 2 (the vis reader) consumes exactly these
+// values, so do not rename them without updating the reader.
+//
+// data_json shapes (documented here; the engine writes them verbatim):
+// - `message.append`        = ContextMessage (role/content/tool_calls/tool_call_id/origin/…)
+// - `turn.started`          = { "turn_id": string }
+// - `turn.ended`            = { "turn_id": string, "reason": string, "steps": number }
+// - `tool.call`             = { "tool_call_id": string, "name": string, "input": object }
+// - `tool.result`           = { "tool_call_id": string, "name": string, "output": string, "is_error": bool }
+// - `usage.updated`         = { "model": string, "input_tokens": number, "output_tokens": number, "total_tokens": number }
+// - `goal.updated`          = GoalSnapshot (camelCase; see crate::goal::GoalSnapshot)
+// - `compaction.started`    = { "trigger": string, "tokens_before": number }
+// - `compaction.completed`  = { "trigger": string, "tokens_before": number, "tokens_after": number, "summary": string }
+pub const RECORD_TYPE_MESSAGE_APPEND: &str = "message.append";
+pub const RECORD_TYPE_TURN_STARTED: &str = "turn.started";
+pub const RECORD_TYPE_TURN_ENDED: &str = "turn.ended";
+pub const RECORD_TYPE_TOOL_CALL: &str = "tool.call";
+pub const RECORD_TYPE_TOOL_RESULT: &str = "tool.result";
+pub const RECORD_TYPE_USAGE_UPDATED: &str = "usage.updated";
+pub const RECORD_TYPE_GOAL_UPDATED: &str = "goal.updated";
+pub const RECORD_TYPE_COMPACTION_STARTED: &str = "compaction.started";
+pub const RECORD_TYPE_COMPACTION_COMPLETED: &str = "compaction.completed";
+
 impl RecordStore {
     /// Create a new record store backed by the given SQLite store.
     pub fn new(store: SqliteStore) -> Self {
         Self { store }
+    }
+
+    /// Append a wire record with an auto-generated ISO-8601 timestamp.
+    ///
+    /// This is the production write path for engine events (turns, messages,
+    /// tool calls, usage, goals, compaction). Failures are surfaced to the
+    /// caller, which must swallow them — a lost record must never change
+    /// engine behaviour.
+    pub fn append_wire(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        record_type: &str,
+        data_json: Value,
+    ) -> anyhow::Result<i64> {
+        self.append_record(&RecordInput {
+            session_id: session_id.to_string(),
+            turn_id: turn_id.to_string(),
+            record_type: record_type.to_string(),
+            data_json,
+            created_at: iso_now(),
+        })
     }
 
     /// Append a new record and return the auto-generated ID.
@@ -126,6 +174,27 @@ impl RecordStore {
             Ok(rows)
         })
     }
+}
+
+/// ISO-8601 UTC timestamp (`YYYY-MM-DDTHH:MM:SSZ`) without external crates —
+/// mirrors the `SessionManager::iso_now` formatter so records and session
+/// rows share a comparable timestamp format.
+fn iso_now() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = now.as_secs();
+    let days = secs / 86_400;
+    let time = secs % 86_400;
+    let (y, m, d) = {
+        let y = 1970 + days / 365;
+        let doy = days % 365;
+        let m = (doy * 12) / 365 + 1;
+        let d = doy - ((m - 1) * 365) / 12 + 1;
+        (y, m, d)
+    };
+    let (hh, mm, ss) = (time / 3600, (time % 3600) / 60, time % 60);
+    format!("{y:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}Z")
 }
 
 #[cfg(test)]
@@ -225,5 +294,42 @@ mod tests {
 
         let records = store.get_records("sess-2", None, 10).unwrap();
         assert!(records.is_empty());
+    }
+
+    #[test]
+    fn test_append_wire_stamps_timestamp_and_type() {
+        let store = RecordStore::new(SqliteStore::in_memory().unwrap());
+        let id = store
+            .append_wire(
+                "sess-1",
+                "turn-1",
+                RECORD_TYPE_TURN_ENDED,
+                serde_json::json!({ "turn_id": "turn-1", "reason": "EndTurn" }),
+            )
+            .unwrap();
+        assert!(id > 0);
+
+        let records = store.get_records("sess-1", None, 10).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].record_type, RECORD_TYPE_TURN_ENDED);
+        assert_eq!(records[0].data_json["reason"], "EndTurn");
+        assert!(
+            !records[0].created_at.is_empty(),
+            "created_at must be stamped"
+        );
+    }
+
+    #[test]
+    fn test_record_type_constants_are_stable() {
+        // Lock the wire contract strings for the stage-2 vis reader.
+        assert_eq!(RECORD_TYPE_MESSAGE_APPEND, "message.append");
+        assert_eq!(RECORD_TYPE_TURN_STARTED, "turn.started");
+        assert_eq!(RECORD_TYPE_TURN_ENDED, "turn.ended");
+        assert_eq!(RECORD_TYPE_TOOL_CALL, "tool.call");
+        assert_eq!(RECORD_TYPE_TOOL_RESULT, "tool.result");
+        assert_eq!(RECORD_TYPE_USAGE_UPDATED, "usage.updated");
+        assert_eq!(RECORD_TYPE_GOAL_UPDATED, "goal.updated");
+        assert_eq!(RECORD_TYPE_COMPACTION_STARTED, "compaction.started");
+        assert_eq!(RECORD_TYPE_COMPACTION_COMPLETED, "compaction.completed");
     }
 }

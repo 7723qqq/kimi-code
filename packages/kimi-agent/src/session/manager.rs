@@ -71,6 +71,10 @@ pub struct SessionManager {
     /// Creation specs for session agents, kept across `destroy` so a later
     /// `session/load` can rebuild the in-memory agent from its record.
     agent_specs: HashMap<String, AgentSpec>,
+    /// Shared wire-record store (SQLite `records` table) injected into every
+    /// agent this manager creates (create/btw/load rebuild). `None` disables
+    /// wire-record writing (tests, hosts that opted out).
+    record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
 }
 
 /// The minimal creation config needed to rebuild a session agent after a
@@ -98,7 +102,13 @@ impl SessionManager {
             agents: HashMap::new(),
             btw_agents: HashMap::new(),
             agent_specs: HashMap::new(),
+            record_store: None,
         }
+    }
+
+    /// Set the shared wire-record store for agents created from now on.
+    pub fn set_record_store(&mut self, record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>) {
+        self.record_store = record_store;
     }
 
     /// Set a lifecycle event callback.
@@ -396,11 +406,18 @@ impl SessionManager {
         &mut self,
         session_id: &str,
         callbacks: Arc<dyn HostCallbacks>,
-        options: AgentOptions,
+        mut options: AgentOptions,
     ) -> anyhow::Result<&mut Agent> {
         // Ensure the session exists.
         if !self.sessions.contains_key(session_id) {
             anyhow::bail!("session not found: {session_id}");
+        }
+
+        // Share the process-wide wire-record store with the fresh agent so
+        // its turn/message/tool events land in the `records` table. An
+        // explicit per-agent store (set by a caller) wins over the manager's.
+        if options.record_store.is_none() {
+            options.record_store = self.record_store.clone();
         }
 
         // Record the creation spec so a destroy/load cycle can rebuild the
@@ -477,6 +494,7 @@ impl SessionManager {
             max_steps_per_turn: main.max_steps_per_turn,
             max_retries_per_step: main.max_retries_per_step,
             permission: Some(main.permission.clone()),
+            record_store: self.record_store.clone(),
             ..Default::default()
         };
         let mut child = Agent::new(callbacks, options);
@@ -625,6 +643,7 @@ impl SessionManager {
                             max_steps_per_turn: spec.max_steps_per_turn,
                             max_retries_per_step: spec.max_retries_per_step,
                             permission: Some(spec.permission),
+                            record_store: self.record_store.clone(),
                             ..Default::default()
                         },
                     );

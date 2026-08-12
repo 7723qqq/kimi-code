@@ -5843,3 +5843,148 @@ fn session_list_and_context_include_subagents() {
     let _ = child.kill();
     let _ = child.wait();
 }
+
+// ── Wire records (vis timeline / wire view) ───────────────────────────────
+
+/// Production wiring of the `records` table: after a real `session/prompt`
+/// turn (fake LLM over host callbacks), the session's records must contain
+/// the turn/message/tool/usage lifecycle with the documented shapes, and
+/// they must be readable from the same SQLite file the engine wrote.
+#[test]
+fn session_prompt_writes_wire_records() {
+    let binary = match find_binary() {
+        Some(b) => b,
+        None => {
+            eprintln!("Skipping test: kimi-agent binary not built.");
+            return;
+        }
+    };
+    let home = std::env::temp_dir().join(format!(
+        "kimi-agent-it-records-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::create_dir_all(&home);
+    let mut child = Command::new(&binary)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("KIMI_AGENT_HOME", &home)
+        .env("KIMI_CODE_HOME", &home)
+        .spawn()
+        .expect("spawn kimi-agent");
+    let mut stdin = child.stdin.take().expect("stdin");
+    let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
+
+    let create = serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "session/create",
+        "params": {"session_id": "it-records", "system_prompt": "test",
+                   "model": "mock", "goal_enabled": false}
+    });
+    writeln!(stdin, "{create}").unwrap();
+    stdin.flush().unwrap();
+
+    let prompt = serde_json::json!({
+        "jsonrpc": "2.0", "id": 2, "method": "session/prompt",
+        "params": {"session_id": "it-records",
+                   "input": [{"type": "text", "text": "hello records"}]}
+    });
+    writeln!(stdin, "{prompt}").unwrap();
+    stdin.flush().unwrap();
+
+    let mut events = Vec::new();
+    let mut host_tools = 0u32;
+    let response = drive_session_prompt(
+        &mut stdin,
+        &mut stdout,
+        2,
+        &mut |call, _msg| match call {
+            1 => serde_json::json!([{"id": "call-rec", "name": "read", "arguments": {"path": "/x"}}]),
+            _ => serde_json::json!([]),
+        },
+        &mut events,
+        &mut host_tools,
+        None,
+    )
+    .expect("prompt response");
+    assert_eq!(response["result"]["stop_reason"], "EndTurn", "got: {response}");
+    assert!(host_tools >= 1, "the fake tool must have been executed");
+
+    let _ = child.kill();
+    let _ = child.wait();
+
+    // Read the records back through the public crate API — the same store
+    // the engine wrote to (`$KIMI_AGENT_HOME/sessions.db`).
+    let store = kimi_agent::persistence::SqliteStore::open(home.join("sessions.db"))
+        .expect("open sessions.db");
+    let record_store = kimi_agent::persistence::RecordStore::new(store);
+    let records = record_store
+        .get_records("it-records", None, 1_000)
+        .expect("read records");
+    assert!(!records.is_empty(), "records table must not be empty");
+
+    let types: Vec<&str> = records.iter().map(|r| r.record_type.as_str()).collect();
+    for expected in [
+        kimi_agent::persistence::record_store::RECORD_TYPE_TURN_STARTED,
+        kimi_agent::persistence::record_store::RECORD_TYPE_MESSAGE_APPEND,
+        kimi_agent::persistence::record_store::RECORD_TYPE_TOOL_CALL,
+        kimi_agent::persistence::record_store::RECORD_TYPE_TOOL_RESULT,
+        kimi_agent::persistence::record_store::RECORD_TYPE_USAGE_UPDATED,
+        kimi_agent::persistence::record_store::RECORD_TYPE_TURN_ENDED,
+    ] {
+        assert!(types.contains(&expected), "missing record type {expected}: {types:?}");
+    }
+
+    // Shape checks per the wire contract (see record_store.rs constants).
+    let started = records
+        .iter()
+        .find(|r| r.record_type == kimi_agent::persistence::record_store::RECORD_TYPE_TURN_STARTED)
+        .expect("turn.started record");
+    assert_eq!(started.data_json["turn_id"], "0", "started: {started:?}");
+    let ended = records
+        .iter()
+        .find(|r| r.record_type == kimi_agent::persistence::record_store::RECORD_TYPE_TURN_ENDED)
+        .expect("turn.ended record");
+    assert_eq!(ended.data_json["reason"], "EndTurn", "ended: {ended:?}");
+    assert!(
+        ended.data_json["steps"].as_u64().unwrap_or(0) >= 2,
+        "ended steps: {ended:?}"
+    );
+    let user_msg = records
+        .iter()
+        .find(|r| {
+            r.record_type == kimi_agent::persistence::record_store::RECORD_TYPE_MESSAGE_APPEND
+                && r.data_json["role"] == "user"
+        })
+        .expect("user message.append record");
+    assert!(
+        serde_json::to_string(&user_msg.data_json["content"])
+            .unwrap_or_default()
+            .contains("hello records"),
+        "message content: {user_msg:?}"
+    );
+    let tool_call = records
+        .iter()
+        .find(|r| r.record_type == kimi_agent::persistence::record_store::RECORD_TYPE_TOOL_CALL)
+        .expect("tool.call record");
+    assert_eq!(tool_call.data_json["tool_call_id"], "call-rec");
+    assert_eq!(tool_call.data_json["name"], "read");
+    assert_eq!(tool_call.data_json["input"]["path"], "/x");
+    let tool_result = records
+        .iter()
+        .find(|r| r.record_type == kimi_agent::persistence::record_store::RECORD_TYPE_TOOL_RESULT)
+        .expect("tool.result record");
+    assert_eq!(tool_result.data_json["tool_call_id"], "call-rec");
+    assert_eq!(tool_result.data_json["name"], "read");
+    assert_eq!(tool_result.data_json["output"], "ok");
+    assert_eq!(tool_result.data_json["is_error"], false);
+    let usage = records
+        .iter()
+        .find(|r| r.record_type == kimi_agent::persistence::record_store::RECORD_TYPE_USAGE_UPDATED)
+        .expect("usage.updated record");
+    // Two LLM steps (tool call + stop), each reporting {1,1,2} tokens.
+    assert!(usage.data_json["total_tokens"].as_u64().unwrap_or(0) >= 2, "usage: {usage:?}");
+    assert!(usage.data_json["input_tokens"].as_u64().unwrap_or(0) >= 1, "usage: {usage:?}");
+
+    // Ordering: the first record of the session is its first turn.started.
+    assert_eq!(records[0].record_type, kimi_agent::persistence::record_store::RECORD_TYPE_TURN_STARTED);
+}

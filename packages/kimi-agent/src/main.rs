@@ -380,12 +380,19 @@ async fn main() -> anyhow::Result<()> {
     // The engine owns sessions, agents, goal driving, and persistence; the
     // host only renders and answers `host/*` callbacks. Storage goes to
     // `$KIMI_AGENT_HOME/sessions.db` when set, else stays in memory.
+    //
+    // The same SqliteStore backs both the SessionStore and the shared
+    // RecordStore (records table) so wire records written by session agents
+    // are visible to `session/export` and the vis reader.
     let session_store = open_session_store()?;
-    let session_manager = Arc::new(tokio::sync::Mutex::new(
-        kimi_agent::session::manager::SessionManager::new(
-            kimi_agent::persistence::SessionStore::new(session_store),
-        ),
+    let record_store = Arc::new(kimi_agent::persistence::RecordStore::new(
+        session_store.clone(),
     ));
+    let mut session_manager_impl = kimi_agent::session::manager::SessionManager::new(
+        kimi_agent::persistence::SessionStore::new(session_store),
+    );
+    session_manager_impl.set_record_store(Some(record_store.clone()));
+    let session_manager = Arc::new(tokio::sync::Mutex::new(session_manager_impl));
     // Per-session cancellation flags, reachable while `session/prompt` holds
     // the manager lock — a cancel must never need that lock.
     let session_cancel: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>> =

@@ -3,16 +3,19 @@
 /// Provides automatic table creation, connection management, and
 /// transaction support via rusqlite.
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 
 /// Centralized SQLite storage engine.
 ///
-/// Wraps a `rusqlite::Connection` behind a `Mutex` so it can be shared
-/// across threads. All tables are created automatically on construction.
+/// Wraps a `rusqlite::Connection` behind a shared `Mutex` so it can be used
+/// from multiple threads AND cloned into several store facades (SessionStore,
+/// RecordStore, …) that all see the same database. All tables are created
+/// automatically on construction.
+#[derive(Clone)]
 pub struct SqliteStore {
-    conn: Mutex<Connection>,
+    conn: Arc<Mutex<Connection>>,
 }
 
 impl SqliteStore {
@@ -21,7 +24,7 @@ impl SqliteStore {
     pub fn open(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let conn = Connection::open(path.as_ref())?;
         let store = Self {
-            conn: Mutex::new(conn),
+            conn: Arc::new(Mutex::new(conn)),
         };
         store.create_tables()?;
         Ok(store)
@@ -31,7 +34,7 @@ impl SqliteStore {
     pub fn in_memory() -> anyhow::Result<Self> {
         let conn = Connection::open_in_memory()?;
         let store = Self {
-            conn: Mutex::new(conn),
+            conn: Arc::new(Mutex::new(conn)),
         };
         store.create_tables()?;
         Ok(store)

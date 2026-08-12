@@ -75,6 +75,10 @@ pub struct AgentOptions {
     /// register here (web-facing `session/approval_list` +
     /// `session/approval_resolve`); when `None`, the agent creates its own.
     pub approval: Option<crate::approval::SharedApprovalStore>,
+    /// Shared wire-record store (the SQLite `records` table). When set, the
+    /// agent appends turn/message/tool/usage/goal/compaction records for the
+    /// vis timeline & wire views; `None` (subagents, tests) disables writing.
+    pub record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
 }
 
 impl Default for AgentOptions {
@@ -95,6 +99,7 @@ impl Default for AgentOptions {
             external_hooks: Vec::new(),
             task: None,
             approval: None,
+            record_store: None,
         }
     }
 }
