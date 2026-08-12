@@ -10,6 +10,14 @@
   "files": [
     "bin/"
   ],
+  "optionalDependencies": {
+    "@moonshot-ai/kimi-code-linux-x64": "workspace:^",
+    "@moonshot-ai/kimi-code-linux-arm64": "workspace:^",
+    "@moonshot-ai/kimi-code-darwin-x64": "workspace:^",
+    "@moonshot-ai/kimi-code-darwin-arm64": "workspace:^",
+    "@moonshot-ai/kimi-code-win32-x64": "workspace:^",
+    "@moonshot-ai/kimi-code-win32-arm64": "workspace:^"
+  },
   "engines": {
     "node": ">=18"
   }

@@ -1,7 +1,17 @@
 {
   "changelog": ["@changesets/changelog-github", { "repo": "MoonshotAI/kimi-code" }],
   "commit": false,
-  "fixed": [],
+  "fixed": [
+    [
+      "@moonshot-ai/kimi-code",
+      "@moonshot-ai/kimi-code-linux-x64",
+      "@moonshot-ai/kimi-code-linux-arm64",
+      "@moonshot-ai/kimi-code-darwin-x64",
+      "@moonshot-ai/kimi-code-darwin-arm64",
+      "@moonshot-ai/kimi-code-win32-x64",
+      "@moonshot-ai/kimi-code-win32-arm64"
+    ]
+  ],
   "linked": [],
   "access": "public",
   "baseBranch": "main",

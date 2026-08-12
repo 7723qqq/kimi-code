@@ -1,0 +1,15 @@
+{
+  "name": "@moonshot-ai/kimi-code-win32-x64",
+  "version": "0.30.0",
+  "description": "Kimi Code CLI platform binary for win32 x64",
+  "license": "MIT",
+  "files": [
+    "vendor/"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

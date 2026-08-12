@@ -93,7 +93,26 @@ importers:
         specifier: 4.1.4
         version: 4.1.4(@types/node@22.19.17)(@vitest/coverage-v8@4.1.4)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@6.4.3(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
 
-  apps/kimi-code: {}
+  apps/kimi-code:
+    optionalDependencies:
+      '@moonshot-ai/kimi-code-darwin-arm64':
+        specifier: workspace:^
+        version: link:../../packages/kimi-code-darwin-arm64
+      '@moonshot-ai/kimi-code-darwin-x64':
+        specifier: workspace:^
+        version: link:../../packages/kimi-code-darwin-x64
+      '@moonshot-ai/kimi-code-linux-arm64':
+        specifier: workspace:^
+        version: link:../../packages/kimi-code-linux-arm64
+      '@moonshot-ai/kimi-code-linux-x64':
+        specifier: workspace:^
+        version: link:../../packages/kimi-code-linux-x64
+      '@moonshot-ai/kimi-code-win32-arm64':
+        specifier: workspace:^
+        version: link:../../packages/kimi-code-win32-arm64
+      '@moonshot-ai/kimi-code-win32-x64':
+        specifier: workspace:^
+        version: link:../../packages/kimi-code-win32-x64
 
   apps/kimi-inspect:
     dependencies:
@@ -468,7 +487,38 @@ importers:
 
   packages/kimi-agent: {}
 
-  packages/kimi-code-rust-bin: {}
+  packages/kimi-code-darwin-arm64: {}
+
+  packages/kimi-code-darwin-x64: {}
+
+  packages/kimi-code-linux-arm64: {}
+
+  packages/kimi-code-linux-x64: {}
+
+  packages/kimi-code-rust-bin:
+    optionalDependencies:
+      '@moonshot-ai/kimi-code-darwin-arm64':
+        specifier: workspace:^
+        version: link:../kimi-code-darwin-arm64
+      '@moonshot-ai/kimi-code-darwin-x64':
+        specifier: workspace:^
+        version: link:../kimi-code-darwin-x64
+      '@moonshot-ai/kimi-code-linux-arm64':
+        specifier: workspace:^
+        version: link:../kimi-code-linux-arm64
+      '@moonshot-ai/kimi-code-linux-x64':
+        specifier: workspace:^
+        version: link:../kimi-code-linux-x64
+      '@moonshot-ai/kimi-code-win32-arm64':
+        specifier: workspace:^
+        version: link:../kimi-code-win32-arm64
+      '@moonshot-ai/kimi-code-win32-x64':
+        specifier: workspace:^
+        version: link:../kimi-code-win32-x64
+
+  packages/kimi-code-win32-arm64: {}
+
+  packages/kimi-code-win32-x64: {}
 
   packages/kimi-native-tools:
     devDependencies:

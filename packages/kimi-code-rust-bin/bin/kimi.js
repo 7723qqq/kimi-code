@@ -2,39 +2,87 @@
 /**
  * Kimi Code Rust distribution shell — spawn the platform Rust binary.
  *
- * CI packs the built binary next to this script using pack.mjs naming:
- *   bin/kimi-<platform>-<arch>[.exe]
- * (or a generic `kimi`/`kimi.exe` when platform-specific builds are absent).
+ * The binary is distributed codex-style as a per-platform package
+ * `@moonshot-ai/kimi-code-<platform>-<arch>` with the binary at
+ * `<pkg>/vendor/<platform>-<arch>/bin/kimi[.exe]`; legacy installs that
+ * injected the binary into this package's `bin/` (pack.mjs naming:
+ * `kimi-<platform>-<arch>[.exe]`, or a generic `kimi`/`kimi.exe`) still
+ * work via the fallback candidates.
  *
  * `KIMI_RUST_BIN` overrides the binary path (dev/test use), and a missing
- * binary produces a clear build hint instead of a cryptic spawn error.
+ * binary produces a clear reinstall hint instead of a cryptic spawn error.
+ * `KIMI_ENTRY_DEBUG=1` logs which path was chosen.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 
 const HERE = import.meta.dirname;
-const exe = process.platform === 'win32' ? '.exe' : '';
-const candidates = [
-  // pack.mjs default naming: kimi-<platform>-<arch>[.exe]
-  `kimi-${process.platform}-${process.arch}${exe}`,
-  // generic name for hand-installed builds
-  `kimi${exe}`,
-  // legacy cross-platform names
-  'kimi-win32-x64.exe',
-  'kimi.exe',
-  'kimi-linux-x64',
-  'kimi-darwin-arm64',
-  'kimi',
-];
-const explicit = process.env.KIMI_RUST_BIN;
 
-const binary = explicit ?? candidates.map((c) => join(HERE, c)).find((p) => existsSync(p));
+const DEBUG = process.env.KIMI_ENTRY_DEBUG === '1';
+const debug = (message) => {
+  if (DEBUG) console.error(`kimi-entry: ${message}`);
+};
 
-if (!binary) {
+/**
+ * Resolve the platform Rust binary, codex-style:
+ *
+ *   1. `KIMI_RUST_BIN` wins when set; a set-but-missing path is a config
+ *      error and fails fast.
+ *   2. The platform package `@moonshot-ai/kimi-code-<platform>-<arch>` is
+ *      located via `require.resolve`; the binary lives at
+ *      `<pkg>/vendor/<platform>-<arch>/bin/kimi[.exe]`.
+ *   3. Fall back to legacy local candidates in this package's `bin/` (old
+ *      injected layout).
+ *
+ * Returns `{ path, source }` with source one of 'env', 'platform-package',
+ * 'local-bin'; exits with a clear reinstall hint when nothing resolves.
+ */
+function resolvePlatformBinary() {
+  const explicit = process.env.KIMI_RUST_BIN;
+  if (explicit) {
+    if (existsSync(explicit)) return { path: explicit, source: 'env' };
+    console.error(`kimi: KIMI_RUST_BIN is set but no such file: ${explicit}`);
+    process.exit(1);
+  }
+
+  const { platform, arch } = process;
+  const exe = platform === 'win32' ? '.exe' : '';
+  const target = `${platform}-${arch}`;
+  const platformPackage = `@moonshot-ai/kimi-code-${target}`;
+
+  try {
+    const require = createRequire(import.meta.url);
+    const packageRoot = dirname(require.resolve(`${platformPackage}/package.json`));
+    const candidate = join(packageRoot, 'vendor', target, 'bin', `kimi${exe}`);
+    if (existsSync(candidate)) return { path: candidate, source: 'platform-package' };
+  } catch {
+    /* platform package not installed */
+  }
+
+  const candidates = [
+    // pack.mjs default naming: kimi-<platform>-<arch>[.exe]
+    `kimi-${platform}-${arch}${exe}`,
+    // generic name for hand-installed builds
+    `kimi${exe}`,
+    // legacy cross-platform names
+    'kimi-win32-x64.exe',
+    'kimi.exe',
+    'kimi-linux-x64',
+    'kimi-darwin-arm64',
+    'kimi',
+  ];
+  const local = candidates.map((candidate) => join(HERE, candidate)).find((p) => existsSync(p));
+  if (local) return { path: local, source: 'local-bin' };
+
   console.error(
-    'kimi: Rust binary not found in ' + HERE +
-    '\n  Build it with `cargo build --release -p kimi-cli` and copy target/release/kimi(.exe) here, or set KIMI_RUST_BIN.',
+    `kimi: no Rust binary found in ${HERE}` +
+      `\n  Expected platform package ${platformPackage} (vendor/${target}/bin/kimi${exe})` +
+      ', or a legacy binary in bin/.' +
+      '\n  Reinstall to fetch the platform package (`npm install` / your package manager),' +
+      '\n  or set KIMI_RUST_BIN to a built binary:' +
+      '\n    cargo build --release -p kimi-cli',
   );
   process.exit(1);
 }
@@ -80,6 +128,9 @@ function forwardArgs(raw) {
   if (!existsSync(distWeb)) return raw;
   return [raw[0], '--assets', distWeb, ...raw.slice(1)];
 }
+
+const { path: binary, source } = resolvePlatformBinary();
+debug(`binary from ${source}: ${binary}`);
 
 const manager = detectPackageManager();
 const env = { ...process.env };

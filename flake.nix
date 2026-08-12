@@ -66,6 +66,12 @@
         ./packages/kimi-native-tools
         ./packages/kimi-agent
         ./packages/kimi-code-rust-bin
+        ./packages/kimi-code-linux-x64
+        ./packages/kimi-code-linux-arm64
+        ./packages/kimi-code-darwin-x64
+        ./packages/kimi-code-darwin-arm64
+        ./packages/kimi-code-win32-x64
+        ./packages/kimi-code-win32-arm64
         ./packages/server
         ./apps/kimi-code
         ./apps/vscode
@@ -82,6 +88,12 @@
         "@moonshot-ai/kimi-native-tools"
         "@moonshot-ai/kimi-agent"
         "@moonshot-ai/kimi-code-rust"
+        "@moonshot-ai/kimi-code-linux-x64"
+        "@moonshot-ai/kimi-code-linux-arm64"
+        "@moonshot-ai/kimi-code-darwin-x64"
+        "@moonshot-ai/kimi-code-darwin-arm64"
+        "@moonshot-ai/kimi-code-win32-x64"
+        "@moonshot-ai/kimi-code-win32-arm64"
         "@moonshot-ai/server"
         "@moonshot-ai/kimi-code"
         "kimi-code"

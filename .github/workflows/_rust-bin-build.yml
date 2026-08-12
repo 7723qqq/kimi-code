@@ -103,15 +103,24 @@ jobs:
         if: always() && runner.os == 'macOS' && inputs.sign-macos
         uses: ./.github/actions/macos-keychain-cleanup
 
-      - name: Pack into the npm shell package
-        run: node packages/kimi-code-rust-bin/scripts/pack.mjs
+      # pack.mjs writes the platform package packages/kimi-code-<target>/
+      # (vendor/<target>/bin/kimi[.exe] + kimi-server-serve-<target>[.exe])
+      # when KIMI_RUST_TARGET is set to the <platform>-<arch> tuple.
+      - name: Pack into the platform npm package
+        shell: bash
+        run: KIMI_RUST_TARGET=${{ matrix.target }} node packages/kimi-code-rust-bin/scripts/pack.mjs
 
       - name: Smoke test the packed binary
-        run: node packages/kimi-code-rust-bin/bin/kimi.js --version
+        shell: bash
+        run: |
+          bin="packages/kimi-code-${{ matrix.target }}/vendor/${{ matrix.target }}/bin/kimi"
+          if [ "$RUNNER_OS" = "Windows" ]; then bin="$bin.exe"; fi
+          "$bin" --version
 
-      - name: Upload packed binaries
+      - name: Upload platform package
         uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.upload-artifact-prefix }}-${{ matrix.target }}
-          path: packages/kimi-code-rust-bin/bin/
+          path: packages/kimi-code-${{ matrix.target }}/
+          include-hidden-files: true
           retention-days: ${{ inputs.retention-days }}
