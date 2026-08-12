@@ -29,6 +29,32 @@ export function syncDirSync(dirPath: string): void {
   }
 }
 
+/**
+ * Rename `from` over `to` atomically. Modern Node's `rename` on Windows
+ * replaces an existing target (MoveFileEx with MOVEFILE_REPLACE_EXISTING), so
+ * a plain rename keeps the write atomic — there is never a moment where `to`
+ * is missing. Only fall back to unlink-then-rename when the filesystem refuses
+ * to overwrite (older runtimes / exotic filesystems), which reintroduces a tiny
+ * non-atomic window as a last resort rather than failing the write outright.
+ */
+async function renameOver(from: string, to: string): Promise<void> {
+  try {
+    await rename(from, to);
+    return;
+  } catch (error) {
+    if (process.platform !== 'win32') throw error;
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'EEXIST' && code !== 'EPERM') throw error;
+  }
+  try {
+    await unlink(to);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') throw error;
+  }
+  await rename(from, to);
+}
+
 export async function writeFileAtomicDurable(
   filePath: string,
   content: string | Uint8Array,
@@ -43,15 +69,7 @@ export async function writeFileAtomicDurable(
     } finally {
       await fh.close();
     }
-    if (process.platform === 'win32') {
-      try {
-        await unlink(filePath);
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code !== 'ENOENT') throw error;
-      }
-    }
-    await rename(tmpPath, filePath);
+    await renameOver(tmpPath, filePath);
     renamed = true;
     await syncDir(dirname(filePath));
   } finally {
@@ -93,15 +111,7 @@ export async function atomicWrite(
     } finally {
       await fh.close();
     }
-    if (process.platform === 'win32') {
-      try {
-        await unlink(filePath);
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code !== 'ENOENT') throw error;
-      }
-    }
-    await rename(tmpPath, filePath);
+    await renameOver(tmpPath, filePath);
     renamed = true;
   } finally {
     if (!renamed) {
@@ -133,15 +143,7 @@ export async function atomicWriteStream(
     } finally {
       await fh.close();
     }
-    if (process.platform === 'win32') {
-      try {
-        await unlink(filePath);
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code !== 'ENOENT') throw error;
-      }
-    }
-    await rename(tmpPath, filePath);
+    await renameOver(tmpPath, filePath);
     renamed = true;
   } finally {
     if (!renamed) {

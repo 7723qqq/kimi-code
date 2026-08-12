@@ -232,6 +232,11 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     const sessionId = opts.sessionId ?? createSessionId();
     const handle = await this.materializeSession({ ...opts, sessionId });
     try {
+      // Wait for the initial `state.json` to be durable before create resolves:
+      // the authoritative session listing enumerates the session directory and
+      // reads that document, so resolving before it lands would let an
+      // immediate `listSessions` (or a cold resume) miss a just-created session.
+      await handle.accessor.get(ISessionMetadata).ready;
       const main =
         opts.mainAgentBinding === undefined
           ? undefined
@@ -330,7 +335,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       ]);
     } catch (error) {
       handle.dispose();
-      void this.explicitAgentProfileLoader.reload().catch(() => undefined);
+      void this.explicitAgentProfileLoader.reload().catch(() => {});
       throw error;
     }
     this.sessions.set(opts.sessionId, handle);
@@ -457,7 +462,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
   async delete(sessionId: string): Promise<void> {
     const inflight = this.resuming.get(sessionId);
     if (inflight !== undefined) {
-      await inflight.catch(() => undefined);
+      await inflight.catch(() => {});
     }
     const handle = this.sessions.get(sessionId);
     const summary = await this.index.get(sessionId);
