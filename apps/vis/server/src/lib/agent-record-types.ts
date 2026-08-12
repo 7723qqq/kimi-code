@@ -144,7 +144,8 @@ export interface SessionDetail {
   sessionId: string;
   /** Canonical on-disk session directory. Routes derive agent wire paths
    *  from this rather than the mutable `homedir` field inside `state.json`,
-   *  which can drift after fork/rename. */
+   *  which can drift after fork/rename. Empty for SQLite-sourced sessions
+   *  (no session directory exists). */
   sessionDir: string;
   workDir: string;
   state: unknown; // 原样透传，前端按 state.json 真实形状渲染
@@ -153,6 +154,10 @@ export interface SessionDetail {
   imported: boolean;
   /** Export/import provenance for imported sessions; null for local ones. */
   importMeta: ImportInfo | null;
+  /** Which on-disk source produced this detail: `'sqlite'` when read from
+   *  the Rust engine's `sessions.db`, absent/`'legacy'` for the directory
+   *  layout. Route handlers switch their readers on this flag. */
+  source?: 'sqlite' | 'legacy';
 }
 
 /** One line of `wire.jsonl` after vis has parsed (and possibly migrated)
@@ -174,11 +179,26 @@ export interface WireEntry {
   raw: unknown;
 }
 
+/** Parsed wire metadata. Legacy `wire.jsonl` carries only
+ *  `protocolVersion` / `createdAt`; the SQLite records source (Rust engine
+ *  `records` table) additionally reports `source: 'sqlite'` and the
+ *  distinct `record_type` values seen for the session. */
+export interface WireMetadata {
+  protocolVersion: string;
+  createdAt: number;
+  /** `'sqlite'` when the wire view was reconstructed from the engine's
+   *  `records` table instead of a legacy `wire.jsonl`. */
+  source?: 'sqlite';
+  /** Distinct engine record types (`message.append`, `tool.call`, …) in
+   *  first-seen order; absent for legacy wires. */
+  recordTypes?: string[];
+}
+
 export interface WireResponse {
   sessionId: string;
   agentId: string;
   protocolVersion: string;
-  metadata: { protocolVersion: string; createdAt: number };
+  metadata: WireMetadata;
   records: readonly WireEntry[];
   warnings: string[];
 }

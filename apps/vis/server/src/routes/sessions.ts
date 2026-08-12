@@ -3,6 +3,7 @@ import { rm } from 'node:fs/promises';
 import { KIMI_CODE_HOME } from '../config';
 import { revealInOs } from '../lib/reveal';
 import { isSafeSessionId, listSessions, readSessionDetail } from '../lib/session-store';
+import { isSqliteSourceActive } from '../lib/sqlite-store';
 
 export function sessionsRoute(home: string = KIMI_CODE_HOME): Hono {
   const r = new Hono();
@@ -12,6 +13,14 @@ export function sessionsRoute(home: string = KIMI_CODE_HOME): Hono {
   });
   r.delete('/:id', async (c) => {
     const id = c.req.param('id');
+    // The SQLite source is read-only (a live engine owns the db); deletion
+    // is not supported there.
+    if (isSqliteSourceActive()) {
+      return c.json(
+        { error: 'session deletion is not supported for the read-only sqlite source', code: 'BAD_REQUEST' },
+        400,
+      );
+    }
     if (!isSafeSessionId(id)) {
       return c.json({ error: 'invalid session id', code: 'BAD_REQUEST' }, 400);
     }
@@ -25,6 +34,13 @@ export function sessionsRoute(home: string = KIMI_CODE_HOME): Hono {
   // opened on the SERVER host — only meaningful when vis runs locally.
   r.post('/:id/reveal', async (c) => {
     const id = c.req.param('id');
+    // SQLite-sourced sessions have no on-disk session directory to reveal.
+    if (isSqliteSourceActive()) {
+      return c.json(
+        { error: 'reveal is not supported for the sqlite source (no session directory)', code: 'BAD_REQUEST' },
+        400,
+      );
+    }
     if (!isSafeSessionId(id)) {
       return c.json({ error: 'invalid session id', code: 'BAD_REQUEST' }, 400);
     }
@@ -33,9 +49,9 @@ export function sessionsRoute(home: string = KIMI_CODE_HOME): Hono {
     try {
       await revealInOs(detail.sessionDir);
       return c.json({ sessionId: id, opened: detail.sessionDir });
-    } catch (err) {
+    } catch (error) {
       return c.json(
-        { error: `failed to open: ${(err as Error).message}`, code: 'READ_ERROR' },
+        { error: `failed to open: ${(error as Error).message}`, code: 'READ_ERROR' },
         500,
       );
     }

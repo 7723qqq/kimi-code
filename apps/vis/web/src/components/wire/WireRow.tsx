@@ -3,6 +3,7 @@ import { t } from '../../i18n';
 
 import type { WireEntry } from '../../types';
 import { formatDuration, formatWallClock } from '../../util/time';
+import { recordTypeOf } from './renderers';
 import { TypeBadge } from './TypeBadge';
 import { renderHeadline } from './WireHeadline';
 import { WireRowDetail } from './WireRowDetail';
@@ -86,7 +87,7 @@ export const WireRow = memo(function WireRow({
             {record.time !== undefined ? formatWallClock(record.time) : t('wireRow.noTime')}
           </span>
           <span className="shrink-0">
-            <TypeBadge type={record.type} />
+            <TypeBadge type={recordTypeOf(record)} />
           </span>
           <span className="flex-1 min-w-0 flex items-center gap-2">{h.main}</span>
           <span className="flex items-center gap-2 shrink-0">

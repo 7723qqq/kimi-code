@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { KIMI_CODE_HOME } from '../config';
 import type { BackgroundTaskEntry } from '../lib/agent-record-types';
 import { readSessionDetail } from '../lib/session-store';
+import { listSqliteTasks, readSqliteTaskOutput } from '../lib/sqlite-store';
 import {
   isSafeTaskId,
   listBackgroundTasks,
@@ -27,6 +28,11 @@ export function tasksRoute(home: string = KIMI_CODE_HOME): Hono {
     const detail = await readSessionDetail(home, id);
     if (!detail) {
       return c.json({ error: 'session not found', code: 'NOT_FOUND' }, 404);
+    }
+    // SQLite source: all persisted tasks live in the shared `agent_tasks.db`
+    // (task_records + bg_task_records), not under per-agent homedirs.
+    if (detail.source === 'sqlite') {
+      return c.json({ sessionId: id, tasks: listSqliteTasks() });
     }
     const entries: BackgroundTaskEntry[] = [];
     for (const agent of detail.agents) {
@@ -57,6 +63,20 @@ export function tasksRoute(home: string = KIMI_CODE_HOME): Hono {
     const detail = await readSessionDetail(home, id);
     if (!detail) {
       return c.json({ error: 'session not found', code: 'NOT_FOUND' }, 404);
+    }
+    // SQLite source: output chunks live in `agent_tasks.db` (task_output /
+    // bg_task_output), paged with the same byte-window semantics.
+    if (detail.source === 'sqlite') {
+      const window = readSqliteTaskOutput(undefined, taskId, offset, limit);
+      return c.json({
+        sessionId: id,
+        taskId,
+        offset: window.offset,
+        nextOffset: window.nextOffset,
+        size: window.size,
+        content: window.content,
+        eof: window.eof,
+      });
     }
     // Prefer the agent whose log actually has bytes; otherwise any agent's dir
     // yields the same empty window. An explicit ?agent= short-circuits the scan.

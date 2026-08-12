@@ -56,6 +56,8 @@
     "openFailed": "✗ 失败",
     "openFolderTitle": "在系统文件管理器中显示会话文件夹",
     "imported": "已导入",
+    "sqliteSource": "sqlite",
+    "sqliteSourceTitle": "会话数据来自 Rust 引擎的 sessions.db（只读）",
     "updated": "更新于",
     "prompt": "提示",
     "exported": "导出于"
@@ -75,6 +77,8 @@
     "imported": "已导入",
     "importedFrom": "导入自 {{name}}",
     "importedDebugBundle": "导入的调试包",
+    "sqliteSource": "sqlite",
+    "sqliteSourceTitle": "会话数据来自 Rust 引擎的 sessions.db（只读）",
     "prompt": "提示",
     "deleteTitle": "删除会话 {{id}}",
     "events": "事件",

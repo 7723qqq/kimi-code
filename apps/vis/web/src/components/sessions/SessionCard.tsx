@@ -19,6 +19,12 @@ export function SessionCard({ session, onDelete, deleting }: SessionCardProps) {
   const shortId = session.sessionId.replace(/^session_/, '').slice(0, 10);
   const title = session.title;
   const subagentCount = Math.max(0, session.agentCount - 1);
+  // SQLite-sourced sessions have no on-disk session directory, so the server
+  // lists them with an empty `sessionDir` — the only client-side signal for
+  // the engine-backed source at list level (the explicit `source` field only
+  // exists on `SessionDetail`). Legacy / imported summaries always carry a
+  // real path, so this cannot misfire for them.
+  const sqliteSource = !session.imported && session.sessionDir === '';
 
   function handleDeleteClick(e: MouseEvent<HTMLButtonElement>) {
     e.preventDefault();
@@ -55,6 +61,15 @@ export function SessionCard({ session, onDelete, deleting }: SessionCardProps) {
                 }
               >
                 {t('sessionCard.imported')}
+              </span>
+            ) : null}
+            {sqliteSource ? (
+              <span
+                className="shrink-0 border px-1 py-0 font-mono text-[9px] uppercase tracking-[0.08em]"
+                style={{ borderColor: 'var(--color-cat-tools)', color: 'var(--color-cat-tools)' }}
+                title={t('sessionCard.sqliteSourceTitle')}
+              >
+                {t('sessionCard.sqliteSource')}
               </span>
             ) : null}
           </div>

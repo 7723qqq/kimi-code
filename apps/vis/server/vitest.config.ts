@@ -4,5 +4,6 @@ export default defineConfig({
   test: {
     name: 'vis-server',
     include: ['test/**/*.test.ts'],
+    setupFiles: ['test/setup.ts'],
   },
 });

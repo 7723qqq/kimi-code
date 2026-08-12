@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { KIMI_CODE_HOME } from '../config';
 import type { CronTask } from '../lib/agent-record-types';
 import { readSessionDetail } from '../lib/session-store';
+import { listSqliteCron } from '../lib/sqlite-store';
 import { listCronTasks } from '../lib/cron-store';
 
 export function cronRoute(home: string = KIMI_CODE_HOME): Hono {
@@ -12,6 +13,11 @@ export function cronRoute(home: string = KIMI_CODE_HOME): Hono {
     const detail = await readSessionDetail(home, id);
     if (!detail) {
       return c.json({ error: 'session not found', code: 'NOT_FOUND' }, 404);
+    }
+    // SQLite source: cron jobs persist in the engine's shared task database
+    // (`agent_tasks.db` cron_tasks table).
+    if (detail.source === 'sqlite') {
+      return c.json({ sessionId: id, cron: listSqliteCron() });
     }
     // Cron jobs are persisted under each (non-sub) agent's homedir at
     // `<homedir>/cron`, not the session root. Aggregate across agents; sub

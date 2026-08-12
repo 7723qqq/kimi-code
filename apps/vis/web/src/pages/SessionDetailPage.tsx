@@ -60,6 +60,11 @@ export function SessionDetailPage() {
           {session.imported ? (
             <Pill tone="subagent" variant="outline">{t('sessionDetail.imported')}</Pill>
           ) : null}
+          {session.source === 'sqlite' ? (
+            <Pill tone="tools" variant="outline" title={t('sessionDetail.sqliteSourceTitle')}>
+              {t('sessionDetail.sqliteSource')}
+            </Pill>
+          ) : null}
           {state?.title ? (
             <span className="font-mono text-[12px] text-fg-1">"{state.title}"</span>
           ) : null}
@@ -148,9 +153,9 @@ function RevealButton({ sessionId }: { sessionId: string }) {
           .then(() => {
             setState('idle');
           })
-          .catch((err: unknown) => {
+          .catch((error: unknown) => {
             setState('err');
-            setErrMsg(err instanceof Error ? err.message : String(err));
+            setErrMsg(error instanceof Error ? error.message : String(error));
             setTimeout(() => {
               setState('idle');
               setErrMsg(null);

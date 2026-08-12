@@ -34,4 +34,15 @@ describe('computeIssues — runtime error categories', () => {
     // The tool.result rows are properly paired, so no orphan noise.
     expect(issues.some((i) => i.kind === 'orphan_tool_call' || i.kind === 'missing_tool_result')).toBe(false);
   });
+
+  it('tolerates SQLite projection records without the legacy `type` discriminator', () => {
+    line = 0;
+    const entries: WireEntry[] = [
+      { lineNo: 1, data: { record_type: 'tool_call', name: 'Bash' }, raw: {} },
+      { lineNo: 2, data: { record_type: 'tool_result', ok: true }, raw: {} },
+    ] as unknown as WireEntry[];
+
+    // Unknown discriminator → default branch → no fabricated issues, no crash.
+    expect(computeIssues(entries, [])).toEqual([]);
+  });
 });

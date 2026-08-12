@@ -770,6 +770,23 @@ export const WIRE_RENDERERS: RendererMap = {
   },
 };
 
+/**
+ * Runtime discriminator of a wire record, robust to projection shapes that
+ * do not carry the legacy `type` field (SQLite-sourced records may arrive
+ * as a generic `{ record_type, ...data }` shape). Prefers the legacy `type`
+ * field, falls back to `record_type`, then to `'unknown'` — callers can
+ * always `.toLowerCase()` / switch on the result without guarding.
+ */
+export function recordTypeOf(record: unknown): string {
+  if (record !== null && typeof record === 'object') {
+    const t = (record as { type?: unknown }).type;
+    if (typeof t === 'string') return t;
+    const rt = (record as { record_type?: unknown }).record_type;
+    if (typeof rt === 'string') return rt;
+  }
+  return 'unknown';
+}
+
 /** Look up a renderer by a runtime `type` string. Returns `undefined` for kinds
  *  outside the known union (best-effort parse of a future/legacy/foreign
  *  protocol), which the callers render via the generic fallback.

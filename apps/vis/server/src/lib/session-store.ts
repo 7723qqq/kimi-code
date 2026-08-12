@@ -6,6 +6,7 @@ import { createInterface } from 'node:readline';
 import type { SessionSummary, SessionDetail, AgentInfo, SessionHealth, ImportInfo } from './agent-record-types';
 import { compareAgentIds } from './agent-tree';
 import { importedDirOf, isImportId, listImportedIds, readImportMeta } from './import-store';
+import { isSqliteSourceActive, listSqliteSessions, readSqliteSessionDetail } from './sqlite-store';
 
 const SESSION_ID_RE = /^session_[A-Za-z0-9._-]+$/;
 const AGENT_ID_RE = /^[A-Za-z0-9._-]+$/;
@@ -38,7 +39,17 @@ interface StateJson {
   custom?: Record<string, unknown>;
 }
 
+/**
+ * List sessions, newest first. Source is selected per `KIMI_VIS_SOURCE`:
+ * `sqlite` (Rust engine `sessions.db`, read-only), `legacy` (directory
+ * layout), or `auto` (default) — SQLite when the engine home's
+ * `sessions.db` is readable, legacy directories otherwise. The legacy scan
+ * below only runs for the directory source.
+ */
 export async function listSessions(home: string): Promise<SessionSummary[]> {
+  if (isSqliteSourceActive()) {
+    return listSqliteSessions();
+  }
   const sessionsDir = join(home, 'sessions');
   const buckets = await readdir(sessionsDir, { withFileTypes: true }).catch(() => []);
   const index = await readSessionIndex(home);
@@ -69,6 +80,9 @@ export async function listSessions(home: string): Promise<SessionSummary[]> {
 }
 
 export async function readSessionDetail(home: string, sessionId: string): Promise<SessionDetail | null> {
+  if (isSqliteSourceActive()) {
+    return readSqliteSessionDetail(undefined, sessionId);
+  }
   if (isImportId(sessionId)) return readImportedDetail(home, sessionId);
   const sessionDir = await findSessionDir(home, sessionId);
   if (sessionDir === null) return null;
@@ -159,7 +173,7 @@ async function discoverAgentsFromDisk(sessionDir: string): Promise<AgentInfo[]> 
       swarmItem: null,
     });
   }
-  return out.sort((a, b) => compareAgentIds(a.agentId, b.agentId));
+  return out.toSorted((a, b) => compareAgentIds(a.agentId, b.agentId));
 }
 
 async function tryReadSummary(
@@ -294,7 +308,7 @@ async function inventoryAgents(sessionDir: string, state: StateJson): Promise<Ag
       swarmItem: meta.swarmItem ?? null,
     });
   }
-  return result.sort((a, b) => compareAgentIds(a.agentId, b.agentId));
+  return result.toSorted((a, b) => compareAgentIds(a.agentId, b.agentId));
 }
 
 async function readState(sessionDir: string): Promise<StateJson | null> {

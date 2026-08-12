@@ -142,4 +142,19 @@ describe('analyzeWire', () => {
     expect(a.summary.peakContextTokens).toBe(42);
     expect(a.contextSeries.map((point) => point.contextTokens)).toEqual([42]);
   });
+
+  it('tolerates SQLite projection records without the legacy `type` discriminator', () => {
+    line = 0;
+    const a = analyzeWire([
+      { lineNo: 1, data: { record_type: 'turn_start', objective: 'x' }, raw: {} },
+      { lineNo: 2, data: { record_type: 'tool_call', name: 'Bash' }, raw: {} },
+    ] as unknown as WireEntry[]);
+
+    // Unknown discriminators hit the default branch: no turns are derived,
+    // no crash, empty-but-valid analysis.
+    expect(a.turns).toEqual([]);
+    expect(a.summary.turnCount).toBe(0);
+    expect(a.summary.stepCount).toBe(0);
+    expect(a.summary.wallClockMs).toBeNull();
+  });
 });

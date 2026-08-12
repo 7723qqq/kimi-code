@@ -61,3 +61,26 @@ export function resolveVisAuthToken(host: string = resolveHost()): string | unde
 }
 
 export const KIMI_CODE_HOME: string = resolveKimiCodeHome();
+
+// ── session-data source selection (legacy dirs vs Rust engine SQLite) ───────
+
+export type VisSource = 'legacy' | 'sqlite' | 'auto';
+
+/**
+ * Which on-disk session source vis reads from:
+ *
+ * - `legacy` — the retired agent-core directory layout under
+ *   `<home>/sessions/<bucket>/<id>/` (state.json + wire.jsonl).
+ * - `sqlite` — the Rust engine's `$KIMI_AGENT_HOME/sessions.db` +
+ *   `agent_tasks.db` (read-only).
+ * - `auto` (default) — SQLite when the engine home's `sessions.db` is
+ *   readable, legacy directories otherwise.
+ *
+ * Read live from the env on every call (never cached) so tests and
+ * long-running processes can switch sources without a restart.
+ */
+export function resolveVisSource(): VisSource {
+  const raw = process.env['KIMI_VIS_SOURCE']?.trim().toLowerCase();
+  if (raw === 'legacy' || raw === 'sqlite') return raw;
+  return 'auto';
+}

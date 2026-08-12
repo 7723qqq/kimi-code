@@ -1,11 +1,10 @@
-import type { AgentRecord } from '../../types';
 import { Pill } from '../shared/Pill';
 import { rendererFor } from './renderers';
 
-type RecordType = AgentRecord['type'];
-
 interface TypeBadgeProps {
-  type: RecordType;
+  /** Runtime discriminator — a known `RecordType` or an unknown/foreign
+   *  string (including `record_type` values from SQLite projections). */
+  type: string;
 }
 
 export function TypeBadge({ type }: TypeBadgeProps) {

@@ -7,6 +7,7 @@ import { computeIssues, topSeverity } from '../../lib/issues';
 import type { AgentRecord, WireEntry } from '../../types';
 import { IssuesDrawer } from './IssuesDrawer';
 import { WireRow, type PairHint } from './WireRow';
+import { recordTypeOf } from './renderers';
 import { t } from '../../i18n';
 
 interface PairRecord {
@@ -113,7 +114,9 @@ export function WireTab({ sessionId, initialAgentId = 'main' }: WireTabProps) {
     if (search.length === 0) return entries;
     const needle = search.toLowerCase();
     return entries.filter((e) => {
-      if (e.data.type.toLowerCase().includes(needle)) return true;
+      // `recordTypeOf` tolerates projection shapes without the legacy `type`
+      // discriminator (SQLite-sourced records may only carry `record_type`).
+      if (recordTypeOf(e.data).toLowerCase().includes(needle)) return true;
       try {
         return JSON.stringify(e.data).toLowerCase().includes(needle);
       } catch {
