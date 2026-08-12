@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -60,7 +60,9 @@ const mocks = vi.hoisted(() => {
     resolveKimiHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/kimi-code-test-home'),
     flushDiagnosticLogsSync: vi.fn(),
     harnessCreatesDeviceIdOnConstruction: false,
-    execSync: vi.fn(),
+    execFileSync: vi.fn(() => ''),
+    spawnSync: vi.fn(),
+    resolveCommandPath: vi.fn(() => '/bin/stty' as string | undefined),
     TuiConfigParseError,
   };
 });
@@ -127,6 +129,8 @@ vi.mock('../../src/tui/index', () => ({
   KimiTUI: class {
     onExit?: () => Promise<void>;
 
+    readonly state = { ui: { mode: 'regular' as const } };
+
     constructor(...args: unknown[]) {
       mocks.kimiTuiConstructor(this, ...args);
     }
@@ -147,7 +151,12 @@ vi.mock('../../src/migration/index', () => ({
 }));
 
 vi.mock('node:child_process', () => ({
-  execSync: mocks.execSync,
+  execFileSync: mocks.execFileSync,
+  spawnSync: mocks.spawnSync,
+}));
+
+vi.mock('../../src/utils/process/resolve-command', () => ({
+  resolveCommandPath: mocks.resolveCommandPath,
 }));
 
 describe('runShell', () => {
@@ -166,6 +175,7 @@ describe('runShell', () => {
     mocks.resolveKimiHome.mockImplementation(
       (homeDir?: string) => homeDir ?? '/tmp/kimi-code-test-home',
     );
+    mocks.resolveCommandPath.mockImplementation(() => '/bin/stty');
     mocks.harnessCreatesDeviceIdOnConstruction = false;
   });
 
@@ -189,7 +199,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue(undefined);
+    mocks.tuiStart.mockResolvedValue();
   }
 
   it('builds the v2 harness', async () => {
@@ -204,7 +214,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue(undefined);
+    mocks.tuiStart.mockResolvedValue();
     mocks.tuiGetStartupMcpMs.mockResolvedValue(47);
     mocks.tuiGetCurrentSessionId.mockReturnValue('ses-startup');
 
@@ -238,7 +248,16 @@ describe('runShell', () => {
     expect(mocks.harnessEnsureConfigFile.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.harnessGetConfig.mock.invocationCallOrder[0]!,
     );
-    expect(execSync).toHaveBeenCalledWith('stty -ixon', { stdio: ['inherit', 'ignore', 'ignore'] });
+    // stty is resolved to an absolute path before the trust gate and skipped
+    // entirely on Windows (a bare `stty` name would resolve into the
+    // untrusted cwd).
+    if (process.platform !== 'win32') {
+      expect(execFileSync).toHaveBeenCalledWith('/bin/stty', ['-ixon'], {
+        stdio: ['inherit', 'ignore', 'ignore'],
+      });
+    } else {
+      expect(execFileSync).not.toHaveBeenCalled();
+    }
     expect(mocks.kimiTuiConstructor).toHaveBeenCalledTimes(1);
     expect(mocks.createKimiDeviceId).toHaveBeenCalledWith(
       '/tmp/kimi-code-test-home',
@@ -277,7 +296,29 @@ describe('runShell', () => {
       config_ms: expect.any(Number),
       init_ms: expect.any(Number),
       mcp_ms: 47,
+      tui_mode: 'regular',
     });
+  });
+
+  it('never runs stty on Windows, where it would resolve into the untrusted cwd', async () => {
+    stubTuiStartup();
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      await runShell(minimalCliOptions, '1.2.3-test');
+      expect(execFileSync).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
+  it('skips stty when it cannot be resolved outside the untrusted cwd', async () => {
+    stubTuiStartup();
+    if (process.platform === 'win32') return;
+    mocks.resolveCommandPath.mockReturnValue();
+    await runShell(minimalCliOptions, '1.2.3-test');
+    expect(mocks.resolveCommandPath).toHaveBeenCalledWith('stty');
+    expect(execFileSync).not.toHaveBeenCalled();
   });
 
   it('resolves the --agent profile into the TUI startup input', async () => {
@@ -286,7 +327,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue(undefined);
+    mocks.tuiStart.mockResolvedValue();
 
     await runShell(
       {
@@ -315,7 +356,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue(undefined);
+    mocks.tuiStart.mockResolvedValue();
 
     await runShell(
       {
@@ -345,7 +386,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue(undefined);
+    mocks.tuiStart.mockResolvedValue();
     mocks.createKimiDeviceId.mockImplementationOnce((homeDir, options) => {
       const deviceId = `device-for-${homeDir}`;
       options?.onFirstLaunch?.(deviceId);
@@ -382,7 +423,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue(undefined);
+    mocks.tuiStart.mockResolvedValue();
     mocks.harnessCreatesDeviceIdOnConstruction = true;
     const createdHomes = new Set<string>();
     mocks.createKimiDeviceId.mockImplementation((homeDir, options) => {
@@ -431,7 +472,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue(undefined);
+    mocks.tuiStart.mockResolvedValue();
     let currentSessionId = 'ses-startup';
     mocks.tuiGetCurrentSessionId.mockImplementation(() => currentSessionId);
     mocks.tuiGetStartupMcpMs.mockImplementation(async () => {
@@ -463,6 +504,7 @@ describe('runShell', () => {
       config_ms: expect.any(Number),
       init_ms: expect.any(Number),
       mcp_ms: 47,
+      tui_mode: 'regular',
     });
   });
 
@@ -472,7 +514,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue(undefined);
+    mocks.tuiStart.mockResolvedValue();
 
     await runShell(
       {
@@ -525,7 +567,7 @@ describe('runShell', () => {
       }),
     );
     mocks.detectTerminalTheme.mockResolvedValue('light');
-    mocks.tuiStart.mockResolvedValue(undefined);
+    mocks.tuiStart.mockResolvedValue();
 
     await runShell(
       {
@@ -565,7 +607,7 @@ describe('runShell', () => {
     mocks.harnessGetConfigDiagnostics.mockResolvedValue({
       warnings: ['Ignored invalid config in config.toml: loop_control.'],
     });
-    mocks.tuiStart.mockResolvedValue(undefined);
+    mocks.tuiStart.mockResolvedValue();
 
     await runShell(
       {
@@ -599,7 +641,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue(undefined);
+    mocks.tuiStart.mockResolvedValue();
 
     const processOnSpy = vi.spyOn(process, 'on');
     const stdout = captureProcessWrite('stdout');
@@ -650,7 +692,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue(undefined);
+    mocks.tuiStart.mockResolvedValue();
 
     const processOnSpy = vi.spyOn(process, 'on');
     const stdout = captureProcessWrite('stdout');
@@ -720,7 +762,10 @@ describe('runShell', () => {
     ).rejects.toThrow('boom');
 
     expect(mocks.setCrashPhase).toHaveBeenCalledWith('shutdown');
-    expect(mocks.harnessTrack).toHaveBeenCalledWith('exit', { duration_ms: expect.any(Number) });
+    expect(mocks.harnessTrack).toHaveBeenCalledWith('exit', {
+      duration_ms: expect.any(Number),
+      tui_mode: 'regular',
+    });
     expect(mocks.shutdownTelemetry).toHaveBeenCalledOnce();
     expect(mocks.harnessClose).toHaveBeenCalledOnce();
   });
@@ -731,7 +776,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue(undefined);
+    mocks.tuiStart.mockResolvedValue();
     mocks.tuiGetCurrentSessionId.mockReturnValue('ses-1');
     mocks.tuiHasSessionContent.mockReturnValue(true);
 
@@ -769,6 +814,7 @@ describe('runShell', () => {
       expect(mocks.withTelemetryContext).toHaveBeenCalledWith({ sessionId: 'ses-1' });
       expect(mocks.lifecycleTrack).toHaveBeenCalledWith('exit', {
         duration_ms: expect.any(Number),
+        tui_mode: 'regular',
       });
       expect(mocks.harnessTrack).not.toHaveBeenCalledWith('exit', expect.anything());
       expect(mocks.shutdownTelemetry).toHaveBeenCalledOnce();
@@ -787,7 +833,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue(undefined);
+    mocks.tuiStart.mockResolvedValue();
     mocks.tuiGetCurrentSessionId.mockReturnValue('ses-1');
     mocks.tuiHasSessionContent.mockReturnValue(true);
 

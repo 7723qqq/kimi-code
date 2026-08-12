@@ -47,7 +47,7 @@ import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIn
 import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
 import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import { IWorkspaceService } from '#/app/workspace/workspace';
-import { Error2 } from '#/errors';
+import type { Error2 } from '#/errors';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
 
@@ -916,6 +916,7 @@ function registerSessionExportServices(
               ISessionLifecycleService,
               {
                 _serviceBrand: undefined,
+                onWillCreateSession: noopEvent,
                 onDidCreateSession: noopEvent,
                 onDidCloseSession: noopEvent,
                 onDidArchiveSession: noopEvent,
@@ -964,7 +965,7 @@ function registerSessionExportServices(
       createdAt: 1,
       lastOpenedAt: 2,
     }),
-    update: async () => undefined,
+    update: async () => {},
     delete: async () => {},
   });
   reg.define(ISessionExportService, SessionExportService);

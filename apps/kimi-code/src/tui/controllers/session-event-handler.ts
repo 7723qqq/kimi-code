@@ -187,6 +187,7 @@ export class SessionEventHandler {
   private queuedGoalPromotionPending = false;
   private queuedGoalPromotionInFlight = false;
   private queuedGoalPromotionTimer: ReturnType<typeof setTimeout> | undefined;
+  private stepRetryAttemptTimer: ReturnType<typeof setTimeout> | undefined;
 
   resetRuntimeState(): void {
     this.backgroundTasks.clear();
@@ -205,6 +206,7 @@ export class SessionEventHandler {
     this.queuedGoalPromotionPending = false;
     this.queuedGoalPromotionInFlight = false;
     this.clearQueuedGoalPromotionTimer();
+    this.clearStepRetryAttemptTimer();
     this.stopAllMcpServerStatusSpinners();
   }
 
@@ -375,9 +377,14 @@ export class SessionEventHandler {
 
   private handleTurnEnd(event: TurnEndedEvent, sendQueued: (item: QueuedMessage) => void): void {
     this.host.streamingUI.flushNow();
+    this.clearStepRetry();
     if (event.reason === 'cancelled') {
       this.markActiveAgentSwarmsCancelled();
     }
+    // Aborted foreground subagents emit no completed/failed lifecycle event
+    // (v2 suppresses it for aborts), so their activity records would linger
+    // until the session reset — prune them when the owning turn ends.
+    this.subAgentEventHandler.dropForegroundOnlyActivityRecords();
     if (event.reason === 'failed' && event.error?.code === 'provider.filtered') {
       this.host.showStatus(t('tui.statusMessages.turnStoppedFiltered'), 'error');
     }
@@ -413,20 +420,6 @@ export class SessionEventHandler {
     this.scheduleQueuedGoalPromotion();
   }
 
-  private handleStepRetrying(event: TurnStepRetryingEvent): void {
-    this.host.streamingUI.flushNow();
-    this.host.streamingUI.finalizeLiveTextBuffers('waiting');
-    const delayS = Math.ceil(event.delayMs / 1000);
-    this.host.showStatus(
-      t('tui.statusMessages.retryingStep', { attempt: String(event.nextAttempt), maxAttempts: String(event.maxAttempts), delayS: String(delayS), errorName: event.errorName }),
-      'warning',
-    );
-    this.host.setAppState({
-      streamingPhase: 'waiting',
-      streamingStartTime: Date.now(),
-    });
-  }
-
   private handleStepBegin(event: TurnStepStartedEvent): void {
     this.host.streamingUI.flushNow();
     this.host.streamingUI.setStep(event.step);
@@ -445,6 +438,7 @@ export class SessionEventHandler {
 
   private handleStepCompleted(event: TurnStepCompletedEvent): void {
     this.host.streamingUI.flushNow();
+    this.clearStepRetry();
     this.host.noteStepUsage(event.usage);
     this.host.noteStepCacheStats(event.usage, event.llmStreamDurationMs);
     this.maybeShowDebugTiming(event);
@@ -474,6 +468,48 @@ export class SessionEventHandler {
     this.host.showNotice(title, detail);
   }
 
+  private handleStepRetrying(event: TurnStepRetryingEvent): void {
+    // The failure may arrive mid-stream, after thinking/assistant deltas have
+    // parked the pane in `thinking`/`composing` — drive it back to waiting so
+    // the retry label and detail actually render during the backoff.
+    this.host.patchLivePane({ mode: 'waiting' });
+    this.host.setAppState({
+      streamingPhase: 'waiting',
+      stepRetry: {
+        nextAttempt: event.nextAttempt,
+        maxAttempts: event.maxAttempts,
+        delayMs: event.delayMs,
+        errorName: event.errorName,
+        errorMessage: event.errorMessage,
+        statusCode: event.statusCode,
+        phase: 'backoff',
+      },
+    });
+    // Both engines sleep for `delayMs` before the next attempt runs, but only
+    // v2 re-emits `turn.step.started` for it — flip the phase on a timer so the
+    // stale countdown drops on the legacy engine too.
+    this.clearStepRetryAttemptTimer();
+    this.stepRetryAttemptTimer = setTimeout(() => {
+      this.stepRetryAttemptTimer = undefined;
+      const retry = this.host.state.appState.stepRetry;
+      if (retry === null) return;
+      this.host.setAppState({ stepRetry: { ...retry, phase: 'attempt' } });
+    }, event.delayMs);
+  }
+
+  private clearStepRetry(): void {
+    this.clearStepRetryAttemptTimer();
+    if (this.host.state.appState.stepRetry === null) return;
+    this.host.setAppState({ stepRetry: null });
+  }
+
+  clearStepRetryAttemptTimer(): void {
+    if (this.stepRetryAttemptTimer !== undefined) {
+      clearTimeout(this.stepRetryAttemptTimer);
+      this.stepRetryAttemptTimer = undefined;
+    }
+  }
+
   private maybeShowDebugTiming(event: TurnStepCompletedEvent): void {
     if (process.env['KIMI_CODE_DEBUG'] !== '1') return;
     const text = formatStepDebugTiming(event);
@@ -501,6 +537,7 @@ export class SessionEventHandler {
 
   private handleStepInterrupted(event: TurnStepInterruptedEvent): void {
     this.host.streamingUI.flushNow();
+    this.clearStepRetry();
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeLiveTextBuffers('idle');
     const reason = event.reason;
@@ -655,6 +692,7 @@ export class SessionEventHandler {
   private handleToolResult(event: ToolResultEvent): void {
     const { streamingUI } = this.host;
     streamingUI.flushNow();
+    this.clearStepRetry();
     const resultData: ToolResultBlockData = {
       tool_call_id: event.toolCallId,
       output: serializeToolResultOutput(event.output),
@@ -1197,6 +1235,21 @@ export class SessionEventHandler {
           description: info.description,
           status: info.status,
         });
+        // Stopped / timed-out agents terminate without a `subagent.failed`
+        // event — mark the activity record here so the detail view does not
+        // stay "running" forever. `subagent.completed` carries the result
+        // summary and may land after this, so only fill still-running records.
+        const agentId = info.agentId;
+        if (agentId !== undefined) {
+          const record = this.subAgentEventHandler.activityStore.get(agentId);
+          if (record !== undefined && record.status === 'running') {
+            if (info.status === 'completed') {
+              this.subAgentEventHandler.activityStore.markCompleted(agentId);
+            } else {
+              this.subAgentEventHandler.activityStore.markFailed(agentId);
+            }
+          }
+        }
       }
       if (!this.backgroundTaskTranscriptedTerminal.has(info.taskId)) {
         if (info.kind === 'process' || info.kind === 'question') {

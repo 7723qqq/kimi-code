@@ -86,7 +86,7 @@ describe('acp-server skills / available commands', () => {
     if (homeDir !== undefined) {
       // maxRetries: session-store flushes / lingering handles can still hold
       // the temp dir briefly after close — EBUSY/ENOTEMPTY on Windows.
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       homeDir = undefined;
     }
   });

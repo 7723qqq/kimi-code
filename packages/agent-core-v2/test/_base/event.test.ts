@@ -106,7 +106,7 @@ describe('Emitter / Event', () => {
     const emitter = new Emitter<number>();
     const bag: IDisposable[] = [];
 
-    emitter.event(() => undefined, undefined, bag);
+    emitter.event(() => {}, undefined, bag);
 
     expect(bag).toHaveLength(1);
     emitter.dispose();
@@ -165,6 +165,44 @@ describe('Event.None', () => {
 
     expect(subscription).toBe(Disposable.None);
     expect(seen).toHaveLength(0);
+  });
+});
+
+describe('Emitter debug name / EventSubscription ledger labels', () => {
+  it('named emitter subscriptions land on the store ledger as on:<name>', () => {
+    const emitter = new Emitter<number>('test.event');
+    const store = new DisposableStore();
+
+    emitter.event(() => {}, undefined, store);
+
+    expect(store.ledger.entries().map((entry) => entry.label)).toContain('on:test.event');
+    store.dispose();
+    emitter.dispose();
+  });
+
+  it('unnamed emitter subscriptions fall back to disposable:EventSubscription', () => {
+    const emitter = new Emitter<number>();
+    const store = new DisposableStore();
+
+    emitter.event(() => {}, undefined, store);
+
+    expect(store.ledger.entries().map((entry) => entry.label)).toContain(
+      'disposable:EventSubscription',
+    );
+    store.dispose();
+    emitter.dispose();
+  });
+
+  it('listenerCount tracks subscribe and dispose', () => {
+    const emitter = new Emitter<number>();
+    expect(emitter.listenerCount).toBe(0);
+
+    const subscription = emitter.event(() => {});
+    expect(emitter.listenerCount).toBe(1);
+
+    subscription.dispose();
+    expect(emitter.listenerCount).toBe(0);
+    emitter.dispose();
   });
 });
 
@@ -262,7 +300,7 @@ describe('Event.any', () => {
     });
 
     const error = captureThrown(() => {
-      Event.any(first, second)(() => undefined).dispose();
+      Event.any(first, second)(() => {}).dispose();
     });
 
     expect(order).toEqual(['first', 'second']);
@@ -283,7 +321,7 @@ describe('Event.any', () => {
     const emitter = new Emitter<number | undefined | null>();
     const seen: (number | undefined | null)[] = [];
     emitter.event((v) => seen.push(v));
-    emitter.fire(undefined);
+    emitter.fire();
     emitter.fire(null);
     expect(seen).toEqual([undefined, null]);
     emitter.dispose();

@@ -75,7 +75,7 @@ describe('acp-server session lifecycle', () => {
     if (homeDir !== undefined) {
       // maxRetries: a spawned stdio MCP child (cwd = homeDir) can still hold
       // the temp dir briefly after close — EBUSY/ENOTEMPTY on Windows.
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       homeDir = undefined;
     }
   });
@@ -499,7 +499,7 @@ describe('filterSessionSummariesByCwd', () => {
 
   it('returns every session when no cwd filter is supplied', () => {
     const items = [summary('a', '/x'), summary('b'), summary('c', '/y')];
-    expect(filterSessionSummariesByCwd(items, undefined)).toBe(items);
+    expect(filterSessionSummariesByCwd(items)).toBe(items);
   });
 
   it('keeps cwd-less legacy sessions under an explicit filter', () => {

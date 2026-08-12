@@ -23,6 +23,7 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionSwarmService } from '#/session/swarm/sessionSwarm';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
@@ -117,7 +118,7 @@ describe('AgentSwarmService — Agent tool veto in swarm mode', () => {
     ix.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
     ix.stub(IAgentLifecycleService, {});
     ix.stub(ISessionSwarmService, {
-      getSwarmItem: async () => undefined,
+      getSwarmItem: async () => {},
       run: async () => [],
       cancel: () => {},
     });
@@ -131,6 +132,12 @@ describe('AgentSwarmService — Agent tool veto in swarm mode', () => {
       eventBus: ix.get(IEventBus),
     });
     ix.set(IAgentSystemReminderService, new SyncDescriptor(AgentSystemReminderService));
+    // SwarmInjection (constructed with AgentSwarmService) registers a
+    // context-injection provider; the veto suite only exercises the veto
+    // listeners, so a no-op injector is enough.
+    ix.stub(IAgentContextInjectorService, {
+      register: () => ({ dispose: () => {} }),
+    } as unknown as IAgentContextInjectorService);
     ix.set(IAgentSwarmService, new SyncDescriptor(AgentSwarmService));
   });
 

@@ -30,6 +30,7 @@ const appState: AppState = {
   streamingStartTime: 0,
   outputTokens: 0,
   locale: 'en',
+  stepRetry: null,
   planMode: false,
   inputMode: 'prompt',
   swarmMode: false,

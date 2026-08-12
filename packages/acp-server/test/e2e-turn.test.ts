@@ -39,7 +39,7 @@ describe('acp-server real prompt turn (scripted LLM)', () => {
       client = undefined;
     }
     if (homeDir !== undefined) {
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       homeDir = undefined;
     }
   });
@@ -564,7 +564,7 @@ describe('acp-server prompt error hygiene', () => {
       client = undefined;
     }
     if (homeDir !== undefined) {
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       homeDir = undefined;
     }
   });
@@ -611,7 +611,7 @@ describe('acp-server builtin slash commands (local execution, no LLM turn)', () 
       client = undefined;
     }
     if (homeDir !== undefined) {
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       homeDir = undefined;
     }
   });
@@ -828,7 +828,7 @@ describe('acp-server terminal reverse-RPC (clientCapabilities.terminal)', () => 
       client = undefined;
     }
     if (homeDir !== undefined) {
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       homeDir = undefined;
     }
   });
@@ -948,12 +948,23 @@ describe('acp-server terminal reverse-RPC (clientCapabilities.terminal)', () => 
 
     // terminal/create fired once, for this session, wrapping the model's
     // command in the Bash tool's shell invocation with its noninteractive
-    // env and the session cwd.
+    // env and the session cwd. The shell-flag shape depends on the detected
+    // shell (bash `-c`, PowerShell `-Command`, cmd `/c`); the command script
+    // is the argument right after the flag.
     expect(terminals).toHaveLength(1);
     const t = terminals[0]!;
     expect(t.createParams.sessionId).toBe(sessionId);
-    expect(t.createParams.args?.[0]).toBe('-c');
-    expect(t.createParams.args?.[1]).toContain('echo hello_from_terminal');
+    const shellArgs = t.createParams.args ?? [];
+    const shellFlag = shellArgs.includes('-c')
+      ? '-c'
+      : shellArgs.includes('-Command')
+        ? '-Command'
+        : shellArgs.includes('/c')
+          ? '/c'
+          : undefined;
+    expect(shellFlag).toBeDefined();
+    const scriptArg = shellArgs[shellArgs.indexOf(shellFlag!) + 1];
+    expect(scriptArg).toContain('echo hello_from_terminal');
     expect(t.createParams.cwd).toBe(homeDir);
     expect(t.createParams.env).toContainEqual({ name: 'TERM', value: 'dumb' });
 

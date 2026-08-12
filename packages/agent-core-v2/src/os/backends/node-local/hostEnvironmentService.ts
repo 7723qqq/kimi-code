@@ -5,14 +5,22 @@
  * login-shell PATH enrichment (`applyLoginShellPathFromNode`) at construction
  * time; the sync fields become populated once `ready` resolves. Reads before
  * `ready` throws with a clear message so misuse fails loudly instead of
- * returning stale zeros. Bound at App scope.
+ * returning stale zeros. A failed probe is translated at this boundary — a
+ * missing Git Bash on Windows becomes `HostProcessError`
+ * (`shell.git_bash_not_found`) — and surfaces identically from `ready` and
+ * from sync field reads, while an internal no-op handler keeps the rejection
+ * from ever becoming an unhandledRejection during App-scope construction.
+ * Bound at App scope.
  */
 
 import { LifecycleScope } from '#/app/scopes';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { BugIndicatingError } from '#/_base/errors/errors';
-import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
+import {
+  probeHostEnvironmentFromNode,
+  ProbeShellNotFoundError,
+} from '#/_base/execEnv/environmentProbe';
 import { applyLoginShellPathFromNode } from '#/_base/execEnv/loginShellPath';
 import { IConfigService } from '#/app/config/config';
 import { SHELL_SECTION, type ShellConfig } from '#/os/configSection';
@@ -24,11 +32,13 @@ import {
   type PathClass,
   type ShellName,
 } from '#/os/interface/hostEnvironment';
+import { HostProcessError, OsProcessErrors } from '#/os/interface/hostProcess';
 
 export class HostEnvironmentService implements IHostEnvironment {
   declare readonly _serviceBrand: undefined;
 
   private _info?: HostEnvironmentInfo;
+  private _probeError?: Error;
   readonly ready: Promise<void>;
 
   constructor(@IConfigService private readonly config: IConfigService) {
@@ -37,7 +47,14 @@ export class HostEnvironmentService implements IHostEnvironment {
         this._info = info;
       }),
       applyLoginShellPathFromNode(),
-    ]).then(() => {});
+    ])
+      .then(() => {})
+      .catch((error: unknown) => {
+        const translated = this.toHostProcessError(error);
+        this._probeError = translated;
+        throw translated;
+      });
+    this.ready.catch(() => {});
   }
 
   private shellPreference(): string | undefined {
@@ -51,12 +68,26 @@ export class HostEnvironmentService implements IHostEnvironment {
   }
 
   private require(field: keyof HostEnvironmentInfo): never | HostEnvironmentInfo[typeof field] {
+    if (this._probeError !== undefined) {
+      throw this._probeError;
+    }
     if (this._info === undefined) {
       throw new BugIndicatingError(
         `IHostEnvironment.${field} accessed before ready — await IHostEnvironment.ready first (composition root should do so before creating a Session scope).`,
       );
     }
     return this._info[field];
+  }
+
+  private toHostProcessError(error: unknown): Error {
+    if (error instanceof ProbeShellNotFoundError) {
+      return new HostProcessError(
+        OsProcessErrors.codes.SHELL_GIT_BASH_NOT_FOUND,
+        error.message,
+        { details: { checkedPaths: error.checked }, cause: error },
+      );
+    }
+    return error instanceof Error ? error : new Error(String(error));
   }
 
   get osKind(): OsKind {

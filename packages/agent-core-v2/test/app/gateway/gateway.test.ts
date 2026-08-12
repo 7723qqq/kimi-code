@@ -52,12 +52,12 @@ describe('RestGateway', () => {
 
     const promptService: IAgentPromptService = {
       _serviceBrand: undefined,
-      enqueue: ({ message }: { message: ContextMessage }) => { promptCalls.push(message); return Promise.resolve({ id: 'p', launched: Promise.resolve(undefined) } as never); },
+      enqueue: ({ message }: { message: ContextMessage }) => { promptCalls.push(message); return Promise.resolve({ id: 'p', launched: Promise.resolve() } as never); },
       steer: () => Promise.resolve([]),
       list: () => ({ active: undefined, pending: [] }),
       abort: () => true,
-      inject: () => Promise.resolve(undefined),
-      retry: () => Promise.resolve(undefined),
+      inject: () => Promise.resolve(),
+      retry: () => Promise.resolve(),
       clear: () => {},
       hooks: createHooks(['onBeforeSubmitPrompt']) as IAgentPromptService['hooks'],
     };
@@ -91,6 +91,7 @@ describe('RestGateway', () => {
 
     const sessionLifecycle: ISessionLifecycleService = {
       _serviceBrand: undefined,
+      onWillCreateSession: () => ({ dispose: () => {} }),
       onDidCreateSession: () => ({ dispose: () => {} }),
       onDidCloseSession: () => ({ dispose: () => {} }),
       onDidArchiveSession: () => ({ dispose: () => {} }),
@@ -162,12 +163,12 @@ describe('RestGateway', () => {
       accessor: makeAccessor([
         [IAgentPromptService, {
           _serviceBrand: undefined,
-          enqueue: async () => ({ id: 'p', launched: Promise.resolve(undefined) } as never),
+          enqueue: async () => ({ id: 'p', launched: Promise.resolve() } as never),
           steer: () => Promise.resolve([]),
           list: () => ({ active: undefined, pending: [] }),
           abort: () => true,
-          inject: () => Promise.resolve(undefined),
-          retry: () => Promise.resolve(undefined),
+          inject: () => Promise.resolve(),
+          retry: () => Promise.resolve(),
           undo: () => 0,
           clear: () => {},
           hooks: createHooks(['onBeforeSubmitPrompt']) as IAgentPromptService['hooks'],

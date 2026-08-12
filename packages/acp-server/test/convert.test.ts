@@ -15,7 +15,7 @@ import { solidPng, solidPngBase64 } from './_helpers/png';
 
 describe('acpMcpServersToConfigRecord', () => {
   it('returns undefined for an absent or empty list', () => {
-    expect(acpMcpServersToConfigRecord(undefined)).toBeUndefined();
+    expect(acpMcpServersToConfigRecord()).toBeUndefined();
     expect(acpMcpServersToConfigRecord([])).toBeUndefined();
   });
 
@@ -93,7 +93,7 @@ describe('compressPromptImageParts', () => {
   const trash: string[] = [];
 
   afterEach(async () => {
-    await Promise.all(trash.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+    await Promise.all(trash.splice(0).map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })));
   });
 
   async function tempOriginalsDir(): Promise<string> {

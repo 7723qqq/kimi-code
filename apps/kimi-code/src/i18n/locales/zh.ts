@@ -601,6 +601,7 @@ export default {
         searchLabel: '搜索：',
         footerShowing: '显示 {{from}}-{{to}}，共 {{totalSuffix}}',
         footerLoadedMatches: '已加载 {{loaded}} / 匹配 {{total}} 项',
+        footerLoaded: '已加载 {{count}} 个',
         footerSessions: '{{count}} 个会话',
         footerLoadedSessions: '已加载 {{loaded}} / 共 {{total}} 个会话',
       },

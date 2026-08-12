@@ -34,7 +34,7 @@ export const planWasActiveKey = defineState<boolean>('plan.wasActive', () => fal
 
 export class PlanModeInjection extends Service {
   constructor(
-    @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
+    @IAgentContextInjectorService injector: IAgentContextInjectorService,
     @IAgentPlanService private readonly plan: IAgentPlanService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentStateService private readonly states: IAgentStateService,
@@ -43,10 +43,10 @@ export class PlanModeInjection extends Service {
     this.states.register(planWasActiveKey);
 
     this._register(
-      dynamicInjector.register(PLAN_MODE_INJECTION_VARIANT, async ({ lastInjectedAt: injectedAt }) => {
+      injector.register(PLAN_MODE_INJECTION_VARIANT, async ({ lastInjectedAt: injectedAt }) => {
         const data = await this.plan.status();
         if (data === null) {
-          if (!this.states.get(planWasActiveKey)) return undefined;
+          if (!this.states.get(planWasActiveKey)) return;
           this.states.set(planWasActiveKey, false);
           return PLAN_MODE_EXIT_REMINDER;
         }
@@ -61,7 +61,7 @@ export class PlanModeInjection extends Service {
         const variant = planModeReminderVariant(injectedAt, this.context.get());
         if (variant === 'full') return fullReminder(planFilePath);
         if (variant === 'sparse') return sparseReminder(planFilePath);
-        return undefined;
+        return;
       }),
     );
   }

@@ -33,7 +33,7 @@ import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IWireService } from '#/wire/wire';
+import type { IWireService } from '#/wire/wire';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
 import { registerTestAgentWire, restoreTestAgentWire, testWireScope } from '../../wire/stubs';
@@ -42,7 +42,7 @@ const SCOPE = 'wire';
 const KEY = 'goal-test';
 
 function noopDisposable(): { dispose: () => void } {
-  return { dispose: () => undefined };
+  return { dispose: () => {} };
 }
 
 function hookSlot(): { register: () => { dispose: () => void } } {
@@ -60,7 +60,7 @@ function createContextStub(): IAgentContextMemoryService {
   return {
     _serviceBrand: undefined,
     get: () => [],
-    splice: () => undefined,
+    splice: () => {},
   } as unknown as IAgentContextMemoryService;
 }
 
@@ -71,18 +71,18 @@ function createInjectorStub(): IAgentContextInjectorService {
   } as unknown as IAgentContextInjectorService;
 }
 
-function createRemindersStub(): IAgentSystemReminderService {
+function createSystemReminderStub(): IAgentSystemReminderService {
   return {
     _serviceBrand: undefined,
-    appendSystemReminder: () => undefined,
+    appendSystemReminder: () => ({}),
   } as unknown as IAgentSystemReminderService;
 }
 
 function createTelemetryStub(): ITelemetryService {
   return {
     _serviceBrand: undefined,
-    track: () => undefined,
-    track2: () => undefined,
+    track: () => {},
+    track2: () => {},
   } as unknown as ITelemetryService;
 }
 
@@ -98,7 +98,7 @@ function createToolExecutorStub(): IAgentToolExecutorService {
 function createConfigStub(): IConfigService {
   return {
     _serviceBrand: undefined,
-    get: () => undefined,
+    get: () => {},
   } as unknown as IConfigService;
 }
 
@@ -124,7 +124,7 @@ function buildHost(key: string): {
   } as unknown as IAgentUsageService);
   ix.stub(IAgentContextMemoryService, createContextStub());
   ix.stub(IAgentContextInjectorService, createInjectorStub());
-  ix.stub(IAgentSystemReminderService, createRemindersStub());
+  ix.stub(IAgentSystemReminderService, createSystemReminderStub());
   ix.stub(ITelemetryService, createTelemetryStub());
   ix.stub(IAgentToolExecutorService, createToolExecutorStub());
   ix.stub(IConfigService, createConfigStub());

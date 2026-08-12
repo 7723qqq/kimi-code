@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { IDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope } from '#/app/scopes';
+import type {
+  Scope} from '#/_base/di/scope';
 import {
   ScopeActivation,
-  Scope,
   _clearScopedRegistryForTests,
   createAppScope,
   registerScopedService,
@@ -159,7 +160,7 @@ describe('Scope tree', () => {
     app.dispose();
   });
 
-  it('extra seed injects a context token resolvable from that scope', () => {
+  it('seeds inject a context token resolvable from that scope', () => {
     interface ISessionContext {
       sessionId: string;
     }
@@ -168,7 +169,7 @@ describe('Scope tree', () => {
 
     const app = createAppScope();
     const session = app.createChild(LifecycleScope.Session, 's1', {
-      extra: [[ISessionContext as ServiceIdentifier<unknown>, { sessionId: 's1' }]],
+      seeds: [[ISessionContext as ServiceIdentifier<unknown>, { sessionId: 's1' }]],
     });
     expect(session.accessor.get(ISessionContext).sessionId).toBe('s1');
     expect(() => app.accessor.get(ISessionContext)).toThrow();
@@ -191,7 +192,7 @@ describe('Scope tree', () => {
 
     const app = createAppScope();
     const session = app.createChild(LifecycleScope.Session, 's1', {
-      extra: [
+      seeds: [
         [ICtxA as ServiceIdentifier<unknown>, { value: 'hello' }],
         [ICtxB as ServiceIdentifier<unknown>, { count: 99 }],
       ],

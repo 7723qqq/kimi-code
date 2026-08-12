@@ -33,7 +33,7 @@ export interface TaskOutputViewerProps {
   readonly onClose: () => void;
 }
 
-function statusLabel(status: BackgroundTaskStatus): string {
+export function statusLabel(status: BackgroundTaskStatus): string {
   switch (status) {
     case 'running':
       return t('tui.dialogs.taskOutputViewer.status.running');
@@ -50,7 +50,7 @@ function statusLabel(status: BackgroundTaskStatus): string {
   }
 }
 
-function statusColor(status: BackgroundTaskStatus): 'success' | 'textMuted' | 'error' {
+export function statusColor(status: BackgroundTaskStatus): 'success' | 'textMuted' | 'error' {
   switch (status) {
     case 'running':
       return 'success';

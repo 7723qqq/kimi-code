@@ -599,6 +599,7 @@ export default {
         searchLabel: 'Search: ',
         footerShowing: 'Showing {{from}}-{{to}} of {{totalSuffix}}',
         footerLoadedMatches: '{{loaded}} loaded / {{total}} matches',
+        footerLoaded: '{{count}} loaded',
         footerSessions: '{{count}} sessions',
         footerLoadedSessions: '{{loaded}} loaded / {{total}} sessions',
       },

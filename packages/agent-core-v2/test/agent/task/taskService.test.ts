@@ -101,7 +101,7 @@ describe('AgentTaskService', () => {
     ix.stub(IEventBus, eventBus);
     ix.stub(IAgentContextInjectorService, {
       register: (name, provider) => {
-        injectionProviders.set(name, provider);
+        injectionProviders.set(name, provider as ContextInjectionProvider);
         return toDisposable(() => {
           injectionProviders.delete(name);
         });
@@ -123,7 +123,7 @@ describe('AgentTaskService', () => {
     ix.stub(IAgentLoopService, stubLoopWithHooks());
     ix.stub(IConfigRegistry, { registerSection: () => {} });
     ix.stub(IConfigService, {
-      get: (() => undefined) as IConfigService['get'],
+      get: (() => {}) as IConfigService['get'],
     });
     ix.stub(
       ISessionContext,
@@ -143,13 +143,13 @@ describe('AgentTaskService', () => {
       }),
     );
     ix.stub(IAtomicDocumentStore, {
-      get: async () => undefined,
+      get: async () => {},
       set: async () => {},
       delete: async () => {},
       list: async () => [],
     });
     ix.stub(IFileSystemStorageService, {
-      read: async () => undefined,
+      read: async () => {},
       readStream: async function* () {},
       write: async () => {},
       writeStream: async () => {},
@@ -266,7 +266,7 @@ describe('AgentTaskService', () => {
   function stubTaskWrites(): AgentTaskInfo[] {
     const writes: AgentTaskInfo[] = [];
     ix.stub(IAtomicDocumentStore, {
-      get: async () => undefined,
+      get: async () => {},
       set: async <T,>(_scope: string, _key: string, value: T) => {
         writes.push(value as AgentTaskInfo);
       },
@@ -379,7 +379,7 @@ describe('AgentTaskService', () => {
       exitCode: null,
       wait: () => wait,
       kill,
-      dispose: vi.fn().mockResolvedValue(undefined),
+      dispose: vi.fn().mockResolvedValue(),
     } as unknown as IProcess;
     const svc = ix.get(IAgentTaskService);
     svc.registerTask(new ProcessTask(proc, 'ignore-term', 'long-running process'));
@@ -424,8 +424,8 @@ describe('AgentTaskService', () => {
       pid: 4245,
       exitCode: null,
       wait: () => wait,
-      kill: vi.fn().mockResolvedValue(undefined),
-      dispose: vi.fn().mockResolvedValue(undefined),
+      kill: vi.fn().mockResolvedValue(),
+      dispose: vi.fn().mockResolvedValue(),
     } as unknown as IProcess;
     const svc = ix.get(IAgentTaskService);
     svc.registerTask(new ProcessTask(proc, 'keep-running', 'long-running process'));
@@ -509,7 +509,7 @@ describe('AgentTaskService', () => {
     ix.stub(ITelemetryService, { track: () => {}, track2: () => {} });
     ix.stub(IAgentLoopService, stubLoopWithHooks());
     ix.stub(IConfigService, {
-      get: (() => undefined) as IConfigService['get'],
+      get: (() => {}) as IConfigService['get'],
     });
     ix.stub(
       ISessionContext,
@@ -739,7 +739,7 @@ describe('AgentTaskService', () => {
       exitCode: null,
       wait: () => waitP,
       kill,
-      dispose: vi.fn().mockResolvedValue(undefined),
+      dispose: vi.fn().mockResolvedValue(),
     } as unknown as IProcess;
     return { proc, kill };
   }
@@ -771,7 +771,7 @@ describe('AgentTaskService', () => {
       exitCode: null,
       wait: () => waitP,
       kill,
-      dispose: vi.fn().mockResolvedValue(undefined),
+      dispose: vi.fn().mockResolvedValue(),
     } as unknown as IProcess;
     return { proc, kill };
   }
@@ -817,7 +817,7 @@ describe('AgentTaskService', () => {
   } {
     let persistedChars = 0;
     ix.stub(IFileSystemStorageService, {
-      read: async () => undefined,
+      read: async () => {},
       readStream: async function* () {},
       write: async () => {},
       writeStream: async () => {},

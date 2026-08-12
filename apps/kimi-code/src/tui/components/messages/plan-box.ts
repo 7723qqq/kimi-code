@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url';
 import { Markdown, truncateToWidth, visibleWidth, type Component, type MarkdownTheme } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
+import { createMarkdownOptions } from '#/tui/utils/markdown-options';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
 import { t } from '#/i18n';
 
@@ -44,7 +45,7 @@ export class PlanBoxComponent implements Component {
     // parse + wrap output keyed on (text, width), so reusing the same
     // instance means repeated render() calls from the parent Container
     // hit the cache instead of re-parsing on every frame.
-    this.markdown = new Markdown(plan.trim(), 0, 0, markdownTheme);
+    this.markdown = new Markdown(plan.trim(), 0, 0, markdownTheme, undefined, createMarkdownOptions());
     this.status = opts?.status;
   }
 

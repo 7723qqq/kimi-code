@@ -62,7 +62,7 @@ function getField(doc: unknown, path: string): unknown {
 function stableStringify(v: unknown): string {
   if (v === null || typeof v !== 'object') return JSON.stringify(v);
   if (Array.isArray(v)) return `[${v.map(stableStringify).join(',')}]`;
-  const keys = Object.keys(v as Record<string, unknown>).sort();
+  const keys = Object.keys(v as Record<string, unknown>).toSorted();
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify((v as Record<string, unknown>)[k])}`).join(',')}}`;
 }
 
@@ -160,7 +160,7 @@ function checkUniqueOnIndex(idx: AnyIndex, pk: string, doc: unknown): void {
     if (idx.type === 'range') {
       if (typeof v !== 'number' || !Number.isFinite(v)) continue;
       const hit = idx.list.range({ gte: v, lte: v, count: 1 });
-      if (hit.length && hit[0]!.val !== pk) throw new UniqueViolationError(idx.name, v);
+      if (hit.length > 0 && hit[0]!.val !== pk) throw new UniqueViolationError(idx.name, v);
     } else {
       const set = idx.map.get(scalarKey(v));
       if (set && (set.size > 1 || (set.size === 1 && !set.has(pk)))) {
@@ -193,7 +193,7 @@ function checkUniqueBatchOnIndex(idx: AnyIndex, lastOp: ReadonlyMap<string, { op
         // Current holder in the live index, if any: a conflict unless it
         // is the claimant itself or a key the batch vacates.
         const hit = idx.list.range({ gte: v, lte: v, count: 1 });
-        if (hit.length) assertVacated(idx, hit[0]!.val, pk, v, lastOp);
+        if (hit.length > 0) assertVacated(idx, hit[0]!.val, pk, v, lastOp);
       } else {
         const sk = scalarKey(v);
         const prev = claimed.get(sk);
@@ -534,6 +534,56 @@ export class IndexManager {
           const arr = byPk.get(pk);
           if (arr) arr.push(v.scalarKey);
           else byPk.set(pk, [v.scalarKey]);
+        }
+      }
+      idx.map = map;
+      idx.byPk = byPk;
+    } else {
+      throw new Error(`index "${image.name}" image payload missing`);
+    }
+  }
+
+  /** Sliced variant of loadImage (the open-time main-thread path): identical
+   *  resulting state, but the forward/reverse map construction yields to the
+   *  event loop every `sliceEvery` entries. The state swap itself (assigning
+   *  the freshly built containers) stays one synchronous segment, so a
+   *  mid-load yield can never expose a half-built index. Safe to yield while
+   *  building: the containers are detached until the swap, and the store is
+   *  not published until open() returns. */
+  async loadImageAsync(image: SecondaryImageIndex, opts: { sliceEvery?: number } = {}): Promise<void> {
+    const sliceEvery = opts.sliceEvery ?? 32768;
+    const idx = this.indexes.get(image.name);
+    if (!idx) throw new Error(`no such index: ${image.name}`);
+    if (idx.type !== image.type) throw new Error(`index "${image.name}" image type mismatch`);
+    let n = 0;
+    const tick = async (): Promise<void> => {
+      if (++n % sliceEvery === 0) await new Promise((r) => setImmediate(r));
+    };
+    if (idx.type === 'range' && image.range) {
+      const list = await SkipList.bulkLoadAsync<number, string>(
+        image.range.map((e) => ({ key: e.value, val: e.pk })),
+        { compareKey: cmpNumber, compareVal: cmpString },
+        { sliceEvery },
+      );
+      const byPk = new Map<string, number[]>();
+      for (const e of image.range) {
+        const arr = byPk.get(e.pk);
+        if (arr) arr.push(e.value);
+        else byPk.set(e.pk, [e.value]);
+        await tick();
+      }
+      idx.list = list;
+      idx.byPk = byPk;
+    } else if (idx.type === 'equality' && image.equality) {
+      const map = new Map<string, Set<string>>();
+      const byPk = new Map<string, string[]>();
+      for (const v of image.equality) {
+        map.set(v.scalarKey, new Set(v.pks));
+        for (const pk of v.pks) {
+          const arr = byPk.get(pk);
+          if (arr) arr.push(v.scalarKey);
+          else byPk.set(pk, [v.scalarKey]);
+          await tick();
         }
       }
       idx.map = map;

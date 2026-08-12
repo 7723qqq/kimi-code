@@ -20,7 +20,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { McpConnectionManager } from '#/mcpCore/connection-manager';
+import type { McpConnectionManager } from '#/mcpCore/connection-manager';
 import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
 import { IMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -37,6 +37,10 @@ import {
 } from '#/os/interface/hostFsWatch';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
+import {
+  ISessionLifecycleService,
+  type SessionWillCreateEvent,
+} from '#/workspace/sessionLifecycle/sessionLifecycle';
 import { IWorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';
 import { WorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfigService';
 import { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
@@ -104,6 +108,9 @@ describe('Workspace MCP initialization', () => {
           onDidChange: Event.None as IWorkspaceTrust['onDidChange'],
         });
         reg.define(IWorkspaceMcpConfigService, WorkspaceMcpConfigService);
+        reg.definePartialInstance(ISessionLifecycleService, {
+          onWillCreateSession: Event.None as Event<SessionWillCreateEvent>,
+        });
         registerAgentIdentityStub(reg);
         reg.define(IWorkspaceMcpService, WorkspaceMcpService);
       },

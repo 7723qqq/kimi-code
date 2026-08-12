@@ -10,15 +10,16 @@
  * `consecutiveOverflowCompactions`, `activeTurnId`) is registered into
  * `agentState` (`IAgentStateService`) and read/written through it;
  * `_compacting` (the in-flight job — AbortController / Promise / trace), the
- * `hooks.onWillCompact` slot, the `_onDidFinishCompaction` Emitter, the
- * `strategy`, and the lazily-resolved `contextInjectorService` stay instance
- * fields (mechanism, not plain data). Bound at Agent scope and constructed with
+ * `hooks.onWillCompact` slot, the `_onDidFinishCompaction` Emitter, and the
+ * `strategy` stay instance fields (mechanism, not plain data). The compaction
+ * splice re-arms `contextInjector`'s new-turn flag, so providers re-reconcile
+ * at the next step head. Bound at Agent scope and constructed with
  * the scope so the overflow recovery handler registers before the first turn
  * runs.
  */
 
+import type { IDisposable } from '#/_base/di/lifecycle';
 import { Service } from "#/_base/di/service";
-import { IInstantiationService } from '#/_base/di/instantiation';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
@@ -27,7 +28,6 @@ import { renderPrompt } from "#/_base/utils/render-prompt";
 import { estimateTokensForMessage } from "#/kosong/contract/tokens";
 import { buildCompactionSummaryText, isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
 import { snipLargeToolResults } from '#/agent/fullCompaction/compactionUtils';
-import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
@@ -55,7 +55,7 @@ import { inputTotal, type TokenUsage } from '#/kosong/contract/usage';
 import { IEventBus } from '#/app/event/eventBus';
 import type { CompactionFailedEvent, CompactionFinishedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ErrorCodes, Error2, isCodedError, isError2, toKimiErrorPayload, unwrapErrorCause } from '#/errors';
+import { ErrorCodes, Error2, isCodedError, isError2, toKimiErrorPayload, unwrapErrorCause } from "#/errors";
 import { t } from '@moonshot-ai/kimi-i18n';
 import { IWireService } from '#/wire/wire';
 import compactionInstructionTemplate from './compaction-instruction.md?raw';
@@ -87,11 +87,6 @@ const OVERFLOW_CONTEXT_SAFETY_RATIO = 0.85;
 const OVERFLOW_STATUS_RECOVERY_RATIO = 0.5;
 const MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS = 3;
 const COMPACTION_OVERFLOW_SHRINK_RATIOS = [0.7, 0.5, 0.35] as const;
-/** Stuck-guard condition: a compaction after which the context is still
- *  over the auto-compaction trigger (`strategy.shouldCompact`) cannot make
- *  progress and pauses auto-compaction (see `compaction.stuck`). No tunable
- *  thresholds — the strategy's own trigger ratio is the definition of
- *  "the fold did not solve the pressure". */
 const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
   type: 'object',
   properties: {},
@@ -104,6 +99,7 @@ type CompactionTelemetryProperties = Pick<
 
 interface ActiveCompaction extends FullCompactionTask {
   readonly originTurnId?: number;
+  readonly quiescence?: IDisposable;
   trace?: LLMRequestTrace;
   blockedByTurn: boolean;
 }
@@ -152,7 +148,6 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
 
   private readonly strategy: CompactionStrategy;
   private _compacting: ActiveCompaction | null = null;
-  private contextInjectorService: IAgentContextInjectorService | undefined;
   /**
    * Set when a compaction round makes no meaningful progress (window too small
    * for the fold to shrink history). Auto-compaction is paused while stuck —
@@ -169,7 +164,6 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService,
-    @IInstantiationService private readonly instantiation: IInstantiationService,
     @ISessionTodoService private readonly todo: ISessionTodoService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IWireService private readonly wire: IWireService,
@@ -349,22 +343,37 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     if (!this.reserveCompactionSlot(data.source)) return false;
 
     const tokenCount = this.validateCompactionStart(data.source);
-    this.wire.dispatch(fullCompactionBegin(data));
+    const quiescence = data.source === 'manual'
+      ? this.loopService.tryAcquireQuiescence()
+      : undefined;
+    if (data.source === 'manual' && quiescence === undefined) {
+      throw new Error2(
+        ErrorCodes.COMPACTION_UNABLE,
+        'Cannot compact while a turn is active or another context change is running. Wait for it to finish, then retry.',
+      );
+    }
+    try {
+      this.wire.dispatch(fullCompactionBegin(data));
 
-    const active = this.createActiveCompaction(
-      data.source,
-      tokenCount,
-      data.source === 'auto' ? this.activeTurnId : undefined,
-    );
-    this._compacting = active.task;
-    active.task.abortController.signal.addEventListener(
-      'abort',
-      () => this.cancelActive(active.task),
-      { once: true },
-    );
-    void this.compactionWorker(active.task, data).then(active.resolve, active.reject);
-    void active.task.promise.catch(() => {});
-    return true;
+      const active = this.createActiveCompaction(
+        data.source,
+        tokenCount,
+        data.source === 'auto' ? this.activeTurnId : undefined,
+        quiescence,
+      );
+      this._compacting = active.task;
+      active.task.abortController.signal.addEventListener(
+        'abort',
+        () => this.cancelActive(active.task),
+        { once: true },
+      );
+      void this.compactionWorker(active.task, data).then(active.resolve, active.reject);
+      void active.task.promise.catch(() => {});
+      return true;
+    } catch (error) {
+      quiescence?.dispose();
+      throw error;
+    }
   }
 
   private reserveCompactionSlot(source: CompactionBeginData['source']): boolean {
@@ -387,13 +396,14 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         'Cannot compact while a turn is active. Wait for it to finish, then retry.',
       );
     }
-    return this.tokenCounting.estimateMessages(history);
+    return this.requestTokens(history);
   }
 
   private createActiveCompaction(
     trigger: CompactionBeginData['source'],
     tokenCount: number,
     originTurnId: number | undefined,
+    quiescence: IDisposable | undefined,
   ): {
     readonly task: ActiveCompaction;
     readonly resolve: (result: CompactionResult) => void;
@@ -413,6 +423,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         trigger,
         tokenCount,
         originTurnId,
+        quiescence,
         get traceId() {
           return this.trace?.traceId;
         },
@@ -582,8 +593,6 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         this.log.error('failed to refresh system prompt after compaction', { error });
       }
       this.lastCompactedTokenCount = result.tokensAfter;
-      await this.contextInjector.injectAfterCompaction();
-      this.lastCompactedTokenCount = this.tokenCountWithPending();
       if (!this.markCompleted(active)) {
         throw compactionCancelledReason(active);
       }
@@ -593,7 +602,10 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       // prefix and craters the hit rate. Detect "compaction did not solve the
       // pressure" (the context is still over the threshold right after a
       // compaction) and pause auto-compaction until a manual one succeeds.
-      const afterTokens = this.tokenCountWithPending();
+      // Use the pure estimate here: `get().size` can pin a stale measured
+      // anchor whose length coincidentally matches the post-compaction
+      // context, over-reporting tokens that were folded away.
+      const afterTokens = this.tokenCounting.estimateMessages(this.context.get() as readonly Message[]);
       const progressTokens = result.tokensBefore - afterTokens;
       if (this.strategy.shouldCompact(afterTokens)) {
         this.autoCompactionStuck = true;
@@ -626,7 +638,11 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       });
       throw error;
     } finally {
-      this._onDidFinishCompaction.fire(active);
+      try {
+        this._onDidFinishCompaction.fire(active);
+      } finally {
+        active.quiescence?.dispose();
+      }
     }
   }
 
@@ -636,7 +652,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   ): Promise<CompactionResult> {
     const startedAt = Date.now();
     const originalHistory = [...this.context.get()];
-    const tokensBefore = this.tokenCounting.estimateMessages(originalHistory);
+    const tokensBefore = this.requestTokens(originalHistory);
     let retryCount = 0;
     let thinkingEffort = this.profile.data().thinkingLevel;
 
@@ -762,6 +778,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         compactedCount: originalHistory.length,
         tokensBefore,
         summaryOutputTokens: attempt.usage?.output,
+        requestOverheadTokens: this.requestTokens([]),
         droppedCount: droppedCount === 0 ? undefined : droppedCount,
       });
 
@@ -820,15 +837,6 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
 
   private tokenCountWithPending(): number {
     return this.tokenCounting.get().size;
-  }
-
-  private get contextInjector(): IAgentContextInjectorService {
-    if (this.contextInjectorService === undefined) {
-      this.contextInjectorService = this.instantiation.invokeFunction((accessor) =>
-        accessor.get(IAgentContextInjectorService),
-      );
-    }
-    return this.contextInjectorService;
   }
 }
 

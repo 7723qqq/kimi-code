@@ -74,13 +74,14 @@ import type { TextIndexBuild } from './text-index/index.js';
 import type { PostingEntry } from './text-postings.js';
 import { TextRegistry } from './text-registry.js';
 import type { TextIndexDef } from './text-registry.js';
-import { ValueReader } from './value-reader.js';
+import type { ValueReader } from './value-reader.js';
 import type { RecoveryMode, RecoveryInfo, ValueMode, RecoveredOp } from './recovery.js';
+import type { LifecycleTracker } from './lifecycle-status.js';
 import { fsyncDir } from './compaction.js';
-import { defaultWorkerSlots } from './maintenance.js';
+import { defaultWorkerSlots, MaintenanceCancelledError } from './maintenance.js';
 import type { MaintenanceContext, MaintenanceScheduler } from './maintenance.js';
 import { startWorkerTextBuild, textBuildWorkerAvailable, verifyFileCrcAsync, WorkerTextBuildError } from './worker/text-build.js';
-import type { WorkerTextBuildHandle, TextBuildCheckpoint } from './worker/text-build.js';
+import type { WorkerTextBuildFallbackReason, WorkerTextBuildHandle, TextBuildCheckpoint } from './worker/text-build.js';
 import { readBaseDocsImageAsync, BASE_DOCS_MAGIC, BASE_DOCS_VERSION } from './worker/text-build-core.js';
 import type { TextBuildCoreResult } from './worker/text-build-core.js';
 import { TYPE_SET } from './codec.js';
@@ -186,11 +187,18 @@ export interface GenerationBuilderDeps<V> {
    *  disables the worker path for the rest of the instance. */
   disableTextWorker: () => void;
   textBuildMemoryBytes: () => number;
+  /** TUI-safe worker-slot policy: how long the worker build queues for a
+   *  process-wide slot before the bounded inline core is allowed as the last
+   *  resort (see MiniDb.textBuildSlotWaitMs). */
+  textBuildSlotWaitMs: () => number;
   dt: DtIndex;
   indexes: IndexManager;
   compound: CompoundIndexManager;
   textRegistry: TextRegistry<V>;
   stats: GenerationStats;
+  /** Per-open lifecycle telemetry, shared with the loader facet (the open
+   *  flow's state machine + phase timings; the build path does not feed it). */
+  lifecycle: LifecycleTracker;
   decode: (b: Buffer | undefined) => V | undefined;
   indexable: (v: unknown) => v is Record<string, unknown>;
   /** Live records (decoded values), for per-index rebuilds. */
@@ -295,9 +303,10 @@ export class GenerationBuilder<V> {
    *  thread verifies the worker's output (sanity + streaming crc) and swaps
    *  the live base in via commitRebase, and the stage-5 atomic publish stays
    *  the safety boundary — the worker only ever writes inside the tmp
-   *  generation directory. Custom-tokenizer indexes, small corpora, worker
-   *  slot pressure, and deployments without the worker file stay on the
-   *  in-thread staged build. */
+   *  generation directory. Custom-tokenizer indexes and small corpora stay
+   *  on the in-thread staged build; a deployment without the worker file —
+   *  or a worker-slot drought that outlasts the bounded queue wait — hosts
+   *  the SAME bounded core inline instead. */
   private async runGenerationBuild(ctx: MaintenanceContext): Promise<void> {
     const t0 = performance.now();
     const gens = generationsDir(this.deps.dir());
@@ -328,14 +337,14 @@ export class GenerationBuilder<V> {
 
     const drainQueue = (): void => {
       if (gb.queue.length === 0) return;
-      const ops = gb.queue.splice(0, gb.queue.length);
+      const ops = gb.queue.splice(0);
       gb.bytes = 0;
       for (const op of ops) {
         if (op.type === TYPE_SET) {
           imageRecords.set(op.pk, { ref: { kind: 'memory', value: op.value! }, expireAt: op.expireAt, dt: op.dtNorm });
           dtB.set(op.pk, op.dtNorm);
           if (!op.storeOnly) {
-            secB.remove(op.pk, undefined);
+            secB.remove(op.pk);
             if (this.deps.indexable(op.canonical)) secB.add(op.pk, op.canonical);
             cmpB.remove(op.pk);
             cmpB.add(op.pk, op.canonical, op.dtNorm);
@@ -343,7 +352,7 @@ export class GenerationBuilder<V> {
         } else {
           imageRecords.delete(op.pk);
           dtB.del(op.pk);
-          secB.remove(op.pk, undefined);
+          secB.remove(op.pk);
           cmpB.remove(op.pk);
         }
       }
@@ -478,16 +487,31 @@ export class GenerationBuilder<V> {
         let snapAnchor: fsSync.Stats | null = null;
         try {
           snapAnchor = fsSync.statSync(snapPath);
-        } catch (e) {
-          if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         }
         // Host the bounded build in a worker thread when its entry file
         // exists; otherwise run the SAME bounded core inline on the main
-        // thread (worker-slot pressure, or a bundled single-file deployment
-        // without the worker file). Inline is still memory-bounded — the
-        // unbounded staged aggregation is NOT the fallback here.
+        // thread (a bundled single-file deployment without the worker file,
+        // or a persisted slot drought). Inline is still memory-bounded — the
+        // unbounded staged aggregation is NOT the fallback here. TUI-safe
+        // slot policy: queue for a process-wide slot first (bounded by
+        // textBuildSlotWaitMs and the build's abort signal) instead of
+        // dropping the build onto the main thread the moment every slot is
+        // busy.
         const workerAvailable = textBuildWorkerAvailable();
-        workerSlotRelease = workerAvailable ? defaultWorkerSlots.tryAcquire() : null;
+        let inlineReason: WorkerTextBuildFallbackReason | undefined;
+        if (workerAvailable) {
+          try {
+            workerSlotRelease = await defaultWorkerSlots.acquireBounded(this.deps.textBuildSlotWaitMs(), aborter.signal);
+          } catch (error) {
+            if (error instanceof MaintenanceCancelledError) throw new GenerationBuildAborted('worker slot wait cancelled');
+            throw error;
+          }
+          if (workerSlotRelease === null) inlineReason = 'slot-pressure';
+        } else {
+          inlineReason = 'runtime-unavailable';
+        }
         const inline = workerSlotRelease === null;
         workerHandle = startWorkerTextBuild(
           {
@@ -512,7 +536,7 @@ export class GenerationBuilder<V> {
             signal: aborter.signal,
             shouldAbort: () => gb.aborted || this.deps.wal() !== gb.wal || this.deps.state() !== 'open',
             inline,
-            inlineReason: workerAvailable ? 'slot-pressure' : 'runtime-unavailable',
+            inlineReason,
             onFallback: (reason) => {
               this.deps.stats.textWorkerFallbacks++;
               this.deps.stats.lastTextWorkerFallback = reason;
@@ -546,7 +570,7 @@ export class GenerationBuilder<V> {
       // The store image is written in ascending key order (the load path
       // bulk-builds the ordered index from file order): the walk's keys were
       // already sorted, but queue-applied keys appended out of order.
-      const sortedImageKeys = [...imageRecords.keys()].sort();
+      const sortedImageKeys = [...imageRecords.keys()].toSorted();
       const storeRes = await writeStoreImage(
         path.join(tmpDir, STORE_IMAGE_FILE),
         (function* (): Generator<StoreImageRecord> {
@@ -574,12 +598,12 @@ export class GenerationBuilder<V> {
         let result: TextBuildCoreResult;
         try {
           result = await workerHandle.promise;
-        } catch (e) {
-          if (e instanceof WorkerTextBuildError && e.aborted) {
-            throw new GenerationBuildAborted(`worker build cancelled: ${e.message}`);
+        } catch (error) {
+          if (error instanceof WorkerTextBuildError && error.aborted) {
+            throw new GenerationBuildAborted(`worker build cancelled: ${error.message}`);
           }
           if (!workerHandle.inline) this.deps.stats.textWorkerErrors++;
-          throw e;
+          throw error;
         }
         checkAlive();
         if (result.scannedLiveKeys > imageRecords.size) {
@@ -679,8 +703,8 @@ export class GenerationBuilder<V> {
       let snapshotLinked = false;
       try {
         snapSt = await fs.stat(snapSrc);
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
       if (snapSt) {
         try {
@@ -690,8 +714,8 @@ export class GenerationBuilder<V> {
           await fs.copyFile(snapSrc, path.join(tmpDir, GEN_SNAPSHOT_FILE));
           const h = await fs.open(path.join(tmpDir, GEN_SNAPSHOT_FILE), 'r');
           try {
-            await h.sync().catch((e: NodeJS.ErrnoException) => {
-              if (e.code !== 'EPERM' && e.code !== 'ENOTSUP' && e.code !== 'EINVAL') throw e;
+            await h.sync().catch((error: NodeJS.ErrnoException) => {
+              if (error.code !== 'EPERM' && error.code !== 'ENOTSUP' && error.code !== 'EINVAL') throw error;
             });
           } finally {
             await h.close().catch(() => {});
@@ -798,7 +822,7 @@ export class GenerationBuilder<V> {
       for (const name of workerResults.keys()) {
         await fs.rm(path.join(generationDir(this.deps.dir(), id), `${textDocsFile(name)}.base`), { force: true }).catch(() => {});
       }
-    } catch (e) {
+    } catch (error) {
       if (this.genBuild === gb) this.genBuild = null;
       // Uncommitted staged builds only disarm their queues (the live indexes
       // stay authoritative); committed ones keep their new base — its
@@ -811,14 +835,14 @@ export class GenerationBuilder<V> {
       // dir, never in the live generation).
       for (const [, { ti }] of workerTargets) ti.abortRebase();
       if (workerHandle) await workerHandle.cancel();
-      if (e instanceof GenerationBuildAborted) {
+      if (error instanceof GenerationBuildAborted) {
         this.deps.stats.generationBuildAborts++;
         this.deps.noteBuildFailure?.();
         return;
       }
       this.deps.stats.generationBuildErrors++;
       this.deps.noteBuildFailure?.();
-      throw e;
+      throw error;
     } finally {
       if (this.genBuild === gb) this.genBuild = null;
       workerSlotRelease?.();

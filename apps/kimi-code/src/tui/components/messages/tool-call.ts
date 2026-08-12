@@ -45,6 +45,7 @@ import { interpretExitPlanModeOutcome } from './tool-call/plan-mode';
 import { PrefixedWrappedLine } from './tool-call/prefixed-wrapped-line';
 import { buildResultContent } from './tool-call/result-content';
 import { SubagentStateManager } from './tool-call/subagent-state';
+export { extractKeyArgument } from './tool-call/formatters';
 import type {
   SubagentCompletedPayload,
   SubagentFailedPayload,
@@ -70,15 +71,6 @@ function getDetachHintText(): string {
 }
 
 const MAX_PROGRESS_LINES = 24;
-
-
-/**
- * Pull the live value of a JSON string field out of partially-streamed
- * arguments, even if the closing quote hasn't arrived yet. Handles the
- * common JSON string escapes so `\n` in a streamed `content` becomes a
- * real newline we can highlight. Returns `undefined` if the field hasn't
- * started streaming yet.
- */
 
 
 export class ToolCallComponent extends Container {

@@ -13,7 +13,8 @@ export type {
 } from './testInstantiationService';
 
 import { type ServiceIdentifier } from './instantiation';
-import { createAppScope, Scope, type ScopeKind, type ScopeSeed } from './scope';
+import type { Scope} from './scope';
+import { createAppScope, type ScopeKind, type ScopeSeed } from './scope';
 
 export interface ScopedTestHost {
   readonly app: Scope;
@@ -23,14 +24,14 @@ export interface ScopedTestHost {
 }
 
 export function createScopedTestHost(appStubs: ScopeSeed = []): ScopedTestHost {
-  const app = createAppScope({ extra: appStubs });
+  const app = createAppScope({ seeds: appStubs });
   return {
     app,
     child(kind, id, stubs = []) {
-      return app.createChild(kind, id, { extra: stubs });
+      return app.createChild(kind, id, { seeds: stubs });
     },
     childOf(parent, kind, id, stubs = []) {
-      return parent.createChild(kind, id, { extra: stubs });
+      return parent.createChild(kind, id, { seeds: stubs });
     },
     dispose() {
       app.dispose();

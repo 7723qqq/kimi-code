@@ -17,7 +17,8 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { TestInstantiationService } from '#/_base/di/test';
 import { createHooks } from '#/hooks';
 import { IFlagService } from '#/app/flag/flag';
-import { IEventBus, type DomainEvent } from '#/app/event/eventBus';
+import type { IEventBus} from '#/app/event/eventBus';
+import { type DomainEvent } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
@@ -199,6 +200,7 @@ async function finishStep(hooks: MicroHooks): Promise<void> {
   await hooks.onDidFinishStep.run({
     turnId: 1,
     step: 1,
+    firstStepOfTurn: true,
     signal: new AbortController().signal,
     usage: emptyUsage(),
     finishReason: 'completed',

@@ -81,6 +81,7 @@ function stubSessionChain(ix: TestInstantiationService, session: ISessionScopeHa
     _serviceBrand: undefined,
     record: () => {},
     pending: () => [],
+    evict: () => Promise.resolve(),
     drain: () => Promise.resolve(),
   });
   ix.stub(IWorkspaceLifecycleService, {
@@ -189,7 +190,7 @@ describe('Session legacy status (best-effort runtime state)', () => {
         [IAgentSwarmService, { isActive: false }],
         // Unbound: assembleStatus resolves the default model's context cap,
         // which asks the model service first — no default model here.
-        [IModelService, { getDefaultModel: () => undefined }],
+        [IModelService, { getDefaultModel: () => {} }],
         [
           IAgentActivityView,
           { state: () => ({ lifecycle: 'ready', background: [] }) },

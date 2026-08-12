@@ -34,8 +34,8 @@ function pidAlive(pid: unknown): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
   }
 }
 
@@ -74,10 +74,18 @@ function hookExit(): void {
 export class LockFile {
   readonly path: string;
   held = false;
-  /** Identity of the current acquire() attempt: minted fresh per attempt,
+  /** Token of the current acquire attempt: minted fresh per attempt,
    *  carried by every file this instance publishes (lock/bid/watch), and the
    *  sole ownership criterion (`mine`). Null before the first acquire(). */
   private token: string | null = null;
+
+  /** The held instance's ownership token (undefined unless currently held).
+   *  Lets a host supervising this database from another thread learn WHO
+   *  holds the lock file without parsing it — worker threads share the main
+   *  process pid, so the pid in the lock line cannot distinguish them. */
+  get heldToken(): string | undefined {
+    return this.held && this.token !== null ? this.token : undefined;
+  }
   /** Serializes acquire/renew/release (the shared promise-chain pattern of
    *  serialize.ts): each op's whole read-check-write completes before the next
    *  one starts, so a renew already in flight finishes before a release
@@ -158,8 +166,8 @@ export class LockFile {
           try {
             await fs.rename(bid, this.path);
             break;
-          } catch (e) {
-            const code = (e as NodeJS.ErrnoException).code;
+          } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
             const epermRetryable =
               code === 'EPERM' && process.platform === 'win32' && attempt < 50;
             if (!epermRetryable) {
@@ -169,14 +177,14 @@ export class LockFile {
               // either way the corpse could not be displaced this round, so
               // decline like a live lock and let callers retry higher up.
               if (code === 'EEXIST' || code === 'EPERM') return false;
-              throw e;
+              throw error;
             }
             await new Promise((r) => setTimeout(r, 20 + Math.floor(Math.random() * 30)));
           }
         }
-      } catch (e) {
+      } catch (error) {
         await fs.unlink(bid).catch(() => {});
-        throw e;
+        throw error;
       }
 
       // Adaptive settle: scale with how long our own attempt took (a stalled
@@ -248,8 +256,8 @@ export class LockFile {
       await fs.link(tmp, this.path);
       this.markHeld();
       return true;
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       return false;
     } finally {
       await fs.unlink(tmp).catch(() => {});
@@ -264,9 +272,9 @@ export class LockFile {
     let st: { ino: number | bigint };
     try {
       [raw, st] = await Promise.all([fs.readFile(this.path, 'utf8'), fs.stat(this.path)]);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      throw e;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
     }
     let pid: number | undefined;
     let token: string | undefined;
@@ -286,9 +294,9 @@ export class LockFile {
     try {
       raw = fsSync.readFileSync(this.path, 'utf8');
       st = fsSync.statSync(this.path);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      throw e;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
     }
     let pid: number | undefined;
     let token: string | undefined;

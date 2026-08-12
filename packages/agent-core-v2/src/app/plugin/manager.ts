@@ -159,7 +159,7 @@ export class PluginManager {
       await this.persist(next);
       this.records = next;
       if (managedCopy.previousRoot !== undefined) {
-        await rm(managedCopy.previousRoot, { recursive: true, force: true }).catch(() => undefined);
+        await rm(managedCopy.previousRoot, { recursive: true, force: true }).catch(() => {});
       }
       managedCopy = undefined;
       return record;
@@ -245,7 +245,7 @@ export class PluginManager {
         try {
           return await checkGithubUpdate(record);
         } catch {
-          return undefined;
+          return;
         }
       }),
     );
@@ -318,6 +318,7 @@ export class PluginManager {
           path: dir,
           source: 'extra',
           plugin: { id: record.id, instructions: record.skillInstructions },
+          scanMode: record.manifest.rootSkillFallback ? 'root-skill-only' : undefined,
         });
       }
     }
@@ -733,6 +734,7 @@ async function countDiscoveredPluginSkills(
     path: dir,
     source: 'extra',
     plugin: { id: pluginId, instructions: manifest?.skillInstructions },
+    scanMode: manifest?.rootSkillFallback ? 'root-skill-only' : undefined,
   }));
   const result = await discoverSkills(roots);
   return result.skills.length;

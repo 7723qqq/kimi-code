@@ -97,6 +97,57 @@ describe('SessionMetadata', () => {
     expect(await meta.read()).toMatchObject({ title: 't', archived: true });
   });
 
+  it('setTitle keeps updatedAt (rename must not reorder listings)', async () => {
+    const meta = ix.get(ISessionMetadata);
+    const before = (await meta.read()).updatedAt;
+    await new Promise((r) => setTimeout(r, 2));
+    await meta.setTitle('renamed');
+
+    const next = await meta.read();
+    expect(next.title).toBe('renamed');
+    expect(next.updatedAt).toBe(before);
+  });
+
+  it('setArchived records archivedAt without touching updatedAt; restore clears it', async () => {
+    const meta = ix.get(ISessionMetadata);
+    const before = (await meta.read()).updatedAt;
+    await new Promise((r) => setTimeout(r, 2));
+
+    await meta.setArchived(true);
+    const archived = await meta.read();
+    expect(archived.archived).toBe(true);
+    expect(archived.archivedAt).toBeGreaterThan(before);
+    expect(archived.updatedAt).toBe(before);
+
+    await meta.setArchived(false);
+    const restored = await meta.read();
+    expect(restored.archived).toBe(false);
+    expect(restored.archivedAt).toBeUndefined();
+    expect(restored.updatedAt).toBe(before);
+  });
+
+  it('registerAgent never bumps updatedAt — the agents map is structural', async () => {
+    const meta = ix.get(ISessionMetadata);
+    const before = (await meta.read()).updatedAt;
+    await new Promise((r) => setTimeout(r, 2));
+    // A genuinely NEW agent (resume materializing a cold session's main
+    // agent, or a runtime subagent) is not content activity.
+    await meta.registerAgent('main', { homedir: '/tmp/h', type: 'main' });
+
+    const next = await meta.read();
+    expect(next.agents?.['main']?.homedir).toBe('/tmp/h');
+    expect(next.updatedAt).toBe(before);
+  });
+
+  it('an explicit patch.updatedAt always wins (fork inherits the source recency)', async () => {
+    const meta = ix.get(ISessionMetadata);
+    await meta.update({ title: 'fork', updatedAt: 1234 });
+
+    const next = await meta.read();
+    expect(next.title).toBe('fork');
+    expect(next.updatedAt).toBe(1234);
+  });
+
   it('mirrors a boolean archived to the read model even when the loaded document lacks the field', async () => {
     const store = ix.get(IAtomicDocumentStore);
     await store.set(META_SCOPE, 'state.json', {
@@ -117,6 +168,44 @@ describe('SessionMetadata', () => {
 
     expect(mirror.recorded).toHaveLength(1);
     expect(mirror.recorded[0]).toMatchObject({ id: 's1', archived: false });
+  });
+
+  it('persists the authoritative document before recording to the mirror', async () => {
+    const store = ix.get(IAtomicDocumentStore);
+    // Read the persisted document back from inside record(): at that point
+    // the mutation must already be durable.
+    const persistedAtRecord: Promise<Record<string, unknown> | undefined>[] = [];
+    const baseRecord = mirror.record;
+    mirror.record = (summary) => {
+      persistedAtRecord.push(store.get<Record<string, unknown>>(META_SCOPE, 'state.json'));
+      baseRecord(summary);
+    };
+
+    const meta = ix.get(ISessionMetadata);
+    await meta.ready; // first-time creation records too
+    await meta.update({ title: 'durable-first' });
+
+    expect(persistedAtRecord).toHaveLength(2);
+    const [atCreate, atUpdate] = await Promise.all(persistedAtRecord);
+    expect(atCreate).toMatchObject({ id: 's1', archived: false });
+    expect(atUpdate).toMatchObject({ title: 'durable-first' });
+  });
+
+  it('a mirror failure degrades the read model but never fails the metadata mutation', async () => {
+    mirror.record = () => {
+      throw new Error('mirror down');
+    };
+
+    const meta = ix.get(ISessionMetadata);
+    // The creation-time record throws inside load(); the load must survive.
+    await meta.ready;
+    await meta.update({ title: 'still fine' });
+    expect(await meta.read()).toMatchObject({ title: 'still fine' });
+
+    // The mutation reached the authoritative document: a fresh instance reads
+    // it back even though every mirror record failed.
+    const fresh = createFreshMetadata(ix);
+    expect(await fresh.read()).toMatchObject({ title: 'still fine' });
   });
 
   it('persists across instances', async () => {
@@ -193,7 +282,7 @@ describe('SessionMetadata', () => {
       }),
     ]);
 
-    expect(Object.keys((await meta.read()).agents ?? {}).sort()).toEqual([
+    expect(Object.keys((await meta.read()).agents ?? {}).toSorted()).toEqual([
       'agent-0',
       'agent-1',
     ]);
@@ -258,7 +347,7 @@ describe('SessionMetadata', () => {
     expect((await meta.read()).updatedAt).toBe(1700000000000);
   });
 
-  it('updates when re-registering with changed fields', async () => {
+  it('updates changed fields on re-registration without bumping updatedAt', async () => {
     const meta = ix.get(ISessionMetadata);
     await meta.registerAgent('main', {
       homedir: '/tmp/sessions/wd_test/s1/agents/main',
@@ -275,7 +364,8 @@ describe('SessionMetadata', () => {
 
     const next = await meta.read();
     expect(next.agents?.['main']?.labels).toEqual({ swarmItem: 'src/a.ts' });
-    expect(next.updatedAt).toBeGreaterThan(before);
+    // Agent registration is structural, not content activity — listings stay.
+    expect(next.updatedAt).toBe(before);
   });
 
   it('records the fresh summary into the session index mirror on update', async () => {

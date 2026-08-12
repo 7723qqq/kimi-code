@@ -167,6 +167,15 @@ export class GlobalEventsWs {
     } catch {
       return;
     }
+    // Heartbeat: the server pings every `heartbeat_ms` (10s) with no
+    // `session_id` and reaps the connection with 1001 after ~20s of inbound
+    // silence — answer before the session-scoped filter below would drop the
+    // frame.
+    if (frame.type === 'ping') {
+      const nonce = (frame.payload as { nonce?: unknown } | undefined)?.nonce;
+      this.send({ type: 'pong', payload: { nonce } });
+      return;
+    }
     const sessionId = frame.session_id;
     if (typeof sessionId !== 'string' || sessionId === '') return;
     switch (frame.type) {
@@ -186,11 +195,6 @@ export class GlobalEventsWs {
       case 'event.di.unit_changed': {
         const payload = parseDiUnitChangedPayload(frame.payload);
         if (payload !== undefined) this.handlers.onDiUnitChanged?.(payload);
-        return;
-      }
-      case 'ping': {
-        const nonce = (frame.payload as { nonce?: unknown } | undefined)?.nonce;
-        this.send({ type: 'pong', payload: { nonce } });
         return;
       }
       default:

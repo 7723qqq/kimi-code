@@ -10,17 +10,23 @@
  * document always carries the `agents` / `custom` maps — seeded at creation,
  * backfilled and persisted on load for documents written before the seeding
  * existed (without touching `updatedAt`, so a format heal never reorders
- * session listings). Re-registering an agent whose metadata is unchanged is
- * a no-op (no write, no mirror, no event), so resuming a session — which
- * re-registers its agents as they materialize — never bumps `updatedAt` and
- * never reorders session listings. Bound at Session scope.
+ * session listings). `updatedAt` tracks content activity only: management
+ * writes (rename via `setTitle`, archive/restore via `setArchived`) keep the
+ * persisted value through `touchUpdatedAt: false`, an explicit
+ * `patch.updatedAt` always wins (fork restores the source's recency), and
+ * agent registration is a structural write that never touches it — neither
+ * when resume materializes a cold session's agents, nor when a runtime
+ * subagent registers mid-turn (the turn's own submit/end moments carry
+ * recency). Bound at Session scope.
  *
  * Read-model mirroring (flag `persistence_minidb_readmodel`): after a metadata
  * update is persisted, the fresh summary is recorded into the App-scoped
  * `ISessionIndexMirror` — a bounded, coalescing queue that flushes to the
  * `IQueryStore` read model off the user completion path. The mutation
  * completes with the authoritative `state.json` write; it never waits on the
- * derived store (no mirror flush, no query-store lock). First-time creation in
+ * derived store (no mirror flush, no query-store lock), and a mirror failure
+ * is logged and swallowed — the read model heals by reconciliation, the
+ * session lifecycle never sees it. First-time creation in
  * `load()` records too — a new session must appear in listings immediately
  * (the mirror's pending queue feeds the index's read-your-writes merge);
  * loading an *existing* document (session resume) stays silent. Queued writes
@@ -61,7 +67,7 @@ export async function drainSessionMetadataWrites(): Promise<void> {
 
 export const sessionMetadataDataKey = defineState<SessionMeta | undefined>(
   'sessionMetadata.data',
-  () => undefined,
+  () => {},
 );
 
 export class SessionMetadata extends Service implements ISessionMetadata {
@@ -122,7 +128,8 @@ export class SessionMetadata extends Service implements ISessionMetadata {
   ): Promise<void> {
     await this.ready;
     if (this.disposed) return;
-    const updatedAt = opts?.touchUpdatedAt === false ? this.data.updatedAt : Date.now();
+    const updatedAt =
+      patch.updatedAt ?? (opts?.touchUpdatedAt === false ? this.data.updatedAt : Date.now());
     this.data = { ...this.data, ...patch, updatedAt };
     await this.store.set(this.scope, META_KEY, this.data);
     if (this.disposed) return;
@@ -133,11 +140,14 @@ export class SessionMetadata extends Service implements ISessionMetadata {
   }
 
   async setTitle(title: string): Promise<void> {
-    await this.update({ title, isCustomTitle: true });
+    await this.update({ title, isCustomTitle: true }, { touchUpdatedAt: false });
   }
 
   async setArchived(archived: boolean): Promise<void> {
-    await this.update({ archived });
+    await this.update(
+      archived ? { archived: true, archivedAt: Date.now() } : { archived: false, archivedAt: undefined },
+      { touchUpdatedAt: false },
+    );
   }
 
   async registerAgent(agentId: string, meta: AgentMeta): Promise<void> {
@@ -146,7 +156,7 @@ export class SessionMetadata extends Service implements ISessionMetadata {
       const existing = this.data.agents?.[agentId];
       if (existing !== undefined && agentMetaEquals(existing, meta)) return;
       const agents = { ...this.data.agents, [agentId]: meta };
-      await this.applyUpdate({ agents });
+      await this.applyUpdate({ agents }, { touchUpdatedAt: false });
     });
   }
 
@@ -160,20 +170,31 @@ export class SessionMetadata extends Service implements ISessionMetadata {
   }
 
   private mirrorToReadModel(): void {
-    this.mirror.record(
-      buildSessionSummary({
-        id: this.data.id,
-        workspaceId: this.ctx.workspaceId,
-        cwd: this.ctx.cwd,
-        title: this.data.title,
-        lastPrompt: this.data.lastPrompt,
-        createdAt: this.data.createdAt,
-        updatedAt: this.data.updatedAt,
-        archived: this.data.archived === true,
-        custom: this.data.custom,
-        lastTurnReason: this.data.lastTurnReason,
-      }),
-    );
+    try {
+      this.mirror.record(
+        buildSessionSummary({
+          id: this.data.id,
+          workspaceId: this.ctx.workspaceId,
+          cwd: this.ctx.cwd,
+          title: this.data.title,
+          lastPrompt: this.data.lastPrompt,
+          createdAt: this.data.createdAt,
+          updatedAt: this.data.updatedAt,
+          archived: this.data.archived === true,
+          archivedAt: this.data.archivedAt,
+          custom: this.data.custom,
+          lastTurnReason: this.data.lastTurnReason,
+        }),
+      );
+    } catch (error) {
+      // The authoritative document is already durable at this point; a mirror
+      // failure only degrades the read model (reconciliation heals it) and
+      // must never fail the session mutation itself.
+      this.log.warn('session index mirror record failed; the read model heals by reconciliation', {
+        sessionId: this.ctx.sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private async load(): Promise<void> {

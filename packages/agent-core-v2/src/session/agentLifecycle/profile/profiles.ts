@@ -82,8 +82,6 @@ const AGENT_TOOLS = [
 ] as const;
 
 const CODER_TOOLS = [
-  'Agent',
-  'AgentSwarm',
   'Bash',
   'CronCreate',
   'CronDelete',

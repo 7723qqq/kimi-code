@@ -5,8 +5,9 @@
  * Lives under `test/` (not `src/`). Import from a relative path.
  */
 
+import type {
+  ISessionIndexMirror} from '#/app/sessionIndex/sessionIndex';
 import {
-  ISessionIndexMirror,
   type SessionSummary,
 } from '#/app/sessionIndex/sessionIndex';
 
@@ -21,6 +22,7 @@ export function stubSessionIndexMirror(): ISessionIndexMirror & {
       recorded.push(summary);
     },
     pending: () => recorded,
+    evict: async () => {},
     drain: async () => {},
   };
 }

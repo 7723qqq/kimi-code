@@ -49,7 +49,7 @@ function registry(): { handlers: LoopErrorHandler[]; register: IAgentLoopService
   };
   return { handlers, register };
 }
-function materialize(request: StepRequest, context: { append(...messages: ContextMessage[]): void }): void { if (request.state !== 'pending') return; request.onWillMaterialize(); const messages = request.resolveContextMessages(); if (messages.length) context.append(...messages); request.markMaterialized(); }
+function materialize(request: StepRequest, context: { append(...messages: ContextMessage[]): void }): void { if (request.state !== 'pending') return; request.onWillMaterialize(); const messages = request.resolveContextMessages(); if (messages.length > 0) context.append(...messages); request.markMaterialized(); }
 export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
   const hooks = createHooks(['onWillBeginStep', 'onDidFinishStep']) as IAgentLoopService['hooks'];
   const queue = new StepRequestQueue(); const errorHandlers = registry(); const launches: number[] = []; const cancels: { turnId?: number; reason?: unknown }[] = [];
@@ -73,7 +73,7 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
       if (request.admission === 'activeTurnOnly' && turn === undefined) throw new Error('active turn required');
       if (turn === undefined) {
         queue.enqueue(request, enqueueOptions?.at ?? 'tail');
-        const assigned = new Promise<never>(() => {}); void assigned.catch(() => undefined);
+        const assigned = new Promise<never>(() => {}); void assigned.catch(() => {});
         return { assigned, abort: () => request.abort() };
       }
       const step = makeStep(turn, request, queue, enqueueOptions?.at ?? 'tail');
@@ -89,15 +89,19 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
       if (options.settleOnDrain === true && active !== undefined) {
         turnResolvers.get(active)?.({ type: 'completed', steps: 0, truncated: false });
       }
-      const batch = queue.takeNextBatch(); if (!batch) return undefined; materialize(batch.driver, context); for (const r of batch.merged) materialize(r, context); return batch;
+      const batch = queue.takeNextBatch(); if (!batch) return; materialize(batch.driver, context); for (const r of batch.merged) materialize(r, context); return batch;
     },
   };
   return stub;
 }
-export async function runWillBeginStepHooks(loop: IAgentLoopService): Promise<void> {
+export async function runWillBeginStepHooks(
+  loop: IAgentLoopService,
+  firstStepOfTurn = false,
+): Promise<void> {
   await loop.hooks.onWillBeginStep.run({
     turnId: 0,
     step: 0,
+    firstStepOfTurn,
     signal: new AbortController().signal,
   });
 }

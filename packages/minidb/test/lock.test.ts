@@ -205,7 +205,7 @@ test('close() still releases the lock when the WAL close fails; a retry finishes
         throw new Error('injected close failure');
       }
     };
-    const err = await db.close().catch((e: unknown) => e);
+    const err = await db.close().catch((error: unknown) => error);
     assert.ok(err instanceof AggregateError, 'close failure is aggregated');
     assert.equal(err.errors.length, 1);
     assert.match(String(err.errors[0]), /injected close failure/);
@@ -254,7 +254,7 @@ test('close() aggregates every cleanup error instead of stopping at the first', 
       }
       return originalRelease();
     };
-    const err = await db.close().catch((e: unknown) => e);
+    const err = await db.close().catch((error: unknown) => error);
     assert.ok(err instanceof AggregateError, 'close failure is aggregated');
     assert.deepEqual(
       err.errors.map((e) => (e instanceof Error ? e.message : String(e))),
@@ -309,6 +309,43 @@ test('close() waits out a failing in-flight compaction and still cleans up every
     const reopened = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'no' });
     await reopened.close();
   } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('onLockAcquired fires with the held token; read-only fallback opens skip it', async () => {
+  const dir = await tmpDir();
+  let reported;
+  const db1 = await MiniDb.open({
+    dir,
+    valueCodec: 'string',
+    onLockAcquired: (info) => {
+      reported = info.token;
+    },
+  });
+  try {
+    // Fired before open() resolved, and matches the published lock line —
+    // a supervisor learns the lock identity before any heavy recovery ran.
+    assert.ok(reported);
+    const line = JSON.parse(await fs.readFile(path.join(dir, 'db.lock'), 'utf8'));
+    assert.equal(line.token, reported);
+    assert.equal(line.pid, process.pid);
+
+    // A read-only fallback open (the lock is busy) never fires the callback.
+    let second;
+    const ro = await MiniDb.open({
+      dir,
+      valueCodec: 'string',
+      onLockFail: 'readonly',
+      onLockAcquired: (info) => {
+        second = info.token;
+      },
+    });
+    assert.equal(ro.readOnly, true);
+    assert.equal(second, undefined);
+    await ro.close();
+  } finally {
+    await db1.close();
     await fs.rm(dir, { recursive: true, force: true });
   }
 });

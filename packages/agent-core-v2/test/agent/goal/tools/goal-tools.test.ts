@@ -20,7 +20,7 @@ import { SetGoalBudgetTool } from '#/agent/tools/goal/set-goal-budget/setGoalBud
 import { UpdateGoalToolInputSchema } from '#/agent/tools/goal/update-goal/update-goal';
 import { UpdateGoalTool } from '#/agent/tools/goal/update-goal/updateGoalTool';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import type { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentSwarmService } from '#/agent/swarm/swarm';
 import {
   IAgentToolExecutorService,
@@ -447,6 +447,7 @@ describe('goal tools', () => {
     await loopService.hooks.onWillBeginStep.run({
       turnId,
       step: 1,
+      firstStepOfTurn: true,
       signal: abortController.signal,
     });
   }

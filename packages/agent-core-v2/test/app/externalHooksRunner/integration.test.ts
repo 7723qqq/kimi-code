@@ -89,6 +89,7 @@ function makeAfterStep(signal: AbortSignal): AfterStepContext {
   return {
     turnId: 0,
     step: 1,
+    firstStepOfTurn: true,
     signal,
     usage: emptyUsage(),
     finishReason: 'completed',
@@ -108,6 +109,7 @@ function stubContextMemory(): IAgentContextMemoryService & {
       messages.push(...inserted);
     },
     appendLoopEvent: () => {},
+    publishTrailingRemoval: () => false,
     clear: () => {
       messages.splice(0);
     },
@@ -392,7 +394,7 @@ describe('IExternalHooksRunnerService integration', () => {
       }> = [];
       const hookEngine = {
         trigger: async () => [],
-        triggerBlock: async () => undefined,
+        triggerBlock: async () => {},
         fireAndForgetTrigger: async (
           event: string,
           args: { matcherValue?: unknown; inputData?: unknown },
@@ -506,7 +508,7 @@ describe('IExternalHooksRunnerService integration', () => {
           });
           return [];
         },
-        triggerBlock: async () => undefined,
+        triggerBlock: async () => {},
         fireAndForgetTrigger: async (
           event: string,
           args: { matcherValue?: unknown; inputData?: unknown },
@@ -735,7 +737,7 @@ describe('IExternalHooksRunnerService integration', () => {
     expect(parsed).toHaveLength(2);
     expect(parsed[0]).toMatchObject({ event: 'PreToolUse', matcher: 'Bash' });
     expect(parsed[1]).toMatchObject({ event: 'Notification', timeout: 5 });
-    expect(hooksToToml(parsed, undefined)).toEqual(raw);
+    expect(hooksToToml(parsed)).toEqual(raw);
   });
 
   it('exposes a summary map of event name to registered hook count', async () => {
@@ -1129,7 +1131,7 @@ describe('IExternalHooksRunnerService integration', () => {
       }> = [];
       const hookEngine = {
         trigger: async () => [],
-        triggerBlock: async () => undefined,
+        triggerBlock: async () => {},
         fireAndForgetTrigger: async (
           event: string,
           args: { matcherValue?: unknown; inputData?: unknown },
@@ -1247,7 +1249,7 @@ describe('IExternalHooksRunnerService integration', () => {
       const fired: string[] = [];
       const hookEngine = {
         trigger: async () => [],
-        triggerBlock: async () => undefined,
+        triggerBlock: async () => {},
         fireAndForgetTrigger: async (event: string) => {
           fired.push(event);
           return [];
@@ -1293,7 +1295,7 @@ describe('IExternalHooksRunnerService integration', () => {
       const fired: string[] = [];
       const hookEngine = {
         trigger: async () => [],
-        triggerBlock: async () => undefined,
+        triggerBlock: async () => {},
         fireAndForgetTrigger: async (event: string) => {
           fired.push(event);
           return [];
@@ -1338,7 +1340,7 @@ describe('IExternalHooksRunnerService integration', () => {
       let heartbeatEnabled = false;
       const hookEngine = {
         trigger: async () => [],
-        triggerBlock: async () => undefined,
+        triggerBlock: async () => {},
         fireAndForgetTrigger: async (event: string) => {
           fired.push(event);
           return [];

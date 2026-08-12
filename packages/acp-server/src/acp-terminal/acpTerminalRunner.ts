@@ -55,18 +55,29 @@ const OUTPUT_POLL_MS = 250;
 
 /**
  * Whether an `exec` call is the Bash tool's shell invocation. The Bash tool
- * always spawns `[shellPath, '-c', 'cd <cwd> && <command>']` with the
+ * always spawns `[shellPath, '-c', 'cd <cwd> && <command>']` on POSIX / Git
+ * Bash, `[shellPath, '-NoProfile', '-NonInteractive', '-Command', …]` on
+ * PowerShell, or `[shellPath, '/d', '/s', '/c', …]` on cmd, with the
  * noninteractive env `{ NO_COLOR: '1', TERM: 'dumb', … }`; other Agent-scope
  * callers (e.g. profile prompt-prefix commands) do not. Only Bash-tool
  * invocations get a client-visible terminal — internal commands stay local.
  */
 function isBashToolInvocation(args: readonly string[], options?: ProcessExecOptions): boolean {
+  if (options?.env?.['NO_COLOR'] !== '1' || options?.env?.['TERM'] !== 'dumb') return false;
   return (
-    args.length === 3 &&
-    args[1] === '-c' &&
-    options?.env?.['NO_COLOR'] === '1' &&
-    options?.env?.['TERM'] === 'dumb'
+    (args.length === 3 && args[1] === '-c') ||
+    (args.length === 5 && args[1] === '-NoProfile' && args[3] === '-Command') ||
+    (args.length === 5 && args[1] === '/d' && args[3] === '/c')
   );
+}
+
+/** The shell script argument (the element right after the shell flag). */
+function scriptOf(args: readonly string[]): string {
+  if (args.length === 3 && args[1] === '-c') return args[2] ?? '';
+  if (args.length === 5 && (args[1] === '-NoProfile' || args[1] === '/d')) {
+    return args[4] ?? '';
+  }
+  return args[2] ?? '';
 }
 
 function envRecordToAcp(
@@ -105,10 +116,11 @@ export class AcpProcessRunner implements ISessionProcessRunner {
       outputByteLimit: OUTPUT_BYTE_LIMIT,
     });
     // Tell the adapter which shell command this terminal runs so it can
-    // correlate the terminal with the in-flight Bash tool call.
+    // correlate the terminal with the in-flight Bash tool call. The script is
+    // the argument right after the shell flag (`-c` / `-Command` / `/c`).
     this.connection.notifyTerminalCreated({
       sessionId: this.ctx.sessionId,
-      shellCommand: args[2] ?? '',
+      shellCommand: scriptOf(args),
       terminalId: handle.id,
     });
     return new AcpTerminalProcess(handle);

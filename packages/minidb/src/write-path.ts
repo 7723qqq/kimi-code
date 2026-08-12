@@ -19,6 +19,7 @@ import { encodeFrame, encodeBatchOps, scanBatchOpRefs, HEADER_SIZE, TYPE_SET, TY
 import type { BatchOp as EncodedBatchOp, FrameRef } from './codec.js';
 import { frameToOps } from './recovery.js';
 import type { ValueMode, RecoveredOp } from './recovery.js';
+import { yieldToLoop } from './text-index/tokenize.js';
 import { toBuf, toKStr, normDt, MAX_KEY_LEN } from './value-codec.js';
 import type { Store, StoreRecord, ValueLoc } from './store.js';
 import type { WAL } from './wal.js';
@@ -107,11 +108,11 @@ export class WritePath<V> {
   private async retryOnWalSeal(commit: () => Promise<void>): Promise<void> {
     try {
       await commit();
-    } catch (e) {
-      const sealed = (e as { code?: string }).code === 'WAL_SEALED';
+    } catch (error) {
+      const sealed = (error as { code?: string }).code === 'WAL_SEALED';
       const closedMidRotation =
-        this.deps.rotateLock() !== null && e instanceof Error && e.message === 'WAL is closed';
-      if (!sealed && !closedMidRotation) throw e;
+        this.deps.rotateLock() !== null && error instanceof Error && error.message === 'WAL is closed';
+      if (!sealed && !closedMidRotation) throw error;
       await this.awaitRotation();
       await commit();
     }
@@ -140,28 +141,28 @@ export class WritePath<V> {
         this.applyOp(op, applied);
         prev = applied.prev;
         seq = this.deps.store().map.get(op.pk)?.seq;
-      } catch (err) {
+      } catch (error) {
         // See set() for this defensive path (applyOp's must-not-throw contract).
         void appended.done.catch(() => {}); // this op throws here; swallow the frame's rejection
         if (group) {
-          wal.poisonPending(err);
+          wal.poisonPending(error);
           this.deps.walGroups.groupNoteKey(group, op.pk, applied.prev);
           this.deps.walGroups.rollbackGroup(group, wal, appended.batchId);
           this.deps.walGroups.kickWalRecovery(wal);
         } else {
           this.restoreGroupKey(op.pk, applied.prev);
         }
-        throw this.deps.walGroups.markAmbiguous(err);
+        throw this.deps.walGroups.markAmbiguous(error);
       }
       this.deps.walGroups.groupNoteKey(group, op.pk, prev);
       try {
         await appended.done;
         this.deps.stats.evictions++;
-      } catch (e) {
+      } catch (error) {
         if (group) this.deps.walGroups.rollbackGroup(group, wal, appended.batchId);
         else this.restoreKey(op.pk, prev, seq);
         this.deps.walGroups.kickWalRecovery(wal);
-        throw this.deps.walGroups.markAmbiguous(e);
+        throw this.deps.walGroups.markAmbiguous(error);
       }
       this.deps.walGroups.settleGroup(group, wal, appended.batchId);
     };
@@ -216,7 +217,7 @@ export class WritePath<V> {
       // re-check (every violation-creating writer is serialized out).
       const run = async (): Promise<void> => {
         const op = this.prepareSet(key, value, { ttl, dt });
-        if (this.deps.indexes.size && this.deps.indexable(op.canonical)) this.deps.indexes.checkUnique(op.pk, op.canonical);
+        if (this.deps.indexes.size > 0 && this.deps.indexable(op.canonical)) this.deps.indexes.checkUnique(op.pk, op.canonical);
         await this.deps.memoryGuard.ensureMemoryFor([op]);
         await this.retryOnWalSeal(() => this.commitSetOp(op));
       };
@@ -258,7 +259,7 @@ export class WritePath<V> {
         // await lets a later op overwrite it.
         prev = applied.prev;
         seq = this.deps.store().map.get(op.pk)?.seq;
-      } catch (err) {
+      } catch (error) {
         // applyOp violated its must-not-throw contract (see its doc — stage 11
         // makes it structural; this try is the defensive layer). An enqueued
         // frame (batchId >= 0) is un-acked and must never reach disk: poison
@@ -267,23 +268,23 @@ export class WritePath<V> {
         // nothing — only the partial in-memory mutation needs undoing.
         void appended.done.catch(() => {}); // this op throws here; swallow the frame's rejection
         if (group) {
-          wal.poisonPending(err);
+          wal.poisonPending(error);
           this.deps.walGroups.groupNoteKey(group, op.pk, applied.prev);
           this.deps.walGroups.rollbackGroup(group, wal, appended.batchId);
           this.deps.walGroups.kickWalRecovery(wal);
         } else {
           this.restoreGroupKey(op.pk, applied.prev);
         }
-        throw this.deps.walGroups.markAmbiguous(err);
+        throw this.deps.walGroups.markAmbiguous(error);
       }
       this.deps.walGroups.groupNoteKey(group, op.pk, prev);
       try {
         await appended.done;
-      } catch (e) {
+      } catch (error) {
         if (group) this.deps.walGroups.rollbackGroup(group, wal, appended.batchId);
         else this.restoreKey(op.pk, prev, seq);
         this.deps.walGroups.kickWalRecovery(wal);
-        throw this.deps.walGroups.markAmbiguous(e);
+        throw this.deps.walGroups.markAmbiguous(error);
       }
       this.deps.walGroups.settleGroup(group, wal, appended.batchId);
       if (this.deps.valueMode() === 'disk') {
@@ -322,27 +323,27 @@ export class WritePath<V> {
           this.applyOp(op, applied);
           prev = applied.prev;
           seq = this.deps.store().map.get(op.pk)?.seq;
-        } catch (err) {
+        } catch (error) {
           // See set() for this defensive path (applyOp's must-not-throw contract).
           void appended.done.catch(() => {}); // this op throws here; swallow the frame's rejection
           if (group) {
-            wal.poisonPending(err);
+            wal.poisonPending(error);
             this.deps.walGroups.groupNoteKey(group, op.pk, applied.prev);
             this.deps.walGroups.rollbackGroup(group, wal, appended.batchId);
             this.deps.walGroups.kickWalRecovery(wal);
           } else {
             this.restoreGroupKey(op.pk, applied.prev);
           }
-          throw this.deps.walGroups.markAmbiguous(err);
+          throw this.deps.walGroups.markAmbiguous(error);
         }
         this.deps.walGroups.groupNoteKey(group, op.pk, prev);
         try {
           await appended.done;
-        } catch (e) {
+        } catch (error) {
           if (group) this.deps.walGroups.rollbackGroup(group, wal, appended.batchId);
           else this.restoreKey(op.pk, prev, seq);
           this.deps.walGroups.kickWalRecovery(wal);
-          throw this.deps.walGroups.markAmbiguous(e);
+          throw this.deps.walGroups.markAmbiguous(error);
         }
         this.deps.walGroups.settleGroup(group, wal, appended.batchId);
         this.deps.maybeAutoCompact();
@@ -369,7 +370,7 @@ export class WritePath<V> {
       // a WAL-seal retry of the commit needs no re-check.
       const run = async (): Promise<void> => {
         const prepared = ops.map((o) => this.prepareOp(o));
-        if (this.deps.indexes.size) {
+        if (this.deps.indexes.size > 0) {
           this.deps.indexes.checkUniqueBatch(
             prepared.map((o) => ({
               pk: o.pk,
@@ -411,20 +412,20 @@ export class WritePath<V> {
           this.applyOp(op, applied);
           if (!prevs.has(op.pk)) prevs.set(op.pk, applied.prev);
         }
-      } catch (err) {
+      } catch (error) {
         // See set() for this defensive path (applyOp's must-not-throw
         // contract); the op that threw mid-apply has its pre-state in `applied`.
         if (cur && !prevs.has(cur.pk)) prevs.set(cur.pk, applied.prev);
         void appended.done.catch(() => {}); // this batch throws here; swallow the frame's rejection
         if (group) {
-          wal.poisonPending(err);
+          wal.poisonPending(error);
           for (const [pk, p] of prevs) this.deps.walGroups.groupNoteKey(group, pk, p);
           this.deps.walGroups.rollbackGroup(group, wal, appended.batchId);
           this.deps.walGroups.kickWalRecovery(wal);
         } else {
           for (const [pk, p] of prevs) this.restoreGroupKey(pk, p);
         }
-        throw this.deps.walGroups.markAmbiguous(err);
+        throw this.deps.walGroups.markAmbiguous(error);
       }
       for (const [pk, p] of prevs) this.deps.walGroups.groupNoteKey(group, pk, p);
       // Seq identity of each record as this batch left it (undefined where the
@@ -451,11 +452,11 @@ export class WritePath<V> {
       }
       try {
         await appended.done;
-      } catch (e) {
+      } catch (error) {
         if (group) this.deps.walGroups.rollbackGroup(group, wal, appended.batchId);
         else for (const [pk, prev] of prevs) this.restoreKey(pk, prev, seqs.get(pk));
         this.deps.walGroups.kickWalRecovery(wal);
-        throw this.deps.walGroups.markAmbiguous(e);
+        throw this.deps.walGroups.markAmbiguous(error);
       }
       this.deps.walGroups.settleGroup(group, wal, appended.batchId);
       for (const [pk, { op, loc, seq }] of lastSet) {
@@ -492,7 +493,7 @@ export class WritePath<V> {
     // tokenizer — or one producing an overlong term — rejects the write here,
     // before the store/delta/buildQueue can be polluted (reviews #24/#27).
     let textTokens: Map<TextIndex, readonly string[] | null> | null = null;
-    if (this.deps.textRegistry.text.size) {
+    if (this.deps.textRegistry.text.size > 0) {
       textTokens = new Map();
       for (const ti of this.deps.textRegistry.text.values()) {
         textTokens.set(ti, this.deps.indexable(canonical) ? ti.prepareAdd(canonical) : null);
@@ -542,7 +543,7 @@ export class WritePath<V> {
       this.deps.store().set(op.key, op.value!, op.expireAt, op.dtNorm);
       this.deps.dt.set(op.pk, op.dtNorm);
       this.deps.compound.add(op.pk, op.canonical, op.dtNorm);
-      if (this.deps.indexes.size) {
+      if (this.deps.indexes.size > 0) {
         if (this.deps.indexable(oldDoc)) this.deps.indexes.remove(op.pk, oldDoc);
         if (this.deps.indexable(op.canonical)) this.deps.indexes.add(op.pk, op.canonical);
       }
@@ -570,7 +571,7 @@ export class WritePath<V> {
         this.deps.memoryGuard.access.delete(op.pk);
         this.deps.dt.del(op.pk);
         this.deps.compound.remove(op.pk);
-        if (this.deps.indexes.size && this.deps.indexable(oldDoc)) this.deps.indexes.remove(op.pk, oldDoc);
+        if (this.deps.indexes.size > 0 && this.deps.indexable(oldDoc)) this.deps.indexes.remove(op.pk, oldDoc);
         for (const ti of this.deps.textRegistry.text.values()) ti.remove(op.pk);
       }
     }
@@ -619,7 +620,7 @@ export class WritePath<V> {
     // checkpoint replay: abort it (expected churn, never an error).
     const gb = this.deps.generationBuilder.genBuild;
     if (gb) gb.aborted = true;
-    if (this.deps.indexes.size) this.deps.indexes.remove(pk, undefined);
+    if (this.deps.indexes.size > 0) this.deps.indexes.remove(pk);
     for (const ti of this.deps.textRegistry.text.values()) ti.remove(pk);
     this.deps.dt.del(pk);
     this.deps.compound.remove(pk);
@@ -643,9 +644,15 @@ export class WritePath<V> {
    *  open-time recovery derives from it (frameToOps), plus the incremental
    *  derived-index maintenance applyOp performs on the write path — minus
    *  unique checks: the writer already validated, and intermediate frame
-   *  states must apply literally (LWW). */
-  applyRecoveredFrame(f: FrameRef, fd: number): void {
-    for (const op of frameToOps(f, 'wal', fd, this.deps.valueMode())) this.applyRecoveredOp(op);
+   *  states must apply literally (LWW). Cooperative: yields between primitive
+   *  ops when the caller's slicer (walApplySlicer budgets) fires — a BATCH
+   *  frame unrolls into thousands of ops, so per-op yielding is what bounds a
+   *  catch-up slice on the host's event loop. */
+  async applyRecoveredFrameAsync(f: FrameRef, fd: number, slice: () => boolean): Promise<void> {
+    for (const op of frameToOps(f, 'wal', fd, this.deps.valueMode())) {
+      this.applyRecoveredOp(op);
+      if (slice()) await yieldToLoop();
+    }
   }
 
   applyRecoveredOp(op: RecoveredOp): void {
@@ -653,13 +660,13 @@ export class WritePath<V> {
     // Old doc for derived-index removal; decoded before the overwrite, like
     // applyOp. This get also lazy-reaps an expired old record, whose onExpire
     // hook then removes its derived entries for us.
-    const oldDoc = this.deps.indexes.size ? this.deps.decode(this.deps.store().get(pk)) : undefined;
+    const oldDoc = this.deps.indexes.size > 0 ? this.deps.decode(this.deps.store().get(pk)) : undefined;
     if (op.type === TYPE_DEL) {
       if (!this.deps.store().del(pk)) return;
       this.deps.memoryGuard.access.delete(pk);
       this.deps.dt.del(pk);
       this.deps.compound.remove(pk);
-      if (this.deps.indexes.size && this.deps.indexable(oldDoc)) this.deps.indexes.remove(pk, oldDoc);
+      if (this.deps.indexes.size > 0 && this.deps.indexable(oldDoc)) this.deps.indexes.remove(pk, oldDoc);
       for (const ti of this.deps.textRegistry.text.values()) ti.remove(pk);
       return;
     }
@@ -674,10 +681,10 @@ export class WritePath<V> {
     this.deps.dt.set(pk, op.dt);
     // Values are only decoded when a value-derived index exists (all of them
     // require the json codec): with none, recovery never copies them either.
-    if (this.deps.indexes.size || this.deps.textRegistry.text.size || this.deps.compound.size) {
+    if (this.deps.indexes.size > 0 || this.deps.textRegistry.text.size > 0 || this.deps.compound.size > 0) {
       const doc = this.deps.decode(buf)!;
       this.deps.compound.add(pk, doc, op.dt);
-      if (this.deps.indexes.size) {
+      if (this.deps.indexes.size > 0) {
         if (this.deps.indexable(oldDoc)) this.deps.indexes.remove(pk, oldDoc);
         if (this.deps.indexable(doc)) this.deps.indexes.add(pk, doc);
       }
@@ -738,29 +745,29 @@ export class WritePath<V> {
             gb.bytes += curValue.length + 64;
           }
           seq = this.deps.store().map.get(k)?.seq;
-        } catch (err) {
+        } catch (error) {
           // The in-memory mutation failed: an enqueued frame poisons the WAL
           // exactly like a write failure and rolls the group back; a
           // never-enqueued one only needs the per-op undo (see set()).
           void appended.done.catch(() => {}); // this op throws here; swallow the frame's rejection
           if (group) {
-            wal.poisonPending(err);
+            wal.poisonPending(error);
             this.deps.walGroups.groupNoteKey(group, k, prev);
             this.deps.walGroups.rollbackGroup(group, wal, appended.batchId);
             this.deps.walGroups.kickWalRecovery(wal);
           } else {
             this.restoreGroupKey(k, prev);
           }
-          throw this.deps.walGroups.markAmbiguous(err);
+          throw this.deps.walGroups.markAmbiguous(error);
         }
         this.deps.walGroups.groupNoteKey(group, k, prev);
         try {
           await appended.done;
-        } catch (e) {
+        } catch (error) {
           if (group) this.deps.walGroups.rollbackGroup(group, wal, appended.batchId);
           else this.restoreKey(k, prev, seq);
           this.deps.walGroups.kickWalRecovery(wal);
-          throw this.deps.walGroups.markAmbiguous(e);
+          throw this.deps.walGroups.markAmbiguous(error);
         }
         this.deps.walGroups.settleGroup(group, wal, appended.batchId);
         if (this.deps.valueMode() === 'disk') {

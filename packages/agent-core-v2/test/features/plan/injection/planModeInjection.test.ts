@@ -12,7 +12,7 @@ import {
 } from '../../../harness';
 
 type InjectableDynamicInjector = {
-  inject(): Promise<void>;
+  inject(boundary: undefined, isNewTurn: boolean): Promise<void>;
 };
 
 async function enterPlan(
@@ -28,7 +28,7 @@ async function enterPlan(
 }
 
 async function injectDynamic(injector: InjectableDynamicInjector): Promise<void> {
-  await injector.inject();
+  await injector.inject(undefined, false);
 }
 
 function appendAssistantTurn(
@@ -64,9 +64,9 @@ describe('PlanModeService dynamic injection content', () => {
     readText = async () => '';
     ctx = createTestAgent(execEnvServices({
       hostFs: createFakeHostFs({
-        mkdir: vi.fn().mockResolvedValue(undefined),
+        mkdir: vi.fn().mockResolvedValue(),
         readText: (path: string) => readText(path),
-        writeText: vi.fn(async () => undefined),
+        writeText: vi.fn(async () => {}),
       }),
     }));
     context = ctx.get(IAgentContextMemoryService);
@@ -146,9 +146,9 @@ describe('PlanModeService dynamic injection cadence', () => {
   beforeEach(() => {
     ctx = createTestAgent(execEnvServices({
       hostFs: createFakeHostFs({
-        mkdir: vi.fn().mockResolvedValue(undefined),
+        mkdir: vi.fn().mockResolvedValue(),
         readText: async () => '',
-        writeText: vi.fn(async () => undefined),
+        writeText: vi.fn(async () => {}),
       }),
     }));
     context = ctx.get(IAgentContextMemoryService);

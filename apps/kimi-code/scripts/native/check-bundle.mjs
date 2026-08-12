@@ -74,6 +74,7 @@ function checkBundle(bundlePath, { worker = false } = {}) {
 const bundles = [
   { path: nativeJsBundlePath(), worker: false },
   { path: resolve(nativeIntermediatesDir(), 'text-build-worker.mjs'), worker: true },
+  { path: resolve(nativeIntermediatesDir(), 'search-worker.mjs'), worker: true },
 ];
 let failed = false;
 for (const bundle of bundles) {

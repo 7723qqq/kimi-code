@@ -25,7 +25,7 @@ import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { todoSet, TodoModel } from '#/session/todo/todoOps';
 import { OP_REGISTRY } from '#/wire/op';
 import { MODEL_CROSS_REDUCERS } from '#/wire/model';
-import { IWireService } from '#/wire/wire';
+import type { IWireService } from '#/wire/wire';
 import { AGENT_WIRE_RECORD_KEY } from '#/wire/record';
 import { registerTestAgentWire, restoreTestAgentWire } from './wire/stubs';
 
@@ -76,6 +76,7 @@ const V2_RECORD_TYPES: ReadonlySet<string> = new Set([
   'interaction.resolved',
   'plan.revision',
   'interruptionReminder.recorded',
+  'plugin.session_start',
   'turn.ended',
   'micro_compaction.clamp',
 ]);
@@ -387,7 +388,10 @@ describe('AgentRecords persistence metadata', () => {
     ]);
     expect(ctx.get(IAgentGoalService).getGoal().goal).toBeNull();
     const reminder = context.get().at(-1);
-    expect(reminder?.origin).toEqual({ kind: 'system_trigger', name: 'goal_fork_cleared' });
+    expect(reminder?.origin).toEqual({
+      kind: 'injection',
+      variant: 'goal_fork_cleared',
+    });
     expect(JSON.stringify(reminder?.content)).toContain('This fork does not have a current goal.');
   });
 
@@ -413,8 +417,8 @@ describe('AgentRecords persistence metadata', () => {
       objective: 'fork work',
     });
     expect(context.get().at(-1)?.origin).toEqual({
-      kind: 'system_trigger',
-      name: 'goal_fork_cleared',
+      kind: 'injection',
+      variant: 'goal_fork_cleared',
     });
   });
 

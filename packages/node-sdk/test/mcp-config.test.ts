@@ -19,6 +19,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { TEST_IDENTITY } from './test-identity';
 
+import { mcpOAuthStoreKey } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
+
+import { startMcpAuthStatusServer } from './mcp-auth-status-server';
+
 const tempDirs: string[] = [];
 const stdioFixture = join(
   import.meta.dirname,
@@ -40,6 +44,24 @@ async function makeTempDir(): Promise<string> {
 async function writeMcpConfig(homeDir: string, value: unknown): Promise<void> {
   await mkdir(homeDir, { recursive: true });
   await writeFile(join(homeDir, 'mcp.json'), JSON.stringify(value), 'utf-8');
+}
+
+/**
+ * Pre-write an OAuth token record for a user-global MCP server, mirroring the
+ * v2 engine's `<homeDir>/credentials/mcp/<key>-tokens.json` layout. Plain-text
+ * records are still readable by the engine's store (legacy compatibility), so
+ * no encryption key derivation is needed here.
+ */
+async function writeOAuthToken(
+  homeDir: string,
+  serverName: string,
+  serverUrl: string,
+  token: { access_token: string; token_type: string },
+): Promise<void> {
+  const key = mcpOAuthStoreKey(serverName, serverUrl);
+  const dir = join(homeDir, 'credentials', 'mcp');
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, `${key}-tokens.json`), JSON.stringify(token), 'utf-8');
 }
 
 async function readMcpConfig(homeDir: string): Promise<Record<string, unknown>> {
@@ -216,6 +238,61 @@ describe('standalone MCP check (connection result)', () => {
 });
 
 describe('MCP OAuth facade (host-controlled browser flow)', () => {
+  it('reports persisted authorization without starting an OAuth flow', async () => {
+    const homeDir = await makeTempDir();
+    const statusServer = await startMcpAuthStatusServer();
+    const authorizedUrl = 'https://authorized.example.test/mcp';
+    await writeOAuthToken(homeDir, 'oauth-authorized', authorizedUrl, {
+      access_token: 'test-access-token',
+      token_type: 'Bearer',
+    });
+    await writeOAuthToken(homeDir, 'sse', statusServer.oauthUrl, {
+      access_token: 'stale-sse-token',
+      token_type: 'Bearer',
+    });
+    await writeMcpConfig(homeDir, {
+      mcpServers: {
+        stdio: { command: 'local-command' },
+        plain: { transport: 'http', url: statusServer.plainUrl },
+        detected: { transport: 'http', url: statusServer.oauthUrl },
+        sse: { transport: 'sse', url: statusServer.oauthUrl },
+        'sse-oauth': { transport: 'sse', url: statusServer.oauthUrl, auth: 'oauth' },
+        bearer: {
+          transport: 'http',
+          url: 'https://bearer.example.test/mcp',
+          bearerTokenEnvVar: 'EXAMPLE_MCP_TOKEN',
+        },
+        'oauth-required': {
+          transport: 'http',
+          url: 'https://required.example.test/mcp',
+          auth: 'oauth',
+        },
+        'oauth-authorized': {
+          transport: 'http',
+          url: authorizedUrl,
+          auth: 'oauth',
+        },
+      },
+    });
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      await expect(harness.listMcpServerAuthStatuses()).resolves.toEqual([
+        { name: 'stdio', authStatus: 'not-applicable' },
+        { name: 'plain', authStatus: 'not-applicable' },
+        { name: 'detected', authStatus: 'oauth-required' },
+        { name: 'sse', authStatus: 'not-applicable' },
+        { name: 'sse-oauth', authStatus: 'oauth-required' },
+        { name: 'bearer', authStatus: 'bearer-token' },
+        { name: 'oauth-required', authStatus: 'oauth-required' },
+        { name: 'oauth-authorized', authStatus: 'oauth-authorized' },
+      ]);
+    } finally {
+      await harness.close();
+      await statusServer.close();
+    }
+  }, 15_000);
+
   it('resets authorization for a configured remote server', async () => {
     const homeDir = await makeTempDir();
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
@@ -246,7 +323,7 @@ describe('MCP OAuth facade (host-controlled browser flow)', () => {
       });
 
       await expect(
-        harness.authenticateMcpServer('local', { onAuthorizationUrl: () => undefined }),
+        harness.authenticateMcpServer('local', { onAuthorizationUrl: () => {} }),
       ).rejects.toMatchObject({ code: 'request.invalid' });
     } finally {
       await harness.close();
@@ -327,8 +404,8 @@ function oauthHarness(rpc: OAuthRpc): KimiHarness {
     homeDir: '/tmp/kimi-sdk-mcp-oauth-home',
     configPath: '/tmp/kimi-sdk-mcp-oauth-home/config.toml',
     auth: {} as never,
-    telemetry: { track: () => undefined },
-    ensureConfigFile: async () => undefined,
-    onClose: async () => undefined,
+    telemetry: { track: () => {} },
+    ensureConfigFile: async () => {},
+    onClose: async () => {},
   });
 }

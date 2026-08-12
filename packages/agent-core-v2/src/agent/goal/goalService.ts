@@ -16,7 +16,7 @@
  * `StepRequest`s onto `loop` (the continuation message materializes when the
  * loop pops it), accounts live
  * turn usage through `usage`, observes terminal goal tool results through
- * `toolExecutor`, writes system reminders through `systemReminder`, reports
+ * `toolExecutor`, appends one-time reminder events through `systemReminder`, reports
  * telemetry through `telemetry`, and checks main-agent eligibility through
  * `scopeContext`. Measures time and arms hard deadlines through `goal`'s
  * App-scoped deadline scheduler. Two `onBeforeExecuteTool` veto listeners
@@ -66,9 +66,9 @@ import {
 } from '#/agent/loop/loop';
 import { LoopErrors } from '#/agent/loop/errors';
 import { ContinuationStepRequest, MessageStepRequest } from '#/agent/loop/stepRequest';
-import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import type { ExecutableToolResult } from '#/tool/toolContract';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
@@ -226,10 +226,9 @@ const GoalForkNoticeModel = defineModel<GoalForkNoticeState>(
 );
 
 function isGoalForkClearedReminder(message: ContextMessage | undefined): boolean {
-  return (
-    message?.origin?.kind === 'system_trigger' &&
-    message.origin.name === GOAL_FORK_CLEARED_REMINDER_NAME
-  );
+  const origin = message?.origin;
+  if (origin?.kind === 'injection') return origin.variant === GOAL_FORK_CLEARED_REMINDER_NAME;
+  return origin?.kind === 'system_trigger' && origin.name === GOAL_FORK_CLEARED_REMINDER_NAME;
 }
 
 function isGoalContinuationOrigin(origin: TurnStartedEvent['origin']): boolean {
@@ -301,7 +300,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     @IEventBus private readonly eventBus: IEventBus,
     @IAgentSystemReminderService private readonly reminders: IAgentSystemReminderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IAgentContextInjectorService dynamicInjector: IAgentContextInjectorService,
+    @IAgentContextInjectorService injector: IAgentContextInjectorService,
     @IAgentLoopService private readonly loopService: IAgentLoopService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
     @IAgentToolApprovalService private readonly toolApproval: IAgentToolApprovalService,
@@ -331,7 +330,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
         {
           getGoal: () => this.getGoal().goal,
         },
-        dynamicInjector,
+        injector,
       ),
     );
     this._register(
@@ -685,8 +684,8 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this.clearInternal(actor);
     if (actor === 'user') {
       this.reminders.appendSystemReminder(GOAL_CANCELLED_REMINDER, {
-        kind: 'system_trigger',
-        name: 'goal_cancelled',
+        kind: 'injection',
+        variant: 'goal_cancelled',
       });
     }
     return snapshot;
@@ -951,8 +950,8 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
         Math.floor(state.wallClockMs / 1000),
       );
       this.reminders.appendSystemReminder(budgetPrompt ?? GOAL_BUDGET_STOP_REMINDER, {
-        kind: 'system_trigger',
-        name: GOAL_BUDGET_STOP_REMINDER_NAME,
+        kind: 'injection',
+        variant: GOAL_BUDGET_STOP_REMINDER_NAME,
       });
       return true;
     }
@@ -1186,8 +1185,8 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   private appendForkClearedReminder(): void {
     if (!this.wire.getModel(GoalForkNoticeModel).reminderPending) return;
     this.reminders.appendSystemReminder(GOAL_FORK_CLEARED_REMINDER, {
-      kind: 'system_trigger',
-      name: GOAL_FORK_CLEARED_REMINDER_NAME,
+      kind: 'injection',
+      variant: GOAL_FORK_CLEARED_REMINDER_NAME,
     });
   }
 
