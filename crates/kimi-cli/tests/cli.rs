@@ -177,11 +177,21 @@ fn doctor_config_validates_specific_file() {
     std::fs::write(&bad, "[model]\nname = \"x\"\n").expect("write");
     let output = run(&home, &["doctor", "config", bad.to_str().unwrap()]);
     assert_eq!(output.status.code(), Some(1), "bad config should fail");
-    assert!(stdout(&output).contains("ERROR"), "ERROR line: {}", stdout(&output));
+    // TS parity: a failing doctor report lands on stderr, never stdout.
+    assert!(
+        stderr(&output).contains("ERROR"),
+        "ERROR line on stderr: {}",
+        stderr(&output)
+    );
+    assert!(
+        !stdout(&output).contains("ERROR"),
+        "stdout stays clean on failure: {}",
+        stdout(&output)
+    );
 
     let output = run(&home, &["doctor", "config", home.join("nope.toml").to_str().unwrap()]);
     assert_eq!(output.status.code(), Some(1), "missing file should fail");
-    assert!(stdout(&output).contains("File does not exist."));
+    assert!(stderr(&output).contains("File does not exist."));
 }
 
 #[test]
@@ -563,6 +573,164 @@ fn upgrade_and_frontend_commands_are_recognized() {
     assert!(ok, "kimi web serves /api/v1/health");
 }
 
+#[test]
+fn print_resume_rejects_cross_directory() {
+    // TS `resolvePromptSession` parity: `-S <id>` refuses to resume a
+    // session created under a different directory (hint + error on stderr).
+    let home = temp_dir("print-session-dir");
+    let cwd_a = temp_dir("print-session-dir-a");
+    let cwd_b = temp_dir("print-session-dir-b");
+    // Seed a session recorded under cwd_a via the chat REPL.
+    let mut child = Command::new(binary())
+        .args(["chat", "-s", "s-cross-dir"])
+        .current_dir(&cwd_a)
+        .env("KIMI_AGENT_HOME", &home)
+        .env("KIMI_CODE_HOME", &home)
+        .env("HOME", &home)
+        .env_remove("KIMI_MODEL")
+        .env_remove("KIMI_MODEL_API_KEY")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn kimi chat");
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().expect("stdin");
+        stdin.write_all(b"/quit\n").expect("write");
+    }
+    assert!(child.wait().expect("wait").success(), "chat seeds the session");
+
+    let run_in = |cwd: &Path| {
+        Command::new(binary())
+            .args(["-p", "hi", "-S", "s-cross-dir"])
+            .current_dir(cwd)
+            .env("KIMI_AGENT_HOME", &home)
+            .env("KIMI_CODE_HOME", &home)
+            .env("HOME", &home)
+            .env_remove("KIMI_MODEL")
+            .env_remove("KIMI_MODEL_API_KEY")
+            .output()
+            .expect("spawn kimi -p -S")
+    };
+    // From another directory: rejected before any prompt runs (no LLM needed).
+    let output = run_in(&cwd_b);
+    assert_eq!(output.status.code(), Some(1), "cross-dir resume rejected");
+    let err = stderr(&output);
+    assert!(
+        err.contains("created under a different directory"),
+        "error names the mismatch: {err}"
+    );
+    assert!(
+        err.contains("cd") && err.contains("s-cross-dir"),
+        "hint suggests the cd command: {err}"
+    );
+    // From the recorded directory: the guard passes and the run proceeds to
+    // the (LLM-less) engine error — never the directory mismatch.
+    let output = run_in(&cwd_a);
+    assert_eq!(output.status.code(), Some(1), "LLM-less prompt still fails");
+    assert!(
+        !stderr(&output).contains("different directory"),
+        "same-dir resume must not be rejected: {}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn web_refuses_non_loopback_without_tls_opt_in() {
+    // TS `--insecure-no-tls` parity: a non-loopback bind without the opt-in
+    // fails fast (serve-binary refusal), instead of binding open.
+    let home = temp_dir("web-tls");
+    let output = run(
+        &home,
+        &["web", "--no-open", "--host", "0.0.0.0", "--port", "28628", "--no-insecure-no-tls"],
+    );
+    assert_eq!(output.status.code(), Some(1), "non-loopback bind refused");
+    assert!(
+        stderr(&output).contains("refusing to bind"),
+        "refusal message: {}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn web_log_level_is_validated_then_rejected() {
+    // TS `--log-level` parity: invalid values fail like TS; valid values are
+    // not silently ignored — the Rust server has no log-level capability.
+    let home = temp_dir("web-loglevel");
+    let output = run(&home, &["web", "--no-open", "--log-level", "info", "--port", "28629"]);
+    assert_eq!(output.status.code(), Some(1), "valid level rejected clearly");
+    assert!(
+        stderr(&output).contains("not supported"),
+        "clear not-supported error: {}",
+        stderr(&output)
+    );
+    let output = run(&home, &["web", "--no-open", "--log-level", "bogus", "--port", "28629"]);
+    assert_eq!(output.status.code(), Some(1), "invalid level rejected");
+    assert!(
+        stderr(&output).contains("invalid log level"),
+        "TS-style invalid-level error: {}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn web_allow_remote_shutdown_route_stops_server() {
+    // TS `--allow-remote-shutdown` parity: `POST /api/v1/shutdown` stops the
+    // server gracefully on a loopback bind (always allowed there).
+    let home = temp_dir("web-shutdown");
+    let mut child = Command::new(binary())
+        .args(["web", "--no-open", "--port", "28630", "--allow-remote-shutdown", "--dangerous-bypass-auth"])
+        .current_dir(&home)
+        .env("KIMI_AGENT_HOME", &home)
+        .env("KIMI_CODE_HOME", &home)
+        .env("HOME", &home)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn kimi web");
+    let mut healthy = false;
+    for _ in 0..40 {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        if let Ok(mut stream) = std::net::TcpStream::connect(("127.0.0.1", 28630)) {
+            use std::io::{Read, Write};
+            let _ = stream.write_all(
+                b"GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+            );
+            let mut buf = [0u8; 512];
+            let _ = stream.read(&mut buf);
+            if String::from_utf8_lossy(&buf).contains("200") {
+                healthy = true;
+                break;
+            }
+        }
+    }
+    assert!(healthy, "kimi web serves /api/v1/health");
+    let _ = std::net::TcpStream::connect(("127.0.0.1", 28630)).and_then(|mut stream| {
+        use std::io::{Read, Write};
+        let _ = stream.write_all(
+            b"POST /api/v1/shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
+        let mut buf = [0u8; 512];
+        let _ = stream.read(&mut buf);
+        Ok(())
+    });
+    let mut exited = false;
+    for _ in 0..40 {
+        if child.try_wait().expect("try_wait").is_some() {
+            exited = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    if !exited {
+        let _ = child.kill();
+    }
+    let status = child.wait().expect("wait");
+    assert!(exited, "shutdown route stopped the server");
+    assert!(status.success(), "graceful shutdown exits 0: {status}");
+}
+
 /// Serve fixed `latest`-manifest JSON on an ephemeral local listener. The
 /// thread answers one request (the upgrade command sends exactly one) and
 /// exits; returns the registry URL plus the thread handle.
@@ -695,11 +863,60 @@ fn print_long_prompt_and_attached_value_match_the_subcommand() {
 #[test]
 fn print_resumes_explicit_session() {
     // TS parity: `-p x -S <id>` (or `print -S <id>`) resumes the named
-    // session for the prompt instead of silently running a fresh one — the
-    // persisted session must appear in the listing afterwards.
+    // session for the prompt. An unknown id is rejected up front (TS
+    // "session not found") — it must NOT be silently created — and a
+    // persisted session under the same directory is resumed.
     let home = temp_dir("print-resume-session");
+    // Unknown session: rejected before any prompt (no LLM needed).
     let out = run(&home, &["print", "-S", "resume-me", "hi"]);
+    assert_eq!(out.status.code(), Some(1), "unknown session rejected");
+    assert!(
+        stderr(&out).contains("not found"),
+        "not-found error: {}",
+        stderr(&out)
+    );
+    let list = run(&home, &["sessions", "--json"]);
+    assert!(
+        !stdout(&list).contains("resume-me"),
+        "unknown session must not be created: {}",
+        stdout(&list)
+    );
+
+    // Known session (seeded under the same cwd): resume proceeds and the
+    // prompt fails only on the missing LLM.
+    let cwd = temp_dir("print-resume-session-cwd");
+    let mut child = Command::new(binary())
+        .args(["chat", "-s", "resume-me"])
+        .current_dir(&cwd)
+        .env("KIMI_AGENT_HOME", &home)
+        .env("KIMI_CODE_HOME", &home)
+        .env("HOME", &home)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn kimi chat");
+    {
+        use std::io::Write;
+        child.stdin.as_mut().expect("stdin").write_all(b"/quit\n").expect("write");
+    }
+    assert!(child.wait().expect("wait").success(), "chat seeds the session");
+    let out = Command::new(binary())
+        .args(["print", "-S", "resume-me", "hi"])
+        .current_dir(&cwd)
+        .env("KIMI_AGENT_HOME", &home)
+        .env("KIMI_CODE_HOME", &home)
+        .env("HOME", &home)
+        .env_remove("KIMI_MODEL")
+        .env_remove("KIMI_MODEL_API_KEY")
+        .output()
+        .expect("spawn kimi print");
     assert!(!out.status.success(), "no LLM -> print errors: {}", out.status);
+    assert!(
+        !stderr(&out).contains("different directory"),
+        "same-dir resume must pass the guard: {}",
+        stderr(&out)
+    );
     let list = run(&home, &["sessions", "--json"]);
     assert!(stdout(&list).contains("resume-me"), "session listed: {}", stdout(&list));
 }
@@ -772,12 +989,14 @@ fn doctor_tui_validates_specific_file() {
     std::fs::write(&invalid, "theme = { accent = }\n").expect("write invalid");
     let out = run(&home, &["doctor", "tui", invalid.to_str().expect("path")]);
     assert!(!out.status.success(), "invalid tui exits 1");
-    assert!(stdout(&out).contains("ERROR tui.toml"), "stdout: {}", stdout(&out));
+    // TS parity: the failing report lands on stderr, not stdout.
+    assert!(stderr(&out).contains("ERROR tui.toml"), "stderr: {}", stderr(&out));
+    assert!(!stdout(&out).contains("ERROR"), "stdout stays clean: {}", stdout(&out));
 
     let missing = home.join("tui-missing.toml");
     let out = run(&home, &["doctor", "tui", missing.to_str().expect("path")]);
     assert!(!out.status.success(), "missing tui exits 1");
-    assert!(stdout(&out).contains("ERROR tui.toml"), "stdout: {}", stdout(&out));
+    assert!(stderr(&out).contains("ERROR tui.toml"), "stderr: {}", stderr(&out));
 }
 
 #[test]
@@ -929,9 +1148,37 @@ fn chat_undo_and_fork_offline() {
 #[test]
 fn print_goal_mode_creates_goal() {
     // print --goal runs create -> goal_create -> prompt; the prompt errors
-    // without an LLM but the goal persists on the session.
+    // without an LLM but the goal persists on the session. The session is
+    // seeded under the same cwd first (-S resumes, it does not create).
     let home = temp_dir("print-goal");
-    let out = run(&home, &["print", "-S", "goal-test-session", "--goal", "do the thing", "hi"]);
+    let cwd = temp_dir("print-goal-cwd");
+    let mut seed = Command::new(binary())
+        .args(["chat", "-s", "goal-test-session"])
+        .current_dir(&cwd)
+        .env("KIMI_AGENT_HOME", &home)
+        .env("KIMI_CODE_HOME", &home)
+        .env("HOME", &home)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn kimi chat");
+    {
+        use std::io::Write;
+        seed.stdin.as_mut().expect("stdin").write_all(b"/quit\n").expect("write");
+    }
+    assert!(seed.wait().expect("wait").success(), "chat seeds the session");
+
+    let out = Command::new(binary())
+        .args(["print", "-S", "goal-test-session", "--goal", "do the thing", "hi"])
+        .current_dir(&cwd)
+        .env("KIMI_AGENT_HOME", &home)
+        .env("KIMI_CODE_HOME", &home)
+        .env("HOME", &home)
+        .env_remove("KIMI_MODEL")
+        .env_remove("KIMI_MODEL_API_KEY")
+        .output()
+        .expect("spawn kimi print");
     assert!(!out.status.success(), "no LLM -> print errors: {}", out.status);
 
     // The goal is readable back on the same session via chat /goal-status.

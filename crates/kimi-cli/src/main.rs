@@ -165,6 +165,82 @@ fn parse_headless_goal(prompt: &str) -> Result<Option<HeadlessGoalCreate>, Strin
     Ok(Some(HeadlessGoalCreate { objective, replace }))
 }
 
+/// Resolve the effective goal setup from the explicit `--goal` flag and the
+/// `/goal <objective>` prompt prefix (TS `parseHeadlessGoalCreate` parity):
+/// the explicit flag wins; the prefix carries the `replace` flag through.
+fn resolve_goal_setup(
+    goal: Option<String>,
+    prompt: &str,
+) -> Result<(Option<String>, bool), String> {
+    match goal {
+        Some(goal) => Ok((Some(goal), false)),
+        None => match parse_headless_goal(prompt)? {
+            Some(parsed) => Ok((Some(parsed.objective), parsed.replace)),
+            None => Ok((None, false)),
+        },
+    }
+}
+
+/// Lexical path normalization (TS `resolve` parity for the work-dir
+/// comparison): collapse `.`/`..` and join relative paths against the cwd
+/// WITHOUT touching the filesystem — a record's work_dir may point at a
+/// directory that no longer exists.
+fn normalize_work_dir(path: &str) -> String {
+    let path = std::path::Path::new(path);
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else if let Ok(cwd) = std::env::current_dir() {
+        cwd.join(path)
+    } else {
+        path.to_path_buf()
+    };
+    let mut out = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                // Fold `..` up to (but never past) the root/prefix —
+                // `/..` and `C:\..\a` stay at the root, like `resolve()`.
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out.to_string_lossy().into_owned()
+}
+
+/// TS `resolvePromptSession` parity for `-S <id>`: the target session's
+/// work_dir must match the current directory, otherwise the resume is
+/// rejected (a hint with the `cd` command goes to stderr first, mirroring
+/// run-prompt.ts). `Ok(())` on match; the error message otherwise.
+async fn check_resume_work_dir(
+    client: &mut kimi_server_client::AppServerClient,
+    session_id: &str,
+    cwd: &std::path::Path,
+) -> Result<(), String> {
+    let body = client
+        .call(kimi_protocol::methods::SESSION_LIST, serde_json::json!({ "limit": 100 }))
+        .await;
+    let sessions = body["result"]["sessions"].as_array().cloned().unwrap_or_default();
+    let target = sessions.iter().find(|s| s["id"].as_str() == Some(session_id));
+    let Some(target) = target else {
+        return Err(format!("Session \"{session_id}\" not found."));
+    };
+    let Some(work_dir) = target["work_dir"].as_str() else {
+        return Err(format!("Session \"{session_id}\" has no recorded work directory."));
+    };
+    if work_dir.trim().is_empty() {
+        return Err(format!("Session \"{session_id}\" has no recorded work directory."));
+    }
+    if normalize_work_dir(work_dir) == normalize_work_dir(&cwd.to_string_lossy()) {
+        return Ok(());
+    }
+    eprintln!("Session \"{session_id}\" was created under a different directory.");
+    eprintln!("  cd \"{work_dir}\" && kimi -r {session_id}");
+    eprintln!();
+    Err(format!("Session \"{session_id}\" was created under a different directory."))
+}
+
 /// Split a SKILL.md body into its `---`-fenced frontmatter block and the
 /// remaining markdown content. A missing fence yields an empty meta block
 /// and the full text as content.
@@ -486,6 +562,24 @@ fn open_browser(url: &str) {
         .map(|_| ());
 }
 
+/// TS `parseLogLevel` parity for `kimi web --log-level`: the value is
+/// validated against the accepted set; the Rust server has no log-level
+/// capability yet, so a valid value fails with a clear "not supported"
+/// error instead of being silently ignored (invalid values fail like TS).
+fn check_web_log_level(level: Option<&str>) -> Result<(), String> {
+    const VALID: &[&str] = &["fatal", "error", "warn", "info", "debug", "trace", "silent"];
+    let Some(level) = level else {
+        return Ok(());
+    };
+    if !VALID.contains(&level) {
+        return Err(format!(
+            "invalid log level \"{level}\" (allowed: {})",
+            VALID.join(", ")
+        ));
+    }
+    Err("--log-level is not supported by the Rust server yet".to_string())
+}
+
 /// Launch the web UI server — an in-process `kimi-server-serve --http`
 /// equivalent (Rust `/api/v1` + WS + optional SPA assets). Auth follows the
 /// serve-binary resolution: `KIMI_CODE_PASSWORD`, then
@@ -498,7 +592,18 @@ async fn run_web(
     no_open: bool,
     assets: Option<&str>,
     allowed_hosts: Vec<String>,
+    insecure_no_tls: bool,
+    allow_remote_shutdown: bool,
 ) -> anyhow::Result<()> {
+    // `kimi-server-serve` parity: a non-loopback bind without TLS is refused
+    // unless `--insecure-no-tls` opts in (TS forwards the flag to the server
+    // binary; the default is on).
+    let loopback = kimi_server_transport::http::is_loopback_host(host);
+    if !loopback && !insecure_no_tls {
+        anyhow::bail!(
+            "refusing to bind {host}:{port} without TLS; terminate TLS at a reverse proxy or pass --insecure-no-tls"
+        );
+    }
     let server = kimi_server::Server::build()?;
     let processor = std::sync::Arc::new(server.processor);
     let auth = web_auth_config(no_auth);
@@ -513,12 +618,18 @@ async fn run_web(
         extra: allowed_hosts,
         ..Default::default()
     };
+    // Arm `/api/v1/shutdown` so `POST /api/v1/shutdown` stops the server
+    // gracefully; on a non-loopback bind the route answers a refusal unless
+    // `--allow-remote-shutdown` opts in (serve-binary parity).
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     let state = kimi_server_transport::http::HttpState::with_events(
         processor,
         server.state.event_sender(),
     )
     .with_auth(auth)
-    .with_host_check(host_check);
+    .with_host_check(host_check)
+    .with_allow_remote_shutdown(loopback || allow_remote_shutdown)
+    .with_shutdown(std::sync::Arc::new(tokio::sync::Mutex::new(Some(shutdown_tx))));
     let listener = tokio::net::TcpListener::bind((host, port)).await?;
     println!("Kimi Code web server running at {url}");
     if !no_open {
@@ -529,7 +640,12 @@ async fn run_web(
         None => kimi_server_transport::http::router(state),
     };
     axum::serve(listener, kimi_server_transport::http::colon_make_service(router))
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(async move {
+            tokio::select! {
+                _ = shutdown_rx => {},
+                _ = shutdown_signal() => {},
+            }
+        })
         .await?;
     Ok(())
 }
@@ -950,6 +1066,22 @@ enum Commands {
         /// comma-separated).
         #[arg(long, num_args = 1..)]
         allowed_hosts: Vec<String>,
+        /// Allow a non-loopback bind without TLS (TS `--insecure-no-tls`
+        /// parity; on by default — pass `--no-insecure-no-tls` to refuse).
+        #[arg(long = "insecure-no-tls", action = clap::ArgAction::SetTrue)]
+        insecure_no_tls: bool,
+        /// TS negation of the default-on `--insecure-no-tls` opt-in.
+        #[arg(long = "no-insecure-no-tls", action = clap::ArgAction::SetTrue)]
+        no_insecure_no_tls: bool,
+        /// Enable `POST /api/v1/shutdown` on a non-loopback bind (TS
+        /// `--allow-remote-shutdown` parity; always on for loopback binds).
+        #[arg(long)]
+        allow_remote_shutdown: bool,
+        /// Server log level (TS `--log-level` parity; the Rust server has no
+        /// log-level capability yet — a valid value errors clearly instead of
+        /// being silently ignored).
+        #[arg(long = "log-level", value_name = "level")]
+        log_level: Option<String>,
         #[command(subcommand)]
         cmd: Option<WebCmd>,
     },
@@ -1115,6 +1247,33 @@ fn check_tui_file(path: &std::path::Path, explicit: bool) -> (String, Option<Str
             Err(e) => ("ERROR".to_string(), Some(e.to_string())),
         },
         Err(e) => ("ERROR".to_string(), Some(e.to_string())),
+    }
+}
+
+/// One `STATUS label(12) path` line per checked file, with indented detail
+/// lines (TS `formatResults` parity).
+fn check_lines(
+    results: &[(String, String, std::path::PathBuf, Option<String>)],
+    out: &mut Vec<String>,
+) {
+    for (status, label, path, message) in results {
+        out.push(format!("{status} {label:<12} {}", path.display()));
+        if let Some(msg) = message {
+            for line in msg.lines() {
+                out.push(format!("  {line}"));
+            }
+        }
+    }
+}
+
+/// TS `handleDoctor` parity: the whole doctor report goes to stdout when
+/// every check passed and to stderr when any failed — a failing doctor must
+/// not pollute stdout (CI captures it).
+fn doctor_line(to_stderr: bool, line: &str) {
+    if to_stderr {
+        eprintln!("{line}");
+    } else {
+        println!("{line}");
     }
 }
 
@@ -1286,6 +1445,95 @@ mod headless_tests {
             kimi_tui::i18n::t("cli.goal.provideObjective")
         );
         assert!(parse_headless_goal(&format!("/goal {}", "x".repeat(4001))).is_err());
+    }
+
+    #[test]
+    fn resolve_goal_setup_explicit_flag_wins_and_prefix_carries_replace() {
+        // Explicit `--goal` wins; no replace flag.
+        let (goal, replace) = resolve_goal_setup(Some("explicit".into()), "/goal replace prefix").unwrap();
+        assert_eq!(goal.as_deref(), Some("explicit"));
+        assert!(!replace);
+        // Prefix carries the objective and the `replace` flag.
+        let (goal, replace) = resolve_goal_setup(None, "/goal replace ship it").unwrap();
+        assert_eq!(goal.as_deref(), Some("ship it"));
+        assert!(replace);
+        let (goal, replace) = resolve_goal_setup(None, "/goal ship it").unwrap();
+        assert_eq!(goal.as_deref(), Some("ship it"));
+        assert!(!replace);
+        // No goal at all.
+        let (goal, replace) = resolve_goal_setup(None, "plain prompt").unwrap();
+        assert!(goal.is_none());
+        assert!(!replace);
+        // Malformed prefix still errors.
+        assert!(resolve_goal_setup(None, "/goal replace").is_err());
+    }
+
+    #[test]
+    fn normalize_work_dir_collapses_dot_dot_and_joins_cwd() {
+        let cwd = std::env::current_dir().unwrap();
+        let cwd_str = cwd.to_string_lossy().to_string();
+        // `.` and `..` collapse lexically; a relative path joins against the
+        // cwd (TS `resolve` parity). `/a` is absolute on POSIX but
+        // drive-relative on Windows, so the absolute-path cases are
+        // platform-adaptive.
+        assert_eq!(normalize_work_dir("."), cwd_str);
+        assert_eq!(normalize_work_dir("sub"), cwd.join("sub").to_string_lossy().into_owned());
+        assert_eq!(normalize_work_dir("a/../b"), cwd.join("b").to_string_lossy().into_owned());
+        if std::path::Path::new("/a").is_absolute() {
+            assert_eq!(normalize_work_dir("/a/../b"), "/b");
+            assert_eq!(normalize_work_dir("/a/./b"), "/a/b");
+            assert_eq!(normalize_work_dir("/.."), "/");
+            assert_eq!(
+                normalize_work_dir(".."),
+                cwd.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or(cwd_str)
+            );
+        }
+        // Windows-style absolute paths normalize the same way.
+        if std::path::Path::new("C:\\a").is_absolute() {
+            assert_eq!(normalize_work_dir("C:\\a\\..\\b"), "C:\\b");
+        }
+        // The normalized form is stable across equivalent spellings.
+        assert_eq!(normalize_work_dir("/x/./y/../z"), normalize_work_dir("/x/z"));
+    }
+
+    #[tokio::test]
+    async fn check_resume_work_dir_matches_and_rejects() {
+        let server = kimi_server::Server::build().expect("server");
+        let mut client = kimi_server_client::AppServerClient::InProcess(
+            kimi_server::in_process::spawn(server.processor),
+        );
+        let dir_a = std::env::temp_dir().join(format!("kimi-rdir-a-{}", std::process::id()));
+        let dir_b = std::env::temp_dir().join(format!("kimi-rdir-b-{}", std::process::id()));
+        std::fs::create_dir_all(&dir_a).unwrap();
+        std::fs::create_dir_all(&dir_b).unwrap();
+        let created = client
+            .call(
+                kimi_protocol::methods::SESSION_CREATE,
+                serde_json::json!({ "session_id": "s-dir-check", "work_dir": dir_a.to_string_lossy() }),
+            )
+            .await;
+        assert!(created.get("error").is_none(), "create: {created}");
+        // Same directory (lexically) -> allowed.
+        let ok = check_resume_work_dir(&mut client, "s-dir-check", &dir_a).await;
+        assert!(ok.is_ok(), "same dir must pass: {ok:?}");
+        // Different directory -> rejected.
+        let err = check_resume_work_dir(&mut client, "s-dir-check", &dir_b).await;
+        let err = err.expect_err("different dir must fail");
+        assert!(err.contains("different directory"), "error: {err}");
+        // Unknown session id -> not found.
+        let err = check_resume_work_dir(&mut client, "s-missing", &dir_a).await;
+        assert!(err.unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn web_log_level_validates_then_reports_unsupported() {
+        assert!(check_web_log_level(None).is_ok());
+        let err = check_web_log_level(Some("bogus")).unwrap_err();
+        assert!(err.contains("invalid log level"), "err: {err}");
+        for level in ["fatal", "error", "warn", "info", "debug", "trace", "silent"] {
+            let err = check_web_log_level(Some(level)).unwrap_err();
+            assert!(err.contains("not supported"), "{level}: {err}");
+        }
     }
 
     #[test]
@@ -2741,22 +2989,28 @@ async fn main() -> anyhow::Result<()> {
                 }
                 _ => fresh_print_session_id(),
             };
+            // TS `resolvePromptSession` parity: an explicit `-S <id>` must not
+            // resume a session created under a different directory — the
+            // record's work_dir is compared (lexically) against the cwd and
+            // the resume is rejected on mismatch.
+            if let Some(Some(id)) = &session {
+                let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                if let Err(message) = check_resume_work_dir(&mut client, id, &cwd).await {
+                    eprintln!("error: {message}");
+                    std::process::exit(1);
+                }
+            }
             // `/goal <objective>` prompt prefix (TS `parseHeadlessGoalCreate`
             // parity): the objective is sent as the prompt and a goal is
-            // created first. An explicit `--goal` wins over the prefix. The
-            // parsed `replace` flag is not plumbed through `PromptSetup`
-            // (kimi-exec owns the create) — the objective strips cleanly
-            // either way.
-            let goal = match goal {
-                Some(goal) => Some(goal),
-                None => match parse_headless_goal(&prompt) {
-                    Ok(Some(parsed)) => Some(parsed.objective),
-                    Ok(None) => None,
-                    Err(message) => {
-                        eprintln!("error: {message}");
-                        std::process::exit(1);
-                    }
-                },
+            // created first. An explicit `--goal` wins over the prefix; the
+            // prefix's `replace` flag is plumbed into `PromptSetup` so a
+            // `/goal replace` headless run swaps an active goal.
+            let (goal, goal_replace) = match resolve_goal_setup(goal, &prompt) {
+                Ok(setup) => setup,
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    std::process::exit(1);
+                }
             };
             let has_goal = goal.is_some();
             // Goal mode is applied inside run_prompt_with_setup, AFTER the
@@ -2768,6 +3022,7 @@ async fn main() -> anyhow::Result<()> {
                 model,
                 plan,
                 goal,
+                goal_replace,
                 resume,
                 // TS `-p` unconditionally runs with permission auto — a
                 // headless prompt must never block on an approval.
@@ -3123,17 +3378,8 @@ async fn main() -> anyhow::Result<()> {
             // TS `kimi doctor` output contract: a title, one
             // `STATUS label(12) path` line per checked file with indented
             // detail, and a closing verdict. Rust keeps the health/config
-            // summary as an extra block before the file checks.
-            let print_results = |results: &[(String, String, std::path::PathBuf, Option<String>)]| {
-                for (status, label, path, message) in results {
-                    println!("{status} {label:<12} {}", path.display());
-                    if let Some(msg) = message {
-                        for line in msg.lines() {
-                            println!("  {line}");
-                        }
-                    }
-                }
-            };
+            // summary as an extra block before the file checks. The whole
+            // report lands on stderr when any check failed (TS parity).
             // `kimi doctor tui [path]` — validate one specific tui.toml file
             // (TS `doctor tui` parity): existence, then TOML parse.
             if let Some(DoctorTarget::Tui { path }) = target {
@@ -3143,10 +3389,12 @@ async fn main() -> anyhow::Result<()> {
                 };
                 let (status, message) = check_tui_file(&resolved, true);
                 let is_error = status == "ERROR";
-                println!("Kimi doctor");
-                println!();
-                print_results(&[(status, "tui.toml".into(), resolved, message)]);
-                println!();
+                let mut lines = vec!["Kimi doctor".to_string(), String::new()];
+                check_lines(&[(status, "tui.toml".into(), resolved, message)], &mut lines);
+                lines.push(String::new());
+                for line in &lines {
+                    doctor_line(is_error, line);
+                }
                 finish_doctor(if is_error { 1 } else { 0 });
                 return Ok(());
             }
@@ -3162,35 +3410,38 @@ async fn main() -> anyhow::Result<()> {
                 };
                 let (status, message) = check_config_file(&resolved, true);
                 let is_error = status == "ERROR";
-                println!("Kimi doctor");
-                println!();
-                print_results(&[(status, "config.toml".into(), resolved, message)]);
-                println!();
+                let mut lines = vec!["Kimi doctor".to_string(), String::new()];
+                check_lines(&[(status, "config.toml".into(), resolved, message)], &mut lines);
+                lines.push(String::new());
+                for line in &lines {
+                    doctor_line(is_error, line);
+                }
                 finish_doctor(if is_error { 1 } else { 0 });
                 return Ok(());
             }
 
             // Full doctor (TS parity): the default config.toml + tui.toml.
-            println!("Kimi doctor");
+            let mut lines = vec!["Kimi doctor".to_string()];
             let harness = connect_harness(&server)?;
+            let mut engine_failed = false;
             match harness.health().await {
-                Ok(status) => println!("health: {status}"),
+                Ok(status) => lines.push(format!("health: {status}")),
                 Err(e) => {
-                    println!("health: error — {e}");
                     // A doctor that cannot reach a healthy engine must fail
                     // the check for CI (not just print and exit 0).
-                    std::process::exit(1);
+                    lines.push(format!("health: error — {e}"));
+                    engine_failed = true;
                 }
             }
             match harness.config().await {
                 Ok(config) => {
                     let model = config["model"].as_str().unwrap_or("");
                     let provider = config["provider"].as_str().unwrap_or("");
-                    println!("config: model={model} provider={provider}");
+                    lines.push(format!("config: model={model} provider={provider}"));
                 }
-                Err(e) => println!("config: error — {e}"),
+                Err(e) => lines.push(format!("config: error — {e}")),
             }
-            println!();
+            lines.push(String::new());
 
             // File-level checks (TS parity): the default config path and the
             // default tui path; a missing default file is SKIP, not ERROR.
@@ -3211,9 +3462,17 @@ async fn main() -> anyhow::Result<()> {
                 (config_status, "config.toml".into(), config_path, config_message),
                 (tui_status, "tui.toml".into(), tui_path, tui_message),
             ];
-            print_results(&results);
-            println!();
-            finish_doctor(results.iter().filter(|r| r.0 == "ERROR").count());
+            check_lines(&results, &mut lines);
+            lines.push(String::new());
+            let issue_count = results.iter().filter(|r| r.0 == "ERROR").count();
+            let to_stderr = engine_failed || issue_count > 0;
+            for line in &lines {
+                doctor_line(to_stderr, line);
+            }
+            if engine_failed {
+                std::process::exit(1);
+            }
+            finish_doctor(issue_count);
         }
         Commands::Health => {
             let client = connect(&server)?;
@@ -3378,9 +3637,31 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("{}", kimi_tui::i18n::t("cli.server.deprecated"));
             std::process::exit(1);
         }
-        Commands::Web { port, host, dangerous_bypass_auth, no_open, assets, allowed_hosts, cmd } => {
+        Commands::Web {
+            port,
+            host,
+            dangerous_bypass_auth,
+            no_open,
+            assets,
+            allowed_hosts,
+            insecure_no_tls,
+            no_insecure_no_tls,
+            allow_remote_shutdown,
+            log_level,
+            cmd,
+        } => {
             if matches!(cmd, Some(WebCmd::RotateToken)) {
                 return rotate_server_token();
+            }
+            // TS negation parity: `--no-insecure-no-tls` flips the default-on
+            // opt-in off (conservative when both flags are given).
+            let insecure_no_tls = insecure_no_tls && !no_insecure_no_tls;
+            // TS `parseLogLevel` parity: validate the value first; the Rust
+            // server has no log-level capability, so a valid value fails with
+            // a clear "not supported" error rather than being ignored.
+            if let Err(message) = check_web_log_level(log_level.as_deref()) {
+                eprintln!("error: {message}");
+                std::process::exit(1);
             }
             // TS `parseAllowedHostArgs` parity: comma-separated entries split.
             let allowed_hosts: Vec<String> = allowed_hosts
@@ -3399,6 +3680,8 @@ async fn main() -> anyhow::Result<()> {
                 no_open,
                 assets.as_deref(),
                 allowed_hosts,
+                insecure_no_tls,
+                allow_remote_shutdown,
             )
             .await?;
         }

@@ -16,6 +16,9 @@ pub struct PromptSetup {
     /// AFTER the session create (and any resume load) so neither rebuilds
     /// the agent over it.
     pub goal: Option<String>,
+    /// Swap an existing goal instead of failing when one is active (TS
+    /// `/goal replace <objective>` parity — `goal_create` with `replace`).
+    pub goal_replace: bool,
     /// Resume a persisted session: `session/load` after create so the
     /// on-disk context + goal are restored before the setup/prompt.
     pub resume: bool,
@@ -117,7 +120,11 @@ pub async fn run_prompt_with_setup(
         let body = client
             .call(
                 kimi_protocol::methods::SESSION_GOAL_CREATE,
-                serde_json::json!({ "session_id": session_id, "objective": objective }),
+                serde_json::json!({
+                    "session_id": session_id,
+                    "objective": objective,
+                    "replace": setup.goal_replace,
+                }),
             )
             .await;
         if body.get("error").is_some() {
@@ -181,6 +188,7 @@ mod tests {
             model: Some("setup-test-model".into()),
             plan: true,
             goal: Some("setup goal".into()),
+            goal_replace: false,
             resume: false,
             permission_auto: false,
             skills: vec![],
@@ -246,6 +254,118 @@ mod tests {
         assert_eq!(
             goal["result"]["goal"]["objective"], "persisted goal",
             "resume restores the persisted goal: {goal}"
+        );
+    }
+
+    #[tokio::test]
+    async fn goal_create_without_replace_rejects_existing_goal() {
+        let server = kimi_server::Server::build().expect("server");
+        let mut client = AppServerClient::InProcess(kimi_server::in_process::spawn(server.processor));
+        let created = client.session_create("s-no-replace").await;
+        assert!(created.get("error").is_none(), "create: {created}");
+        // An active goal already exists on the session; persist it so a
+        // resume load restores it AFTER the (agent-rebuilding) create inside
+        // run_prompt_with_setup.
+        let goal = client
+            .call(
+                kimi_protocol::methods::SESSION_GOAL_CREATE,
+                serde_json::json!({ "session_id": "s-no-replace", "objective": "goal one" }),
+            )
+            .await;
+        assert!(goal.get("error").is_none(), "seed goal: {goal}");
+        client
+            .call(
+                kimi_protocol::methods::SESSION_SAVE,
+                serde_json::json!({ "session_id": "s-no-replace" }),
+            )
+            .await;
+
+        // `goal_replace: false` (the default) must NOT swap the active goal —
+        // the engine rejects the duplicate create and the setup surfaces it.
+        let setup = PromptSetup {
+            resume: true,
+            goal: Some("goal two".into()),
+            ..Default::default()
+        };
+        let result = run_prompt_with_setup(
+            &mut client,
+            "s-no-replace",
+            "hi",
+            native_llm_from_config(),
+            &setup,
+        )
+        .await;
+        let error = result["error"]["message"].as_str().unwrap_or("");
+        assert!(
+            error.contains("already exists"),
+            "duplicate goal create must fail without replace: {error}"
+        );
+        // The original goal is untouched.
+        let goal = client
+            .call(
+                kimi_protocol::methods::SESSION_GOAL_GET,
+                serde_json::json!({ "session_id": "s-no-replace" }),
+            )
+            .await;
+        assert_eq!(
+            goal["result"]["goal"]["objective"], "goal one",
+            "original goal survives: {goal}"
+        );
+    }
+
+    #[tokio::test]
+    async fn goal_create_with_replace_swaps_existing_goal() {
+        let server = kimi_server::Server::build().expect("server");
+        let mut client = AppServerClient::InProcess(kimi_server::in_process::spawn(server.processor));
+        let created = client.session_create("s-replace").await;
+        assert!(created.get("error").is_none(), "create: {created}");
+        // An active goal already exists on the session; persist it so a
+        // resume load restores it AFTER the (agent-rebuilding) create inside
+        // run_prompt_with_setup.
+        let goal = client
+            .call(
+                kimi_protocol::methods::SESSION_GOAL_CREATE,
+                serde_json::json!({ "session_id": "s-replace", "objective": "goal one" }),
+            )
+            .await;
+        assert!(goal.get("error").is_none(), "seed goal: {goal}");
+        client
+            .call(
+                kimi_protocol::methods::SESSION_SAVE,
+                serde_json::json!({ "session_id": "s-replace" }),
+            )
+            .await;
+
+        // `goal_replace: true` swaps the active goal (TS `/goal replace`
+        // parity). The setup continues to the prompt; the goal must read back
+        // the replacement regardless of the prompt outcome.
+        let setup = PromptSetup {
+            resume: true,
+            goal: Some("goal two".into()),
+            goal_replace: true,
+            ..Default::default()
+        };
+        let result = run_prompt_with_setup(
+            &mut client,
+            "s-replace",
+            "hi",
+            native_llm_from_config(),
+            &setup,
+        )
+        .await;
+        assert!(
+            result.get("error").is_some(),
+            "setup reaches the prompt which fails without LLM: {result}"
+        );
+        let goal = client
+            .call(
+                kimi_protocol::methods::SESSION_GOAL_GET,
+                serde_json::json!({ "session_id": "s-replace" }),
+            )
+            .await;
+        assert_eq!(
+            goal["result"]["goal"]["objective"], "goal two",
+            "replace swapped the goal: {goal}"
         );
     }
 }
