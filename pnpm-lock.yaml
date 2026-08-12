@@ -464,15 +464,6 @@ importers:
         specifier: ^1.5.0
         version: 1.6.4(@algolia/client-search@5.52.1)(@types/node@22.19.17)(fuse.js@7.5.0)(jiti@2.6.1)(lightningcss@1.32.0)(postcss@8.5.23)(search-insights@2.17.3)(tsx@4.21.0)(typescript@6.0.2)(yaml@2.8.3)
 
-  packages/i18n:
-    dependencies:
-      '@moonshot-ai/i18n-shared':
-        specifier: workspace:^
-        version: link:../i18n-shared
-      '@moonshot-ai/kimi-native-tools':
-        specifier: workspace:^
-        version: link:../kimi-native-tools
-
   packages/i18n-shared: {}
 
   packages/kimi-agent: {}

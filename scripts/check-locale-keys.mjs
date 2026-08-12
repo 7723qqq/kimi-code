@@ -22,16 +22,6 @@ const ROOT = resolve(__dirname, '..');
 
 const LOCALE_SOURCES = [
   {
-    name: 'i18n (main)',
-    en: 'packages/i18n/src/locales/en.ts',
-    zh: 'packages/i18n/src/locales/zh.ts',
-  },
-  {
-    name: 'kimi-code',
-    en: 'apps/kimi-code/src/i18n/locales/en.ts',
-    zh: 'apps/kimi-code/src/i18n/locales/zh.ts',
-  },
-  {
     name: 'kimi-inspect',
     en: 'apps/kimi-inspect/src/i18n/locales/en.ts',
     zh: 'apps/kimi-inspect/src/i18n/locales/zh.ts',

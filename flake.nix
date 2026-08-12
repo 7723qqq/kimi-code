@@ -62,7 +62,6 @@
       # pnpmConfigHook (dependencies for that workspace won't be fetched).
       # -------------------------------------------------------------------
       workspacePaths = [
-        ./packages/i18n
         ./packages/i18n-shared
         ./packages/kimi-native-tools
         ./packages/kimi-agent
@@ -79,7 +78,6 @@
       ];
 
       workspaceNames = [
-        "@moonshot-ai/kimi-i18n"
         "@moonshot-ai/i18n-shared"
         "@moonshot-ai/kimi-native-tools"
         "@moonshot-ai/kimi-agent"
