@@ -12,6 +12,7 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { ContinuationStepRequest } from '#/agent/loop/stepRequest';
 
 import { createTestAgent, llmGenerateServices, type TestAgentContext } from '../../harness';
+import { nextTurnMessage } from '../loop/helpers';
 
 const realSetTimeout = globalThis.setTimeout;
 
@@ -193,6 +194,31 @@ describe('stepRetry plugin', () => {
     const result = await runTurn(1, controller.signal);
 
     expect(result.type).toBe('cancelled');
+  });
+
+  it('attributes the turn as cancelled when the step is aborted during the backoff wait', async () => {
+    vi.useFakeTimers();
+    ctx = createTestAgent(
+      llmGenerateServices(async () => {
+        throw new APIConnectionError('terminated');
+      }),
+    );
+    const loop = ctx.get(IAgentLoopService);
+    const { step, turn } = await loop.enqueue(nextTurnMessage('hello')).assigned;
+    let onRetrying!: () => void;
+    const retrying = new Promise<void>((resolve) => {
+      onRetrying = resolve;
+    });
+    const subscription = ctx.get(IEventBus).subscribe('turn.step.retrying', () => onRetrying());
+    await retrying;
+
+    expect(step.cancel(new Error('skip this step'))).toBe(true);
+    await vi.runAllTimersAsync();
+    const result = await turn.result;
+    subscription.dispose();
+
+    expect(result).toMatchObject({ type: 'cancelled' });
+    await expect(step.result).resolves.toMatchObject({ type: 'cancelled' });
   });
 
   it('honors loop_control.max_attempts_per_step', async () => {

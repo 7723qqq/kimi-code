@@ -129,6 +129,7 @@ function createHarness(
         registerLogServices(reg);
       } else {
         reg.defineInstance(IAgentToolExecutorService, events.executor);
+        registerLogServices(reg);
       }
       const wire: IWireService = {
         _serviceBrand: undefined,

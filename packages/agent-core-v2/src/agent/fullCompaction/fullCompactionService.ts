@@ -602,10 +602,16 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       // prefix and craters the hit rate. Detect "compaction did not solve the
       // pressure" (the context is still over the threshold right after a
       // compaction) and pause auto-compaction until a manual one succeeds.
-      // Use the pure estimate here: `get().size` can pin a stale measured
-      // anchor whose length coincidentally matches the post-compaction
-      // context, over-reporting tokens that were folded away.
-      const afterTokens = this.tokenCounting.estimateMessages(this.context.get() as readonly Message[]);
+      // Measure on the same full-request basis as `result.tokensBefore` and
+      // `checkAutoCompaction` / `shouldBlock` (system prompt + tool schemas +
+      // messages): a pure message estimate systematically under-counts the
+      // fixed request overhead, so on a small-window model the guard could
+      // never trip and `tokensBefore` / `tokensAfter` would not be
+      // comparable. The pure request estimate also sidesteps `get().size`,
+      // which can pin a stale measured anchor whose length coincidentally
+      // matches the post-compaction context, over-reporting tokens that were
+      // folded away.
+      const afterTokens = this.requestTokens(this.context.get());
       const progressTokens = result.tokensBefore - afterTokens;
       if (this.strategy.shouldCompact(afterTokens)) {
         this.autoCompactionStuck = true;

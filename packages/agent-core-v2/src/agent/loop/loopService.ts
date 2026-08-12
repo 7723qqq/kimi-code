@@ -608,6 +608,21 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const job = this.activeTurnJob?.turn === turn ? this.activeTurnJob : undefined;
     if (job === undefined) return;
     const reason = result?.type === 'cancelled' ? result.reason : abortError('Turn ended');
+    // Agent-scoped requests (turnScoped: false, e.g. task notifications) that
+    // are still queued carry into the next turn instead of being dropped:
+    // move them to the standalone queue. Their step ended with this turn, so
+    // settle it as cancelled — the request itself keeps its `pending` state.
+    for (const request of job.queue.drain()) {
+      if (request.aborted || request.turnScoped) continue;
+      if (request.admission === 'activeTurnOnly') continue;
+      const step = job.steps.get(request.id);
+      if (step !== undefined) {
+        job.steps.delete(request.id);
+        step.state = 'cancelled';
+        step.resultControl?.resolve({ type: 'cancelled', reason });
+      }
+      this.standaloneStepQueue.enqueue(request);
+    }
     for (const step of job.steps.values()) {
       if (step.state === 'queued' || step.state === 'running') step.cancel(reason);
     }
@@ -776,7 +791,23 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const cancellation = this.handleLoopCancellation(runtime, error);
     if (cancellation !== undefined) return cancellation;
     const recovery = await this.tryRecoverLoopError(runtime, error);
-    return recovery ?? this.failLoopStep(runtime, error);
+    if (recovery !== undefined) return recovery;
+    // The step may have been individually cancelled while an error handler
+    // (e.g. stepRetry's backoff wait) was still recovering. The step result is
+    // already `cancelled` in that case, so attribute the turn as cancelled
+    // instead of reporting the stale provider failure.
+    const currentStep = runtime.current?.mutableStep;
+    if (currentStep?.state === 'cancelled') {
+      const reason = currentStep.signal.reason ?? error;
+      this.emitStepInterrupted(
+        runtime.turnId,
+        runtime.current?.number,
+        'aborted',
+        isUserCancellation(reason) ? undefined : toErrorMessage(reason),
+      );
+      return { type: 'return', result: { type: 'cancelled', reason, steps: runtime.steps } };
+    }
+    return this.failLoopStep(runtime, error);
   }
 
   private handleLoopCancellation(

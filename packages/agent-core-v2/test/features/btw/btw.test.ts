@@ -45,7 +45,9 @@ describe('SessionBtwService', () => {
         },
       },
     };
-    fork = vi.fn(async () => child);
+    // Each start() forks again, so mint a fresh child agent id per call.
+    let nextForkId = 0;
+    fork = vi.fn(async () => ({ ...child, id: `agent-btw-${String((nextForkId += 1))}` }));
     ix.stub(IAgentLifecycleService, {
       _serviceBrand: undefined,
       fork,
@@ -89,11 +91,13 @@ describe('SessionBtwService', () => {
     expect(formatDenyMessage).toHaveBeenCalledWith(TOOL_CALL_DISABLED_MESSAGE);
   });
 
-  it('calling start twice forks again and returns the child agent id', async () => {
+  it('forks a fresh child agent on every start', async () => {
     const svc = ix.get(ISessionBtwService);
     const first = await svc.start();
     const second = await svc.start();
-    expect(first).toBe(second);
+    expect(fork).toHaveBeenCalledTimes(2);
+    expect(first).toBe('agent-btw-1');
+    expect(second).toBe('agent-btw-2');
   });
 
   it('propagates a fork failure', async () => {

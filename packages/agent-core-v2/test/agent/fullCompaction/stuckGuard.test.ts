@@ -23,13 +23,19 @@ const CATALOGUED_PROVIDER = {
   baseUrl: 'https://api.example/v1',
   model: 'kimi-code',
 } as const;
+// The window must stay above the harness's fixed full-request overhead
+// (system prompt + tool schemas): the post-compaction size is measured on
+// the full-request basis, so a smaller window could never drop below the
+// trigger and the guard could never disarm (see the same note in
+// fullCompaction.test.ts around the one-round full-history case).
+const STUCK_GUARD_MAX_CONTEXT_TOKENS = 26_000;
 const SMALL_WINDOW_CAPABILITIES = {
   image_in: true,
   video_in: true,
   audio_in: false,
   thinking: true,
   tool_use: true,
-  max_context_tokens: 250,
+  max_context_tokens: STUCK_GUARD_MAX_CONTEXT_TOKENS,
 } as const;
 const SNAPSHOT_VISIBLE_TOOLS = [
   'Agent',
@@ -73,7 +79,7 @@ describe('compaction stuck guard', () => {
     // A summary as large as the history: after this round the context is
     // still over the trigger -> stuck.
     const stuck = nextStuck(ctx);
-    ctx.mockNextResponse({ type: 'text', text: 'huge summary that does not shrink the context '.repeat(200) });
+    ctx.mockNextResponse({ type: 'text', text: 'huge summary that does not shrink the context '.repeat(2000) });
     await ctx.rpc.beginCompaction({});
     const stuckEvent = await stuck;
 
@@ -83,6 +89,16 @@ describe('compaction stuck guard', () => {
       tokensAfter: expect.any(Number),
       progressTokens: expect.any(Number),
     });
+    // The event fields share the full-request basis (system prompt + tool
+    // schemas + messages): the fold replaced the history with a summary at
+    // least as large, so the post-compaction request cannot have shrunk
+    // below the pre-compaction one.
+    expect(stuckEvent.tokensAfter).toBeGreaterThanOrEqual(stuckEvent.tokensBefore);
+    // On the shared basis, progress is exactly the before/after delta.
+    expect(stuckEvent.progressTokens).toBe(stuckEvent.tokensBefore - stuckEvent.tokensAfter);
+    // The guard fires exactly when the context is still over the trigger
+    // after the round.
+    expect(stuckEvent.tokensAfter).toBeGreaterThanOrEqual(STUCK_GUARD_MAX_CONTEXT_TOKENS * 0.85);
     expect(stuckFlag(ctx)).toBe(true);
   });
 
@@ -99,7 +115,7 @@ describe('compaction stuck guard', () => {
 
     // Round 1: no-progress compaction (huge summary) -> stuck.
     const stuck = nextStuck(ctx);
-    ctx.mockNextResponse({ type: 'text', text: 'huge summary that does not shrink '.repeat(200) });
+    ctx.mockNextResponse({ type: 'text', text: 'huge summary that does not shrink the context '.repeat(2000) });
     await ctx.rpc.beginCompaction({});
     await stuck;
     expect(stuckFlag(ctx)).toBe(true);

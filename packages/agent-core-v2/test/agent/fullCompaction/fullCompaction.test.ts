@@ -2299,28 +2299,24 @@ describe('FullCompaction', () => {
     ctx.newEvents();
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'learn observed window' }] });
-    await ctx.untilTurnEnd();
+    const firstTurnEvents = await ctx.untilTurnEnd();
     expect(callCount).toBe(3);
+    // The observed window is too small for the fold to bring the context
+    // under the trigger: the recovery round leaves the context over the
+    // threshold and trips the stuck guard.
+    expect(firstTurnEvents).toContainEqual(
+      expect.objectContaining({ event: 'compaction.stuck' }),
+    );
 
     ctx.appendExchange(2, 'near observed user', 'near observed assistant', 120_000);
     ctx.newEvents();
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'use observed window' }] });
     const events = await ctx.untilTurnEnd();
 
-    expect(callCount).toBe(5);
-    expect(eventIndex(events, 'compaction.started')).toBeLessThan(
-      eventIndex(events, 'turn.step.started'),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        event: 'compaction.completed',
-        args: expect.objectContaining({
-          result: expect.objectContaining({
-            summary: 'Observed preemptive summary.',
-          }),
-        }),
-      }),
-    );
+    // The stuck guard pauses preemptive auto-compaction, so the turn goes
+    // straight to the request instead of running another doomed compaction.
+    expect(callCount).toBe(4);
+    expect(eventIndex(events, 'compaction.started')).toBe(-1);
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'turn.ended',
@@ -2405,17 +2401,29 @@ describe('FullCompaction', () => {
     ctx.newEvents();
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'learn observed window' }] });
-    await ctx.untilTurnEnd();
+    const firstTurnEvents = await ctx.untilTurnEnd();
     expect(callCount).toBe(3);
+    // The observed window is too small for the fold to bring the context
+    // under the trigger: the recovery round leaves the context over the
+    // threshold and trips the stuck guard.
+    expect(firstTurnEvents).toContainEqual(
+      expect.objectContaining({ event: 'compaction.stuck' }),
+    );
 
     ctx.appendExchange(2, 'near observed user', 'near observed assistant', 120_000);
     ctx.newEvents();
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'use observed window' }] });
     const events = await ctx.untilTurnEnd();
 
-    expect(callCount).toBe(5);
-    expect(eventIndex(events, 'compaction.started')).toBeLessThan(
-      eventIndex(events, 'turn.step.started'),
+    // The stuck guard pauses preemptive auto-compaction, so the turn goes
+    // straight to the request instead of running another doomed compaction.
+    expect(callCount).toBe(4);
+    expect(eventIndex(events, 'compaction.started')).toBe(-1);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'turn.ended',
+        args: { turnId: 1, reason: 'completed' },
+      }),
     );
   });
 

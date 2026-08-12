@@ -204,7 +204,10 @@ function convertMediaUrl(
     else if (pathname.endsWith('.mp3') || pathname.endsWith('.mpeg')) mimeType = 'audio/mpeg';
     else if (pathname.endsWith('.wav')) mimeType = 'audio/wav';
     else if (pathname.endsWith('.ogg')) mimeType = 'audio/ogg';
-  } catch {}
+  } catch {
+    // Malformed URLs keep the caller-provided fallback mime type; the provider
+    // will surface the invalid URL on the request itself.
+  }
   return { fileData: { fileUri: url, mimeType } };
 }
 

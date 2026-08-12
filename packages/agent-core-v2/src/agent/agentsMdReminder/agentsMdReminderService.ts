@@ -13,6 +13,7 @@
 import { basename, dirname, isAbsolute, join, normalize } from 'pathe';
 
 import { Disposable } from '#/_base/di/lifecycle';
+import { ILogService } from '#/_base/log/log';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/_base/state/stateRegistry';
@@ -77,6 +78,7 @@ export class AgentAgentsMdReminderService
     @IBashParserService private readonly bashParser: IBashParserService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IWireService private readonly wire: IWireService,
+    @ILogService private readonly log: ILogService,
   ) {
     super();
     this.states.register(agentsMdReminderKnownKey);
@@ -156,7 +158,11 @@ export class AgentAgentsMdReminderService
         variant: 'agents_md',
       });
       this.publishKnown([...selfKnown, ...discovered]);
-    } catch {} finally {
+    } catch (error) {
+      // Probe failures must not break the tool-execution hook chain, but they
+      // must stay visible for diagnosis (e.g. fs errors, telemetry failures).
+      this.log.error('agentsMdReminder probe failed', { error: String(error) });
+    } finally {
       for (const path of discovered) this.claimed.delete(path);
     }
   }

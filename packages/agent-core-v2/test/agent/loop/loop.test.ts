@@ -551,6 +551,48 @@ describe('Agent loop', () => {
     expect(ctx.llmCalls).toHaveLength(3);
   });
 
+  it('carries a turnScoped:false request into the next turn when the current turn fails', async () => {
+    const notification = new MessageStepRequest(
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'background task finished' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
+      { turnScoped: false, admission: 'activeOrNextTurn', mergeable: true },
+    );
+    let enqueued = false;
+    const hook = loop.hooks.onWillBeginStep.register(
+      'test-carried-request',
+      async (_hookCtx, next) => {
+        if (!enqueued) {
+          enqueued = true;
+          loop.enqueue(notification);
+        }
+        await next();
+      },
+    );
+
+    ctx.mockNextProviderResponse({
+      parts: [{ type: 'text', text: 'blocked' }],
+      finishReason: 'filtered',
+    });
+    const failing = (await loop.enqueue(nextTurnMessage('fail me')).assigned).turn;
+    await expect(failing.result).resolves.toMatchObject({ type: 'failed' });
+    hook.dispose();
+
+    ctx.mockNextResponse({ type: 'text', text: 'delivered' });
+    const next = (await loop.enqueue(nextTurnMessage('continue')).assigned).turn;
+    await expect(next.result).resolves.toMatchObject({ type: 'completed' });
+
+    expect(notification.aborted).toBe(false);
+    const delivered = ctx.llmCalls[1]!.history
+      .flatMap((message) => message.content)
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('\n');
+    expect(delivered).toContain('background task finished');
+  });
+
   it('refuses a quiescence lease while a turn is active without cancelling it', async () => {
     let started!: () => void;
     const activeStarted = new Promise<void>((resolve) => {
