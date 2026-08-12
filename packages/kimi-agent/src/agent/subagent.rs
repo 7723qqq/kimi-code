@@ -122,6 +122,7 @@ pub(crate) async fn run_child_agent(
         None,
         false,
         None,
+        None,
     )
     .await
     .map(|(_, text)| text)
@@ -158,6 +159,7 @@ pub(crate) async fn run_child_agent_with_model(
         None,
         false,
         model_override,
+        None,
     )
     .await
     .map(|(_, text)| text)
@@ -169,6 +171,9 @@ pub(crate) async fn run_child_agent_with_model(
 /// text)`. `model_override` binds the resolved secondary model (see
 /// [`resolve_subagent_model`]); `None` inherits the parent's model. Wired up
 /// for the AgentSwarm tool's secondary-model routing (A12).
+/// `parent_tool_call_id` is the tool call id of the invoking `Task`/
+/// `AgentSwarm` call; it is persisted into the child's session record so
+/// hosts can pair the child replay with its exact parent call.
 pub(crate) async fn run_child_agent_persistent_with_model(
     host: Arc<dyn HostCallbacks>,
     homedir: Option<String>,
@@ -182,6 +187,7 @@ pub(crate) async fn run_child_agent_persistent_with_model(
     hooks: Option<Arc<crate::hooks::external::HookManager>>,
     agent_id: &str,
     model_override: Option<String>,
+    parent_tool_call_id: Option<String>,
 ) -> Result<(String, String), String> {
     run_child_agent_core(
         host,
@@ -197,6 +203,7 @@ pub(crate) async fn run_child_agent_persistent_with_model(
         Some(agent_id.to_string()),
         false,
         model_override,
+        parent_tool_call_id,
     )
     .await
 }
@@ -204,7 +211,9 @@ pub(crate) async fn run_child_agent_persistent_with_model(
 /// Resume a previously persisted swarm child: restore its context from the
 /// session store by `agent_id`, then run one more turn with `prompt`.
 /// Returns `(agent_id, text)`. `Err` when persistence is unavailable or no
-/// session exists for the id.
+/// session exists for the id. `parent_tool_call_id` re-stamps the child's
+/// persisted record with the resuming invocation's tool call id (the latest
+/// invocation wins for replay pairing).
 pub(crate) async fn resume_child_agent(
     host: Arc<dyn HostCallbacks>,
     homedir: Option<String>,
@@ -217,6 +226,7 @@ pub(crate) async fn resume_child_agent(
     prompt: &str,
     hooks: Option<Arc<crate::hooks::external::HookManager>>,
     agent_id: &str,
+    parent_tool_call_id: Option<String>,
 ) -> Result<(String, String), String> {
     run_child_agent_core(
         host,
@@ -232,6 +242,7 @@ pub(crate) async fn resume_child_agent(
         Some(agent_id.to_string()),
         true,
         None,
+        parent_tool_call_id,
     )
     .await
 }
@@ -243,6 +254,8 @@ pub(crate) async fn resume_child_agent(
 /// the override is stamped onto both the config alias (host-proxy mode) and
 /// the native transport's `model` field (`NativeHttpLlm` reads it off
 /// `NativeLlmConfig` each turn). `None` keeps the parent's model.
+/// `parent_tool_call_id` is persisted into the child's session record on
+/// save for exact host-side replay pairing (see [`Agent::parent_tool_call_id`]).
 #[allow(clippy::too_many_arguments)]
 async fn run_child_agent_core(
     host: Arc<dyn HostCallbacks>,
@@ -258,6 +271,7 @@ async fn run_child_agent_core(
     agent_id: Option<String>,
     resume: bool,
     model_override: Option<String>,
+    parent_tool_call_id: Option<String>,
 ) -> Result<(String, String), String> {
     // SubagentStart hooks: fire-and-forget before spawning.
     if let Some(manager) = hooks.as_ref() {
@@ -395,6 +409,9 @@ async fn run_child_agent_core(
     // must not fail the swarm — the child's answer is what matters.
     if result.is_ok() {
         if let (Some(id), Some(store)) = (agent_id.as_ref(), store.as_ref()) {
+            // Stamp the invoking tool call id before the save (re-stamped on
+            // resume, so the latest invocation wins for replay pairing).
+            child.parent_tool_call_id = parent_tool_call_id;
             if let Err(e) = child.save_session(store) {
                 eprintln!("kimi-agent: failed to persist swarm child session `{id}`: {e}");
             }

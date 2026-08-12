@@ -84,6 +84,9 @@ export function replayFromContext(raw: unknown): readonly unknown[] {
  *  the delegated prompt (from the assistant tool-call arguments) paired
  *  with the child's final answer (the tool message the engine persisted). */
 interface TaskInvocation {
+  /** Tool call id of the `Task` call — exact pairing key against the
+   *  engine-stamped `SubagentSummary.parentToolCallId`. */
+  readonly callId: string;
   readonly prompt: string;
   readonly answer: string;
 }
@@ -98,48 +101,91 @@ interface TaskInvocation {
  *  summary list is a global subagent record page. The resume surface can
  *  therefore only reconstruct a child step from the main replay: the `Task`
  *  tool call's `prompt` argument plus the tool message content (the child's
- *  final answer text). Invocations pair with summaries in order (single
- *  subagent per Task call; the order is the store's last-write order).
- *  Extra summaries / orphaned calls on either side are dropped. */
+ *  final answer text).
+ *
+ *  Pairing: when the engine stamped the child's persisted record with the
+ *  parent tool call id (`parentToolCallId`), the summary claims that exact
+ *  `Task` call regardless of store order; a stamped summary whose call is
+ *  not on the main replay is orphaned and dropped (it belongs to a call
+ *  this page cannot show — attaching it FIFO would mis-pair it). Legacy
+ *  summaries without the stamp pair with the first unclaimed invocation in
+ *  order (single subagent per Task call; the summary order is the store's
+ *  last-write order). Extra summaries / orphaned calls on either side are
+ *  dropped. */
 export function buildSubagentResumeStates(
   mainReplay: readonly AgentReplayRecord[],
   summaries: readonly SubagentSummary[],
 ): {
   readonly agents: Record<string, ResumedAgentState>;
-  readonly metadata: Record<string, { readonly parentAgentId: string }>;
+  readonly metadata: Record<
+    string,
+    { readonly parentAgentId: string; readonly parentToolCallId?: string | null }
+  >;
 } {
   const invocations = collectTaskInvocations(mainReplay);
-  const pairs = Math.min(invocations.length, summaries.length);
   const agents: Record<string, ResumedAgentState> = {};
-  const metadata: Record<string, { readonly parentAgentId: string }> = {};
-  for (let index = 0; index < pairs; index += 1) {
-    const summary = summaries[index]!;
-    const invocation = invocations[index]!;
-    const replay: readonly AgentReplayRecord[] = [
-      {
-        type: "message",
-        message: {
-          role: "user",
-          content: [{ type: "text", text: invocation.prompt }],
-          toolCalls: [],
-        },
-      },
-      {
-        type: "message",
-        message: {
-          role: "assistant",
-          content: [{ type: "text", text: invocation.answer }],
-          toolCalls: [],
-        },
-      },
-    ];
-    agents[summary.agentId] = { replay, config: {}, plan: null };
-    // The adapter only accepts children whose metadata parent matches the
-    // parent agent key; the engine persists no parent linkage, so the main
-    // agent is the parent of every summary on the main session's page.
+  const metadata: Record<
+    string,
+    { readonly parentAgentId: string; readonly parentToolCallId?: string | null }
+  > = {};
+  const byCallId = new Map<string, number>();
+  invocations.forEach((invocation, index) => byCallId.set(invocation.callId, index));
+  const usedCalls = new Set<number>();
+  // Exact pairing first: a stamped summary claims its `Task` call, so store
+  // order (last-write) can never mis-pair multiple children. Stamped
+  // summaries with no matching call are dropped — the FIFO fallback below
+  // must never attach them to an unrelated call.
+  for (const summary of summaries) {
+    if (summary.parentToolCallId === undefined || summary.parentToolCallId === null) continue;
+    const index = byCallId.get(summary.parentToolCallId);
+    if (index === undefined || usedCalls.has(index)) continue;
+    usedCalls.add(index);
+    agents[summary.agentId] = synthesizedChildReplay(summary, invocations[index]!);
+    metadata[summary.agentId] = {
+      parentAgentId: "main",
+      parentToolCallId: summary.parentToolCallId,
+    };
+  }
+  // FIFO fallback: legacy summaries (no stamp) take the first unclaimed
+  // invocation in replay order.
+  let next = 0;
+  for (const summary of summaries) {
+    if (summary.parentToolCallId !== undefined && summary.parentToolCallId !== null) continue;
+    while (next < invocations.length && usedCalls.has(next)) next += 1;
+    if (next >= invocations.length) break;
+    usedCalls.add(next);
+    agents[summary.agentId] = synthesizedChildReplay(summary, invocations[next]!);
     metadata[summary.agentId] = { parentAgentId: "main" };
+    next += 1;
   }
   return { agents, metadata };
+}
+
+/** Synthesize the child's replay from the paired Task invocation: the prompt
+ *  as its user message and the persisted final answer as the assistant one. */
+function synthesizedChildReplay(
+  summary: SubagentSummary,
+  invocation: TaskInvocation,
+): ResumedAgentState {
+  const replay: readonly AgentReplayRecord[] = [
+    {
+      type: "message",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: invocation.prompt }],
+        toolCalls: [],
+      },
+    },
+    {
+      type: "message",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: invocation.answer }],
+        toolCalls: [],
+      },
+    },
+  ];
+  return { replay, config: {}, plan: null };
 }
 
 /** Walk the main replay for native `Task`-tool invocations: assistant
@@ -164,7 +210,11 @@ function collectTaskInvocations(
     const call = pending.get(message.toolCallId);
     if (call === undefined) continue;
     pending.delete(message.toolCallId);
-    invocations.push({ prompt: call.prompt, answer: textOf(message.content) });
+    invocations.push({
+      callId: message.toolCallId,
+      prompt: call.prompt,
+      answer: textOf(message.content),
+    });
   }
   return invocations;
 }

@@ -490,6 +490,11 @@ impl Processor for SessionProcessor {
                                 title: String::new(),
                                 message_count,
                                 updated_at: record.updated_at,
+                                parent_tool_call_id: record
+                                    .state_json
+                                    .get("parent_tool_call_id")
+                                    .and_then(|v| v.as_str())
+                                    .map(str::to_string),
                             }
                         })
                         .collect()
@@ -1076,6 +1081,11 @@ impl Processor for SessionProcessor {
                             title: rich.title,
                             work_dir: rich.work_dir,
                             metadata: rich.metadata,
+                            parent_tool_call_id: record
+                                .state_json
+                                .get("parent_tool_call_id")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_string),
                         }
                     })
                     .collect::<Vec<_>>();

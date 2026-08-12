@@ -545,6 +545,10 @@ impl HostCallbacks for SubagentInterceptor {
         let max_steps = self.max_steps_per_turn;
         let child_depth = self.depth + 1;
         let hooks = self.hooks.clone();
+        // Exact replay pairing: the child's persisted session record carries
+        // this tool call id, so hosts can attach the child replay to the
+        // `Task` call that spawned it instead of guessing by FIFO order.
+        let parent_tool_call_id = req.tool_call_id.clone();
         // A12: resolve the sub-agent model preference — a custom agent file
         // (by type name) may declare `model_preference: secondary`, which
         // selects the configured secondary model when present; otherwise the
@@ -625,6 +629,7 @@ impl HostCallbacks for SubagentInterceptor {
                         hooks,
                         id,
                         model_override,
+                        Some(parent_tool_call_id),
                     )
                     .await
                     .map(|(_agent_id, text)| text)
@@ -831,6 +836,11 @@ pub struct Agent {
     /// root agent is 0; each child increments it, and a hard cap stops
     /// runaway recursion.
     pub subagent_depth: u32,
+    /// Tool call id of the parent `Task`/`AgentSwarm` invocation that spawned
+    /// (or last resumed) this subagent. Persisted into the child's session
+    /// record (`durable_state`) so hosts can pair a child replay with its
+    /// exact parent tool call instead of guessing by FIFO order.
+    pub parent_tool_call_id: Option<String>,
     /// User-configured external lifecycle hooks (config.toml `[[hooks]]` +
     /// plugin contributions, host-resolved). Executed natively: PreToolUse /
     /// PostToolUse via the tool interceptor chain, UserPromptSubmit / Stop at
@@ -941,6 +951,7 @@ impl Agent {
             permission: options.permission.clone()
                 .unwrap_or_else(crate::permission::gate::PermissionGate::from_env),
             subagent_depth: 0,
+            parent_tool_call_id: None,
             external_hooks: Arc::new(crate::hooks::external::HookManager::new(
                 options.external_hooks,
             )),
@@ -2233,6 +2244,10 @@ any partial output shown above is incomplete. The user's next message continues 
             "plan_active": self.plan.is_active(),
             "plan_id": self.plan.plan_id(),
             "token_count": self.context.token_count(),
+            // Parent tool call id of the invocation that spawned/last resumed
+            // this subagent (`Task`/`AgentSwarm`). Null for main sessions and
+            // non-persistent children; hosts use it for exact replay pairing.
+            "parent_tool_call_id": self.parent_tool_call_id.as_ref(),
             // Host-owned custom metadata (approval flags, imported-from
             // markers, …) must survive close/reopen and cross-host resume.
             "metadata": self.metadata,
@@ -3381,5 +3396,115 @@ mod tests {
         let second = agent.materialize_kimi_media(&messages).await;
         assert_eq!(second.get("kimi://file/abc"), first.get("kimi://file/abc"));
         assert_eq!(downloader.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    // ── Task subagent persistence (parent tool call id) ─────────────────
+
+    /// Host whose `llm_chat` completes immediately, so a Task child turn
+    /// finishes in one step.
+    struct TaskCompletingHost;
+    impl HostCallbacks for TaskCompletingHost {
+        fn supports_tool_lifecycle(&self) -> bool { true }
+        fn llm_chat(
+            &self,
+            _r: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async {
+                Ok(LlmChatResponse {
+                    content: "task answer".into(),
+                    tool_calls: Vec::new(),
+                    finish_reason: Some("stop".into()),
+                    usage: crate::rpc::types::TokenUsage {
+                        input_tokens: 1,
+                        output_tokens: 1,
+                        total_tokens: 2,
+                    },
+                })
+            })
+        }
+        fn execute_tool(
+            &self,
+            r: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            Box::pin(async move { Err(format!("unexpected host tool: {}", r.tool_name)) })
+        }
+        fn emit_event(&self, _e: serde_json::Value) {}
+    }
+
+    fn task_interceptor_with(
+        inner: Arc<dyn HostCallbacks>,
+        homedir: Option<String>,
+    ) -> SubagentInterceptor {
+        SubagentInterceptor {
+            inner: inner.clone(),
+            host: inner,
+            homedir,
+            native_llm: None,
+            secondary_native_llm: None,
+            permission: crate::permission::gate::PermissionGate::from_env(),
+            system_prompt: "parent".into(),
+            max_steps_per_turn: 3,
+            depth: 0,
+            swarm: Arc::new(std::sync::Mutex::new(crate::swarm::SwarmMode::new())),
+            hooks: None,
+            profile_registry: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::profile::registry::AgentProfileRegistry::new(),
+            )),
+            task_service: Some(std::sync::Arc::new(std::sync::Mutex::new(
+                crate::task::TaskService::new(crate::task::TaskServiceConfig::default()),
+            ))),
+        }
+    }
+
+    fn temp_test_homedir() -> String {
+        let dir = std::env::temp_dir().join(format!("kimi-agent-task-test-{}", fastrand::u64(..)));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn task_child_persists_parent_tool_call_id() {
+        // The `Task` interceptor stamps the invoking tool call id into the
+        // child's persisted session record (agent_id = tracked task id), so
+        // hosts can pair the child replay with its exact parent call.
+        let inner: Arc<dyn HostCallbacks> = Arc::new(TaskCompletingHost);
+        let homedir = temp_test_homedir();
+        let interceptor = task_interceptor_with(inner, Some(homedir.clone()));
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let resp = rt.block_on(async {
+            interceptor
+                .execute_tool(ToolExecuteRequest {
+                    session_id: None,
+                    turn_id: "t".into(),
+                    tool_call_id: "task-call-1".into(),
+                    tool_name: "Task".into(),
+                    arguments: serde_json::json!({ "prompt": "do the thing" }),
+                    force_precise: false,
+                })
+                .await
+                .unwrap()
+        });
+        assert!(!resp.is_error, "{}", resp.content);
+
+        let path = std::path::Path::new(&homedir).join(".kimi-agent").join("sessions.db");
+        let store = crate::persistence::session_store::SessionStore::new(
+            crate::persistence::store::SqliteStore::open(&path).unwrap(),
+        );
+        let records = store.list_sessions(100, 0).unwrap();
+        let stamped: Vec<&crate::persistence::session_store::SessionRecord> = records
+            .iter()
+            .filter(|record| {
+                record.state_json["parent_tool_call_id"] == serde_json::json!("task-call-1")
+            })
+            .collect();
+        assert_eq!(
+            stamped.len(),
+            1,
+            "exactly one child session must carry the stamped call id"
+        );
+        assert!(stamped[0].is_subagent(), "record must classify as a subagent session");
+        // The summary reader's contract: message_count comes from context.
+        assert!(stamped[0].state_json["context"].is_array());
     }
 }

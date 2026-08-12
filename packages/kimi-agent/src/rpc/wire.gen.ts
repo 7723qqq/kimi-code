@@ -724,6 +724,7 @@ export interface SessionSummaryRpc {
   title: string;
   work_dir: string;
   metadata?: unknown;
+  parent_tool_call_id?: string | undefined;
 }
 
 export interface SessionListResult {
@@ -738,6 +739,7 @@ export interface SubagentSummaryRpc {
   message_count: number;
   /** ISO-8601 last-write timestamp of the persisted record. */
   updated_at: string;
+  parent_tool_call_id?: string | undefined;
 }
 
 export interface SessionGetContextResult {

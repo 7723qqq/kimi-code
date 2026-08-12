@@ -809,6 +809,11 @@ pub struct SessionSummaryRpc {
     /// persisted in the durable agent state. Absent for legacy records.
     #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
     pub metadata: serde_json::Value,
+    /// Tool call id of the parent `Task`/`AgentSwarm` invocation — present
+    /// only for subagent records (`session/list` with `include_subagents`),
+    /// enabling exact replay pairing. Absent for main sessions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_tool_call_id: Option<String>,
 }
 
 /// Result of `session/list`.
@@ -836,6 +841,12 @@ pub struct SubagentSummaryRpc {
     pub message_count: usize,
     /// ISO-8601 last-write timestamp of the persisted record.
     pub updated_at: String,
+    /// Tool call id of the parent `Task`/`AgentSwarm` invocation that spawned
+    /// (or last resumed) the child — persisted into the child's session
+    /// record for exact replay pairing. Absent (`None`) for legacy records
+    /// persisted before the field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_tool_call_id: Option<String>,
 }
 
 /// Result of `session/get_context` when `include_subagents` is requested:

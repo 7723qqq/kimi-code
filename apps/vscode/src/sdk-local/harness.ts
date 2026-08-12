@@ -466,6 +466,9 @@ function mapSubagentSummary(raw: Record<string, unknown>): SubagentSummary {
     ...(typeof raw["title"] === "string" ? { title: raw["title"] } : {}),
     messageCount: typeof raw["message_count"] === "number" ? raw["message_count"] : 0,
     updatedAt: typeof raw["updated_at"] === "string" ? raw["updated_at"] : "",
+    ...(typeof raw["parent_tool_call_id"] === "string"
+      ? { parentToolCallId: raw["parent_tool_call_id"] }
+      : {}),
   };
 }
 

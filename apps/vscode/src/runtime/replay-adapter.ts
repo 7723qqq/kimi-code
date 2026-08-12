@@ -226,11 +226,15 @@ function buildSubagentReplayIndex(state: ResumedSessionState): SubagentReplayInd
       { readonly name: string; readonly startedAt: number; readonly order: number }
     >();
     // Children of this parent without an explicit linkage, in state order.
-    // The Rust engine persists no parent↔child relation and its native
-    // `Task` tool result carries the child's plain answer text (no
-    // `agent_id:` header), so each Task tool result pairs with the next
-    // unclaimed child record (the resume surface's only ordering).
-    const unclaimed = Object.entries(state.agents)
+    // The Rust engine stamps each persisted child record with the parent
+    // tool call id (`sessionMetadata.agents[id].parentToolCallId`): stamped
+    // children pair only with their exact `Task` call (a stamped child whose
+    // call is missing from the replay is dropped — attaching it FIFO would
+    // mis-pair it); legacy records without the stamp fall back to pairing
+    // each Task result with the next unclaimed child (the resume surface's
+    // only ordering). The native `Task` tool result carries the child's
+    // plain answer text (no `agent_id:` header).
+    const children = Object.entries(state.agents)
       .filter(
         ([id, agent]) =>
           id !== parentAgentId &&
@@ -238,6 +242,16 @@ function buildSubagentReplayIndex(state: ResumedSessionState): SubagentReplayInd
           state.sessionMetadata.agents[id]?.parentAgentId === parentAgentId,
       )
       .map(([id]) => id);
+    const stamped = children.filter(
+      (id) =>
+        state.sessionMetadata.agents[id]?.parentToolCallId !== undefined &&
+        state.sessionMetadata.agents[id]?.parentToolCallId !== null,
+    );
+    const unclaimed = children.filter(
+      (id) =>
+        state.sessionMetadata.agents[id]?.parentToolCallId === undefined ||
+        state.sessionMetadata.agents[id]?.parentToolCallId === null,
+    );
     for (const record of parent.replay ?? []) {
       if (record.type !== "message") continue;
       const { message } = record;
@@ -258,8 +272,19 @@ function buildSubagentReplayIndex(state: ResumedSessionState): SubagentReplayInd
       }
       let childIds: readonly string[];
       if (call.name === "Task") {
-        const claimed = unclaimed.shift();
-        childIds = claimed === undefined ? [] : [claimed];
+        // Exact pairing first: the engine-stamped child claims its own `Task`
+        // call even when the store's last-write order differs from the call
+        // order (multiple Task invocations would otherwise mis-pair). Only
+        // legacy unstamped children fall back to FIFO order.
+        const exactIndex = stamped.findIndex(
+          (id) => state.sessionMetadata.agents[id]?.parentToolCallId === message.toolCallId,
+        );
+        if (exactIndex >= 0) {
+          childIds = [stamped.splice(exactIndex, 1)[0]!];
+        } else {
+          const claimed = unclaimed.shift();
+          childIds = claimed === undefined ? [] : [claimed];
+        }
       } else {
         childIds = subagentIdsFromResult(call.name, message.content);
       }

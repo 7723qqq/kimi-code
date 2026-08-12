@@ -12,6 +12,7 @@ import type {
   ResumedSessionState,
   ToolCall,
 } from "../src/sdk-local/types";
+import type { UIStreamEvent } from "../shared/types";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -501,6 +502,126 @@ describe("replay adapter (renders the public SDK resume state for the Webview)",
     ];
 
     expect(replayRecordTurnCount(records)).toBe(2);
+  });
+
+  it("pairs Task children with their exact parent tool call id (not FIFO order)", () => {
+    const main = resumedAgent([
+      record(message("user", [{ type: "text", text: "First" }], { origin: { kind: "user" } }), 1),
+      record(message("assistant", [], {
+        toolCalls: [{ id: "task-1", name: "Task", arguments: JSON.stringify({ prompt: "one" }) }],
+      }), 2),
+      record(message("tool", [{ type: "text", text: "answer one" }], { toolCallId: "task-1" }), 3),
+      record(message("assistant", [], {
+        toolCalls: [{ id: "task-2", name: "Task", arguments: JSON.stringify({ prompt: "two" }) }],
+      }), 4),
+      record(message("tool", [{ type: "text", text: "answer two" }], { toolCallId: "task-2" }), 5),
+    ]);
+    const childA = resumedAgent([
+      record(message("user", [{ type: "text", text: "two" }], {
+        origin: { kind: "system_trigger", name: "subagent" },
+      }), 4),
+      record(message("assistant", [{ type: "text", text: "answer two" }]), 5),
+    ], { type: "sub" });
+    const childB = resumedAgent([
+      record(message("user", [{ type: "text", text: "one" }], {
+        origin: { kind: "system_trigger", name: "subagent" },
+      }), 2),
+      record(message("assistant", [{ type: "text", text: "answer one" }]), 3),
+    ], { type: "sub" });
+    // Store order (childA first) is the reverse of the call order — only the
+    // engine-stamped parent tool call ids can pair them correctly.
+    const state: ResumedSessionState = {
+      sessionMetadata: {
+        agents: {
+          main: { type: "main", parentAgentId: null },
+          "sub-a": { type: "sub", parentAgentId: "main", parentToolCallId: "task-2" },
+          "sub-b": { type: "sub", parentAgentId: "main", parentToolCallId: "task-1" },
+        },
+      },
+      agents: { main, "sub-a": childA, "sub-b": childB },
+    };
+
+    const events = replaySessionToWebviewEvents(state, "session-1");
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "SubagentEvent",
+      payload: {
+        parent_tool_call_id: "task-1",
+        event: { type: "ContentPart", payload: { type: "text", text: "answer one" } },
+      },
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "SubagentEvent",
+      payload: {
+        parent_tool_call_id: "task-2",
+        event: { type: "ContentPart", payload: { type: "text", text: "answer two" } },
+      },
+    }));
+    // FIFO would have paired childA (store-first) with task-1 — prove it did
+    // not: no task-1-scoped subagent event carries "answer two".
+    const taskOneSubagentPayloads = events
+      .filter(
+        (event): event is Extract<UIStreamEvent, { type: "SubagentEvent" }> =>
+          event.type === "SubagentEvent",
+      )
+      .map((event) => event.payload as { parent_tool_call_id?: string; event: unknown })
+      .filter((payload) => payload.parent_tool_call_id === "task-1")
+      .map((payload) => JSON.stringify(payload.event));
+    expect(taskOneSubagentPayloads.join("\n")).not.toContain("answer two");
+  });
+
+  it("falls back to FIFO pairing for Task children without a parent tool call id", () => {
+    const main = resumedAgent([
+      record(message("user", [{ type: "text", text: "First" }], { origin: { kind: "user" } }), 1),
+      record(message("assistant", [], {
+        toolCalls: [{ id: "task-1", name: "Task", arguments: JSON.stringify({ prompt: "one" }) }],
+      }), 2),
+      record(message("tool", [{ type: "text", text: "answer one" }], { toolCallId: "task-1" }), 3),
+      record(message("assistant", [], {
+        toolCalls: [{ id: "task-2", name: "Task", arguments: JSON.stringify({ prompt: "two" }) }],
+      }), 4),
+      record(message("tool", [{ type: "text", text: "answer two" }], { toolCallId: "task-2" }), 5),
+    ]);
+    // Legacy summaries: no parentToolCallId stamp, store order = call order.
+    const childA = resumedAgent([
+      record(message("user", [{ type: "text", text: "one" }], {
+        origin: { kind: "system_trigger", name: "subagent" },
+      }), 2),
+      record(message("assistant", [{ type: "text", text: "answer one" }]), 3),
+    ], { type: "sub" });
+    const childB = resumedAgent([
+      record(message("user", [{ type: "text", text: "two" }], {
+        origin: { kind: "system_trigger", name: "subagent" },
+      }), 4),
+      record(message("assistant", [{ type: "text", text: "answer two" }]), 5),
+    ], { type: "sub" });
+    const state: ResumedSessionState = {
+      sessionMetadata: {
+        agents: {
+          main: { type: "main", parentAgentId: null },
+          "sub-a": { type: "sub", parentAgentId: "main" },
+          "sub-b": { type: "sub", parentAgentId: "main" },
+        },
+      },
+      agents: { main, "sub-a": childA, "sub-b": childB },
+    };
+
+    const events = replaySessionToWebviewEvents(state, "session-1");
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "SubagentEvent",
+      payload: {
+        parent_tool_call_id: "task-1",
+        event: { type: "ContentPart", payload: { type: "text", text: "answer one" } },
+      },
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "SubagentEvent",
+      payload: {
+        parent_tool_call_id: "task-2",
+        event: { type: "ContentPart", payload: { type: "text", text: "answer two" } },
+      },
+    }));
   });
 
   it("routes repeated runs of one subagent to their corresponding Agent calls", () => {

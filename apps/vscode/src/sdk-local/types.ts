@@ -272,7 +272,13 @@ export interface ResumedSessionState {
   readonly sessionMetadata: {
     readonly agents: Record<
       string,
-      { readonly parentAgentId?: string | null; readonly [key: string]: unknown }
+      {
+        readonly parentAgentId?: string | null;
+        /** Tool call id of the parent `Task`/`AgentSwarm` invocation —
+         *  exact replay pairing; absent for legacy/unknown children. */
+        readonly parentToolCallId?: string | null;
+        readonly [key: string]: unknown;
+      }
     >;
     readonly [key: string]: unknown;
   };
@@ -315,6 +321,10 @@ export interface SubagentSummary {
   readonly messageCount: number;
   /** ISO-8601 last-write timestamp of the persisted record. */
   readonly updatedAt: string;
+  /** Tool call id of the parent `Task`/`AgentSwarm` invocation that spawned
+   *  (or last resumed) the child — exact replay pairing. Absent for legacy
+   *  records persisted before the engine stamped it. */
+  readonly parentToolCallId?: string | null;
 }
 
 /** A session status snapshot (`session/get_status` result, explicit fields). */

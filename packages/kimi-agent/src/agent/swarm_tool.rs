@@ -250,6 +250,9 @@ impl HostCallbacks for SwarmToolInterceptor {
         let subagent_type = subagent_type.clone();
         let swarm = self.swarm.clone();
         let hooks = self.hooks.clone();
+        // Exact replay pairing: every child spawned (or resumed) by this
+        // call persists this tool call id into its session record.
+        let parent_tool_call_id = req.tool_call_id.clone();
         // A12: resolve the subagent model preference for this swarm's
         // subagent_type — a custom agent file may declare
         // `model_preference: secondary`, binding the configured secondary
@@ -303,6 +306,7 @@ impl HostCallbacks for SwarmToolInterceptor {
                 let prompt = spec.prompt.clone();
                 let hooks = hooks.clone();
                 let model_override = model_override.clone();
+                let parent_tool_call_id = parent_tool_call_id.clone();
                 // Resume entries reuse their persisted agent id; fresh item
                 // spawns get a new stable id so the model can resume them
                 // from a later call.
@@ -322,6 +326,7 @@ impl HostCallbacks for SwarmToolInterceptor {
                                 &prompt,
                                 hooks.clone(),
                                 &id,
+                                Some(parent_tool_call_id.clone()),
                             )
                             .await
                             .map(|(_, text)| text)
@@ -340,6 +345,7 @@ impl HostCallbacks for SwarmToolInterceptor {
                                 hooks.clone(),
                                 &agent_id,
                                 model_override,
+                                Some(parent_tool_call_id.clone()),
                             )
                             .await
                             .map(|(_, text)| text)
@@ -559,13 +565,21 @@ mod tests {
         interceptor: &SwarmToolInterceptor,
         args: serde_json::Value,
     ) -> ToolExecuteResponse {
+        run_tool_with_call_id(interceptor, "c1", args)
+    }
+
+    fn run_tool_with_call_id(
+        interceptor: &SwarmToolInterceptor,
+        tool_call_id: &str,
+        args: serde_json::Value,
+    ) -> ToolExecuteResponse {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             interceptor
                 .execute_tool(ToolExecuteRequest {
                     session_id: None,
                     turn_id: "t".into(),
-                    tool_call_id: "c1".into(),
+                    tool_call_id: tool_call_id.into(),
                     tool_name: AGENT_SWARM_TOOL_NAME.into(),
                     arguments: args,
                     force_precise: false,
@@ -573,6 +587,21 @@ mod tests {
                 .await
                 .unwrap()
         })
+    }
+
+    /// Load a persisted child record from the test homedir's session store.
+    fn load_child_record(
+        homedir: &str,
+        agent_id: &str,
+    ) -> crate::persistence::session_store::SessionRecord {
+        let path = std::path::Path::new(homedir).join(".kimi-agent").join("sessions.db");
+        let store = crate::persistence::session_store::SessionStore::new(
+            crate::persistence::store::SqliteStore::open(&path).unwrap(),
+        );
+        store
+            .load_session(agent_id)
+            .unwrap()
+            .unwrap_or_else(|| panic!("no persisted record for agent_id `{agent_id}`"))
     }
 
     fn swarm_args(items: Vec<&str>) -> serde_json::Value {
@@ -742,6 +771,47 @@ mod tests {
         assert!(
             resumed.is_some(),
             "resumed child did not see the prior conversation: {reqs:?}"
+        );
+    }
+
+    #[test]
+    fn swarm_children_persist_parent_tool_call_id() {
+        // The invoking tool call id is stamped into each child's persisted
+        // session record (exact replay pairing), and a resume call
+        // re-stamps it with the resuming invocation's id — the latest
+        // invocation wins.
+        let calls: Arc<Mutex<Vec<crate::rpc::types::LlmChatRequest>>> = Default::default();
+        let inner: Arc<dyn HostCallbacks> = Arc::new(CompletingHost { calls: calls.clone() });
+        let homedir = temp_test_homedir();
+        let i = interceptor_with(inner, Some(homedir.clone()));
+
+        let resp = run_tool(&i, swarm_args(vec!["alpha", "beta"]));
+        assert!(!resp.is_error, "{}", resp.content);
+        let agent_id = extract_agent_id(&resp.content);
+        let record = load_child_record(&homedir, &agent_id);
+        assert_eq!(
+            record.state_json["parent_tool_call_id"],
+            serde_json::json!("c1"),
+            "spawn must stamp the invoking tool call id"
+        );
+
+        // A resume from a different tool call re-stamps the record.
+        let resp2 = run_tool_with_call_id(
+            &i,
+            "c2",
+            serde_json::json!({
+                "description": "resume",
+                "prompt_template": "{{item}}",
+                "items": ["gamma"],
+                "resume_agent_ids": { agent_id.clone(): "continue" },
+            }),
+        );
+        assert!(!resp2.is_error, "{}", resp2.content);
+        let record2 = load_child_record(&homedir, &agent_id);
+        assert_eq!(
+            record2.state_json["parent_tool_call_id"],
+            serde_json::json!("c2"),
+            "resume must re-stamp the record with the latest invocation's call id"
         );
     }
 

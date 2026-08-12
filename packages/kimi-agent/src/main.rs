@@ -1278,6 +1278,11 @@ async fn main() -> anyhow::Result<()> {
                             title: String::new(),
                             message_count,
                             updated_at: record.updated_at,
+                            parent_tool_call_id: record
+                                .state_json
+                                .get("parent_tool_call_id")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_string),
                         }
                     })
                     .collect()
@@ -1891,6 +1896,14 @@ async fn main() -> anyhow::Result<()> {
                             .get("metadata")
                             .cloned()
                             .unwrap_or(serde_json::Value::Null),
+                        // Subagent records carry the parent tool call id at the
+                        // top level of `state_json` (`Agent::durable_state`);
+                        // main-session records never have the key → `None`.
+                        parent_tool_call_id: record
+                            .state_json
+                            .get("parent_tool_call_id")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
                     }
                 })
                 .collect::<Vec<_>>();
