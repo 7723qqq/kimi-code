@@ -7,9 +7,12 @@
 /// - `SwarmDiscussionCoordinator`: roundtable discussion orchestration
 /// - `StructuredDebateCoordinator`: multi-phase structured debate orchestration
 ///
-/// Both coordinators are stubbed — they define the data model and coordinator
-/// interfaces. The actual sub-agent spawning and turn execution is delegated
-/// to host-side callbacks (Rust cannot manage TypeScript subagent sessions directly).
+/// Both coordinators are fully implemented — they spawn participant agents,
+/// drive round-robin turns against the transcript, detect cross-references,
+/// generate summaries and account usage. The actual sub-agent spawning and
+/// turn execution is delegated to host-side callbacks
+/// (`DiscussionHostDelegate`): the engine has no subagent runtime of its own,
+/// so the host (TUI / web / SDK) provides one.
 ///
 /// # Architecture
 /// - `DiscussionContext`: pure data — zero dependencies

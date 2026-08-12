@@ -1,12 +1,15 @@
 /// KnowledgeService — knowledge base search and storage.
 ///
-/// Corresponds to `packages/agent-core-v2/src/agent/knowledge/`.
-/// Delegates actual storage (SQLite FTS5 in kimi-native-tools) to the host;
-/// the injection signal extraction lives in [`injection`], the auto-learner
-/// in [`learner`].
+/// Corresponds to `packages/agent-core-v2/src/agent/knowledge/`. Storage is
+/// delegated to a [`KnowledgeDelegate`]; the engine's SQLite+FTS5 store
+/// ([`store::SqliteKnowledgeStore`]) is wired in `Agent::new` at
+/// `<KIMI_AGENT_HOME>/knowledge.db` (mirroring the kimi-native-tools
+/// implementation without depending on the napi crate). The injection signal
+/// extraction lives in [`injection`], the auto-learner in [`learner`].
 
 pub mod injection;
 pub mod learner;
+pub mod store;
 
 use serde::{Deserialize, Serialize};
 
@@ -263,7 +266,7 @@ fn auto_categorize(content: &str, title: Option<&str>) -> String {
 
 /// Parse markdown content into knowledge entries.
 /// Each top-level heading (`# Title`) starts a new entry.
-fn parse_markdown_knowledge(content: &str, default_category: Option<&str>) -> Vec<KnowledgeEntry> {
+pub(crate) fn parse_markdown_knowledge(content: &str, default_category: Option<&str>) -> Vec<KnowledgeEntry> {
     let mut entries = Vec::new();
     let mut current_title = String::new();
     let mut current_body = Vec::new();

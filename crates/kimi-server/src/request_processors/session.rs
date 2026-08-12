@@ -52,6 +52,53 @@ impl SessionProcessor {
     }
 }
 
+/// Merge enabled-plugin contributions into the client-supplied `session/create`
+/// inputs. Rule: client-supplied values win — plugin contributions only fill
+/// gaps (dedup by name / event+command); the system prompt falls back to the
+/// composed plugin sections only when the client left it empty.
+fn merge_plugin_injection(
+    input: &mut kimi_agent::rpc::types::SessionCreateParams,
+    injection: &kimi_agent::plugin::injector::PluginInjection,
+) {
+    // Skills: client first, dedup by name.
+    let mut seen: std::collections::HashSet<String> =
+        input.skills.iter().map(|s| s.name.clone()).collect();
+    for skill in &injection.skills {
+        if seen.insert(skill.name.clone()) {
+            input.skills.push(skill.clone());
+        }
+    }
+    // MCP servers: client first, dedup by name.
+    let mut seen: std::collections::HashSet<String> =
+        input.mcp_servers.iter().map(|m| m.name.clone()).collect();
+    for server in &injection.mcp_servers {
+        if seen.insert(server.name.clone()) {
+            input.mcp_servers.push(server.clone());
+        }
+    }
+    // Hooks: client first, dedup by (event, command).
+    let mut seen: std::collections::HashSet<(String, String)> = input
+        .hooks
+        .iter()
+        .map(|h| (format!("{:?}", h.event), h.command.clone()))
+        .collect();
+    for hook in &injection.hooks {
+        let key = (format!("{:?}", hook.event), hook.command.clone());
+        if seen.insert(key) {
+            input.hooks.push(hook.clone());
+        }
+    }
+    // System prompt: plugin sections are a fallback for an absent client
+    // system prompt (client explicit content always wins).
+    if input.system_prompt.as_deref().map(str::trim).unwrap_or("").is_empty() {
+        let (block, _skipped) =
+            kimi_agent::plugin::injector::compose_plugin_sections(&injection.system_prompts);
+        if !block.is_empty() {
+            input.system_prompt = Some(block);
+        }
+    }
+}
+
 impl Processor for SessionProcessor {
     fn register(&self, processor: &mut MessageProcessor) {
         // `session/create` — create a session + agent (main.rs parity).
@@ -59,6 +106,8 @@ impl Processor for SessionProcessor {
         let callbacks = self.state.callbacks.clone();
         let approval = self.state.approval.clone();
         let permission = self.state.permission.clone();
+        let plugin_store = self.state.plugin_store.clone();
+        let plugin_dir = self.state.plugin_dir.clone();
         let cancel = self.cancel.clone();
         let steer = self.steer.clone();
         processor.register(kimi_protocol::methods::SESSION_CREATE, move |params| {
@@ -66,12 +115,26 @@ impl Processor for SessionProcessor {
             let callbacks = callbacks.clone();
             let approval = approval.clone();
             let permission = permission.clone();
+            let plugin_store = plugin_store.clone();
+            let plugin_dir = plugin_dir.clone();
             let cancel = cancel.clone();
             let steer = steer.clone();
             Box::pin(async move {
                 let mut input: kimi_agent::rpc::types::SessionCreateParams =
                     serde_json::from_value(params)
                         .map_err(|e| JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+                // Plugin injection: enabled plugins contribute skills / MCP
+                // servers / hooks / system-prompt sections; client-supplied
+                // values win on conflicts (client-first, plugin fallback,
+                // dedup). Agent roots have no session/create assembly surface
+                // yet (tracked separately).
+                merge_plugin_injection(
+                    &mut input,
+                    &kimi_agent::plugin::injector::collect_plugin_injections(
+                        &plugin_store,
+                        Some(&plugin_dir),
+                    ),
+                );
                 let id = input.session_id.take().unwrap_or_else(|| {
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -1382,19 +1445,24 @@ impl Processor for SessionProcessor {
                         ));
                     }
                     let mut manager = mgr.lock().await;
-                    let agent = manager.get_agent(&input.session_id).ok_or_else(|| {
-                        JsonRpcError::internal_error(format!(
-                            "no agent for session: {}",
-                            input.session_id
-                        ))
-                    })?;
-                    agent.update_metadata(input.metadata.clone());
-                    // Persist the patched blob so `session/list` and resume
-                    // surfaces see it (previously in-memory only — metadata
-                    // written here vanished from the store).
+                    // The record-level update also serves archived sessions
+                    // (archive_session drops their live agent); sync the live
+                    // agent when present so in-memory state does not diverge.
                     let record = manager
                         .update_metadata(&input.session_id, &input.metadata)
                         .map_err(|e| JsonRpcError::internal_error(e.to_string()))?;
+                    if record.is_none() {
+                        return Err(JsonRpcError::internal_error(format!(
+                            "no session for metadata update: {}",
+                            input.session_id
+                        )));
+                    }
+                    if let Some(agent) = manager.get_agent(&input.session_id) {
+                        agent.update_metadata(input.metadata.clone());
+                    }
+                    // Persist the patched blob so `session/list` and resume
+                    // surfaces see it (previously in-memory only — metadata
+                    // written here vanished from the store).
                     Ok(serde_json::json!({
                         "ok": true,
                         "metadata": record.map(|r| r.metadata).unwrap_or(input.metadata)
@@ -2916,5 +2984,313 @@ mod create_tests {
             "/workspace/project-b",
             "resume must keep the persisted workspace: {body}"
         );
+    }
+
+    // ── Plugin injection (enabled plugins contribute to session/create) ──────
+
+    fn sample_injection() -> kimi_agent::plugin::injector::PluginInjection {
+        use kimi_agent::mcp::runtime::McpServerSpecInput;
+        use kimi_agent::plugin::injector::PluginSystemPrompt;
+        use kimi_agent::skill::SkillMetadataInput;
+        use kimi_protocol::hooks::{HookDef, HookEventType};
+        kimi_agent::plugin::injector::PluginInjection {
+            skills: vec![
+                SkillMetadataInput {
+                    name: "plugin-skill".into(),
+                    description: "From plugin".into(),
+                    skill_type: "prompt".into(),
+                    source: Some("plug".into()),
+                    path: Some("/plug/skill.md".into()),
+                    dir: None,
+                    content: None,
+                },
+                SkillMetadataInput {
+                    name: "plugin-only-skill".into(),
+                    description: "Only plugin".into(),
+                    skill_type: "prompt".into(),
+                    source: Some("plug".into()),
+                    path: None,
+                    dir: None,
+                    content: None,
+                },
+            ],
+            mcp_servers: vec![
+                McpServerSpecInput {
+                    name: "plugin-mcp".into(),
+                    transport: Some("stdio".into()),
+                    enabled: Some(true),
+                    command: Some("tool".into()),
+                    args: Vec::new(),
+                    env: None,
+                    cwd: None,
+                    url: None,
+                    enabled_tools: None,
+                    disabled_tools: None,
+                    bearer_token: None,
+                    bearer_token_env_var: None,
+                    startup_timeout_ms: None,
+                    tool_timeout_ms: None,
+                    has_headers: None,
+                    project_root: None,
+                },
+                McpServerSpecInput {
+                    name: "plugin-only-mcp".into(),
+                    transport: Some("http".into()),
+                    enabled: Some(true),
+                    command: None,
+                    args: Vec::new(),
+                    env: None,
+                    cwd: None,
+                    url: Some("http://127.0.0.1:1".into()),
+                    enabled_tools: None,
+                    disabled_tools: None,
+                    bearer_token: None,
+                    bearer_token_env_var: None,
+                    startup_timeout_ms: None,
+                    tool_timeout_ms: None,
+                    has_headers: None,
+                    project_root: None,
+                },
+            ],
+            hooks: vec![
+                // Identical to the client's (event, command) pair — deduped.
+                HookDef {
+                    event: HookEventType::UserPromptSubmit,
+                    matcher: None,
+                    command: "echo client".into(),
+                    timeout: None,
+                    cwd: None,
+                    env: None,
+                },
+                HookDef {
+                    event: HookEventType::Stop,
+                    matcher: None,
+                    command: "echo stop".into(),
+                    timeout: None,
+                    cwd: None,
+                    env: None,
+                },
+            ],
+            system_prompts: vec![PluginSystemPrompt {
+                plugin_id: "plug".into(),
+                content: "Plugin voice: be concise.".into(),
+            }],
+            agent_roots: vec![],
+        }
+    }
+
+    fn parse_create_params(json: serde_json::Value) -> kimi_agent::rpc::types::SessionCreateParams {
+        serde_json::from_value(json).expect("valid create params")
+    }
+
+    #[test]
+    fn merge_plugin_injection_client_wins_and_dedups() {
+        let mut input = parse_create_params(serde_json::json!({
+            "system_prompt": "client prompt",
+            "skills": [
+                { "name": "plugin-skill", "description": "Client version" }
+            ],
+            "mcp_servers": [
+                { "name": "plugin-mcp", "transport": "stdio", "command": "client-tool" }
+            ],
+            "hooks": [
+                { "event": "UserPromptSubmit", "command": "echo client" }
+            ]
+        }));
+        merge_plugin_injection(&mut input, &sample_injection());
+
+        // Skills: client value for the same name wins; plugin-only skill appended.
+        let names: Vec<&str> = input.skills.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["plugin-skill", "plugin-only-skill"], "skills merged: {names:?}");
+        let plugin_skill = input.skills.iter().find(|s| s.name == "plugin-skill").unwrap();
+        assert_eq!(
+            plugin_skill.description, "Client version",
+            "client-supplied skill must win over the plugin contribution"
+        );
+
+        // MCP servers: client value for the same name wins; plugin-only appended.
+        let mcp_names: Vec<&str> = input.mcp_servers.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(mcp_names, vec!["plugin-mcp", "plugin-only-mcp"], "mcp merged");
+        let plugin_mcp = input.mcp_servers.iter().find(|m| m.name == "plugin-mcp").unwrap();
+        assert_eq!(
+            plugin_mcp.command.as_deref(),
+            Some("client-tool"),
+            "client-supplied mcp server must win"
+        );
+
+        // Hooks: an identical plugin (event, command) pair is deduped
+        // (client wins); the plugin-only Stop hook is appended.
+        let hook_cmds: Vec<&str> = input.hooks.iter().map(|h| h.command.as_str()).collect();
+        assert_eq!(hook_cmds, vec!["echo client", "echo stop"], "hooks merged: {hook_cmds:?}");
+
+        // System prompt: explicit client content is never overridden.
+        assert_eq!(input.system_prompt.as_deref(), Some("client prompt"));
+    }
+
+    #[test]
+    fn merge_plugin_injection_system_prompt_falls_back_to_plugin() {
+        let mut input = parse_create_params(serde_json::json!({
+            "system_prompt": "",
+        }));
+        merge_plugin_injection(&mut input, &sample_injection());
+        let prompt = input.system_prompt.as_deref().unwrap_or("");
+        assert!(
+            prompt.contains("<!-- From: plugin plug -->") && prompt.contains("Plugin voice"),
+            "plugin sections composed into the system prompt: {prompt}"
+        );
+    }
+
+    /// A local plugin fixture (skills + hook + systemPrompt + agents dir).
+    fn write_injection_plugin(dir: &std::path::Path) -> std::path::PathBuf {
+        let plugin_dir = dir.join("inj-plugin");
+        std::fs::create_dir_all(plugin_dir.join("agents")).unwrap();
+        std::fs::write(plugin_dir.join("skill.md"), "# Plugin skill body").unwrap();
+        let manifest = serde_json::json!({
+            "name": "inj-plugin",
+            "version": "1.0.0",
+            "description": "injection test plugin",
+            "skills": [{"name": "plugin-skill", "description": "From plugin", "file": "skill.md"}],
+            "hooks": [{"event": "UserPromptSubmit", "command": "echo plugin-hook"}],
+            "systemPrompt": "Plugin voice: be concise.",
+            "agents": ["./agents"]
+        });
+        std::fs::write(plugin_dir.join("plugin.json"), serde_json::to_vec(&manifest).unwrap())
+            .unwrap();
+        plugin_dir
+    }
+
+    #[tokio::test]
+    async fn create_injects_enabled_plugin_contributions() {
+        let _guard = STORE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!("kimi-plugin-inj-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).expect("mkdir");
+        let previous = std::env::var_os("KIMI_AGENT_HOME");
+        std::env::set_var("KIMI_AGENT_HOME", &home);
+
+        async {
+            let plugin_src = write_injection_plugin(&home);
+            let server = crate::Server::build().expect("server");
+
+            // Install the local plugin (shared plugin store with session/create).
+            let body = server
+                .processor
+                .handle(JsonRpcRequest {
+                    jsonrpc: "2.0".into(),
+                    id: serde_json::json!(1),
+                    method: "plugin/install".into(),
+                    params: serde_json::json!({ "source": plugin_src.to_str().unwrap() }),
+                })
+                .await;
+            assert!(body.get("error").is_none(), "plugin/install failed: {body}");
+
+            // Create a session without any client-supplied skills / prompt.
+            let body = server
+                .processor
+                .handle(JsonRpcRequest {
+                    jsonrpc: "2.0".into(),
+                    id: serde_json::json!(2),
+                    method: "session/create".into(),
+                    params: serde_json::json!({
+                        "session_id": "s-plugin-inj",
+                        "homedir": home.to_string_lossy().to_string(),
+                    }),
+                })
+                .await;
+            assert!(body.get("error").is_none(), "session/create failed: {body}");
+
+            let mut manager = server.state.manager.lock().await;
+            let agent = manager.get_agent("s-plugin-inj").expect("agent created");
+            let skill = agent.skill_manager.registry.get_skill("plugin-skill").expect(
+                "plugin skill must be injected into the session skill registry",
+            );
+            assert_eq!(skill.description, "From plugin");
+            let path = skill.path.as_deref().unwrap_or("");
+            assert!(
+                path.ends_with("skill.md") && std::path::Path::new(path).is_absolute(),
+                "plugin skill path resolved against plugin root: {path}"
+            );
+            let expected_source = format!("local:{}", plugin_src.display());
+            assert_eq!(
+                skill.source.as_deref(),
+                Some(expected_source.as_str()),
+                "skill source records the plugin id"
+            );
+            assert!(
+                agent.config.system_prompt.contains("Plugin voice"),
+                "plugin system prompt composed into the session prompt: {}",
+                agent.config.system_prompt
+            );
+        }
+        .await;
+
+        match previous {
+            Some(v) => std::env::set_var("KIMI_AGENT_HOME", v),
+            None => std::env::remove_var("KIMI_AGENT_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[tokio::test]
+    async fn create_client_skills_win_over_plugin_skills() {
+        let _guard = STORE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!("kimi-plugin-inj2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).expect("mkdir");
+        let previous = std::env::var_os("KIMI_AGENT_HOME");
+        std::env::set_var("KIMI_AGENT_HOME", &home);
+
+        async {
+            let plugin_src = write_injection_plugin(&home);
+            let server = crate::Server::build().expect("server");
+            let body = server
+                .processor
+                .handle(JsonRpcRequest {
+                    jsonrpc: "2.0".into(),
+                    id: serde_json::json!(1),
+                    method: "plugin/install".into(),
+                    params: serde_json::json!({ "source": plugin_src.to_str().unwrap() }),
+                })
+                .await;
+            assert!(body.get("error").is_none(), "plugin/install failed: {body}");
+
+            // Client explicitly supplies a skill with the same name as the
+            // plugin's — the client's description must win.
+            let body = server
+                .processor
+                .handle(JsonRpcRequest {
+                    jsonrpc: "2.0".into(),
+                    id: serde_json::json!(2),
+                    method: "session/create".into(),
+                    params: serde_json::json!({
+                        "session_id": "s-plugin-client-win",
+                        "homedir": home.to_string_lossy().to_string(),
+                        "skills": [
+                            { "name": "plugin-skill", "description": "Client version" }
+                        ],
+                    }),
+                })
+                .await;
+            assert!(body.get("error").is_none(), "session/create failed: {body}");
+
+            let mut manager = server.state.manager.lock().await;
+            let agent = manager.get_agent("s-plugin-client-win").expect("agent created");
+            let skill = agent
+                .skill_manager
+                .registry
+                .get_skill("plugin-skill")
+                .expect("skill registered");
+            assert_eq!(
+                skill.description, "Client version",
+                "client-supplied skill must win over the plugin contribution"
+            );
+        }
+        .await;
+
+        match previous {
+            Some(v) => std::env::set_var("KIMI_AGENT_HOME", v),
+            None => std::env::remove_var("KIMI_AGENT_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

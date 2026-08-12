@@ -119,6 +119,16 @@ impl PluginProcessor {
         let _ = store.init();
         Ok(Self { store, dir: plugins_dir(), manager })
     }
+
+    /// Create over a caller-shared plugin store (from `ServerState`) plus an
+    /// optional session manager. `session/create` reads the same store for
+    /// plugin injection, so plugin installs are immediately visible there.
+    pub fn with_store(
+        store: Arc<PluginStore>,
+        manager: Option<Arc<tokio::sync::Mutex<kimi_agent::session::manager::SessionManager>>>,
+    ) -> Self {
+        Self { store, dir: plugins_dir(), manager }
+    }
 }
 
 impl Processor for PluginProcessor {
@@ -270,16 +280,20 @@ impl Processor for PluginProcessor {
             })
         });
 
-        // `plugin/reload` — rescan plugins from the plugins dir (the engine
-        // keeps no in-memory cache, so a reload is a no-op upsert pass over
-        // local manifests; reported ok).
+        // `plugin/reload` — rescan installed plugins: re-read each plugin's
+        // `plugin.json` from disk (the download dir under the plugins dir for
+        // github/url sources, the original path for local ones) and upsert the
+        // refreshed metadata, preserving identity, enable state and install
+        // time. Plugins whose manifest is no longer resolvable keep their
+        // existing record.
         let ps = self.store.clone();
         let dir = self.dir.clone();
         processor.register(kimi_protocol::methods::PLUGIN_RELOAD, move |_| {
             let ps = ps.clone();
             let dir = dir.clone();
             Box::pin(async move {
-                let _ = (&ps, &dir);
+                kimi_agent::plugin::install::rescan(&dir, &ps)
+                    .map_err(|e| JsonRpcError::internal_error(format!("plugin reload: {e}")))?;
                 serde_json::to_value(kimi_protocol::wire_types::PluginReloadResult { ok: true })
                     .map_err(|e| JsonRpcError::internal_error(format!("serialize failed: {e}")))
             })
@@ -638,7 +652,19 @@ mod tests {
             .await;
         assert!(body.get("error").is_some(), "unknown plugin -> error: {body}");
 
-        // Reload reports ok.
+        // Reload rescans the plugins dir: bump the manifest on disk, then
+        // reload must refresh the store's metadata (identity/state kept).
+        std::fs::write(
+            src.join("plugin.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "name": "toggle-tools",
+                "version": "2.0.0",
+                "description": "test plugin",
+                "skills": [{"name": "test-skill", "description": "A skill", "file": "skill.md"}]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         let body = server
             .handle(JsonRpcRequest {
                 jsonrpc: "2.0".into(),
@@ -649,12 +675,22 @@ mod tests {
             .await;
         assert!(body.get("error").is_none(), "reload: {body}");
         assert_eq!(body["result"]["ok"], true);
+        let body = server
+            .handle(JsonRpcRequest {
+                jsonrpc: "2.0".into(),
+                id: serde_json::json!(6),
+                method: "plugin/get".into(),
+                params: serde_json::json!({ "id": plugin_id }),
+            })
+            .await;
+        assert_eq!(body["result"]["version"], "2.0.0", "reload refreshed manifest: {body}");
+        assert_eq!(body["result"]["enabled"], true, "enable state preserved: {body}");
 
         // Remove; a second remove reports removed=false.
         let body = server
             .handle(JsonRpcRequest {
                 jsonrpc: "2.0".into(),
-                id: serde_json::json!(6),
+                id: serde_json::json!(7),
                 method: "plugin/remove".into(),
                 params: serde_json::json!({ "id": plugin_id }),
             })
@@ -664,7 +700,7 @@ mod tests {
         let body = server
             .handle(JsonRpcRequest {
                 jsonrpc: "2.0".into(),
-                id: serde_json::json!(7),
+                id: serde_json::json!(8),
                 method: "plugin/remove".into(),
                 params: serde_json::json!({ "id": plugin_id }),
             })
@@ -673,7 +709,7 @@ mod tests {
         let body = server
             .handle(JsonRpcRequest {
                 jsonrpc: "2.0".into(),
-                id: serde_json::json!(8),
+                id: serde_json::json!(9),
                 method: "plugin/get".into(),
                 params: serde_json::json!({ "id": plugin_id }),
             })

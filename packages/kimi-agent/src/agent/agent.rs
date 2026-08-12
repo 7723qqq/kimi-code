@@ -981,7 +981,27 @@ impl Agent {
                 }
                 pm
             },
-            knowledge: std::sync::Arc::new(crate::knowledge::KnowledgeService::new()),
+            knowledge: {
+                // Engine-side knowledge base: SQLite+FTS5 at
+                // `<KIMI_AGENT_HOME>/knowledge.db` (mirrors kimi-native-tools
+                // semantics). Prefer the process env, fall back to the
+                // host-provided homedir; without a home the service stays a
+                // no-op and SearchKnowledge honestly answers "No results.".
+                let mut svc = crate::knowledge::KnowledgeService::new();
+                let home = std::env::var("KIMI_AGENT_HOME")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .or_else(|| options.homedir.clone());
+                if let Some(home) = home {
+                    match crate::knowledge::store::SqliteKnowledgeStore::open_at_home(&home) {
+                        Ok(store) => svc.set_delegate(Box::new(store)),
+                        Err(e) => eprintln!(
+                            "kimi-agent: failed to open knowledge db under `{home}`: {e}; SearchKnowledge disabled"
+                        ),
+                    }
+                }
+                std::sync::Arc::new(svc)
+            },
             background: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::background::manager::BackgroundManager::new(None),
             )),
@@ -2980,6 +3000,9 @@ mod tests {
     use super::*;
     use crate::goal::completion_verifier::{GoalVerifier, VerificationResult};
     use crate::goal::{GoalSnapshot, GoalStatus};
+    // Trait method resolution for SqliteKnowledgeStore::store/search in the
+    // knowledge wiring tests below.
+    use crate::knowledge::KnowledgeDelegate as _;
 
     #[test]
     fn mcp_image_result_becomes_a_media_block_not_a_text_placeholder() {
@@ -3701,5 +3724,141 @@ mod tests {
         assert!(stamped[0].is_subagent(), "record must classify as a subagent session");
         // The summary reader's contract: message_count comes from context.
         assert!(stamped[0].state_json["context"].is_array());
+    }
+
+    // ── SearchKnowledge tool wiring ──────────────────────────────────────
+
+    /// The engine SQLite store wired as the KnowledgeService delegate makes
+    /// the SearchKnowledge tool return stored entries instead of the
+    /// no-delegate "No results." answer.
+    #[test]
+    fn search_knowledge_tool_returns_stored_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("knowledge.db");
+        let store = crate::knowledge::store::SqliteKnowledgeStore::open(&path.to_string_lossy())
+            .expect("open knowledge store");
+        store
+            .store(crate::knowledge::KnowledgeEntry {
+                id: "k-1".into(),
+                content: "Borrowing rules prevent use-after-free in Rust.".into(),
+                category: Some("pitfall".into()),
+                title: Some("Rust ownership".into()),
+                tags: vec![],
+                scope: None,
+                confidence: Some(0.9),
+                source: Some("human".into()),
+                status: crate::knowledge::KnowledgeStatus::Confirmed,
+                metadata: None,
+            })
+            .expect("store entry");
+
+        let mut ks = crate::knowledge::KnowledgeService::new();
+        ks.set_delegate(Box::new(store));
+        let interceptor = KnowledgeInterceptor {
+            inner: Arc::new(NoopHost),
+            knowledge: Arc::new(ks),
+        };
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let resp = rt.block_on(async {
+            interceptor
+                .execute_tool(ToolExecuteRequest {
+                    session_id: None,
+                    turn_id: "t".into(),
+                    tool_call_id: "k-call-1".into(),
+                    tool_name: "SearchKnowledge".into(),
+                    arguments: serde_json::json!({ "query": "borrowing" }),
+                    force_precise: false,
+                })
+                .await
+                .expect("tool call")
+        });
+        assert!(!resp.is_error, "{}", resp.content);
+        assert!(
+            resp.content.contains("Rust ownership"),
+            "tool must surface the stored entry, got: {}",
+            resp.content
+        );
+        assert!(!resp.content.contains("No results."));
+    }
+
+    /// Without a delegate the tool keeps answering "No results." — the
+    /// honest no-op contract, not an error.
+    #[test]
+    fn search_knowledge_tool_empty_store_returns_no_results() {
+        let interceptor = KnowledgeInterceptor {
+            inner: Arc::new(NoopHost),
+            knowledge: Arc::new(crate::knowledge::KnowledgeService::new()),
+        };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let resp = rt.block_on(async {
+            interceptor
+                .execute_tool(ToolExecuteRequest {
+                    session_id: None,
+                    turn_id: "t".into(),
+                    tool_call_id: "k-call-2".into(),
+                    tool_name: "SearchKnowledge".into(),
+                    arguments: serde_json::json!({ "query": "anything" }),
+                    force_precise: false,
+                })
+                .await
+                .expect("tool call")
+        });
+        assert_eq!(resp.content, "No results.");
+    }
+
+    /// `Agent::new` wires the SQLite delegate automatically when a home
+    /// directory is available (`KIMI_AGENT_HOME`, else the host homedir):
+    /// storing through the agent's knowledge service lands in
+    /// `<home>/knowledge.db`.
+    #[test]
+    fn agent_new_wires_knowledge_delegate_from_homedir() {
+        let saved = std::env::var("KIMI_AGENT_HOME").ok();
+        unsafe { std::env::remove_var("KIMI_AGENT_HOME") };
+        let dir = tempfile::tempdir().unwrap();
+        let homedir = dir.path().to_string_lossy().into_owned();
+
+        let agent = Agent::new(
+            Arc::new(NoopHost),
+            crate::agent::types::AgentOptions {
+                homedir: Some(homedir.clone()),
+                ..Default::default()
+            },
+        );
+        let token = format!("unique-search-token-{}", fastrand::u64(..));
+        agent
+            .knowledge
+            .store(crate::knowledge::KnowledgeEntry {
+                id: "k-wired".into(),
+                content: format!("{token} lives in the wired store."),
+                category: None,
+                title: Some("Wired".into()),
+                tags: vec![],
+                scope: None,
+                confidence: Some(1.0),
+                source: Some("human".into()),
+                status: crate::knowledge::KnowledgeStatus::Confirmed,
+                metadata: None,
+            })
+            .expect("store through the auto-wired delegate");
+
+        // A second connection to the same file sees the entry — proof the
+        // delegate actually persisted (not a no-op).
+        let store = crate::knowledge::store::SqliteKnowledgeStore::open_at_home(&homedir)
+            .expect("reopen knowledge db");
+        let r = store
+            .search(&crate::knowledge::KnowledgeQuery {
+                text: token,
+                max_results: None,
+                category: None,
+                scope: None,
+                min_confidence: None,
+            })
+            .expect("search");
+        assert_eq!(r.total, 1);
+
+        if let Some(value) = saved {
+            unsafe { std::env::set_var("KIMI_AGENT_HOME", value) };
+        }
     }
 }

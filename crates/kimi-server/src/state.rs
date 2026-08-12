@@ -9,6 +9,7 @@ use kimi_agent::approval::{ApprovalStore, SharedApprovalStore};
 use kimi_agent::callbacks::HostCallbacks;
 use kimi_agent::permission::gate::PermissionGate;
 use kimi_agent::persistence::{SessionStore, SqliteStore};
+use kimi_agent::plugin::store::PluginStore;
 use kimi_agent::session::manager::SessionManager;
 use tokio::sync::Mutex;
 
@@ -31,6 +32,27 @@ pub fn open_session_store() -> anyhow::Result<SqliteStore> {
     }
 }
 
+/// Open the engine's plugin store (`$KIMI_AGENT_HOME/plugins.db` or
+/// in-memory) — mirrors `PluginProcessor::with_manager` / main.rs.
+pub fn open_plugin_store() -> anyhow::Result<PluginStore> {
+    match std::env::var("KIMI_AGENT_HOME") {
+        Ok(dir) if !dir.trim().is_empty() => {
+            let path = std::path::Path::new(dir.trim()).join("plugins.db");
+            SqliteStore::open(&path).map(PluginStore::new)
+        }
+        _ => SqliteStore::in_memory().map(PluginStore::new),
+    }
+}
+
+/// The engine's plugin directory under `$KIMI_AGENT_HOME` (or a temp dir
+/// when unset), matching main.rs / `PluginProcessor`.
+pub fn plugins_dir() -> std::path::PathBuf {
+    match std::env::var("KIMI_AGENT_HOME") {
+        Ok(dir) if !dir.trim().is_empty() => std::path::Path::new(&dir).join("plugins"),
+        _ => std::env::temp_dir().join("kimi-plugins"),
+    }
+}
+
 /// Shared engine state for all method families.
 #[derive(Clone)]
 pub struct ServerState {
@@ -47,6 +69,12 @@ pub struct ServerState {
     /// Shared host-tool step handle — the SDK harness installs its per-session
     /// tool handler here at runtime (`Session.setToolHandler`).
     pub tool_step: std::sync::Arc<std::sync::Mutex<Option<ToolExecuteStep>>>,
+    /// Plugin store shared by `plugin/*` methods and the `session/create`
+    /// injection path (enabled plugins contribute skills / MCP servers /
+    /// hooks / system-prompt sections).
+    pub plugin_store: Arc<PluginStore>,
+    /// Plugin install directory (resolves github/url plugin roots).
+    pub plugin_dir: std::path::PathBuf,
 }
 
 impl ServerState {
@@ -74,6 +102,8 @@ impl ServerState {
         let callbacks: Arc<dyn HostCallbacks> = Arc::new(callbacks);
         let approval = Arc::new(ApprovalStore::new());
         let permission = PermissionGate::from_env();
+        let plugin_store = open_plugin_store()?;
+        let _ = plugin_store.init();
         Ok(Self {
             manager,
             callbacks,
@@ -81,6 +111,8 @@ impl ServerState {
             approval,
             permission,
             tool_step,
+            plugin_store: Arc::new(plugin_store),
+            plugin_dir: plugins_dir(),
         })
     }
 

@@ -103,6 +103,46 @@ pub fn install_from_local(
     Ok(record)
 }
 
+/// Rescan installed plugins and refresh their metadata from disk.
+///
+/// For each plugin in the store, re-read its `plugin.json` manifest — the
+/// download directory under `plugins_dir` for github/url sources, or the
+/// original path for local sources — and upsert the refreshed record.
+/// Identity (`id` / `source`), enable state and install time are preserved;
+/// plugins whose manifest can no longer be resolved keep their existing
+/// record. Returns the number of plugins refreshed.
+pub fn rescan(plugins_dir: &Path, store: &PluginStore) -> Result<usize, String> {
+    let records = store.list().map_err(|e| e.to_string())?;
+    let mut refreshed = 0;
+    for record in records {
+        let manifest = match &record.source {
+            PluginSource::Github { repo, .. } => {
+                find_and_parse_manifest(&plugins_dir.join(&sanitize_plugin_name(repo))).ok()
+            }
+            PluginSource::Url { url } => {
+                find_and_parse_manifest(&plugins_dir.join(&sanitize_plugin_name(url))).ok()
+            }
+            PluginSource::Local { path } => {
+                let p = Path::new(path);
+                if p.is_dir() {
+                    find_and_parse_manifest(p).ok()
+                } else if p.is_file() {
+                    PluginManifest::from_file(p).ok()
+                } else {
+                    None
+                }
+            }
+        };
+        let Some(manifest) = manifest else { continue; };
+        let mut refreshed_record = manifest.to_record(record.id.clone(), record.source.clone());
+        refreshed_record.state = record.state;
+        refreshed_record.installed_at = record.installed_at.clone();
+        store.upsert(&refreshed_record).map_err(|e| e.to_string())?;
+        refreshed += 1;
+    }
+    Ok(refreshed)
+}
+
 /// Download a URL and return the raw bytes.
 async fn download_url(url: &str) -> Result<Vec<u8>, String> {
     let response = reqwest::get(url)
@@ -182,7 +222,7 @@ fn find_and_parse_manifest(dir: &Path) -> Result<PluginManifest, String> {
 }
 
 /// Sanitize a name for use as a directory name.
-fn sanitize_plugin_name(name: &str) -> String {
+pub(crate) fn sanitize_plugin_name(name: &str) -> String {
     name.chars()
         .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
         .collect()
@@ -255,5 +295,132 @@ mod tests {
         let record = result.unwrap();
         assert_eq!(record.name, "file-plugin");
         assert_eq!(record.version, "2.0.0");
+    }
+
+    #[test]
+    fn test_rescan_refreshes_local_plugin() {
+        let dir = tempfile::tempdir().unwrap();
+        let plugin_dir = dir.path().join("reload-plugin");
+        std::fs::create_dir_all(&plugin_dir).unwrap();
+        std::fs::write(
+            plugin_dir.join("plugin.json"),
+            r#"{
+                "name": "reload-plugin",
+                "version": "1.0.0",
+                "description": "Before"
+            }"#,
+        )
+        .unwrap();
+
+        let store = PluginStore::new(SqliteStore::in_memory().unwrap());
+        store.init().unwrap();
+        let record = install_from_local(plugin_dir.to_str().unwrap(), &store).unwrap();
+        assert_eq!(record.version, "1.0.0");
+
+        // Disable, then bump the manifest on disk.
+        store.set_state(&record.id, PluginState::Disabled).unwrap();
+        std::fs::write(
+            plugin_dir.join("plugin.json"),
+            r#"{
+                "name": "reload-plugin",
+                "version": "2.0.0",
+                "description": "After"
+            }"#,
+        )
+        .unwrap();
+
+        let plugins_dir = dir.path().join("plugins");
+        let refreshed = rescan(&plugins_dir, &store).unwrap();
+        assert_eq!(refreshed, 1, "local plugin refreshed");
+
+        let refreshed_record = store.get(&record.id).unwrap().unwrap();
+        assert_eq!(refreshed_record.version, "2.0.0");
+        assert_eq!(refreshed_record.description, "After");
+        // Identity + enable state + install time preserved.
+        assert_eq!(refreshed_record.state, PluginState::Disabled);
+        assert_eq!(refreshed_record.installed_at, record.installed_at);
+        assert!(matches!(
+            refreshed_record.source,
+            PluginSource::Local { ref path } if *path == plugin_dir.to_string_lossy()
+        ));
+    }
+
+    #[test]
+    fn test_rescan_refreshes_github_plugin_from_plugins_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let plugins_dir = dir.path().join("plugins");
+        let download_dir = plugins_dir.join("acme_plugin");
+        std::fs::create_dir_all(&download_dir).unwrap();
+        std::fs::write(
+            download_dir.join("plugin.json"),
+            r#"{
+                "name": "acme-plugin",
+                "version": "3.1.0",
+                "description": "Refreshed"
+            }"#,
+        )
+        .unwrap();
+
+        let store = PluginStore::new(SqliteStore::in_memory().unwrap());
+        store.init().unwrap();
+        // Seed the record as install_from_github would (no network needed).
+        let seeded = PluginRecord {
+            id: "github:acme/plugin".into(),
+            name: "acme-plugin".into(),
+            version: "3.0.0".into(),
+            description: "Stale".into(),
+            source: PluginSource::Github {
+                repo: "acme/plugin".into(),
+                tag: None,
+            },
+            state: PluginState::Enabled,
+            installed_at: "2026-01-01T00:00:00Z".into(),
+            skills: vec![],
+            mcp_servers: vec![],
+            hooks: vec![],
+            system_prompt: None,
+            agents: vec![],
+            commands: vec![],
+        };
+        store.upsert(&seeded).unwrap();
+
+        let refreshed = rescan(&plugins_dir, &store).unwrap();
+        assert_eq!(refreshed, 1, "github plugin refreshed from download dir");
+        let record = store.get(&seeded.id).unwrap().unwrap();
+        assert_eq!(record.version, "3.1.0");
+        assert_eq!(record.installed_at, "2026-01-01T00:00:00Z", "install time preserved");
+        assert!(matches!(
+            record.source,
+            PluginSource::Github { ref repo, .. } if repo == "acme/plugin"
+        ));
+    }
+
+    #[test]
+    fn test_rescan_skips_unresolvable_plugins() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PluginStore::new(SqliteStore::in_memory().unwrap());
+        store.init().unwrap();
+        let missing = PluginRecord {
+            id: "local:/nonexistent".into(),
+            name: "gone".into(),
+            version: "1.0.0".into(),
+            description: "no dir on disk".into(),
+            source: PluginSource::Local { path: "/nonexistent".into() },
+            state: PluginState::Enabled,
+            installed_at: "2026-01-01T00:00:00Z".into(),
+            skills: vec![],
+            mcp_servers: vec![],
+            hooks: vec![],
+            system_prompt: None,
+            agents: vec![],
+            commands: vec![],
+        };
+        store.upsert(&missing).unwrap();
+
+        let refreshed = rescan(dir.path(), &store).unwrap();
+        assert_eq!(refreshed, 0, "unresolvable plugins are skipped");
+        // The stale record is kept untouched.
+        let kept = store.get(&missing.id).unwrap().unwrap();
+        assert_eq!(kept.version, "1.0.0");
     }
 }

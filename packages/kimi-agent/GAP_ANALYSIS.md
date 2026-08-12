@@ -39,7 +39,7 @@
 | skill | 3 | 331 | `src/skill/` | ✅ 完整 |
 | tool | 2 | 1,001 | `src/tools/` | ✅ 超越（新增 NativeToolset） |
 | compaction | 7 | 376 | `src/compaction/` | ✅ 完整（handoff + overflow 重试收缩 + strategy 集成，23 测试） |
-| records | 8 | 447 | `src/records/` | ✅ 完整 |
+| records | 8 | — | `src/records/` | 🟡 已精简（2026-08-12：旧 AgentRecord 录制层删除——无生产引用死代码；仅保留 BlobStore 供 blob 域使用） |
 | replay | 3 | 251 | `src/replay/` | ✅ 完整 |
 | turn/context | 12 | 3,500+ | `src/turn_loop/` + `src/context/` | ✅ 超越（新增 prediction 机制） |
 | config | 3 | 787 | `src/config/` | ✅ 完整 |
@@ -63,10 +63,10 @@
 | contextMemory | 1,984 | 3,312 | `context/` | ✅ 完整（2026-07-26 重写：fold + ops + compaction handoff，167 测试） |
 | contextProjector | 651 | 882 | `context/projector.rs` | ✅ 超越 |
 | goal | 3,029 | 2,196 | `goal/` | ✅ 完整（2026-07-26 补齐：judge 提示词 + JSON 裁决解析 + 分状态 reminder，29 新测试） |
-| knowledge | 722 | 1,285 | `knowledge/` | ✅ 完整（2026-07-26 补齐：注入信号提取 CJK bigram + 自动学习器，38 新测试） |
+| knowledge | 722 | 1,942 | `knowledge/` | ✅ 完整（2026-07-26 补齐：注入信号提取 CJK bigram + 自动学习器，38 新测试；2026-08-12 补接线：引擎内 SQLite+FTS5 delegate `store.rs` 于 `Agent::new` 装配至 `<KIMI_AGENT_HOME>/knowledge.db`——此前 `set_delegate` 零调用致 SearchKnowledge 恒空返回，现工具返回真实结果，11 单测 + 3 集成测试） |
 | llmRequester | 959 | 2,578 | `llm/` | ✅ 超越（含原生 HTTP/多 provider） |
 | mcp | 3,815 | 2,453 | `mcp/` | ✅ 核心完整（2026-07-26 补齐：output 管线 + 连接状态机 + SSRF URL 门，54 新测试；OAuth/SDK 客户端留 host） |
-| media | 2,649 | 58 | `media/` | 🟡 委托 JS host |
+| media | 2,649 | 6,246 | `media/` | ✅ 完整（2026-08-12 核对：file_type / image / video / read_media / tokenizer / http_downloader 等 13 子模块原生实现） |
 | permission (4 个) | 1,334 | 1,502 | `permission/` | ✅ 超越（统一引擎） |
 | plan | 1,167 | 846 | `plan/` | ✅ 完整（2026-07-26 补齐：wire ops + revision 计数 + 提醒注入状态机，22 新测试） |
 | profile | 1,532 | 2,568 | `profile/` | ✅ 完整（2026-07-26 重写：ops + thinking 决议 + 服务状态机，62 测试） |
@@ -95,9 +95,9 @@
 | git | — | — | `git/` | ✅ 完整（2026-07-31：parsers + service + status/diff RPC + `<git-context>` 注入，14 测试） |
 | memory | — | — | `memory/` | ✅ 完整（2026-07-31：paths + store + tool，14 测试 + 零 host 集成测试） |
 | externalHooks | 828 | — | — | ⚪ 设计上留 JS（child_process + JS 服务编排） |
-| plugin | 179 | — | — | ⚪ 设计上留 JS（IPluginService 仅 JS） |
+| plugin | 179 | 1,176 | `plugin/` | ✅ 完整（2026-08-12 核对：manifest / install / store / injector / types 原生实现；kimi-server 经 `PluginStore` 直连） |
 
-**v2 统计: 42/45 功能域达到语义对等（2026-07-31 补齐 git / memory；media / externalHooks / plugin 设计上留在 JS host，经 HostCallbacks 桥接）**
+**v2 统计: 44/45 功能域达到语义对等（2026-07-31 补齐 git / memory；2026-08-12 media / plugin 原生化核对；仅 externalHooks 设计上留在 JS host，经 HostCallbacks 桥接）**
 
 ---
 
@@ -117,8 +117,8 @@
 |------|------|--------|------|
 | ✅ 超越 | Rust 版本功能更多（prediction、tool conflict 检测、统一权限引擎等） | ~15 | — |
 | ✅ 完整 | 核心功能一致 | ~26 | 含 2026-07-31 补入的 git / memory / discussion |
-| 🟡 简化 | 核心功能有但精简（委托到 JS host） | ~1 | media |
-| ⚪ 设计上留 JS | 依赖 JS 运行时（child_process / IPluginService） | 2 | externalHooks / plugin |
+| 🟡 简化 | 核心功能有但精简（委托到 JS host） | 0 | — |
+| ⚪ 设计上留 JS | 依赖 JS 运行时（child_process / IPluginService） | 1 | externalHooks |
 | ❌ 未迁移 | Rust 中不存在 | 0 | — |
 
 ---
@@ -144,9 +144,9 @@ Rust 实现状态机核心，持久化和事件通过 `HostCallbacks` 委托给 
 
 ### 5.3 宿主服务层 — 设计上留 host
 
-`media` + `externalHooks` + `plugin`
+`externalHooks`
 
-这些是宿主环境服务，**设计上留在 JS host**（media 委托 host；externalHooks 依赖 `child_process` + JS 服务编排；plugin 依赖 `IPluginService`）。通过 `HostCallbacks` trait 桥接是正确架构。（`blob` / `systemReminder` 已原生实现，不再属于本层。）
+这是宿主环境服务，**设计上留在 JS host**（externalHooks 依赖 `child_process` + JS 服务编排）。通过 `HostCallbacks` trait 桥接是正确架构。`blob` / `systemReminder` 已原生实现；`media` / `plugin` 于 2026-08-12 核对为原生实现，均不再属于本层。
 
 ### 5.4 待迁移模块 — 已清零 ✅
 
@@ -197,7 +197,7 @@ kimi -p <prompt>
 | 维度 | 数值 |
 |------|------|
 | v1 模块覆盖率 | **100%**（15/15，含 discussion） |
-| v2 功能域覆盖率 | **100% 可迁移域**（42/45；git / memory 07-31 补齐；media / externalHooks / plugin 设计上留 host） |
+| v2 功能域覆盖率 | **100% 可迁移域**（44/45；git / memory 07-31 补齐；media / plugin 08-12 原生化核对；仅 externalHooks 设计上留 host） |
 | 核心执行路径 | **100%** |
 | 单元测试 | **1,836 `#[test]` 属性**（src 实测）；cargo 口径 2011 lib 全绿、0 warnings（2026-08-01 实测） |
 | 集成测试 | **51**（`tests/stdio_rpc_integration.rs`，真实二进制） |
@@ -209,7 +209,7 @@ Rust 引擎不是"把全部 TS 翻译成 Rust"，而是**选择性重写**：
 
 1. **核心性能路径** → Rust（turn loop、LLM、工具、权限）— 完成
 2. **状态机与决策核心** → Rust（goal、plan、swarm、compaction、task、mcp 连接、toolSelect 披露）— 完成；持久化/定时器/进程 I/O 经 HostCallbacks 委托
-3. **宿主服务** → 留在 TS，通过回调桥接（media、externalHooks、plugin、MCP OAuth/SDK 客户端）— 设计决定，非缺口
+3. **宿主服务** → 留在 TS，通过回调桥接（externalHooks、MCP OAuth/SDK 客户端）— 设计决定，非缺口
 
 ### 剩余工作（代码之外）
 

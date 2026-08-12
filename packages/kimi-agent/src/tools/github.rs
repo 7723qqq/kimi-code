@@ -1,4 +1,4 @@
-﻿//! Built-in GitHub tools 鈥?thin, table-driven definitions over the GitHub
+//! Built-in GitHub tools — thin, table-driven definitions over the GitHub
 //! REST API (reqwest). Mirrors
 //! `retired/agent-core/src/tools/builtin/github/github-tools.ts`.
 //!
@@ -25,7 +25,7 @@ const DEFAULT_ACCEPT: &str = "application/vnd.github+json";
 /// Cap auto-pagination so a runaway `per_page` loop can't hang or blow memory.
 const MAX_PAGES: usize = 10;
 
-/// Read-only GitHub tool names 鈥?run without a prompt (like Read/FetchURL).
+/// Read-only GitHub tool names — run without a prompt (like Read/FetchURL).
 /// Mutating tools are excluded and therefore prompt for approval in
 /// non-auto permission modes. Mirrors `GITHUB_READONLY_TOOL_NAMES` in TS.
 pub const GITHUB_READONLY_TOOL_NAMES: &[&str] = &[
@@ -66,7 +66,7 @@ fn resolve_token() -> Option<String> {
     env_non_empty("GITHUB_TOKEN").or_else(|| env_non_empty("GH_TOKEN"))
 }
 
-/// API base URL 鈥?`GITHUB_API_URL` (GitHub Enterprise) or the public API.
+/// API base URL — `GITHUB_API_URL` (GitHub Enterprise) or the public API.
 fn base_url() -> String {
     env_non_empty("GITHUB_API_URL").unwrap_or_else(|| DEFAULT_BASE_URL.to_string())
 }
