@@ -78,12 +78,16 @@ export class SubAgentEventHandler {
 
     const childAgentId = event.agentId;
     if (childAgentId === MAIN_AGENT_ID) return false;
-    if (this.host.btwPanelController.routeEvent(event)) return true;
 
     // Tee every child-agent event into the activity store before the routing
-    // below swallows events whose parent card is gone (Ctrl+B) or never
-    // existed (run_in_background) — that data is the background detail view.
+    // below swallows events: the BTW panel's routeEvent returns true for
+    // every event it handles while the panel is mounted, and the paths
+    // further down drop events whose parent card is gone (Ctrl+B) or never
+    // existed (run_in_background) — that data still feeds the background
+    // detail view.
     this.activityStore.applyEvent(event);
+
+    if (this.host.btwPanelController.routeEvent(event)) return true;
 
     const info = this.subagentInfo.get(childAgentId);
     if (info === undefined || info.parentToolCallId.length === 0) return true;

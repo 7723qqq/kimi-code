@@ -57,6 +57,7 @@ function makeHost() {
     shiftQueuedMessage: vi.fn(),
     btwPanelController: { routeEvent: vi.fn(() => false) },
     tasksBrowserController: {},
+    updateActivityPane: vi.fn(),
   };
   return { host: host as any };
 }
@@ -177,5 +178,19 @@ describe('SessionEventHandler step retry state', () => {
     handler.clearStepRetryAttemptTimer();
     vi.advanceTimersByTime(10_000);
     expect(host.state.appState.stepRetry).toMatchObject({ phase: 'backoff' });
+  });
+
+  it('clears the retry snapshot when the session runtime resets', () => {
+    const { host } = makeHost();
+    const handler = new SessionEventHandler(host);
+    handler.handleEvent(retryingEvent as any, vi.fn());
+    expect(host.state.appState.stepRetry).not.toBeNull();
+
+    // Switching sessions mid-backoff must drop both the pending phase-flip
+    // timer and the stale retry appState.
+    handler.resetRuntimeState();
+    expect(host.state.appState.stepRetry).toBeNull();
+    vi.advanceTimersByTime(10_000);
+    expect(host.state.appState.stepRetry).toBeNull();
   });
 });

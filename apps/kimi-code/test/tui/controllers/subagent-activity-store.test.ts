@@ -9,6 +9,7 @@ import {
 } from '#/tui/constant/rendering';
 import { STREAMING_ARGS_PREVIEW_MAX_CHARS } from '#/tui/constant/streaming';
 import {
+  MAX_SUBAGENT_ACTIVITY_RECORDS,
   SubagentActivityStore,
   type SubagentActivitySpawn,
 } from '#/tui/controllers/subagent-activity-store';
@@ -290,5 +291,55 @@ describe('SubagentActivityStore', () => {
 
     store.markCompleted('agent-1', 'done');
     expect(buffers.has('agent-1:t-trunc')).toBe(false);
+  });
+
+  it('bumps the record version when a respawn flips it back to running', () => {
+    const store = new SubagentActivityStore();
+    store.ensureRecord(spawn());
+    store.markCompleted('agent-1', 'done');
+    const versionBefore = store.get('agent-1')!.version;
+    store.ensureRecord(spawn());
+    const record = store.get('agent-1');
+    expect(record?.status).toBe('running');
+    expect(record?.version).toBe(versionBefore + 1);
+  });
+
+  it('evicts the oldest terminal records once the cross-record cap is crossed', () => {
+    const store = new SubagentActivityStore();
+    // agent-0 finishes first and is the oldest record in insertion order.
+    store.ensureRecord(spawn({ agentId: 'agent-0', agentName: 'general' }));
+    store.markCompleted('agent-0');
+    for (let i = 1; i < MAX_SUBAGENT_ACTIVITY_RECORDS; i++) {
+      store.ensureRecord(spawn({ agentId: `agent-${i}`, agentName: 'general' }));
+    }
+    expect(store.get('agent-0')).toBeDefined();
+
+    // One more record crosses the cap: the oldest terminal record goes first,
+    // while the newer (still running) records stay resident.
+    store.ensureRecord(spawn({ agentId: 'agent-last', agentName: 'general' }));
+    expect(store.get('agent-0')).toBeUndefined();
+    expect(store.get('agent-1')).toBeDefined();
+    expect(store.get('agent-last')).toBeDefined();
+    expect(store.agentIds()).toHaveLength(MAX_SUBAGENT_ACTIVITY_RECORDS);
+  });
+
+  it('skips running records when evicting beyond the cap', () => {
+    const store = new SubagentActivityStore();
+    for (let i = 0; i < MAX_SUBAGENT_ACTIVITY_RECORDS; i++) {
+      store.ensureRecord(spawn({ agentId: `agent-${i}`, agentName: 'general' }));
+    }
+    // Every record is still running: live activity must not be dropped, so
+    // the store temporarily exceeds the cap until a record turns terminal.
+    store.ensureRecord(spawn({ agentId: 'agent-last', agentName: 'general' }));
+    expect(store.agentIds()).toHaveLength(MAX_SUBAGENT_ACTIVITY_RECORDS + 1);
+    expect(store.get('agent-0')).toBeDefined();
+
+    // Once the oldest record turns terminal, the next spawn evicts it; the
+    // remaining running records are kept even though the store is over cap.
+    store.markCompleted('agent-0');
+    store.ensureRecord(spawn({ agentId: 'agent-after', agentName: 'general' }));
+    expect(store.get('agent-0')).toBeUndefined();
+    expect(store.get('agent-last')).toBeDefined();
+    expect(store.agentIds()).toHaveLength(MAX_SUBAGENT_ACTIVITY_RECORDS + 1);
   });
 });

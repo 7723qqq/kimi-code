@@ -435,11 +435,16 @@ function isAutoUpdateDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolea
   return truthy(env['KIMI_CODE_NO_AUTO_UPDATE']) || truthy(env['KIMI_CLI_NO_AUTO_UPDATE']);
 }
 
-async function shouldAutoInstallUpdates(): Promise<boolean> {
+async function shouldAutoInstallUpdates(logger: UpdateLogger): Promise<boolean> {
   try {
     const config = await loadTuiConfig();
     return config.upgrade.autoInstall;
-  } catch {
+  } catch (error) {
+    // A config load failure must never block the update preflight — fall back
+    // to the safe default (auto-install on), but keep a diagnostic trace.
+    logUpdateWarn(logger, 'failed to read auto-install preference', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return true;
   }
 }
@@ -666,7 +671,9 @@ async function tryStartAutomaticBackgroundInstall(
   rolloutTelemetry: RolloutTelemetry,
 ): Promise<boolean> {
   const sourceCanAutoInstall = canAutoInstall(source, platform);
-  const autoInstallUpdates = sourceCanAutoInstall ? await shouldAutoInstallUpdates() : false;
+  const autoInstallUpdates = sourceCanAutoInstall
+    ? await shouldAutoInstallUpdates(logger)
+    : false;
   if (!autoInstallUpdates || !sourceCanAutoInstall) return false;
   if (failureAttemptsFor(installState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD) {
     return false;
@@ -835,7 +842,12 @@ export async function runUpdatePreflight(
       );
       return 'continue';
     }
-  } catch {
+  } catch (error) {
+    // A failure anywhere in the preflight must never block startup — but it
+    // must not vanish silently either: keep a diagnostic trace.
+    logUpdateWarn(logger, 'update preflight failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return 'continue';
   }
 }

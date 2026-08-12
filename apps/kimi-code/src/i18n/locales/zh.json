@@ -642,6 +642,30 @@
           "cancel": "取消"
         }
       },
+      "agentActivityViewer": {
+        "title": " 子代理活动 ",
+        "noActivity": "[无活动记录]",
+        "waiting": "等待活动中…",
+        "failed": "失败",
+        "result": "结果",
+        "failedColon": "失败：",
+        "resultColon": "结果：",
+        "earlierStepsDiscarded": "更早的步骤已丢弃",
+        "mediaOutputOmitted": "[媒体输出已省略]",
+        "using": "正在使用",
+        "used": "已使用",
+        "footer": {
+          "line": "行",
+          "page": "页",
+          "topBottom": "顶/底",
+          "collapse": "折叠",
+          "expand": "展开",
+          "cancel": "取消"
+        }
+      },
+      "trustPrompt": {
+        "projectMcpTargets": "项目 MCP 目标："
+      },
       "providerManager": {
         "title": "提供商",
         "headerHint": "↑↓ 导航 · D 删除 · Esc 取消",
@@ -836,6 +860,7 @@
       "turnStoppedFiltered": "本轮已停止：提供商安全策略拦截了响应。",
       "turnStoppedBlocked": "本轮已停止：提示词钩子拦截了请求。",
       "retryingStep": "重试中（{{attempt}}/{{maxAttempts}}）{{delayS}}秒后 — {{errorName}}",
+      "retryingStepAttempt": "重试中（{{attempt}}/{{maxAttempts}}）— {{errorName}}",
       "policyBlocked": "提供商安全策略拦截了响应。",
       "outputFiltered": "模型输出已被过滤（{{reason}}）。",
       "maxTokensTruncated": "模型达到 max_tokens — 工具调用在运行前被截断。",

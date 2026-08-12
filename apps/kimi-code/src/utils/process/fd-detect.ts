@@ -15,6 +15,8 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
+import { log } from '@moonshot-ai/kimi-code-sdk';
+
 import { KIMI_CODE_CDN_BASE } from '#/constant/app';
 import { t } from '#/i18n';
 import { getBinDir } from '#/utils/paths';
@@ -51,7 +53,10 @@ export async function ensureFdPath(): Promise<string | null> {
 
   try {
     return await downloadFd();
-  } catch {
+  } catch (error) {
+    // The fallback to a system fd binary is intentional, but a silent
+    // download failure would hide network/CDN problems — keep a log trail.
+    log.warn('failed to download managed fd binary', { error });
     return null;
   }
 }

@@ -1643,15 +1643,20 @@ command = "vim"
       settled = true;
     });
 
-    await vi.waitFor(() => {
-      expect(harness.exportSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'ses-1',
-          includeGlobalLog: true,
-          version: '0.0.0-test',
-        }),
-      );
-    });
+    await vi.waitFor(
+      () => {
+        expect(harness.exportSession).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: 'ses-1',
+            includeGlobalLog: true,
+            version: '0.0.0-test',
+          }),
+        );
+      },
+      // The feedback chain (prompt -> listSessions -> export) can exceed the
+      // default 1s waitFor budget when the suite runs in parallel shards.
+      { timeout: 10_000 },
+    );
     expect(harness.auth.submitFeedback).toHaveBeenCalledWith(
       expect.objectContaining({ content: 'useful feedback' }),
     );
@@ -1713,9 +1718,14 @@ command = "vim"
       settled = true;
     });
 
-    await vi.waitFor(() => {
-      expect(uploadArchive).toHaveBeenCalledTimes(2);
-    });
+    await vi.waitFor(
+      () => {
+        expect(uploadArchive).toHaveBeenCalledTimes(2);
+      },
+      // scan -> package -> export -> upload chain can exceed the default 1s
+      // waitFor budget under parallel-shard load.
+      { timeout: 10_000 },
+    );
     expect(settled).toBe(false);
 
     resolveCodebaseUpload();

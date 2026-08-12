@@ -85,6 +85,16 @@ export interface SubagentActivitySpawn {
 
 const LIVE_OUTPUT_TAIL_CHARS = 200;
 
+/**
+ * Cross-record retention cap. Terminal records stay resident for the whole
+ * session (the tasks browser can reopen any finished background agent), so
+ * unbounded agent churn would grow memory monotonically. Every record is
+ * already internally bounded (steps, text tail, arg strings, tool output), so
+ * a record-count cap bounds the total store. Only terminal records are
+ * evicted — running ones carry live activity the detail view may be showing.
+ */
+export const MAX_SUBAGENT_ACTIVITY_RECORDS = 64;
+
 function tail(text: string, maxChars: number): string {
   return text.length <= maxChars ? text : text.slice(text.length - maxChars);
 }
@@ -114,10 +124,12 @@ export class SubagentActivityStore {
     const existing = this.records.get(spawn.agentId);
     if (existing !== undefined) {
       // A resumed subagent re-spawns under the same id: keep the accumulated
-      // steps and flip the record back to running.
+      // steps and flip the record back to running. Bump the version so the
+      // viewer's version-keyed render cache picks up the state change.
       existing.status = 'running';
       existing.resultSummary = undefined;
       existing.error = undefined;
+      this.bump(existing);
       return existing;
     }
     const record: SubagentActivityRecord = {
@@ -133,6 +145,7 @@ export class SubagentActivityStore {
       version: 0,
     };
     this.records.set(spawn.agentId, record);
+    this.evictOverflow();
     return record;
   }
 
@@ -294,6 +307,25 @@ export class SubagentActivityStore {
   drop(agentId: string): void {
     this.records.delete(agentId);
     this.dropStreamingBuffers(agentId);
+  }
+
+  /** Evict the oldest terminal records once the cross-record cap is crossed.
+   *  Map insertion order is creation order, so scanning from the front evicts
+   *  the least recently created records first. Running records are skipped —
+   *  their live activity may be on screen — so an all-running store may
+   *  temporarily exceed the cap; the next terminal transition re-runs the
+   *  pass. `drop` also releases the evicted record's arg buffers. */
+  private evictOverflow(): void {
+    while (this.records.size > MAX_SUBAGENT_ACTIVITY_RECORDS) {
+      let evicted = false;
+      for (const [agentId, record] of this.records) {
+        if (record.status === 'running') continue;
+        this.drop(agentId);
+        evicted = true;
+        break;
+      }
+      if (!evicted) return;
+    }
   }
 
   /** No more deltas arrive once the record is terminal, so any buffer left

@@ -206,7 +206,9 @@ export class SessionEventHandler {
     this.queuedGoalPromotionPending = false;
     this.queuedGoalPromotionInFlight = false;
     this.clearQueuedGoalPromotionTimer();
-    this.clearStepRetryAttemptTimer();
+    // Clear the retry timer AND the stale `stepRetry` appState — switching
+    // sessions mid-backoff must not leave the previous session's countdown.
+    this.clearStepRetry();
     this.stopAllMcpServerStatusSpinners();
   }
 

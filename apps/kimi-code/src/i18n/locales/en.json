@@ -635,6 +635,30 @@
           "cancel": "cancel"
         }
       },
+      "agentActivityViewer": {
+        "title": " Agent activity ",
+        "noActivity": "[no activity recorded]",
+        "waiting": "Waiting for activity…",
+        "failed": "Failed",
+        "result": "Result",
+        "failedColon": "Failed:",
+        "resultColon": "Result:",
+        "earlierStepsDiscarded": "earlier steps discarded",
+        "mediaOutputOmitted": "[media output omitted]",
+        "using": "Using",
+        "used": "Used",
+        "footer": {
+          "line": "line",
+          "page": "page",
+          "topBottom": "top/bot",
+          "collapse": "collapse",
+          "expand": "expand",
+          "cancel": "cancel"
+        }
+      },
+      "trustPrompt": {
+        "projectMcpTargets": "Project MCP targets:"
+      },
       "providerManager": {
         "title": "Providers",
         "headerHint": "↑↓ navigate · D delete · Esc cancel",
@@ -836,6 +860,7 @@
       "turnStoppedFiltered": "Turn stopped: provider safety policy blocked the response.",
       "turnStoppedBlocked": "Turn stopped: prompt hook blocked the request.",
       "retryingStep": "Retrying ({{attempt}}/{{maxAttempts}}) in {{delayS}}s — {{errorName}}",
+      "retryingStepAttempt": "Retrying ({{attempt}}/{{maxAttempts}}) — {{errorName}}",
       "policyBlocked": "Provider safety policy blocked the response.",
       "outputFiltered": "The model output was filtered ({{reason}}).",
       "maxTokensTruncated": "Model hit max_tokens — tool call was truncated before it could run.",

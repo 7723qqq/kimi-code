@@ -144,4 +144,20 @@ describe('resolveCommandPath (win32)', () => {
 
     expect(resolveCommandPath('npm', cwd)).toBeUndefined();
   });
+
+  it('keeps searching PATH after a hit inside the cwd', () => {
+    mockPlatform('win32');
+    const bin = makeTempDir('kimi-resolve-bin-');
+    const cwd = makeTempDir('kimi-resolve-cwd-');
+    const planted = join(cwd, 'npm.CMD');
+    const real = join(bin, 'npm.CMD');
+    writeFileSync(planted, '@echo off\r\n');
+    writeFileSync(real, '@echo off\r\n');
+    // The cwd entry resolves first (like cmd.exe's cwd-first lookup); the
+    // planted binary must be skipped in favour of the later PATH entry.
+    process.env['PATH'] = `${cwd};${bin}`;
+    process.env['PATHEXT'] = '.CMD';
+
+    expect(resolveCommandPath('npm', cwd)).toBe(real);
+  });
 });

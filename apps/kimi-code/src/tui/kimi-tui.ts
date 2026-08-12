@@ -3549,7 +3549,11 @@ export class KimiTUI {
       onSelect: (session: SessionRow) => {
         void this.handleSessionPickerSelect(session, options.applyStartupModes === true).catch(
           (error) => {
-            this.showError(`Failed to apply startup flags: ${formatErrorMessage(error)}`);
+            this.showError(
+              t('tui.statusMessages.failedToApplyStartupFlags', {
+                message: formatErrorMessage(error),
+              }),
+            );
           },
         );
       },

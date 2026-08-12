@@ -71,7 +71,9 @@ export function resolveCommandPath(command: string, cwd: string = process.cwd())
     for (const name of names) {
       const candidate = join(dir, name);
       if (!isExecutableFile(candidate, platform)) continue;
-      if (isInsideCwd(candidate, cwd, platform)) return undefined;
+      // A hit inside the cwd is refused, but it must not abort the search:
+      // keep scanning the remaining PATH entries for a hit outside the cwd.
+      if (isInsideCwd(candidate, cwd, platform)) continue;
       return resolve(candidate);
     }
   }

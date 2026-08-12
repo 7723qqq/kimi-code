@@ -92,9 +92,23 @@ async function smokeSearchWorker(): Promise<void> {
     workerData: { dir, bootSalt: 'sea-smoke' },
   });
   try {
-    const ready = once(worker, 'message', {
-      signal: AbortSignal.timeout(15_000),
-    }) as Promise<unknown[]>;
+    // A corrupted worker entry must fail the smoke test with a diagnosable
+    // error instead of surfacing as an unhandled 'error' event (which Node
+    // escalates to an uncaughtException). Racing error/exit against the
+    // handshake message makes a dead or broken worker reject immediately.
+    const ready = Promise.race([
+      once(worker, 'message', {
+        signal: AbortSignal.timeout(15_000),
+      }) as Promise<unknown[]>,
+      new Promise<never>((_, rejectWorker) => {
+        worker.once('error', rejectWorker);
+        worker.once('exit', (code) => {
+          rejectWorker(
+            new Error(`search worker exited before the ready handshake (code ${String(code)})`),
+          );
+        });
+      }),
+    ]);
     const [event] = await ready;
     const v = (event as { type?: string; v?: number }).v;
     if ((event as { type?: string }).type !== 'ready' || typeof v !== 'number') {

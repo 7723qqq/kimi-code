@@ -9,6 +9,7 @@ import {
 
 import type { WorkspaceTrustMcpServerInfo } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 
@@ -86,7 +87,7 @@ export class TrustPromptComponent implements Component, Focusable {
       lines.push(` ${currentTheme.fg('textMuted', line)}`);
     }
     if (this.opts.gatedMcpServers.length > 0) {
-      lines.push(` ${currentTheme.fg('warning', 'Project MCP targets:')}`);
+      lines.push(` ${currentTheme.fg('warning', t('tui.dialogs.trustPrompt.projectMcpTargets'))}`);
       for (const server of this.opts.gatedMcpServers) {
         const details = formatMcpTarget(server);
         for (const line of wrapTextWithAnsi(details, Math.max(20, width - 4))) {

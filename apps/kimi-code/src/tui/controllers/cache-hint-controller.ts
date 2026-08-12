@@ -7,7 +7,7 @@
  */
 
 import type { Component, Focusable } from '@moonshot-ai/pi-tui';
-import type { KimiHarness, Session, TokenUsage } from '@moonshot-ai/kimi-code-sdk';
+import { log, type KimiHarness, type Session, type TokenUsage } from '@moonshot-ai/kimi-code-sdk';
 
 import { getCacheHintConfig, peekCacheHintConfig } from '#/utils/cache-hint-config';
 import { currentTuiConfig } from '../commands/config';
@@ -121,10 +121,10 @@ export class CacheHintController {
     const currRead = usage.inputCacheRead;
     if (currRead >= prevRead * CACHE_BREAK_DROP_RATIO) return;
     if (prevRead - currRead <= CACHE_BREAK_MIN_DROP_TOKENS) return;
-    // Surface the break in the terminal as well as telemetry: the server-side
+    // Surface the break in the logs as well as telemetry: the server-side
     // prompt cache was likely invalidated (prefix change, cache expiry, or a
     // mid-session model/effort switch). Telemetry props are flattened snake_case.
-    console.info(
+    log.warn(
       `[cache] prompt-cache break detected: cache read dropped ${prevRead - currRead} ` +
         `tokens (${Math.round(((prevRead - currRead) / prevRead) * 100)}%) between steps, ` +
         `${((now - prev.time) / 1000).toFixed(1)}s after the previous request ` +
@@ -234,7 +234,7 @@ export class CacheHintController {
     // The resume dialog also covers this idle cycle: the first submit right
     // after it must not be intercepted again.
     this.idlePrompted = true;
-    await this.showDialog('resume', decision, undefined);
+    await this.showDialog('resume', decision);
   }
 
   /**

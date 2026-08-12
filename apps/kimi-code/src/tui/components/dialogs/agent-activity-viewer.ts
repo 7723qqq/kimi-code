@@ -25,6 +25,7 @@ import {
 } from '@moonshot-ai/pi-tui';
 import type { BackgroundTaskInfo } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
 import { MESSAGE_INDENT } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import type {
@@ -46,6 +47,8 @@ export interface AgentActivityViewerProps {
   readonly taskId: string;
   readonly info: BackgroundTaskInfo | undefined;
   readonly record: SubagentActivityRecord | undefined;
+  /** Session work dir, used to desensitize Read/Write/Edit paths in headers. */
+  readonly workspaceDir?: string;
   readonly onClose: () => void;
 }
 
@@ -82,8 +85,19 @@ export class AgentActivityViewer extends Container implements Focusable {
   }
 
   setProps(next: AgentActivityViewerProps): void {
+    const prev = this.props;
     this.props = next;
-    this.invalidate();
+    // The styled body lines are cached against cacheKey() (width, expanded,
+    // agentId, version) — only a record change may invalidate them. Header and
+    // footer rebuild from props on every frame, and this viewer owns no child
+    // components, so other prop changes need no invalidation at all. Clearing
+    // the cache unconditionally here (as the invalidate() override must, for
+    // theme switches) would defeat the version check: the tasks browser polls
+    // once per second and every tick would rebuild all body Markdown.
+    if (next.record !== prev.record || next.record?.version !== prev.record?.version) {
+      this.lastCacheKey = '';
+    }
+    super.invalidate();
   }
 
   override invalidate(): void {
@@ -179,7 +193,7 @@ export class AgentActivityViewer extends Container implements Focusable {
   private buildLines(innerWidth: number): string[] {
     const record = this.props.record;
     if (record === undefined) {
-      return [currentTheme.dim(`${MESSAGE_INDENT}[no activity recorded]`)];
+      return [currentTheme.dim(`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.noActivity')}`)];
     }
 
     const out: string[] = [];
@@ -201,19 +215,19 @@ export class AgentActivityViewer extends Container implements Focusable {
     }
 
     if (record.error !== undefined && record.error.length > 0) {
-      out.push(currentTheme.fg('error', 'Failed'));
+      out.push(currentTheme.fg('error', t('tui.dialogs.agentActivityViewer.failed')));
       const message = new AssistantMessageComponent();
       message.updateContent(record.error);
       out.push(...message.render(innerWidth));
     } else if (record.resultSummary !== undefined && record.resultSummary.length > 0) {
-      out.push(currentTheme.boldFg('primary', 'Result'));
+      out.push(currentTheme.boldFg('primary', t('tui.dialogs.agentActivityViewer.result')));
       const message = new AssistantMessageComponent();
       message.updateContent(record.resultSummary);
       out.push(...message.render(innerWidth));
     }
 
     if (out.length === 0) {
-      out.push(currentTheme.dim(`${MESSAGE_INDENT}Waiting for activity…`));
+      out.push(currentTheme.dim(`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.waiting')}`));
     }
     return out;
   }
@@ -231,9 +245,12 @@ export class AgentActivityViewer extends Container implements Focusable {
     } else {
       bullet = currentTheme.fg('text', STATUS_BULLET);
     }
-    const verb = call.status === 'running' ? 'Using' : 'Used';
+    const verb =
+      call.status === 'running'
+        ? t('tui.dialogs.agentActivityViewer.using')
+        : t('tui.dialogs.agentActivityViewer.used');
     const name = currentTheme.boldFg('primary', call.name);
-    const keyArg = extractKeyArgument(call.name, call.args);
+    const keyArg = extractKeyArgument(call.name, call.args, this.props.workspaceDir);
     const argStr = keyArg === null || keyArg.length === 0 ? '' : currentTheme.dim(` (${keyArg})`);
 
     let chipStr = '';
@@ -254,12 +271,12 @@ export class AgentActivityViewer extends Container implements Focusable {
     if (call.result === undefined) {
       return call.liveOutputTail === undefined || call.liveOutputTail.length === 0
         ? []
-        : [currentTheme.dim(`${MESSAGE_INDENT}│ ${call.liveOutputTail}`)];
+        : [currentTheme.dim(`${MESSAGE_INDENT}│ ${sanitizeLiveOutput(call.liveOutputTail)}`)];
     }
     // The store caps retained output, which cannot survive as a parseable
     // media envelope (base64) — show a marker instead of dumping the blob.
     if (call.name === 'ReadMediaFile' && call.result.is_error !== true) {
-      return [currentTheme.dim(`${MESSAGE_INDENT}[media output omitted]`)];
+      return [currentTheme.dim(`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.mediaOutputOmitted')}`)];
     }
     const components = pickResultRenderer(call.name)(
       this.toToolCallBlockData(call),
@@ -302,7 +319,7 @@ export class AgentActivityViewer extends Container implements Focusable {
   }
 
   private renderHeader(width: number): string {
-    const title = currentTheme.boldFg('primary', ' Agent activity ');
+    const title = currentTheme.boldFg('primary', t('tui.dialogs.agentActivityViewer.title'));
     const record = this.props.record;
     const info = this.props.info;
     const segments: string[] = [];
@@ -323,7 +340,9 @@ export class AgentActivityViewer extends Container implements Focusable {
       const from = record.steps[0]!.step;
       const to = record.steps.at(-1)!.step;
       let range = `step ${String(from)}–${String(to)} / ${String(record.totalSteps)}`;
-      if (record.totalSteps > record.steps.length) range += ' · earlier steps discarded';
+      if (record.totalSteps > record.steps.length) {
+        range += ` · ${t('tui.dialogs.agentActivityViewer.earlierStepsDiscarded')}`;
+      }
       segments.push(currentTheme.fg('textMuted', range));
     }
 
@@ -370,11 +389,15 @@ export class AgentActivityViewer extends Container implements Focusable {
       ` ${String(lineFrom)}-${String(lineTo)} / ${String(total)} (${String(percent)}%) `,
     );
     const keys =
-      `${key('↑↓')} ${dim('line')}  ` +
-      `${key('PgUp/PgDn')} ${dim('page')}  ` +
-      `${key('g/G')} ${dim('top/bot')}  ` +
-      `${key('Ctrl+O')} ${dim(this.expanded ? 'collapse' : 'expand')}  ` +
-      `${key('Q/Esc')} ${dim('cancel')}`;
+      `${key('↑↓')} ${dim(t('tui.dialogs.agentActivityViewer.footer.line'))}  ` +
+      `${key('PgUp/PgDn')} ${dim(t('tui.dialogs.agentActivityViewer.footer.page'))}  ` +
+      `${key('g/G')} ${dim(t('tui.dialogs.agentActivityViewer.footer.topBottom'))}  ` +
+      `${key('Ctrl+O')} ${dim(
+        this.expanded
+          ? t('tui.dialogs.agentActivityViewer.footer.collapse')
+          : t('tui.dialogs.agentActivityViewer.footer.expand'),
+      )}  ` +
+      `${key('Q/Esc')} ${dim(t('tui.dialogs.agentActivityViewer.footer.cancel'))}`;
     const left = ` ${keys}`;
     const leftW = visibleWidth(left);
     const rightW = visibleWidth(position);
@@ -386,42 +409,105 @@ export class AgentActivityViewer extends Container implements Focusable {
 }
 
 /**
+ * Strips terminal control sequences from subagent live output tails before
+ * they enter the ANSI render stream. `liveOutputTail` is the raw last line of
+ * a command's stdout/stderr, so a command can emit CSI cursor/color sequences
+ * or OSC hyperlinks (progress bars, prompts, links) that would corrupt the
+ * frame's color state or its layout. C0/C1 control characters (including lone
+ * ESC) and CSI (`ESC [ … final`) / OSC (`ESC ] … BEL|ST`) sequences are
+ * dropped; all other content is preserved verbatim.
+ */
+function sanitizeLiveOutput(value: string): string {
+  let result = '';
+  let i = 0;
+  while (i < value.length) {
+    const code = value.codePointAt(i);
+    if (code === 0x1b) {
+      const next = value.codePointAt(i + 1);
+      if (next === 0x5b /* '[' */) {
+        // CSI: ESC [ … final byte in 0x40–0x7e. Unterminated sequences are
+        // consumed to the end of the string.
+        i += 2;
+        while (i < value.length && !(value.codePointAt(i) >= 0x40 && value.codePointAt(i) <= 0x7e)) {
+          i += 1;
+        }
+        if (i < value.length) i += 1;
+        continue;
+      }
+      if (next === 0x5d /* ']' */) {
+        // OSC: ESC ] … terminated by BEL or ST (ESC \).
+        i += 2;
+        while (i < value.length) {
+          const c = value.codePointAt(i);
+          i += 1;
+          if (c === 0x07) break;
+          if (c === 0x1b && value.codePointAt(i) === 0x5c) {
+            i += 1;
+            break;
+          }
+        }
+        continue;
+      }
+      // A lone ESC not opening a recognized sequence is a control char.
+      i += 1;
+      continue;
+    }
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) {
+      i += 1;
+      continue;
+    }
+    result += value[i]!;
+    i += 1;
+  }
+  return result;
+}
+
+/**
  * Plain-text preview of a record for the tasks browser's Preview frame (the
  * frame styles whole lines itself, so this stays ANSI-free). The frame shows
  * the tail of the string, so the full retained activity is returned.
  */
-export function formatSubagentActivityPreview(record: SubagentActivityRecord): string {
+export function formatSubagentActivityPreview(
+  record: SubagentActivityRecord,
+  workspaceDir?: string,
+): string {
   const lines: string[] = [];
   for (const step of record.steps) {
     lines.push(`── step ${String(step.step)} ──`);
     if (step.retrying !== undefined) lines.push(`${MESSAGE_INDENT}↻ ${step.retrying}`);
     if (step.textTail.trim().length > 0) lines.push(...step.textTail.trimEnd().split('\n'));
     for (const call of step.toolCalls) {
-      lines.push(formatPreviewToolCall(call));
+      lines.push(formatPreviewToolCall(call, workspaceDir));
       if (
         call.result === undefined &&
         call.liveOutputTail !== undefined &&
         call.liveOutputTail.length > 0
       ) {
-        lines.push(`${MESSAGE_INDENT}│ ${call.liveOutputTail}`);
+        lines.push(`${MESSAGE_INDENT}│ ${sanitizeLiveOutput(call.liveOutputTail)}`);
       }
     }
   }
   if (record.error !== undefined && record.error.length > 0) {
-    lines.push('Failed:', ...record.error.trimEnd().split('\n'));
+    lines.push(t('tui.dialogs.agentActivityViewer.failedColon'), ...record.error.trimEnd().split('\n'));
   } else if (record.resultSummary !== undefined && record.resultSummary.length > 0) {
-    lines.push('Result:', ...record.resultSummary.trimEnd().split('\n'));
+    lines.push(
+      t('tui.dialogs.agentActivityViewer.resultColon'),
+      ...record.resultSummary.trimEnd().split('\n'),
+    );
   }
   if (lines.length === 0) {
-    return record.status === 'running' ? 'Waiting for activity…' : '';
+    return record.status === 'running' ? t('tui.dialogs.agentActivityViewer.waiting') : '';
   }
   return lines.join('\n');
 }
 
-function formatPreviewToolCall(call: SubToolCallActivity): string {
+function formatPreviewToolCall(call: SubToolCallActivity, workspaceDir?: string): string {
   const mark = call.status === 'done' ? '✓' : call.status === 'error' ? '✗' : '●';
-  const verb = call.status === 'running' ? 'Using' : 'Used';
-  const keyArg = extractKeyArgument(call.name, call.args);
+  const verb =
+    call.status === 'running'
+      ? t('tui.dialogs.agentActivityViewer.using')
+      : t('tui.dialogs.agentActivityViewer.used');
+  const keyArg = extractKeyArgument(call.name, call.args, workspaceDir);
   const argStr = keyArg === null || keyArg.length === 0 ? '' : ` (${keyArg})`;
 
   let chip = '';

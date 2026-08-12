@@ -49,6 +49,8 @@ export type TasksBrowserState = {
         output: string;
         refreshId: number;
         pollTimer: NodeJS.Timeout;
+        /** Last `agentId:version` fed to the activity viewer; polls skip when unchanged. */
+        lastRecordKey?: string;
       }
     | undefined;
 };
@@ -431,6 +433,7 @@ export class TasksBrowserController {
         taskId,
         info,
         record,
+        workspaceDir: this.host.session?.workDir,
         onClose: () => {
           this.closeOutputViewer();
         },
@@ -468,10 +471,19 @@ export class TasksBrowserController {
       agentId === undefined
         ? undefined
         : this.host.sessionEventHandler.subAgentEventHandler.activityStore.get(agentId);
+    // The viewer's body is cached against record.version — a per-second poll
+    // that re-delivers the same record must not force a repaint (rebuilding
+    // all body Markdown). `agentId` is part of the key so a different agent
+    // record with a coincidentally equal version still repaints.
+    const recordKey =
+      record === undefined ? undefined : `${record.agentId}:${String(record.version)}`;
+    if (recordKey === viewer.lastRecordKey) return;
+    viewer.lastRecordKey = recordKey;
     viewer.component.setProps({
       taskId: viewer.taskId,
       info,
       record,
+      workspaceDir: this.host.session?.workDir,
       onClose: () => {
         this.closeOutputViewer();
       },
@@ -492,7 +504,7 @@ export class TasksBrowserController {
         info.agentId,
       );
       if (record !== undefined) {
-        browser.tailOutput = formatSubagentActivityPreview(record);
+        browser.tailOutput = formatSubagentActivityPreview(record, this.host.session?.workDir);
         browser.tailLoading = false;
         this.repaint();
         return;

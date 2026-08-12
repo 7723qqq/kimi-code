@@ -305,6 +305,36 @@ describe('formatSubagentActivityPreview', () => {
     expect(text).toContain('│ 42 passing');
   });
 
+  it('strips terminal escape sequences from live output tails', () => {
+    const text = formatSubagentActivityPreview(
+      record({
+        totalSteps: 1,
+        steps: [
+          {
+            step: 0,
+            textTail: '',
+            toolCalls: [
+              {
+                id: 't1',
+                name: 'Bash',
+                args: { command: 'p' },
+                status: 'running',
+                startedAt: 0,
+                liveOutputTail:
+                  '\u001B[2J\u001B[32mgreen\u001B[0m line \u0007\u001B]8;;https://evil.test\u0007link',
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    // CSI color/clear sequences, C0 BEL and the OSC hyperlink are dropped;
+    // the surrounding text survives intact.
+    expect(text).toContain('│ green line link');
+    expect(text).not.toContain('\u001B');
+    expect(text).not.toContain('https://evil.test');
+  });
+
   it('returns a waiting placeholder for a fresh running record', () => {
     expect(formatSubagentActivityPreview(record())).toBe('Waiting for activity…');
   });

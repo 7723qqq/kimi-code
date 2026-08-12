@@ -85,18 +85,32 @@ function npmGlobalPrefix(platform: NodeJS.Platform): Promise<string> {
   if (resolved === undefined) {
     return Promise.reject(new Error('npm was not found in PATH'));
   }
-  return execFileText(resolved, ['prefix', '-g']).then((text) => text.trim());
+  return execFileText(resolved, ['prefix', '-g'], platform).then((text) => text.trim());
 }
 
-function execFileText(command: string, args: readonly string[]): Promise<string> {
+function execFileText(
+  command: string,
+  args: readonly string[],
+  platform: NodeJS.Platform,
+): Promise<string> {
   return new Promise((resolveOutput, reject) => {
-    execFile(command, [...args], { encoding: 'utf-8' }, (error, stdout) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolveOutput(stdout);
-    });
+    // Windows npm is a .cmd shim. Since the CVE-2024-27980 fix, Node throws
+    // EINVAL when spawning a .cmd/.bat without a shell, so run through
+    // cmd.exe on win32, quoting the resolved path — a space in it (e.g.
+    // C:\Program Files\...) would otherwise split the command. The args are
+    // fixed constants, so they are shell-safe.
+    execFile(
+      platform === 'win32' ? `"${command}"` : command,
+      [...args],
+      { encoding: 'utf-8', shell: platform === 'win32' ? true : undefined },
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolveOutput(stdout);
+      },
+    );
   });
 }
 
