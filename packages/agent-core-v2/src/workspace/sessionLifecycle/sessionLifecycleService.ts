@@ -574,7 +574,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
 
       await targetMeta.update({
         title,
-        isCustomTitle: opts.title !== undefined ? true : sourceMeta?.isCustomTitle === true,
+        titleKind: opts.title !== undefined ? 'custom' : 'replaceable',
         forkedFrom: sourceId,
         archived: false,
         updatedAt: toEpochMs(sourceMeta?.updatedAt) || Date.now(),
