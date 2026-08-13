@@ -40,10 +40,7 @@
  * `GET /sessions/{id}/warnings` surfaces session-level notices in the v1
  * `{ code, message, severity }` wire shape: the `agents-md-oversized` warning
  * (projected from the main agent's `IAgentProfileService.getAgentsMdWarning()`
- * — computed and cached when the agent binds a profile) and the
- * secondary-model early-validation warning (projected from the Session-scope
- * `ISessionSecondaryModelWarningService` — computed and cached when the main
- * agent is created). An unbound main agent or a valid/unset secondary model
+ * — computed and cached when the agent binds a profile). An unbound main agent
  * yields an empty list, matching v1's "no warning" case.
  *
  * **Wire fidelity**: mirrors v1's `toProtocolSession`
@@ -89,7 +86,6 @@ import {
   ISessionIndex,
   ISessionMetadata,
   ISessionLegacyService,
-  ISessionSecondaryModelWarningService,
   IEventService,
   IWorkspaceAliases,
   ISessionLifecycleService,
@@ -1051,18 +1047,12 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
       try {
         // Surface v2 notices in the v1 wire shape. The agents-md warning is
         // computed (and cached) by `IAgentProfileService` when the main agent
-        // binds a profile; the secondary-model warning is computed (and
-        // cached) by `ISessionSecondaryModelWarningService` when the main
-        // agent is created. An unbound main agent / unset secondary model
-        // yields `undefined` → that entry drops out, matching v1's "no
-        // warning" case.
+        // binds a profile; an unbound main agent yields `undefined` → the
+        // entry drops out, matching v1's "no warning" case.
         const agent = await ensureMainAgent(session);
         const agentsMdWarning = agent.accessor.get(IAgentProfileService).getAgentsMdWarning();
-        const secondaryModelWarning = session.accessor
-          .get(ISessionSecondaryModelWarningService)
-          .getSecondaryModelWarning();
-        const warnings = [
-          ...(agentsMdWarning === undefined
+        const warnings =
+          agentsMdWarning === undefined
             ? []
             : [
                 {
@@ -1070,17 +1060,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
                   message: agentsMdWarning,
                   severity: 'warning' as const,
                 },
-              ]),
-          ...(secondaryModelWarning === undefined
-            ? []
-            : [
-                {
-                  code: secondaryModelWarning.code,
-                  message: secondaryModelWarning.message,
-                  severity: 'warning' as const,
-                },
-              ]),
-        ];
+              ];
         reply.send(okEnvelope({ warnings }, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);
@@ -1322,6 +1302,7 @@ function sendMappedError(
         return;
       case 'request.invalid':
       case 'validation.failed':
+      case ErrorCodes.CONFIG_INVALID:
         reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId, err.stack));
         return;
     }
