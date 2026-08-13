@@ -2,11 +2,7 @@
 //! transcript cards (TS `session-event-handler` parity, simplified). Split
 //! out of `app.rs`; the event pump in the app shell calls these.
 
-
-use crate::app::{
-    Overlay, ToolCallEntry, TranscriptEntry, TranscriptLine,
-    upsert_task_card,
-};
+use crate::app::{upsert_task_card, Overlay, ToolCallEntry, TranscriptEntry, TranscriptLine};
 use crate::i18n::t;
 use crate::question::QuestionPanel;
 
@@ -57,6 +53,7 @@ impl super::app::App {
                             is_question,
                             duration: None,
                             collapsed,
+                            image: None,
                         }));
                 }
             }
@@ -64,26 +61,33 @@ impl super::app::App {
             let mut result = event["content"].as_str().unwrap_or("").to_string();
             let is_error = event["is_error"].as_bool().unwrap_or(false);
             // ReadMediaFile results embed the full base64 in `content`;
+            // render them inline when the terminal supports it, otherwise
             // surface a human-readable summary instead (TS media renderer).
+            let mut image = None;
             if !is_error && tool_name == "ReadMediaFile" {
-                result = crate::media::media_summary_text(&result).unwrap_or(result);
+                match crate::media::render_media_image(&result, Default::default()) {
+                    crate::media::MediaRender::Image(rendered) => {
+                        // Keep the caption summary as the card result; the
+                        // image escape sequence rides along in `image`.
+                        result = crate::media::media_summary_text(&result).unwrap_or(result);
+                        image = Some(rendered);
+                    }
+                    crate::media::MediaRender::Text(text) => result = text,
+                }
             }
             let is_question = tool_name == "AskUserQuestion";
             // AskUserQuestion stops the turn: open the question dialog so
             // the user can answer with an option or free text (the answer
             // goes back as the next user message).
             if is_question && !is_error {
-                let args = event
-                    .get("arguments")
-                    .cloned()
-                    .or_else(|| {
-                        self.view.transcript.iter().rev().find_map(|e| match e {
-                            TranscriptEntry::ToolCall(tc) if tc.is_question => {
-                                serde_json::from_str(&tc.args).ok()
-                            }
-                            _ => None,
-                        })
-                    });
+                let args = event.get("arguments").cloned().or_else(|| {
+                    self.view.transcript.iter().rev().find_map(|e| match e {
+                        TranscriptEntry::ToolCall(tc) if tc.is_question => {
+                            serde_json::from_str(&tc.args).ok()
+                        }
+                        _ => None,
+                    })
+                });
                 if let Some(args) = args {
                     let mut panel = QuestionPanel::from_args(&args);
                     panel.tool_call_id = tool_call_id.clone();
@@ -101,6 +105,7 @@ impl super::app::App {
                     existing.is_error = is_error;
                     existing.is_question = is_question;
                     existing.duration = duration;
+                    existing.image = image;
                 }
                 _ => {
                     // A settled event without a matching started (replay edge).
@@ -115,6 +120,7 @@ impl super::app::App {
                             is_question,
                             duration,
                             collapsed: false,
+                            image,
                         }));
                 }
             }

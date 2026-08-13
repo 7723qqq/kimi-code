@@ -1,75 +1,44 @@
-# Rust-First 迁移计划（Codex 方向）— 当前版
+# Rust-First 迁移（Codex 方向）— 现状与收口
 
 > **本文档是"TS 壳 → 纯 Rust 核心"迁移的唯一权威。**
-> 状态：**2026-08-10 重写**——清理历史会话流水账，以当前真实状态为准；方向与决策记录保留。
+> 状态：**2026-08-13**——阶段 A–F 与 G 系列（G-0..G-7）**全部完成**，`@moonshot-ai/kimi-code` 已壳化（纯 Rust spawn），TS 仅剩 web 前端与分发壳。本文档描述**当前状态**，不再保留迁移过程流水账；历史批次与提交索引见 `retired/` 归档与 git 历史。
 > 参考资产：`D:/kimi/参考目录/_extracted_codex_full/codex-main`（codex-rs，60+ crates）。
-> 分支：`feat/rust-agent-engine-migration`（所有迁移工作在此分支，每次提交同步远程）。
 
 ---
 
-# 1. 当前状态总览（2026-08-10）
-
-## 1.1 方向（2026-08-06 定案，不可回退）
+# 1. 方向定案（2026-08-06，不可回退）
 
 > **最终只有浏览器前端是 TS。** 其余所有 TypeScript——CLI/TUI 宿主、server、SDK、协议、OAuth、ACP、LLM 抽象、i18n 数据、rust-loop 桥——全部迁入 Rust 或退役。
 
 | 类别 | 保留 TS | 说明 |
 |---|---|---|
-| ✅ 保留（web 前端） | `kimi-web`(Vue3) / `kimi-inspect` / `vis/web` | 浏览器 UI，纯前端 |
-| ✅ 保留（前端壳） | `vscode` / npm bin 包装（`kimi.mjs` 几 KB） | VS Code 宿主 API 必须 JS；仅壳，逻辑走 Rust RPC |
-| ❌ 迁 Rust | 见 §5 | 全部宿主层 |
-| ❌ 退役 | `pi-tui` / `transcript` / `migration-legacy` / `klient`(已退) / TS i18n 数据 / `rust-loop.ts` | 无存在意义或已被 Rust 覆盖 |
+| ✅ 保留（web 前端） | `kimi-web`(Vue3) / `kimi-inspect` / `vis/web` / `vis/server` | 浏览器 UI 与只读重放工具；`vis/server` 的 v1 投影算法拷贝（`v1-compat.ts`）仅供显示，不得扩展 |
+| ✅ 保留（前端壳） | `vscode` / npm bin 包装（`kimi.mjs`） | VS Code 宿主 API 必须 JS；仅壳，逻辑走 Rust RPC |
+| ❌ 迁 Rust | 全部宿主层 | 已全部落地（见 §3） |
+| ❌ 退役 | 18 个 TS 包/模块 | 已全部 → `retired/`（见 §5） |
 
-**明确不建** `sdk/typescript`——外部消费者使用 `kimi-sdk`(Rust) 或 HTTP 协议。`i18n` 文案沉淀为 JSON 数据文件。
+**明确不建** `sdk/typescript`——外部消费者使用 `kimi-sdk`(Rust) 或 HTTP 协议。i18n 文案：Rust 内置 en/zh（`kimi-tui/src/i18n.rs`）+ `i18n-shared`（web）。
 
-**TS 冻结已落地（2026-08-10）**：`migration-legacy` / `pi-tui` / `apps/kimi-code` 剩余 TS 一律**冻结**——入口文件带 FROZEN banner，规则见根 AGENTS.md「TS 冻结清单」。只允许关键 bug 修复（崩溃/数据丢失/安全/日志污染）与测试基线适配；新能力一律写 Rust。**已退役（2026-08-10，→ retired/）**：`node-sdk` / `kap-server` / `oauth` / `acp-adapter` / `protocol` / `kaos` / `kosong` / `telemetry` / `transcript`。
-
-## 1.2 完成度（2026-08-10 实测）
-
-| 域 | 状态 |
-|---|---|
-| Rust 引擎（`packages/kimi-agent`） | ✅ 唯一引擎，cargo 全绿；宿主面补齐：`config/get·set` 空 home 容忍、`session/cancel_compact`、`session/create` work_dir、metadata 持久化 |
-| 阶段 A–E（协议/引擎/宿主协议/CLI/exec/TUI/ACP/SDK/OAuth/WS） | ✅ 完成（§6） |
-| 阶段 F（入口切换与 TS 退役） | ✅ 完成（2026-08-11，随 G-7 壳化收官：分发薄壳 + 入口 wrapper + F-5 e2e + TS 入口退役） |
-| G-6 退役收口（剩余两包） | ✅ 完成（2026-08-11）：pi-tui + migration-legacy → retired/；vscode 消费面本地化；TS 迁移死代码（migration/ 目录、migrate 命令面）删除；SEA 注册项/CI/flake.nix/lockfile 同步 |
-| G-4 TUI 攻坚（最大长杆） | ✅ 61 命令全命令面 + 交互对拍（§6.4） |
-| G-2 Rust server（`kimi-server` + HTTP/WS 投影） | ✅ 前端零改动直连；v1 wire 契约字段级对拍完成 |
-| G-1 kimi-sdk 补齐 | 🔶 大块完成（2026-08-10）：事件广播 + on_event/approval/tool handler、MCP 全局配置、workspace skills、config 小件、auth 扩展；剩余：消费面切换（§7 G-1） |
-| vitest 基线（TS 宿主测试） | ✅ 5736 passed / 2 failed（kosong 并发 flaky）/ 64 skipped——原 143 failed 归因修复完成（2026-08-10） |
-
-## 1.3 下一步（G 路线）
-
-1. **G-0 收尾**：基线锁定（cargo 全绿 ✅ + vitest 收敛 ✅）；TS 侧新增逻辑先与 Rust 核对（进行中）
-2. **G-2 剩余**：Rust server 的 v1 wire 遗留投影批次（见 §7，MINOR 批已复核 2026-08-11）
-3. **G-3**：CLI 消费面切 kimi-cli；**G-4 剩余**：真实终端手动冒烟清单 + 媒体富卡片（另议）
-4. **G-5/G-7**：LLM 面并入（已定案 ✅）→ **G-7 web-only 达成（2026-08-11）**；后续：真实终端手动冒烟、媒体富卡片（另议）、发布形态观察（壳包 + kimi-code-rust 双发）
-
-## 1.4 已知缺口（不阻塞主线的记录）
-
-1. ~~**compaction summarizer 双通道**~~ ✅ **已补（2026-08-10）**：`LlmCompactionDelegate`（任意 `LLM` 实现）+ `ensure_compaction_delegate` 宿主分支——无 native LLM 的 host-proxy 会话经 `HostLlmProxy`（`HostCallbacks::llm_chat`）走宿主通道 compact（原报 `compaction.unable`）；单测 + stdio 集成适配（`session_compact_host_proxy_gets_a_summarizer_delegate`）
-2. ~~**子代理 replay 数据源**~~ ✅ **已补（2026-08-10 数据源 + 2026-08-11 读取面 + 2026-08-12 精确配对）**：Task 工具子代理在任务被跟踪时（task_service 存在）经 `run_child_agent_persistent_with_model` 持久化对话到 session store（agent_id = task_id，swarm 同一机制）；读取面：`session/list` 支持 `include_subagents`（默认过滤子代理记录，opt-in 全量），`session/get_context` 支持 `include_subagents` → 响应 `subagents` 摘要列表（agent_id/消息数/updated_at，`SubagentSummaryRpc`）；**配对已精确化（2026-08-12）**：子代理持久化时盖章父 Task/swarm 工具调用 id（`parent_tool_call_id` 落 `state_json` 顶层键，旧记录 None 兼容），摘要透出该字段，vscode 配对改为精确匹配 + 未盖章 FIFO 兜底 + 盖章孤儿丢弃；swarm 子代理合成 replay 仍缺失（需 XML 结果解析或 child-context 读 RPC，后续项）
-3. **用户真实 config.toml 损坏**：`duplicate defaultModel`（defaultModel 与 default_model 并存）导致 Rust TOML 严格解析拒绝整个配置（用户禁止修改真实文件，隔离配置验证绕开；建议用户侧删 camelCase 行）
-4. ~~**vis 断代（Rust 引擎 SQLite 持久化后 wire.jsonl 不再写）**~~ ✅ **已闭环（2026-08-12）**：引擎 `records` 表生产接线（9 类事件：message.append/turn.started·ended/tool.call·result/usage.updated/goal.updated/compaction.started·completed，SessionStore/RecordStore 共享同一 SQLite 连接，集成测试 `session_prompt_writes_wire_records` 锁定）；vis/server 新增 SQLite reader（`sqlite-store.ts`，node:sqlite 只读，KIMI_VIS_SOURCE=legacy|sqlite|auto）恢复列表/detail/state/context 快照/tasks/cron/agents 平铺；wire 视图从 records 投影（`sqlite-records.ts`：message.append→context.append_message 等映射复用现有渲染器，空记录 200+warnings）；context 路由用 records 重建 full timeline（含被 compaction 丢弃的历史）；前端通用兜底 + sqlite 徽标。**剩余**：子代理不写 records（独立会话未接线）、TUI 直连路径（RUN_TURN）无 session_id 不写记录（需协议扩展）
-
-> **2026-08-10 收口复核**：原第 4-6 项已消失——vscode typecheck 全过（`replay-adapter.ts` 错误已随 sdk-local 完成消除）；kosong 已退役（flaky 测试随包）；发布打包已接入 CI（`_rust-bin-build.yml` + release 注入）；**vscode legacy backfill 已闭环**（kimi-runtime.ts 迁移会话读 `kimi_cli_source_path` → 写 `vscode_legacy_approval` metadata → session-runtime 消费，create/resume 全链路完整）。另：apps/kimi-code 的 `@moonshot-ai/kimi-agent` devDep 已删（全仓无真实 import，仅注释引用 wire.gen）。
+**TS 冻结已随 G-7 解除**（冻结对象——`apps/kimi-code` 剩余 TS——已全部退役，FROZEN banner 保留在 `retired/` 归档中）。新能力一律写 Rust。
 
 ---
 
-# 2. 规模校准（codex 对照，2026-08-06 实测）
+# 2. 完成状态（当前）
 
-| codex crate | Rust 行数 | 我们的对应 | 现状 |
-|---|---|---|---|
-| `core` | 161k | kimi-agent（保留） | **99k** ✅ |
-| `tui` | 206.8k | kimi-tui | TS 41k → **Rust 已完成攻坚**（G-4） |
-| `cli` | 19.7k | kimi-cli | TS 9k → Rust 已落地大部分 |
-| `app-server(+protocol/transport/client/daemon)` | 88k | kimi-server 系 | TS 16k → Rust 已落地主体 |
-| `exec` + `exec-server` | 20.1k | kimi-exec | TS 2k → Rust ✅ |
-| `codex-api` | 10.3k | kimi-sdk | TS 16k → Rust 骨架 2.4k（G-1 补齐中） |
-| `protocol` / `config` / `state` | 54.6k | kimi-protocol/config/state | TS 5.2k → Rust 已落地 |
-| `login` | 8.4k | kimi-oauth | TS 5.5k → Rust device flow ✅ |
-| `sdk/typescript` | 2.9k | **不建** | 按 R-1 决策取消 |
+| 域 | 状态 |
+|---|---|
+| Rust 引擎（`packages/kimi-agent`） | ✅ 唯一引擎；`cargo test -p kimi-agent` 2173 全绿（2026-08-13 实测） |
+| 阶段 A–F（框架/宿主协议/CLI/exec/TUI/SDK/ACP/OAuth/退役） | ✅ 全部完成（2026-08-03 → 08-11） |
+| G-1 kimi-sdk 补齐 + 消费面切换 | ✅ 完成：事件广播/approval/tool handler、MCP 全局配置、workspace skills、config 小件、auth 扩展；vscode sdk-local 本地化 |
+| G-2 Rust server（kimi-server + HTTP/WS v1 投影） | ✅ 完成：前端零改动直连，v1 wire 契约字段级对拍，MINOR 批复核 |
+| G-3 CLI 消费面切 kimi-cli | ✅ 完成：parity 批次 6 + 入口差距评估（无代码差距） |
+| G-4 TUI → kimi-tui | ✅ 完成：61 命令全命令面 + 交互对拍（117+ 测试） |
+| G-5 LLM 面并入 | ✅ 完成：kosong 核心能力引擎覆盖，剩余数据项随退役 |
+| G-6 退役收口 | ✅ 完成：11 包/模块 + pi-tui/migration-legacy → `retired/`；flake/lockfile/CI 同步 |
+| G-7 web-only 壳化 | ✅ 完成（2026-08-11）：`kimi.mjs` 纯 Rust spawn；TS 入口与宿主测试全量退役；`kimi upgrade` Rust 化；vitest 收敛 |
+| 测试基线 | ✅ cargo 全绿；vitest 1127 passed / 2 skipped / 0 failed（2026-08-13 实测） |
 
-**当前语言构成**：TS src ~232k + TS test ~167k；Rust ~147k+。迁移完成后：TS 仅剩 web+壳 ≈ 60k，Rust ≈ 240k+（Rust 主导 ≈75%+）。
+**收口复核（2026-08-13）**：flake.nix 同步（幽灵项清除 + kimi-shared/kimi-build 补录 + 检查脚本 optionalDependencies 盲区修复）；kimi-server 主路径注入 RecordStore（vis records 生产接线闭环，含子代理）；wire.gen.ts 与 Rust 源零漂移（gen:wire 幂等）；`.changeset/` 清理（private 包引用清零、ignore 补齐）；全仓退役包名扫描清零（活代码区 0 残留）；`kimi-native-tools/index.d.ts` 与导出 111/111 对拍。
 
 ---
 
@@ -77,33 +46,28 @@
 
 ```
 层1 协议层（纯类型，零 I/O）          kimi-protocol ✅
-层2 引擎层（零 stdout，事件流输出）    packages/kimi-agent（保留，未拆 kimi-core/kimi-state）
+层2 引擎层（零 stdout，事件流输出）    packages/kimi-agent（未拆 kimi-core/kimi-state）
 层3 宿主协议层（引擎包成 JSON-RPC）    kimi-server / kimi-server-transport / kimi-server-client ✅
-层4 界面层（只消费协议）              kimi-cli ✅ / kimi-exec ✅ / kimi-tui ✅（G-4 攻坚完成）
-                                     kimi-sdk 🔶（G-1 补齐） / kimi-acp ✅ / kimi-oauth ✅
-层5 前端/分发（保持 TS）              kimi-web(Vue) / vscode / npm 薄壳 / i18n 数据
+层4 界面层（只消费协议）              kimi-cli ✅ / kimi-exec ✅ / kimi-tui ✅ / kimi-sdk ✅ / kimi-acp ✅ / kimi-oauth ✅
+层5 前端/分发（保持 TS）              kimi-web(Vue) / vis / vscode / npm 薄壳 / i18n-shared
 ```
 
 **主线（抄 codex）**：引擎零 I/O → server 把引擎包成协议（MessageProcessor + in_process 用同一套 JSON-RPC envelope）→ 所有界面只消费协议。
 
-## 已建 crate 现状
-
 | crate | 状态 | 要点 |
 |---|---|---|
-| `kimi-protocol` | ✅ | JSON-RPC envelope + 91 方法常量 + wire_types（session/context/usage/task/plan/goal/hooks）；TS 绑定由 `gen-wire-contract.mjs` 生成（126 types，已含 metadata/work_dir 等新字段） |
-| `kimi-server` | ✅ | MessageProcessor + in_process + 11 processor（session 44 方法全 + health/config/fs/git/approval/plugin/permission/cron/bg/task）；62+ 测试 |
-| `kimi-server-transport` | ✅ | stdio serve + `kimi-server-serve` 二进制（事件扇出 stderr，无 512 行截断）+ WebSocket serve + HTTP/REST v1 投影（前端零改动直连）；29+ 测试 |
-| `kimi-server-client` | ✅ | AppServerClient{InProcess, Remote} 门面 + typed methods + 并发调用（挂起 prompt 不阻塞 cancel） |
-| `kimi-cli` | ✅ | clap 分发 + print/sessions/resume/config/doctor/health/export/acp/login/provider/upgrade/vis/web；全局 `--server <bin>`；`config --set`；真实 LLM 端到端已打通 |
+| `kimi-protocol` | ✅ | JSON-RPC envelope + 92 方法常量 + wire_types；TS 绑定由 `gen-wire-contract.mjs` 生成（141 types，幂等） |
+| `kimi-server` | ✅ | MessageProcessor + in_process + 11 processor（session/health/config/fs/git/approval/plugin/permission/cron/bg/task）；84 测试 |
+| `kimi-server-transport` | ✅ | stdio serve + `kimi-server-serve` 二进制（事件扇出 stderr，无截断）+ WebSocket serve + HTTP/REST v1 投影 |
+| `kimi-server-client` | ✅ | AppServerClient{InProcess, Remote, RemoteWs} 门面 + typed methods + 并发调用 |
+| `kimi-cli` | ✅ | clap 分发：print/sessions/resume/config/doctor/health/export/chat/acp/completions/provider/login/logout/upgrade/migrate(退役提示)/server(弃用提示)/web/vis(退役提示)；全局 `--server`；真实 LLM 端到端打通 |
 | `kimi-exec` | ✅ | -p/print + run_prompt 经 AppServerClient |
-| `kimi-tui` | ✅ | G-4 攻坚完成：61 命令全命令面 + 交互对拍（§6.4）；kimi-ui 渲染原语 + EventSource 统一事件源 |
-| `kimi-sdk` | 🔶 | Session 45/45 + Harness + catalog（models.dev 归一化）+ config/errors + /btw 旁路 + EXIF 图片面；**G-1 补齐中** |
-| `kimi-acp` | ✅ | stdio 适配器 + set_mode/set_model + session/update 通知回放 |
+| `kimi-tui` | ✅ | ratatui 主循环 + kimi-ui 渲染原语 + EventSource；61 命令全命令面（G-4）；133 测试 |
+| `kimi-sdk` | ✅ | Session 面全（50/50，含 `session/fs` 包装）+ Harness + catalog（models.dev 归一化）+ config/errors + /btw + auth；90 测试 |
+| `kimi-acp` | ✅ | stdio 适配器 + set_mode/set_model + session/update 通知回放 + approval bridge |
 | `kimi-oauth` | ✅ | device flow（authorize/poll/refresh）+ `kimi login`（自动开浏览器） |
-| `kimi-config` | — | **定案（2026-08-10）：不建独立 crate**——catalog 已内联于 kimi-sdk（`catalog.rs`）、config TOML/env/合并于引擎 `kimi-agent/src/config/`、diagnostics 于 kimi-sdk `config.rs`；§3 原"已建"描述作废，见 §8 |
+| `kimi-config` | — | 定案不建独立 crate：catalog 内联 kimi-sdk、config TOML/env/合并于引擎、diagnostics 于 kimi-sdk `config.rs` |
 | `utils/*` | 搁置 | 并入 kimi-native-tools/kimi-shared（path/cache/output_truncation/fuzzy/pty/token_count 均有 Rust 实现） |
-
-**未拆分项**：`kimi-core`/`kimi-state`（保留 `packages/kimi-agent` 未拆分，计划与现状偏差，如需拆分再更新）；`crates/utils/*` 并入 native-tools/kimi-shared。
 
 ---
 
@@ -116,193 +80,113 @@ kimi-protocol ← kimi-agent(引擎) ← kimi-server ← kimi-server-transport
                                           ↑
     kimi-cli / kimi-exec / kimi-tui / kimi-sdk / kimi-acp / kimi-oauth ──┘
                                           ↑
-                   kimi-web(Vue)/vscode/npm 薄壳（TS）
+                   kimi-web(Vue)/vis/vscode/npm 薄壳（TS）
 ```
 
 ---
 
-# 5. TS → Rust 映射与退役表（当前有效）
+# 5. 退役表（全部 → `retired/`，不回引）
 
-| 现 TS 包 | 规模 | 处理 | 目标 | 状态 |
-|---|---|---|---|---|
-| `apps/kimi-code` TUI | 41k | 迁 Rust | kimi-tui | ✅ G-4 攻坚完成（TS 已删 2026-08-09） |
-| `apps/kimi-code` CLI/i18n/utils/constant | 18.4k | 迁 Rust/退役 | kimi-cli + kimi-tui | ✅ **已退役**（2026-08-11，G-7 壳化：src/ 全量 → `retired/kimi-code-src/`；upgrade 由 kimi-cli Rust 实现） |
-| `kap-server` | 16.2k | 迁 Rust | kimi-server | ✅ 主体完成 → **已退役**（retired/，2026-08-10） |
-| `node-sdk` | 16.2k | 迁 Rust | kimi-sdk | ✅ 消费面切换完成 → **已退役**（retired/，2026-08-10） |
-| `kosong` | 11.1k | 迁 Rust | kimi-sdk LLM 面 | ✅ 核心能力引擎已覆盖（§8 决策）→ **已退役**（retired/，2026-08-10） |
-| `oauth` | 5.5k | 迁 Rust | kimi-oauth | ✅ device flow → **已退役**（retired/，2026-08-10） |
-| `acp-adapter` | 5.4k | 迁 Rust | kimi-acp | ✅ → **已退役**（retired/，2026-08-10） |
-| `protocol` | 5.2k | 迁 Rust | kimi-protocol | ✅ → **已退役**（retired/，2026-08-10） |
-| `kaos` | 3.1k | 退役/并 | SSH 面评估后裁并 | ✅ → **已退役**（retired/，2026-08-10） |
-| `transcript` | 5k | 退役/并 | 本地化至 kimi-inspect | ✅ **已退役**（2026-08-10：唯一消费者 kimi-inspect 本地化，zod 依赖随迁） |
-| `migration-legacy` | 4.2k | 退役 | 一次性数据迁移 | ✅ **已退役**（2026-08-11，retired/：vscode 消费面本地化至 apps/vscode/src/migration-legacy/） |
-| `pi-tui` | 13.2k | 退役 | kimi-tui 完成后删除 | ✅ **已退役**（2026-08-11，retired/：唯一消费者 TS 迁移屏随死代码删除，SEA 注册项清理） |
-| `kimi-agent` 内 TS（rust-loop 3.4k + runtime 兼容 4k） | 7.4k | 退役 | Rust transport 已覆盖 | ✅ **已删除**（2026-08-10）：kimi-agent 包仅剩 Rust + 生成文件；proxy/logging-core 本地化至 apps/kimi-code |
-| `kimi-web`/`kimi-inspect`/`vis/web`/`vscode` | 60k | **保留** | 唯一 web/壳 | ✅ |
-
-**退役消费图（2026-08-11 复核）**：telemetry/transcript 已本地化退役（2026-08-10）；migration-legacy 本地化至 apps/vscode（2026-08-11）、pi-tui 随 TS 迁移屏删除（2026-08-11）——消费图清零。
-
----
-
-# 6. 完成情况（阶段 A–F + G 系列）
-
-## 6.1 阶段 A — 框架落地 ✅（2026-08-03）
-
-crates/ workspace 骨架；kimi-protocol（rpc/methods 91 常量/wire_types）；types.rs 下沉 re-export；gen-wire-contract.mjs 自研生成器（离线无法引入 ts-rs）；cargo 全绿 + typecheck 0 + gen:wire 幂等。
-
-## 6.2 阶段 B — 宿主协议层 ✅
-
-kimi-server（MessageProcessor + in_process + ServerHostCallbacks/EventBus）；kimi-server-transport（stdio serve + kimi-server-serve 二进制 + **WebSocket** + **HTTP/REST v1 投影**）；kimi-server-client（InProcess/Remote + 并发调用）；session 44 方法族 + health/config/fs/git/approval/plugin/permission/cron/bg/task 全部处理器。测试：62+8+4+29+36 全绿。
-
-## 6.3 阶段 C — CLI + exec ✅
-
-kimi-cli（clap 分发 + 全局 `--server` + doctor config 检查 + 事件渲染 + `config --set` + sessions --json）；kimi-exec（print/run_prompt）；CLI 集成测试 36+；**真实 LLM 端到端打通**（2026-08-09：`kimi print "reply with exactly: pong"` → 块渲染 + stream-json + llm.delta 流式）。
-
-## 6.4 阶段 D — TUI ✅（G-4 攻坚完成，2026-08-09）
-
-- kimi-ui（render_event/transcript/EventSource）；kimi-tui（ratatui 主循环）
-- **61 命令全命令面**（TS 42 条全覆盖）：/approvals /plan /swarm /goal /tasks /btw /endbtw /steer /import /export-md /discuss /workflow /provider /reload-tui 等 + 别名
-- 交互对拍：审批（y/n/s/v + 危险命令检测 8 正则）、Tab 补全（命令/参数/模型/路径/@mention + ghost hint）、选择器（model/session/permission/skills/plugins/provider/tasks）、@mention 文件补全、bash 模式（`!`）、外部编辑器 Ctrl-G、剪贴板图片粘贴、帮助面板、工具结果 chip（Edit/Write/Read/Bash）、会话恢复 replay（history 消息级）、任务浏览器、登录 device flow、主题/locale/设置菜单
-- **简化项（对拍记录，非缺失；2026-08-11 复核）**：agent-group/read-group 组卡片（单卡片渲染，定案保留）；banner 网络拉取（footer 本地 tips，定案保留）；experiments/multi-llm/feedback/web 提示命令（**已确认实现**——commands.rs cmd_config 分组，提示指向 config.toml）；easter-eggs 未迁移（定案保留）
-- **测试**：kimi-tui 117 + kimi-ui 11 全绿；TS TUI 已删除（189+123 文件，cba21d159）
-- **剩余**：交互路径对拍测试（D-5）、媒体富卡片（终端图形协议，依赖终端支持，另议）、真实终端手动冒烟
-
-## 6.5 阶段 E — SDK/ACP/OAuth/Config ✅（主体）
-
-kimi-sdk（Session 45/45 + Harness + catalog 归一化 + config/errors + /btw）；kimi-acp（stdio 适配器 + 命令面）；kimi-oauth（device flow）；kimi-config（catalog ✅，TOML/env 细化待续）；**宿主面补全**（2026-08-05）：plugin 写面 7 方法、cron 面、archiveSession、plugin commands、cancelCompaction——node-sdk Rust 桥 **零 nativeUnavailable 残留**。
-
-## 6.6 阶段 F — 退役 🔶（主体完成）
-
-- ✅ npm 分发薄壳（kimi-code-rust-bin：bin 包装 + pack.mjs CI 打包 + KIMI_RUST_BIN 覆盖）
-- ✅ **Rust CLI 分发打包接入（2026-08-10）**：`_rust-bin-build.yml`（6 平台矩阵：cargo build kimi-cli + kimi-server-serve → pack.mjs → artifact）+ release.yml 注入（changesets publish 前下载合并进包 bin/，macOS codesign）——`@moonshot-ai/kimi-code-rust` 发布时携带全平台二进制（含 server-serve）
-- ✅ 入口切换 wrapper（bin/kimi.mjs：优先平台 Rust 二进制，回退 TS dist/main.mjs；SIGINT/SIGTERM/SIGHUP 转发 + 退出码镜像；smoke:entry 冒烟双路径通过）
-- ✅ klient 退役（2026-08-05 → retired/klient）
-- ✅ F-5 全链路 Rust e2e（CLI/TUI/API/web 全 Rust：`--http` + `--assets` 端到端 + WS 事件流）
-- ✅ 包退役第一批（2026-08-10）：node-sdk/kap-server/acp-adapter/oauth/protocol/kaos → retired/（环外引用清零后执行；vscode/vis 死配置清理、migration-legacy 死 kaos devDep 移除、flake.nix/lockfile 同步）
-
-## 6.7 G 系列收口进度
-
-| 步 | 内容 | 状态 |
+| 原包/模块 | 处理 | 退役时间 |
 |---|---|---|
-| G-0 | 基线锁定（cargo 全绿 + vitest 收敛 + TS 存量冻结） | 🔶 2026-08-10：vitest 143→2 failed（kosong flaky）；引擎宿主面 4 项修复完成；TS 存量冻结 ✅（入口 FROZEN banner + 根 AGENTS.md 冻结清单） |
-| G-1 | node-sdk → kimi-sdk 补齐 + apps 消费面切换 | ✅ 完成（2026-08-10）：kimi-sdk 大块 + vscode sdk-local 21 类型 + apps/kimi-code 本地化 + node-sdk 退役（retired/） |
-| G-2 | kap-server → kimi-server + 前端直连 | ✅ 主体（Rust server 前端零改动；v1 wire 契约字段级对拍完成；MINOR 批复核补齐 2026-08-11：compaction/task/goal 事件投影 + WS seq 单调） |
-| G-3 | apps/kimi-code CLI 消费面切 kimi-cli | 🔶 parity 批次 6 完成（2026-08-11：隐藏别名/validateOptions/output-format env//goal 解析/provider·catalog 对齐/export 文件名/web 子命令）；剩余待定项见 §7 |
-| G-4 | TUI → kimi-tui 分片搬运（长杆） | ✅ 攻坚完成（P0-P6 分片，§6.4）；剩余：真实终端手动冒烟 + 媒体富卡片（另议） |
-| G-5 | kosong/kaos/protocol LLM 面并入；transcript/telemetry 收编 | 🔶 kimi-schema 规范化移植完成；kosong 核心能力引擎已覆盖（评估定案）；kimi-files 上传/capability/Astron 数据项随 node-sdk 退役 |
-| G-6 | 退役（node-sdk/kap-server/acp-adapter/oauth/protocol/kaos → retired/；删 rust-loop.ts、TS i18n、TS 入口、pi-tui） | ✅ 完成（2026-08-11）：11 包/模块退役（2026-08-10）+ pi-tui/migration-legacy → retired/（2026-08-11，vscode 消费面本地化至 apps/vscode/src/migration-legacy/，TS 迁移死代码与 migrate 命令面删除，SEA 注册项/CI/flake.nix/lockfile 同步） |
-| G-7 | web-only 验证 + 删除全部旧 TS 测试 | ✅ **完成（2026-08-11）**：`@moonshot-ai/kimi-code` 壳化（bin/kimi.mjs 纯 Rust spawn + dist-web 资产）；TS 入口与宿主测试全量退役（src → retired/kimi-code-src/，~690 用例）；`kimi upgrade` Rust 化（npm registry + KIMI_CODE_VERSION 注入）；SEA 链/tsdown/相关 workflow（_native-build/manual-native-bundle）删除；flake.nix 改 Rust 构建；vitest 基线收敛至 1133（web/壳/vscode） |
+| `apps/kimi-code` TUI（41k） | → kimi-tui（G-4） | 2026-08-09 |
+| `apps/kimi-code` CLI/i18n/utils（18.4k） | → kimi-cli/kimi-tui；src/ 全量 → `retired/kimi-code-src/`（G-7 壳化） | 2026-08-11 |
+| `kap-server`（16.2k） | → kimi-server | 2026-08-10 |
+| `node-sdk`（16.2k） | → kimi-sdk | 2026-08-10 |
+| `kosong`（11.1k） | 核心能力引擎覆盖 | 2026-08-10 |
+| `oauth`（5.5k） | → kimi-oauth | 2026-08-10 |
+| `acp-adapter`（5.4k） | → kimi-acp | 2026-08-10 |
+| `protocol`（5.2k） | → kimi-protocol | 2026-08-10 |
+| `kaos`（3.1k） | SSH 面无引擎需求，裁并 | 2026-08-10 |
+| `transcript`（5k） | 本地化至 kimi-inspect | 2026-08-10 |
+| `telemetry`（2k） | 本地化至宿主与 kimi-inspect | 2026-08-10 |
+| `i18n`（18k） | 文案 → Rust 内置 en/zh + i18n-shared（last non-web TS package） | 2026-08-12 |
+| `migration-legacy`（4.2k） | vscode 消费面本地化 | 2026-08-11 |
+| `pi-tui`（13.2k） | 唯一消费者随 TS TUI 退役 | 2026-08-11 |
+| `klient` | → Rust transport | 2026-08-05 |
+| `agent-core` / `agent-core-v2` | → kimi-agent | 2026-08-03 |
+| `minidb` / `kosong-native` | 引擎 SQLite 覆盖 | 2026-08 |
+| `kimi-agent` 内 TS（rust-loop + runtime 兼容，7.4k） | Rust transport 覆盖，已删除 | 2026-08-10 |
+
+**消费图**：退役包在全仓活代码区零引用（2026-08-13 扫描）；仅"本地化来源"注释与历史文档提及。
 
 ---
 
-# 7. 当前缺失项（TODO，按 G 系列）
+# 6. 已决策记录（有约束力，冲突时以本节省略为准）
 
-## G-1 — node-sdk → kimi-sdk 补齐（当前主攻）
-
-- [x] kimi-sdk 大块（2026-08-10）：事件广播（subscribe/on_event/EventSubscription）、approval handler 事件驱动自动 resolve、tool handler（embedded HostCallbacks 注入）、MCP 全局配置（mcp.json store + OAuth flow + stdio 探测）、workspace skills、config diagnostics/ensure/removeProvider/getExperimentalFeatures（stub）、auth status 泛化 + getManagedUsage/submitFeedback/upload 三件套
-- [x] kimi-sdk 补齐 session/harness 剩余面（事件驱动 onEvent/setApprovalHandler 已完成；`set_question_handler` 定案不实现——引擎 AskUserQuestion 走 stop_turn + 下一条消息（§8））
-- [x] vscode 面：21 类型本地化完成（9918e2b4e，sdk-local）——`@moonshot-ai/kimi-code-sdk` 依赖已彻底删除（包已退役）
-- [x] 发布打包补 kimi-server-serve（pack.mjs，2026-08-10：存在时随主二进制一起打包，缺失时警告并提示构建命令）
-
-## G-2 — Rust server v1 wire 遗留投影
-
-- [x] config snake_case 投影、wire_message_from_context 的 ContentPart→WireMessageContent 映射（think/tool_use/tool_result/image）、thinking_level 字段、usage/goal/turn.ended 事件投影（2026-08-10 复核：均已实现且有测试）
-- [x] **compaction 事件投影**（2026-08-10：`session.compaction.started` → `event.session.compaction_started`；引擎无完成事件，`session/compact` RPC resolve 判定）
-- [x] **tasks cancel 走 task 域**（2026-08-10：`task/cancel` 方法 + 处理器 + client typed；bg/stop 保留给后台任务）
-- [x] code review 遗留 v1 #2/#3/#5（2026-08-10 复核）：#2 take_turn 100ms 竞争 → 2000ms 宽限（5b073f396）；#3 usage 全零覆盖 → Rust 投影真实 usage + 前端 usageSeen 守卫 + mappers `event.session.usage_updated` 消费；#5 消息 status 恒 pending → eventReducer `messageUpdated` 传递 status + AppMessage.status 字段 + REST 快照默认 completed（kimi-web）
-- [x] code review 遗留：MINOR 批（**2026-08-11 复核完成**）：compaction 事件名/形状对齐 web 消费端（`event.compaction.started {trigger}` + 合成 completed/cancelled 关闭事件）、task 事件投影（`event.task.*` {info} 形状）、goal status `budgetLimited/usageLimited` → blocked 归一化（REST+事件两路径）、WS seq 进程级单调（重连后 turn-end 清理修复）——4 项均有测试锁定；遗留：snapshot 进行中 turn 不可见（跨连接 buffer 与 LocalTurnState 设计冲突，待定）
-
-## G-3 — CLI 消费面
-
-- [x] oauth 消费本地化 + 依赖清零（3dcc1ea88 / 157bcd224，2026-08-10）
-- [x] telemetry 消费面本地化（2026-08-10：6 处 import + 5 处 vi.mock → `#/utils/telemetry`；包已退役）
-- [x] 入口差距评估（2026-08-10）：TS 入口命令面（chat/print/export/migrate/upgrade/acp/doctor/login/provider/vis/web/__plugin_run_node）与 kimi-cli 等价——`__plugin_run_node` 已被引擎插件模型（plugin/activate_command 命令展开）替代，随 G-7 消失；vis/web 前端资产由 TS 分发提供（Rust 响亮失败/API-only）。**无代码差距；TS 入口退役的前置 = stage F 分发打包（pack.mjs 接入 CI/发布）**
-- [x] `--prompt` 长选项 + `-p<value>` 连写补齐（2026-08-10）：顶层 `#[arg(long = "prompt", short = 'p')]` 路由进 print 流程（`-p` 首 token 仍走子命令 alias）——docs `kimi-command.md` 声称兑现，回归测试覆盖三种形态
-
-## G-4 — TUI 剩余
-
-- [x] 交互路径对拍测试（D-5，2026-08-11 评估）：核心交互路径已有测试覆盖——app.rs（thinking/streaming/task 卡片/tool 折叠/补全弹窗/alias/帮助面板，16）、approval（7）、bottom_pane（@mention 补全/空格引号/输入处理，15）等共 117+ 全绿；剩余（选择器全流程/Ctrl-G 编辑器/会话 replay）依赖真实终端，并入手动冒烟清单
-- [ ] 真实终端手动冒烟清单（恢复会话/审批/@mention//plugins//tasks//goal next/Ctrl-G/图片粘贴）
-- [ ] 媒体富卡片（终端图形协议，另议）
-
-## G-5 — LLM 面并入
-
-- [x] kimi-files 上传 / capability 矩阵 / Astron 数据项——随 kosong 退役（2026-08-10，retired/）
-
-## 验证类
-
-- [ ] TUI 全交互流式在真实 LLM 下的完整人工验证（引擎侧已通）
-- [ ] ACP 兼容矩阵持续测试（依赖真实客户端）
-
----
-
-# 8. 已决策记录（历史快照提炼，冲突时以本节省略为准）
+## 引擎设计
+- **setPermission 进程级**：Rust 引擎 permission 为 process-wide 设计（`permission/set_mode` 忽略 session_id）
+- **`prompt_cache_key` Moonshot 专属**：仅官方端点发送，非 Moonshot 端点不发（真实 400 修复）
+- **GitHub 工具族**：29 工具已移植；**Workflow 不补**（Rust background+Swarm 已覆盖）
+- **kosong 不搬运**：三协议 + SSE + 重试 + prompt_cache_key + usage 引擎已独立覆盖
+- **image 不迁 kimi-sdk**：压缩核心两处 Rust（native codec + engine media pipeline）**有意保留两套**——EXIF 对齐、alpha 均保留（PNG/WebP 走 RGBA）、滤波算法差异（Triangle vs Lanczos3）为有意取舍；共享核心下沉成本>收益，不做
+- **summarizer 双通道**：`LlmCompactionDelegate` 经 `HostLlmProxy` 支持 host-proxy 会话；SDK `agent.nativeLlmProvider` opt-in 接线保留
+- **compaction 同步语义**：引擎 compact 是同步 RPC，无 in-flight 可取消 → `session/cancel_compact` no-op
+- **kimi-sdk `set_question_handler` 不实现**：引擎 AskUserQuestion 走"格式化内容 + stop_turn + 答案作为下一条消息"，无反向 RPC
+- **kimi-sdk tool handler 仅 embedded 生效**：`HostCallbacks::execute_tool` 是进程内 trait 调用，stdio 传输无反向通道
+- **`get_experimental_features` 保持 stub**：引擎 flags 无 RPC，不新增协议面
+- **`kimi-config` 不建独立 crate**：避免重复实现（见 §3）
+- **`task/cancel` 落 task 域**：bg/stop 保留给后台任务；未知 id 报错而非假装成功
+- **MCP MRTR + CacheableResult**：`inputRequests` 按 schema map 解析；`roots/list` 自动应答 + 重试一次；sampling/elicitation 报描述性错误
 
 ## 工具教训
-- **oxlint --fix 全仓批量修复已回退（2026-08-11）**：`consistent-type-imports` 把 Vue SFC 组件 import 误判为纯类型（运行时组件被 `import type`）、`no-useless-undefined` 把 `resolve(undefined)` 改回无参（Promise 联合类型下类型错误）、数组→Set 误改——引入 3 类 typecheck 错误 + 5 个 vitest 失败。**教训：--fix 必须定向（单规则/单文件 + diff 审查），禁止全仓盲修**；Vue SFC 的 import 与 Promise 边界参数是已知误判区。
+- **oxlint --fix 禁止全仓盲修**（2026-08-11 回退教训）：`consistent-type-imports` 误判 Vue SFC import、`no-useless-undefined` 误改 Promise 边界、数组→Set 误改——--fix 必须定向（单规则/单文件 + diff 审查）
 
 ## 测试策略
-- **TS 用例平移 → 重写而非平移**（用户定案，2026-08-05）——TS 测试随层退役，Rust 侧重写
-- **vitest 归因修复边界**（2026-08-10 用户质询后定案）：引擎侧修复保留长期价值；TS 层仅做基线必要适配，不深挖过渡层边缘行为（vscode in-process / node-sdk 随 G-6 退役）
-
-## 引擎设计决策（非缺口）
-- **setPermission 进程级**：Rust 引擎 permission 为 process-wide 设计（`permission/set_mode` 忽略 session_id）——kimi-sdk 签名已对齐
-- **`prompt_cache_key` Moonshot 专属**：仅官方端点（api.moonshot.ai / *.moonshot.ai）发送，非 Moonshot 端点不发（真实 400 修复，对齐上游）
-- **GitHub 工具族**：29 工具已移植（表驱动 + reqwest + 审批白名单）；**Workflow 不补**（Rust background+Swarm 已覆盖）
-- **kosong 不搬运**：三协议 + SSE + 重试 + prompt_cache_key + usage 引擎已独立覆盖；独有缺口（kimi-schema $ref 规范化已移植、anthropic-profile 已复制本地化、kimi-files/capability/Astron 数据项）随 node-sdk 退役
-- **image 不迁 kimi-sdk**：压缩核心已两处 Rust（native codec + engine media pipeline）。**2026-08-10 合并评估定案：保留两套**——EXIF 已对齐（native `decode_with_orientation` 与 engine `apply_exif_orientation` 均为 image crate `apply_orientation`，等价实现 + 双方测试锁定）；alpha 均保留（PNG/WebP 走 RGBA，仅 JPEG 分支转 RGB）；唯一差异为滤波算法（native Triangle=jimp 历史基准 vs engine Lanczos3=质量优先），**有意取舍非 drift**；共享核心下沉 kimi-shared 需 image 依赖 + 行为对拍，成本>收益，不做
-- **summarizer 双通道** ✅ 已补（2026-08-10）：`LlmCompactionDelegate` 经 `HostLlmProxy` 支持 host-proxy 会话（原报 `compaction.unable`）；SDK 的 `agent.nativeLlmProvider` opt-in 接线保留（主回合语义不变）
-- **compaction 同步语义**：引擎 compact 是同步 RPC，无 in-flight 可取消 → `session/cancel_compact` no-op（契约注释早已承诺，2026-08-10 补注册）
-- **summarizer 仅 native LLM**：host-proxy 会话 compact 报 `compaction.unable`（SDK 精确映射）；summarizer 独立通道是引擎设计缺口（§1.4.1），SDK 已按 `agent.nativeLlmProvider` 显式 opt-in 接线
-- **kimi-sdk `set_question_handler` 不实现**（2026-08-10 定案）：引擎 AskUserQuestion 工具已改为"格式化内容 + stop_turn + 答案作为下一条消息"（`tools/ask_user.rs`），无反向 RPC；question 面由该机制覆盖
-- **kimi-sdk tool handler 仅 embedded 生效**（2026-08-10 定案）：引擎 `HostCallbacks::execute_tool` 是进程内 trait 调用，stdio 传输无反向通道——与 node-sdk napi 嵌入模式一致；Remote harness 注册 handler 保持 API 对称但引擎侧不可达
-- **MCP MRTR + CacheableResult 落地**（2026-07-28 协议，2026-08-10）：`inputRequests` 按 schema map 形状解析（修正 draft 数组偏差）；`roots/list` 自动应答（空 roots）+ 重试一次，sampling/elicitation 报描述性错误；`tools/list` 解析 `ttlMs`/`cacheScope` 提示（引擎不缓存，供宿主）
-- **`get_experimental_features` 保持 stub**（2026-08-10 定案）：引擎 flags 无 RPC，node-sdk 侧也是空列表 stub，不新增协议面
-- **`kimi-config` 不建独立 crate**（2026-08-10 定案）：catalog 内联 kimi-sdk、config TOML/env/合并在引擎、diagnostics 在 kimi-sdk config.rs——§3 crate 表该项改"不建"，避免重复实现
-- **`task/cancel` 落 task 域**（2026-08-10）：TaskService::stop 走 `task/cancel`（bg/stop 保留给后台任务）；未知 id 报错而非假装成功
+- **TS 用例重写而非平移**（用户定案，2026-08-05）——TS 测试随层退役，Rust 侧重写
+- **vitest 归因修复边界**：引擎侧修复保留长期价值；TS 层仅做基线必要适配，不深挖过渡层边缘行为
 
 ## 迁移发现并修复的真实 bug（节选）
 - `session/export` 丢失 base64 编码；`config/set` 不建父目录；`CronProcessor` 未 start；`session/fs` Glob pattern 丢失
-- `prompt_cache_key` 无条件发送破坏非 Moonshot 端点（真实 400，2026-08-09）
-- EXIF 旋转：`image::load_from_memory` 不应用 EXIF，竖拍 JPEG 压缩后物理方向（2026-08-08 修复）
-- kimi-server-serve stderr 事件 512 行硬截断（长驻宿主断流，2026-08-08 修复为无限扇出）
-- `config/get`/`config/set` 误用 validated loader（空 home 50001，2026-08-10 修复）
-- homedir 顶替 work_dir（跨宿主 resume/workDir 过滤错位，2026-08-10 修复）
-- metadata 不持久化（approval flags 等跨 close/reopen 丢失，2026-08-10 修复）
+- `prompt_cache_key` 无条件发送破坏非 Moonshot 端点（真实 400）
+- EXIF 旋转：`image::load_from_memory` 不应用 EXIF，竖拍 JPEG 压缩后物理方向
+- kimi-server-serve stderr 事件 512 行硬截断（修复为无限扇出）
+- `config/get`/`config/set` 误用 validated loader（空 home 50001）
+- homedir 顶替 work_dir（跨宿主 resume/workDir 过滤错位）
+- metadata 不持久化（approval flags 跨 close/reopen 丢失）
 
 ## 引擎事件契约（宿主消费基准）
-引擎事件为 `session.*` / `llm.*` 形状（session.turn.started/ended、llm.delta part、session.tool.started/settled、session.usage.updated、session.goal.updated、session.hook.result、session.task.*、session.compaction.started、session.approval.requested、session.shell.output）。宿主投影参考：kap-server `projectRustEvent`；vscode event-adapter 已迁移（2026-08-10）。SDK 原样转发 + sessionId/agentId 信封；SDK 合成事件仅 error（approval/question handler 失败）。
+引擎事件为 `session.*` / `llm.*` 形状（session.turn.started/ended、llm.delta part、session.tool.started/settled、session.usage.updated、session.goal.updated、session.hook.result、session.task.*、session.compaction.started、session.approval.requested、session.shell.output）。SDK 原样转发 + sessionId/agentId 信封；SDK 合成事件仅 error。
 
 ## 测试环境隔离
-- `KIMI_AGENT_HOME` 指向 scratch store（node-sdk/vscode/kap-server，setup 文件预创建防并发竞争）——固定 session id 不跨运行泄漏 work_dir/metadata（2026-08-10）
-- `KIMI_CODE_HOME` 隔离（kap-server setup-env / 引擎配置加载）——集成测试不得读真实用户配置
+- `KIMI_AGENT_HOME` 指向 scratch store（固定 session id 不跨运行泄漏 work_dir/metadata）
+- `KIMI_CODE_HOME` 隔离（集成测试不得读真实用户配置）
 
 ---
 
-# 9. 风险与决策点
+# 7. 剩余项（不阻塞收口）
 
-1. **TUI 框架**：ratatui/crossterm（评估是否跟 codex 的 nornagon fork——键盘增强/焦点事件；需要交互增强则跟 fork）
-2. **协议契约**：TS 绑定由 gen-wire-contract.mjs 生成（126 types 已验证）；ts-rs 离线不可用暂不引入（联网后可选迁移）
-3. **i18n**：文案 → 数据文件保留，Rust 读（rust-i18n 或自建）；Rust 内置 en/zh 已对齐关键文案
-4. **kaos SSH**：无 Rust 对应且无引擎需求——评估保留薄 TS 或裁剪
-5. **双轨运行**：迁移期间 TS 壳与 Rust 宿主并行（同协议），逐步切换入口；wrapper 双轨并存，Rust 全绿后删 TS 入口
-6. **node-pty**：TUI 的 pty 依赖 → Rust 侧 portable-pty 或 windows-sandbox 方案
-7. **McpServerSpecInput/SkillMetadataInput**：带引擎转换 impl，暂留 kimi-agent；后续以 free-fn 重构下沉
+| 项 | 类型 | 说明 |
+|---|---|---|
+| 真实终端手动冒烟清单 | 人工验证 | 恢复会话/审批/@mention//plugins//tasks//goal next/Ctrl-G/图片粘贴 |
+| 媒体富卡片 | 待定 | 终端图形协议，依赖终端支持，另议 |
+| TUI 全交互流式在真实 LLM 下完整人工验证 | 人工验证 | 引擎侧已通 |
+| ACP 兼容矩阵持续测试 | 依赖外部 | 依赖真实客户端 |
+| swarm 子代理合成 replay | 待补 | 子代理 records 已接线；并入主会话 wire 视图需 XML 结果解析或 child-context 读 RPC |
+| snapshot 进行中 turn 不可见 | 待定 | 跨连接 buffer 与 LocalTurnState 设计冲突 |
+| 用户真实 config.toml 损坏（duplicate defaultModel） | 用户侧 | 建议用户删 camelCase 行（引擎已容忍混合键，2026-08-10） |
+
+> ~~TUI 直连路径（RUN_TURN）无 session_id 不写 records~~ —— **已消除（2026-08-13）**：kimi-tui 经 `Harness::embedded()`（kimi-server）创建会话并走 `session/prompt`，kimi-server 主路径已注入 RecordStore（`state.rs::assemble`），TUI 会话与 CLI/server/web 一样写 records。
 
 ---
 
-# 10. 关键提交索引（迁移批次，倒序）
+# 8. 验证基线（2026-08-13 实测）
 
-| commit | 内容 |
+| 验证 | 结果 |
 |---|---|
-| `1f2181881` | node-sdk 跨 harness session 列表、replay tool 记录、引擎 home 测试隔离、vscode 测试裁剪 |
-| `1e019baf0` | 引擎：work_dir 独立参数 + set_work_dir_force、metadata 持久化 + SessionSummaryRpc.metadata、cancel_compact no-op |
-| `3ed190ab4` | SDK 默认 llmStep + toolExecute 桥；vscode event-adapter 引擎形状迁移；session.tool_handler_error 错误码 |
-| `9bf024142` | 测试适配批次（引擎事件契约/G-6 转发器/i18n key/vue 插件/telemetry createRequire） |
-| `2b7aaf435` | 引擎：config/get·set 空 home 容忍（unvalidated loader） |
-| `0da8dce9f` | kosong native fast-path 与 SDK 错误/usage 语义对齐 |
-| `cba21d159` | G-6：TS TUI 退役（189+123 文件删除），run-shell 改 Rust bin 转发器 |
-| 2026-08-09 批次 | kimi-schema 规范化移植、真实 LLM 端到端、prompt_cache_key 修复、G-4 P0-P6 分片 |
-| 2026-08-08 批次 | G-1/G-2 系列（catalog 归一化、/rust 消费重写、v1 wire 契约对拍、EXIF 修复、F-5 e2e） |
-| 2026-08-05 批次 | 宿主面补全（plugin/cron/archive/cancelCompaction）、CLI 收尾、退役消费图复核 |
-| `4b4db39e0` + `6681aec78` | 阶段 A 框架落地（2026-08-03） |
+| `cargo test --workspace --no-fail-fast` | **全量全绿（0 failed）**——含 kimi-agent 2118 + stdio 集成 55、kimi-server 84、kimi-tui 133、kimi-cli 67、kimi-sdk 90、kimi-server-client 4、kimi-server-transport 65 |
+| `pnpm vitest run` | 1127 passed / 2 skipped / 0 failed（81 文件） |
+| docs `npm run build`（docs/） | 通过（vitepress-plugin-llms 升级 1.13.4 修复 js-yaml 4 兼容） |
+| `pnpm gen:wire` | 幂等（零 diff） |
+| `node scripts/check-nix-workspace.mjs` | 通过（含幽灵项反向检查） |
+
+> 注：Windows 上 cargo 测试曾受系统"智能应用控制"（WDAC）随机拦截 spawn（os error 4551，非代码问题）；用户关闭后全量通过。
+
+---
+
+# 9. 开放风险（跟踪）
+
+1. **TUI 框架**：ratatui/crossterm（若需键盘增强/焦点事件，评估跟 codex 的 nornagon fork）
+2. **协议契约**：TS 绑定由 gen-wire-contract.mjs 生成（141 types）；ts-rs 离线不可用暂不引入
+3. **i18n**：Rust 内置 en/zh 已对齐关键文案；`i18n-shared` 服务 web 面
+4. **McpServerSpecInput/SkillMetadataInput**：带引擎转换 impl 暂留 kimi-agent；后续以 free-fn 重构下沉

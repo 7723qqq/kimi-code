@@ -69,7 +69,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 
 > **Status (2026-08-03):** the JS agent engines (`agent-core`, `agent-core-v2`) are **retired**. The only engine is the Rust engine (`packages/kimi-agent`). `schema.ts` `engine` enum is `'rust'` only — no JS fallback.
 >
-> **方向（2026-08-03 定案，2026-08-06 收紧，见 `CODEX_MIGRATION_PLAN.md` 顶部 R 节）**：走 Codex 方向——**核心全部 Rust，只有 web 是 TS**。除浏览器前端（`kimi-web`/`kimi-inspect`/`vis/web`）与必须 JS 的前端壳（`vscode` 扩展宿主、npm bin 包装）外，一切 TS（CLI/TUI/server/SDK/protocol/OAuth/ACP/LLM 抽象/i18n 数据/rust-loop 桥）迁入 Rust 或退役。**迁移进度（2026-08-11）**：阶段 A–F 全部完成；G-1/G-2/G-4/G-6 完成，G-3 parity 批次 6 落地，**G-7 壳化完成（2026-08-11）**——`@moonshot-ai/kimi-code` 变纯分发壳（`bin/kimi.mjs` 纯 Rust spawn + dist-web 资产），TS 入口与宿主测试全部退役（→ `retired/kimi-code-src/`），`kimi upgrade` 由 Rust 实现（npm registry 查询 + 版本注入）。**新增宿主逻辑一律写 Rust**；已完成迁移的模块已删除对应 TS。
+> **方向（2026-08-03 定案，2026-08-06 收紧，见 `CODEX_MIGRATION_PLAN.md` §1 方向定案）**：走 Codex 方向——**核心全部 Rust，只有 web 是 TS**。除浏览器前端（`kimi-web`/`kimi-inspect`/`vis/web`）与必须 JS 的前端壳（`vscode` 扩展宿主、npm bin 包装）外，一切 TS（CLI/TUI/server/SDK/protocol/OAuth/ACP/LLM 抽象/i18n 数据/rust-loop 桥）迁入 Rust 或退役。**迁移进度（2026-08-11）**：阶段 A–F 全部完成；G-1/G-2/G-4/G-6 完成，G-3 parity 批次 6 落地，**G-7 壳化完成（2026-08-11）**——`@moonshot-ai/kimi-code` 变纯分发壳（`bin/kimi.mjs` 纯 Rust spawn + dist-web 资产），TS 入口与宿主测试全部退役（→ `retired/kimi-code-src/`），`kimi upgrade` 由 Rust 实现（npm registry 查询 + 版本注入）。**新增宿主逻辑一律写 Rust**；已完成迁移的模块已删除对应 TS。
 
 ### Where new code goes
 
@@ -79,12 +79,12 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 
 ### TS side is allowed only for the host layer (whitelist) — 过渡期
 
-> 方向修正：白名单是**过渡状态**。目标是"只有 web 是 TS"（`CODEX_MIGRATION_PLAN.md` R 节，G-0..G-7 收口路线）。迁移完成一个模块，删除对应 TS。
+> 方向修正：白名单是**过渡状态**。目标是"只有 web 是 TS"（`CODEX_MIGRATION_PLAN.md` §1 方向定案，§2 完成状态——G-0..G-7 已全部收口）。迁移完成一个模块，删除对应 TS。
 
 | Scope | Files | Reason |
 |-------|-------|--------|
 | Generated files | `packages/kimi-agent/src/rpc/wire.gen.ts` | regenerated via `pnpm gen:wire`, never hand-edited |
-| Web / VS Code shells | `apps/kimi-web` / `kimi-inspect` / `vis/web` / `vscode` UI + i18n | pure UI, no engine logic |
+| Web / VS Code shells | `apps/kimi-web` / `kimi-inspect` / `vis/web` / `vis/server` / `vscode` UI + i18n | pure UI, no engine logic. `vis/server` is the read-only visualizer backend: its frozen v1 projection-algorithm copies (`lib/v1-compat.ts`) are display-only and must not be extended |
 | Distribution shell | `apps/kimi-code/bin/kimi.mjs`, `packages/kimi-code-rust-bin/` | pure Rust spawn + dist-web assets |
 
 Before writing any TS change, ask: *is this engine functionality?* If yes → implement in Rust. If it is host/UI → TS is fine **for now, but prefer Rust** (see `CODEX_MIGRATION_PLAN.md`).
@@ -98,13 +98,13 @@ Before writing any TS change, ask: *is this engine functionality?* If yes → im
 
 | 冻结包 | 目标 Rust | 备注 |
 |---|---|---|
-| `apps/kimi-code` 剩余 TS（`src/main.ts` 入口） | kimi-cli | G-3 切换中 |
+| ~~`apps/kimi-code` 剩余 TS（`src/main.ts` 入口）~~ | kimi-cli | **已随 G-7 退役（2026-08-11，→ `retired/kimi-code-src/`）**——冻结对象不存在，本表为空；FROZEN banner 随文件保留在 retired/ 归档中 |
 
 > **2026-08-10 已退役（→ `retired/`）**：`node-sdk`、`kap-server`、`acp-adapter`、`oauth`、`protocol`、`kaos`、`kosong`、`telemetry`、`transcript`——不再扩展、不再恢复；引用它们的代码不得回引。`kimi-agent/rust-loop.ts` 与 `kimi-agent/runtime/`（TS 桥/兼容层）已删除（2026-08-10）——kimi-agent 包仅剩 Rust + 生成文件 `src/rpc/wire.gen.ts`；apps/kimi-code 经 `NativeServerClient`（stdio RPC）直连引擎，telemetry/transcript 已本地化至宿主与 kimi-inspect。
 >
 > **2026-08-11 已退役（→ `retired/`）**：`pi-tui`、`migration-legacy`（G-6 收尾）。pi-tui 唯一消费者（TS 迁移屏）随 TS TUI 退役已死，`copy-native-assets.mjs` / SEA `native-deps.mjs` 的 pi-tui 注册项一并删除；migration-legacy 的 vscode 消费面（`LegacyMigrationManager`）已本地化至 `apps/vscode/src/migration-legacy/`，`kimi migrate` TS 命令面随死代码删除（Rust kimi-cli 保留迁移提示占位）。引用它们的代码不得回引。
 
-**保留 TS（不受冻结）**：`kimi-web` / `kimi-inspect` / `vis/web`（web 前端）、`apps/vscode`（壳）、npm 薄壳（`kimi.mjs`）——仍遵守"引擎逻辑不得写 TS"白名单。
+**保留 TS（不受冻结）**：`kimi-web` / `kimi-inspect` / `vis/web` / `vis/server`（web 前端与只读重放工具）、`apps/vscode`（壳）、npm 薄壳（`kimi.mjs`）——仍遵守"引擎逻辑不得写 TS"白名单。
 
 ---
 
@@ -157,37 +157,22 @@ Debug visualization tool for kimi-code sessions. Composed of `vis/server` (backe
 
 ```
 packages/
-  agent-core-v2/     — Agent engine v2 (DI × Scope architecture) — FROZEN (see below)
-  kosong/            — LLM / provider abstraction layer
-  klient/            — Client SDK (Rust transport in progress; see below)
-  transcript/        — Isomorphic transcript rendering data layer
-  i18n/              — Shared i18n infrastructure (t() with en/zh support)
-  i18n-shared/       — Shared i18n core (types, locale detection, web-safe)
-  telemetry/         — Shared client-side telemetry infrastructure
-  minidb/            — Embedded key-value DB (Redis-style in-memory + SQLite-style WAL)
-  kimi-native-tools/ — Rust native Node addon (napi-rs)
-  kimi-build/        — Rust native build tool (SEA binary injection)
-  kimi-agent/        — Rust agent engine — the only engine
-  kimi-shared/       — Shared Rust single-source-of-truth crate (re-exported by kimi-native-tools / kimi-agent)
+  i18n-shared/         — Shared i18n core (types, locale detection, web-safe)
+  kimi-native-tools/   — Rust native Node addon (napi-rs)
+  kimi-build/          — Rust native build tool (SEA binary injection)
+  kimi-agent/          — Rust agent engine — the only engine
+  kimi-shared/         — Shared Rust single-source-of-truth crate (re-exported by kimi-native-tools / kimi-agent)
+  kimi-code-rust-bin/  — Platform binary distribution shell (pack.mjs)
+  kimi-code-{darwin,linux,win32}-{x64,arm64}/ — Per-platform Rust binary packages
 ```
 
 #### Key Package Details
 
 **`agent-core`** — RETIRED (v1 engine). Physically moved to `retired/agent-core/` (2026-08-03). Hosts no longer reference it; do not extend. Superseded by `kimi-agent`.
 
-**`agent-core-v2`** (v0.2.0) — Next-gen agent engine with DI × Scope architecture. FROZEN: the JS engine loop is retired and unreachable; kept only because `klient` still consumes its v2 dispatcher (being replaced by the Rust transport). Do not extend. Includes dependency graph analysis, domain layer linting, and contract type generation scripts.
+**`agent-core-v2`** — RETIRED. Moved to `retired/agent-core-v2/` (2026-08-03) once klient switched to the Rust transport. Do not extend; do not reintroduce imports.
 
-**`kosong`** (v0.6.0) — The LLM / provider abstraction layer. Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
-
-**`klient`** (v0.1.0) — Client SDK. A contract-driven facade with aggregated `global.*` / `session(id).*` / `agent(id).*` methods and zod validation on every call. The v2 dispatcher transport (ipc or memory) is being replaced by the Rust transport (⑤); once that lands, `agent-core-v2` moves to `retired/`.
-
-**`transcript`** (v0.0.1) — Isomorphic transcript rendering data layer. Pure TypeScript (browser-safe). Agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions (`off/turn/block/delta`), framework-free L4 view registry. Owns all transcript contract types in `src/contract/`.
-
-**`kimi-native-tools`** — Rust native addon via napi-rs. Implements: bash execution, grep, glob, read, write, edit, token counting, output truncation, web fetching (HTML rendering via scraper), image processing, SSE/eventsource streaming, SQLite (rusqlite), ULID generation, and more. Cargo workspace, `cdylib` output.
-
-**`kimi-build`** — Rust CLI tool for SEA (Single Executable Application) binary injection and asset management. Windows PE resource management via winapi.
-
-**`minidb`** (v0.2.0) — Pure-Node.js embedded key-value database. Combines Redis-style in-memory KV with SQLite-style WAL + snapshot persistence. Includes cluster support.
+**`kosong` / `klient` / `transcript` / `telemetry` / `i18n` / `minidb`** — RETIRED. Moved to `retired/` (klient 2026-08-05; kosong/transcript/telemetry 2026-08-10; i18n 2026-08-12 with G-7). Do not extend; do not reintroduce imports.
 
 ### Plugins
 
@@ -316,7 +301,7 @@ Additional workflows: `docs-deploy.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-
   - `no-console: warn`, `no-explicit-any: warn`, `no-non-null-assertion: warn`
   - `consistent-type-imports: warn`
 - Test files get relaxed rules (no-explicit-any off, no-console off, vitest plugin rules)
-- `packages/kosong/src/providers/` gets relaxed unsafety rules
+- `apps/kimi-code/bin/` (`.mjs`) gets `eslint/no-unused-vars: off` (shell wrapper)
 - For full config with all overrides, see `.oxlintrc.json`
 - Ignored: `dist/`, `coverage/`, `node_modules/`, `apps/*/scripts/`, `*.generated.ts`, `参考目录/`
 
@@ -459,7 +444,7 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 | fix | A bug fix | `fix(tui): correct status bar alignment` |
 | docs | Documentation only | `docs: clarify install instructions` |
 | chore | Tooling / housekeeping | `chore: bump dependencies` |
-| refactor | Internal refactor without behavior change | `refactor(kosong): extract retry helper` |
+| refactor | Internal refactor without behavior change | `refactor(kimi-agent): extract retry helper` |
 | test | Adding or improving tests | `test(kimi-agent): cover skill resolver` |
 | ci | CI / build pipeline changes | `ci: cache pnpm store` |
 | build | Build system / artifact changes | `build(native): add win32-arm64 target` |
@@ -478,7 +463,7 @@ PR titles are enforced by the `pr-title-checker` workflow.
 
 ## Working Principles
 
-- **Engine-first rule**: agent engine functionality is written in **Rust**, never TypeScript. If the feature belongs to the engine domain (session loop, tools, context, goal, plan, permission, approvals, …), modify `packages/kimi-agent` (or `kimi-native-tools` / `kimi-shared`) and add `cargo test` coverage — even if an equivalent TS implementation already exists in `agent-core` / `agent-core-v2` (those are retired / frozen and must not be extended). See "Engine Ownership" above.
+- **Engine-first rule**: agent engine functionality is written in **Rust**, never TypeScript. If the feature belongs to the engine domain (session loop, tools, context, goal, plan, permission, approvals, …), modify `packages/kimi-agent` (or `kimi-native-tools` / `kimi-shared`) and add `cargo test` coverage — even if an equivalent TS implementation already exists in `retired/agent-core*` (retired; must not be extended). See "Engine Ownership" above.
 - Think from first principles. Start from real requirements, code facts, and verification results; if the goal is unclear, discuss it with the user first.
 - Treat code, not documentation, as the source of truth. Unless the user explicitly says otherwise, do not read ordinary Markdown just to understand the implementation.
 - Before making code changes, read the relevant code and the most recent constraints, and follow the nearest `AGENTS.md` in the directory tree.

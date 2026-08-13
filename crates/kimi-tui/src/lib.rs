@@ -4,8 +4,8 @@
 //! terminal, event loop (keyboard + engine events), and a scrollable chat
 //! view. The full chatwidget/bottom-pane surface lands incrementally.
 
-pub mod approval;
 pub mod app;
+pub mod approval;
 pub mod bottom_pane;
 pub mod chatwidget;
 pub mod clipboard;
@@ -23,8 +23,10 @@ pub mod modal;
 pub mod panel;
 pub mod picker;
 pub mod question;
+pub mod replay;
 pub mod reports;
 pub mod streaming;
+pub mod terminal_image;
 pub mod theme;
 pub mod util;
 

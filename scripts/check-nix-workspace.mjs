@@ -100,6 +100,7 @@ function resolveWorkspaceDeps(workspaceMap, startName) {
       pkg.dependencies,
       pkg.devDependencies,
       pkg.peerDependencies,
+      pkg.optionalDependencies,
     ];
 
     for (const section of depSections) {
@@ -194,7 +195,20 @@ function main() {
     missingPaths.unshift({ name: START_PKG, path: `./${startDir}` });
   }
 
-  const ok = missingNames.length === 0 && missingPaths.length === 0;
+  // Ghost entries: paths listed in flake.nix that no longer exist, and names
+  // that match no npm workspace package. (Rust-only cargo members such as
+  // kimi-shared / kimi-build are allowed in workspacePaths — they have no
+  // package.json — but workspaceNames must always be real npm packages.)
+  const ghostPaths = flake.paths.filter(
+    (p) => !existsSync(join(ROOT, p.replace(/^\.\//, "")))
+  );
+  const ghostNames = flake.names.filter((n) => !workspaceMap.has(n));
+
+  const ok =
+    missingNames.length === 0 &&
+    missingPaths.length === 0 &&
+    ghostPaths.length === 0 &&
+    ghostNames.length === 0;
 
   if (!ok) {
     console.error("❌ flake.nix workspace lists are out of sync.\n");
@@ -215,6 +229,26 @@ function main() {
       );
       for (const { name, path } of missingPaths) {
         console.error(`  - ${path}  (${name})`);
+      }
+      console.error("");
+    }
+
+    if (ghostPaths.length > 0) {
+      console.error(
+        "The following workspacePaths in flake.nix point to paths that no longer exist:"
+      );
+      for (const p of ghostPaths) {
+        console.error(`  - ${p}`);
+      }
+      console.error("");
+    }
+
+    if (ghostNames.length > 0) {
+      console.error(
+        "The following workspaceNames in flake.nix match no npm workspace package:"
+      );
+      for (const n of ghostNames) {
+        console.error(`  - ${n}`);
       }
       console.error("");
     }

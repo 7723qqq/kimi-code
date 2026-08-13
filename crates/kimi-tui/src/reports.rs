@@ -6,7 +6,6 @@
 use crate::i18n::t;
 use crate::t;
 
-
 /// One-line tool-result summary for the collapsed card body (TS `chip.ts`
 /// parity, simplified). Returns `None` for tools without a meaningful
 /// summary — the caller falls back to the plain preview.
@@ -38,7 +37,6 @@ pub fn tool_result_chip(tool: &str, result: &str, is_error: bool) -> Option<Stri
     }
 }
 
-
 /// `3m ago`-style relative time from an ISO-8601 UTC timestamp (session
 /// picker rows; TS session-picker relative-time parity). Unparseable or
 /// future timestamps produce an empty string.
@@ -59,10 +57,13 @@ pub fn format_relative_time(iso: &str, now_ms: u64) -> String {
     }
 }
 
-
 /// Multi-line `/status` report (TS `status-panel` parity, simplified): one
 /// labeled line per field instead of the single-line summary.
-pub(crate) fn build_status_report(status: &serde_json::Value, version: &str, session_id: &str) -> Vec<String> {
+pub(crate) fn build_status_report(
+    status: &serde_json::Value,
+    version: &str,
+    session_id: &str,
+) -> Vec<String> {
     let model = status["model"].as_str().unwrap_or("-");
     let permission = status["permission"].as_str().unwrap_or("-");
     let plan = status["plan_mode"].as_bool().unwrap_or(false);
@@ -101,7 +102,6 @@ pub(crate) fn ctx_bar(ctx: u64, max_ctx: u64) -> String {
     format!("[{}{}]", "█".repeat(filled), "░".repeat(20 - filled))
 }
 
-
 /// Multi-line `/usage` report (TS `usage-panel` parity, simplified).
 pub(crate) fn build_usage_report(usage: &serde_json::Value) -> Vec<String> {
     let field = |name: &str| -> u64 { usage["total"][name].as_u64().unwrap_or(0) };
@@ -121,7 +121,6 @@ pub(crate) fn build_usage_report(usage: &serde_json::Value) -> Vec<String> {
     }
 }
 
-
 /// Multi-line `/goal status` report (TS `goal-panel` parity, simplified).
 pub(crate) fn build_goal_report(goal: &serde_json::Value) -> Vec<String> {
     let objective = goal["objective"].as_str().unwrap_or("?");
@@ -135,7 +134,6 @@ pub(crate) fn build_goal_report(goal: &serde_json::Value) -> Vec<String> {
         t!("tui.goal.reportTokens", tokens),
     ]
 }
-
 
 /// Multi-line MCP server report (TS `mcp-status-panel` parity, simplified):
 /// one row per server — name, status, transport, tool count.
@@ -164,7 +162,6 @@ pub(crate) fn build_mcp_report(servers: &[serde_json::Value]) -> Vec<String> {
         })
         .collect()
 }
-
 
 /// Multi-line plugin report (TS `plugins-status-panel` parity, simplified):
 /// one row per plugin — id, on/off state, version.
@@ -197,7 +194,7 @@ pub(crate) fn build_plugins_report(plugins: &[serde_json::Value]) -> Vec<String>
 mod tests {
     use super::*;
 
-#[test]
+    #[test]
     fn tool_chip_summarizes_results() {
         crate::i18n::set_locale(crate::i18n::Locale::En);
         // Edit: stats header passes through.
@@ -218,9 +215,7 @@ mod tests {
         assert!(tool_result_chip("Bash", "hello world", false)
             .unwrap()
             .contains("hello world"));
-        assert!(tool_result_chip("Bash", "", false)
-            .unwrap()
-            .contains("ok"));
+        assert!(tool_result_chip("Bash", "", false).unwrap().contains("ok"));
         // Errors mark the tool failed.
         assert!(tool_result_chip("Bash", "boom", true)
             .unwrap()
@@ -229,12 +224,15 @@ mod tests {
         assert_eq!(tool_result_chip("WebSearch", "results", false), None);
     }
 
-#[test]
+    #[test]
     fn relative_time_formats_from_iso_timestamps() {
         crate::i18n::set_locale(crate::i18n::Locale::En);
         // 2027-01-01T00:00:00Z in epoch ms.
         let iso_ms = 1_798_761_600_000u64;
-        assert_eq!(format_relative_time("2027-01-01T00:00:00Z", iso_ms), "0s ago");
+        assert_eq!(
+            format_relative_time("2027-01-01T00:00:00Z", iso_ms),
+            "0s ago"
+        );
         assert_eq!(
             format_relative_time("2027-01-01T00:00:00Z", iso_ms + 45_000),
             "45s ago"
@@ -257,7 +255,7 @@ mod tests {
         assert_eq!(format_relative_time("2027-01-02T00:00:00Z", iso_ms), "");
     }
 
-#[test]
+    #[test]
     fn status_report_renders_labeled_lines() {
         crate::i18n::set_locale(crate::i18n::Locale::En);
         let status = serde_json::json!({
@@ -280,7 +278,7 @@ mod tests {
         assert!(lines[5].contains("sess-1"), "session: {}", lines[5]);
     }
 
-#[test]
+    #[test]
     fn usage_report_renders_three_lines_or_none() {
         crate::i18n::set_locale(crate::i18n::Locale::En);
         let usage = serde_json::json!({
@@ -297,7 +295,7 @@ mod tests {
         assert!(empty[0].contains("no"), "{}", empty[0]);
     }
 
-#[test]
+    #[test]
     fn goal_report_renders_objective_status_and_counts() {
         crate::i18n::set_locale(crate::i18n::Locale::En);
         let goal = serde_json::json!({
@@ -314,7 +312,7 @@ mod tests {
         assert!(lines[3].contains("9000"));
     }
 
-#[test]
+    #[test]
     fn mcp_report_renders_server_rows() {
         crate::i18n::set_locale(crate::i18n::Locale::En);
         let servers = vec![
@@ -341,7 +339,7 @@ mod tests {
         assert_eq!(build_mcp_report(&[]).len(), 1);
     }
 
-#[test]
+    #[test]
     fn plugins_report_renders_plugin_rows() {
         crate::i18n::set_locale(crate::i18n::Locale::En);
         let plugins = vec![
@@ -368,10 +366,7 @@ mod tests {
     fn ctx_bar_scales_and_clamps() {
         // Full, half, empty, and unknown-max cases.
         assert_eq!(ctx_bar(128_000, 128_000), "[████████████████████]");
-        assert_eq!(
-            ctx_bar(64_000, 128_000),
-            "[██████████░░░░░░░░░░]"
-        );
+        assert_eq!(ctx_bar(64_000, 128_000), "[██████████░░░░░░░░░░]");
         assert_eq!(ctx_bar(0, 128_000), "[░░░░░░░░░░░░░░░░░░░░]");
         // Unknown max -> no bar.
         assert_eq!(ctx_bar(100, 0), "");

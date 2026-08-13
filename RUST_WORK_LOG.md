@@ -1,3 +1,5 @@
+> Historical work log from the TS->Rust migration (2026-08). The migration completed with G-7 shell-ification (2026-08-11); for current status see CODEX_MIGRATION_PLAN.md and AGENTS.md.
+
 
 > **✅ 2026-08-05 挂起测试诊断（供外部会话修复参考）**：
 > - `task_tool_tracks_and_settles_a_detached_task`（agent.rs:3018）：挂点在 `run_prompt`（3020 行）——task 工具注册的 child agent 经 subagent 机制跑 NoopHost；settle 依赖 child 结束信号（task/mod.rs `settle` + notifications）。疑似 task/settle 与 subagent 完成等待的交互未唤醒。

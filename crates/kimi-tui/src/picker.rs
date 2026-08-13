@@ -4,7 +4,7 @@
 
 use std::io;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{
     backend::CrosstermBackend,
     style::{Modifier, Style},
@@ -90,7 +90,7 @@ pub fn select_filtered(
         };
         let no_match = filtered.is_empty();
         let shown: Vec<(String, String)> = if no_match {
-            vec![(String::new(), format!("no match: {filter}"))]
+            vec![(String::new(), t!("tui.picker.noMatch", filter))]
         } else {
             filtered
         };
@@ -139,6 +139,7 @@ pub fn select_filtered(
 /// A selectable entry with an optional trailing description (dimmed).
 /// The `label` is the primary text; `description` shows after it (TS
 /// `choice-picker` items parity — model descriptions, plugin summaries).
+#[derive(Debug, Clone)]
 pub struct PickerItem {
     pub value: String,
     pub label: String,
@@ -231,8 +232,7 @@ pub fn filter_picker_items<'a>(items: &'a [PickerItem], filter: &str) -> Vec<&'a
     items
         .iter()
         .filter(|it| {
-            it.value.to_lowercase().contains(&filter)
-                || it.label.to_lowercase().contains(&filter)
+            it.value.to_lowercase().contains(&filter) || it.label.to_lowercase().contains(&filter)
         })
         .collect()
 }
@@ -240,20 +240,36 @@ pub fn filter_picker_items<'a>(items: &'a [PickerItem], filter: &str) -> Vec<&'a
 /// Full picker: optional incremental search, optional pagination, an
 /// optional bottom notice line, and optional per-item descriptions. Returns
 /// the picked value, or `None` on Esc / Ctrl-C / empty items.
-pub fn select_picker(
+/// A picker hotkey outcome: keep going, select a value, or swap the list.
+#[derive(Debug)]
+pub enum PickerHotkey {
+    /// The key was not a hotkey — keep the picker open.
+    Continue,
+    /// Select a value immediately (`None` cancels).
+    Return(Option<String>),
+    /// Swap the item list (e.g. a scope toggle).
+    Rebuild(Vec<PickerItem>),
+}
+
+/// [`select_picker`] with an optional hotkey hook. The hook runs before the
+/// built-in key handling; returning `None` falls through to the default
+/// bindings (Up/Down/Enter/filter…).
+pub fn select_picker_with_hotkeys<'a>(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     theme: Theme,
     opts: &PickerOptions,
     items: &[PickerItem],
+    mut on_hotkey: Option<Box<dyn FnMut(KeyCode, KeyModifiers) -> Option<PickerHotkey> + 'a>>,
 ) -> io::Result<Option<String>> {
     if items.is_empty() {
         return Ok(None);
     }
+    let mut items = items.to_vec();
     let mut selected = 0usize;
     let mut filter = String::new();
     loop {
         let (shown, no_match): (Vec<&PickerItem>, bool) = if opts.filterable && !filter.is_empty() {
-            let filtered = filter_picker_items(items, &filter);
+            let filtered = filter_picker_items(&items, &filter);
             let no_match = filtered.is_empty();
             (filtered, no_match)
         } else {
@@ -262,15 +278,28 @@ pub fn select_picker(
         if !no_match {
             selected = selected.min(shown.len().saturating_sub(1));
         }
-        terminal.draw(|frame| {
-            render_picker(frame, theme, opts, &shown, selected, &filter, no_match)
-        })?;
+        terminal
+            .draw(|frame| render_picker(frame, theme, opts, &shown, selected, &filter, no_match))?;
         if !event::poll(std::time::Duration::from_millis(100))? {
             continue;
         }
         if let Event::Key(key) = event::read()? {
             if key.kind != KeyEventKind::Press {
                 continue;
+            }
+            if let Some(hotkey) = on_hotkey.as_mut() {
+                if let Some(action) = hotkey(key.code, key.modifiers) {
+                    match action {
+                        PickerHotkey::Continue => {}
+                        PickerHotkey::Return(value) => return Ok(value),
+                        PickerHotkey::Rebuild(new_items) => {
+                            items = new_items;
+                            selected = 0;
+                            filter.clear();
+                            continue;
+                        }
+                    }
+                }
             }
             match key.code {
                 KeyCode::Up => selected = selected.saturating_sub(1),
@@ -305,6 +334,15 @@ pub fn select_picker(
             }
         }
     }
+}
+
+pub fn select_picker(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    theme: Theme,
+    opts: &PickerOptions,
+    items: &[PickerItem],
+) -> io::Result<Option<String>> {
+    select_picker_with_hotkeys(terminal, theme, opts, items, None)
 }
 
 /// Render the picker overlay: bordered list, optional page footer in the

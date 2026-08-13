@@ -23,6 +23,12 @@ impl SqliteStore {
     /// required tables exist.
     pub fn open(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let conn = Connection::open(path.as_ref())?;
+        // A second connection (e.g. `session/export` reopening the store
+        // while a turn writes records) must wait for the SQLite write lock
+        // instead of failing with SQLITE_BUSY immediately — the engine
+        // swallows record-write failures, which would otherwise silently
+        // drop records under concurrent writers.
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
         };

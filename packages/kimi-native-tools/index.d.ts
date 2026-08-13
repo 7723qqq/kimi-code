@@ -657,3 +657,307 @@ export function nativeTranslateBatchCached(
   keys: string[],
   params?: Record<string, string> | null,
 ): NativeBatchTranslateResult[];
+
+// ============================================================================
+// File type detection
+// ============================================================================
+
+export interface FileTypeInfo {
+  kind: string;
+  mimeType: string;
+}
+
+/**
+ * Detect file type from path and header bytes.
+ */
+export function nativeDetectFileType(path: string, header: Uint8Array): FileTypeInfo;
+
+/**
+ * Check if bytes belong to a credentials-bearing file.
+ */
+export function nativeIsSensitiveFileBytes(path: Uint8Array): boolean;
+
+// ============================================================================
+// Compaction — split safety + user message selection
+// ============================================================================
+
+/**
+ * Check whether a compaction split is safe after messages[index].
+ */
+export function nativeCanSplitAfter(messages: CompactionMessageMeta[], index: number): boolean;
+
+export interface CompactionUserMessageMeta {
+  role: string;
+  text: string;
+  tokens: number;
+}
+
+export interface CompactionSelection {
+  headIndices: number[];
+  tailIndices: number[];
+  headTruncateChars: number | null;
+  tailTruncateChars: number | null;
+  elided: boolean;
+  omittedTokens: number;
+}
+
+/**
+ * Select user messages compaction keeps verbatim, with head/tail split.
+ */
+export function nativeSelectCompactionUserMessages(
+  messages: CompactionUserMessageMeta[],
+  maxTokens: number,
+  headTokens: number,
+): CompactionSelection;
+
+// ============================================================================
+// MCP name helpers
+// ============================================================================
+
+export function nativeSanitizeMcpNamePart(part: string): string;
+export function nativeIsMcpToolName(name: string): boolean;
+export function nativeQualifyMcpToolName(serverName: string, toolName: string): string;
+
+// ============================================================================
+// XML escaping
+// ============================================================================
+
+export function nativeEscapeXml(text: string): string;
+export function nativeEscapeXmlAttr(text: string): string;
+export function nativeEscapeXmlTags(text: string): string;
+
+// ============================================================================
+// Path access
+// ============================================================================
+
+/**
+ * Normalize a user path (Win32/Cygwin drive conversion).
+ */
+export function nativePathNormalizeUserPath(path: string, pathClass: string): string;
+
+/**
+ * Expand `~` → home directory.
+ */
+export function nativePathExpandUserPath(path: string, homeDir: string, pathClass: string): string;
+
+/**
+ * Lexical canonicalization (relative → absolute → normalize). Returns "ERROR: ..." on failure.
+ */
+export function nativePathCanonicalize(path: string, cwd: string, pathClass: string): string;
+
+/**
+ * Component-boundary prefix check (true if candidate is base or its descendant).
+ */
+export function nativePathIsWithinDirectory(candidate: string, base: string, pathClass: string): boolean;
+
+/**
+ * Multi-root workspace containment check.
+ */
+export function nativePathIsWithinWorkspace(candidate: string, roots: string[], pathClass: string): boolean;
+
+/**
+ * Glob-aware canonicalization: normalizes prefix before glob, leaves glob suffix.
+ */
+export function nativePathCanonicalizeForGlob(path: string, cwd: string, pathClass: string): string;
+
+// ============================================================================
+// Workspace index — file metadata index for tool predictions
+// ============================================================================
+
+export interface WorkspaceIndexPrediction {
+  lineCount: number;
+  size: number;
+  preview: string;
+  estimatedReadMs: number;
+}
+
+/**
+ * Build the workspace index by scanning `root` recursively (blocking).
+ */
+export function nativeBuildWorkspaceIndex(root: string): number;
+
+/**
+ * Get a Read prediction from the workspace index, or null when no index was
+ * built or the file is not indexed.
+ */
+export function nativeWorkspaceIndexPredictRead(path: string): WorkspaceIndexPrediction | null;
+
+// ============================================================================
+// Permission — DSL pattern parsing
+// ============================================================================
+
+/**
+ * Parse a permission rule DSL pattern. Returns JSON or 'ERROR: ...'.
+ */
+export function nativeParsePermissionPattern(pattern: string): string;
+
+/**
+ * Match a permission rule DSL pattern against a tool call. Returns a JSON result.
+ */
+export function nativeMatchPermissionRule(
+  rule: string,
+  toolName: string,
+  hasMatchesRule: boolean,
+  argPatternMatch: string | null,
+): string;
+
+// ============================================================================
+// GoalEngine — decision core (stateless, JSON-in/JSON-out)
+// ============================================================================
+
+export function nativeGoalEngineValidateCreateInput(json: string): string;
+export function nativeGoalEngineValidateBudgetInput(json: string): string;
+export function nativeGoalEngineComputeBudgetReport(json: string): string;
+export function nativeGoalEngineApplyUsage(json: string): string;
+export function nativeGoalEngineDecideContinuation(json: string): string;
+export function nativeGoalEngineDecideBlockedAudit(json: string): string;
+export function nativeGoalEngineDecideStatusTransition(json: string): string;
+export function nativeGoalEngineRenderGoalReminder(json: string): string;
+export function nativeGoalEngineRenderBlockedNote(json: string): string;
+export function nativeGoalEngineRenderPausedNote(json: string): string;
+
+// ============================================================================
+// GitHub REST
+// ============================================================================
+
+export interface GithubResponse {
+  status: number;
+  ok: boolean;
+  body: string;
+  error: string | null;
+  rateRemaining: number | null;
+}
+
+/**
+ * Perform an authenticated GitHub REST request (blocking HTTP on a worker
+ * thread). `path` is an API path ("/repos/o/r/issues") or an absolute URL.
+ */
+export function nativeGithubRequest(
+  method: string,
+  path: string,
+  queryJson: string | null,
+  bodyJson: string | null,
+  paginate: boolean | null,
+  accept: string | null,
+): Promise<GithubResponse>;
+
+// ============================================================================
+// FetchUrl / WebSearch / LLM stream
+// ============================================================================
+
+export interface FetchUrlOptions {
+  userAgent?: string;
+  maxBytes?: number;
+  allowPrivate?: boolean;
+  timeoutMs?: number;
+}
+
+export interface FetchUrlResult {
+  content: string;
+  kind: string;
+  status: number;
+  error?: string;
+}
+
+export function nativeFetchUrl(url: string, options?: FetchUrlOptions): Promise<FetchUrlResult>;
+
+export interface WebSearchOptions {
+  timeoutMs?: number;
+  maxResults?: number;
+}
+
+export interface WebSearchResultItem {
+  title: string;
+  url: string;
+  snippet: string;
+  siteName?: string;
+}
+
+export interface WebSearchResult {
+  results: WebSearchResultItem[];
+  error?: string;
+}
+
+export function nativeWebSearch(query: string, options?: WebSearchOptions): Promise<WebSearchResult>;
+
+export interface LlmStreamConfig {
+  provider: string;
+  url: string;
+  apiKey: string;
+  model: string;
+  requestBody: string;
+  timeoutMs?: number;
+  extraHeaders?: Array<{ key: string; value: string }>;
+}
+
+export interface LlmStreamResult {
+  parts: unknown[];
+  metadata: Record<string, unknown>;
+  error?: string;
+}
+
+export function nativeLlmStream(config: LlmStreamConfig): Promise<LlmStreamResult>;
+
+// ============================================================================
+// Knowledge base — SQLite + FTS5 local coding standards database
+// ============================================================================
+
+/**
+ * Open (or create) a knowledge database at the given path.
+ */
+export function knowledgeOpen(dbPath: string): void;
+
+/**
+ * Close and remove a DB connection from the pool. Releases file handles.
+ */
+export function knowledgeClose(dbPath?: string | null): void;
+
+/**
+ * Add a knowledge entry. Returns a JSON string of the created entry.
+ */
+export function knowledgeAdd(
+  title: string,
+  category: string,
+  content: string,
+  tags: string,
+  scope: string | null,
+  source: string,
+  confidence: number,
+  status: string,
+): string;
+
+/**
+ * Search the knowledge base. Returns a JSON string of KnowledgeSearchResult[].
+ */
+export function knowledgeSearch(
+  query: string,
+  scopePath: string | null,
+  tags: string | null,
+  limit: number,
+  minConfidence: number,
+): string;
+
+/**
+ * Hard-remove an entry by id.
+ */
+export function knowledgeRemove(id: string): boolean;
+
+/**
+ * Confirm a pending AI-learned entry.
+ */
+export function knowledgeConfirm(id: string): boolean;
+
+/**
+ * Reject (soft-delete) an entry.
+ */
+export function knowledgeReject(id: string): boolean;
+
+/**
+ * Return database statistics as JSON.
+ */
+export function knowledgeStats(): string;
+
+/**
+ * Bulk-import entries from markdown (--- separated blocks).
+ */
+export function knowledgeImport(markdown: string): string;

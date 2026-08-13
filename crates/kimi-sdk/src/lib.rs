@@ -965,6 +965,98 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn session_fs_read_list_search() {
+        use crate::session::FsOptions;
+        let harness = Harness::embedded().expect("embedded");
+        let mut session = harness.create_session("s-fs").await.expect("create");
+
+        // Scratch workspace with one known file.
+        let dir = std::env::temp_dir().join(format!("kimi-sdk-fs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        std::fs::write(dir.join("hello.txt"), "line one\nline two\n").expect("write");
+        let homedir = Some(dir.to_string_lossy().into_owned());
+
+        // read: content round-trips; a missing file is an in-band is_error,
+        // not an RPC error.
+        let result = session
+            .fs(
+                "read",
+                FsOptions {
+                    homedir: homedir.clone(),
+                    path: Some("hello.txt".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("fs read");
+        assert_eq!(result["action"], "read", "result: {result}");
+        assert_eq!(result["is_error"], false, "result: {result}");
+        assert!(
+            result["content"].as_str().unwrap_or("").contains("line two"),
+            "read content: {result}"
+        );
+
+        let result = session
+            .fs(
+                "read",
+                FsOptions {
+                    homedir: homedir.clone(),
+                    path: Some("__missing__".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("fs read missing");
+        assert_eq!(result["is_error"], true, "missing file refused: {result}");
+
+        // list: the glob pattern rides in `query`.
+        let result = session
+            .fs(
+                "list",
+                FsOptions {
+                    homedir: homedir.clone(),
+                    query: Some("*.txt".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("fs list");
+        assert_eq!(result["is_error"], false, "list refused: {result}");
+        assert!(
+            result["content"].as_str().unwrap_or("").contains("hello.txt"),
+            "glob output: {result}"
+        );
+
+        // search: name match.
+        std::fs::write(dir.join("main.rs"), "fn main() {}").expect("write");
+        let result = session
+            .fs(
+                "search",
+                FsOptions {
+                    homedir: homedir.clone(),
+                    query: Some("main".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("fs search");
+        assert!(
+            result["content"].as_str().unwrap_or("").contains("main.rs"),
+            "search output: {result}"
+        );
+
+        // An unsupported action is an RPC error (bail).
+        let err = session
+            .fs("bogus", FsOptions { homedir, ..Default::default() })
+            .await
+            .expect_err("unsupported action must fail");
+        assert!(err.to_string().contains("unsupported action"), "err: {err}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
     async fn approval_handler_receives_requested_events() {
         let harness = Harness::embedded().expect("embedded");
         let decisions: Arc<std::sync::Mutex<Vec<String>>> =

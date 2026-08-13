@@ -777,8 +777,12 @@ fn session_prompt_drives_the_goal_and_persists() {
         }
     };
     let goal_home = std::env::temp_dir().join(format!(
-        "kimi-agent-it-goal-{}",
-        std::process::id()
+        "kimi-agent-it-goal-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos()
     ));
     let _ = std::fs::create_dir_all(&goal_home);
     let mut child = Command::new(&binary)

@@ -585,6 +585,7 @@ impl McpRuntime {
                 client_version: self.client_version.clone(),
                 startup_timeout_ms,
                 tool_call_timeout_ms: spec.config.tool_timeout_ms,
+                ..Default::default()
             },
         )
         .await?;

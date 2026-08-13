@@ -4,6 +4,23 @@ use std::sync::Arc;
 
 use kimi_server_client::AppServerClient;
 
+/// Options for [`Session::fs`] — mirrors the engine `session/fs` params.
+#[derive(Debug, Clone, Default)]
+pub struct FsOptions {
+    /// Workspace root (session workdir) — the sandbox for the native toolset.
+    pub homedir: Option<String>,
+    /// Target path (`read`), search-root directory (`list` / `grep`).
+    pub path: Option<String>,
+    /// Read window start (`read`).
+    pub line_offset: Option<i64>,
+    /// Read window size (`read`).
+    pub n_lines: Option<u32>,
+    /// Glob pattern (`list` / `grep`) or name query (`search`).
+    pub query: Option<String>,
+    /// Result cap (`search` / `grep` / `list`).
+    pub limit: Option<u32>,
+}
+
 /// A session in a host engine; every method is a thin typed RPC.
 #[derive(Clone)]
 pub struct Session {
@@ -141,6 +158,57 @@ impl Session {
         self.client.session_run_shell(&self.id, command).await
     }
 
+    /// Filesystem operations against the workspace root (engine
+    /// `session/fs`): `read` / `list` / `search` / `grep`. `homedir`
+    /// defaults to the session workdir when `None`. Resolves with
+    /// `{ action, content, is_error }` — tool-level refusals (missing file,
+    /// directory, sandbox escape) are in-band errors, not RPC errors.
+    ///
+    /// `read` takes `path` (+ optional `line_offset` / `n_lines`); `list`
+    /// and `grep` take the glob pattern as `query` (+ optional `path`
+    /// search-root, `limit`); `search` takes a name query as `query`
+    /// (+ optional `limit`).
+    pub async fn fs(
+        &mut self,
+        action: &str,
+        options: FsOptions,
+    ) -> anyhow::Result<serde_json::Value> {
+        let mut params = serde_json::json!({
+            "session_id": self.id,
+            "action": action,
+        });
+        let map = params.as_object_mut().expect("params object");
+        if let Some(v) = options.homedir {
+            map.insert("homedir".into(), serde_json::json!(v));
+        }
+        if let Some(v) = options.path {
+            map.insert("path".into(), serde_json::json!(v));
+        }
+        if let Some(v) = options.line_offset {
+            map.insert("line_offset".into(), serde_json::json!(v));
+        }
+        if let Some(v) = options.n_lines {
+            map.insert("n_lines".into(), serde_json::json!(v));
+        }
+        if let Some(v) = options.query {
+            map.insert("query".into(), serde_json::json!(v));
+        }
+        if let Some(v) = options.limit {
+            map.insert("limit".into(), serde_json::json!(v));
+        }
+        let body = self
+            .client
+            .call(kimi_protocol::methods::SESSION_FS, params)
+            .await;
+        if let Some(error) = body.get("error") {
+            anyhow::bail!(
+                "session/fs: {}",
+                error["message"].as_str().unwrap_or("unknown")
+            );
+        }
+        Ok(body["result"].clone())
+    }
+
     /// Request cancellation of a running turn.
     pub async fn cancel(&mut self) -> serde_json::Value {
         self.client.session_cancel(&self.id).await
@@ -273,6 +341,23 @@ impl Session {
             .await;
         if let Some(error) = body.get("error") {
             anyhow::bail!("get goal: {}", error["message"].as_str().unwrap_or("unknown"));
+        }
+        Ok(body["result"].clone())
+    }
+
+    /// The persisted replay + background + todo snapshot for this session
+    /// (`{ agents: { main: { replay, background, toolStore } } }`), or the
+    /// error from the engine. TS `session.getResumeState` parity.
+    pub async fn resume_state(&mut self) -> anyhow::Result<serde_json::Value> {
+        let body = self
+            .client
+            .call(
+                kimi_protocol::methods::SESSION_RESUME_STATE,
+                serde_json::json!({ "session_id": self.id }),
+            )
+            .await;
+        if let Some(error) = body.get("error") {
+            anyhow::bail!("resume state: {}", error["message"].as_str().unwrap_or("unknown"));
         }
         Ok(body["result"].clone())
     }

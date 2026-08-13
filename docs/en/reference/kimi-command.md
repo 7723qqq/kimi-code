@@ -24,8 +24,6 @@ All flags are optional — run `kimi` directly to enter an interactive session:
 | `--auto` | | Start with auto permission mode; tool approvals are handled automatically and the Agent will not ask the user questions |
 | `--plan` | | Start a new session in Plan mode — the AI will prioritize read-only tools for exploration and planning |
 | `--skills-dir <dir>` | | Load Skills from the specified directory, replacing the automatically discovered user and project directories. Can be repeated |
-| `--agent <name>` | | Start the session with the specified agent as the main Agent (experimental `kimi -p` only) |
-| `--agent-file <path>` | | Load a custom agent from a Markdown file for this launch and select it (experimental `kimi -p` only). Cannot be repeated or combined with `--agent` |
 | `--add-dir <dir>` | | Add an extra workspace directory for this session. Relative paths resolve against the current working directory. Can be repeated |
 
 `-r` / `--resume` is a hidden alias for `--session`; `--yes` and `--auto-approve` are hidden aliases for `--yolo` and are not shown in help output.
@@ -96,16 +94,6 @@ There are two ways to specify Skills directories, with different semantics:
 
 - **`extra_skill_dirs`** (`config.toml`): **Adds** directories on top of the automatically discovered ones, taking effect permanently. Suitable for configuring team-shared Skills. See [Agent Skills](../customization/skills.md).
 
-### Custom Agents
-
-`--agent` and `--agent-file` select which agent drives the session. Both are currently available only under `kimi -p` with `KIMI_CODE_EXPERIMENTAL_FLAG=1`; any other launch rejects them with a clear error:
-
-```sh
-KIMI_CODE_EXPERIMENTAL_FLAG=1 kimi -p --agent reviewer "Review the changes on this branch"
-```
-
-`--agent-file` registers a single agent file at the highest priority for this launch only and selects it; the flag cannot be repeated, and `--agent` and `--agent-file` are mutually exclusive. The selection is fixed at the session's first bind: resuming with the same `--agent` is a no-op, and switching to a different one fails with an "already bound" error. See [Agents and Sub-Agents](../customization/agents.md#custom-agents) for the agent file format and discovery directories.
-
 ## Non-Interactive Execution
 
 When running a single prompt in a script or CI environment, use `-p`:
@@ -132,7 +120,7 @@ In `stream-json` mode, regular replies produce an Assistant message; when the mo
 
 ## Subcommands
 
-`kimi` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `web` (run the local REST/WebSocket/web service in the foreground and open the web UI), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), and `provider` (manage providers).
+`kimi` provides the following subcommands: `login` (non-interactive OAuth login), `logout` (remove the logged-in credentials), `acp` (ACP IDE mode), `web` (run the local REST/WebSocket/web service in the foreground and open the web UI), `doctor` (validate configuration files), `health` (engine health check), `export` (export a session), `print` (run one prompt non-interactively), `chat` (interactive chat loop), `sessions` (list persisted sessions), `resume` (resume a session and run a prompt), `config` (show or set config values), `completions` (generate shell completions), `provider` (manage providers), `upgrade` (check for updates), `migrate` (retired — prints a notice), `server` (deprecated — prints a notice), and `vis` (retired — prints a notice).
 
 ### `kimi login`
 
@@ -142,7 +130,7 @@ Log in to Kimi Code OAuth via the RFC 8628 device-code flow, without entering th
 kimi login
 ```
 
-This subcommand has no flags. Press `Ctrl-C` at any time during polling to cancel; the exit code is `1` on cancellation or failure, and `0` on success.
+This subcommand accepts `--oauth-host` (override the OAuth host) and `--max-polls` (max poll attempts; default 180). Press `Ctrl-C` at any time during polling to cancel; the exit code is `1` on cancellation or failure, and `0` on success.
 
 ### `kimi acp`
 
@@ -155,8 +143,6 @@ kimi acp
 ### `kimi web`
 
 Run the local Kimi server in the foreground of the current terminal — a single process that exposes the REST + WebSocket API and serves the web UI from the same origin — and open the web UI in the default browser once it is ready. The command stays attached to the terminal and shuts down cleanly on `SIGINT` / `SIGTERM` (e.g. `Ctrl-C`).
-
-When the server is running, `GET /openapi.json` returns the REST OpenAPI document and `GET /asyncapi.json` returns the local WebSocket AsyncAPI document.
 
 ```sh
 kimi web                 # run the server in the foreground and open the browser
@@ -171,24 +157,19 @@ Multiple instances can share one home directory: each registers itself under `~/
 | `--port <port>` | Bind port; defaults to `58627`; a busy port is retried with `+1` |
 | `--host [host]` | Bind host; omit for `127.0.0.1` (this machine only), pass a bare `--host` for `0.0.0.0` (all interfaces) |
 | `--allowed-host <host...>` | Extra Host header values allowed through the DNS-rebinding check; repeatable or comma-separated |
-| `--log-level <level>` | Enable server logs at the selected level; omitted by default |
-| `--debug-endpoints` | Mount `/api/v1/debug/*` routes (off by default) |
+| `--log-level <level>` | Accepts `fatal` / `error` / `warn` / `info` / `debug` / `trace` / `silent`; the Rust server does not support log levels yet, so any value reports "not supported" |
 | `--dangerous-bypass-auth` | Disable bearer-token auth on all REST and WebSocket routes so the web UI connects without a token; only for trusted networks or behind an authenticating proxy |
 | `--no-open` | Do not open the browser once the server is ready |
 
 `kimi web` binds to local loopback only by default and prints the bearer token in the startup banner; the web UI authenticates automatically via the `#token=` URL fragment.
 
 ::: info
-The `kimi server` command tree is deprecated: any `kimi server …` invocation (including all legacy subcommands) only prints a deprecation notice and exits with code 1 — use `kimi web` instead. The one exception is `kimi server kill`, which stays functional for stopping servers started by a version before 0.28.0. The notice will be removed in the next major version of Kimi Code.
+The `kimi server` command tree is deprecated: any `kimi server …` invocation (including all legacy subcommands) only prints a deprecation notice and exits with code 1 — use `kimi web` instead. The notice will be removed in the next major version of Kimi Code.
 :::
 
 ::: danger
 `--dangerous-bypass-auth` disables authentication entirely. Anyone who can reach the port gets full access to your sessions, filesystem, and shell. Only use it on a trusted network or behind your own authenticating reverse proxy, and stop the server with `Ctrl+C` when you are done.
 :::
-
-#### `kimi server kill`
-
-Deprecated — only stops a server started by a version before 0.28.0. Those versions could leave a background server behind, recorded in the legacy single-instance lock at `~/.kimi-code/server/lock`; the command first tries `POST /api/v1/shutdown` for a graceful exit, then signals the recorded pid with SIGTERM, escalating to SIGKILL when needed, and removes the lock file once the process is confirmed dead. Servers started by `kimi web` run in the foreground — stop them with `Ctrl+C` instead.
 
 #### `kimi web rotate-token`
 
@@ -251,13 +232,11 @@ kimi export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 
 ### `kimi migrate`
 
-Migrate local data from a legacy kimi-cli installation to kimi-code, including session history and configuration files. Runs entirely interactively, guiding you through the full process.
+Retired — the command only prints a notice and exits. Legacy data migration was removed together with the TS distribution; the Rust binary does not bundle a migration screen.
 
 ```sh
 kimi migrate
 ```
-
-For full migration instructions, see [Migrating from kimi-cli](../guides/migration.md).
 
 ### `kimi upgrade`
 
@@ -271,28 +250,10 @@ For global npm, pnpm, yarn, bun, and macOS / Linux native installations, `kimi u
 
 ### `kimi vis`
 
-Launch the session visualizer in your browser to inspect a session as it unfolds. The command starts an in-process server pointed at your local sessions, prints the URL, opens your browser, and keeps running until you press `Ctrl-C`.
+Retired — the command only prints a notice and exits with code 1. The vis frontend is a separate app (`@moonshot-ai/vis`) that is not bundled with the Rust CLI.
 
 ```sh
-kimi vis [sessionId] [options]
-```
-
-| Parameter / Option | Description |
-| --- | --- |
-| `sessionId` | Open the visualizer directly to this session. When omitted, it opens the home view listing your sessions |
-| `--port <number>` | Port to bind. By default an available port is picked automatically |
-| `--host <host>` | Host to bind. Default: `127.0.0.1` |
-| `--no-open` | Do not open the browser automatically; just print the URL |
-
-```sh
-# Start the visualizer and open the browser at the home view
 kimi vis
-
-# Open directly to a specific session
-kimi vis 01HZ...XYZ
-
-# Bind a fixed port and host without opening a browser (e.g. on a remote host)
-kimi vis --host 0.0.0.0 --port 8123 --no-open
 ```
 
 ### `kimi provider`
@@ -379,4 +340,4 @@ kimi provider catalog add anthropic --api-key sk-ant-... --default-model claude-
 - [Slash Commands](./slash-commands.md) — Quick reference for control commands in the interactive TUI
 - [Configuration Files](../configuration/config-files.md) — Persistent configuration for `default_model`, permission mode, and other startup parameters
 - [Agent Skills](../customization/skills.md) — Skill file format for directories loaded via `--skills-dir`
-- [Agents and Sub-Agents](../customization/agents.md) — Built-in sub-agents, custom agent files, and main Agent selection via `--agent`
+- [Agents and Sub-Agents](../customization/agents.md) — Built-in sub-agents and custom agent files

@@ -46,6 +46,11 @@ pub struct RecordStore {
 // - `goal.updated`          = GoalSnapshot (camelCase; see crate::goal::GoalSnapshot)
 // - `compaction.started`    = { "trigger": string, "tokens_before": number }
 // - `compaction.completed`  = { "trigger": string, "tokens_before": number, "tokens_after": number, "summary": string }
+// - `plan.updated`          = { "enabled": bool }
+// - `permission.updated`    = { "mode": "manual" | "auto" | "yolo" }
+// - `approval.result`       = { "tool_name": string, "tool_call_id": string,
+//                               "action": string, "decision": "approved" | "rejected" | "cancelled",
+//                               "scope"?: "session" | "step", "feedback"?: string }
 pub const RECORD_TYPE_MESSAGE_APPEND: &str = "message.append";
 pub const RECORD_TYPE_TURN_STARTED: &str = "turn.started";
 pub const RECORD_TYPE_TURN_ENDED: &str = "turn.ended";
@@ -55,6 +60,9 @@ pub const RECORD_TYPE_USAGE_UPDATED: &str = "usage.updated";
 pub const RECORD_TYPE_GOAL_UPDATED: &str = "goal.updated";
 pub const RECORD_TYPE_COMPACTION_STARTED: &str = "compaction.started";
 pub const RECORD_TYPE_COMPACTION_COMPLETED: &str = "compaction.completed";
+pub const RECORD_TYPE_PLAN_UPDATED: &str = "plan.updated";
+pub const RECORD_TYPE_PERMISSION_UPDATED: &str = "permission.updated";
+pub const RECORD_TYPE_APPROVAL_RESULT: &str = "approval.result";
 
 impl RecordStore {
     /// Create a new record store backed by the given SQLite store.
@@ -331,5 +339,8 @@ mod tests {
         assert_eq!(RECORD_TYPE_GOAL_UPDATED, "goal.updated");
         assert_eq!(RECORD_TYPE_COMPACTION_STARTED, "compaction.started");
         assert_eq!(RECORD_TYPE_COMPACTION_COMPLETED, "compaction.completed");
+        assert_eq!(RECORD_TYPE_PLAN_UPDATED, "plan.updated");
+        assert_eq!(RECORD_TYPE_PERMISSION_UPDATED, "permission.updated");
+        assert_eq!(RECORD_TYPE_APPROVAL_RESULT, "approval.result");
     }
 }

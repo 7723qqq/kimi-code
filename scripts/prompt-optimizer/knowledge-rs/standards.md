@@ -48,7 +48,7 @@ scope: packages/
 tags: dependency, kimi-code, agent-core
 scope: apps/kimi-code/
 
-CLI/TUI 应用通过 `@moonshot-ai/kimi-code-sdk` 消费核心能力，不可直接依赖 `@moonshot-ai/agent-core`。
+CLI/TUI 通过 Rust 宿主（`crates/kimi-cli` / `kimi-tui`）消费引擎能力，不再依赖任何 TS 引擎包（agent-core 系已退役）。
 
 ---
 
@@ -56,7 +56,7 @@ CLI/TUI 应用通过 `@moonshot-ai/kimi-code-sdk` 消费核心能力，不可直
 tags: dependency, kimi-web, agent-core
 scope: apps/kimi-web/
 
-Web UI 不依赖 `@moonshot-ai/agent-core`，wire types 在本地重新实现。
+Web UI 不依赖任何引擎包（agent-core 系已退役），wire types 在本地重新实现，经 Rust server（`kimi-server`）的 `/api/v1` 协议通信。
 
 ---
 

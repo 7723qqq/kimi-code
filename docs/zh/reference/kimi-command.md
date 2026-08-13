@@ -24,8 +24,6 @@ kimi <subcommand> [options]
 | `--auto` | | 以 auto 权限模式启动；工具审批自动处理，Agent 不会向用户提问 |
 | `--plan` | | 以 Plan 模式启动新会话，AI 会优先使用只读工具进行探索和规划 |
 | `--skills-dir <dir>` | | 从指定目录加载 Skills，替换自动发现的用户和项目目录。可重复传入 |
-| `--agent <name>` | | 以指定 Agent 作为主 Agent 启动会话（仅实验性 `kimi -p`） |
-| `--agent-file <path>` | | 从 Markdown 文件加载自定义 Agent（仅本次启动、仅实验性 `kimi -p`）并选中它。不可重复传入，也不能与 `--agent` 同时使用 |
 | `--add-dir <dir>` | | 为本次会话添加额外的工作目录。相对路径按当前工作目录解析。可重复传入 |
 
 `-r` / `--resume` 是 `--session` 的隐藏别名；`--yes` 和 `--auto-approve` 是 `--yolo` 的隐藏别名，在帮助信息中不显示。
@@ -96,16 +94,6 @@ kimi --plan
 
 - **`extra_skill_dirs`**（`config.toml`）：**叠加**到自动发现的目录之上，长期生效，适合配置团队共享 Skills。详见 [Agent Skills](../customization/skills.md)。
 
-### 自定义 Agent
-
-`--agent` 和 `--agent-file` 用于选择驱动会话的 Agent。目前二者仅在 `KIMI_CODE_EXPERIMENTAL_FLAG=1` 时的 `kimi -p` 下可用，其他启动方式会以明确错误拒绝：
-
-```sh
-KIMI_CODE_EXPERIMENTAL_FLAG=1 kimi -p --agent reviewer "审查这个分支上的改动"
-```
-
-`--agent-file` 以最高优先级注册单个 Agent 文件（仅本次启动）并选中它；该 flag 不可重复传入，且 `--agent` 与 `--agent-file` 互斥。选择在会话首次绑定后即固定：以相同的 `--agent` 恢复会话是 no-op，换成不同的 Agent 会报 "already bound" 错误。Agent 文件格式与发现目录详见 [Agent 与子 Agent](../customization/agents.md#自定义-agent)。
-
 ## 非交互执行
 
 在脚本或 CI 中运行单次 prompt 时，使用 `-p`：
@@ -132,7 +120,7 @@ kimi -p "List changed files" --output-format stream-json
 
 ## 子命令
 
-`kimi` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`web`（前台运行本地 REST/WebSocket/web 服务并打开 web UI）、`doctor`（校验配置文件）、`export`（导出会话）、`migrate`（迁移旧版数据）、`upgrade`（检查更新）、`provider`（管理供应商）。
+`kimi` 提供以下子命令：`login`（非交互式 OAuth 登录）、`logout`（清除已登录凭证）、`acp`（ACP IDE 模式）、`web`（前台运行本地 REST/WebSocket/web 服务并打开 web UI）、`doctor`（校验配置文件）、`health`（引擎健康检查）、`export`（导出会话）、`print`（非交互执行单次 prompt）、`chat`（交互式聊天循环）、`sessions`（列出已保存的会话）、`resume`（恢复会话并执行 prompt）、`config`（查看或设置配置项）、`completions`（生成 Shell 补全脚本）、`provider`（管理供应商）、`upgrade`（检查更新）、`migrate`（已退役——仅打印提示）、`server`（已弃用——仅打印提示）、`vis`（已退役——仅打印提示）。
 
 ### `kimi login`
 
@@ -142,7 +130,7 @@ kimi -p "List changed files" --output-format stream-json
 kimi login
 ```
 
-该子命令没有任何 flag。在轮询期间随时按 `Ctrl-C` 可取消登录；取消或失败时退出码为 `1`，成功为 `0`。
+该子命令接受 `--oauth-host`（覆盖 OAuth 主机）与 `--max-polls`（最大轮询次数，默认 180）。在轮询期间随时按 `Ctrl-C` 可取消登录；取消或失败时退出码为 `1`，成功为 `0`。
 
 ### `kimi acp`
 
@@ -155,8 +143,6 @@ kimi acp
 ### `kimi web`
 
 在当前终端前台运行本地 Kimi 服务 —— 同一个进程同时挂载 REST + WebSocket API 与 web UI —— 并在服务就绪后用默认浏览器打开 web UI。命令会一直挂在终端，直到收到 `SIGINT` / `SIGTERM`（如 `Ctrl-C`）时干净退出。
-
-服务运行时，`GET /openapi.json` 会返回 REST OpenAPI 文档，`GET /asyncapi.json` 会返回本地 WebSocket 协议的 AsyncAPI 文档。
 
 ```sh
 kimi web                 # 前台运行服务并打开浏览器
@@ -171,24 +157,19 @@ kimi web --port 58628    # 指定绑定端口
 | `--port <port>` | 绑定端口；默认 `58627`；被占用时自动 +1 重试 |
 | `--host [host]` | 绑定地址；缺省 `127.0.0.1`（仅本机），裸 `--host` 绑 `0.0.0.0`（所有网卡） |
 | `--allowed-host <host...>` | DNS 重绑定检查额外允许的 Host 头，可重复或逗号分隔 |
-| `--log-level <level>` | 按所选级别开启服务日志；默认不输出 |
-| `--debug-endpoints` | 挂载 `/api/v1/debug/*` 调试路由（默认关闭） |
+| `--log-level <level>` | 接受 `fatal` / `error` / `warn` / `info` / `debug` / `trace` / `silent`；Rust 服务端暂不支持日志级别，传入任何值都会提示 "not supported" |
 | `--dangerous-bypass-auth` | 关闭所有 REST 与 WebSocket 路由的 bearer token 鉴权，使 web UI 无需 token 即可连接；仅用于可信网络或自有鉴权代理之后 |
 | `--no-open` | 就绪后不自动打开浏览器 |
 
 `kimi web` 默认只绑定本机 loopback 地址，并在启动横幅中打印 bearer token；web UI 通过 URL 的 `#token=` 片段自动完成鉴权。
 
 ::: info 提示
-`kimi server` 命令树已废弃：任何 `kimi server …` 调用（含全部旧子命令）只会打印弃用提示并以退出码 1 结束，请改用 `kimi web`。唯一的例外是 `kimi server kill`，它仍然可用，仅用于停止 0.28.0 之前版本启动的服务。该提示将在 Kimi Code 下个大版本移除。
+`kimi server` 命令树已废弃：任何 `kimi server …` 调用（含全部旧子命令）只会打印弃用提示并以退出码 1 结束，请改用 `kimi web`。该提示将在 Kimi Code 下个大版本移除。
 :::
 
 ::: danger 警告
 `--dangerous-bypass-auth` 会彻底关闭鉴权。任何能访问该端口的人都能完全控制你的会话、文件系统和 shell。请仅在可信网络或自有鉴权反向代理之后使用，用完后按 `Ctrl+C` 停止服务。
 :::
-
-#### `kimi server kill`
-
-已废弃——仅用于停止 0.28.0 之前的 Kimi Code 版本启动的服务。那些版本可能在后台遗留服务进程，记录在 legacy 单实例锁文件 `~/.kimi-code/server/lock` 中；该命令先请求 `POST /api/v1/shutdown` 优雅退出，再对锁中记录的 pid 发 SIGTERM、必要时升级为 SIGKILL，并在确认进程退出后删除锁文件。`kimi web` 启动的服务在前台运行，直接用 `Ctrl+C` 停止即可。
 
 #### `kimi web rotate-token`
 
@@ -251,13 +232,11 @@ kimi export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 
 ### `kimi migrate`
 
-将旧版 kimi-cli 的本地数据迁移到 kimi-code，包括历史会话和配置文件。纯交互式运行，会引导你完成全流程。
+已退役——该命令仅打印提示后退出。历史数据迁移已随 TS 发行版一并移除，Rust 二进制不再包含迁移界面。
 
 ```sh
 kimi migrate
 ```
-
-完整迁移说明见[从 kimi-cli 迁移](../guides/migration.md)。
 
 ### `kimi upgrade`
 
@@ -271,28 +250,10 @@ kimi upgrade
 
 ### `kimi vis`
 
-在浏览器中启动会话可视化工具，直观查看一次会话的全过程。命令会启动一个指向本地会话的进程内服务器，打印访问地址并打开浏览器，持续运行直到你按下 `Ctrl-C`。
+已退役——该命令仅打印提示并以退出码 1 退出。vis 前端是独立应用（`@moonshot-ai/vis`），未随 Rust CLI 分发。
 
 ```sh
-kimi vis [sessionId] [options]
-```
-
-| 参数 / 选项 | 说明 |
-| --- | --- |
-| `sessionId` | 直接打开指定会话的可视化页面。省略时打开列出所有会话的首页 |
-| `--port <number>` | 绑定的端口。默认自动挑选一个空闲端口 |
-| `--host <host>` | 绑定的主机。默认 `127.0.0.1` |
-| `--no-open` | 不自动打开浏览器，仅打印访问地址 |
-
-```sh
-# 启动可视化工具并在浏览器中打开首页
 kimi vis
-
-# 直接打开指定会话
-kimi vis 01HZ...XYZ
-
-# 绑定固定主机和端口且不打开浏览器（例如在远程主机上）
-kimi vis --host 0.0.0.0 --port 8123 --no-open
 ```
 
 ### `kimi provider`
@@ -379,4 +340,4 @@ kimi provider catalog add anthropic --api-key sk-ant-... --default-model claude-
 - [斜杠命令](./slash-commands.md) — 交互式 TUI 内的控制命令速查
 - [配置文件](../configuration/config-files.md) — `default_model`、权限模式等启动参数的持久化配置
 - [Agent Skills](../customization/skills.md) — `--skills-dir` 加载的 Skill 文件格式
-- [Agent 与子 Agent](../customization/agents.md) — 内置子 Agent、自定义 Agent 文件与通过 `--agent` 选择主 Agent
+- [Agent 与子 Agent](../customization/agents.md) — 内置子 Agent 与自定义 Agent 文件

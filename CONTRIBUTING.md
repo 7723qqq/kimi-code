@@ -27,10 +27,10 @@ We only merge PRs aligned with the roadmap. Drive-by refactors without context a
 
 This is a pnpm monorepo. The most relevant entry points are:
 
-- `apps/kimi-code` — CLI / TUI
+- `apps/kimi-code` — CLI distribution shell (Rust CLI lives in `crates/kimi-cli`)
 - `apps/vis` — session replay & debugging visualizer
-- `packages/node-sdk` — public TypeScript SDK (`@moonshot-ai/kimi-code-sdk`)
-- `packages/agent-core`, `kosong`, `kaos`, `oauth`, `telemetry` — internal engine packages
+- `crates/kimi-sdk` — Rust host SDK; `packages/kimi-agent` — Rust agent engine
+- `crates/*` — Rust host layer (cli / tui / server / protocol / oauth / acp / exec)
 - `docs/` — VitePress bilingual docs site
 
 For the full project map, see [AGENTS.md](AGENTS.md).

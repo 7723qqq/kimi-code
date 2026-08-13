@@ -8,7 +8,7 @@ use std::sync::Arc;
 use kimi_agent::approval::{ApprovalStore, SharedApprovalStore};
 use kimi_agent::callbacks::HostCallbacks;
 use kimi_agent::permission::gate::PermissionGate;
-use kimi_agent::persistence::{SessionStore, SqliteStore};
+use kimi_agent::persistence::{RecordStore, SessionStore, SqliteStore};
 use kimi_agent::plugin::store::PluginStore;
 use kimi_agent::session::manager::SessionManager;
 use tokio::sync::Mutex;
@@ -92,7 +92,14 @@ impl ServerState {
 
     fn assemble(llm_step: Option<crate::callbacks::LlmStep>) -> anyhow::Result<Self> {
         let store = open_session_store()?;
-        let manager = Arc::new(Mutex::new(SessionManager::new(SessionStore::new(store))));
+        // The same SqliteStore backs the SessionStore and the shared
+        // RecordStore (records table), so wire records written by session
+        // agents are visible to `session/export` and the vis SQLite reader
+        // (mirrors how main.rs assembles these).
+        let record_store = Arc::new(RecordStore::new(store.clone()));
+        let mut manager = SessionManager::new(SessionStore::new(store));
+        manager.set_record_store(Some(record_store.clone()));
+        let manager = Arc::new(Mutex::new(manager));
         let events = crate::callbacks::EventBus::new(256);
         let mut callbacks = crate::callbacks::ServerHostCallbacks::with_events(events.clone());
         if let Some(step) = llm_step {
@@ -119,6 +126,16 @@ impl ServerState {
     /// Subscribe to engine events (interface layer / tests).
     pub fn subscribe_events(&self) -> tokio::sync::broadcast::Receiver<serde_json::Value> {
         self.events.subscribe()
+    }
+
+    /// The record store injected into the session manager (SQLite `records`
+    /// table shared with the session store). `None` when the server was
+    /// assembled without one.
+    pub fn record_store(&self) -> Option<std::sync::Arc<kimi_agent::persistence::RecordStore>> {
+        self.manager
+            .try_lock()
+            .ok()
+            .and_then(|m| m.record_store())
     }
 
     /// Clone the engine event sender, so transports (e.g. the HTTP/WS

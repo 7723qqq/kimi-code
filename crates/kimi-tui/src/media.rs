@@ -6,6 +6,37 @@
 //! This module parses the envelope and surfaces just the human-readable
 //! bits (kind, path, mime, size) as a one-line summary. It never emits
 //! the base64.
+//!
+//! When the terminal supports inline images, the envelope's base64 image
+//! payload is rendered in place instead (`render_media_image`), with the
+//! summary kept as the caption/fallback.
+
+use crate::terminal_image::{self, ImageDimensions, RenderedImage};
+
+/// An image payload extracted from a ReadMediaFile envelope, ready to
+/// render inline (image parts only — videos always fall back to text).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReadMediaImage {
+    pub mime: String,
+    /// The raw standard-base64 payload (never shown as text).
+    pub base64: String,
+    /// `<image path="…">` when the envelope carried one.
+    pub path: Option<String>,
+    /// Pixel dimensions parsed from the payload header (`None` for formats
+    /// we can't size, e.g. BMP — those can't be laid out on the cell grid).
+    pub dimensions: Option<ImageDimensions>,
+}
+
+/// How a ReadMediaFile result renders in the transcript.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MediaRender {
+    /// An inline image: the escape sequence plus the terminal rows it
+    /// occupies (so the transcript can reserve that much space).
+    Image(RenderedImage),
+    /// A text fallback — no image protocol, a video, or an unreadable
+    /// envelope (keep the one-line summary).
+    Text(String),
+}
 
 /// The human-readable summary of a ReadMediaFile output.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,6 +186,73 @@ pub fn media_summary_text(output: &str) -> Option<String> {
     Some(segs.join(" "))
 }
 
+/// Extract the image payload (base64 + mime + dimensions) from a
+/// ReadMediaFile envelope; `None` for videos, text-only envelopes, or
+/// formats without a `data:` URL. The base64 never appears in the returned
+/// text path — it only feeds the inline renderer.
+pub fn extract_read_media_image(output: &str) -> Option<ReadMediaImage> {
+    let parsed: serde_json::Value = serde_json::from_str(output).ok()?;
+    let parts = parsed.as_array()?;
+
+    let mut image: Option<ReadMediaImage> = None;
+    for part in parts {
+        let Some(obj) = part.as_object() else {
+            continue;
+        };
+        if obj.get("type").and_then(|v| v.as_str()) != Some("image_url") {
+            continue;
+        }
+        let Some(image_url) = obj.get("imageUrl").and_then(|v| v.as_object()) else {
+            continue;
+        };
+        let Some(url) = image_url.get("url").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some((mime, b64)) = parse_data_url(url) else {
+            continue;
+        };
+        if !mime.starts_with("image/") {
+            continue;
+        }
+        let path = parts.iter().find_map(|p| {
+            let o = p.as_object()?;
+            if o.get("type").and_then(|v| v.as_str()) != Some("text") {
+                return None;
+            }
+            let text = o.get("text").and_then(|v| v.as_str())?;
+            let (kind, path) = parse_path_tag(text)?;
+            (kind == "image").then_some(path)
+        });
+        let dimensions = terminal_image::get_image_dimensions(b64, mime);
+        image = Some(ReadMediaImage {
+            mime: mime.to_string(),
+            base64: b64.to_string(),
+            path,
+            dimensions,
+        });
+        break;
+    }
+    image
+}
+
+/// Render a ReadMediaFile `content` envelope as an inline image when the
+/// terminal supports it; otherwise fall back to the one-line text summary.
+/// Images whose dimensions can't be parsed (or that are too large) degrade
+/// to the text path — never a blob of base64.
+pub fn render_media_image(output: &str, options: terminal_image::RenderOptions) -> MediaRender {
+    let fallback = || media_summary_text(output).unwrap_or_else(|| output.to_string());
+    let Some(image) = extract_read_media_image(output) else {
+        return MediaRender::Text(fallback());
+    };
+    let Some(dimensions) = image.dimensions else {
+        return MediaRender::Text(fallback());
+    };
+    match terminal_image::render_image(&image.base64, dimensions, options) {
+        Some(rendered) => MediaRender::Image(rendered),
+        None => MediaRender::Text(fallback()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,5 +296,100 @@ mod tests {
         let text = media_summary_text(output).expect("summary");
         assert!(text.starts_with("image ("), "text: {text}");
         assert!(!text.contains("aGVsbG8"), "base64 must not leak: {text}");
+    }
+
+    /// A real 1×1 PNG in a ReadMediaFile envelope.
+    fn png_envelope() -> String {
+        r#"[{"type":"text","text":"<image path=\"/tmp/a.png\">"},{"type":"image_url","imageUrl":{"url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="}}]"#.to_string()
+    }
+
+    #[test]
+    fn extracts_image_payload_with_dimensions() {
+        let img = extract_read_media_image(&png_envelope()).expect("extracts");
+        assert_eq!(img.mime, "image/png");
+        assert!(img.base64.starts_with("iVBOR"), "{}", img.base64);
+        assert_eq!(img.path.as_deref(), Some("/tmp/a.png"));
+        assert_eq!(
+            img.dimensions,
+            Some(ImageDimensions { width_px: 1, height_px: 1 })
+        );
+    }
+
+    #[test]
+    fn extraction_rejects_video_and_text_only() {
+        let video = r#"[{"type":"video_url","videoUrl":{"url":"data:video/mp4;base64,AAAA"}}]"#;
+        assert!(extract_read_media_image(video).is_none());
+        assert!(extract_read_media_image("just text").is_none());
+        assert!(extract_read_media_image(r#"{"type":"text","text":"hi"}"#).is_none());
+    }
+
+    #[test]
+    fn extraction_skips_non_image_data_url() {
+        let bmp = r#"[{"type":"image_url","imageUrl":{"url":"data:image/bmp;base64,Qk1m"}}]"#;
+        // Still extracted (mime starts with image/) but unsizable.
+        let img = extract_read_media_image(bmp).expect("extracts bmp");
+        assert_eq!(img.mime, "image/bmp");
+        assert_eq!(img.dimensions, None);
+    }
+
+    #[test]
+    fn render_falls_back_to_text_without_protocol() {
+        crate::terminal_image::with_caps_lock(|| {
+            use crate::terminal_image::TerminalCapabilities;
+            let saved = crate::terminal_image::get_capabilities();
+            crate::terminal_image::set_capabilities(TerminalCapabilities {
+                images: None,
+                true_color: false,
+                hyperlinks: false,
+            });
+            let render = render_media_image(&png_envelope(), Default::default());
+            crate::terminal_image::set_capabilities(saved);
+            match render {
+                MediaRender::Text(t) => {
+                    assert!(t.starts_with("image ("), "text: {t}");
+                    assert!(!t.contains("iVBOR"), "base64 must not leak: {t}");
+                }
+                MediaRender::Image(_) => panic!("no protocol must fall back to text"),
+            }
+        });
+    }
+
+    #[test]
+    fn render_returns_inline_image_under_kitty() {
+        crate::terminal_image::with_caps_lock(|| {
+            use crate::terminal_image::{ImageProtocol, TerminalCapabilities};
+            let saved = crate::terminal_image::get_capabilities();
+            crate::terminal_image::set_capabilities(TerminalCapabilities {
+                images: Some(ImageProtocol::Kitty),
+                true_color: true,
+                hyperlinks: true,
+            });
+            let render = render_media_image(&png_envelope(), Default::default());
+            crate::terminal_image::set_capabilities(saved);
+            match render {
+                MediaRender::Image(img) => {
+                    assert!(img.sequence.starts_with("\x1b_G"), "{}", img.sequence);
+                    assert!(img.rows >= 1);
+                }
+                MediaRender::Text(_) => panic!("kitty must render inline"),
+            }
+        });
+    }
+
+    #[test]
+    fn video_renders_as_text_even_with_protocol() {
+        crate::terminal_image::with_caps_lock(|| {
+            use crate::terminal_image::{ImageProtocol, TerminalCapabilities};
+            let saved = crate::terminal_image::get_capabilities();
+            crate::terminal_image::set_capabilities(TerminalCapabilities {
+                images: Some(ImageProtocol::Kitty),
+                true_color: true,
+                hyperlinks: true,
+            });
+            let video = r#"[{"type":"video_url","videoUrl":{"url":"data:video/mp4;base64,AAAA"}}]"#;
+            let render = render_media_image(video, Default::default());
+            crate::terminal_image::set_capabilities(saved);
+            assert!(matches!(render, MediaRender::Text(_)));
+        });
     }
 }

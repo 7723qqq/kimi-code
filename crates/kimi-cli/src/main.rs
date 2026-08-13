@@ -230,15 +230,28 @@ async fn check_resume_work_dir(
         return Err(format!("Session \"{session_id}\" has no recorded work directory."));
     };
     if work_dir.trim().is_empty() {
-        return Err(format!("Session \"{session_id}\" has no recorded work directory."));
+        return Err(kimi_tui::i18n::t_fmt(
+            "cli.print.sessionNoWorkDir",
+            std::slice::from_ref(&session_id.to_string()),
+        ));
     }
     if normalize_work_dir(work_dir) == normalize_work_dir(&cwd.to_string_lossy()) {
         return Ok(());
     }
-    eprintln!("Session \"{session_id}\" was created under a different directory.");
-    eprintln!("  cd \"{work_dir}\" && kimi -r {session_id}");
+    let other = kimi_tui::i18n::t_fmt(
+        "cli.print.sessionOtherDir",
+        std::slice::from_ref(&session_id.to_string()),
+    );
+    eprintln!("{other}");
+    eprintln!(
+        "  {}",
+        kimi_tui::i18n::t_fmt(
+            "cli.print.cdHint",
+            &[work_dir.to_string(), session_id.to_string()],
+        )
+    );
     eprintln!();
-    Err(format!("Session \"{session_id}\" was created under a different directory."))
+    Err(other)
 }
 
 /// Split a SKILL.md body into its `---`-fenced frontmatter block and the
@@ -596,9 +609,10 @@ async fn run_web(
     insecure_no_tls: bool,
     allow_remote_shutdown: bool,
 ) -> anyhow::Result<()> {
-    // `kimi-server-serve` parity: a non-loopback bind without TLS is refused
-    // unless `--insecure-no-tls` opts in (TS forwards the flag to the server
-    // binary; the default is on).
+    // A non-loopback bind without TLS is refused unless `--insecure-no-tls`
+    // opts in — an intentional hardening vs the TS default (TS forwarded
+    // `--insecure-no-tls` with a default of on, i.e. plain HTTP on LAN was
+    // allowed silently; here it requires an explicit opt-in).
     let loopback = kimi_server_transport::http::is_loopback_host(host);
     if !loopback && !insecure_no_tls {
         anyhow::bail!(
@@ -632,7 +646,10 @@ async fn run_web(
     .with_allow_remote_shutdown(loopback || allow_remote_shutdown)
     .with_shutdown(std::sync::Arc::new(tokio::sync::Mutex::new(Some(shutdown_tx))));
     let listener = tokio::net::TcpListener::bind((host, port)).await?;
-    println!("Kimi Code web server running at {url}");
+    println!(
+        "{}",
+        kimi_tui::i18n::t_fmt("cli.web.running", std::slice::from_ref(&url))
+    );
     if !no_open {
         open_browser(&url);
     }
@@ -821,10 +838,19 @@ async fn run_kimi_login(
     let auth = kimi_oauth::request_device_authorization(&config).await.map_err(|e| {
         anyhow::anyhow!("device authorization failed: {e}")
     })?;
-    println!("Open: {}", auth.verification_uri);
-    println!("Enter code: {}", auth.user_code);
+    println!(
+        "{}",
+        kimi_tui::i18n::t_fmt("cli.login.open", std::slice::from_ref(&auth.verification_uri))
+    );
+    println!(
+        "{}",
+        kimi_tui::i18n::t_fmt("cli.login.enterCode", std::slice::from_ref(&auth.user_code))
+    );
     if let Some(complete) = auth.verification_uri_complete {
-        println!("(or open: {complete})");
+        println!(
+            "{}",
+            kimi_tui::i18n::t_fmt("cli.login.orOpen", std::slice::from_ref(&complete))
+        );
         // Best effort: open the deep link so the user can approve directly.
         open_browser(&complete);
     } else {
@@ -838,7 +864,7 @@ async fn run_kimi_login(
             anyhow::anyhow!("token poll failed: {e}")
         })? {
             kimi_oauth::DevicePollResult::Success { access_token, .. } => {
-                println!("logged in — storing kimi provider key into config");
+                println!("{}", kimi_tui::i18n::t("cli.login.loggedIn"));
                 // Persist the token so the native engine path can use it
                 // (config `providers.kimi.apiKey`).
                 let client = connect(server)?;
@@ -1068,10 +1094,12 @@ enum Commands {
         #[arg(long, num_args = 1..)]
         allowed_hosts: Vec<String>,
         /// Allow a non-loopback bind without TLS (TS `--insecure-no-tls`
-        /// parity; on by default — pass `--no-insecure-no-tls` to refuse).
+        /// parity). Intentionally off by default — plain HTTP on a LAN bind
+        /// requires this explicit opt-in; `--no-insecure-no-tls` is kept as
+        /// the TS-era negation and is a no-op when the opt-in is off.
         #[arg(long = "insecure-no-tls", action = clap::ArgAction::SetTrue)]
         insecure_no_tls: bool,
-        /// TS negation of the default-on `--insecure-no-tls` opt-in.
+        /// TS negation of the (historical) default-on `--insecure-no-tls`.
         #[arg(long = "no-insecure-no-tls", action = clap::ArgAction::SetTrue)]
         no_insecure_no_tls: bool,
         /// Enable `POST /api/v1/shutdown` on a non-loopback bind (TS
@@ -1414,16 +1442,20 @@ fn finish_doctor(issue_count: usize) {
 /// renderer (embedded EventBus / Remote captured stderr), so progress lines
 /// appear on stderr while the prompt runs. Returns the client and the renderer
 /// task handle (abort it after the prompt completes). `jsonl` additionally
-/// emits a `--output-format stream-json` JSONL transcript on stdout.
+/// emits a `--output-format stream-json` JSONL transcript on stdout;
+/// `stdout_stream` streams assistant deltas as raw text on stdout when stdout
+/// is not a terminal (TS session-engine parity: piped `-p` output is the
+/// streamed answer, not a post-hoc block).
 fn connect_with_renderer(
     server: &Option<String>,
     capture: bool,
     jsonl: bool,
+    stdout_stream: bool,
 ) -> anyhow::Result<(
     kimi_server_client::AppServerClient,
     Option<tokio::task::JoinHandle<()>>,
 )> {
-    if !capture && !jsonl {
+    if !capture && !jsonl && !stdout_stream {
         return Ok((connect(server)?, None));
     }
     let (client, source) = match server {
@@ -1451,8 +1483,11 @@ fn connect_with_renderer(
         let mut printed = 0usize;
         let mut jsonl = jsonl.then(JsonlWriter::new);
         // Live assistant text rolls on a TTY (codex-style streaming); piped
-        // stderr stays clean (the final transcript still lands on stdout).
+        // stderr stays clean. When stdout is piped, the assistant text
+        // streams there as raw text instead (TS session-engine parity) and
+        // the final bullet block is skipped by the caller.
         let tty = std::io::stderr().is_terminal();
+        let stream_stdout = stdout_stream;
         while let Some(event) = source.next().await {
             if let Some(writer) = jsonl.as_mut() {
                 for line in writer.feed(&event) {
@@ -1464,6 +1499,9 @@ fn connect_with_renderer(
                     if tty {
                         eprint!("{delta}");
                         let _ = std::io::stderr().flush();
+                    } else if stream_stdout {
+                        print!("{delta}");
+                        let _ = std::io::stdout().flush();
                     }
                 }
                 CliRender::StreamThink(delta) => {
@@ -2895,21 +2933,53 @@ async fn run_upgrade() -> i32 {
     let latest = match fetch_latest_version(&registry).await {
         Ok(version) => version,
         Err(reason) => {
-            eprintln!("error: upgrade check failed: {reason}");
+            eprintln!(
+                "{}",
+                kimi_tui::i18n::t_fmt(
+                    "cli.upgrade.checkFailed",
+                    std::slice::from_ref(&reason),
+                )
+            );
             return 1;
         }
     };
     let Some(ordering) = compare_versions(LOCAL_VERSION, &latest) else {
-        eprintln!("error: invalid local version: {LOCAL_VERSION}");
+        eprintln!(
+            "{}",
+            kimi_tui::i18n::t_fmt(
+                "cli.upgrade.invalidLocal",
+                std::slice::from_ref(&LOCAL_VERSION.to_string()),
+            )
+        );
         return 1;
     };
     if ordering == std::cmp::Ordering::Less {
         println!(
-            "A newer version of {NPM_PACKAGE_NAME} is available ({LOCAL_VERSION} -> {latest})."
+            "{}",
+            kimi_tui::i18n::t_fmt(
+                "cli.upgrade.available",
+                &[
+                    NPM_PACKAGE_NAME.to_string(),
+                    LOCAL_VERSION.to_string(),
+                    latest.clone(),
+                ],
+            )
         );
-        println!("To update, run: {}", install_command_for());
+        println!(
+            "{}",
+            kimi_tui::i18n::t_fmt(
+                "cli.upgrade.toUpdate",
+                std::slice::from_ref(&install_command_for()),
+            )
+        );
     } else {
-        println!("{NPM_PACKAGE_NAME} is up to date ({latest}).");
+        println!(
+            "{}",
+            kimi_tui::i18n::t_fmt(
+                "cli.upgrade.upToDate",
+                &[NPM_PACKAGE_NAME.to_string(), latest],
+            )
+        );
     }
     0
 }
@@ -3090,8 +3160,11 @@ async fn main() -> anyhow::Result<()> {
             }
             // Progress on stderr: always with `--verbose`, and by default when
             // stderr is a terminal (script pipes stay clean — stdout keeps the
-            // result contract either way).
-            let capture = verbose || std::io::stderr().is_terminal();
+            // result contract either way). When stdout itself is piped, the
+            // assistant text streams there as raw text (TS parity) and tool /
+            // goal diagnostics go to stderr (TS session-engine parity).
+            let capture = verbose || std::io::stderr().is_terminal() || !std::io::stdout().is_terminal();
+            let stdout_stream = !stream_json && !json && !std::io::stdout().is_terminal();
             // TS `PromptJsonWriter` parity: stream-json opens with a
             // `system.version` meta line so consumers can pin the format.
             if stream_json {
@@ -3101,7 +3174,8 @@ async fn main() -> anyhow::Result<()> {
                     "version": env!("CARGO_PKG_VERSION"),
                 }));
             }
-            let (mut client, renderer) = connect_with_renderer(&server, capture, stream_json)?;
+            let (mut client, renderer) =
+                connect_with_renderer(&server, capture, stream_json, stdout_stream)?;
             // TS `-p` parity: an explicit `-S <id>`/`-r <id>` resumes that
             // session for the prompt (a value-less `-S` is meaningless in
             // prompt mode and rejected); `--continue` resumes the most
@@ -3211,10 +3285,14 @@ async fn main() -> anyhow::Result<()> {
                 // Default: render the transcript — the last assistant text
                 // from the session context as a bullet block (TS
                 // `PromptBlockWriter` parity; raw RPC envelope via `--json`).
+                // When stdout was streamed live (piped stdout), skip the
+                // post-hoc block — the answer already went out as raw text.
                 let ctx = client.session_get_context(&session_id).await;
                 match kimi_ui::last_assistant_text(&ctx["result"]) {
                     Some(text) => {
-                        println!("{}", kimi_ui::render_prompt_block(&text, terminal_columns()))
+                        if !stdout_stream {
+                            println!("{}", kimi_ui::render_prompt_block(&text, terminal_columns()))
+                        }
                     }
                     None => println!("{result}"),
                 }
@@ -3288,7 +3366,9 @@ async fn main() -> anyhow::Result<()> {
             // TTY default capture, like print (verbose forces it; script
             // pipes stay clean).
             let capture = verbose || std::io::stderr().is_terminal();
-            let (client, renderer) = connect_with_renderer(&server, capture, stream_json)?;
+            let stdout_stream = !stream_json && !json && !std::io::stdout().is_terminal();
+            let (client, renderer) =
+                connect_with_renderer(&server, capture, stream_json, stdout_stream)?;
             let native_llm = kimi_exec::native_llm_from_config();
             let mut create_params = serde_json::json!({ "session_id": session_id });
             let skills = load_skills_from_dirs(&skills_dirs);
@@ -3611,7 +3691,7 @@ async fn main() -> anyhow::Result<()> {
             // rendering as `print --verbose`. Progress goes to stderr when it
             // is a TTY; the assistant transcript goes to stdout per turn.
             let capture = std::io::stderr().is_terminal();
-            let (mut client, renderer) = connect_with_renderer(&server, capture, false)?;
+            let (mut client, renderer) = connect_with_renderer(&server, capture, false, false)?;
             let session_id = if continue_ {
                 let cwd = std::env::current_dir().ok();
                 latest_session_id(&mut client, cwd.as_deref().and_then(|p| p.to_str()))
@@ -3909,7 +3989,10 @@ async fn main() -> anyhow::Result<()> {
                     };
                     let trimmed = url.trim();
                     if trimmed.is_empty() {
-                        eprintln!("Registry URL is required.");
+                        eprintln!(
+                            "{}",
+                            kimi_tui::i18n::t("cli.provider.registryUrlRequired")
+                        );
                         std::process::exit(1);
                     }
                     let catalog =
@@ -3978,7 +4061,13 @@ async fn main() -> anyhow::Result<()> {
                         .as_object()
                         .is_some();
                     if !exists {
-                        eprintln!("Provider \"{id}\" not found.");
+                        eprintln!(
+                            "{}",
+                            kimi_tui::i18n::t_fmt(
+                                "cli.provider.notFoundCli",
+                                std::slice::from_ref(&id.to_string()),
+                            )
+                        );
                         std::process::exit(1);
                     }
                     // Cascade: drop the provider AND every model alias that
@@ -4017,17 +4106,63 @@ async fn main() -> anyhow::Result<()> {
                                         std::process::exit(1);
                                     };
                                     if json {
+                                        // TS parity: `{providerId, name, models}` with normalized models.
+                                        let models =
+                                            kimi_sdk::catalog::catalog_provider_models(provider);
+                                        let normalized: Vec<serde_json::Value> = models
+                                            .iter()
+                                            .map(|m| {
+                                                serde_json::json!({
+                                                    "id": m.id,
+                                                    "name": m.name,
+                                                    "contextWindow": m.capability.max_context_tokens,
+                                                    "reasoningKey": m.reasoning_key,
+                                                    "supportEfforts": m.support_efforts,
+                                                })
+                                            })
+                                            .collect();
                                         println!(
                                             "{}",
-                                            serde_json::to_string_pretty(&serde_json::json!({ pid: provider }))
-                                                .unwrap_or_default()
+                                            serde_json::to_string_pretty(&serde_json::json!({
+                                                "providerId": pid,
+                                                "name": provider.name,
+                                                "models": normalized,
+                                            }))
+                                            .unwrap_or_default()
                                         );
                                     } else {
-                                        println!("{pid}  {}", provider.name);
-                                        let mut models: Vec<&String> = provider.models.keys().collect();
-                                        models.sort();
+                                        // TS parity: `name (id)` header, then one
+                                        // line per model with context window and
+                                        // capability markers.
+                                        println!("{} ({})", provider.name, pid);
+                                        let mut models =
+                                            kimi_sdk::catalog::catalog_provider_models(provider);
+                                        models.sort_by(|a, b| a.id.cmp(&b.id));
                                         for m in models {
-                                            println!("    {m}");
+                                            let mut caps: Vec<&str> = Vec::new();
+                                            if m.capability.image_in {
+                                                caps.push("image");
+                                            }
+                                            if m.capability.video_in {
+                                                caps.push("video");
+                                            }
+                                            if m.capability.audio_in {
+                                                caps.push("audio");
+                                            }
+                                            if m.capability.thinking {
+                                                caps.push("thinking");
+                                            }
+                                            let ctx = m.capability.max_context_tokens;
+                                            let line = if caps.is_empty() {
+                                                format!("  {}  ctx={ctx}", m.id)
+                                            } else {
+                                                format!(
+                                                    "  {}  ctx={ctx}[{}]",
+                                                    m.id,
+                                                    caps.join(",")
+                                                )
+                                            };
+                                            println!("{line}");
                                         }
                                     }
                                     return Ok(());
@@ -4070,10 +4205,26 @@ async fn main() -> anyhow::Result<()> {
                                         return Ok(());
                                     }
                                     for (id, provider) in providers {
+                                        // TS parity: wire type + model count +
+                                        // name, with a `(guessed)` marker when the
+                                        // wire type was inferred rather than
+                                        // declared.
+                                        let resolution = kimi_sdk::catalog::resolve_catalog_import(
+                                            &provider,
+                                            None,
+                                        );
+                                        let wire = resolution
+                                            .wire
+                                            .unwrap_or_else(|| "?".into());
+                                        let wire_label = if resolution.guessed {
+                                            format!("{wire} (guessed)")
+                                        } else {
+                                            wire
+                                        };
                                         println!(
-                                            "{id}  {}  ({} models)",
-                                            provider.name,
-                                            provider.models.len()
+                                            "{id}  wire={wire_label}  models={}  {}",
+                                            provider.models.len(),
+                                            provider.name
                                         );
                                     }
                                 }
@@ -4117,7 +4268,13 @@ async fn main() -> anyhow::Result<()> {
                                     }
                                 }
                                 if matched == 0 {
-                                    println!("no providers match \"{query}\"");
+                                    println!(
+                                        "{}",
+                                        kimi_tui::i18n::t_fmt(
+                                            "cli.provider.noMatch",
+                                            std::slice::from_ref(&query.to_string()),
+                                        )
+                                    );
                                 }
                             }
                             Err(e) => {
@@ -4212,31 +4369,29 @@ async fn main() -> anyhow::Result<()> {
                             "providers": {},
                             "models": {},
                         });
-                        let default_model_key = if !models.is_empty() {
-                            kimi_sdk::catalog::apply_catalog_provider(
-                                &mut config,
-                                &id,
-                                &wire,
-                                resolved_base_url.as_deref(),
-                                Some(resolved_key.as_str()),
-                                &models,
-                                selected_model_id.as_deref(),
-                                true,
-                            )
-                        } else {
-                            // No importable models: fall back to the
-                            // provider-only write.
-                            let mut provider_cfg = serde_json::json!({ "type": wire });
-                            if let Some(base_url) = &resolved_base_url {
-                                provider_cfg["baseUrl"] = serde_json::json!(base_url);
-                            }
-                            provider_cfg["apiKey"] = serde_json::json!(resolved_key);
-                            config["providers"][&id] = provider_cfg;
-                            if let Some(model) = &default_model {
-                                config["defaultModel"] = serde_json::json!(model);
-                            }
-                            default_model.unwrap_or_default()
-                        };
+                        if models.is_empty() {
+                            // TS parity: an import with no usable chat models
+                            // is an error — do not silently write a
+                            // provider-only entry.
+                            eprintln!(
+                                "{}",
+                                kimi_tui::i18n::t_fmt(
+                                    "cli.provider.catalogNoModels",
+                                    std::slice::from_ref(&id.to_string()),
+                                )
+                            );
+                            std::process::exit(1);
+                        }
+                        let default_model_key = kimi_sdk::catalog::apply_catalog_provider(
+                            &mut config,
+                            &id,
+                            &wire,
+                            resolved_base_url.as_deref(),
+                            Some(resolved_key.as_str()),
+                            &models,
+                            selected_model_id.as_deref(),
+                            true,
+                        );
                         // Persist the registry source blob so the TUI can
                         // group/refresh providers by catalog URL (TS
                         // `source: { kind: 'apiJson', url, apiKey }` parity).
@@ -4256,12 +4411,27 @@ async fn main() -> anyhow::Result<()> {
                             eprintln!("error: {}", error["message"].as_str().unwrap_or("unknown"));
                             std::process::exit(1);
                         }
-                        if default_model_key.is_empty() {
-                            println!("provider {id} added (baseUrl {})", resolved_base_url.unwrap_or_default());
-                        } else {
+                        // TS parity: "Imported {name} ({id}) with N models
+                        // from {url}." plus the default-model line.
+                        println!(
+                            "{}",
+                            kimi_tui::i18n::t_fmt(
+                                "cli.provider.imported",
+                                &[
+                                    provider.name.clone(),
+                                    id.clone(),
+                                    models.len().to_string(),
+                                    catalog_url.to_string(),
+                                ],
+                            )
+                        );
+                        if !default_model_key.is_empty() {
                             println!(
-                                "provider {id} added (baseUrl {}, default model {default_model_key})",
-                                resolved_base_url.unwrap_or_default()
+                                "{}",
+                                kimi_tui::i18n::t_fmt(
+                                    "cli.provider.defaultModelSet",
+                                    std::slice::from_ref(&default_model_key),
+                                )
                             );
                         }
                     }
@@ -4289,13 +4459,19 @@ async fn main() -> anyhow::Result<()> {
                         // stdin (readline) — an EOF / empty answer defaults to
                         // yes, so a non-TTY run with no input confirms instead
                         // of erroring; `echo n | kimi export` still cancels.
-                        eprint!("Export session {id}? [Y/n] ");
+                        eprint!(
+                            "{}",
+                            kimi_tui::i18n::t_fmt(
+                                "cli.export.confirm",
+                                std::slice::from_ref(&id.to_string()),
+                            )
+                        );
                         std::io::Write::flush(&mut std::io::stderr()).ok();
                         let mut answer = String::new();
                         std::io::stdin().read_line(&mut answer).ok();
                         let answer = answer.trim();
                         if answer.eq_ignore_ascii_case("n") || answer.eq_ignore_ascii_case("no") {
-                            println!("Export cancelled.");
+                            println!("{}", kimi_tui::i18n::t("cli.export.cancelled"));
                             return Ok(());
                         }
                     }

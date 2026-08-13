@@ -11,13 +11,11 @@ use kimi_sdk::Harness;
 
 use crate::approval::{approval_modal_lines, queue_new_approvals, PendingApproval};
 use crate::i18n::t;
-/// The `t!` formatting macro (exported at the crate root by `i18n`).
-use crate::t;
 use crate::question::QuestionPanel;
 /// The `t!` formatting macro (exported at the crate root by `i18n`).
-use crate::util::{
-    init_terminal, interrupt_action, restore_terminal, InterruptAction,
-};
+use crate::t;
+/// The `t!` formatting macro (exported at the crate root by `i18n`).
+use crate::util::{init_terminal, interrupt_action, restore_terminal, InterruptAction};
 
 /// The role/source of a transcript line, driving its render style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,6 +88,11 @@ pub struct ToolCallEntry {
     pub duration: Option<std::time::Duration>,
     /// Long results start collapsed (`[+]`; Ctrl-O toggles).
     pub collapsed: bool,
+    /// An inline image rendered for this tool result (ReadMediaFile on a
+    /// terminal with Kitty/iTerm2 support). The chatwidget injects its
+    /// escape sequence straight into the terminal buffer and reserves
+    /// `rows` transcript lines.
+    pub image: Option<crate::terminal_image::RenderedImage>,
 }
 
 /// Convenience push for the common plain-line case (`transcript.push_line`).
@@ -249,7 +252,10 @@ fn build_help_rows() -> Vec<String> {
         "  PageUp/Dn   scroll (in lists)".to_string(),
         String::new(),
     ];
-    rows.push(t!("tui.help.commands", crate::bottom_pane::command_descriptions().len()));
+    rows.push(t!(
+        "tui.help.commands",
+        crate::bottom_pane::command_descriptions().len()
+    ));
     for (name, desc) in crate::bottom_pane::command_descriptions() {
         rows.push(format!("{name}  {desc}"));
     }
@@ -376,6 +382,8 @@ pub struct EditorState {
     pub(crate) history_idx: Option<usize>,
     /// Active Tab completion cycle, if any.
     pub(crate) tab: Option<TabState>,
+    /// Last persisted input (consecutive-dedup for the history file).
+    pub(crate) last_history_content: Option<String>,
 }
 
 /// Rendering / view state (transcript, scroll, footer, theme).
@@ -396,6 +404,11 @@ pub struct ViewState {
     pub(crate) dark_mode: bool,
     /// When the last Ctrl-C was pressed (double-press exit confirmation).
     last_ctrl_c: Option<std::time::Instant>,
+    /// When the last Ctrl-D was pressed (double-press exit confirmation).
+    last_ctrl_d: Option<std::time::Instant>,
+    /// When the last Esc was pressed (double-Esc opens the undo flow instead
+    /// of quitting — TS double-esc parity; a double Esc must never exit).
+    last_esc: Option<std::time::Instant>,
 }
 
 impl Default for ViewState {
@@ -408,6 +421,8 @@ impl Default for ViewState {
             theme: crate::theme::load_theme(),
             dark_mode: true,
             last_ctrl_c: None,
+            last_ctrl_d: None,
+            last_esc: None,
         }
     }
 }
@@ -426,6 +441,17 @@ pub struct App {
     pub(crate) btw_agent: Option<String>,
     /// Model aliases for `/model` Tab completion.
     pub(crate) model_aliases: Vec<String>,
+    /// Registered skill names for `/skill:` Tab completion, lazily fetched on
+    /// the first `/skill:` Tab (TS `listSkills` parity). `None` = not fetched
+    /// yet; a failed fetch caches the empty list so completion degrades
+    /// silently.
+    pub(crate) skill_names: Option<Vec<String>>,
+    /// Registered `plugin:command` names for `/<pluginId>:` Tab completion,
+    /// lazily fetched on the first colon-shaped `/…:` Tab (TS
+    /// plugin-command autocomplete parity, mirroring `skill_names`). `None`
+    /// = not fetched yet; a failed fetch caches the empty list so
+    /// completion degrades silently.
+    pub(crate) plugin_commands: Option<Vec<String>>,
     /// Pending tool approvals queued for interactive y/n resolution.
     pub(crate) pending_approvals: Vec<PendingApproval>,
     /// The active overlay (completion popup / approval detail), if any.
@@ -441,10 +467,23 @@ pub struct App {
     /// Top-level startup overrides (`kimi -m/-y/--auto/--plan`), applied
     /// right after the session opens.
     startup: StartupOptions,
+    /// Reasoning blocks expand on Ctrl-O (TS `toolOutputExpanded` parity —
+    /// thinking folds to a tail preview by default).
+    pub(crate) tool_output_expanded: bool,
+    /// The todo panel list `(title, status)` above the input line, fed by
+    /// resume records and `session.todo.updated` events (TS TodoPanel
+    /// parity); empty renders no panel rows.
+    pub(crate) todo_list: Vec<(String, String)>,
     /// Input-editing state (prompt line, cursor, history, Tab).
     pub(crate) edit: EditorState,
     /// Rendering / view state (transcript, scroll, footer, theme).
     pub(crate) view: ViewState,
+    /// Inline-image placements produced by the last frame draw, injected
+    /// into the terminal right after the frame flushes.
+    pub(crate) pending_images: Vec<crate::chatwidget::ImagePlacement>,
+    /// The placements injected last frame — when the new list matches, the
+    /// inject step is a no-op (avoids re-uploading the same images).
+    pub(crate) last_injected_images: Vec<crate::chatwidget::ImagePlacement>,
 }
 
 /// Whether a goal status is terminal. Snapshot serde form (camelCase
@@ -459,10 +498,62 @@ fn goal_status_is_terminal(status: &str) -> bool {
     )
 }
 
+/// The idle main-loop Ctrl-C chain decision (TS `onCtrlC` parity). While no
+/// turn runs, only the btw-panel, double-press-exit and clear-input levels
+/// are reachable: the mid-turn levels (cancelInFlight / btw-running /
+/// compacting / streaming) live in `poll_prompt_keys`, which cancels the
+/// running turn — the Rust loop cannot observe them here because a turn
+/// blocks the main event loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IdleCtrlCAction {
+    /// Second Ctrl-C within the confirmation window: quit the app.
+    Exit,
+    /// The btw panel is open: close it. Outranks the exit confirmation —
+    /// closing the panel must never count as the first press of a double.
+    CloseBtw,
+    /// First press: clear the input (if any) and arm the exit confirmation.
+    ArmExit,
+}
+
+/// Idle Ctrl-C priority: btw panel → double-press exit → clear+arm (TS
+/// chain order; `btw_open` wins over `double_press` exactly like TS's
+/// `closeOrCancel` before the `pendingExit` check).
+pub(crate) fn idle_ctrl_c_action(btw_open: bool, double_press: bool) -> IdleCtrlCAction {
+    if btw_open {
+        IdleCtrlCAction::CloseBtw
+    } else if double_press {
+        IdleCtrlCAction::Exit
+    } else {
+        IdleCtrlCAction::ArmExit
+    }
+}
+
 impl App {
     /// Push a plain line onto the transcript (the common case).
     pub(crate) fn push_line(&mut self, line: TranscriptLine) {
         self.view.transcript.push(TranscriptEntry::Line(line));
+    }
+
+    /// Mouse-wheel scrolling: up walks into the transcript history, down
+    /// returns to the live bottom (auto-follow). Same stepping as PageUp/
+    /// PageDown; the wheel is only active because the terminal forwards it
+    /// as mouse events once capture is enabled (otherwise terminals turn it
+    /// into Up/Down keypresses, which the input line misinterprets as
+    /// history navigation).
+    pub(crate) fn handle_mouse(&mut self, kind: event::MouseEventKind) {
+        match kind {
+            event::MouseEventKind::ScrollUp => {
+                self.view.follow_bottom = false;
+                self.view.scroll = self.view.scroll.saturating_add(5);
+            }
+            event::MouseEventKind::ScrollDown => {
+                self.view.scroll = self.view.scroll.saturating_sub(5);
+                if self.view.scroll == 0 {
+                    self.view.follow_bottom = true;
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Create the app around an engine harness (embedded or remote).
@@ -475,6 +566,8 @@ impl App {
             session: None,
             btw_agent: None,
             model_aliases: Vec::new(),
+            skill_names: None,
+            plugin_commands: None,
             pending_approvals: Vec::new(),
             overlay: None,
             auto_allow_rules: std::collections::HashSet::new(),
@@ -483,6 +576,10 @@ impl App {
             edit: EditorState::default(),
             view: ViewState::default(),
             startup: StartupOptions::default(),
+            tool_output_expanded: false,
+            todo_list: Vec::new(),
+            pending_images: Vec::new(),
+            last_injected_images: Vec::new(),
         }
     }
 
@@ -498,12 +595,32 @@ impl App {
         // sessions exist, offer an interactive choice (resume UX parity).
         if self.startup_pick {
             let sessions = self.harness.list_sessions(50).await?;
+            // TS session-picker parity: title leads, detail carries
+            // id · work_dir · relative time.
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
             let items: Vec<(String, String)> = sessions
                 .iter()
                 .filter_map(|s| {
                     let id = s["id"].as_str()?.to_string();
-                    let title = s["title"].as_str().unwrap_or("(untitled)").to_string();
-                    Some((id, title))
+                    let title = s["title"]
+                        .as_str()
+                        .filter(|t| !t.is_empty())
+                        .unwrap_or(&id)
+                        .to_string();
+                    let mut detail = id.clone();
+                    if let Some(wd) = s["work_dir"].as_str().filter(|w| !w.is_empty()) {
+                        detail.push_str(&format!(" · {wd}"));
+                    }
+                    if let Some(updated) = s["updated_at"].as_str() {
+                        let relative = crate::reports::format_relative_time(updated, now_ms);
+                        if !relative.is_empty() {
+                            detail.push_str(&format!(" · {relative}"));
+                        }
+                    }
+                    Some((id, format!("{title}  {detail}")))
                 })
                 .collect();
             if !items.is_empty() {
@@ -527,6 +644,13 @@ impl App {
         // the persisted context + goal for an existing session (no-op for a
         // brand-new one).
         let _ = session.load().await;
+        // Input history persistence (TS parity): restore the per-workdir
+        // prompt history so Up recalls entries from earlier sessions.
+        if let Ok(cwd) = std::env::current_dir() {
+            let workdir = cwd.to_string_lossy().into_owned();
+            self.edit.history = crate::util::load_input_history(&workdir);
+            self.edit.last_history_content = self.edit.history.last().cloned();
+        }
         // Apply top-level startup overrides (TS run-shell parity):
         // `-m <model>` sets the session model, `-y/--auto` the permission
         // mode, `--plan` opens plan mode. Best-effort — the session stays
@@ -543,15 +667,38 @@ impl App {
             let _ = session.set_plan_mode(true).await;
         }
         let _ = session.load().await;
-        // Rebuild the transcript from the persisted context (resume UX
-        // parity): the user sees the conversation history instead of a blank
-        // chat, exactly as it ended.
-        let context = session.get_context().await;
-        let history = crate::history::render_history(&context["result"]);
-        self.view.transcript.extend(history);
+        // Rebuild the transcript from the persisted records (resume UX
+        // parity): the full replay renders turn by turn instead of the plain
+        // context snapshot, exactly as the session ended. The old
+        // `get_context` path stays as the fallback when the engine has no
+        // replay state (TS `hydrateFromReplay` parity).
+        match session.resume_state().await {
+            Ok(state) => {
+                self.todo_list = crate::replay::todo_items(&state);
+                let replayed = crate::replay::render_resume_state(&state);
+                self.view.transcript.extend(replayed);
+            }
+            Err(e) => {
+                let context = session.get_context().await;
+                let history = crate::history::render_history(&context["result"]);
+                self.view.transcript.extend(history);
+                self.push_line(TranscriptLine::status(t!(
+                    "tui.replay.fallback",
+                    e
+                )));
+            }
+        }
         // Seed the footer status (best-effort) before the session moves.
         let status = session.get_status().await;
         self.view.footer = crate::footer::FooterInfo::from_status(&status["result"]);
+        // Seed the goal badge from the persisted goal so a resumed session
+        // shows it before the first `session.goal.updated` event (TS
+        // restores `state.goal` on session load).
+        if let Ok(goal) = session.goal().await {
+            if let Some(snapshot) = goal.get("goal") {
+                self.view.footer.goal = crate::footer::GoalBadge::from_snapshot(snapshot);
+            }
+        }
         self.session = Some(session);
         self.push_line(TranscriptLine::status(t!(
             "tui.start.sessionReady",
@@ -579,11 +726,14 @@ impl App {
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     ) -> anyhow::Result<()> {
         loop {
-            terminal.draw(|frame| self.draw(frame))?;
+            self.draw_frame(terminal)?;
             if !event::poll(Duration::from_millis(100))? {
                 continue;
             }
             match event::read()? {
+                Event::Mouse(mouse) => {
+                    self.handle_mouse(mouse.kind);
+                }
                 Event::Paste(data) => {
                     // Bracketed paste (Ctrl-V / terminal paste) inserts into
                     // the input at the cursor.
@@ -597,83 +747,142 @@ impl App {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     // Overlays own the keys while open (question dialog after
                     // a stopped turn, help panel, approval detail).
-                    if self.handle_overlay_key(key.code).await? {
+                    if self.handle_overlay_key(terminal, key.code).await? {
                         continue;
                     }
                     match key.code {
-                    KeyCode::Char('v') if key.modifiers.contains(event::KeyModifiers::ALT) => {
-                        // Paste an image from the clipboard (Alt-V on
-                        // Windows — Ctrl-V is usually reserved by the
-                        // terminal for bracketed text paste).
-                        match crate::clipboard::clipboard_image() {
-                            Ok(Some((path, mime))) => {
-                                let id = self.image_attachments.len();
-                                self.image_attachments
-                                    .push(crate::clipboard::ImageAttachment { id, path, mime });
-                                let (input, cursor) = crate::bottom_pane::insert_text(
-                                    &self.edit.text,
-                                    self.edit.cursor,
-                                    &format!("{} ", crate::clipboard::placeholder(id)),
-                                );
-                                self.edit.text = input;
-                                self.edit.cursor = cursor;
-                                self.push_line(TranscriptLine::status(t!("tui.paste.image", id)));
-                            }
-                            Ok(None) => {
-                                self.push_line(TranscriptLine::status(t("tui.paste.noImage")))
-                            }
-                            Err(e) => {
-                                self.push_line(TranscriptLine::error(format!("clipboard: {e}")))
+                        KeyCode::Char('v') if key.modifiers.contains(event::KeyModifiers::ALT) => {
+                            // Paste an image from the clipboard (Alt-V on
+                            // Windows — Ctrl-V is usually reserved by the
+                            // terminal for bracketed text paste).
+                            match crate::clipboard::clipboard_image() {
+                                Ok(Some((path, mime))) => {
+                                    let id = self.image_attachments.len();
+                                    let placeholder =
+                                        crate::clipboard::placeholder_for_path(&path, id);
+                                    self.image_attachments
+                                        .push(crate::clipboard::ImageAttachment { id, path, mime });
+                                    let (input, cursor) = crate::bottom_pane::insert_text(
+                                        &self.edit.text,
+                                        self.edit.cursor,
+                                        &format!("{placeholder} "),
+                                    );
+                                    self.edit.text = input;
+                                    self.edit.cursor = cursor;
+                                    self.push_line(TranscriptLine::status(t!(
+                                        "tui.paste.image",
+                                        id
+                                    )));
+                                }
+                                Ok(None) => {
+                                    self.push_line(TranscriptLine::status(t("tui.paste.noImage")))
+                                }
+                                Err(e) => {
+                                    self.push_line(TranscriptLine::error(format!("clipboard: {e}")))
+                                }
                             }
                         }
-                    }
-                    KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-                        // Double-press Ctrl-C within 1.5s to exit; the first
-                        // press just warns (TS exit-confirmation parity).
-                        let now = std::time::Instant::now();
-                        let again = self.view.last_ctrl_c.is_some_and(|t| {
-                            now.duration_since(t) < std::time::Duration::from_millis(1500)
-                        });
-                        if again {
-                            return Ok(());
+                        KeyCode::Char('c')
+                            if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
+                        {
+                            // Ctrl-C priority chain (TS `onCtrlC` parity):
+                            // while idle, the btw panel closes first; a second
+                            // press within 1.5s exits; otherwise the input is
+                            // cleared and the exit confirmation is armed.
+                            // Mid-turn presses are handled by
+                            // `poll_prompt_keys` (cancel the turn), which the
+                            // main loop cannot reach while a turn runs.
+                            let now = std::time::Instant::now();
+                            let again = self.view.last_ctrl_c.is_some_and(|t| {
+                                now.duration_since(t)
+                                    < std::time::Duration::from_millis(1500)
+                            });
+                            match idle_ctrl_c_action(self.btw_agent.is_some(), again) {
+                                IdleCtrlCAction::Exit => return Ok(()),
+                                IdleCtrlCAction::CloseBtw => {
+                                    // TS `closeOrCancel`: dismiss the btw
+                                    // panel and end the engine side-question
+                                    // conversation so prompts route to the
+                                    // main session again. Disarms any pending
+                                    // exit confirmation (TS `clearPendingExit`).
+                                    self.btw_agent = None;
+                                    self.view.last_ctrl_c = None;
+                                    self.view.last_ctrl_d = None;
+                                    let _ = self
+                                        .session
+                                        .as_mut()
+                                        .expect("session")
+                                        .end_btw()
+                                        .await;
+                                    self.push_line(TranscriptLine::status(t(
+                                        "tui.btw.ended",
+                                    )));
+                                }
+                                IdleCtrlCAction::ArmExit => {
+                                    self.view.last_ctrl_c = Some(now);
+                                    // TS clears the editor draft before arming
+                                    // the exit confirmation.
+                                    if !self.edit.text.is_empty() {
+                                        self.edit.text.clear();
+                                        self.edit.cursor = 0;
+                                    }
+                                    self.push_line(TranscriptLine::status(t(
+                                        "tui.turn.exitConfirm"
+                                    )));
+                                }
+                            }
                         }
-                        self.view.last_ctrl_c = Some(now);
-                        self.push_line(TranscriptLine::status(t("tui.turn.exitConfirm")));
-                    }
-                    KeyCode::Char(ch) if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-                        self.edit.tab = None;
-                        match ch {
-                            'a' => self.edit.cursor = 0,
-                            'e' => self.edit.cursor = self.edit.text.chars().count(),
-                            'u' => {
-                                let (input, cursor) = crate::bottom_pane::kill_to_start(
-                                    &self.edit.text,
-                                    self.edit.cursor,
-                                );
-                                self.edit.text = input;
-                                self.edit.cursor = cursor;
+                        KeyCode::Char('d')
+                            if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
+                        {
+                            // Double-press Ctrl-D within 1.5s to exit (TS
+                            // `onCtrlD` parity); a single press warns.
+                            let now = std::time::Instant::now();
+                            let again = self.view.last_ctrl_d.is_some_and(|t| {
+                                now.duration_since(t) < std::time::Duration::from_millis(1500)
+                            });
+                            if again {
+                                return Ok(());
                             }
-                            'k' => {
-                                self.edit.text = crate::bottom_pane::kill_to_end(
-                                    &self.edit.text,
-                                    self.edit.cursor,
-                                );
-                            }
-                            'w' => {
-                                let (input, cursor) = crate::bottom_pane::kill_word(
-                                    &self.edit.text,
-                                    self.edit.cursor,
-                                );
-                                self.edit.text = input;
-                                self.edit.cursor = cursor;
-                            }
-                            's' => {
-                                // Send the current input as a steer (TS
-                                // Ctrl-S parity) instead of submitting.
-                                let text = std::mem::take(&mut self.edit.text);
-                                self.edit.cursor = 0;
-                                if !text.trim().is_empty() {
-                                    let queued = self
+                            self.view.last_ctrl_d = Some(now);
+                            self.push_line(TranscriptLine::status(t("tui.turn.exitConfirm")));
+                        }
+                        KeyCode::Char(ch)
+                            if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
+                        {
+                            self.edit.tab = None;
+                            match ch {
+                                'a' => self.edit.cursor = 0,
+                                'e' => self.edit.cursor = self.edit.text.chars().count(),
+                                'u' => {
+                                    let (input, cursor) = crate::bottom_pane::kill_to_start(
+                                        &self.edit.text,
+                                        self.edit.cursor,
+                                    );
+                                    self.edit.text = input;
+                                    self.edit.cursor = cursor;
+                                }
+                                'k' => {
+                                    self.edit.text = crate::bottom_pane::kill_to_end(
+                                        &self.edit.text,
+                                        self.edit.cursor,
+                                    );
+                                }
+                                'w' => {
+                                    let (input, cursor) = crate::bottom_pane::kill_word(
+                                        &self.edit.text,
+                                        self.edit.cursor,
+                                    );
+                                    self.edit.text = input;
+                                    self.edit.cursor = cursor;
+                                }
+                                's' => {
+                                    // Send the current input as a steer (TS
+                                    // Ctrl-S parity) instead of submitting.
+                                    let text = std::mem::take(&mut self.edit.text);
+                                    self.edit.cursor = 0;
+                                    if !text.trim().is_empty() {
+                                        let queued = self
                                         .session
                                         .as_mut()
                                         .expect("session")
@@ -681,176 +890,245 @@ impl App {
                                             serde_json::json!([{ "type": "text", "text": text }]),
                                         )
                                         .await?;
-                                    self.push_line(TranscriptLine::status(t!(
-                                        "tui.steer.queued",
-                                        queued
-                                    )));
-                                }
-                            }
-                            'o' => self.toggle_last_tool_collapse(),
-                            'b' => {
-                                // Background-task browser (TS Ctrl-B parity):
-                                // delegate to `/tasks` (picker over the
-                                // running tasks, output viewer on pick).
-                                self.dispatch(terminal, "/tasks").await?;
-                            }
-                            'g' => {
-                                // External editor (Ctrl-G): suspend the TUI,
-                                // edit a temp file seeded with the input,
-                                // read the result back into the input line.
-                                match crate::editor::edit_external(&self.edit.text) {
-                                    Ok(text) => {
-                                        self.edit.text = text;
-                                        self.edit.cursor = self.edit.text.chars().count();
+                                        self.push_line(TranscriptLine::status(t!(
+                                            "tui.steer.queued",
+                                            queued
+                                        )));
                                     }
-                                    Err(e) => self.push_line(TranscriptLine::error(t!(
-                                        "tui.err.editorFailed",
-                                        e
-                                    ))),
                                 }
+                                'o' => {
+                                    // Ctrl-O: reasoning blocks expand /
+                                    // collapse (TS `toggleToolOutputExpansion`
+                                    // parity); tool cards keep their
+                                    // per-card toggle.
+                                    self.tool_output_expanded =
+                                        !self.tool_output_expanded;
+                                    self.toggle_last_tool_collapse();
+                                }
+                                'b' => {
+                                    // Background-task browser (TS Ctrl-B parity):
+                                    // delegate to `/tasks` (picker over the
+                                    // running tasks, output viewer on pick).
+                                    self.dispatch(terminal, "/tasks").await?;
+                                }
+                                'g' => {
+                                    // External editor (Ctrl-G): suspend the TUI,
+                                    // edit a temp file seeded with the input,
+                                    // read the result back into the input line.
+                                    match crate::editor::edit_external(&self.edit.text) {
+                                        Ok(text) => {
+                                            self.edit.text = text;
+                                            self.edit.cursor = self.edit.text.chars().count();
+                                        }
+                                        Err(e) => self.push_line(TranscriptLine::error(t!(
+                                            "tui.err.editorFailed",
+                                            e
+                                        ))),
+                                    }
+                                }
+                                _ => {}
                             }
-                            _ => {}
                         }
-                    }
-                    KeyCode::Char(ch) => {
-                        self.edit.tab = None;
-                        let (input, cursor) =
-                            crate::bottom_pane::insert_char(&self.edit.text, self.edit.cursor, ch);
-                        self.edit.text = input;
-                        self.edit.cursor = cursor;
-                        self.refresh_completion();
-                    }
-                    KeyCode::Backspace => {
-                        self.edit.tab = None;
-                        let (input, cursor) =
-                            crate::bottom_pane::backspace(&self.edit.text, self.edit.cursor);
-                        self.edit.text = input;
-                        self.edit.cursor = cursor;
-                        self.refresh_completion();
-                    }
-                    KeyCode::Delete => {
-                        self.edit.tab = None;
-                        self.edit.text =
-                            crate::bottom_pane::delete_forward(&self.edit.text, self.edit.cursor);
-                        self.refresh_completion();
-                    }
-                    KeyCode::Left => {
-                        self.edit.tab = None;
-                        self.edit.cursor =
-                            crate::bottom_pane::move_cursor(&self.edit.text, self.edit.cursor, -1);
-                        self.refresh_completion();
-                    }
-                    KeyCode::Right => {
-                        self.edit.tab = None;
-                        self.edit.cursor =
-                            crate::bottom_pane::move_cursor(&self.edit.text, self.edit.cursor, 1);
-                        self.refresh_completion();
-                    }
-                    KeyCode::Home => {
-                        self.edit.tab = None;
-                        self.edit.cursor = 0;
-                        self.refresh_completion();
-                    }
-                    KeyCode::End => {
-                        self.edit.tab = None;
-                        self.edit.cursor = self.edit.text.chars().count();
-                        self.refresh_completion();
-                    }
-                    KeyCode::Enter => {
-                        // With the completion popup open, Enter fills the
-                        // selected command instead of submitting.
-                        if matches!(self.overlay, Some(Overlay::Completion(_))) {
-                            self.apply_completion();
-                            continue;
-                        }
-                        // Shift/Alt-Enter inserts a newline (multi-line input);
-                        // plain Enter submits.
-                        if key.modifiers.contains(event::KeyModifiers::SHIFT)
-                            || key.modifiers.contains(event::KeyModifiers::ALT)
-                        {
+                        KeyCode::Char(ch) => {
                             self.edit.tab = None;
                             let (input, cursor) = crate::bottom_pane::insert_char(
                                 &self.edit.text,
                                 self.edit.cursor,
-                                '\n',
+                                ch,
                             );
                             self.edit.text = input;
                             self.edit.cursor = cursor;
-                            continue;
+                            self.refresh_completion();
                         }
-                        self.edit.tab = None;
-                        self.edit.cursor = 0;
-                        let line = std::mem::take(&mut self.edit.text);
-                        if line.trim().is_empty() {
-                            continue;
+                        KeyCode::Backspace => {
+                            self.edit.tab = None;
+                            let (input, cursor) =
+                                crate::bottom_pane::backspace(&self.edit.text, self.edit.cursor);
+                            self.edit.text = input;
+                            self.edit.cursor = cursor;
+                            self.refresh_completion();
                         }
-                        // A command error surfaces as a transcript line
-                        // instead of killing the whole TUI.
-                        match self.dispatch(terminal, &line).await {
-                            Ok(true) => return Ok(()),
-                            Ok(false) => {}
-                            Err(e) => {
-                                self.push_line(TranscriptLine::error(t!("tui.err.command", e)))
-                            }
+                        KeyCode::Delete => {
+                            self.edit.tab = None;
+                            self.edit.text = crate::bottom_pane::delete_forward(
+                                &self.edit.text,
+                                self.edit.cursor,
+                            );
+                            self.refresh_completion();
                         }
-                        self.edit.history.push(line);
-                        self.edit.history_idx = None;
-                    }
-                    KeyCode::Tab => self.complete(),
-                    KeyCode::PageUp => {
-                        self.view.follow_bottom = false;
-                        self.view.scroll = self.view.scroll.saturating_add(5);
-                    }
-                    KeyCode::PageDown => {
-                        self.view.follow_bottom = false;
-                        self.view.scroll = self.view.scroll.saturating_sub(5);
-                    }
-                    KeyCode::Up => {
-                        if let Some(Overlay::Completion(state)) = self.overlay.as_mut() {
-                            state.selected = state
-                                .selected
-                                .checked_sub(1)
-                                .unwrap_or(state.matches.len().saturating_sub(1));
-                            continue;
-                        }
-                        self.edit.tab = None;
-                        // Multi-line input: navigate lines; otherwise the
-                        // prompt history.
-                        if self.edit.text.contains('\n') {
-                            self.edit.cursor = crate::bottom_pane::move_cursor_vert(
+                        KeyCode::Left => {
+                            self.edit.tab = None;
+                            self.edit.cursor = crate::bottom_pane::move_cursor(
                                 &self.edit.text,
                                 self.edit.cursor,
                                 -1,
                             );
-                        } else {
-                            self.history_back();
+                            self.refresh_completion();
                         }
-                    }
-                    KeyCode::Down => {
-                        if let Some(Overlay::Completion(state)) = self.overlay.as_mut() {
-                            state.selected = (state.selected + 1) % state.matches.len().max(1);
-                            continue;
-                        }
-                        self.edit.tab = None;
-                        if self.edit.text.contains('\n') {
-                            self.edit.cursor = crate::bottom_pane::move_cursor_vert(
+                        KeyCode::Right => {
+                            self.edit.tab = None;
+                            self.edit.cursor = crate::bottom_pane::move_cursor(
                                 &self.edit.text,
                                 self.edit.cursor,
                                 1,
                             );
-                        } else {
-                            self.history_forward();
+                            self.refresh_completion();
                         }
-                    }
-                    KeyCode::Esc => {
-                        // Esc closes the popup first; a second Esc quits.
-                        if self.overlay.take().is_some() {
-                            continue;
+                        KeyCode::Home => {
+                            self.edit.tab = None;
+                            self.edit.cursor = 0;
+                            self.refresh_completion();
                         }
-                        return Ok(());
+                        KeyCode::End => {
+                            self.edit.tab = None;
+                            self.edit.cursor = self.edit.text.chars().count();
+                            self.refresh_completion();
+                        }
+                        KeyCode::Enter => {
+                            // With the completion popup open, Enter fills the
+                            // selected command instead of submitting.
+                            if matches!(self.overlay, Some(Overlay::Completion(_))) {
+                                self.apply_completion();
+                                continue;
+                            }
+                            // Shift/Alt-Enter inserts a newline (multi-line input);
+                            // plain Enter submits.
+                            if key.modifiers.contains(event::KeyModifiers::SHIFT)
+                                || key.modifiers.contains(event::KeyModifiers::ALT)
+                            {
+                                self.edit.tab = None;
+                                let (input, cursor) = crate::bottom_pane::insert_char(
+                                    &self.edit.text,
+                                    self.edit.cursor,
+                                    '\n',
+                                );
+                                self.edit.text = input;
+                                self.edit.cursor = cursor;
+                                continue;
+                            }
+                            self.edit.tab = None;
+                            self.edit.cursor = 0;
+                            let line = std::mem::take(&mut self.edit.text);
+                            if line.trim().is_empty() {
+                                continue;
+                            }
+                            // A command error surfaces as a transcript line
+                            // instead of killing the whole TUI.
+                            match self.dispatch(terminal, &line).await {
+                                Ok(true) => return Ok(()),
+                                Ok(false) => {}
+                                Err(e) => {
+                                    self.push_line(TranscriptLine::error(t!("tui.err.command", e)))
+                                }
+                            }
+                            self.edit.history.push(line.clone());
+                            self.edit.history_idx = None;
+                            // Persist the input for the next session (TS parity;
+                            // consecutive repeats are deduped by the file writer).
+                            if let Ok(cwd) = std::env::current_dir() {
+                                crate::util::append_input_history(
+                                    cwd.to_string_lossy().as_ref(),
+                                    &line,
+                                    self.edit.last_history_content.as_deref(),
+                                );
+                            }
+                            self.edit.last_history_content = Some(line);
+                        }
+                        KeyCode::Tab => self.complete().await,
+                        KeyCode::BackTab => {
+                            // Shift-Tab toggles plan mode (TS `onShiftTab`
+                            // parity).
+                            let status = self.session.as_mut().expect("session").get_status().await;
+                            let plan_on = status["result"]["plan_mode"].as_bool().unwrap_or(false);
+                            self.session
+                                .as_mut()
+                                .expect("session")
+                                .set_plan_mode(!plan_on)
+                                .await?;
+                            self.push_line(TranscriptLine::status(t!(
+                                "tui.status.plan",
+                                t(if !plan_on {
+                                    "tui.status.on"
+                                } else {
+                                    "tui.status.off"
+                                })
+                            )));
+                            self.refresh_status().await;
+                        }
+                        KeyCode::PageUp => {
+                            self.view.follow_bottom = false;
+                            self.view.scroll = self.view.scroll.saturating_add(5);
+                        }
+                        KeyCode::PageDown => {
+                            self.view.follow_bottom = false;
+                            self.view.scroll = self.view.scroll.saturating_sub(5);
+                        }
+                        KeyCode::Up => {
+                            if let Some(Overlay::Completion(state)) = self.overlay.as_mut() {
+                                state.selected = state
+                                    .selected
+                                    .checked_sub(1)
+                                    .unwrap_or(state.matches.len().saturating_sub(1));
+                                continue;
+                            }
+                            self.edit.tab = None;
+                            // Multi-line input: navigate lines; otherwise the
+                            // prompt history.
+                            if self.edit.text.contains('\n') {
+                                self.edit.cursor = crate::bottom_pane::move_cursor_vert(
+                                    &self.edit.text,
+                                    self.edit.cursor,
+                                    -1,
+                                );
+                            } else {
+                                self.history_back();
+                            }
+                        }
+                        KeyCode::Down => {
+                            if let Some(Overlay::Completion(state)) = self.overlay.as_mut() {
+                                state.selected = (state.selected + 1) % state.matches.len().max(1);
+                                continue;
+                            }
+                            self.edit.tab = None;
+                            if self.edit.text.contains('\n') {
+                                self.edit.cursor = crate::bottom_pane::move_cursor_vert(
+                                    &self.edit.text,
+                                    self.edit.cursor,
+                                    1,
+                                );
+                            } else {
+                                self.history_forward();
+                            }
+                        }
+                        KeyCode::Esc => {
+                            // Esc closes the popup first; a second Esc within
+                            // 600ms opens the undo flow (TS double-esc parity) —
+                            // a double Esc must never quit the app; a single Esc
+                            // after the window has passed still quits.
+                            if self.overlay.take().is_some() {
+                                continue;
+                            }
+                            let now = std::time::Instant::now();
+                            let double = self.view.last_esc.is_some_and(|t| {
+                                now.duration_since(t) < std::time::Duration::from_millis(600)
+                            });
+                            self.view.last_esc = Some(now);
+                            if double {
+                                match self.dispatch(terminal, "/undo").await {
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        self.push_line(TranscriptLine::error(t!(
+                                            "tui.err.command",
+                                            e
+                                        )));
+                                    }
+                                }
+                                continue;
+                            }
+                            return Ok(());
+                        }
+                        _ => {}
                     }
-                    _ => {}
-                }
                 }
                 _ => {}
             }
@@ -869,7 +1147,7 @@ impl App {
         prompt: &str,
     ) -> anyhow::Result<bool> {
         self.push_line(TranscriptLine::status(prompt.to_string()));
-        terminal.draw(|frame| self.draw(frame))?;
+        self.draw_frame(terminal)?;
         loop {
             if !event::poll(Duration::from_millis(100))? {
                 continue;
@@ -880,10 +1158,9 @@ impl App {
                 }
                 match key.code {
                     KeyCode::Char('y') | KeyCode::Char('Y') => return Ok(true),
-                    KeyCode::Char('n')
-                    | KeyCode::Char('N')
-                    | KeyCode::Esc
-                    | KeyCode::Enter => return Ok(false),
+                    KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc | KeyCode::Enter => {
+                        return Ok(false)
+                    }
                     _ => {}
                 }
             }
@@ -894,7 +1171,11 @@ impl App {
     /// while the turn runs. When a side-question (btw) agent is active, the
     /// prompt routes to it and the streamed line IS the final answer (the
     /// side agent's context is not the session's, so no transcript read-back).
-    pub(crate) async fn run_turn(&mut self, line: &str) -> anyhow::Result<()> {
+    pub(crate) async fn run_turn(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        line: &str,
+    ) -> anyhow::Result<()> {
         let agent_id: Option<String> = self.btw_agent.clone();
         self.push_line(if agent_id.is_some() {
             TranscriptLine::user(format!("[btw] {line}"))
@@ -912,10 +1193,15 @@ impl App {
             let prompt_fut = session.prompt_parts_as(parts, agent_id.as_deref());
             tokio::pin!(prompt_fut);
             loop {
-                self.poll_prompt_keys().await?;
+                self.poll_prompt_keys(terminal).await?;
                 tokio::select! {
                     r = &mut prompt_fut => break Some(r.clone()),
-                    _ = self.pump_one_event() => {}
+                    _ = self.pump_one_event() => {
+                        // Re-render right after each event batch so streamed
+                        // deltas and tool progress appear live — the outer
+                        // event loop only draws once the turn completes.
+                        self.draw_frame(terminal)?;
+                    }
                 }
             }
         };
@@ -990,7 +1276,7 @@ impl App {
         let snapshot = &event["snapshot"];
         let status = snapshot["status"].as_str().unwrap_or("");
         // Update the footer goal badge from the live snapshot.
-        self.view.footer.goal = crate::footer::format_goal_badge(snapshot);
+        self.view.footer.goal = crate::footer::GoalBadge::from_snapshot(snapshot);
         goal_status_is_terminal(status)
     }
 
@@ -1009,6 +1295,9 @@ impl App {
         match session.create_goal(&next.objective).await {
             Ok(snapshot) => {
                 let _ = crate::goal_queue::remove_goal(&self.session_id, &next.id);
+                // Seed the badge from the new snapshot (the engine also
+                // emits `session.goal.updated`, which keeps it fresh).
+                self.view.footer.goal = crate::footer::GoalBadge::from_snapshot(&snapshot);
                 self.push_line(TranscriptLine::status(t!(
                     "tui.goal.promoted",
                     snapshot["objective"]
@@ -1045,6 +1334,12 @@ impl App {
                 self.maybe_promote_goal().await;
             }
         }
+        if r#type == "session.todo.updated" {
+            // Live todo panel refresh (TS TodoPanel parity): the engine
+            // emits the full list after every TodoList execution.
+            self.todo_list = crate::replay::todo_items_from_event(&event);
+            return;
+        }
         if r#type == "llm.delta" {
             // Live model output: thinking deltas accumulate on a transient
             // dimmed line; text deltas stream into the assistant line;
@@ -1074,8 +1369,7 @@ impl App {
         // tool's final result — same settled semantics); background
         // tasks / subagents get lifecycle cards; everything else is a status
         // line.
-        let is_tool =
-            r#type.starts_with("session.tool.") || r#type == "tool.native";
+        let is_tool = r#type.starts_with("session.tool.") || r#type == "tool.native";
         if is_tool {
             self.handle_tool_event(&event);
             return;
@@ -1129,7 +1423,11 @@ impl App {
     /// consumed. Approval actions hit the engine; the question dialog may
     /// start a new turn (its answer is a prompt). Shared by the main loop
     /// (idle) and `poll_prompt_keys` (mid-turn) so overlays close anywhere.
-    pub(crate) async fn handle_overlay_key(&mut self, code: KeyCode) -> anyhow::Result<bool> {
+    pub(crate) async fn handle_overlay_key(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        code: KeyCode,
+    ) -> anyhow::Result<bool> {
         enum OverlayAction {
             None,
             Close,
@@ -1144,10 +1442,13 @@ impl App {
                 answer = panel.key(code);
             }
             Some(Overlay::Help(panel)) => {
+                // TS help-panel parity: q/Q close, PageUp/PageDown page.
                 let delta = match code {
                     KeyCode::Up => -1i32,
                     KeyCode::Down => 1,
-                    KeyCode::Esc | KeyCode::Enter => {
+                    KeyCode::PageUp => -10,
+                    KeyCode::PageDown => 10,
+                    KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc | KeyCode::Enter => {
                         action = OverlayAction::Close;
                         0
                     }
@@ -1155,20 +1456,17 @@ impl App {
                 };
                 if delta != 0 {
                     let len = panel.rows.len();
-                    panel.offset =
-                        ((panel.offset as i64 + delta as i64).max(0) as usize)
-                            .min(len.saturating_sub(1));
+                    panel.offset = ((panel.offset as i64 + delta as i64).max(0) as usize)
+                        .min(len.saturating_sub(1));
                 }
             }
-            Some(Overlay::ApprovalDetail(_)) => {
-                match code {
-                    KeyCode::Char('y') => action = OverlayAction::Approve,
-                    KeyCode::Char('n') => action = OverlayAction::Deny,
-                    KeyCode::Char('s') => action = OverlayAction::Session,
-                    KeyCode::Esc => action = OverlayAction::Close,
-                    _ => {}
-                }
-            }
+            Some(Overlay::ApprovalDetail(_)) => match code {
+                KeyCode::Char('y') => action = OverlayAction::Approve,
+                KeyCode::Char('n') => action = OverlayAction::Deny,
+                KeyCode::Char('s') => action = OverlayAction::Session,
+                KeyCode::Esc => action = OverlayAction::Close,
+                _ => {}
+            },
             // The completion popup is editor-owned (the main loop handles
             // its Up/Down/Enter); every other overlay consumes the key.
             Some(Overlay::Completion(_)) => return Ok(false),
@@ -1177,7 +1475,7 @@ impl App {
         if let Some(a) = answer {
             self.overlay = None;
             if !a.trim().is_empty() {
-                let fut = self.run_turn(&a);
+                let fut = self.run_turn(terminal, &a);
                 Box::pin(fut).await?;
             }
             return Ok(true);
@@ -1201,8 +1499,15 @@ impl App {
         Ok(true)
     }
 
-    pub(crate) async fn poll_prompt_keys(&mut self) -> anyhow::Result<()> {
+    pub(crate) async fn poll_prompt_keys(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    ) -> anyhow::Result<()> {
         if !event::poll(std::time::Duration::from_millis(0))? {
+            return Ok(());
+        }
+        if let Event::Mouse(mouse) = event::read()? {
+            self.handle_mouse(mouse.kind);
             return Ok(());
         }
         if let Event::Key(key) = event::read()? {
@@ -1211,10 +1516,16 @@ impl App {
             }
             // Overlays own the keys while open (approval y/n/s, question
             // dialog, help panel).
-            if self.handle_overlay_key(key.code).await? {
+            if self.handle_overlay_key(terminal, key.code).await? {
                 return Ok(());
             }
             if interrupt_action(key.code, key.modifiers) == Some(InterruptAction::CancelTurn) {
+                // Mid-turn cancel is the streaming/compacting level of the
+                // Ctrl-C chain (TS `onCtrlC`). Disarm any armed exit
+                // confirmation so an interrupt right after a Ctrl-C press
+                // never turns into an unexpected quit (TS `clearPendingExit`).
+                self.view.last_ctrl_c = None;
+                self.view.last_ctrl_d = None;
                 let mut session = self.session.clone().expect("session");
                 session.cancel().await;
                 self.push_line(TranscriptLine::status(t("tui.turn.cancelled")));
@@ -1243,7 +1554,26 @@ impl App {
         self.session_id = id.to_string();
         let mut session = self.harness.create_session(id).await?;
         let _ = session.load().await;
+        // Rebuild the new session's transcript from its persisted records
+        // (resume UX parity for the session picker): replay + terminal
+        // background statuses + the todo panel; a fresh session stays empty.
+        if let Ok(state) = session.resume_state().await {
+            self.todo_list = crate::replay::todo_items(&state);
+            let replayed = crate::replay::render_resume_state(&state);
+            self.view.transcript.extend(replayed);
+        } else {
+            self.todo_list.clear();
+        }
         self.session = Some(session);
+        // Fresh view for the new session: drop the previous conversation and
+        // reset the per-session state (TS new-session parity).
+        self.view.transcript.clear();
+        self.view.scroll = 0;
+        self.view.follow_bottom = true;
+        self.pending_approvals.clear();
+        self.image_attachments.clear();
+        self.btw_agent = None;
+        self.overlay = None;
         self.view
             .transcript
             .push_line(TranscriptLine::status(t!("tui.sessions.switched", id)));
@@ -1339,8 +1669,9 @@ impl App {
     }
 
     /// Complete the current input on Tab: cycle the command name or an
-    /// argument (model ids for `/model`, closed sets for `/plan|/swarm|/thinking`).
-    pub(crate) fn complete(&mut self) {
+    /// argument (model ids for `/model`, closed sets for `/plan|/swarm|/thinking`,
+    /// skill names for `/skill:`, `plugin:command` names for `/<pluginId>:`).
+    pub(crate) async fn complete(&mut self) {
         let base = self
             .edit
             .tab
@@ -1348,7 +1679,60 @@ impl App {
             .map(|t| t.base.clone())
             .unwrap_or_else(|| self.edit.text.clone());
         let idx = self.edit.tab.as_ref().map(|t| t.idx);
-        let (completed, next) = crate::bottom_pane::complete_line(&base, &self.model_aliases, idx);
+        // Lazily fetch the registered skill names on the first `/skill:`
+        // Tab; a failed fetch caches the empty list (silent degradation).
+        if base.starts_with("/skill:") && self.skill_names.is_none() {
+            self.skill_names = Some(
+                match self.session.as_mut() {
+                    Some(session) => session
+                        .list_skills()
+                        .await
+                        .map(|skills| {
+                            skills["skills"]
+                                .as_array()
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|s| s["name"].as_str().map(str::to_string))
+                                        .collect()
+                                })
+                                .unwrap_or_default()
+                        })
+                        .unwrap_or_default(),
+                    None => Vec::new(),
+                },
+            );
+        }
+        let skills = self.skill_names.as_deref().unwrap_or(&[]);
+        // Plugin-command completion (`/<pluginId>:<prefix>`, TS parity,
+        // mirroring the `/skill:` branch): lazily fetch the registered
+        // `plugin:command` names on the first colon-shaped `/…:` Tab (a
+        // failed fetch caches the empty list — silent degradation). Runs
+        // before `complete_line`, which owns the `/skill:` branch, so skill
+        // tokens still win and colon-shaped tokens never fall through to
+        // the built-in command list.
+        if base.starts_with('/')
+            && !base.contains(' ')
+            && base.contains(':')
+            && !base.starts_with("/skill:")
+            && self.plugin_commands.is_none()
+        {
+            self.plugin_commands = Some(self.fetch_plugin_commands().await);
+        }
+        let plugins = self.plugin_commands.as_deref().unwrap_or(&[]);
+        if !base.starts_with("/skill:") {
+            if let Some(prefix) = base.strip_prefix('/') {
+                if let Some((completed, i)) =
+                    crate::bottom_pane::complete_plugin_arg(prefix, plugins, idx)
+                {
+                    self.edit.text = completed;
+                    self.edit.cursor = self.edit.text.chars().count();
+                    self.edit.tab = Some(TabState { base, idx: i });
+                    return;
+                }
+            }
+        }
+        let (completed, next) =
+            crate::bottom_pane::complete_line(&base, &self.model_aliases, skills, idx);
         match next {
             Some(i) => {
                 self.edit.text = completed;
@@ -1359,10 +1743,39 @@ impl App {
         }
     }
 
+    /// Aggregate the registered `plugin:command` names across installed
+    /// plugins for `/<pluginId>:` Tab completion (TS plugin-command
+    /// autocomplete parity). Best-effort: a plugin-list failure yields an
+    /// empty list, and a plugin whose command list fails is skipped — Tab
+    /// completion degrades silently instead of erroring the input loop.
+    async fn fetch_plugin_commands(&self) -> Vec<String> {
+        let Ok(plugins) = self.harness.list_plugins().await else {
+            return Vec::new();
+        };
+        let mut names = Vec::new();
+        for plugin in plugins {
+            let Some(id) = plugin["id"].as_str() else {
+                continue;
+            };
+            let Ok(commands) = self.harness.list_plugin_commands(id).await else {
+                continue;
+            };
+            for command in commands {
+                if let Some(name) = command["name"].as_str() {
+                    names.push(format!("{id}:{name}"));
+                }
+            }
+        }
+        names
+    }
+
     pub(crate) fn history_back(&mut self) {
         // Bash mode (`!`-prefixed drafts) only recalls `!`-prefixed history
         // (TS editor history-filter parity).
-        let items = crate::bottom_pane::filtered_history(&self.edit.history, self.edit.text.starts_with('!'));
+        let items = crate::bottom_pane::filtered_history(
+            &self.edit.history,
+            self.edit.text.starts_with('!'),
+        );
         if items.is_empty() {
             return;
         }
@@ -1379,7 +1792,10 @@ impl App {
     }
 
     pub(crate) fn history_forward(&mut self) {
-        let items = crate::bottom_pane::filtered_history(&self.edit.history, self.edit.text.starts_with('!'));
+        let items = crate::bottom_pane::filtered_history(
+            &self.edit.history,
+            self.edit.text.starts_with('!'),
+        );
         if let Some(idx) = self.edit.history_idx {
             if idx + 1 < items.len() {
                 self.edit.history_idx = Some(idx + 1);
@@ -1406,9 +1822,11 @@ impl App {
             Some(Overlay::Completion(state)) => Some(state),
             _ => None,
         };
-        let input_hint =
-            crate::bottom_pane::argument_hint(&self.edit.text, &self.model_aliases);
-        crate::chatwidget::render_frame(
+        let input_hint = crate::bottom_pane::argument_hint(&self.edit.text, &self.model_aliases);
+        // Inline images (ReadMediaFile results) come back as placements the
+        // app shell injects straight into the terminal after the frame
+        // flushes — ratatui can't carry control-character escape sequences.
+        self.pending_images = crate::chatwidget::render_frame(
             frame,
             &self.view.transcript,
             &self.edit.text,
@@ -1419,6 +1837,8 @@ impl App {
             &self.view.footer,
             completion,
             input_hint.as_deref(),
+            self.tool_output_expanded,
+            &self.todo_list,
         );
         if let Some(Overlay::ApprovalDetail(pending)) = self.overlay.as_ref() {
             self.render_approval_modal(frame, pending);
@@ -1429,6 +1849,52 @@ impl App {
         if let Some(Overlay::Question(panel)) = self.overlay.as_ref() {
             self.render_question_modal(frame, panel);
         }
+    }
+
+    /// Draw a frame and then write any inline-image placements straight into
+    /// the terminal (escape sequences can't ride in a ratatui `Paragraph`).
+    /// Every `terminal.draw(|f| …)` in the app shell funnels through here so
+    /// injected images never go stale.
+    fn draw_frame(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    ) -> anyhow::Result<()> {
+        terminal.draw(|frame| self.draw(frame))?;
+        self.inject_pending_images(terminal);
+        Ok(())
+    }
+
+    /// Write this frame's inline images to the terminal. Each placement is
+    /// positioned with CUP then transmitted; the cursor is saved/restored so
+    /// the input caret the frame set stays put. When the placements match
+    /// the previous frame the step is a no-op (no redundant re-uploads).
+    /// Full-screen overlays (question/approval/help) cover the transcript,
+    /// so injection is skipped while one is open.
+    fn inject_pending_images(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    ) {
+        if matches!(
+            self.overlay,
+            Some(Overlay::Question(_)) | Some(Overlay::ApprovalDetail(_)) | Some(Overlay::Help(_))
+        ) {
+            return;
+        }
+        if self.pending_images == self.last_injected_images {
+            return;
+        }
+        self.last_injected_images = self.pending_images.clone();
+        if self.pending_images.is_empty() {
+            return;
+        }
+        use std::io::Write as _;
+        let mut out = String::from("\x1b7"); // save cursor (DEC SC)
+        for p in &self.pending_images {
+            out.push_str(&format!("\x1b[{};{}H", p.row, p.col));
+            out.push_str(&p.sequence);
+        }
+        out.push_str("\x1b8"); // restore cursor (DEC RC)
+        let _ = terminal.backend_mut().write_all(out.as_bytes());
     }
 
     /// Draw the full-screen AskUserQuestion dialog over the chat layout.
@@ -1457,7 +1923,9 @@ impl App {
             })
             .collect();
         if panel.rows.len() > height {
-            rows.push(crate::modal::ModalRow::new(t("tui.help.scrollHint").to_string()));
+            rows.push(crate::modal::ModalRow::new(
+                t("tui.help.scrollHint").to_string(),
+            ));
         }
         crate::modal::render_modal(frame, t("tui.help.title"), &rows, self.view.theme);
     }
@@ -1535,6 +2003,8 @@ mod tests {
         let lines = crate::chatwidget::styled_lines(
             &[TranscriptEntry::Line(TranscriptLine::thinking("reasoning"))],
             crate::theme::Theme::dark(),
+            false,
+            60,
         );
         assert_eq!(lines[0].spans[0].content, "reasoning");
         assert_eq!(lines[0].spans[0].style.fg, Some(Color::DarkGray));
@@ -1592,6 +2062,8 @@ mod tests {
         let lines = crate::chatwidget::styled_lines(
             &[TranscriptEntry::Line(TranscriptLine::streaming("growing"))],
             crate::theme::Theme::dark(),
+            false,
+            60,
         );
         let text: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
         assert_eq!(text, "growing");
@@ -1791,6 +2263,7 @@ mod tests {
                 is_question: false,
                 collapsed: true,
                 duration: None,
+                image: None,
             }),
             TranscriptEntry::Line(TranscriptLine::status("other")),
         ];
@@ -1823,18 +2296,6 @@ mod tests {
         assert!(completion_for_input("/zzz").is_none(), "no matches");
     }
 
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
     #[test]
     fn transcript_lines_render_by_kind() {
         let transcript = vec![
@@ -1844,7 +2305,12 @@ mod tests {
             TranscriptEntry::Line(TranscriptLine::status("plan mode on")),
             TranscriptEntry::Line(TranscriptLine::error("boom")),
         ];
-        let lines = crate::chatwidget::styled_lines(&transcript, crate::theme::Theme::dark());
+        let lines = crate::chatwidget::styled_lines(
+            &transcript,
+            crate::theme::Theme::dark(),
+            false,
+            60,
+        );
         assert_eq!(lines.len(), 5);
         // User lines are prefixed and bold.
         assert_eq!(lines[0].spans[0].content, "✨ hi");
@@ -1879,6 +2345,22 @@ mod tests {
             None
         );
         assert_eq!(interrupt_action(KeyCode::Enter, KeyModifiers::NONE), None);
+    }
+
+    #[test]
+    fn idle_ctrl_c_chain_priority() {
+        // TS `onCtrlC` chain, idle main loop: the btw panel closes first,
+        // outranking even the double-press exit — closing the panel must
+        // never count as the first press of a double.
+        assert_eq!(idle_ctrl_c_action(true, true), IdleCtrlCAction::CloseBtw);
+        assert_eq!(idle_ctrl_c_action(true, false), IdleCtrlCAction::CloseBtw);
+        // Second press within the window exits; the first press arms the
+        // confirmation (and clears the input, handled by the caller).
+        assert_eq!(idle_ctrl_c_action(false, true), IdleCtrlCAction::Exit);
+        assert_eq!(
+            idle_ctrl_c_action(false, false),
+            IdleCtrlCAction::ArmExit
+        );
     }
 
     #[test]
@@ -1918,6 +2400,8 @@ mod tests {
                     &footer,
                     None,
                     None,
+                    false,
+                    &[],
                 );
             })
             .unwrap();
@@ -2056,6 +2540,7 @@ mod tests {
                 is_question: false,
                 collapsed: false,
                 duration: None,
+                image: None,
             }),
         ];
         let md = transcript_to_markdown(&t);
@@ -2064,10 +2549,6 @@ mod tests {
         assert!(md.contains("## Tool: Bash"), "md: {md}");
         assert!(md.contains("ok"), "md: {md}");
     }
-
-    
-
-    
 
     #[test]
     fn help_panel_rows_cover_commands_and_scroll() {
@@ -2086,22 +2567,6 @@ mod tests {
         // A huge window shows everything (clamped).
         assert_eq!(panel.visible(10_000).len(), panel.rows.len());
     }
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
 
     #[test]
     fn goal_terminal_status_table() {
@@ -2124,9 +2589,15 @@ mod tests {
         }
     }
 
+    /// Render a cached footer goal badge at its own observed time, so the
+    /// expected text is deterministic (elapsed pinned to the snapshot).
+    fn badge_text(badge: &crate::footer::GoalBadge) -> String {
+        crate::footer::render_goal_badge(badge, badge.observed_at_ms)
+    }
+
     #[tokio::test]
     async fn goal_updated_snapshot_drives_badge() {
-        // Pin En so the badge's "turns" label is stable.
+        // Pin En so the badge's labels are stable.
         crate::i18n::set_locale(crate::i18n::Locale::En);
         let mut app = App::new(
             kimi_sdk::Harness::embedded().expect("harness"),
@@ -2142,8 +2613,8 @@ mod tests {
         });
         assert!(!app.apply_goal_event(&active), "active is not terminal");
         assert_eq!(
-            app.view.footer.goal.as_deref(),
-            Some("[goal ● active · 3 turns]"),
+            app.view.footer.goal.as_ref().map(badge_text),
+            Some("[goal ● active · 0s · 3 turns]".to_string()),
             "live badge from the snapshot"
         );
 
@@ -2155,8 +2626,8 @@ mod tests {
         });
         assert!(!app.apply_goal_event(&paused), "paused is not terminal");
         assert_eq!(
-            app.view.footer.goal.as_deref(),
-            Some("[goal ○ paused · 5 turns]"),
+            app.view.footer.goal.as_ref().map(badge_text),
+            Some("[goal ○ paused · 0s · 5 turns]".to_string()),
             "paused badge from the snapshot"
         );
 
@@ -2180,8 +2651,8 @@ mod tests {
         });
         assert!(app.apply_goal_event(&blocked), "blocked is terminal");
         assert_eq!(
-            app.view.footer.goal.as_deref(),
-            Some("[goal ○ blocked · 9 turns]"),
+            app.view.footer.goal.as_ref().map(badge_text),
+            Some("[goal ○ blocked · 0s · 9 turns]".to_string()),
             "blocked stays visible as a resumable badge"
         );
 
@@ -2200,7 +2671,10 @@ mod tests {
                 "type": "session.goal.updated",
                 "snapshot": { "status": status, "turnsUsed": 1 },
             });
-            assert!(app.apply_goal_event(&legacy), "{status} treated as terminal");
+            assert!(
+                app.apply_goal_event(&legacy),
+                "{status} treated as terminal"
+            );
         }
     }
 
@@ -2221,7 +2695,9 @@ mod tests {
         });
         assert!(!app.apply_goal_event(&active), "active is not terminal");
         assert_eq!(
-            crate::goal_queue::read_queue(&app.session_id).unwrap().len(),
+            crate::goal_queue::read_queue(&app.session_id)
+                .unwrap()
+                .len(),
             1,
             "queue survives non-terminal events"
         );
@@ -2236,7 +2712,9 @@ mod tests {
         app.maybe_promote_goal().await;
 
         assert!(
-            crate::goal_queue::read_queue(&app.session_id).unwrap().is_empty(),
+            crate::goal_queue::read_queue(&app.session_id)
+                .unwrap()
+                .is_empty(),
             "promoted goal leaves the queue"
         );
         let current = app.session.as_mut().unwrap().goal().await.unwrap();
@@ -2251,6 +2729,4 @@ mod tests {
             let _ = std::fs::remove_file(path);
         }
     }
-
-    
 }

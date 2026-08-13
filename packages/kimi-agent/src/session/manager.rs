@@ -111,6 +111,11 @@ impl SessionManager {
         self.record_store = record_store;
     }
 
+    /// The shared record store injected via [`Self::set_record_store`], if any.
+    pub fn record_store(&self) -> Option<std::sync::Arc<crate::persistence::RecordStore>> {
+        self.record_store.clone()
+    }
+
     /// Set a lifecycle event callback.
     pub fn set_event_callback(&mut self, callback: EventCallback) {
         self.on_event = Some(callback);

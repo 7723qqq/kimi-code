@@ -60,11 +60,14 @@
       # you MUST update both lists below. Missing a path will break the Nix
       # build (src fileset silently drops files); missing a name will break
       # pnpmConfigHook (dependencies for that workspace won't be fetched).
+      # Rust-only cargo members (kimi-shared / kimi-build) have no npm
+      # manifest: add them to workspacePaths only — never to workspaceNames.
       # -------------------------------------------------------------------
       workspacePaths = [
         ./packages/i18n-shared
         ./packages/kimi-native-tools
         ./packages/kimi-agent
+        ./packages/kimi-build
         ./packages/kimi-code-rust-bin
         ./packages/kimi-code-linux-x64
         ./packages/kimi-code-linux-arm64
@@ -72,7 +75,7 @@
         ./packages/kimi-code-darwin-arm64
         ./packages/kimi-code-win32-x64
         ./packages/kimi-code-win32-arm64
-        ./packages/server
+        ./packages/kimi-shared
         ./apps/kimi-code
         ./apps/vscode
         ./apps/kimi-inspect
@@ -94,7 +97,6 @@
         "@moonshot-ai/kimi-code-darwin-arm64"
         "@moonshot-ai/kimi-code-win32-x64"
         "@moonshot-ai/kimi-code-win32-arm64"
-        "@moonshot-ai/server"
         "@moonshot-ai/kimi-code"
         "kimi-code"
         "@moonshot-ai/kimi-inspect"

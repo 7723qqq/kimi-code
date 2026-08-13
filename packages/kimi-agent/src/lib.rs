@@ -46,6 +46,7 @@ pub mod tools;
 pub mod turn_loop;
 pub mod usage;
 pub mod user_tool;
+pub mod workflow;
 pub mod activity_view;
 pub mod blob;
 pub mod plugin;

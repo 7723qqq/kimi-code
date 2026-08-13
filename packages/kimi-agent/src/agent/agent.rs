@@ -34,6 +34,11 @@ struct ToolEventInterceptor {
     session_id: Option<String>,
     record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
     turn_id: String,
+    /// Session-scoped TodoList store. The per-turn NativeToolset carries its
+    /// own fresh store; this interceptor mirrors every successful TodoList
+    /// write into the agent's shared store so `resume_state` can serve the
+    /// current list regardless of toolset lifetime.
+    todo_list: crate::tools::todo::TodoList,
 }
 impl HostCallbacks for ToolEventInterceptor {
     fn supports_tool_lifecycle(&self) -> bool { self.inner.supports_tool_lifecycle() }
@@ -43,15 +48,17 @@ impl HostCallbacks for ToolEventInterceptor {
         let session_id = self.session_id.clone();
         let record_store = self.record_store.clone();
         let turn_id = self.turn_id.clone();
+        let todo_list = self.todo_list.clone();
         Box::pin(async move {
             let tool_call_id = req.tool_call_id.clone();
             let tool_name = req.tool_name.clone();
+            let arguments = req.arguments.clone();
             inner.emit_event(serde_json::json!({
                 "type": "session.tool.started",
                 "session_id": session_id,
                 "tool_call_id": tool_call_id,
                 "tool_name": tool_name,
-                "arguments": req.arguments,
+                "arguments": arguments,
             }));
             if let Some(store) = &record_store {
                 if let Some(sid) = &session_id {
@@ -68,6 +75,28 @@ impl HostCallbacks for ToolEventInterceptor {
                 }
             }
             let result = inner.execute_tool(req).await;
+            // Live todo panel updates: a successful TodoList write (the
+            // `todos` replace/clear mode — `{}` query mode mutates nothing)
+            // mirrors the new list into the session store and notifies
+            // thin clients over `host/event` so they can repaint without
+            // polling. Status mapping matches `todos_to_payload` (incl. the
+            // all-done → empty rule).
+            if let Ok(resp) = &result {
+                if !resp.is_error && tool_name.eq_ignore_ascii_case("TodoList") {
+                    if let Some(todos_value) = arguments.get("todos") {
+                        if let Ok(new_todos) = serde_json::from_value::<Vec<crate::tools::todo::TodoItem>>(
+                            todos_value.clone(),
+                        ) {
+                            todo_list.set_todos(new_todos);
+                            inner.emit_event(serde_json::json!({
+                                "type": "session.todo.updated",
+                                "session_id": session_id,
+                                "todos": todos_to_payload(&todo_list.get_todos()),
+                            }));
+                        }
+                    }
+                }
+            }
             let (content, is_error) = match &result {
                 Ok(resp) => (truncate_for_event(&resp.content), resp.is_error),
                 Err(error) => (truncate_for_event(error), true),
@@ -891,6 +920,11 @@ pub struct Agent {
     /// and applies the enter/exit reminders to the context. One-shot triggers
     /// (`task`/`tool`) auto-exit after the turn in `run_prompt`.
     pub swarm: crate::swarm::SwarmMode,
+    /// Session-scoped workflow run registry (native `Workflow` tool). Runs
+    /// are forked onto background tasks at `run`; the registry persists them
+    /// across turns so `status` / `wait` / `cancel` observe progress (mirrors
+    /// the App-scoped TS `WorkflowService`).
+    pub(crate) workflow_runs: std::sync::Arc<std::sync::Mutex<crate::workflow::tool::WorkflowRegistry>>,
     /// Cumulative token usage per model (`session/get_status`). Fed at the
     /// end of every turn from the loop's usage tally.
     pub usage: crate::usage::UsageRecorder,
@@ -911,9 +945,16 @@ pub struct Agent {
     pub metadata: serde_json::Value,
     /// Shared wire-record store (SQLite `records` table). When set, engine
     /// events (turns, messages, tool calls, usage, goals, compaction) are
-    /// appended for the vis timeline & wire views. `None` disables writing
-    /// (subagents, tests, hosts that opted out).
+    /// appended for the vis timeline & wire views — including those of
+    /// delegated subagents (Task/swarm), which share this store under their
+    /// own agent id. `None` disables writing (tests, hosts that opted out).
     pub record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
+    /// Session-scoped TodoList store (shared handle; interior-mutable).
+    /// The per-turn NativeToolset builds its own store, so the outermost
+    /// ToolEventInterceptor mirrors every successful TodoList write into
+    /// this one — the source of truth for `resume_state` and the
+    /// `session.todo.updated` live events.
+    pub todo_list: crate::tools::todo::TodoList,
     /// Monotonic turn ID counter.
     turn_id_counter: u32,
     /// Whether the agent has an active turn.
@@ -1026,6 +1067,9 @@ impl Agent {
                 options.external_hooks,
             )),
             swarm: crate::swarm::SwarmMode::new(),
+            workflow_runs: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::workflow::tool::WorkflowRegistry::new(),
+            )),
             usage: crate::usage::UsageRecorder::new(),
             additional_dirs: Vec::new(),
             task: {
@@ -1049,6 +1093,7 @@ impl Agent {
             metadata: serde_json::json!({}),
             undo_checkpoints: Vec::new(),
             record_store: options.record_store.clone(),
+            todo_list: crate::tools::todo::TodoList::new(),
             turn_id_counter: 0,
             has_active_turn: false,
             current_turn_id: None,
@@ -1374,6 +1419,7 @@ impl Agent {
                     Some(self.external_hooks.clone())
                 },
                 approval: Some(self.approval.clone()),
+                record_store: self.record_store.clone(),
             })
         } else {
             self.callbacks.clone()
@@ -1474,6 +1520,29 @@ impl Agent {
                 session_id,
             });
         }
+        // Workflow interceptor (native `Workflow` tool): background
+        // orchestrated workflows driven by data-driven built-ins. Main agent
+        // only (mirrors TS `registerTool(WorkflowTool, { when: agentId ===
+        // 'main' })`); subagents never see the tool.
+        if self.subagent_depth == 0 {
+            callbacks = Arc::new(crate::workflow::tool::WorkflowToolInterceptor {
+                inner: callbacks,
+                host: self.callbacks.clone(),
+                homedir: self.homedir.clone(),
+                native_llm: self.native_llm.clone(),
+                permission: self.permission.clone(),
+                system_prompt: self.config.system_prompt.clone(),
+                max_steps_per_turn: self.max_steps_per_turn,
+                depth: self.subagent_depth,
+                hooks: if self.external_hooks.is_empty() {
+                    None
+                } else {
+                    Some(self.external_hooks.clone())
+                },
+                record_store: self.record_store.clone(),
+                registry: self.workflow_runs.clone(),
+            });
+        }
         // GitHub interceptor (native `GitHub*` tools): authenticated GitHub
         // REST calls resolved via reqwest in-process.
         callbacks = Arc::new(crate::tools::github::GitHubToolInterceptor {
@@ -1503,6 +1572,7 @@ impl Agent {
             session_id: self.session_id.clone(),
             record_store: self.record_store.clone(),
             turn_id: turn_id.to_string(),
+            todo_list: self.todo_list.clone(),
         });
 
         // ── Tool definitions: native + goal ──
@@ -1583,6 +1653,26 @@ impl Agent {
                     "required": ["topic", "participants"]
                 }),
             });
+            // Native `Workflow` (background orchestrated workflows). Advertised
+            // for the main agent only (mirrors TS `registerTool(WorkflowTool,
+            // { when: agentId === 'main' })`), matching the interceptor.
+            if self.subagent_depth == 0 {
+                tool_defs.push(loop_types::ToolInfo {
+                    name: crate::workflow::tool::WORKFLOW_TOOL_NAME.into(),
+                    description: "Run an orchestrated multi-agent workflow in the background and then wait on or check its status. Built-in workflows: deep-research, code-review, test-generator, refactor-planner, bug-triage, pr-description, architecture-review, security-audit, migration-planner. Operations: run (start a workflow by name), list (show available workflows), status, wait, cancel.".into(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "operation": { "type": "string", "enum": ["run", "list", "status", "wait", "cancel"], "description": "The workflow operation to perform." },
+                            "name": { "type": "string", "description": "Built-in workflow name (for `run`)." },
+                            "args": { "type": "string", "description": "Arguments to pass to the workflow (for `run`)." },
+                            "run_id": { "type": "string", "description": "Workflow run ID (for `status`, `wait`, `cancel`)." },
+                            "timeout_ms": { "type": "integer", "description": "Timeout in milliseconds (for `wait`)." }
+                        },
+                        "required": ["operation"]
+                    }),
+                });
+            }
         }
         // MCP tools. The engine-facing name lives on the definition; the
         // description/schema live on the server's own tool record.
@@ -2063,6 +2153,10 @@ impl Agent {
                     variant: "plan_mode".to_string(),
                 },
             );
+            self.record_wire(
+                crate::persistence::record_store::RECORD_TYPE_PLAN_UPDATED,
+                serde_json::json!({ "enabled": true }),
+            );
             Ok(true)
         } else {
             if !active {
@@ -2076,8 +2170,23 @@ impl Agent {
                     variant: "plan_mode_exit".to_string(),
                 },
             );
+            self.record_wire(
+                crate::persistence::record_store::RECORD_TYPE_PLAN_UPDATED,
+                serde_json::json!({ "enabled": false }),
+            );
             Ok(false)
         }
+    }
+
+    /// Record a process-wide permission-mode change on this agent's replay
+    /// timeline (`permission.updated`). The mode itself lives on the shared
+    /// native gate (set via `permission/set_mode`), so the RPC handler calls
+    /// this after applying the change; the replay record is per-session.
+    pub fn record_permission_mode(&self, mode: &str) {
+        self.record_wire(
+            crate::persistence::record_store::RECORD_TYPE_PERMISSION_UPDATED,
+            serde_json::json!({ "mode": mode }),
+        );
     }
 
     /// The active plan (id + file path + current file content), or `None` when
@@ -2546,6 +2655,49 @@ any partial output shown above is incomplete. The user's next message continues 
         Ok(true)
     }
 
+    // ── Resume data snapshot (session/resume_state) ───────────────────
+
+    /// Full resume data for a loaded session — the persisted replay
+    /// timeline (typed records, ascending), the live background tasks, and
+    /// the current todo list — shaped as
+    /// `{ agents: { main: { replay, background, toolStore } } }` for the
+    /// TUI's full-replay resume path (TS `getResumeState` parity).
+    ///
+    /// Replay records come from the shared wire-record store when one is
+    /// attached (else an empty timeline); background tasks are read from the
+    /// native BackgroundManager; todos come from the session-scoped store
+    /// the ToolEventInterceptor mirrors. All sections degrade gracefully —
+    /// no store, no records, no todos → empty arrays.
+    pub fn resume_state(&self) -> anyhow::Result<serde_json::Value> {
+        let replay = match (&self.record_store, &self.session_id) {
+            (Some(store), Some(sid)) => {
+                // `i64::MAX` = "all records" — SQLite accepts any positive
+                // LIMIT, so `usize::MAX` (which casts to -1) is avoided.
+                let records = store.get_records(sid, None, i64::MAX as usize)?;
+                records_to_replay(&records)
+            }
+            _ => Vec::new(),
+        };
+        let background = {
+            let manager = self.background.lock().unwrap_or_else(|e| e.into_inner());
+            manager
+                .list_infos()
+                .iter()
+                .map(map_background_info)
+                .collect::<Vec<_>>()
+        };
+        let todos = todos_to_payload(&self.todo_list.get_todos());
+        Ok(serde_json::json!({
+            "agents": {
+                "main": {
+                    "replay": replay,
+                    "background": background,
+                    "toolStore": { "todo": todos },
+                }
+            }
+        }))
+    }
+
     /// Cancel the current turn.
     pub fn cancel(&self) {
         self.cancellation.store(true, Ordering::Relaxed);
@@ -3001,6 +3153,125 @@ fn messages_to_loop_messages(
             }
         })
         .collect()
+}
+
+// ── Resume-data mapping (pure; unit-tested) ─────────────────────────────
+
+use serde_json::Value;
+
+/// Map one wire record to its typed replay entry, per the `session/resume_state`
+/// contract consumed by the TUI replay renderer. Returns `None` for unknown
+/// record types (skipped — never a hard error).
+///
+/// Shape notes: `message.append` / `goal.updated` / `compaction.completed` /
+/// `approval.result` wrap their payload under a named key; the object-typed
+/// records (`tool.call` / `tool.result` / `usage.updated` /
+/// `compaction.started` / `plan.updated` / `permission.updated`) pass their
+/// data through and gain a `type` field; turn boundaries carry the record's
+/// `turn_id` (the record column, not the data payload).
+pub fn map_record_to_typed(record_type: &str, turn_id: &str, data: &Value) -> Option<Value> {
+    use crate::persistence::record_store::{
+        RECORD_TYPE_APPROVAL_RESULT, RECORD_TYPE_COMPACTION_COMPLETED,
+        RECORD_TYPE_COMPACTION_STARTED, RECORD_TYPE_GOAL_UPDATED, RECORD_TYPE_MESSAGE_APPEND,
+        RECORD_TYPE_PERMISSION_UPDATED, RECORD_TYPE_PLAN_UPDATED, RECORD_TYPE_TOOL_CALL,
+        RECORD_TYPE_TOOL_RESULT, RECORD_TYPE_TURN_ENDED, RECORD_TYPE_TURN_STARTED,
+        RECORD_TYPE_USAGE_UPDATED,
+    };
+    let typed = match record_type {
+        RECORD_TYPE_MESSAGE_APPEND => serde_json::json!({ "type": "message", "message": data }),
+        RECORD_TYPE_TURN_STARTED => {
+            serde_json::json!({ "type": "turn_started", "turn_id": turn_id })
+        }
+        RECORD_TYPE_TURN_ENDED => {
+            serde_json::json!({ "type": "turn_ended", "turn_id": turn_id })
+        }
+        RECORD_TYPE_TOOL_CALL => typed_from_data("tool_call", data),
+        RECORD_TYPE_TOOL_RESULT => typed_from_data("tool_result", data),
+        RECORD_TYPE_USAGE_UPDATED => typed_from_data("usage_updated", data),
+        RECORD_TYPE_GOAL_UPDATED => serde_json::json!({ "type": "goal_updated", "snapshot": data }),
+        RECORD_TYPE_COMPACTION_STARTED => typed_from_data("compaction_started", data),
+        RECORD_TYPE_COMPACTION_COMPLETED => {
+            serde_json::json!({ "type": "compaction_completed", "result": data })
+        }
+        RECORD_TYPE_PLAN_UPDATED => typed_from_data("plan_updated", data),
+        RECORD_TYPE_PERMISSION_UPDATED => typed_from_data("permission_updated", data),
+        RECORD_TYPE_APPROVAL_RESULT => {
+            serde_json::json!({ "type": "approval_result", "record": data })
+        }
+        _ => return None,
+    };
+    Some(typed)
+}
+
+/// Merge a `type` tag into an object-typed record's data. Non-object data
+/// degrades to `{ "type": ... }` — the engine always writes objects here,
+/// so this only guards against malformed rows.
+fn typed_from_data(typed_type: &str, data: &Value) -> Value {
+    let mut obj = data.as_object().cloned().unwrap_or_default();
+    obj.insert("type".into(), Value::String(typed_type.into()));
+    Value::Object(obj)
+}
+
+/// Map persisted records to the typed replay array, ascending, skipping
+/// unknown record types (`None` mappings).
+pub fn records_to_replay(records: &[crate::persistence::record_store::Record]) -> Vec<Value> {
+    records
+        .iter()
+        .filter_map(|r| map_record_to_typed(&r.record_type, &r.turn_id, &r.data_json))
+        .collect()
+}
+
+/// Map one todo item to the wire shape: `{ title, status }` with status
+/// `pending` / `in_progress` / `completed` (the tool's `done` becomes
+/// `completed` — the TS `hydrateTodoPanel` vocabulary).
+pub fn map_todo_item(item: &crate::tools::todo::TodoItem) -> Value {
+    use crate::tools::todo::TodoStatus;
+    let status = match item.status {
+        TodoStatus::Pending => "pending",
+        TodoStatus::InProgress => "in_progress",
+        TodoStatus::Done => "completed",
+    };
+    serde_json::json!({ "title": item.title, "status": status })
+}
+
+/// Map a todo list to the wire payload. TS `hydrateTodoPanel` semantics: a
+/// list whose items are ALL done reads as cleared → empty array.
+pub fn todos_to_payload(todos: &[crate::tools::todo::TodoItem]) -> Vec<Value> {
+    use crate::tools::todo::TodoStatus;
+    if !todos.is_empty() && todos.iter().all(|t| t.status == TodoStatus::Done) {
+        return Vec::new();
+    }
+    todos.iter().map(map_todo_item).collect()
+}
+
+/// Map one background task to the wire shape
+/// `{ taskId, kind: "agent"|"task", status, description, agentId? }`
+/// (camelCase — the TS background-transcript vocabulary). Agent tasks keep
+/// their subagent id; process/question tasks collapse to `kind: "task"`.
+pub fn map_background_info(info: &crate::background::types::BackgroundTaskInfo) -> Value {
+    use crate::background::types::{BackgroundTaskInfo, BackgroundTaskStatus};
+    let (base, kind, agent_id) = match info {
+        BackgroundTaskInfo::Agent(a) => (&a.base, "agent", a.agent_id.clone()),
+        BackgroundTaskInfo::Process(p) => (&p.base, "task", None),
+        BackgroundTaskInfo::Question(q) => (&q.base, "task", None),
+    };
+    let status = match base.status {
+        BackgroundTaskStatus::Running => "running",
+        BackgroundTaskStatus::Completed => "completed",
+        BackgroundTaskStatus::Failed => "failed",
+        BackgroundTaskStatus::TimedOut => "timed_out",
+        BackgroundTaskStatus::Killed => "killed",
+        BackgroundTaskStatus::Lost => "lost",
+    };
+    let mut obj = serde_json::Map::new();
+    obj.insert("taskId".into(), serde_json::Value::String(base.task_id.clone()));
+    obj.insert("kind".into(), serde_json::Value::String(kind.into()));
+    obj.insert("status".into(), serde_json::Value::String(status.into()));
+    obj.insert("description".into(), serde_json::Value::String(base.description.clone()));
+    if let Some(aid) = agent_id {
+        obj.insert("agentId".into(), serde_json::Value::String(aid));
+    }
+    serde_json::Value::Object(obj)
 }
 
 #[cfg(test)]
@@ -3684,6 +3955,11 @@ mod tests {
     }
 
     fn temp_test_homedir() -> String {
+        // The child session store prefers `$KIMI_AGENT_HOME` over the homedir
+        // fallback; pin the env to unset so assertions that reopen
+        // `<homedir>/.kimi-agent/sessions.db` are not diverted by an ambient
+        // environment (same pattern as `agent_new_wires_knowledge_delegate_from_homedir`).
+        unsafe { std::env::remove_var("KIMI_AGENT_HOME") };
         let dir = std::env::temp_dir().join(format!("kimi-agent-task-test-{}", fastrand::u64(..)));
         std::fs::create_dir_all(&dir).unwrap();
         dir.to_string_lossy().into_owned()
@@ -3694,6 +3970,11 @@ mod tests {
         // The `Task` interceptor stamps the invoking tool call id into the
         // child's persisted session record (agent_id = tracked task id), so
         // hosts can pair the child replay with its exact parent call.
+        // Pin `$KIMI_AGENT_HOME` to unset so the child store lands in
+        // `<homedir>/.kimi-agent/sessions.db` (see
+        // `task_subagent_writes_wire_records` for the same pattern).
+        let saved = std::env::var("KIMI_AGENT_HOME").ok();
+        unsafe { std::env::remove_var("KIMI_AGENT_HOME") };
         let inner: Arc<dyn HostCallbacks> = Arc::new(TaskCompletingHost);
         let homedir = temp_test_homedir();
         let interceptor = task_interceptor_with(inner, Some(homedir.clone()));
@@ -3733,6 +4014,10 @@ mod tests {
         assert!(stamped[0].is_subagent(), "record must classify as a subagent session");
         // The summary reader's contract: message_count comes from context.
         assert!(stamped[0].state_json["context"].is_array());
+
+        if let Some(value) = saved {
+            unsafe { std::env::set_var("KIMI_AGENT_HOME", value) };
+        }
     }
 
     #[test]
@@ -3740,6 +4025,12 @@ mod tests {
         // A Task child inherits the parent's record store, so its own turns,
         // messages and tool calls are appended under its agent id — closing
         // the "subagents don't write records" gap (G-2 replay).
+        // The child session store prefers `$KIMI_AGENT_HOME` over the homedir
+        // fallback; pin the env to unset so the assertions below resolve to
+        // `<homedir>/.kimi-agent/sessions.db` (same pattern as
+        // `agent_new_wires_knowledge_delegate_from_homedir`).
+        let saved = std::env::var("KIMI_AGENT_HOME").ok();
+        unsafe { std::env::remove_var("KIMI_AGENT_HOME") };
         let inner: Arc<dyn HostCallbacks> = Arc::new(TaskCompletingHost);
         let homedir = temp_test_homedir();
         let record_store = std::sync::Arc::new(
@@ -3794,6 +4085,10 @@ mod tests {
                 .any(|r| r.record_type == "message.append"),
             "child records must include message.append"
         );
+
+        if let Some(value) = saved {
+            unsafe { std::env::set_var("KIMI_AGENT_HOME", value) };
+        }
     }
 
     // ── SearchKnowledge tool wiring ──────────────────────────────────────
@@ -3930,5 +4225,275 @@ mod tests {
         if let Some(value) = saved {
             unsafe { std::env::set_var("KIMI_AGENT_HOME", value) };
         }
+    }
+
+    // ── Resume-data mapping (session/resume_state) ────────────────────
+
+    #[test]
+    fn map_record_to_typed_cover_all_wire_types() {
+        use crate::persistence::record_store::*;
+        let data = serde_json::json!({ "key": "v" });
+        // message.append wraps under `message`.
+        let m = map_record_to_typed(RECORD_TYPE_MESSAGE_APPEND, "t1", &data).unwrap();
+        assert_eq!(m["type"], "message");
+        assert_eq!(m["message"], data);
+        // turn boundaries carry the record's turn_id.
+        let s = map_record_to_typed(RECORD_TYPE_TURN_STARTED, "t2", &data).unwrap();
+        assert_eq!(s["type"], "turn_started");
+        assert_eq!(s["turn_id"], "t2");
+        let e = map_record_to_typed(RECORD_TYPE_TURN_ENDED, "t3", &data).unwrap();
+        assert_eq!(e["type"], "turn_ended");
+        assert_eq!(e["turn_id"], "t3");
+        // object-typed records pass data through + gain `type`.
+        let tc = map_record_to_typed(RECORD_TYPE_TOOL_CALL, "t4", &data).unwrap();
+        assert_eq!(tc["type"], "tool_call");
+        assert_eq!(tc["key"], "v");
+        let tr = map_record_to_typed(RECORD_TYPE_TOOL_RESULT, "t5", &data).unwrap();
+        assert_eq!(tr["type"], "tool_result");
+        assert_eq!(tr["key"], "v");
+        let u = map_record_to_typed(RECORD_TYPE_USAGE_UPDATED, "t6", &data).unwrap();
+        assert_eq!(u["type"], "usage_updated");
+        assert_eq!(u["key"], "v");
+        // goal/compaction wrap under named keys.
+        let g = map_record_to_typed(RECORD_TYPE_GOAL_UPDATED, "t7", &data).unwrap();
+        assert_eq!(g["type"], "goal_updated");
+        assert_eq!(g["snapshot"], data);
+        let cs = map_record_to_typed(RECORD_TYPE_COMPACTION_STARTED, "t8", &data).unwrap();
+        assert_eq!(cs["type"], "compaction_started");
+        assert_eq!(cs["key"], "v");
+        let cc = map_record_to_typed(RECORD_TYPE_COMPACTION_COMPLETED, "t9", &data).unwrap();
+        assert_eq!(cc["type"], "compaction_completed");
+        assert_eq!(cc["result"], data);
+        // plan/permission pass data through + gain `type`.
+        let p = map_record_to_typed(
+            RECORD_TYPE_PLAN_UPDATED,
+            "t10",
+            &serde_json::json!({ "enabled": true }),
+        )
+        .unwrap();
+        assert_eq!(p["type"], "plan_updated");
+        assert_eq!(p["enabled"], true);
+        let pm = map_record_to_typed(
+            RECORD_TYPE_PERMISSION_UPDATED,
+            "t11",
+            &serde_json::json!({ "mode": "yolo" }),
+        )
+        .unwrap();
+        assert_eq!(pm["type"], "permission_updated");
+        assert_eq!(pm["mode"], "yolo");
+        // approval.result wraps its payload under `record`.
+        let ar = map_record_to_typed(
+            RECORD_TYPE_APPROVAL_RESULT,
+            "t12",
+            &serde_json::json!({ "tool_name": "Write", "decision": "approved" }),
+        )
+        .unwrap();
+        assert_eq!(ar["type"], "approval_result");
+        assert_eq!(ar["record"]["tool_name"], "Write");
+        assert_eq!(ar["record"]["decision"], "approved");
+    }
+
+    #[test]
+    fn set_plan_mode_records_plan_updated_on_real_transitions() {
+        // A store-attached agent appends `plan.updated` on actual transitions;
+        // idempotent re-entry / re-exit of the same state records nothing.
+        let record_store = std::sync::Arc::new(crate::persistence::RecordStore::new(
+            crate::persistence::store::SqliteStore::in_memory().unwrap(),
+        ));
+        let mut agent = Agent::new(
+            Arc::new(NoopHost),
+            crate::agent::types::AgentOptions {
+                session_id: Some("sess-rec".to_string()),
+                record_store: Some(record_store.clone()),
+                ..Default::default()
+            },
+        );
+        assert!(agent.set_plan_mode(true).expect("enter plan mode"));
+        assert!(agent.set_plan_mode(true).expect("re-enter is a no-op"));
+        assert!(!agent.set_plan_mode(false).expect("exit plan mode"));
+        assert!(!agent.set_plan_mode(false).expect("re-exit is a no-op"));
+        let records = record_store.get_records("sess-rec", None, 100).unwrap();
+        let plan_records: Vec<_> = records
+            .iter()
+            .filter(|r| r.record_type == "plan.updated")
+            .collect();
+        assert_eq!(plan_records.len(), 2, "one record per real transition");
+        assert_eq!(plan_records[0].data_json["enabled"], true);
+        assert_eq!(plan_records[1].data_json["enabled"], false);
+    }
+
+    #[test]
+    fn record_permission_mode_appends_permission_updated() {
+        let record_store = std::sync::Arc::new(crate::persistence::RecordStore::new(
+            crate::persistence::store::SqliteStore::in_memory().unwrap(),
+        ));
+        let agent = Agent::new(
+            Arc::new(NoopHost),
+            crate::agent::types::AgentOptions {
+                session_id: Some("sess-rec".to_string()),
+                record_store: Some(record_store.clone()),
+                ..Default::default()
+            },
+        );
+        agent.record_permission_mode("yolo");
+        let records = record_store.get_records("sess-rec", None, 100).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].record_type, "permission.updated");
+        assert_eq!(records[0].data_json["mode"], "yolo");
+        // Without a store the call is a silent no-op.
+        let bare = Agent::new(
+            Arc::new(NoopHost),
+            crate::agent::types::AgentOptions {
+                session_id: Some("sess-rec".to_string()),
+                ..Default::default()
+            },
+        );
+        bare.record_permission_mode("auto");
+    }
+
+    #[test]
+    fn map_record_to_typed_unknown_type_skipped() {
+        assert!(map_record_to_typed("unknown.type", "t", &serde_json::Value::Null).is_none());
+        // Non-object data degrades to { type } instead of panicking.
+        let tc = map_record_to_typed(
+            crate::persistence::record_store::RECORD_TYPE_TOOL_CALL,
+            "t",
+            &serde_json::json!("not-an-object"),
+        )
+        .unwrap();
+        assert_eq!(tc["type"], "tool_call");
+    }
+
+    #[test]
+    fn records_to_replay_preserves_order_and_skips_unknown() {
+        use crate::persistence::record_store::{
+            Record, RECORD_TYPE_MESSAGE_APPEND, RECORD_TYPE_TOOL_CALL,
+        };
+        let records = vec![
+            Record {
+                id: 1,
+                session_id: "s".into(),
+                turn_id: "t1".into(),
+                record_type: RECORD_TYPE_MESSAGE_APPEND.into(),
+                data_json: serde_json::json!({ "role": "user" }),
+                created_at: "2025-01-01T00:00:00Z".into(),
+            },
+            Record {
+                id: 2,
+                session_id: "s".into(),
+                turn_id: "t1".into(),
+                record_type: "unknown.type".into(),
+                data_json: serde_json::Value::Null,
+                created_at: "2025-01-01T00:00:01Z".into(),
+            },
+            Record {
+                id: 3,
+                session_id: "s".into(),
+                turn_id: "t1".into(),
+                record_type: RECORD_TYPE_TOOL_CALL.into(),
+                data_json: serde_json::json!({ "tool_call_id": "c1", "name": "Read" }),
+                created_at: "2025-01-01T00:00:02Z".into(),
+            },
+        ];
+        let replay = records_to_replay(&records);
+        assert_eq!(replay.len(), 2);
+        assert_eq!(replay[0]["type"], "message");
+        assert_eq!(replay[0]["message"]["role"], "user");
+        assert_eq!(replay[1]["type"], "tool_call");
+        assert_eq!(replay[1]["tool_call_id"], "c1");
+    }
+
+    #[test]
+    fn todos_to_payload_maps_statuses_and_clears_all_done() {
+        use crate::tools::todo::{TodoItem, TodoStatus};
+        let todos = vec![
+            TodoItem { title: "a".into(), status: TodoStatus::Pending },
+            TodoItem { title: "b".into(), status: TodoStatus::InProgress },
+            TodoItem { title: "c".into(), status: TodoStatus::Done },
+        ];
+        let payload = todos_to_payload(&todos);
+        assert_eq!(payload.len(), 3);
+        assert_eq!(payload[0], serde_json::json!({ "title": "a", "status": "pending" }));
+        assert_eq!(payload[1], serde_json::json!({ "title": "b", "status": "in_progress" }));
+        // Tool-side `done` becomes the TS `completed` vocabulary.
+        assert_eq!(payload[2], serde_json::json!({ "title": "c", "status": "completed" }));
+        // Empty list stays empty.
+        assert!(todos_to_payload(&[]).is_empty());
+        // ALL done reads as cleared (hydrateTodoPanel semantics).
+        let all_done = vec![
+            TodoItem { title: "x".into(), status: TodoStatus::Done },
+            TodoItem { title: "y".into(), status: TodoStatus::Done },
+        ];
+        assert!(todos_to_payload(&all_done).is_empty());
+        // One pending item keeps the whole list.
+        let mixed = vec![
+            TodoItem { title: "x".into(), status: TodoStatus::Done },
+            TodoItem { title: "y".into(), status: TodoStatus::Pending },
+        ];
+        assert_eq!(todos_to_payload(&mixed).len(), 2);
+    }
+
+    #[test]
+    fn map_background_info_shapes_agent_and_task_kinds() {
+        use crate::background::types::*;
+        let agent_info = BackgroundTaskInfo::Agent(AgentBackgroundTaskInfo {
+            base: BackgroundTaskInfoBase {
+                task_id: "agent-abc12345".into(),
+                description: "fix the bug".into(),
+                status: BackgroundTaskStatus::Completed,
+                detached: Some(true),
+                started_at: 1,
+                ended_at: Some(2),
+                stop_reason: None,
+                terminal_notification_suppressed: None,
+                timeout_ms: None,
+            },
+            kind: BackgroundTaskKind::Agent,
+            agent_id: Some("sub-1".into()),
+            subagent_type: None,
+        });
+        let v = map_background_info(&agent_info);
+        assert_eq!(v["taskId"], "agent-abc12345");
+        assert_eq!(v["kind"], "agent");
+        assert_eq!(v["status"], "completed");
+        assert_eq!(v["description"], "fix the bug");
+        assert_eq!(v["agentId"], "sub-1");
+
+        let process_info = BackgroundTaskInfo::Process(ProcessBackgroundTaskInfo {
+            base: BackgroundTaskInfoBase {
+                task_id: "bash-xyz98765".into(),
+                description: "run tests".into(),
+                status: BackgroundTaskStatus::Running,
+                detached: None,
+                started_at: 1,
+                ended_at: None,
+                stop_reason: None,
+                terminal_notification_suppressed: None,
+                timeout_ms: None,
+            },
+            kind: BackgroundTaskKind::Process,
+            command: "cargo test".into(),
+            pid: 42,
+            exit_code: None,
+        });
+        let v = map_background_info(&process_info);
+        assert_eq!(v["taskId"], "bash-xyz98765");
+        assert_eq!(v["kind"], "task");
+        assert_eq!(v["status"], "running");
+        assert!(v.get("agentId").is_none());
+    }
+
+    #[test]
+    fn resume_state_degrades_gracefully_without_store() {
+        // No record store / session id / todos → all empty sections, and the
+        // fixed `{ agents: { main: ... } }` envelope still holds.
+        let agent = Agent::new(
+            Arc::new(NoopHost),
+            crate::agent::types::AgentOptions::default(),
+        );
+        let state = agent.resume_state().unwrap();
+        assert_eq!(state["agents"]["main"]["replay"], serde_json::json!([]));
+        assert_eq!(state["agents"]["main"]["background"], serde_json::json!([]));
+        assert_eq!(state["agents"]["main"]["toolStore"]["todo"], serde_json::json!([]));
     }
 }

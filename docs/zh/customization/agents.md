@@ -111,7 +111,7 @@ disallowedTools:
 
 `model_preference` 仅在次主力模型实验功能启用时对新启动的子 Agent 生效。在 `kimi web` 下，设置 `KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL=1`；在实验性 `kimi -p` 下，必需的 `KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用该功能。TUI 目前会忽略此字段。该字段不用于填写具体模型 alias，已恢复的子 Agent 也会保持原模型。主 Agent 会在 profile 描述中看到这项偏好，因此仍可在某项任务需要不同选择时显式传入 `model`。
 
-目录中发现的非法文件会被跳过并告警，不影响其他文件。通过 `--agent-file` 显式传入的文件必须合法 —— 否则 CLI 会报错并退出。
+目录中发现的非法文件会被跳过并告警，不影响其他文件。经显式加载（explicit tier）传入的文件必须合法，否则 CLI 会报错并退出。
 
 ::: warning 注意
 `tools` 与 `disallowedTools` 不仅决定模型能"看到"哪些工具，还会在执行前再次强制检查。`subagents` 同样双重生效：`Agent` 工具的类型列表只包含允许委派的子 Agent，`Agent` 与 `AgentSwarm` 在实际派发前都会强制校验；唤回已有子 Agent 不受此限制。权限规则仍是独立的控制层，用于决定哪些操作需要审批。
@@ -121,24 +121,11 @@ disallowedTools:
 
 ### 选择主 Agent
 
-两个 CLI flag 用于选择驱动会话的 Agent。**目前二者仅在 `KIMI_CODE_EXPERIMENTAL_FLAG=1` 时的 `kimi -p` 下可用**；交互式 TUI 会以明确错误拒绝它们：
-
-- **`--agent <name>`**：以指定 Agent 作为主 Agent 启动会话。名称可以指向内置 Agent 或任何已发现的文件；名称不存在时会报错，并列出可用的 Agent。
-- **`--agent-file <path>`**：以最高优先级加载一个 Agent 文件（仅本次启动）并以其启动。该 flag 只接受一个文件：不可重复传入，也不能与 `--agent` 同时使用。
-
-例如在 print 模式下：
-
-```sh
-KIMI_CODE_EXPERIMENTAL_FLAG=1 kimi -p --agent reviewer "审查这个分支上的改动"
-```
-
-绑定的 Agent 即会话的身份：在会话首次绑定后即固定，之后不可切换。重复选择已绑定的 Agent（例如以相同的 `--agent` 恢复会话）是 no-op；选择不同的 Agent 会报 "already bound" 错误。
-
-定制主 Agent 时，在正文中引用 `${base_prompt}` 可保持默认提示词的环境、工作区指令和 Skill 注入生效；不引用 `${base_prompt}` 的正文则完全拥有自己的提示词，适合自包含的子 Agent。
+旧版 TS 发行版通过 `--agent <name>` 与 `--agent-file <path>` 在启动时选择主 Agent；当前 Rust CLI 不接受这两个 flag。自定义 Agent 文件仍会从上面的目录中自动发现，并可作为子 Agent 委托；如需永久定制主 Agent 的系统提示词，请使用下面的 `SYSTEM.md` 覆盖。
 
 ### 用 SYSTEM.md 覆盖主 Agent 的系统提示词
 
-希望永久覆盖主 Agent 的系统提示词、而不必每次启动都传入 `--agent` 或 `--agent-file` 时，可以写一份 `$KIMI_CODE_HOME/SYSTEM.md`（默认：`~/.kimi-code/SYSTEM.md`，随 `KIMI_CODE_HOME` 移动）。文件存在且非空期间，它整体替换内置默认主 Agent 的系统提示词——但只替换提示词，描述与工具集仍沿用内置默认值。SYSTEM.md 目前仅在 `kimi web`，以及 `KIMI_CODE_EXPERIMENTAL_FLAG=1` 时的 `kimi -p` 下生效；交互式 TUI 会忽略该文件。
+希望永久覆盖主 Agent 的系统提示词、而不必每次启动都传入 `--agent` 或 `--agent-file` 时，可以写一份 `$KIMI_CODE_HOME/SYSTEM.md`（默认：`~/.kimi-code/SYSTEM.md`，随 `KIMI_CODE_HOME` 移动）。文件存在且非空期间，它整体替换内置默认主 Agent 的系统提示词——但只替换提示词，描述与工具集仍沿用内置默认值。SYSTEM.md 目前仅在 `kimi web` 下生效；交互式 TUI 会忽略该文件。
 
 SYSTEM.md 是纯 Markdown 正文，不需要也不读取 Frontmatter。文件缺失或为空时不生效；读取失败时会告警并回退到内置提示词。优先级上，显式意图仍然胜出：项目作用域中声明了 `override: true` 的同名 Agent 文件、通过 `--agent-file` 传入的文件都排在 SYSTEM.md 之前，用 `--agent` 选择其他 Agent 时 SYSTEM.md 也不会生效；而在用户作用域内部，SYSTEM.md 优先于 `agents/` 目录中扫描到的同名文件。
 

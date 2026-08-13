@@ -26,6 +26,10 @@
     pub const SESSION_FORK: &str = "session/fork";
     pub const SESSION_SAVE: &str = "session/save";
     pub const SESSION_LOAD: &str = "session/load";
+    /// Full resume data snapshot for a loaded session: the typed replay
+    /// timeline (records), background tasks, and the current todo list —
+    /// the engine side of SDK `getResumeState` (TUI full-replay resume).
+    pub const SESSION_RESUME_STATE: &str = "session/resume_state";
     pub const SESSION_LIST: &str = "session/list";
     pub const SESSION_SET_MODEL: &str = "session/set_model";
     pub const SESSION_RUN_SHELL: &str = "session/run_shell";

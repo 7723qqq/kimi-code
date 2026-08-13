@@ -81,10 +81,7 @@ impl QuestionPanel {
         let (start, end) = self.visible_options(height);
         let mut rows = self.build_rows(start..end);
         if end - start < self.options.len() {
-            rows.push(t!(
-                "tui.question.more",
-                self.options.len() - (end - start)
-            ));
+            rows.push(t!("tui.question.more", self.options.len() - (end - start)));
         }
         rows
     }

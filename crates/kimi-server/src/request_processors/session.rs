@@ -237,6 +237,7 @@ impl Processor for SessionProcessor {
                                     permission: Some(agent.permission.clone()),
                                     hooks: None,
                                     approval: Some(agent.approval.clone()),
+                                    record_store: agent.record_store.clone(),
                                 };
                                 agent.callbacks = std::sync::Arc::new(gated);
                             }
@@ -2772,6 +2773,80 @@ mod create_tests {
         assert_eq!(body["result"]["steps"], 1, "steps: {body}");
         assert!(body["result"]["usage"].is_object(), "usage: {body}");
         assert_eq!(body["result"]["usage"]["output_tokens"], 10, "usage: {body}");
+    }
+
+    /// The production path (ServerState::assemble) wires the RecordStore into
+    /// session agents, so a prompt turn writes wire records (vis timeline)
+    /// into the store shared with the session store. The test asserts on the
+    /// injected store directly — no `KIMI_AGENT_HOME` env manipulation, which
+    /// would race with parallel tests' env writes (std::env is not safe to
+    /// mutate concurrently) and make this test flaky.
+    #[tokio::test]
+    async fn prompt_writes_wire_records_for_vis() {
+        use std::sync::Arc;
+
+        let step: crate::callbacks::LlmStep = Arc::new(
+            move |_req: kimi_protocol::wire_types::LlmChatRequest| {
+                Box::pin(async move {
+                    Ok(kimi_protocol::wire_types::LlmChatResponse {
+                        content: "recorded".into(),
+                        tool_calls: vec![],
+                        finish_reason: Some("stop".into()),
+                        usage: kimi_protocol::wire_types::TokenUsage {
+                            input_tokens: 1,
+                            output_tokens: 1,
+                            total_tokens: 2,
+                        },
+                    })
+                })
+            },
+        );
+        let state = crate::state::ServerState::with_llm_step(step).expect("state");
+        // Grab the injected record store before moving `state` into the
+        // processor — the Arc keeps the store alive for the assertions below.
+        let record_store = state
+            .record_store()
+            .expect("ServerState must wire a record store");
+        let processor = SessionProcessor::with_state(state);
+        let mut server = MessageProcessor::new();
+        processor.register(&mut server);
+
+        server
+            .handle(JsonRpcRequest {
+                jsonrpc: "2.0".into(),
+                id: serde_json::json!(1),
+                method: "session/create".into(),
+                params: serde_json::json!({ "session_id": "s-records" }),
+            })
+            .await;
+
+        let body = server
+            .handle(JsonRpcRequest {
+                jsonrpc: "2.0".into(),
+                id: serde_json::json!(2),
+                method: "session/prompt".into(),
+                params: serde_json::json!({
+                    "session_id": "s-records",
+                    "input": [{"type": "text", "text": "hello"}],
+                }),
+            })
+            .await;
+        assert!(body.get("error").is_none(), "prompt failed: {body}");
+
+        // The injected store must hold the wire records for this session —
+        // the same store the vis SQLite reader and `session/export` consume.
+        let records = record_store
+            .get_records("s-records", None, 1_000)
+            .expect("get records");
+        assert!(
+            !records.is_empty(),
+            "prompt turn must write wire records for the vis reader"
+        );
+        let types: std::collections::BTreeSet<String> =
+            records.iter().map(|r| r.record_type.clone()).collect();
+        assert!(types.contains("turn.started"), "types: {types:?}");
+        assert!(types.contains("turn.ended"), "types: {types:?}");
+        assert!(types.contains("message.append"), "types: {types:?}");
     }
 
     #[tokio::test]

@@ -223,6 +223,10 @@ pub struct NativeToolCallbacks {
     /// wait on a decision from either the host authorize callback or the
     /// `session/approval_resolve` RPC (web).
     pub approval: Option<crate::approval::SharedApprovalStore>,
+    /// Wire-record store (optional). When set, deferred approval outcomes
+    /// are appended as `approval.result` records so replay timelines can
+    /// render them (approved / rejected + feedback).
+    pub record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
 }
 
 /// Outcome of consulting the native permission gate for a gated tool call.
@@ -314,9 +318,15 @@ async fn native_authorize(
 /// channel — fed by either the host authorize callback (TUI / vscode panels)
 /// or `session/approval_resolve` (web). The first decision wins; the other
 /// channel's result is discarded.
+///
+/// When a wire-record store is attached, each resolved decision is appended
+/// as an `approval.result` record (approved / rejected + feedback) so replay
+/// timelines can render the outcome. Records are best-effort: a missing
+/// session id or store, or a write failure, never changes tool behaviour.
 async fn defer_to_host(
     inner: &Arc<dyn HostCallbacks>,
     approval: &Option<crate::approval::SharedApprovalStore>,
+    record_store: &Option<std::sync::Arc<crate::persistence::RecordStore>>,
     req: AuthorizeToolRequest,
 ) -> Result<Option<AuthorizeToolResponse>, String> {
     let Some(store) = approval else {
@@ -374,34 +384,77 @@ async fn defer_to_host(
     });
 
     match rx.await {
-        Ok(ApprovalDecision::Allow) => Ok(None),
-        Ok(ApprovalDecision::Deny { reason }) => Ok(Some(AuthorizeToolResponse {
-            block: true,
-            reason,
-            synthetic_result: None,
-            execution_metadata: None,
-            resolved: true,
-        })),
+        Ok(ApprovalDecision::Allow) => {
+            record_approval_outcome(record_store, &req, "approved", None);
+            Ok(None)
+        }
+        Ok(ApprovalDecision::Deny { reason }) => {
+            record_approval_outcome(record_store, &req, "rejected", reason.as_deref());
+            Ok(Some(AuthorizeToolResponse {
+                block: true,
+                reason,
+                synthetic_result: None,
+                execution_metadata: None,
+                resolved: true,
+            }))
+        }
         Ok(ApprovalDecision::Synthetic {
             content,
             is_error,
             note,
-        }) => Ok(Some(AuthorizeToolResponse {
-            block: false,
-            reason: None,
-            synthetic_result: Some(ExecutableToolResultData {
-                content,
-                is_error,
-                note,
-                is_prediction: false,
-                stop_turn: false,
-            }),
-            execution_metadata: None,
-            resolved: true,
-        })),
+        }) => {
+            // A host-returned synthetic result stands in for real execution;
+            // the call was still allowed through approval.
+            record_approval_outcome(record_store, &req, "approved", None);
+            Ok(Some(AuthorizeToolResponse {
+                block: false,
+                reason: None,
+                synthetic_result: Some(ExecutableToolResultData {
+                    content,
+                    is_error,
+                    note,
+                    is_prediction: false,
+                    stop_turn: false,
+                }),
+                execution_metadata: None,
+                resolved: true,
+            }))
+        }
         // The store dropped the entry (turn torn down) — allow unchanged.
         Err(_) => Ok(None),
     }
+}
+
+/// Append an `approval.result` wire record for a deferred approval decision.
+///
+/// Shape: `{ tool_name, tool_call_id, action, decision, feedback? }` — the
+/// replay contract consumed by the TUI (TS `PermissionApprovalResultRecord`
+/// parity, flattened). `action` falls back to `Call <tool>` (the TS default
+/// when no execution description exists). Best-effort by design: no store,
+/// no session id, or a write failure silently skips the record.
+fn record_approval_outcome(
+    record_store: &Option<std::sync::Arc<crate::persistence::RecordStore>>,
+    req: &AuthorizeToolRequest,
+    decision: &str,
+    feedback: Option<&str>,
+) {
+    let Some(store) = record_store else { return };
+    let Some(session_id) = req.session_id.as_deref() else { return };
+    let mut data = serde_json::json!({
+        "tool_name": req.tool_name,
+        "tool_call_id": req.tool_call_id,
+        "action": format!("Call {}", req.tool_name),
+        "decision": decision,
+    });
+    if let Some(text) = feedback {
+        data["feedback"] = serde_json::Value::String(text.to_string());
+    }
+    let _ = store.append_wire(
+        session_id,
+        &req.turn_id,
+        crate::persistence::record_store::RECORD_TYPE_APPROVAL_RESULT,
+        data,
+    );
 }
 
 /// Bash variant of [`native_authorize`]: a dangerous command must reach host
@@ -465,8 +518,9 @@ impl HostCallbacks for NativeToolCallbacks {
                     let permission = self.permission.clone();
                     let self_hooks = self.hooks.clone();
                     let self_approval = self.approval.clone();
+                    let self_record_store = self.record_store.clone();
                     return Box::pin(async move {
-                        execute_gated_background_bash(inner, toolset, manager, permission, self_hooks, self_approval, request).await
+                        execute_gated_background_bash(inner, toolset, manager, permission, self_hooks, self_approval, self_record_store, request).await
                     });
                 }
             }
@@ -481,7 +535,8 @@ impl HostCallbacks for NativeToolCallbacks {
             let permission = self.permission.clone();
             let self_hooks = self.hooks.clone();
             let self_approval = self.approval.clone();
-            return Box::pin(async move { execute_gated_bash(inner, toolset, permission, self_hooks, self_approval, request).await });
+            let self_record_store = self.record_store.clone();
+            return Box::pin(async move { execute_gated_bash(inner, toolset, permission, self_hooks, self_approval, self_record_store, request).await });
         }
         // Network read tools (WebSearch / FetchURL): executed natively via
         // reqwest, gated by the permission gate because they cause network
@@ -497,7 +552,8 @@ impl HostCallbacks for NativeToolCallbacks {
             let permission = self.permission.clone();
             let self_hooks = self.hooks.clone();
             let self_approval = self.approval.clone();
-            return Box::pin(async move { execute_gated_network(inner, permission, self_hooks, self_approval, request).await });
+            let self_record_store = self.record_store.clone();
+            return Box::pin(async move { execute_gated_network(inner, permission, self_hooks, self_approval, self_record_store, request).await });
         }
         // Write-class tools mutate the filesystem, so native execution must
         // pass the host's approval gate first. Only take the native path when
@@ -515,7 +571,8 @@ impl HostCallbacks for NativeToolCallbacks {
             let permission = self.permission.clone();
             let self_hooks = self.hooks.clone();
             let self_approval = self.approval.clone();
-            return Box::pin(async move { execute_gated_write(inner, toolset, permission, self_hooks, self_approval, request).await });
+            let self_record_store = self.record_store.clone();
+            return Box::pin(async move { execute_gated_write(inner, toolset, permission, self_hooks, self_approval, self_record_store, request).await });
         }
         // TaskOutput: read-only snapshot of a NATIVE background task. Only
         // claimed when the task id lives in the native manager — host-spawned
@@ -627,6 +684,7 @@ async fn execute_gated_write(
     permission: Option<crate::permission::gate::PermissionGate>,
     hooks: Option<Arc<crate::hooks::external::HookManager>>,
     approval: Option<crate::approval::SharedApprovalStore>,
+    record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
     request: ToolExecuteRequest,
 ) -> Result<ToolExecuteResponse, String> {
     let approval_rule = write_approval_rule(&request.tool_name, &request.arguments);
@@ -669,6 +727,7 @@ async fn execute_gated_write(
             let authorize = defer_to_host(
                 &inner,
                 &approval,
+                &record_store,
                 AuthorizeToolRequest {
                     session_id: request.session_id.clone(),
                     turn_id: request.turn_id.clone(),
@@ -778,6 +837,7 @@ async fn execute_gated_bash(
     permission: Option<crate::permission::gate::PermissionGate>,
     hooks: Option<Arc<crate::hooks::external::HookManager>>,
     approval: Option<crate::approval::SharedApprovalStore>,
+    record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
     request: ToolExecuteRequest,
 ) -> Result<ToolExecuteResponse, String> {
     // ── Prepare ──────────────────────────────────────────────────────────
@@ -835,6 +895,7 @@ async fn execute_gated_bash(
             let authorize = defer_to_host(
                 &inner,
                 &approval,
+                &record_store,
                 AuthorizeToolRequest {
                     session_id: request.session_id.clone(),
                     turn_id: request.turn_id.clone(),
@@ -930,6 +991,7 @@ async fn execute_gated_background_bash(
     permission: Option<crate::permission::gate::PermissionGate>,
     hooks: Option<Arc<crate::hooks::external::HookManager>>,
     approval: Option<crate::approval::SharedApprovalStore>,
+    record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
     request: ToolExecuteRequest,
 ) -> Result<ToolExecuteResponse, String> {
     // ── Prepare ──────────────────────────────────────────────────────────
@@ -987,6 +1049,7 @@ async fn execute_gated_background_bash(
             let authorize = defer_to_host(
                 &inner,
                 &approval,
+                &record_store,
                 AuthorizeToolRequest {
                     session_id: request.session_id.clone(),
                     turn_id: request.turn_id.clone(),
@@ -1136,6 +1199,7 @@ async fn execute_gated_network(
     permission: Option<crate::permission::gate::PermissionGate>,
     hooks: Option<Arc<crate::hooks::external::HookManager>>,
     approval: Option<crate::approval::SharedApprovalStore>,
+    record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
     request: ToolExecuteRequest,
 ) -> Result<ToolExecuteResponse, String> {
     // ── Prepare ──────────────────────────────────────────────────────────
@@ -1189,6 +1253,7 @@ async fn execute_gated_network(
             let authorize = defer_to_host(
                 &inner,
                 &approval,
+                &record_store,
                 AuthorizeToolRequest {
                     session_id: request.session_id.clone(),
                     turn_id: request.turn_id.clone(),
@@ -1399,6 +1464,7 @@ mod tests {
             permission: None,
             hooks: None,
             approval: None,
+            record_store: None,
         };
         (dir, host, callbacks)
     }
@@ -1493,6 +1559,7 @@ mod tests {
             permission: None,
             hooks: None,
             approval: None,
+            record_store: None,
         };
         Some((dir, host, callbacks))
     }
@@ -1515,6 +1582,7 @@ mod tests {
             permission: Some(gate),
             hooks: None,
             approval: None,
+            record_store: None,
         };
         Some((dir, host, callbacks))
     }
@@ -1708,6 +1776,7 @@ mod tests {
             permission: Some(gate),
             hooks: None,
             approval: None,
+            record_store: None,
         };
         (dir, host, callbacks)
     }
@@ -1901,6 +1970,7 @@ mod tests {
             toolset: Arc::new(toolset),
             background: None,
             approval: None,
+            record_store: None,
             permission: None,
             hooks: None,
         };
@@ -1963,4 +2033,41 @@ mod tests {
         )
         .await;
         assert!(matches!(decision, NativeAuth::Defer), "manual Bash defers to host");
+    }
+
+    #[test]
+    fn record_approval_outcome_appends_wire_records() {
+        let store = std::sync::Arc::new(crate::persistence::RecordStore::new(
+            crate::persistence::store::SqliteStore::in_memory().unwrap(),
+        ));
+        let req = AuthorizeToolRequest {
+            session_id: Some("s1".to_string()),
+            turn_id: "t1".to_string(),
+            step_number: 0,
+            tool_call_id: "c1".to_string(),
+            tool_name: "Write".to_string(),
+            arguments: serde_json::json!({}),
+            all_tool_calls: vec![],
+            trace_id: None,
+            approval_rule: "Write()".to_string(),
+        };
+        // Approved (no feedback) + rejected (deny reason as feedback).
+        record_approval_outcome(&Some(store.clone()), &req, "approved", None);
+        record_approval_outcome(&Some(store.clone()), &req, "rejected", Some("nope"));
+        let records = store.get_records("s1", None, 10).unwrap();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].record_type, "approval.result");
+        assert_eq!(records[0].data_json["decision"], "approved");
+        assert_eq!(records[0].data_json["tool_name"], "Write");
+        assert_eq!(records[0].data_json["tool_call_id"], "c1");
+        assert_eq!(records[0].data_json["action"], "Call Write");
+        assert!(records[0].data_json.get("feedback").is_none());
+        assert_eq!(records[1].data_json["decision"], "rejected");
+        assert_eq!(records[1].data_json["feedback"], "nope");
+        // No store, or no session id → nothing written, no panic.
+        record_approval_outcome(&None, &req, "approved", None);
+        let mut no_session = req.clone();
+        no_session.session_id = None;
+        record_approval_outcome(&Some(store.clone()), &no_session, "approved", None);
+        assert_eq!(store.get_records("s1", None, 10).unwrap().len(), 2);
     }

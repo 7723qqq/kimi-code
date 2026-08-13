@@ -1,3 +1,5 @@
+> Historical migration-plan document from the TS->Rust migration (2026-08). Superseded by CODEX_MIGRATION_PLAN.md (current status); kept for reference only.
+
 # 非 Agent 模块 Rust 迁移方案(Non-Agent Rust Migration)
 
 > **状态**:方案定稿(2026-08-03),待用户确认后实施。进度权威仍为 `RUST_MIGRATION_PLAN.md`;本文档覆盖 agent 引擎之外的模块。

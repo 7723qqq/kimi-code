@@ -34,10 +34,7 @@ mod tests {
     #[test]
     fn panel_renders_title_border_and_lines() {
         let mut terminal = Terminal::new(TestBackend::new(40, 6)).unwrap();
-        let lines = vec![
-            Line::from("line one"),
-            Line::from("line two"),
-        ];
+        let lines = vec![Line::from("line one"), Line::from("line two")];
         terminal
             .draw(|frame| {
                 render_panel(

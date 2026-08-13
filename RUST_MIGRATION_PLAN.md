@@ -1,3 +1,5 @@
+> Historical migration-plan document from the TS->Rust migration (2026-08). Superseded by CODEX_MIGRATION_PLAN.md (current status); kept for reference only.
+
 # Rust Agent 引擎 — 完整修复补全计划
 
 > **📌 本文档是 Rust 迁移进度的唯一权威（single source of truth）。**

@@ -214,6 +214,7 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "已复制 {0} 个字符到剪贴板",
     ),
     ("tui.err.copyFailed", "copy failed: {0}", "复制失败：{0}"),
+    ("tui.err.llmNotSet", "LLM not set; run /login or /model first", "未设置模型；请先运行 /login 或 /model"),
     ("tui.exportMd.done", "exported to {0}", "已导出到 {0}"),
     (
         "tui.err.exportMdFailed",
@@ -236,6 +237,16 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "y = allow    n = deny    s = allow for session    Esc = close",
         "y=允许    n=拒绝    s=本会话允许    Esc=关闭",
     ),
+    ("tui.approval.edit", "Edit: {0}", "编辑：{0}"),
+    ("tui.approval.write", "Write: {0}", "写入：{0}"),
+    ("tui.approval.bash", "Bash: {0}", "Bash：{0}"),
+    ("tui.approval.read", "Read: {0}", "读取：{0}"),
+    ("tui.approval.grep", "grep: {0}", "grep：{0}"),
+    ("tui.approval.glob", "glob: {0}", "glob：{0}"),
+    ("tui.approval.search", "search: {0}", "搜索：{0}"),
+    ("tui.approval.webFetch", "GET {0}", "GET {0}"),
+    ("tui.approval.task", "task: {0}", "任务：{0}"),
+    ("tui.approval.noChange", "(no change)", "（无变更）"),
     (
         "tui.question.replyHint",
         "reply with a number, or free text",
@@ -394,6 +405,9 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "上下文：{0}/{1} tokens",
     ),
     ("tui.status.reportSession", "session: {0}", "会话：{0}"),
+    ("tui.status.reportWorkDir", "work dir: {0}", "工作目录：{0}"),
+    ("tui.status.reportTitle", "title: {0}", "标题：{0}"),
+    ("tui.status.reportModels", "models: {0}", "模型：{0}"),
     (
         "tui.info.version",
         "kimi {0} — session {1}",
@@ -443,26 +457,113 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "移除供应商 {0}？(y/N)",
     ),
     ("tui.plugins.installed", "installed {0}", "已安装 {0}"),
-    // ── Informational commands (no engine data source in Rust yet) ──────
+    // ── Plugin commands (`/<pluginId>:<command>`) ───────────────────────
     (
-        "tui.experiments.hint",
-        "experimental flags are managed in config.toml",
-        "实验性功能开关在 config.toml 中管理",
+        "tui.plugin.errNotFound",
+        "plugin not found: {0}",
+        "未找到插件：{0}",
     ),
     (
-        "tui.multiLlm.hint",
-        "multi-LLM providers are configured in config.toml",
-        "多 LLM 供应商在 config.toml 中配置",
+        "tui.plugin.errUnknownCommand",
+        "plugin command {0}:{1} was not found",
+        "未找到插件命令 {0}:{1}",
+    ),
+    (
+        "tui.plugin.errActivate",
+        "command \"{0}:{1}\" failed: {2}",
+        "插件命令 {0}:{1} 执行失败：{2}",
+    ),
+    // ── Informational commands (no engine data source in Rust yet) ──────
+    (
+        "tui.experiments.select",
+        "experimental features",
+        "实验功能",
+    ),
+    (
+        "tui.experiments.secondary",
+        "secondary-model: model={0}, effort={1}",
+        "secondary-model：模型={0}，强度={1}",
+    ),
+    (
+        "tui.experiments.secondaryOff",
+        "secondary-model: off",
+        "secondary-model：关闭",
+    ),
+    (
+        "tui.experiments.gateOn",
+        "engine gate: KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL is set",
+        "引擎门控：已设置 KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL",
+    ),
+    (
+        "tui.experiments.gateOff",
+        "engine gate: off (set KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL to enable)",
+        "引擎门控：关闭（设置 KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL 启用）",
+    ),
+    (
+        "tui.experiments.otherFlags",
+        "other experimental flags (tool-select, native_tools, github_tools, ...) are env-gated via KIMI_CODE_EXPERIMENTAL_*; config.toml has no [experimental] section",
+        "其他实验开关（tool-select、native_tools、github_tools 等）由 KIMI_CODE_EXPERIMENTAL_* 环境变量门控；config.toml 没有 [experimental] 段",
+    ),
+    (
+        "tui.experiments.confirmOff",
+        "disable the secondary-model experiment? (y/N)",
+        "关闭 secondary-model 实验？(y/N)",
+    ),
+    (
+        "tui.experiments.off",
+        "secondary-model disabled (model cleared in config)",
+        "secondary-model 已关闭（config 中的 model 已清空）",
+    ),
+    (
+        "tui.experiments.on",
+        "secondary-model enabled: {0}",
+        "secondary-model 已开启：{0}",
+    ),
+    (
+        "tui.experiments.onUsage",
+        "usage: /experiments secondary on <model> [effort] | secondary off",
+        "用法：/experiments secondary on <模型> [强度] | secondary off",
+    ),
+    ("tui.experiments.cancelled", "experiments cancelled", "已取消实验设置"),
+    (
+        "tui.experiments.effective",
+        "config written; the engine gate needs KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL at process start (new sessions pick it up)",
+        "配置已写入；引擎门控需要在进程启动时设置 KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL（新会话生效）",
+    ),
+    (
+        "tui.upgrade.hint",
+        "upgrades run in the CLI: kimi upgrade",
+        "升级在 CLI 中执行：kimi upgrade",
+    ),
+    (
+        "tui.multiLlm.pool",
+        "configured providers (potential multi-LLM pool) ({0}):",
+        "已配置的提供商（潜在多 LLM 池）（{0}）：",
+    ),
+    (
+        "tui.multiLlm.noDataPlane",
+        "the engine has no multi-LLM config surface: config.toml has no agent.multiLlm, and concurrent routing is driven by the host at session start",
+        "引擎没有多 LLM 配置数据面：config.toml 无 agent.multiLlm 字段，并发路由由宿主在会话启动时驱动",
     ),
     (
         "tui.feedback.hint",
-        "feedback is collected by the CLI — run `kimi --feedback`",
-        "反馈由 CLI 收集 — 运行 `kimi --feedback`",
+        "feedback: opened GitHub Issues in your browser — {0}",
+        "反馈：已在浏览器中打开 GitHub Issues — {0}",
     ),
     (
         "tui.web.hint",
         "run `kimi web` in the terminal to start the web UI",
         "在终端运行 `kimi web` 启动 Web UI",
+    ),
+    (
+        "tui.web.starting",
+        "web UI starting at {0}",
+        "Web UI 正在启动：{0}",
+    ),
+    (
+        "tui.web.failed",
+        "web UI failed to start: {0}",
+        "Web UI 启动失败：{0}",
     ),
     (
         "tui.plugins.usage",
@@ -478,6 +579,9 @@ static MESSAGES: &[(&str, &str, &str)] = &[
     ),
     ("tui.skills.none", "no skills registered", "没有注册的技能"),
     ("tui.skills.selected", "{0}: {1}", "{0}：{1}"),
+    ("tui.skills.skillUsage", "usage: /skill:<name> [args]", "用法：/skill:<名称> [参数]"),
+    ("tui.skills.activated", "skill activated: {0}", "技能已激活：{0}"),
+    ("tui.err.skillFailed", "skill activation failed: {0}", "技能激活失败：{0}"),
     (
         "tui.skills.cancelled",
         "skill selection cancelled",
@@ -511,6 +615,20 @@ static MESSAGES: &[(&str, &str, &str)] = &[
     ),
     ("tui.permission.yolo", "yolo mode {0}", "YOLO 模式{0}"),
     ("tui.permission.auto", "auto mode {0}", "自动模式{0}"),
+    ("tui.yolo.alreadyOn", "YOLO mode is already on.", "YOLO 模式已开启。"),
+    ("tui.yolo.alreadyOff", "YOLO mode is already off.", "YOLO 模式已关闭。"),
+    ("tui.auto.alreadyOn", "Auto mode is already on.", "自动模式已开启。"),
+    ("tui.auto.alreadyOff", "Auto mode is already off.", "自动模式已关闭。"),
+    (
+        "tui.usage.yolo",
+        "usage: /yolo [on|off|toggle] — got {0}",
+        "用法：/yolo [on|off|toggle] — 收到 {0}",
+    ),
+    (
+        "tui.usage.auto",
+        "usage: /auto [on|off|toggle] — got {0}",
+        "用法：/auto [on|off|toggle] — 收到 {0}",
+    ),
     // ── Session lifecycle ───────────────────────────────────────────────
     (
         "tui.session.initialized",
@@ -523,6 +641,9 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "用法：/title <标题>",
     ),
     ("tui.title.set", "session title: {0}", "会话标题：{0}"),
+    ("tui.title.current", "current title: {0}", "当前标题：{0}"),
+    ("tui.title.none", "(untitled)", "（无标题）"),
+    ("tui.plan.badArg", "unknown plan argument: {0} (clear / on / off)", "未知的 plan 参数：{0}（clear / on / off）"),
     (
         "tui.mcp.none",
         "no MCP servers configured",
@@ -554,6 +675,11 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "已取消主题选择",
     ),
     ("tui.picker.selectTheme", "select a theme", "选择主题"),
+    (
+        "tui.err.themeLoadFailed",
+        "theme load failed: {0}",
+        "主题加载失败：{0}",
+    ),
     ("tui.version.show", "kimi version: {0}", "kimi 版本：{0}"),
     (
         "tui.err.versionFailed",
@@ -564,6 +690,16 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "tui.models.none",
         "no model aliases configured",
         "没有配置模型别名",
+    ),
+    (
+        "tui.models.notFound",
+        "model alias \"{0}\" not found",
+        "找不到模型别名 \"{0}\"",
+    ),
+    (
+        "tui.thinking.badEffort",
+        "invalid thinking effort: {0} (off / low / medium / high)",
+        "无效的思考强度：{0}（off / low / medium / high）",
     ),
     ("tui.models.default", "default: {0}", "默认：{0}"),
     ("tui.models.set", "model set to {0}", "模型已设为 {0}"),
@@ -587,6 +723,125 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "tui.resume.switched",
         "switched to session {0}",
         "已切换到会话 {0}",
+    ),
+    // ── Replay (resume records) ─────────────────────────────────────────
+    ("tui.replay.goalActive", "goal active", "目标进行中"),
+    ("tui.replay.goalPaused", "goal paused", "目标已暂停"),
+    ("tui.replay.goalBlocked", "goal blocked", "目标已受阻"),
+    ("tui.replay.goalComplete", "goal complete", "目标已完成"),
+    (
+        "tui.replay.goalBudgetLimited",
+        "goal stopped: budget limit reached",
+        "目标停止：预算已用尽",
+    ),
+    (
+        "tui.replay.goalUsageLimited",
+        "goal stopped: usage limit reached",
+        "目标停止：用量已用尽",
+    ),
+    ("tui.replay.goalEnded", "goal ended", "目标已结束"),
+    ("tui.replay.compacting", "compacting context…", "正在压缩上下文…"),
+    ("tui.replay.compactionCancelled", "compaction cancelled", "压缩已取消"),
+    (
+        "tui.replay.compactedWithSummary",
+        "context compacted: {0}",
+        "上下文已压缩：{0}",
+    ),
+    (
+        "tui.replay.skillActivated",
+        "skill activated: {0}",
+        "技能已激活：{0}",
+    ),
+    ("tui.replay.hookResult", "{0} hook", "{0} 钩子"),
+    ("tui.replay.hookBlocked", "{0} hook blocked", "{0} 钩子（已阻止）"),
+    ("tui.replay.hookEmpty", "(empty)", "（空）"),
+    (
+        "tui.replay.planModeOn",
+        "Plan mode: ON",
+        "计划模式：开",
+    ),
+    (
+        "tui.replay.planModeOff",
+        "Plan mode: OFF",
+        "计划模式：关",
+    ),
+    ("tui.replay.yoloModeOn", "YOLO mode: ON", "YOLO 模式：开"),
+    (
+        "tui.replay.yoloModeOnSub",
+        "All actions will be approved automatically. Use with caution.",
+        "所有操作将自动批准。请谨慎使用。",
+    ),
+    ("tui.replay.yoloModeOff", "YOLO mode: OFF", "YOLO 模式：关"),
+    (
+        "tui.replay.permissionMode",
+        "Permission mode: {0}",
+        "权限模式：{0}",
+    ),
+    ("tui.replay.approved", "Approved", "已批准"),
+    (
+        "tui.replay.approvedForSession",
+        "Approved for session",
+        "已批准当前会话",
+    ),
+    ("tui.replay.rejected", "Rejected", "已拒绝"),
+    ("tui.replay.cancelled", "Cancelled", "已取消"),
+    (
+        "tui.replay.planSentBackForRevision",
+        "Plan sent back for revision",
+        "计划已退回修改",
+    ),
+    (
+        "tui.replay.planReviewRejected",
+        "Plan review rejected",
+        "计划审核未通过",
+    ),
+    (
+        "tui.replay.planReviewCancelled",
+        "Plan review cancelled",
+        "计划审核已取消",
+    ),
+    ("tui.replay.feedback", "Feedback: {0}", "反馈：{0}"),
+    (
+        "tui.replay.cronFired",
+        "⏰ Scheduled reminder fired: {0}",
+        "⏰ 定时提醒已触发：{0}",
+    ),
+    (
+        "tui.replay.cronMissed",
+        "Missed scheduled reminders: {0}",
+        "错过的定时提醒：{0}",
+    ),
+    ("tui.replay.cronMissedCount", "({0} missed)", "（错过了 {0} 次）"),
+    ("tui.replay.bgTask", "background task {0}: {1}", "后台任务 {0}：{1}"),
+    (
+        "tui.replay.bgCompleted",
+        "{0} completed in background",
+        "{0} 已在后台完成",
+    ),
+    (
+        "tui.replay.bgFailed",
+        "{0} failed in background",
+        "{0} 已在后台失败",
+    ),
+    (
+        "tui.replay.bgTimedOut",
+        "{0} timed out in background",
+        "{0} 已在后台超时",
+    ),
+    (
+        "tui.replay.bgStopped",
+        "{0} stopped in background",
+        "{0} 已在后台停止",
+    ),
+    (
+        "tui.replay.bgLost",
+        "{0} lost in background",
+        "{0} 已在后台丢失",
+    ),
+    (
+        "tui.replay.fallback",
+        "replay unavailable ({0}); showing context snapshot",
+        "无法重放会话（{0}）；已显示上下文快照",
     ),
     // ── Goal ────────────────────────────────────────────────────────────
     (
@@ -658,6 +913,16 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "no queued goals to promote",
         "没有可提升的排队目标",
     ),
+    (
+        "tui.goal.manage.select",
+        "select a queued goal",
+        "选择一个排队目标",
+    ),
+    ("tui.goal.manage.action", "action", "操作"),
+    ("tui.goal.manage.up", "move up", "上移"),
+    ("tui.goal.manage.down", "move down", "下移"),
+    ("tui.goal.manage.delete", "delete", "删除"),
+    ("tui.goal.manage.back", "back", "返回"),
     // ── Context / history ───────────────────────────────────────────────
     ("tui.addDir.added", "added dir {0}", "已添加目录 {0}"),
     (
@@ -670,14 +935,18 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "usage: /add-dir <path>",
         "用法：/add-dir <路径>",
     ),
+    ("tui.addDir.confirm", "attach directory \"{0}\" to this session?", "将目录 \"{0}\" 附加到此会话？"),
+    ("tui.addDir.cancelled", "directory attach cancelled", "已取消附加目录"),
     ("tui.clear.ok", "context cleared", "上下文已清空"),
     ("tui.compact.ok", "context compacted", "上下文已压缩"),
+    ("tui.compact.confirm", "compact the conversation context?", "压缩对话上下文？"),
     (
         "tui.err.compactFailed",
         "compact failed: {0}",
         "压缩失败：{0}",
     ),
     ("tui.undo.result", "undo: {0}", "撤销：{0}"),
+    ("tui.undo.badCount", "invalid undo count: {0} (a positive number expected)", "无效的撤销数量：{0}（应为正整数）"),
     (
         "tui.usage.none",
         "usage: no tokens recorded",
@@ -708,6 +977,11 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "用法：/steer <文本>",
     ),
     ("tui.steer.queued", "steer queued: {0}", "已排队引导：{0}"),
+    (
+        "tui.messages.thinking.expandHint",
+        "... (+{0} lines, ctrl+o to expand)",
+        "…（还有 {0} 行，ctrl+o 展开）",
+    ),
     (
         "tui.import.usage",
         "usage: /import <text>",
@@ -794,6 +1068,7 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "… {0} 次工具调用 · {1} 条消息",
     ),
     ("tui.shell.done", "command finished", "命令执行完成"),
+    ("tui.shell.failed", "command failed (exit code non-zero)", "命令执行失败（退出码非零）"),
     (
         "tui.err.shellFailed",
         "shell failed: {0}",
@@ -835,6 +1110,31 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "用法：/workflow list | <名称> [参数...] | status <运行ID> | cancel <运行ID>",
     ),
     (
+        "tui.workflow.helpList",
+        "  /workflow list              - list available workflows",
+        "  /workflow list              - 列出可用工作流",
+    ),
+    (
+        "tui.workflow.helpRun",
+        "  /workflow <name> [args...]  - run a workflow by name",
+        "  /workflow <名称> [参数...]  - 按名称运行工作流",
+    ),
+    (
+        "tui.workflow.helpStatus",
+        "  /workflow status <runId>    - check status of a workflow run",
+        "  /workflow status <运行ID>    - 检查工作流运行状态",
+    ),
+    (
+        "tui.workflow.helpCancel",
+        "  /workflow cancel <runId>    - cancel a running workflow",
+        "  /workflow cancel <运行ID>    - 取消运行中的工作流",
+    ),
+    (
+        "tui.workflow.helpExample",
+        "example: /workflow deep-research \"latest advances in RAG\"",
+        "示例：/workflow deep-research \"RAG 最新进展\"",
+    ),
+    (
         "tui.provider.none",
         "no providers configured",
         "没有配置任何提供商",
@@ -848,6 +1148,36 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "tui.provider.removed",
         "removed provider {0}",
         "已移除提供商 {0}",
+    ),
+    (
+        "tui.provider.added",
+        "provider {0} imported from the catalog ({1} models)",
+        "已从目录导入提供商 {0}（{1} 个模型）",
+    ),
+    (
+        "tui.provider.notFound",
+        "provider \"{0}\" not found in the catalog",
+        "目录中找不到提供商 \"{0}\"",
+    ),
+    (
+        "tui.provider.noModels",
+        "provider \"{0}\" has no importable models",
+        "提供商 \"{0}\" 没有可导入的模型",
+    ),
+    (
+        "tui.provider.needsBaseUrl",
+        "provider \"{0}\" needs an explicit base URL - use the CLI: kimi provider catalog add {0} --base-url <url>",
+        "提供商 \"{0}\" 需要显式 base URL——请用 CLI：kimi provider catalog add {0} --base-url <url>",
+    ),
+    (
+        "tui.provider.notImportable",
+        "provider \"{0}\" cannot be imported (proprietary SDK or unknown wire type)",
+        "提供商 \"{0}\" 无法导入（专有 SDK 或未知协议类型）",
+    ),
+    (
+        "tui.provider.selectModel",
+        "select the default model",
+        "选择默认模型",
     ),
     (
         "tui.provider.usage",
@@ -911,6 +1241,31 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "Set permission mode",
         "设置权限模式",
     ),
+    ("tui.settings.usage", "Show token usage", "查看用量"),
+    ("tui.settings.experiments", "Experimental features", "实验功能"),
+    ("tui.settings.upgrade", "Check for updates", "检查更新"),
+    ("tui.settings.githubToken", "Set the GitHub token", "设置 GitHub Token"),
+    ("tui.settings.astron", "Astron provider settings", "Astron 提供商设置"),
+    (
+        "tui.settings.githubTokenHint",
+        "GitHub tools read the GITHUB_TOKEN / GH_TOKEN environment variable; the config [experimental] github_token is not consumed by the engine",
+        "GitHub 工具读取 GITHUB_TOKEN / GH_TOKEN 环境变量；引擎不消费 config 的 [experimental] github_token",
+    ),
+    (
+        "tui.settings.astronStatus",
+        "astron: {0} · baseUrl {1} · maxTokens {2}",
+        "astron：{0} · baseUrl {1} · maxTokens {2}",
+    ),
+    (
+        "tui.settings.astronNotConfigured",
+        "astron provider not configured",
+        "未配置 astron 提供商",
+    ),
+    (
+        "tui.settings.astronHint",
+        "the engine ProviderConfig supports only type/apiKey/baseUrl/defaultModel/maxTokens; stream/temperature/searchDisable are TS-only fields",
+        "引擎 ProviderConfig 仅支持 type/apiKey/baseUrl/defaultModel/maxTokens；stream/temperature/searchDisable 是 TS 特有字段",
+    ),
     ("tui.picker.selectSetting", "settings", "设置"),
     ("tui.settings.cancelled", "settings closed", "已关闭设置"),
     // ── Chat chrome ─────────────────────────────────────────────────────
@@ -919,6 +1274,16 @@ static MESSAGES: &[(&str, &str, &str)] = &[
     ("tui.footer.model", "model: {0}", "模型：{0}"),
     ("tui.footer.ctx", "ctx: {0}%", "上下文：{0}%"),
     ("tui.footer.turns", "turns", "轮"),
+    (
+        "tui.footer.goalBadge",
+        "[goal {0} {1} · {2} · {3}]",
+        "[目标 {0} {1} · {2} · {3}]",
+    ),
+    ("tui.footer.goalStatusActive", "active", "进行中"),
+    ("tui.footer.goalStatusPaused", "paused", "已暂停"),
+    ("tui.footer.goalStatusBlocked", "blocked", "已受阻"),
+    ("tui.footer.turnOne", "{0} turn", "{0} 轮"),
+    ("tui.footer.turnOther", "{0} turns", "{0} 轮"),
     ("tui.footer.tipPrefix", "tip: {0}", "提示：{0}"),
     (
         "tui.tip.0",
@@ -952,6 +1317,12 @@ static MESSAGES: &[(&str, &str, &str)] = &[
     ),
     ("tui.picker.selectSkill", "select a skill", "选择一个技能"),
     ("tui.picker.selectModel", "select a model", "选择一个模型"),
+    ("tui.picker.selectEffort", "thinking effort (Esc to keep)", "思考强度（Esc 保持当前）"),
+    ("tui.effort.keep", "keep current", "保持当前"),
+    ("tui.effort.off", "off", "关闭"),
+    ("tui.effort.low", "low", "低"),
+    ("tui.effort.medium", "medium", "中"),
+    ("tui.effort.high", "high", "高"),
     ("tui.picker.selectPlugin", "select a plugin", "选择一个插件"),
     ("tui.picker.selectAction", "select an action", "选择一个操作"),
     (
@@ -1006,7 +1377,11 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "显示或重命名会话",
     ),
     ("tui.cmd.plugins", "Manage plugins", "管理插件"),
-    ("tui.cmd.config", "Show engine config", "显示引擎配置"),
+    (
+        "tui.cmd.config",
+        "Open the settings menu",
+        "打开设置菜单",
+    ),
     ("tui.cmd.skills", "List skills", "列出技能"),
     ("tui.cmd.plan", "Toggle plan mode", "切换计划模式"),
     (
@@ -1047,7 +1422,7 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "Add an additional directory",
         "添加附加目录",
     ),
-    ("tui.cmd.clear", "Clear session context", "清空会话上下文"),
+    ("tui.cmd.clear", "Start a fresh session", "开始新会话"),
     ("tui.cmd.compact", "Compact the conversation", "压缩对话"),
     ("tui.cmd.usage", "Show token usage", "显示 token 用量"),
     ("tui.cmd.undo", "Undo the last turn", "撤销上一轮"),
@@ -1055,7 +1430,7 @@ static MESSAGES: &[(&str, &str, &str)] = &[
     ("tui.cmd.steer", "Steer the active turn", "引导当前回合"),
     ("tui.cmd.import", "Import context", "导入上下文"),
     ("tui.cmd.sessions", "Switch sessions", "切换会话"),
-    ("tui.cmd.export", "Export the session", "导出会话"),
+    ("tui.cmd.export", "Export the session as Markdown", "将会话导出为 Markdown"),
     ("tui.cmd.archive", "Archive the session", "归档会话"),
     (
         "tui.cmd.btw",
@@ -1093,6 +1468,11 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "tui.cmd.export-md",
         "Export the session as Markdown",
         "将会话导出为 Markdown",
+    ),
+    (
+        "tui.cmd.export-debug-zip",
+        "Export current session as a debug ZIP archive",
+        "导出当前会话为调试 ZIP 压缩包",
     ),
     (
         "tui.cmd.discuss",
@@ -1138,9 +1518,71 @@ static MESSAGES: &[(&str, &str, &str)] = &[
     ),
     (
         "cli.print.resumeHint",
-        "To resume this session: kimi resume {0}",
-        "恢复此会话：kimi resume {0}",
+        "To resume this session: kimi -r {0}",
+        "恢复此会话：kimi -r {0}",
     ),
+    (
+        "cli.print.sessionNoWorkDir",
+        "Session \"{0}\" has no recorded work directory.",
+        "会话 \"{0}\" 没有记录的工作目录。",
+    ),
+    (
+        "cli.print.sessionOtherDir",
+        "Session \"{0}\" was created under a different directory.",
+        "会话 \"{0}\" 是在其他目录下创建的。",
+    ),
+    (
+        "cli.print.cdHint",
+        "cd \"{0}\" && kimi -r {1}",
+        "cd \"{0}\" && kimi -r {1}",
+    ),
+    (
+        "cli.web.running",
+        "Kimi Code web server running at {0}",
+        "Kimi Code web 服务运行于 {0}",
+    ),
+    ("cli.login.open", "Open: {0}", "打开：{0}"),
+    ("cli.login.enterCode", "Enter code: {0}", "输入代码：{0}"),
+    ("cli.login.orOpen", "(or open: {0})", "（或打开：{0}）"),
+    (
+        "cli.login.loggedIn",
+        "logged in — storing kimi provider key into config",
+        "已登录——正在将 kimi 提供商密钥写入配置",
+    ),
+    (
+        "cli.upgrade.checkFailed",
+        "error: upgrade check failed: {0}",
+        "错误：升级检查失败：{0}",
+    ),
+    (
+        "cli.upgrade.invalidLocal",
+        "error: invalid local version: {0}",
+        "错误：本地版本无效：{0}",
+    ),
+    (
+        "cli.upgrade.available",
+        "A newer version of {0} is available ({1} -> {2}).",
+        "有可用的新版本 {0}（{1} -> {2}）。",
+    ),
+    ("cli.upgrade.toUpdate", "To update, run: {0}", "更新请运行：{0}"),
+    (
+        "cli.upgrade.upToDate",
+        "{0} is up to date ({1}).",
+        "{0} 已是最新版本（{1}）。",
+    ),
+    ("cli.provider.registryUrlRequired", "Registry URL is required.", "必须提供 registry URL。"),
+    (
+        "cli.provider.notFoundCli",
+        "Provider \"{0}\" not found.",
+        "提供商 \"{0}\" 不存在。",
+    ),
+    ("cli.provider.noMatch", "no providers match \"{0}\"", "没有匹配 \"{0}\" 的提供商"),
+    (
+        "cli.export.confirm",
+        "Export session {0}? [Y/n] ",
+        "导出会话 {0}？[Y/n] ",
+    ),
+    ("cli.export.cancelled", "Export cancelled.", "已取消导出。"),
     (
         "cli.provider.missingApiKey",
         "Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.",
@@ -1248,11 +1690,9 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "cli.server.deprecated",
         "`kimi server` has been deprecated and no longer works.\n\
          Use `kimi web` instead — it runs the local server in the foreground and opens the web UI (`--no-open` to skip).\n\
-         To stop a server started by a version before 0.28.0, use `kimi server kill`.\n\
          This notice will be removed in the next major version of Kimi Code.",
         "`kimi server` 已弃用，不再可用。\n\
          请改用 `kimi web`——它在前台运行本地服务器并打开 Web UI（可用 `--no-open` 跳过）。\n\
-         如需停止 0.28.0 之前版本启动的服务器，请使用 `kimi server kill`。\n\
          此提示将在下一个主版本中移除。",
     ),
 
@@ -1291,6 +1731,16 @@ static MESSAGES: &[(&str, &str, &str)] = &[
         "cli.provider.catalogNoModels",
         "Provider \"{0}\" lists no usable models in this catalog.",
         "提供商 \"{0}\" 在此目录中没有可用模型。",
+    ),
+    (
+        "cli.provider.imported",
+        "Imported {0} ({1}) with {2} models from {3}.",
+        "已从 {3} 导入 {0}（{1}，共 {2} 个模型）。",
+    ),
+    (
+        "cli.provider.defaultModelSet",
+        "Default model set to {0}.",
+        "默认模型已设置为 {0}。",
     ),
     // ── clap help texts (`cli.help.*`) ───────────────────────────────────
     // `localize_cli_command` in kimi-cli overrides the derive doc comments

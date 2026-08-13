@@ -20,7 +20,6 @@ pub(crate) enum InterruptAction {
     CancelTurn,
 }
 
-
 /// Generate a fresh session id for `/new` (timestamp-based, unique enough for
 /// an interactive session).
 pub(crate) fn fresh_session_id() -> String {
@@ -32,7 +31,6 @@ pub(crate) fn fresh_session_id() -> String {
     format!("{millis:x}")
 }
 
-
 /// Map a pressed key to an interrupt action (pure, tested).
 pub(crate) fn interrupt_action(code: KeyCode, modifiers: KeyModifiers) -> Option<InterruptAction> {
     match code {
@@ -43,7 +41,6 @@ pub(crate) fn interrupt_action(code: KeyCode, modifiers: KeyModifiers) -> Option
         _ => None,
     }
 }
-
 
 /// Alias resolution (TS registry aliases parity).
 pub(crate) fn resolve_alias(cmd: &str) -> &str {
@@ -65,13 +62,15 @@ pub(crate) fn resolve_alias(cmd: &str) -> &str {
 pub(crate) struct DiscussArgs {
     pub(crate) topic: String,
     pub(crate) roles: Vec<String>,
+    /// `(role, stance)` pairs from `role:stance` role entries.
+    pub(crate) stances: Vec<(String, String)>,
     pub(crate) debate: bool,
 }
 
-
 /// Parse `/discuss <topic> [with <r1>,<r2>,...] [--debate]` (TS
-/// `parseDiscussArgs` parity, simplified — no role stances). Defaults to
-/// the researcher/architect/engineer trio when no roles are given.
+/// `parseDiscussArgs` parity). A role may carry a stance via
+/// `role:stance`. Defaults to the researcher/architect/engineer trio when
+/// no roles are given.
 pub(crate) fn parse_discuss(args: &str) -> Result<DiscussArgs, &'static str> {
     let trimmed = args.trim();
     if trimmed.is_empty() {
@@ -88,26 +87,38 @@ pub(crate) fn parse_discuss(args: &str) -> Result<DiscussArgs, &'static str> {
     if topic.is_empty() {
         return Err("need-topic");
     }
-    let roles: Vec<String> = if roles_raw.is_empty() {
-        vec!["researcher".into(), "architect".into(), "engineer".into()]
+    let mut roles: Vec<String> = Vec::new();
+    let mut stances: Vec<(String, String)> = Vec::new();
+    if roles_raw.is_empty() {
+        roles = vec!["researcher".into(), "architect".into(), "engineer".into()];
     } else {
-        roles_raw
-            .split(',')
-            .map(|r| r.trim())
-            .filter(|r| !r.is_empty())
-            .map(str::to_string)
-            .collect()
-    };
+        for raw in roles_raw.split(',') {
+            let raw = raw.trim();
+            if raw.is_empty() {
+                continue;
+            }
+            // `role:stance` — the stance rides along with the role.
+            if let Some((name, stance)) = raw.split_once(':') {
+                let name = name.trim();
+                if !name.is_empty() {
+                    roles.push(name.to_string());
+                    stances.push((name.to_string(), stance.trim().to_string()));
+                }
+            } else {
+                roles.push(raw.to_string());
+            }
+        }
+    }
     if roles.len() < 2 {
         return Err("need-roles");
     }
     Ok(DiscussArgs {
         topic: topic.to_string(),
         roles,
+        stances,
         debate,
     })
 }
-
 
 /// The newest assistant reply's text (TS `findLastAssistantText` parity):
 /// sourced from the rendered transcript so it survives compaction.
@@ -120,7 +131,6 @@ pub(crate) fn find_last_assistant_text(transcript: &[TranscriptEntry]) -> Option
         _ => None,
     })
 }
-
 
 /// Copy text to the system clipboard.
 ///
@@ -224,7 +234,6 @@ fn find_in_path(program: &str) -> Option<std::path::PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
-
 /// Render the visible transcript as Markdown (simplified `/export-md`).
 pub(crate) fn transcript_to_markdown(transcript: &[TranscriptEntry]) -> String {
     let mut md = String::new();
@@ -246,7 +255,11 @@ pub(crate) fn transcript_to_markdown(transcript: &[TranscriptEntry]) -> String {
                 md.push_str("\n```\n\n");
             }
             TranscriptEntry::Task(task) => {
-                let status = if task.ended { task.status.as_str() } else { "running" };
+                let status = if task.ended {
+                    task.status.as_str()
+                } else {
+                    "running"
+                };
                 let description = if task.description.is_empty() {
                     task.task_id.clone()
                 } else {
@@ -259,25 +272,27 @@ pub(crate) fn transcript_to_markdown(transcript: &[TranscriptEntry]) -> String {
     md
 }
 
-
 pub(crate) fn init_terminal() -> anyhow::Result<Terminal<CrosstermBackend<io::Stdout>>> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     crossterm::execute!(
         stdout,
         EnterAlternateScreen,
-        crossterm::event::EnableBracketedPaste
+        crossterm::event::EnableBracketedPaste,
+        crossterm::event::EnableMouseCapture
     )?;
     Ok(Terminal::new(CrosstermBackend::new(stdout))?)
 }
 
-
-pub(crate) fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> anyhow::Result<()> {
+pub(crate) fn restore_terminal(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+) -> anyhow::Result<()> {
     disable_raw_mode()?;
     crossterm::execute!(
         terminal.backend_mut(),
         LeaveAlternateScreen,
-        crossterm::event::DisableBracketedPaste
+        crossterm::event::DisableBracketedPaste,
+        crossterm::event::DisableMouseCapture
     )?;
     Ok(())
 }
@@ -464,5 +479,164 @@ cat > \"$FAKE_OUT_FILE\"\n";
             let msg = format!("{err:#}");
             assert!(msg.contains("no clipboard backend succeeded"), "msg: {msg}");
         }
+    }
+}
+// ============================================================================
+// Input history persistence (TS `input-history.ts` parity)
+// ============================================================================
+
+/// `~/.kimi-code` (or `$KIMI_CODE_HOME`), like the TUI config path.
+/// Tests may override this via [`set_test_home`] instead of mutating the
+/// process environment — env writes race with parallel tests that read
+/// `KIMI_CODE_HOME` (goal_queue etc.).
+static TEST_HOME: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
+
+fn kimi_code_home() -> Option<std::path::PathBuf> {
+    if let Some(home) = TEST_HOME.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        return Some(home);
+    }
+    if let Ok(home) = std::env::var("KIMI_CODE_HOME") {
+        if !home.trim().is_empty() {
+            return Some(std::path::PathBuf::from(home));
+        }
+    }
+    let base = if cfg!(windows) {
+        std::env::var("USERPROFILE").ok()
+    } else {
+        std::env::var("HOME").ok()
+    }?;
+    Some(std::path::PathBuf::from(base).join(".kimi-code"))
+}
+
+/// Test-only home override (process-local, mutex-guarded — never touches the
+/// environment).
+#[cfg(test)]
+fn set_test_home(home: Option<std::path::PathBuf>) {
+    *TEST_HOME.lock().unwrap_or_else(|e| e.into_inner()) = home;
+}
+
+/// The per-workdir input history file
+/// (`<data>/user-history/<hash(cwd)>.jsonl`), or `None` when home is
+/// unavailable. The hash is a stable non-cryptographic fingerprint of the
+/// workdir (TS uses md5; the file name is internal).
+pub(crate) fn input_history_file(workdir: &str) -> Option<std::path::PathBuf> {
+    use std::hash::{Hash, Hasher};
+    let home = kimi_code_home()?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    workdir.hash(&mut hasher);
+    Some(
+        home.join("user-history")
+            .join(format!("{:016x}.jsonl", hasher.finish())),
+    )
+}
+
+/// Load persisted input history for `workdir` (missing or corrupt lines are
+/// skipped — best-effort, like TS).
+pub(crate) fn load_input_history(workdir: &str) -> Vec<String> {
+    let Some(file) = input_history_file(workdir) else {
+        return Vec::new();
+    };
+    let Ok(content) = std::fs::read_to_string(&file) else {
+        return Vec::new();
+    };
+    content
+        .lines()
+        .filter_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line)
+                .ok()
+                .and_then(|entry| entry["content"].as_str().map(str::to_string))
+        })
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Append one input to the history file. Skips empty lines and a repeat of
+/// `last_content` (TS consecutive-dedup parity). Best-effort: failures are
+/// silent.
+pub(crate) fn append_input_history(workdir: &str, text: &str, last_content: Option<&str>) {
+    let content = text.trim();
+    if content.is_empty() || Some(content) == last_content {
+        return;
+    }
+    let Some(file) = input_history_file(workdir) else {
+        return;
+    };
+    let line = serde_json::json!({ "content": content }).to_string();
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&file)
+    {
+        let _ = writeln!(f, "{line}");
+    }
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+
+    #[test]
+    fn input_history_roundtrip_and_consecutive_dedup() {
+        // Point the home at a scratch dir via the process-local test hook —
+        // mutating KIMI_CODE_HOME here would race with parallel tests that
+        // read it (goal_queue).
+        let home =
+            std::env::temp_dir().join(format!("kimi-tui-history-test-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
+        set_test_home(Some(home.clone()));
+
+        let workdir = "/fake/workdir";
+        append_input_history(workdir, "hello", None);
+        // Consecutive repeat is skipped.
+        append_input_history(workdir, "hello", Some("hello"));
+        append_input_history(workdir, "world", Some("hello"));
+        // Empty lines are skipped.
+        append_input_history(workdir, "   ", Some("world"));
+
+        let entries = load_input_history(workdir);
+        assert_eq!(entries, vec!["hello", "world"]);
+
+        set_test_home(None);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+}
+
+#[cfg(test)]
+mod discuss_tests {
+    use super::*;
+
+    #[test]
+    fn discuss_parses_stances_and_defaults() {
+        // role:stance pairs are split into (role, stance).
+        let args = parse_discuss("migrate with engineer:argue for, architect:argue against")
+            .expect("parse");
+        assert_eq!(args.topic, "migrate");
+        assert_eq!(args.roles, vec!["engineer", "architect"]);
+        assert_eq!(
+            args.stances,
+            vec![
+                ("engineer".to_string(), "argue for".to_string()),
+                ("architect".to_string(), "argue against".to_string()),
+            ]
+        );
+        assert!(!args.debate);
+
+        // --debate + default roles.
+        let args = parse_discuss("--debate roadmap").expect("parse debate");
+        assert!(args.debate);
+        assert_eq!(args.roles, vec!["researcher", "architect", "engineer"]);
+        assert!(args.stances.is_empty());
+
+        // Plain roles stay plain.
+        let args = parse_discuss("topic with a,b").expect("parse plain");
+        assert_eq!(args.roles, vec!["a", "b"]);
+        assert!(args.stances.is_empty());
+
+        // Fewer than two roles is rejected.
+        assert!(parse_discuss("topic with onlyone").is_err());
     }
 }

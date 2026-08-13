@@ -77,7 +77,9 @@ pub struct AgentOptions {
     pub approval: Option<crate::approval::SharedApprovalStore>,
     /// Shared wire-record store (the SQLite `records` table). When set, the
     /// agent appends turn/message/tool/usage/goal/compaction records for the
-    /// vis timeline & wire views; `None` (subagents, tests) disables writing.
+    /// vis timeline & wire views; `None` (tests, hosts that opted out)
+    /// disables writing. Subagents inherit the parent's store under their own
+    /// agent id when they are tracked (Task/swarm).
     pub record_store: Option<std::sync::Arc<crate::persistence::RecordStore>>,
 }
 

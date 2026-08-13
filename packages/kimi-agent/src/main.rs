@@ -224,6 +224,10 @@ async fn main() -> anyhow::Result<()> {
                             permission: Some(permission_gate.clone()),
                             hooks: None,
                             approval: Some(approval.clone()),
+                            // RUN_TURN (standalone binary) has no session-level
+                            // wire-record store; deferred approvals on this
+                            // path are not replayed.
+                            record_store: None,
                         }),
                         None => base_callbacks.clone(),
                     },
@@ -536,6 +540,7 @@ async fn main() -> anyhow::Result<()> {
                                 permission: Some(agent.permission.clone()),
                                 hooks: None,
                                 approval: Some(agent.approval.clone()),
+                                record_store: agent.record_store.clone(),
                             };
                             agent.callbacks = Arc::new(gated);
                         }
@@ -1826,6 +1831,30 @@ async fn main() -> anyhow::Result<()> {
         })
     });
 
+    // Full resume data snapshot for a loaded session (SDK `getResumeState`
+    // parity): the typed replay timeline (wire records, ascending), the live
+    // background tasks, and the current todo list —
+    // `{ agents: { main: { replay, background, toolStore } } }`. The TUI's
+    // full-replay resume path consumes this instead of `session/get_context`.
+    let mgr = session_manager.clone();
+    RpcServer::register_arc(&server, types::methods::SESSION_RESUME_STATE, move |params| {
+        let mgr = mgr.clone();
+        Box::pin(async move {
+            let input: types::SessionIdParams = serde_json::from_value(params)
+                .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
+            let mut manager = mgr.lock().await;
+            let agent = manager.get_agent(&input.session_id).ok_or_else(|| {
+                types::JsonRpcError::internal_error(format!(
+                    "no agent for session: {}",
+                    input.session_id
+                ))
+            })?;
+            agent
+                .resume_state()
+                .map_err(|e| types::JsonRpcError::internal_error(e.to_string()))
+        })
+    });
+
     // Fork a persisted session under a new id (SDK forkSession parity):
     // copies conversation + context, drops the goal state. Reports
     // `forked: false` for an unknown source.
@@ -1935,13 +1964,32 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let perm = permission_gate.clone();
+    let mgr = session_manager.clone();
     RpcServer::register_arc(&server, types::methods::PERMISSION_SET_MODE, move |params| {
         let perm = perm.clone();
+        let mgr = mgr.clone();
         Box::pin(async move {
             let mode: kimi_agent::permission::types::PermissionMode =
                 serde_json::from_value(params.get("mode").cloned().unwrap_or(params))
                     .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid mode: {e}")))?;
             perm.set_mode(mode);
+            // Replay record: append `permission.updated` to the active
+            // session's timeline so replay can render the mode change. The
+            // mode itself is process-wide (the shared native gate), but the
+            // record is per-session. Best-effort via try_lock: a running
+            // prompt holds the manager lock for its whole turn, so recording
+            // must never block this RPC — a missed record is acceptable.
+            let mode_str = serde_json::to_value(mode)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_string))
+                .unwrap_or_else(|| "manual".to_string());
+            if let Ok(mut manager) = mgr.try_lock() {
+                if let Some(session_id) = manager.active_session_id().map(str::to_string) {
+                    if let Some(agent) = manager.get_agent(&session_id) {
+                        agent.record_permission_mode(&mode_str);
+                    }
+                }
+            }
             Ok(serde_json::json!({ "ok": true, "mode": mode }))
         })
     });

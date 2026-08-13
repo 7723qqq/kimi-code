@@ -1738,7 +1738,12 @@ fn provider_catalog_add_imports_models_and_sets_default() {
     );
     assert!(output.status.success(), "add: {}", stderr(&output));
     assert!(
-        stdout(&output).contains("default model acme/acme-1"),
+        stdout(&output).contains("Imported Acme (acme) with 1 models"),
+        "stdout: {}",
+        stdout(&output)
+    );
+    assert!(
+        stdout(&output).contains("Default model set to acme/acme-1"),
         "stdout: {}",
         stdout(&output)
     );

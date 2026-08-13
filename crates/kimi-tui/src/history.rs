@@ -64,6 +64,7 @@ pub fn render_history(data: &serde_json::Value) -> Vec<TranscriptEntry> {
                             is_question,
                             duration: None,
                             collapsed,
+                            image: None,
                         }));
                     }
                 }

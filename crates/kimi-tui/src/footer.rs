@@ -26,9 +26,10 @@ pub struct FooterInfo {
     pub ctx_pct: u8,
     pub cwd: String,
     pub branch: Option<String>,
-    /// Pre-formatted goal badge (`[goal ● active · 3 turns]`), driven by
-    /// `session.goal.updated` events (TS `formatGoalBadge` parity).
-    pub goal: Option<String>,
+    /// Live goal badge (`[goal ● active · 4m · 7/20 turns]`), driven by
+    /// `session.goal.updated` events (TS `formatGoalBadge` parity); `None`
+    /// when no live goal.
+    pub goal: Option<GoalBadge>,
 }
 
 impl FooterInfo {
@@ -65,19 +66,133 @@ impl FooterInfo {
     }
 }
 
-/// Format a goal badge from a `session.goal.updated` payload (TS
-/// `formatGoalBadge` parity, simplified). `None` for terminal/no goal.
-pub fn format_goal_badge(goal: &serde_json::Value) -> Option<String> {
-    let status = goal["status"].as_str()?;
-    if !matches!(status, "active" | "paused" | "blocked") {
-        return None;
+/// Footer goal badge status — the live statuses that render a badge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GoalBadgeStatus {
+    Active,
+    Paused,
+    Blocked,
+}
+
+impl GoalBadgeStatus {
+    /// Parse the engine snapshot status; `None` for terminal/unknown
+    /// statuses (no badge).
+    fn parse(status: &str) -> Option<Self> {
+        match status {
+            "active" => Some(Self::Active),
+            "paused" => Some(Self::Paused),
+            "blocked" => Some(Self::Blocked),
+            _ => None,
+        }
     }
-    let dot = if status == "active" { "●" } else { "○" };
-    let turns = goal["turnsUsed"].as_u64().unwrap_or(0);
-    Some(format!(
-        "[goal {dot} {status} · {turns} {}]",
-        crate::i18n::t("tui.footer.turns")
-    ))
+}
+
+/// A live goal badge from a `session.goal.updated` snapshot (TS
+/// `formatGoalBadge` parity, structured so the elapsed counter can tick at
+/// render time). `None` for terminal/no goal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GoalBadge {
+    /// Live status; drives the dot and the localized label.
+    pub status: GoalBadgeStatus,
+    /// Engine-reported wall-clock elapsed at snapshot time (already live
+    /// for active goals).
+    pub elapsed_ms: u64,
+    /// Epoch millis when the TUI observed the snapshot, so the active
+    /// elapsed counter keeps ticking between events (TS
+    /// `goalObservedAtMs` parity).
+    pub observed_at_ms: u64,
+    pub turns_used: u32,
+    pub turn_budget: Option<u32>,
+}
+
+impl GoalBadge {
+    /// Parse a badge from a camelCase `GoalSnapshot` (null snapshot or
+    /// terminal status → `None`, which clears the badge).
+    pub fn from_snapshot(snapshot: &serde_json::Value) -> Option<Self> {
+        let status = GoalBadgeStatus::parse(snapshot["status"].as_str()?)?;
+        Some(Self {
+            status,
+            elapsed_ms: snapshot["wallClockMs"].as_u64().unwrap_or(0),
+            observed_at_ms: now_ms(),
+            turns_used: snapshot["turnsUsed"].as_u64().unwrap_or(0) as u32,
+            turn_budget: snapshot["budget"]["turnBudget"].as_u64().map(|b| b as u32),
+        })
+    }
+
+    /// Wall-clock elapsed for the badge: the snapshot's value plus the time
+    /// since it was observed, ticking only while active (TS
+    /// `goalWallClockMs` parity — paused/blocked stay frozen).
+    fn live_elapsed_ms(&self, now_ms: u64) -> u64 {
+        if self.status == GoalBadgeStatus::Active {
+            self.elapsed_ms
+                .saturating_add(now_ms.saturating_sub(self.observed_at_ms))
+        } else {
+            self.elapsed_ms
+        }
+    }
+
+    /// The turns segment: `7/20 turns` with a budget, else a plain
+    /// singular/plural count (`1 turn` / `3 turns`).
+    fn turns_text(&self) -> String {
+        if let Some(budget) = self.turn_budget {
+            format!(
+                "{}/{} {}",
+                self.turns_used,
+                budget,
+                crate::i18n::t("tui.footer.turns")
+            )
+        } else if self.turns_used == 1 {
+            t!("tui.footer.turnOne", 1)
+        } else {
+            t!("tui.footer.turnOther", self.turns_used)
+        }
+    }
+}
+
+/// Render the badge text, e.g. `[goal ● active · 4m · 7/20 turns]` (TS
+/// `goalBadge` template parity; zh: `[目标 ● 进行中 · 4m · 7/20 轮]`).
+/// `now_ms` is the render clock — pass the badge's own `observed_at_ms` to
+/// pin the elapsed value.
+pub fn render_goal_badge(badge: &GoalBadge, now_ms: u64) -> String {
+    let dot = match badge.status {
+        GoalBadgeStatus::Active => "●",
+        GoalBadgeStatus::Paused | GoalBadgeStatus::Blocked => "○",
+    };
+    let status_label = match badge.status {
+        GoalBadgeStatus::Active => t("tui.footer.goalStatusActive"),
+        GoalBadgeStatus::Paused => t("tui.footer.goalStatusPaused"),
+        GoalBadgeStatus::Blocked => t("tui.footer.goalStatusBlocked"),
+    };
+    let elapsed = format_badge_elapsed(badge.live_elapsed_ms(now_ms));
+    t!(
+        "tui.footer.goalBadge",
+        dot,
+        status_label,
+        elapsed,
+        badge.turns_text()
+    )
+}
+
+/// Compact elapsed duration for the badge (TS `formatBadgeElapsed` parity):
+/// `<60s → "Ns"`, `<60m → "Nm"`, else `"Nh{X}m"` (minutes always shown).
+fn format_badge_elapsed(ms: u64) -> String {
+    let total_seconds = ms.saturating_add(500) / 1000;
+    if total_seconds < 60 {
+        return format!("{total_seconds}s");
+    }
+    let minutes = total_seconds / 60;
+    if minutes < 60 {
+        return format!("{minutes}m");
+    }
+    format!("{}h{}m", minutes / 60, minutes % 60)
+}
+
+/// Current epoch millis — the footer's render clock (TS `Date.now()`).
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// The current git branch by parsing `.git/HEAD` (cheap, no subprocess).
@@ -153,7 +268,7 @@ pub fn footer_lines(info: &FooterInfo, theme: Theme, width: u16) -> Vec<RenderLi
     }
     if let Some(goal) = &info.goal {
         spans.push(Span::styled(
-            format!("{goal} "),
+            format!("{} ", render_goal_badge(goal, now_ms())),
             Style::default().fg(theme.status),
         ));
     }
@@ -258,7 +373,13 @@ mod tests {
             ctx_pct: 30,
             cwd: "/work".into(),
             branch: Some("main".into()),
-            goal: Some("[goal ● active · 3 turns]".into()),
+            goal: Some(GoalBadge {
+                status: GoalBadgeStatus::Active,
+                elapsed_ms: 4 * 60 * 1000,
+                observed_at_ms: now_ms(),
+                turns_used: 3,
+                turn_budget: None,
+            }),
         };
         let lines = footer_lines(&info, Theme::dark(), 80);
         assert_eq!(lines.len(), 2);
@@ -269,7 +390,7 @@ mod tests {
         assert!(strip.contains("(high)"), "thinking label: {strip}");
         assert!(strip.contains("/work"), "strip: {strip}");
         assert!(strip.contains("(main)"), "strip: {strip}");
-        assert!(strip.contains("[goal ● active"), "goal badge: {strip}");
+        assert!(strip.contains("[goal ● active · 4m · 3 turns]"), "goal badge: {strip}");
         // The current tip text right-aligns on line 1 (no prefix, TS parity).
         let tip_text = crate::i18n::t(TIP_KEYS[tip_index()]);
         assert!(strip.contains(tip_text), "tip on line 1: {strip}");
@@ -298,14 +419,92 @@ mod tests {
     }
 
     #[test]
-    fn goal_badge_formats_live_goals() {
-        // Pin En so the "turns" label is stable.
+    fn goal_badge_parses_live_snapshots() {
+        // Pin En so the badge labels are stable.
         crate::i18n::set_locale(Locale::En);
-        let goal = serde_json::json!({ "status": "active", "turnsUsed": 3 });
-        let badge = format_goal_badge(&goal).expect("badge");
-        assert_eq!(badge, "[goal ● active · 3 turns]");
-        // Terminal / no goal → None.
-        assert!(format_goal_badge(&serde_json::json!({ "status": "complete" })).is_none());
-        assert!(format_goal_badge(&serde_json::json!({})).is_none());
+        // Active with a turn budget → `used/limit turns`.
+        let budgeted = serde_json::json!({
+            "status": "active",
+            "turnsUsed": 7,
+            "wallClockMs": 240_000,
+            "budget": { "turnBudget": 20 },
+        });
+        let badge = GoalBadge::from_snapshot(&budgeted).expect("badge");
+        assert_eq!(
+            render_goal_badge(&badge, badge.observed_at_ms),
+            "[goal ● active · 4m · 7/20 turns]"
+        );
+        // Paused without a budget → hollow dot, plain count.
+        let paused = serde_json::json!({ "status": "paused", "turnsUsed": 5 });
+        let badge = GoalBadge::from_snapshot(&paused).expect("badge");
+        assert_eq!(
+            render_goal_badge(&badge, badge.observed_at_ms),
+            "[goal ○ paused · 0s · 5 turns]"
+        );
+        // Singular count when the budget is absent.
+        let one = GoalBadge::from_snapshot(&serde_json::json!({ "status": "blocked", "turnsUsed": 1 }))
+            .expect("badge");
+        assert_eq!(
+            render_goal_badge(&one, one.observed_at_ms),
+            "[goal ○ blocked · 0s · 1 turn]"
+        );
+        // Terminal / missing / null snapshots → no badge.
+        assert!(GoalBadge::from_snapshot(&serde_json::json!({ "status": "complete" })).is_none());
+        assert!(GoalBadge::from_snapshot(&serde_json::json!({})).is_none());
+        assert!(GoalBadge::from_snapshot(&serde_json::Value::Null).is_none());
+        // No goal → the footer strip carries no badge.
+        let info = FooterInfo { goal: None, ..FooterInfo::default() };
+        let lines = footer_lines(&info, Theme::dark(), 80);
+        let strip: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
+        assert!(!strip.contains("[goal"), "no badge without a goal: {strip}");
+    }
+
+    #[test]
+    fn goal_badge_ticks_only_while_active() {
+        crate::i18n::set_locale(Locale::En);
+        let snapshot = serde_json::json!({ "status": "active", "turnsUsed": 3, "wallClockMs": 0 });
+        let badge = GoalBadge::from_snapshot(&snapshot).expect("badge");
+        // 65s after observation the active badge shows the added time…
+        assert_eq!(
+            render_goal_badge(&badge, badge.observed_at_ms + 65_000),
+            "[goal ● active · 1m · 3 turns]"
+        );
+        // …but a paused badge stays frozen at the snapshot value.
+        let paused = GoalBadge::from_snapshot(&serde_json::json!({ "status": "paused", "turnsUsed": 1 }))
+            .expect("badge");
+        assert_eq!(
+            render_goal_badge(&paused, paused.observed_at_ms + 65_000),
+            "[goal ○ paused · 0s · 1 turn]"
+        );
+    }
+
+    #[test]
+    fn goal_badge_elapsed_formats() {
+        assert_eq!(format_badge_elapsed(0), "0s");
+        assert_eq!(format_badge_elapsed(29_499), "29s");
+        assert_eq!(format_badge_elapsed(29_500), "30s"); // rounds to the second
+        assert_eq!(format_badge_elapsed(4 * 60_000), "4m");
+        assert_eq!(format_badge_elapsed(59 * 60_000), "59m");
+        assert_eq!(format_badge_elapsed(60 * 60_000), "1h0m"); // TS always prints minutes
+        assert_eq!(format_badge_elapsed(61 * 60_000), "1h1m");
+    }
+
+    #[test]
+    fn goal_badge_localizes_zh() {
+        // Pure-locale check (the global-locale tests above pin En): the zh
+        // template + labels compose the same shape as En.
+        use crate::i18n::{t_fmt_for, t_for, Locale as L};
+        assert_eq!(
+            t_fmt_for(
+                L::Zh,
+                "tui.footer.goalBadge",
+                &["●".into(), "进行中".into(), "4m".into(), "7/20 轮".into()],
+            ),
+            "[目标 ● 进行中 · 4m · 7/20 轮]"
+        );
+        assert_eq!(t_for(L::Zh, "tui.footer.goalStatusPaused"), "已暂停");
+        assert_eq!(t_for(L::Zh, "tui.footer.goalStatusBlocked"), "已受阻");
+        assert_eq!(t_fmt_for(L::Zh, "tui.footer.turnOther", &["3".into()]), "3 轮");
+        assert_eq!(t_for(L::Zh, "tui.footer.turns"), "轮");
     }
 }

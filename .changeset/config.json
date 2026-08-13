@@ -20,7 +20,10 @@
     "@moonshot-ai/vis",
     "@moonshot-ai/vis-server",
     "@moonshot-ai/vis-web",
-    "@moonshot-ai/kimi-inspect"
+    "@moonshot-ai/kimi-inspect",
+    "@moonshot-ai/kimi-agent",
+    "@moonshot-ai/i18n-shared",
+    "@moonshot-ai/kimi-web"
   ],
   "snapshot": {
     "useCalculatedVersion": true,

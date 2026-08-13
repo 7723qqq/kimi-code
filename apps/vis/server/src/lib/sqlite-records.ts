@@ -131,7 +131,7 @@ export function projectSqliteWire(
       records: [],
       warnings: [
         ...warnings,
-        'no wire records for this session — the engine records table has no rows for it (sessions created before records recording, or subagent rows, have no wire view)',
+        'no wire records for this session — the engine records table has no rows for it (sessions created before records recording, or agents whose engine never wrote records)',
       ],
     };
   }

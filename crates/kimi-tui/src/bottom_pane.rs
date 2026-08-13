@@ -69,6 +69,7 @@ pub const COMMAND_DESCRIPTIONS: &[(&str, &str)] = &[
     ("/import", "tui.cmd.import"),
     ("/sessions", "tui.cmd.sessions"),
     ("/export", "tui.cmd.export"),
+    ("/export-debug-zip", "tui.cmd.export-debug-zip"),
     ("/archive", "tui.cmd.archive"),
     ("/btw", "tui.cmd.btw"),
     ("/endbtw", "tui.cmd.endbtw"),
@@ -115,6 +116,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/endbtw",
     "/exit",
     "/export",
+    "/export-debug-zip",
     "/fork",
     "/goal",
     "/goal-cancel",
@@ -159,6 +161,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/undo",
     "/usage",
     "/version",
+    "/web",
     "/yolo",
     "/yes",
     "/editor",
@@ -378,6 +381,7 @@ pub fn filtered_history(history: &[String], bash: bool) -> Vec<&String> {
 pub fn complete_line(
     base: &str,
     model_aliases: &[String],
+    skills: &[String],
     tab_idx: Option<usize>,
 ) -> (String, Option<usize>) {
     // @mention takes priority (TS file-mention parity: typing `@` inside a
@@ -403,6 +407,12 @@ pub fn complete_line(
             // Any path-like argument falls through to filesystem completion.
             _ => complete_path(arg, tab_idx),
         };
+        return next.map_or((base.to_string(), None), |(s, i)| (s, Some(i)));
+    }
+    // Skill-name completion while typing `/skill:<prefix>` (TS parity: the
+    // candidates come from the session's registered skills).
+    if let Some(prefix) = base.strip_prefix("/skill:") {
+        let next = complete_skill_arg(prefix, skills, tab_idx);
         return next.map_or((base.to_string(), None), |(s, i)| (s, Some(i)));
     }
     // Command-name completion while typing `/…`.
@@ -444,7 +454,8 @@ pub fn complete_model_arg(
     prefix: &str,
     model_aliases: &[String],
     tab_idx: Option<usize>,
-) -> Option<(String, usize)> {    if model_aliases.is_empty() {
+) -> Option<(String, usize)> {
+    if model_aliases.is_empty() {
         return None;
     }
     let matches: Vec<&String> = model_aliases
@@ -456,6 +467,57 @@ pub fn complete_model_arg(
     }
     let idx = tab_idx.map_or(0, |i| (i + 1) % matches.len());
     Some(((*matches[idx]).clone(), idx))
+}
+
+/// Complete a `/skill:<prefix>` skill name against the session's registered
+/// skills. Returns the full `/skill:<name> ` replacement — with a trailing
+/// space so the next Tab extends the skill argument — and the next cycle
+/// index, or `None` when no skill matches (or no skills are known yet; an
+/// empty list keeps the input unchanged).
+pub fn complete_skill_arg(
+    prefix: &str,
+    skills: &[String],
+    tab_idx: Option<usize>,
+) -> Option<(String, usize)> {
+    if skills.is_empty() {
+        return None;
+    }
+    let matches: Vec<&String> = skills
+        .iter()
+        .filter(|s| s.starts_with(prefix))
+        .collect();
+    if matches.is_empty() {
+        return None;
+    }
+    let idx = tab_idx.map_or(0, |i| (i + 1) % matches.len());
+    Some((format!("/skill:{} ", matches[idx]), idx))
+}
+
+/// Complete a `/<pluginId>:<prefix>` plugin-command token against the
+/// registered `plugin:command` names (`prefix` is the token after the
+/// leading `/`, e.g. `myplugin:sta`). Returns the full `/<name> `
+/// replacement — with a trailing space so the next Tab extends the command
+/// argument — and the next cycle index, or `None` when nothing matches (or
+/// no plugin commands are known yet; an empty list keeps the input
+/// unchanged). TS parity: plugin commands autocomplete from
+/// `pluginId:commandName` candidates, like `/skill:` names.
+pub fn complete_plugin_arg(
+    prefix: &str,
+    plugin_commands: &[String],
+    tab_idx: Option<usize>,
+) -> Option<(String, usize)> {
+    if plugin_commands.is_empty() {
+        return None;
+    }
+    let matches: Vec<&String> = plugin_commands
+        .iter()
+        .filter(|c| c.starts_with(prefix))
+        .collect();
+    if matches.is_empty() {
+        return None;
+    }
+    let idx = tab_idx.map_or(0, |i| (i + 1) % matches.len());
+    Some((format!("/{} ", matches[idx]), idx))
 }
 
 // ── Filesystem path completion ─────────────────────────────────────────
@@ -561,9 +623,9 @@ mod tests {
     #[test]
     fn completes_command_names_and_cycles() {
         // `/s` matches `/session` (first by order) — Tab cycles onward.
-        let (done, idx) = complete_line("/s", &[], None);
+        let (done, idx) = complete_line("/s", &[], &[], None);
         assert_eq!(done, "/session", "{done}");
-        let (done2, idx2) = complete_line("/s", &[], idx);
+        let (done2, idx2) = complete_line("/s", &[], &[], idx);
         assert!(done2.starts_with('/'), "{done2}");
         assert_ne!(done2, done, "cycle advances");
         assert!(idx2.is_some());
@@ -575,7 +637,14 @@ mod tests {
         // (TS registry `aliases` parity — the popup offers both spellings).
         let descs = command_descriptions();
         for alias in [
-            "/h", "/?", "/q", "/yes", "/rename", "/task", "/effort", "/providers",
+            "/h",
+            "/?",
+            "/q",
+            "/yes",
+            "/rename",
+            "/task",
+            "/effort",
+            "/providers",
             "/disconnect",
         ] {
             let (_, desc) = descs
@@ -585,9 +654,9 @@ mod tests {
             assert!(!desc.is_empty(), "alias {alias} desc empty");
         }
         // Tab completion expands aliases to the canonical name.
-        let (done, _) = complete_line("/q", &[], None);
+        let (done, _) = complete_line("/q", &[], &[], None);
         assert_eq!(done, "/quit");
-        let (done, _) = complete_line("/provid", &[], None);
+        let (done, _) = complete_line("/provid", &[], &[], None);
         assert_eq!(done, "/provider");
     }
 
@@ -611,33 +680,97 @@ mod tests {
 
     #[test]
     fn completes_closed_argument_sets() {
-        let (done, _) = complete_line("/plan ", &[], None);
+        let (done, _) = complete_line("/plan ", &[], &[], None);
         assert_eq!(done, "/plan on");
-        let (done, _) = complete_line("/thinking l", &[], None);
+        let (done, _) = complete_line("/thinking l", &[], &[], None);
         assert_eq!(done, "/thinking low");
         // `/permission` modes and the `/session` subcommand.
-        let (done, _) = complete_line("/permission a", &[], None);
+        let (done, _) = complete_line("/permission a", &[], &[], None);
         assert_eq!(done, "/permission auto");
-        let (done, _) = complete_line("/session ", &[], None);
+        let (done, _) = complete_line("/session ", &[], &[], None);
         assert_eq!(done, "/session set");
-        let (done, _) = complete_line("/swarm o", &[], None);
+        let (done, _) = complete_line("/swarm o", &[], &[], None);
         assert_eq!(done, "/swarm on");
         // `/goal` subcommands (TS registry parity).
-        let (done, _) = complete_line("/goal p", &[], None);
+        let (done, _) = complete_line("/goal p", &[], &[], None);
         assert_eq!(done, "/goal pause");
-        let (done, _) = complete_line("/goal c", &[], None);
+        let (done, _) = complete_line("/goal c", &[], &[], None);
         assert_eq!(done, "/goal cancel");
-        let (done, _) = complete_line("/goal status", &[], None);
+        let (done, _) = complete_line("/goal status", &[], &[], None);
         assert_eq!(done, "/goal status");
     }
 
     #[test]
     fn completes_model_aliases() {
         let aliases = vec!["kimi-k2".to_string(), "kimi-k2-thinking".to_string()];
-        let (done, _) = complete_line("/model kimi-k2", &aliases, None);
+        let (done, _) = complete_line("/model kimi-k2", &aliases, &[], None);
         assert_eq!(done, "kimi-k2", "{done}");
-        let (done, _) = complete_line("/model kimi", &aliases, None);
+        let (done, _) = complete_line("/model kimi", &aliases, &[], None);
         assert_eq!(done, "kimi-k2", "{done}");
+    }
+
+    #[test]
+    fn completes_skill_names() {
+        let skills = vec![
+            "code-review".to_string(),
+            "commit".to_string(),
+            "debug".to_string(),
+        ];
+        // Prefix match on `/skill:co` → `/skill:code-review ` (trailing
+        // space so the next Tab extends the skill argument).
+        let (done, idx) = complete_line("/skill:co", &[], &skills, None);
+        assert_eq!(done, "/skill:code-review ", "{done}");
+        assert!(idx.is_some());
+        // Tab cycles onward through the remaining matches.
+        let (done2, idx2) = complete_line("/skill:co", &[], &skills, idx);
+        assert_eq!(done2, "/skill:commit ", "{done2}");
+        assert!(idx2.is_some());
+        // A bare `/skill:` lists every skill.
+        let (done, _) = complete_line("/skill:", &[], &skills, None);
+        assert_eq!(done, "/skill:code-review ");
+        // No match keeps the input unchanged.
+        let (done, _) = complete_line("/skill:zzz", &[], &skills, None);
+        assert_eq!(done, "/skill:zzz");
+        // `/skill` (no colon) still completes the command name, not skills.
+        let (done, _) = complete_line("/skill", &[], &skills, None);
+        assert_eq!(done, "/skills");
+    }
+
+    #[test]
+    fn skill_completion_with_empty_list_keeps_input() {
+        // No skills known (fetch failed / not loaded yet) → input unchanged,
+        // no crash, no fallback to command-name completion.
+        let (done, _) = complete_line("/skill:co", &[], &[], None);
+        assert_eq!(done, "/skill:co");
+        let (done, _) = complete_line("/skill:", &[], &[], None);
+        assert_eq!(done, "/skill:");
+    }
+
+    #[test]
+    fn completes_plugin_commands() {
+        let commands = vec![
+            "code-review:start".to_string(),
+            "code-review:stop".to_string(),
+            "commit:create".to_string(),
+        ];
+        // Prefix match on `/<plugin>:<pre>` → full `/plugin:command `
+        // (trailing space so the next Tab extends the command argument).
+        let (done, idx) = complete_plugin_arg("code-review:s", &commands, None).expect("match");
+        assert_eq!(done, "/code-review:start ", "{done}");
+        // Tab cycles onward through the remaining matches.
+        let (done2, idx2) =
+            complete_plugin_arg("code-review:s", &commands, Some(idx)).expect("match");
+        assert_eq!(done2, "/code-review:stop ", "{done2}");
+        assert!(idx2 > idx, "cycle advances");
+        // A bare `/<pluginId>:` lists every command of that plugin.
+        let (done, _) = complete_plugin_arg("code-review:", &commands, None).expect("match");
+        assert_eq!(done, "/code-review:start ");
+        // A bare `/<pluginId>` matches every namespaced command.
+        let (done, _) = complete_plugin_arg("commit", &commands, None).expect("match");
+        assert_eq!(done, "/commit:create ");
+        // No match / empty list → None (the caller keeps the input).
+        assert!(complete_plugin_arg("zzz:x", &commands, None).is_none());
+        assert!(complete_plugin_arg("code-review:s", &[], None).is_none());
     }
 
     #[test]
@@ -747,28 +880,32 @@ mod tests {
 
         // File completion via the last token.
         let token = format!("@{root}/main");
-        let (done, idx) = complete_line(&token, &[], None);
+        let (done, idx) = complete_line(&token, &[], &[], None);
         assert_eq!(done, format!("@{root}/main.rs"), "done: {done}");
         assert!(idx.is_some());
 
         // Directory candidates carry a trailing `/` so the next Tab extends.
         let token = format!("@{root}/s");
-        let (done, _) = complete_line(&token, &[], None);
+        let (done, _) = complete_line(&token, &[], &[], None);
         assert_eq!(done, format!("@{root}/sub/"), "done: {done}");
 
         // Hidden files are skipped unless requested.
         let token = format!("@{root}/.");
-        let (done, _) = complete_line(&token, &[], None);
+        let (done, _) = complete_line(&token, &[], &[], None);
         assert!(done.contains(".hidden"), "done: {done}");
 
         // Mention takes priority over slash-command argument completion
         // (TS parity: `@` inside argument text completes files).
         let input = format!("/goal fix the @{root}/main");
-        let (done, _) = complete_line(&input, &[], None);
-        assert_eq!(done, format!("/goal fix the @{root}/main.rs"), "done: {done}");
+        let (done, _) = complete_line(&input, &[], &[], None);
+        assert_eq!(
+            done,
+            format!("/goal fix the @{root}/main.rs"),
+            "done: {done}"
+        );
 
         // A bare `@` with no match is left alone (no crash, no fallback).
-        let (done, _) = complete_line(&format!("@{root}/nope"), &[], None);
+        let (done, _) = complete_line(&format!("@{root}/nope"), &[], &[], None);
         assert_eq!(done, format!("@{root}/nope"));
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -779,7 +916,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("kimi-mention-sp-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("my dir")).unwrap();
         let root = dir.to_string_lossy().to_string();
-        let (done, _) = complete_line(&format!("@{root}/my"), &[], None);
+        let (done, _) = complete_line(&format!("@{root}/my"), &[], &[], None);
         // Directory completion keeps the trailing `/`; spaces quote the path.
         assert_eq!(done, format!("@\"{root}/my dir/\""), "done: {done}");
         let _ = std::fs::remove_dir_all(&dir);

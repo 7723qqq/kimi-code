@@ -168,7 +168,9 @@ mod tests {
         assert_eq!(last_line(&t).map(|l| l.text.as_str()), Some("side answer"));
 
         // No streamed line → nothing to promote, transcript untouched.
-        let mut t2 = vec![TranscriptEntry::Line(crate::app::TranscriptLine::status("ok"))];
+        let mut t2 = vec![TranscriptEntry::Line(crate::app::TranscriptLine::status(
+            "ok",
+        ))];
         assert!(!finish_side_turn(&mut t2));
         assert_eq!(t2.len(), 1);
     }
@@ -185,6 +187,7 @@ mod tests {
             is_question: false,
             duration: None,
             collapsed: false,
+            image: None,
         })];
         // A streamed args delta replaces the running card's preview.
         update_tool_args(&mut t, "call_1", "{\"path\": \"a.txt\"}");
@@ -203,6 +206,7 @@ mod tests {
             is_question: false,
             duration: None,
             collapsed: false,
+            image: None,
         });
         update_tool_args(&mut t, "call_1", "{\"path\": \"changed\"}");
         if let TranscriptEntry::ToolCall(tc) = &t[0] {

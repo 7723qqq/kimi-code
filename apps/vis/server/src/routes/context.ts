@@ -27,8 +27,10 @@ export function contextRoute(home: string = KIMI_CODE_HOME): Hono {
     // instead — the records are append-only, so `?history=full` (and the
     // default view) shows the FULL history including messages dropped from
     // the live snapshot by compaction, which the state_json snapshot cannot.
-    // A non-`main` agent id addresses a subagent row in the sessions table
-    // (subagents never write records, so their projection stays snapshot).
+    // A non-`main` agent id addresses a subagent row in the sessions table.
+    // Tracked subagents (Task/swarm) share the parent's RecordStore under
+    // their own agent id, so their timeline is rebuilt from records the same
+    // way; untracked ones fall back to the state_json snapshot.
     if (detail.source === 'sqlite') {
       let state = detail.state;
       let recordsSessionId = id;

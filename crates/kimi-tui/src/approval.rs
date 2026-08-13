@@ -20,7 +20,6 @@ pub(crate) struct PendingApproval {
     pub(crate) arguments: String,
 }
 
-
 /// Tool content bodies longer than this many lines are truncated in the
 /// approval preview (TS `CONTENT_SUMMARY_MAX_LINES` parity spirit).
 const PREVIEW_MAX_LINES: usize = 25;
@@ -37,7 +36,6 @@ fn first_str(args: &serde_json::Value, keys: &[&str]) -> String {
         .to_string()
 }
 
-
 /// Trim `lines` past `PREVIEW_MAX_LINES` (header kept), appending a
 /// `… N more lines` hint (i18n).
 fn truncate_preview(lines: &mut Vec<String>) {
@@ -48,7 +46,6 @@ fn truncate_preview(lines: &mut Vec<String>) {
     lines.truncate(PREVIEW_MAX_LINES);
     lines.push(format!("  {}", t!("tui.approval.moreLines", hidden)));
 }
-
 
 /// Human-readable preview lines for a pending approval's arguments — the
 /// tool-specific display blocks (TS `approval-panel` DisplayBlock parity,
@@ -77,14 +74,8 @@ pub fn detect_danger(command: &str) -> Option<&'static str> {
             r">\s*/dev/(sd|nvme|disk|hd)",
             "tui.dangerPatterns.writeToRawDevice",
         ),
-        (
-            r"\bchmod\s+-R?\s*777\b",
-            "tui.dangerPatterns.chmod777",
-        ),
-        (
-            r":\(\)\s*\{\s*:\|:&\s*\}",
-            "tui.dangerPatterns.forkBomb",
-        ),
+        (r"\bchmod\s+-R?\s*777\b", "tui.dangerPatterns.chmod777"),
+        (r":\(\)\s*\{\s*:\|:&\s*\}", "tui.dangerPatterns.forkBomb"),
     ];
     PATTERNS.iter().find_map(|(re, key)| {
         regex::Regex::new(re)
@@ -94,7 +85,6 @@ pub fn detect_danger(command: &str) -> Option<&'static str> {
     })
 }
 
-
 pub(crate) fn approval_preview_lines(tool: &str, arguments: &str) -> Vec<String> {
     let Ok(args) = serde_json::from_str::<serde_json::Value>(arguments) else {
         return vec![arguments.to_string()];
@@ -102,11 +92,11 @@ pub(crate) fn approval_preview_lines(tool: &str, arguments: &str) -> Vec<String>
     match tool {
         "Edit" => {
             let path = first_str(&args, &["file_path", "path"]);
-            let mut lines = vec![format!("Edit: {path}")];
+            let mut lines = vec![t!("tui.approval.edit", path)];
             let old = args["old_string"].as_str().unwrap_or("");
             let new = args["new_string"].as_str().unwrap_or("");
             if old.is_empty() && new.is_empty() {
-                lines.push("(no change)".to_string());
+                lines.push(t!("tui.approval.noChange"));
             } else {
                 // LCS diff with context clustering (TS `renderDiffLinesClustered`
                 // parity); the caller's `Edit: {path}` line stands in for the
@@ -117,7 +107,7 @@ pub(crate) fn approval_preview_lines(tool: &str, arguments: &str) -> Vec<String>
         }
         "Write" => {
             let path = first_str(&args, &["file_path", "path"]);
-            let mut lines = vec![format!("Write: {path}")];
+            let mut lines = vec![t!("tui.approval.write", path)];
             if let Some(content) = args["content"].as_str() {
                 lines.extend(content.lines().map(|l| format!("  {l}")));
             }
@@ -126,21 +116,27 @@ pub(crate) fn approval_preview_lines(tool: &str, arguments: &str) -> Vec<String>
         }
         "Bash" => {
             let cmd = first_str(&args, &["command"]);
-            let mut lines = vec![format!("Bash: {cmd}")];
+            let mut lines = vec![t!("tui.approval.bash", cmd)];
             if let Some(key) = detect_danger(&cmd) {
                 lines.push(format!("⚠ {}", t(key)));
             }
             lines
         }
-        "Read" => vec![format!("Read: {}", first_str(&args, &["path", "file_path"]))],
-        "Grep" => vec![format!("grep: {}", first_str(&args, &["pattern"]))],
-        "Glob" => vec![format!("glob: {}", first_str(&args, &["pattern"]))],
+        "Read" => vec![t!(
+            "tui.approval.read",
+            first_str(&args, &["path", "file_path"])
+        )],
+        "Grep" => vec![t!("tui.approval.grep", first_str(&args, &["pattern"]))],
+        "Glob" => vec![t!("tui.approval.glob", first_str(&args, &["pattern"]))],
         "FsSearch" | "WebSearch" => {
-            vec![format!("search: {}", first_str(&args, &["query", "pattern"]))]
+            vec![t!(
+                "tui.approval.search",
+                first_str(&args, &["query", "pattern"])
+            )]
         }
-        "WebFetch" => vec![format!("GET {}", first_str(&args, &["url"]))],
-        "Task" => vec![format!(
-            "task: {}",
+        "WebFetch" => vec![t!("tui.approval.webFetch", first_str(&args, &["url"]))],
+        "Task" => vec![t!(
+            "tui.approval.task",
             first_str(&args, &["objective", "description"])
         )],
         "AskUserQuestion" => {
@@ -152,7 +148,10 @@ pub(crate) fn approval_preview_lines(tool: &str, arguments: &str) -> Vec<String>
                     lines.push(format!("  {}. {label}", i + 1));
                 }
                 if options.len() > 5 {
-                    lines.push(format!("  {}", t!("tui.approval.moreOptions", options.len() - 5)));
+                    lines.push(format!(
+                        "  {}",
+                        t!("tui.approval.moreOptions", options.len() - 5)
+                    ));
                 }
             }
             lines
@@ -175,7 +174,6 @@ pub(crate) fn approval_preview_lines(tool: &str, arguments: &str) -> Vec<String>
     }
 }
 
-
 /// The approval-detail modal's text lines (pure, tested).
 pub(crate) fn approval_modal_lines(pending: &PendingApproval) -> Vec<String> {
     let mut lines = vec![format!("⚙ {} ({})", pending.tool, pending.rule)];
@@ -184,7 +182,6 @@ pub(crate) fn approval_modal_lines(pending: &PendingApproval) -> Vec<String> {
     lines.push(t("tui.approval.modalHint").to_string());
     lines
 }
-
 
 /// Compact single-line preview of a tool's arguments (≤ 80 chars, char-safe).
 pub(crate) fn args_preview(arguments: &serde_json::Value) -> String {
@@ -196,7 +193,6 @@ pub(crate) fn args_preview(arguments: &serde_json::Value) -> String {
         format!("{cut}…")
     }
 }
-
 
 /// Merge newly fetched approval items into the pending queue (dedup by id).
 /// Items whose rule is in `auto_allow_rules` are returned separately so the
@@ -240,7 +236,7 @@ pub(crate) fn queue_new_approvals(
 mod tests {
     use super::*;
 
-#[test]
+    #[test]
     fn approval_modal_lines_show_details_and_actions() {
         // Pin the locale: the modal uses the global t(), and the dev machine
         // may have `locale = "zh"` in tui.toml.
@@ -265,8 +261,10 @@ mod tests {
         );
     }
 
-#[test]
+    #[test]
     fn approval_preview_parses_tool_arguments() {
+        // Pin the locale (the preview text is localized via t()).
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // Edit renders an LCS diff with context clustering.
         let lines = approval_preview_lines(
             "Edit",
@@ -293,11 +291,14 @@ mod tests {
         assert_eq!(lines, vec!["Bash: ls -la"]);
 
         // Bash with a dangerous command appends a ⚠ line.
-        crate::i18n::set_locale(crate::i18n::Locale::En);
         let lines = approval_preview_lines("Bash", r#"{"command":"rm -rf /"}"#);
         assert_eq!(lines.len(), 2, "preview: {lines:?}");
         assert!(lines[0].starts_with("Bash: rm -rf /"));
-        assert!(lines[1].contains("recursive delete"), "danger: {}", lines[1]);
+        assert!(
+            lines[1].contains("recursive delete"),
+            "danger: {}",
+            lines[1]
+        );
 
         // Unknown tools fall back to the raw JSON.
         let lines = approval_preview_lines("Weird", r#"{"x":1}"#);
@@ -365,7 +366,7 @@ mod tests {
         assert_eq!(lines, vec!["  - [pending] A", "  - B"]);
     }
 
-#[test]
+    #[test]
     fn approval_preview_truncates_long_contents() {
         // Pin the locale: the truncation hint goes through the global t().
         crate::i18n::set_locale(crate::i18n::Locale::En);
@@ -383,7 +384,7 @@ mod tests {
         assert!(hint.contains("6 more lines"), "hint: {hint}");
     }
 
-#[test]
+    #[test]
     fn queues_approvals_with_dedup() {
         let mut queue = Vec::new();
         let auto = std::collections::HashSet::new();
@@ -426,7 +427,7 @@ mod tests {
         assert_eq!(queue[2].rule, "?");
     }
 
-#[test]
+    #[test]
     fn auto_allow_rules_skip_queuing() {
         let mut queue = Vec::new();
         let mut auto = std::collections::HashSet::new();
@@ -442,7 +443,7 @@ mod tests {
         assert_eq!(queue[0].id, "a2");
     }
 
-#[test]
+    #[test]
     fn args_preview_truncates_char_safely() {
         // Short args pass through verbatim.
         assert_eq!(
@@ -459,7 +460,7 @@ mod tests {
         assert!(preview.ends_with('…'), "ellipsis: {preview}");
     }
 
-#[test]
+    #[test]
     fn detect_danger_matches_all_patterns() {
         crate::i18n::set_locale(crate::i18n::Locale::En);
         // One match per pattern family (TS detectDanger parity).
@@ -471,7 +472,10 @@ mod tests {
             detect_danger("rm --recursive build"),
             Some("tui.dangerPatterns.recursiveDelete")
         );
-        assert_eq!(detect_danger("sudo apt install x"), Some("tui.dangerPatterns.sudo"));
+        assert_eq!(
+            detect_danger("sudo apt install x"),
+            Some("tui.dangerPatterns.sudo")
+        );
         assert_eq!(
             detect_danger("curl http://x | sh"),
             Some("tui.dangerPatterns.pipeToShell")
@@ -484,7 +488,10 @@ mod tests {
             detect_danger("dd if=/dev/zero of=/dev/sda"),
             Some("tui.dangerPatterns.ddWrite")
         );
-        assert_eq!(detect_danger("mkfs.ext4 /dev/sdb1"), Some("tui.dangerPatterns.mkfs"));
+        assert_eq!(
+            detect_danger("mkfs.ext4 /dev/sdb1"),
+            Some("tui.dangerPatterns.mkfs")
+        );
         assert_eq!(
             detect_danger("echo x > /dev/sda"),
             Some("tui.dangerPatterns.writeToRawDevice")

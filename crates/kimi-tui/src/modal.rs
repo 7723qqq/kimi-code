@@ -35,12 +35,7 @@ impl ModalRow {
 /// Draw a full-screen modal titled `title` over the whole frame, one row
 /// per entry. Rows are laid out top-down from the border; the caller is
 /// responsible for truncating content to the terminal height.
-pub fn render_modal(
-    frame: &mut ratatui::Frame<'_>,
-    title: &str,
-    rows: &[ModalRow],
-    theme: Theme,
-) {
+pub fn render_modal(frame: &mut ratatui::Frame<'_>, title: &str, rows: &[ModalRow], theme: Theme) {
     let lines: Vec<Line<'_>> = rows
         .iter()
         .map(|row| {

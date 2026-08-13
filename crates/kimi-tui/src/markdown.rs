@@ -120,7 +120,10 @@ fn render_inner(markdown: &str, theme: Theme) -> Vec<RenderLine<'static>> {
                 }
             }
             Event::Code(text) => {
-                push_inline!(Span::styled(text.to_string(), Style::default().fg(theme.code)));
+                push_inline!(Span::styled(
+                    text.to_string(),
+                    Style::default().fg(theme.code)
+                ));
             }
             Event::SoftBreak | Event::HardBreak => {
                 if table.is_some() {
@@ -204,8 +207,7 @@ fn render_inner(markdown: &str, theme: Theme) -> Vec<RenderLine<'static>> {
             }
             Event::End(TagEnd::TableCell) => {
                 if let Some(tbl) = table.as_mut() {
-                    tbl.current_row
-                        .push(std::mem::take(&mut tbl.current_cell));
+                    tbl.current_row.push(std::mem::take(&mut tbl.current_cell));
                 }
             }
             Event::Start(Tag::HtmlBlock) => {}
@@ -309,10 +311,7 @@ fn render_table(builder: &TableBuilder, theme: Theme) -> Vec<RenderLine<'static>
     let border = Style::default().fg(theme.quote);
     let mut out = Vec::new();
     // Top border.
-    out.push(RenderLine::from(Span::styled(
-        top_border(&widths),
-        border,
-    )));
+    out.push(RenderLine::from(Span::styled(top_border(&widths), border)));
     for (row_index, row) in builder.rows.iter().enumerate() {
         let is_head = row_index == 0;
         let mut line = vec![Span::styled("│ ", border)];
@@ -572,17 +571,13 @@ mod tests {
         }
         // The right-aligned Count column pads its value left: the "1" cell
         // must be wider than the "200" cell of the second row.
-        let row_alpha = lines.iter().find(|l| {
-            l.spans
-                .iter()
-                .any(|s| s.content.contains("Alpha"))
-        });
-        let row_b = lines.iter().find(|l| {
-            l.spans.iter().any(|s| s.content.contains("200"))
-        });
-        let width_of = |line: &RenderLine| -> usize {
-            line.spans.iter().map(|s| s.width()).sum()
-        };
+        let row_alpha = lines
+            .iter()
+            .find(|l| l.spans.iter().any(|s| s.content.contains("Alpha")));
+        let row_b = lines
+            .iter()
+            .find(|l| l.spans.iter().any(|s| s.content.contains("200")));
+        let width_of = |line: &RenderLine| -> usize { line.spans.iter().map(|s| s.width()).sum() };
         let (Some(a), Some(b)) = (row_alpha, row_b) else {
             panic!("both rows present");
         };
@@ -667,7 +662,13 @@ mod tests {
             .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.clone()))
             .collect();
-        assert!(!all.contains("<b>") && !all.contains("<script>"), "html dropped: {all}");
-        assert!(all.contains("bold") && all.contains("alert"), "text kept: {all}");
+        assert!(
+            !all.contains("<b>") && !all.contains("<script>"),
+            "html dropped: {all}"
+        );
+        assert!(
+            all.contains("bold") && all.contains("alert"),
+            "text kept: {all}"
+        );
     }
 }

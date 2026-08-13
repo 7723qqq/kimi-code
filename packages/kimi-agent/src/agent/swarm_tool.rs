@@ -505,8 +505,11 @@ mod tests {
     }
 
     /// A unique temp dir per test, so persisted swarm sessions never collide
-    /// across parallel tests.
+    /// across parallel tests. Pins `$KIMI_AGENT_HOME` to unset so the child
+    /// session store lands in `<homedir>/.kimi-agent/sessions.db` (see
+    /// `agent.rs::temp_test_homedir` for the same pattern).
     fn temp_test_homedir() -> String {
+        unsafe { std::env::remove_var("KIMI_AGENT_HOME") };
         let dir = std::env::temp_dir().join(format!("kimi-agent-swarm-test-{}", fastrand::u64(..)));
         std::fs::create_dir_all(&dir).unwrap();
         dir.to_string_lossy().into_owned()

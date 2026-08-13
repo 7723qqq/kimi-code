@@ -1,3 +1,5 @@
+> Historical migration-plan document from the TS->Rust migration (2026-08). Superseded by CODEX_MIGRATION_PLAN.md (current status); kept for reference only.
+
 # 事件契约向引擎靠拢专项（消除翻译层）
 
 > 权威专项计划。目标：让 SDK 公共事件面（`Session.onEvent`）以 Rust 引擎语义为基准，
