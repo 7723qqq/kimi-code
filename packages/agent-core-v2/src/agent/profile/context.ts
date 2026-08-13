@@ -57,6 +57,7 @@ export interface PrepareSystemPromptContextOptions {
   readonly additionalDirs?: readonly string[];
   readonly preloadedAgentsMd?: LoadedAgentsMd;
   readonly preloadedCwdListing?: string;
+  readonly preloadedAdditionalDirsInfo?: string;
 }
 
 export async function prepareSystemPromptContext(
@@ -73,7 +74,9 @@ export async function prepareSystemPromptContext(
     options?.preloadedAgentsMd !== undefined
       ? Promise.resolve(options.preloadedAgentsMd)
       : loadAgentsMdForRoots(deps, brandHome, [workDir]),
-    loadAdditionalDirsInfo(deps, additionalDirs),
+    options?.preloadedAdditionalDirsInfo !== undefined
+      ? Promise.resolve(options.preloadedAdditionalDirsInfo)
+      : loadAdditionalDirsInfo(deps, additionalDirs),
   ]);
   return {
     cwdListing,

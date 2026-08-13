@@ -289,6 +289,13 @@ function shouldPreserveUnsignedThinking(model: string): boolean {
   );
 }
 
+/**
+ * SYNCHRONISED COPY: the cache-breakpoint injection below
+ * (`CACHEABLE_TYPES` + `injectCacheControlOnLastBlock`) is duplicated
+ * verbatim in the kosong package's provider layer
+ * (`packages/kosong/src/providers/anthropic.ts`). Any change here MUST also
+ * land in the kosong copy and vice versa.
+ */
 const CACHEABLE_TYPES = new Set([
   'text',
   'image',

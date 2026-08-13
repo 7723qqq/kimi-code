@@ -243,19 +243,34 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   private frozenSkillListing: string | undefined;
   private frozenPluginSections: string | undefined;
 
-  // Cache-stability freezes: `${now}` and `cwdListing` are part of the system
-  // prompt prefix. If they change between requests, the provider's prompt
-  // cache is invalidated entirely. Both are snapshotted on the first
-  // successful build and reused until the freeze window expires, so
-  // AGENTS.md / tool-config / skill-catalog changes do not churn the prefix
-  // and destroy cache hits, while a long-lived session still sees a fresh
-  // timestamp and directory listing every FREEZE_WINDOW_MS. Never reset by
+  // Cache-stability freezes: `${now}`, `cwdListing` and `additionalDirsInfo`
+  // are part of the system prompt prefix. If they change between requests,
+  // the provider's prompt cache is invalidated entirely. All are snapshotted
+  // on the first successful build and reused until the freeze window expires,
+  // so AGENTS.md / tool-config / skill-catalog changes do not churn the
+  // prefix and destroy cache hits, while a long-lived session still sees a
+  // fresh timestamp and directory listing every FREEZE_WINDOW_MS. The
+  // additional-dirs freeze is keyed on the dir list itself, so adding /
+  // removing a dir rebuilds the section immediately. Never reset by
   // applyProfile / useProfile / applyBindingSnapshot / refreshSystemPrompt.
   private frozenNow: string | undefined;
   private nowFreezeUntil = 0;
   private frozenCwdListing: string | undefined;
   private cwdListingFreezeUntil = 0;
+  private frozenAdditionalDirsInfo: string | undefined;
+  private additionalDirsKey: string | undefined;
+  private additionalDirsFreezeUntil = 0;
   private static readonly FREEZE_WINDOW_MS = 30 * 60 * 1000;
+
+  // Coalescing state for refreshSystemPrompt: multiple change events can fan
+  // out within the same tick (tool policy + config + instructions), and a
+  // concurrent rebuild would race the freeze read/write in
+  // buildSystemPromptContext (both builds re-read the directory, the last
+  // dispatch wins while the cached freeze holds the other build's listing —
+  // one extra prefix churn). Only one refresh runs at a time; a request
+  // arriving mid-flight queues exactly one follow-up run.
+  private refreshInFlight: Promise<void> | undefined;
+  private refreshQueued = false;
 
   constructor(
     @IWireService private readonly wire: IWireService,
@@ -543,6 +558,31 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   }
 
   async refreshSystemPrompt(): Promise<void> {
+    // Coalesce overlapping triggers: several change events can fire within
+    // one tick, and two concurrent builds would race the freeze read/write in
+    // buildSystemPromptContext (see the field comment). While a refresh is in
+    // flight, queue exactly one follow-up run — it rebuilds from the latest
+    // state, so every trigger that landed mid-flight is reflected.
+    if (this.refreshInFlight !== undefined) {
+      this.refreshQueued = true;
+      await this.refreshInFlight;
+      return;
+    }
+    const run = this.doRefreshSystemPrompt().finally(() => {
+      this.refreshInFlight = undefined;
+      if (this.refreshQueued) {
+        this.refreshQueued = false;
+        // Fire-and-forget follow-up: doRefreshSystemPrompt already converts
+        // failures into a published warning, but guard the voided promise so
+        // an unexpected throw here cannot surface as an unhandled rejection.
+        void this.refreshSystemPrompt().catch(() => {});
+      }
+    });
+    this.refreshInFlight = run;
+    await run;
+  }
+
+  private async doRefreshSystemPrompt(): Promise<void> {
     const profile = this.resolveActiveProfile();
     if (profile === undefined) return;
 
@@ -974,19 +1014,38 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     // the provider's prompt cache on every refresh).
     const cwdListingStale =
       this.frozenCwdListing === undefined || nowMs >= this.cwdListingFreezeUntil;
+    // Same freeze for the additional-dirs section: it renders into the system
+    // prompt prefix too, so re-listing those dirs on every refresh would churn
+    // the prefix exactly like an unfrozen cwdListing. The freeze is keyed on
+    // the dir list, so an actual /add-dir change rebuilds immediately.
+    const additionalDirs = options?.additionalDirs ?? this.workspace.additionalDirs;
+    const additionalDirsKey = additionalDirs.join('\u0000');
+    const additionalDirsStale =
+      this.frozenAdditionalDirsInfo === undefined ||
+      this.additionalDirsKey !== additionalDirsKey ||
+      nowMs >= this.additionalDirsFreezeUntil;
     const base = await prepareSystemPromptContext(
       { fs: this.fs, homeDir: this.env.homeDir },
       this.sessionContext.cwd,
       this.bootstrap.homeDir,
       {
-        additionalDirs: options?.additionalDirs ?? this.workspace.additionalDirs,
+        additionalDirs,
         preloadedAgentsMd,
         preloadedCwdListing: cwdListingStale ? undefined : this.frozenCwdListing,
+        preloadedAdditionalDirsInfo: additionalDirsStale
+          ? undefined
+          : this.frozenAdditionalDirsInfo,
       },
     );
     if (cwdListingStale) {
       this.frozenCwdListing = base.cwdListing;
       this.cwdListingFreezeUntil =
+        this.clock.now().getTime() + AgentProfileService.FREEZE_WINDOW_MS;
+    }
+    if (additionalDirsStale) {
+      this.frozenAdditionalDirsInfo = base.additionalDirsInfo;
+      this.additionalDirsKey = additionalDirsKey;
+      this.additionalDirsFreezeUntil =
         this.clock.now().getTime() + AgentProfileService.FREEZE_WINDOW_MS;
     }
     const skills = await this.resolveSkillListing();

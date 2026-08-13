@@ -48,10 +48,11 @@ export class ByteLruCache {
     if (existing !== undefined) {
       this.currentBytes -= existing.byteLength;
       this.map.delete(key);
-    } else {
-      while (this.map.size > 0 && this.currentBytes + size > this.maxBytes) {
-        this.evictOldest();
-      }
+    }
+    // Evict with the existing entry already removed, so growing a key in
+    // place also respects the byte cap instead of overshooting it.
+    while (this.map.size > 0 && this.currentBytes + size > this.maxBytes) {
+      this.evictOldest();
     }
 
     this.currentBytes += size;

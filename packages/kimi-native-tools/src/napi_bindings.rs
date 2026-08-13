@@ -143,6 +143,15 @@ pub async fn native_read(
         }
     }
 
+    // Snapshot the invalidation metadata BEFORE the read so put() can detect
+    // a concurrent modification (TOCTOU guard, see file_cache.rs).
+    let cacheable = line_offset.is_none() && n_lines.is_none();
+    let pre_read = if cacheable {
+        crate::file_cache::snapshot(&path)
+    } else {
+        None
+    };
+
     let path_clone = path.clone();
     let ol = line_offset;
     let nl = n_lines;
@@ -160,9 +169,12 @@ pub async fn native_read(
         error: Some(format!("read panicked: {e}")),
     });
 
-    // Cache full-file reads
-    if result.error.is_none() && line_offset.is_none() && n_lines.is_none() {
-        crate::file_cache::FILE_CACHE.put(path, result.content.clone(), result.line_count);
+    // Cache full-file reads (put() re-checks the metadata snapshot and skips
+    // caching when the file changed during the read).
+    if result.error.is_none() {
+        if let Some(pre) = pre_read {
+            crate::file_cache::FILE_CACHE.put(path, result.content.clone(), result.line_count, pre);
+        }
     }
 
     result

@@ -10,3 +10,7 @@ package-lock.json
 yarn.lock
 pnpm-lock.yaml
 node_modules/
+
+# napi-rs atomic-replace transaction artifacts (retired old binaries + swap dirs)
+*.retired.tmp.*
+.napi-rs-filesystem-transaction.swp/

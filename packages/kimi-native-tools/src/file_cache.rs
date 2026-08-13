@@ -4,6 +4,11 @@
 ///   Read(A) => cache miss => read disk + cache
 ///   Edit(A) => write => invalidate cache entry for A
 ///   Read(A) => cache hit => return cached content instantly
+///
+/// Caching is TOCTOU-safe: the caller snapshots the file's (mtime, size)
+/// BEFORE reading (`snapshot`), and `put` re-checks after the read — a file
+/// modified during the read is never cached, so stale content can never be
+/// served under a fresh mtime.
 use std::collections::HashMap;
 use std::fs;
 use std::sync::LazyLock;
@@ -11,6 +16,15 @@ use std::time::SystemTime;
 
 /// Maximum number of cached file entries.
 const MAX_CACHE_ENTRIES: usize = 32;
+
+/// A file's invalidation metadata: (mtime, size).
+pub type FileSnapshot = (SystemTime, u64);
+
+/// Capture a file's invalidation metadata before reading it.
+pub fn snapshot(path: &str) -> Option<FileSnapshot> {
+    let meta = fs::metadata(path).ok()?;
+    Some((meta.modified().ok()?, meta.len()))
+}
 
 /// Cached file content with invalidation metadata.
 #[derive(Clone)]
@@ -45,16 +59,20 @@ impl FileReadCache {
         None
     }
 
-    /// Store a read result in the cache.
-    pub fn put(&self, path: String, content: String, line_count: i32) {
-        let meta = match fs::metadata(&path) {
-            Ok(m) => m,
-            Err(_) => return,
+    /// Store a read result in the cache. `pre_read` is the metadata snapshot
+    /// taken before the content was read; if the file changed in between, the
+    /// read content may already be stale, so nothing is cached (and any old
+    /// entry is dropped) — caching stale content under a fresh mtime would
+    /// keep serving it until the next write.
+    pub fn put(&self, path: String, content: String, line_count: i32, pre_read: FileSnapshot) {
+        let post = match snapshot(&path) {
+            Some(s) => s,
+            None => return,
         };
-        let mtime = match meta.modified() {
-            Ok(t) => t,
-            Err(_) => return,
-        };
+        if post != pre_read {
+            self.invalidate(&path);
+            return;
+        }
         let mut cache = match self.cache.lock() {
             Ok(c) => c,
             Err(_) => return,
@@ -68,8 +86,8 @@ impl FileReadCache {
             CacheEntry {
                 content,
                 line_count,
-                mtime,
-                size: meta.len(),
+                mtime: post.0,
+                size: post.1,
             },
         );
     }

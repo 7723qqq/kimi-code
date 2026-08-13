@@ -338,6 +338,12 @@ function shouldPreserveUnsignedThinking(model: string): boolean {
 
 /**
  * Content block types that support cache_control injection.
+ *
+ * SYNCHRONISED COPY: the cache-breakpoint injection below
+ * (`CACHEABLE_TYPES` + `injectCacheControlOnLastBlock`) is duplicated
+ * verbatim in agent-core-v2's self-contained provider layer
+ * (`packages/agent-core-v2/src/kosong/provider/bases/anthropic/anthropic.ts`).
+ * Any change here MUST also land in the v2 copy and vice versa.
  */
 const CACHEABLE_TYPES = new Set([
   'text',

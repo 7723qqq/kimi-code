@@ -114,10 +114,17 @@ export async function getClientConfig<S extends z.ZodType>(
   const now = options.now ?? Date.now();
   const hit = cache.get(name);
   if (hit !== undefined && now - hit.fetchedAt < CONFIG_CACHE_TTL_MS) {
-    // LRU touch: refresh position so frequently-used configs survive.
+    // Re-validate against the caller's schema (same as the disk layer and
+    // peekClientConfig): a hit that no longer parses is treated as a miss so
+    // the entry cannot poison a differently-shaped read.
+    const parsed = schema.safeParse(hit.data);
+    if (parsed.success) {
+      // LRU touch: refresh position so frequently-used configs survive.
+      cache.delete(name);
+      cache.set(name, hit);
+      return parsed.data;
+    }
     cache.delete(name);
-    cache.set(name, hit);
-    return hit.data as z.infer<S>;
   }
   const file = cacheFileFor(name, options);
   if (file !== undefined) {

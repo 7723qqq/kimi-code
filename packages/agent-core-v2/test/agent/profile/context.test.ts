@@ -289,6 +289,55 @@ describe('prepareSystemPromptContext additional directories', () => {
   });
 });
 
+describe('prepareSystemPromptContext freeze preloads', () => {
+  it('does not re-list the cwd or additional dirs when preloaded', async () => {
+    const brandHome = await mkdtemp(join(tmpdir(), 'kimi-agents-freeze-brand-'));
+    extraDirs.push(brandHome);
+    const extraDir = await mkdtemp(join(tmpdir(), 'kimi-agents-freeze-extra-'));
+    extraDirs.push(extraDir);
+    await writeFile(join(extraDir, 'frozen.txt'), 'frozen listing entry', 'utf-8');
+
+    // Count readdir calls per path so we can prove the preload short-circuits
+    // the re-listing (the mechanism AgentProfileService's freeze relies on).
+    const readdirCalls = new Map<string, number>();
+    const countingFs = new Proxy(createFs(), {
+      get(target, prop, receiver) {
+        if (prop === 'readdir') {
+          return async (path: string) => {
+            readdirCalls.set(path, (readdirCalls.get(path) ?? 0) + 1);
+            return target.readdir(path);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }) as unknown as IHostFileSystem;
+
+    const base = await prepareSystemPromptContext(
+      { fs: countingFs, homeDir },
+      workDir,
+      brandHome,
+      { additionalDirs: [extraDir] },
+    );
+    const dirReaddirCount = readdirCalls.get(extraDir) ?? 0;
+    expect(dirReaddirCount).toBeGreaterThan(0);
+
+    const frozen = await prepareSystemPromptContext(
+      { fs: countingFs, homeDir },
+      workDir,
+      brandHome,
+      {
+        additionalDirs: [extraDir],
+        preloadedCwdListing: base.cwdListing,
+        preloadedAdditionalDirsInfo: base.additionalDirsInfo,
+      },
+    );
+
+    expect(readdirCalls.get(extraDir)).toBe(dirReaddirCount);
+    expect(frozen.additionalDirsInfo).toBe(base.additionalDirsInfo);
+    expect(frozen.cwdListing).toBe(base.cwdListing);
+  });
+});
+
 describe('loadAgentsMdDetailed discovered paths', () => {
   it('recovers AGENTS.md source annotations without treating plugin annotations as files', () => {
     expect(

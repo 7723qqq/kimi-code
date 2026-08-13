@@ -345,11 +345,15 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     signal: AbortSignal | undefined,
     onRequestTrace: (traceId: string | undefined) => void,
   ): Promise<AgentLLMRequestFinish> {
-    const shaped = this.toolSelect.shapeHistory(request.messages);
     // Cache-miss micro compaction: replace old oversized tool results in the
     // outgoing message view with a marker (history stays untouched), mirroring
-    // v1's `context.project` path where the same shaping ran before projection.
-    const shapedForModel = this.microCompaction.compact(shaped);
+    // v1's `context.project` path. Runs BEFORE shapeHistory: the cutoff is an
+    // index into the raw history (computed from `context.get()` in detect()),
+    // and shaping can delete protocol messages — compacting the shaped view
+    // would shift the cutoff and could truncate tool results inside the
+    // keepRecentMessages tail.
+    const compacted = this.microCompaction.compact(request.messages);
+    const shapedForModel = this.toolSelect.shapeHistory(compacted);
     let mediaStripSnapshot = this.mediaStripSnapshotForTurn(request.source);
     const requestInput = (projection: RequestProjection) => {
       return {
@@ -498,7 +502,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
                 ...request.logFields,
               },
             );
-            mediaStripSnapshot = this.projector.captureMediaStripSnapshot(shaped);
+            mediaStripSnapshot = this.projector.captureMediaStripSnapshot(shapedForModel);
             this.markMediaStrippedRecoveryTurn(mediaStripSnapshot, request.source);
             projection = 'media-stripped';
           }
@@ -513,7 +517,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
               ...request.logFields,
             },
           );
-          mediaStripSnapshot = this.projector.captureMediaStripSnapshot(shaped);
+          mediaStripSnapshot = this.projector.captureMediaStripSnapshot(shapedForModel);
           this.markMediaStrippedRecoveryTurn(mediaStripSnapshot, request.source);
           projection = 'media-stripped';
           continue;
