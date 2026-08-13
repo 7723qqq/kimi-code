@@ -11,7 +11,7 @@ import {
   createServices,
   type TestInstantiationService,
 } from '#/_base/di/test';
-import { Emitter, Event } from '#/_base/event';
+import { AsyncEmitter, Emitter, Event, type IWaitUntil } from '#/_base/event';
 import { emptyUsage } from '#/kosong/contract/usage';
 import { buildContextCompactionShape } from '#/agent/contextMemory/compactionHandoff';
 import {
@@ -47,10 +47,13 @@ import { IPluginService } from '#/app/plugin/plugin';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import {
-  ISessionLifecycleHooks,
-  type SessionLifecycleHookSlots,
-} from '#/session/sessionLifecycleHooks/sessionLifecycleHooks';
-import { createHooks, type Hooks } from '#/hooks';
+  ISessionLifecycleService,
+  type SessionCloseReason,
+  type SessionCreatedEvent,
+  type SessionCreateSource,
+  type SessionWillCloseEvent,
+} from '#/workspace/sessionLifecycle/sessionLifecycle';
+import { createHooks } from '#/hooks';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import {
   type AgentTaskHooks,
@@ -230,11 +233,21 @@ function stubSessionContext(): ISessionContext {
   };
 }
 
-function stubSessionLifecycleHooks(): Hooks<SessionLifecycleHookSlots> {
-  return createHooks<SessionLifecycleHookSlots, keyof SessionLifecycleHookSlots>([
-    'onDidCreateSession',
-    'onWillCloseSession',
-  ]);
+function stubSessionLifecycle() {
+  const didCreate = new AsyncEmitter<SessionCreatedEvent & IWaitUntil>();
+  const willClose = new AsyncEmitter<SessionWillCloseEvent & IWaitUntil>();
+  const noAbort = new AbortController().signal;
+  const handle = {} as ISessionScopeHandle;
+  return {
+    service: {
+      onDidCreateSession: didCreate.event,
+      onWillCloseSession: willClose.event,
+    },
+    fireDidCreate: (source: SessionCreateSource): Promise<void> =>
+      didCreate.fireAsync({ sessionId: 'session-1', handle, source }, noAbort),
+    fireWillClose: (reason: SessionCloseReason): Promise<void> =>
+      willClose.fireAsync({ sessionId: 'session-1', handle, reason }, noAbort),
+  };
 }
 
 describe('IExternalHooksRunnerService integration', () => {
@@ -540,7 +553,7 @@ describe('IExternalHooksRunnerService integration', () => {
                 ? 'sessions/workspace-1/session-1'
                 : `sessions/workspace-1/session-1/${subKey}`,
           });
-          reg.defineInstance(ISessionLifecycleHooks, stubSessionLifecycleHooks());
+          reg.definePartialInstance(ISessionLifecycleService, stubSessionLifecycle().service);
           reg.defineInstance(ISessionMetadata, stubSessionMetadata());
           reg.defineInstance(ISessionAgentProfileCatalog, stubProfileCatalog());
           reg.defineInstance(IModelService, stubModelService());
@@ -857,7 +870,7 @@ describe('IExternalHooksRunnerService integration', () => {
     const disposables = new DisposableStore();
     let ix: TestInstantiationService | undefined;
     try {
-      const lifecycleHooks = stubSessionLifecycleHooks();
+      const lifecycle = stubSessionLifecycle();
       const path = hookLogPath();
       const command = appendHookLogCommand(path);
       const cwd = mkdtempSync(join(tmpdir(), 'session-external-hooks-cwd-'));
@@ -878,7 +891,7 @@ describe('IExternalHooksRunnerService integration', () => {
                 ? 'sessions/workspace-1/session-1'
                 : `sessions/workspace-1/session-1/${subKey}`,
           });
-          reg.defineInstance(ISessionLifecycleHooks, lifecycleHooks);
+          reg.definePartialInstance(ISessionLifecycleService, lifecycle.service);
           reg.defineInstance(ISessionMetadata, stubSessionMetadata());
           reg.defineInstance(ISessionAgentProfileCatalog, stubProfileCatalog());
           reg.defineInstance(IModelService, stubModelService());
@@ -908,11 +921,11 @@ describe('IExternalHooksRunnerService integration', () => {
       ix.set(ISessionExternalHooksService, new SyncDescriptor(SessionExternalHooksService));
       ix.get(ISessionExternalHooksService);
 
-      await lifecycleHooks.onDidCreateSession.run({ source: 'startup' });
-      await lifecycleHooks.onDidCreateSession.run({ source: 'resume' });
-      await lifecycleHooks.onDidCreateSession.run({ source: 'fork' });
-      await lifecycleHooks.onWillCloseSession.run({ reason: 'exit' });
-      await lifecycleHooks.onWillCloseSession.run({ reason: 'archive' });
+      await lifecycle.fireDidCreate('startup');
+      await lifecycle.fireDidCreate('resume');
+      await lifecycle.fireDidCreate('fork');
+      await lifecycle.fireWillClose('exit');
+      await lifecycle.fireWillClose('archive');
 
       expect(readHookLog(path)).toEqual([
         {
@@ -1054,7 +1067,7 @@ describe('IExternalHooksRunnerService integration', () => {
     const disposables = new DisposableStore();
     let ix: TestInstantiationService | undefined;
     try {
-      const lifecycleHooks = stubSessionLifecycleHooks();
+      const lifecycle = stubSessionLifecycle();
       const path = hookLogPath();
       const command = stdinScript([
         'const fs = require("node:fs");',
@@ -1075,7 +1088,7 @@ describe('IExternalHooksRunnerService integration', () => {
         additionalServices: (reg) => {
           registerStateServices(reg);
           reg.defineInstance(ISessionContext, stubSessionContext());
-          reg.defineInstance(ISessionLifecycleHooks, lifecycleHooks);
+          reg.definePartialInstance(ISessionLifecycleService, lifecycle.service);
           reg.defineInstance(ISessionMetadata, stubSessionMetadata('My Session'));
           reg.defineInstance(ISessionAgentProfileCatalog, stubProfileCatalog('coder'));
           reg.defineInstance(IModelService, stubModelService('kimi-k2'));
@@ -1103,7 +1116,7 @@ describe('IExternalHooksRunnerService integration', () => {
       ix.get(ISessionExternalHooksService);
       await flushMicrotasks();
 
-      await lifecycleHooks.onDidCreateSession.run({ source: 'startup' });
+      await lifecycle.fireDidCreate('startup');
 
       expect(readHookLog(path)).toEqual([
         {
@@ -1262,7 +1275,7 @@ describe('IExternalHooksRunnerService integration', () => {
         additionalServices: (reg) => {
           registerStateServices(reg);
           reg.defineInstance(ISessionContext, stubSessionContext());
-          reg.defineInstance(ISessionLifecycleHooks, stubSessionLifecycleHooks());
+          reg.definePartialInstance(ISessionLifecycleService, stubSessionLifecycle().service);
           reg.defineInstance(ISessionMetadata, stubSessionMetadata());
           reg.defineInstance(ISessionAgentProfileCatalog, stubProfileCatalog());
           reg.defineInstance(IModelService, stubModelService());
@@ -1307,7 +1320,7 @@ describe('IExternalHooksRunnerService integration', () => {
         additionalServices: (reg) => {
           registerStateServices(reg);
           reg.defineInstance(ISessionContext, stubSessionContext());
-          reg.defineInstance(ISessionLifecycleHooks, stubSessionLifecycleHooks());
+          reg.definePartialInstance(ISessionLifecycleService, stubSessionLifecycle().service);
           reg.defineInstance(ISessionMetadata, stubSessionMetadata());
           reg.defineInstance(ISessionAgentProfileCatalog, stubProfileCatalog());
           reg.defineInstance(IModelService, stubModelService());
@@ -1354,7 +1367,7 @@ describe('IExternalHooksRunnerService integration', () => {
         additionalServices: (reg) => {
           registerStateServices(reg);
           reg.defineInstance(ISessionContext, stubSessionContext());
-          reg.defineInstance(ISessionLifecycleHooks, stubSessionLifecycleHooks());
+          reg.definePartialInstance(ISessionLifecycleService, stubSessionLifecycle().service);
           reg.defineInstance(ISessionMetadata, stubSessionMetadata());
           reg.defineInstance(ISessionAgentProfileCatalog, stubProfileCatalog());
           reg.defineInstance(IModelService, stubModelService());
