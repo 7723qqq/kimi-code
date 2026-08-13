@@ -81,7 +81,7 @@ export class OAuthTokenTransaction<T extends object> {
         return false;
       }
       await this.options.remove();
-      this.adopt();
+      this.adopt(undefined);
       return true;
     });
   }
@@ -89,7 +89,7 @@ export class OAuthTokenTransaction<T extends object> {
   async clear(): Promise<void> {
     await transactionLock.runExclusive(this.options.key, async () => {
       await this.options.remove();
-      this.adopt();
+      this.adopt(undefined);
     });
   }
 
@@ -132,7 +132,7 @@ export class OAuthTokenTransaction<T extends object> {
           refreshToken(current) === requestedRefreshToken;
         if (alreadyRemoved) {
           await this.options.remove();
-          this.adopt();
+          this.adopt(undefined);
         }
         this.remember({
           kind: 'invalidate',

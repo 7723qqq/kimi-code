@@ -392,7 +392,7 @@ export class CascadeEngine {
     const unit = this._units.get(token);
     if (unit !== undefined && unit.state === 'Pending') {
       unit.everActive = true;
-      this._setUnitState(token, unit, 'Active');
+      this._setUnitState(token, unit, 'Active', undefined);
     }
   }
 
@@ -425,7 +425,7 @@ export class CascadeEngine {
     if (this._disposed || !this._host.isMaterialized(token)) {
       return undefined;
     }
-    this._setUnitState(token, this._unitFor(token), 'Unloading');
+    this._setUnitState(token, this._unitFor(token), 'Unloading', undefined);
     const out = this._host.retire(token);
     tornDown.push(this._label({ scope: this._scope, token }));
     if (parkAsPending) {
@@ -454,7 +454,7 @@ export class CascadeEngine {
           this._host.applyProvideInstance(change.token, change.instance, change.config);
           const unit = this._unitFor(change.token);
           unit.everActive = true;
-          this._setUnitState(change.token, unit, 'Active');
+          this._setUnitState(change.token, unit, 'Active', undefined);
         }
         break;
       case 'unprovide':
@@ -732,7 +732,7 @@ export class CascadeEngine {
     everActive?: boolean,
   ): void {
     const unit = this._unitFor(token);
-    this._setUnitState(token, unit, 'Pending');
+    this._setUnitState(token, unit, 'Pending', undefined);
     if (activation !== undefined) {
       unit.activation = activation;
     }
@@ -779,7 +779,7 @@ export class CascadeEngine {
           this._host.isMaterialized(token)
         ) {
           unit.everActive = true;
-          this._setUnitState(token, unit, 'Active');
+          this._setUnitState(token, unit, 'Active', undefined);
         }
       }
     }
@@ -788,11 +788,11 @@ export class CascadeEngine {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _activate(token: ServiceIdentifier<any>, rebuilt: string[], failed: string[]): void {
     const unit = this._unitFor(token);
-    this._setUnitState(token, unit, 'Activating');
+    this._setUnitState(token, unit, 'Activating', undefined);
     try {
       this._host.materialize(token);
       unit.everActive = true;
-      this._setUnitState(token, unit, 'Active');
+      this._setUnitState(token, unit, 'Active', undefined);
       rebuilt.push(this._label({ scope: this._scope, token }));
     } catch (error) {
       this._setUnitState(token, unit, 'Failed', error);

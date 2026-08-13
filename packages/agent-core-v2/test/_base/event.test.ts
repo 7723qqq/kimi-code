@@ -321,7 +321,7 @@ describe('Event.any', () => {
     const emitter = new Emitter<number | undefined | null>();
     const seen: (number | undefined | null)[] = [];
     emitter.event((v) => seen.push(v));
-    emitter.fire();
+    emitter.fire(undefined);
     emitter.fire(null);
     expect(seen).toEqual([undefined, null]);
     emitter.dispose();
@@ -374,8 +374,7 @@ describe('AsyncEmitter.fireAsync', () => {
     const firstController = new AbortController();
     const first = emitter.fireAsync({ kind: 'hold' }, firstController.signal);
     // The first listener's 'hold' event is delivered synchronously; the first
-    // fire suspends on its waitUntil. The second fire then drains the queue —
-    // it must deliver the still-queued first-fire entry with the FIRST signal,
+    // fire suspends on its waitUntil. The second fire then drains the queue 鈥?    // it must deliver the still-queued first-fire entry with the FIRST signal,
     // never with its own.
     const secondController = new AbortController();
     const second = emitter.fireAsync({ kind: 'release' }, secondController.signal);

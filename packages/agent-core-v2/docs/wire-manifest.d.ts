@@ -264,6 +264,8 @@ interface GoalCreatePayload {
     turnBudget?: number;
     wallClockBudgetMs?: number;
   };
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 /**
@@ -288,6 +290,7 @@ interface GoalUpdatePayload {
   };
   actor?: 'user' | 'model' | 'runtime' | 'system';
   blockedStreak?: number;
+  updatedAt?: number;
 }
 
 /**

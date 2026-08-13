@@ -163,7 +163,7 @@ describe('KimiHarness close', () => {
 
   it('a failing session close does not block engine teardown', async () => {
     class FailingSessionRpc extends StubRpc {
-      async createSession(): Promise<SessionSummary> {
+      override async createSession(): Promise<SessionSummary> {
         return {
           id: 's1',
           workDir: '/tmp/home',
@@ -172,7 +172,7 @@ describe('KimiHarness close', () => {
           updatedAt: 1,
         };
       }
-      async closeSession(): Promise<void> {
+      override async closeSession(): Promise<void> {
         throw new Error('session close failed');
       }
     }

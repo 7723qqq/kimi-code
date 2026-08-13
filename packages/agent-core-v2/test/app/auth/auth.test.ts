@@ -1,5 +1,5 @@
 /**
- * `auth` domain tests — covers the `OAuthService` device-code orchestration,
+ * `auth` domain tests 鈥?covers the `OAuthService` device-code orchestration,
  * its dependency on the `provider` domain, and the managed OAuth provider
  * model refresh, using a fake `IOAuthToolkit` so no real network or token
  * storage is exercised.
@@ -153,7 +153,7 @@ describe('OAuthService', () => {
     toolkit = {
       login: vi.fn<(...args: any[]) => any>(),
       logout: vi.fn().mockResolvedValue({ providerName: OAUTH_PROVIDER, ok: true }),
-      getCachedAccessToken: vi.fn().mockResolvedValue(),
+      getCachedAccessToken: vi.fn().mockResolvedValue(undefined),
       tokenProvider: vi.fn().mockReturnValue({ getAccessToken: async () => 'access-token' }),
       getManagedUsage: vi.fn().mockResolvedValue({ kind: 'error', message: 'not configured' }),
       getManagedUserInfo: vi.fn().mockResolvedValue({ kind: 'error', message: 'not configured' }),
@@ -177,7 +177,7 @@ describe('OAuthService', () => {
           })) as IConfigService['inspect'],
           set: configSet as unknown as IConfigService['set'],
           replace: configReplace as unknown as IConfigService['replace'],
-          reload: vi.fn().mockResolvedValue() as unknown as IConfigService['reload'],
+          reload: vi.fn().mockResolvedValue(undefined) as unknown as IConfigService['reload'],
           onDidChangeConfiguration: (() => ({ dispose: () => { } })) as IConfigService['onDidChangeConfiguration'],
           onDidSectionChange: (() => ({ dispose: () => { } })) as IConfigService['onDidSectionChange'],
         });
@@ -887,7 +887,7 @@ describe('WebSearchProviderService', () => {
         oauth: { storage: 'file', key: 'oauth/kimi-code' },
       },
     };
-    resolveTokenProvider.mockReturnValue();
+    resolveTokenProvider.mockReturnValue(undefined);
     expect(createService().getWebSearchProvider()).not.toBeUndefined();
   });
 
@@ -1035,7 +1035,7 @@ describe('WebSearchProviderService', () => {
 
   // Tool activation gates on presence alone. An env-configured endpoint is
   // visible before config finishes loading, so a fast bootstrap can evaluate
-  // the gate before the identity snapshot froze — presence must not read it.
+  // the gate before the identity snapshot froze 鈥?presence must not read it.
   it('answers presence without touching a not-yet-frozen identity', () => {
     const notFrozen: IAgentIdentity = {
       _serviceBrand: undefined,
@@ -1215,8 +1215,8 @@ describe('AuthSummaryService', () => {
     };
     defaultModel = 'kimi';
     oauthStatus = vi.fn();
-    getCachedAccessToken = vi.fn().mockResolvedValue();
-    reload = vi.fn().mockResolvedValue();
+    getCachedAccessToken = vi.fn().mockResolvedValue(undefined);
+    reload = vi.fn().mockResolvedValue(undefined);
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IProviderService, {

@@ -133,7 +133,23 @@
       }
     },
     {
-      "files": ["packages/kosong/src/providers/**/*.ts"],
+      "files": [
+        "packages/agent-core-v2/src/_base/di/cascadeEngine.ts",
+        "packages/oauth/src/oauth-token-transaction.ts",
+        "packages/kaos/**/*.ts"
+      ],
+      "rules": {
+        // oxlint 1.59's no-useless-undefined misfires on REQUIRED parameters
+        // typed `T | undefined` / `unknown` (e.g. `_setUnitState(..., error)`
+        // or `adopt(undefined)`), and `--fix` then strips the argument,
+        // producing TS2554. Keep explicit `undefined` in those call sites.
+        "unicorn/no-useless-undefined": "off"
+      }
+    },
+    {
+      "files": [
+        "packages/kosong/src/providers/**/*.ts"
+      ],
 
       "rules": {
         "typescript/no-unsafe-argument": "off",
@@ -178,6 +194,11 @@
         // catch-all handlers (e.g. safelyCallListener).
         "typescript/only-throw-error": "off",
         "unicorn/no-useless-spread": "off",
+        // oxlint 1.59 misfires on REQUIRED parameters typed `T | undefined`
+        // (e.g. `Promise.resolve(undefined)` for `Promise<CronTask | undefined>`);
+        // `--fix` strips the argument and breaks the types. Tests use explicit
+        // `undefined` intentionally in stubs.
+        "unicorn/no-useless-undefined": "off",
         "import/no-cycle": "off",
         "typescript/no-meaningless-void-operator": "off",
         "typescript/require-array-sort-compare": "off",

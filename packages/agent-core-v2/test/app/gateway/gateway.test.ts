@@ -53,13 +53,13 @@ describe('RestGateway', () => {
     const promptService: IAgentPromptService = {
       _serviceBrand: undefined,
       enqueue: ({ message }: { message: ContextMessage }) => { promptCalls.push(message); return Promise.resolve({ id: 'p', launched: Promise.resolve() } as never); },
-      submit: () => Promise.resolve(),
-      submitSteer: () => Promise.resolve(),
+      submit: () => Promise.resolve(undefined),
+      submitSteer: () => Promise.resolve(undefined),
       steer: () => Promise.resolve([]),
       list: () => ({ active: undefined, pending: [] }),
       abort: () => true,
-      inject: () => Promise.resolve(),
-      retry: () => Promise.resolve(),
+      inject: () => Promise.resolve(undefined),
+      retry: () => Promise.resolve(undefined),
       clear: () => {},
       hooks: createHooks(['onBeforeSubmitPrompt']) as IAgentPromptService['hooks'],
     };

@@ -101,7 +101,7 @@ function catalogStub() {
     list: () => Promise.resolve([...workspaces.values()]),
     get: (id) => Promise.resolve(workspaces.get(id)),
     createOrTouch,
-    update: () => Promise.resolve(),
+    update: () => Promise.resolve(undefined),
     delete: () => Promise.resolve(),
   };
   return { service, createOrTouch };
@@ -122,7 +122,7 @@ function sessionIndexStub(): ISessionIndex {
     _serviceBrand: undefined,
     prepare: () => Promise.resolve({ state: 'ready', generation: 0, degradedCount: 0 }),
     status: () => ({ state: 'ready', generation: 0, degradedCount: 0 }),
-    get: () => Promise.resolve(),
+    get: () => Promise.resolve(undefined),
     listRecent: () => Promise.resolve({ items: [] }),
     count: () => Promise.resolve(0),
     remove: () => Promise.resolve(),
@@ -153,7 +153,7 @@ function sessionStubs(): ReturnType<typeof stubPair>[] {
       ready: Promise.resolve(),
       onDidChangeMetadata: () => ({ dispose: () => {} }),
       read: () => Promise.resolve({} as never),
-      update: () => Promise.resolve(),
+      update: () => Promise.resolve(undefined),
       setTitle: () => Promise.resolve(),
       setGeneratedTitleIfUncustomized: () => Promise.resolve(false),
       setArchived: () => Promise.resolve(),
@@ -348,10 +348,11 @@ describe('WorkspaceLifecycleService', () => {
         flush: () => Promise.resolve(),
         close: () => Promise.resolve(),
         acquire: () => ({ dispose: () => {} }),
+        revision: () => 0,
       } satisfies IAppendLogStore),
       stubPair(IAtomicDocumentStore, {
         _serviceBrand: undefined,
-        get: () => Promise.resolve(),
+        get: () => Promise.resolve(undefined),
         set: () => Promise.resolve(),
         delete: () => Promise.resolve(),
         list: () => Promise.resolve([]),
@@ -384,7 +385,7 @@ describe('WorkspaceLifecycleService', () => {
       stubPair(ITelemetryService, recordingTelemetry(telemetryRecords)),
       stubPair(ICronTaskPersistence, {
         _serviceBrand: undefined,
-        get: () => Promise.resolve(),
+        get: () => Promise.resolve(undefined),
         list: () => Promise.resolve([]),
         save: () => Promise.resolve(),
         delete: () => Promise.resolve(),
@@ -422,6 +423,50 @@ describe('WorkspaceLifecycleService', () => {
 
     expect(a).toBe(b);
     expect(lifecycle.handlers.list()).toHaveLength(1);
+  });
+
+  it('handlerFor reuses the handler published by a racing materialization during the registry lookup', async () => {
+    let releaseGet!: () => void;
+    const getGate = new Promise<void>((resolve) => {
+      releaseGet = resolve;
+    });
+    const workspaceId = encodeWorkDirKey('/tmp/proj');
+    const workspaces: IWorkspaceService = {
+      _serviceBrand: undefined,
+      list: () => Promise.resolve([]),
+      get: (id: string) =>
+        id === workspaceId
+          ? getGate.then(() => ({
+              id: workspaceId,
+              root: '/tmp/proj',
+              name: 'proj',
+              createdAt: 1,
+              lastOpenedAt: 1,
+            }))
+          : Promise.resolve(undefined),
+      createOrTouch: (root: string, name?: string) =>
+        Promise.resolve({
+          id: encodeWorkDirKey(root),
+          root,
+          name: name ?? 'proj',
+          createdAt: 1,
+          lastOpenedAt: 1,
+        }),
+      update: async () => {},
+      delete: () => Promise.resolve(),
+    };
+    const lifecycle = build([stubPair(IWorkspaceService, workspaces)]);
+
+    // The workspaceId lookup is stuck on the catalog read while a root-based
+    // materialization of the same workspace completes and publishes its
+    // handler; the later materialization must reuse it, not clone it.
+    const pending = lifecycle.handlerFor({ workspaceId });
+    const viaRoot = await lifecycle.handlerFor({ root: '/tmp/proj' });
+    releaseGet();
+    const viaId = await pending;
+
+    expect(viaId).toBe(viaRoot);
+    expect(lifecycle.handlers.list()).toEqual([viaRoot]);
   });
 
   it('two concurrent sessions of one workspace share a single handler', async () => {
@@ -498,7 +543,7 @@ describe('WorkspaceLifecycleService', () => {
       } as unknown as ISessionIndex);
     }
 
-    it('resumeSessionById routes index → handlerFor → handler resume', async () => {
+    it('resumeSessionById routes index 鈫?handlerFor 鈫?handler resume', async () => {
       const workspaceId = encodeWorkDirKey('/tmp/proj');
       const lifecycle = build([indexWith({ id: 's1', workspaceId, cwd: '/tmp/proj' })]);
 
