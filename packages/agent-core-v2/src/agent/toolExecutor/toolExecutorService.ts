@@ -1,5 +1,5 @@
 /**
- * `toolExecutor` domain 鈥?`IAgentToolExecutorService` implementation.
+ * `toolExecutor` domain 閳?`IAgentToolExecutorService` implementation.
  *
  * Resolves executable tools through `toolRegistry`, adjudicates tool calls
  * through the `onBeforeExecuteTool` veto event, awaits readiness work
@@ -249,7 +249,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
           candidates.push(
             nextTimed.then(
               (result): ToolExecutionStreamEvent => ({ type: 'timed', result }),
-              (error): ToolExecutionStreamEvent => ({ type: 'timedRejected', error }),
+              (reason): ToolExecutionStreamEvent => ({ type: 'timedRejected', reason: reason }),
             ),
           );
         }
@@ -279,7 +279,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
             options,
           ).then(
             (value): SettledToolExecutionResult => ({ status: 'fulfilled', value }),
-            (error): SettledToolExecutionResult => ({ status: 'rejected', error }),
+            (reason): SettledToolExecutionResult => ({ status: 'rejected', reason: reason }),
           );
           finalizations.add(finalization);
           nextTimed = timedResults.next();
@@ -377,7 +377,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       task: ToolExecutionTask;
       stopBatchAfterThis?: boolean;
     } => {
-      const toolResult = this.normalizeAndMergeResult(result, call.toolName);
+      const toolResult = this.normalizeAndMergeResult(result, call.toolName, undefined as never);
       this.dispatchToolCall(call, args, options, displayFields);
       return {
         task: makeResolvedTask(
@@ -496,7 +496,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         index,
         pendingResult.then(
           (value): SettledTimedToolResult => ({ status: 'fulfilled', value }),
-          (error): SettledTimedToolResult => ({ status: 'rejected', index, error }),
+          (reason): SettledTimedToolResult => ({ status: 'rejected', index, reason: reason }),
         ),
       );
     }
@@ -934,7 +934,7 @@ function isMediaContentPart(part: ContentPart): boolean {
 
 function abortedToolOutput(toolName: string, signal: AbortSignal): string {
   if (isUserCancellation(signal.reason)) {
-    return `The user manually interrupted "${toolName}" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause 鈥?wait for the user's next instruction.`;
+    return `The user manually interrupted "${toolName}" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause 閳?wait for the user's next instruction.`;
   }
   return `Tool "${toolName}" was aborted`;
 }
