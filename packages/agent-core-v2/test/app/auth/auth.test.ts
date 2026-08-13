@@ -153,7 +153,7 @@ describe('OAuthService', () => {
     toolkit = {
       login: vi.fn<(...args: any[]) => any>(),
       logout: vi.fn().mockResolvedValue({ providerName: OAUTH_PROVIDER, ok: true }),
-      getCachedAccessToken: vi.fn().mockResolvedValue(undefined),
+      getCachedAccessToken: vi.fn().mockResolvedValue(),
       tokenProvider: vi.fn().mockReturnValue({ getAccessToken: async () => 'access-token' }),
       getManagedUsage: vi.fn().mockResolvedValue({ kind: 'error', message: 'not configured' }),
       getManagedUserInfo: vi.fn().mockResolvedValue({ kind: 'error', message: 'not configured' }),
@@ -177,7 +177,7 @@ describe('OAuthService', () => {
           })) as IConfigService['inspect'],
           set: configSet as unknown as IConfigService['set'],
           replace: configReplace as unknown as IConfigService['replace'],
-          reload: vi.fn().mockResolvedValue(undefined) as unknown as IConfigService['reload'],
+          reload: vi.fn().mockResolvedValue() as unknown as IConfigService['reload'],
           onDidChangeConfiguration: (() => ({ dispose: () => { } })) as IConfigService['onDidChangeConfiguration'],
           onDidSectionChange: (() => ({ dispose: () => { } })) as IConfigService['onDidSectionChange'],
         });
@@ -211,19 +211,21 @@ describe('OAuthService', () => {
   }
 
   function stubManagedModelsFetch(): ReturnType<typeof vi.fn> {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            id: 'kimi-k2',
-            context_length: 131072,
-            supports_reasoning: true,
-            display_name: 'Kimi K2',
-          },
-        ],
-      }),
-    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'kimi-k2',
+              context_length: 131072,
+              supports_reasoning: true,
+              display_name: 'Kimi K2',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
     vi.stubGlobal('fetch', fetchMock);
     return fetchMock;
   }
@@ -733,19 +735,21 @@ describe('OAuthService', () => {
   });
 
   it('refreshOAuthProviderModels fetches models and writes back the changed sections', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            id: 'kimi-k2',
-            context_length: 131072,
-            supports_reasoning: true,
-            display_name: 'Kimi K2',
-          },
-        ],
-      }),
-    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'kimi-k2',
+              context_length: 131072,
+              supports_reasoning: true,
+              display_name: 'Kimi K2',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
     vi.stubGlobal('fetch', fetchMock);
     const svc = createService();
 
@@ -883,7 +887,7 @@ describe('WebSearchProviderService', () => {
         oauth: { storage: 'file', key: 'oauth/kimi-code' },
       },
     };
-    resolveTokenProvider.mockReturnValue(undefined);
+    resolveTokenProvider.mockReturnValue();
     expect(createService().getWebSearchProvider()).not.toBeUndefined();
   });
 
@@ -1035,7 +1039,7 @@ describe('WebSearchProviderService', () => {
   it('answers presence without touching a not-yet-frozen identity', () => {
     const notFrozen: IAgentIdentity = {
       _serviceBrand: undefined,
-      resolved: () => new Promise(() => undefined),
+      resolved: () => new Promise(() => {}),
       current: () => {
         throw new Error('identity read before freeze');
       },
@@ -1211,8 +1215,8 @@ describe('AuthSummaryService', () => {
     };
     defaultModel = 'kimi';
     oauthStatus = vi.fn();
-    getCachedAccessToken = vi.fn().mockResolvedValue(undefined);
-    reload = vi.fn().mockResolvedValue(undefined);
+    getCachedAccessToken = vi.fn().mockResolvedValue();
+    reload = vi.fn().mockResolvedValue();
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IProviderService, {
@@ -1228,7 +1232,7 @@ describe('AuthSummaryService', () => {
           get: ((domain: string) => {
             if (domain === MODELS_SECTION) return models;
             if (domain === 'defaultModel') return defaultModel;
-            return undefined;
+            return;
           }) as IConfigService['get'],
           reload: reload as unknown as IConfigService['reload'],
           onDidChangeConfiguration: (() => ({ dispose: () => { } })) as IConfigService['onDidChangeConfiguration'],

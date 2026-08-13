@@ -84,6 +84,7 @@ async function fetchSogouHtml(initialUrl: string, options: SearchEngineOptions):
         status: native.status,
         statusText: native.statusText,
         text: () => native.text(),
+        stream: () => native.body,
         header: (name: string) => native.headers.get(name),
       };
     } catch (error) {

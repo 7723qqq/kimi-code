@@ -18,6 +18,7 @@ import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { ILogService } from '#/_base/log/log';
 import { defineState } from '#/_base/state/stateRegistry';
 import { IBuiltinSkillSource } from '#/app/skillCatalog/builtinSkillSource';
 import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
@@ -58,6 +59,7 @@ export class WorkspaceSkillCatalogService extends Service implements IWorkspaceS
     @IWorkspaceRootSkillSource workspace: IWorkspaceRootSkillSource,
     @IPluginSkillSource plugin: IPluginSkillSource,
     @IWorkspaceStateService private readonly states: IWorkspaceStateService,
+    @ILogService private readonly log: ILogService,
   ) {
     super();
     this.states.register(workspaceSkillCatalogContributionsKey);
@@ -69,7 +71,9 @@ export class WorkspaceSkillCatalogService extends Service implements IWorkspaceS
       if (s.onDidChange)
         this._register(
           s.onDidChange(() => {
-            void this.reloadSource(s.id);
+            void this.reloadSource(s.id).catch((error) => {
+              this.log.warn(`skill source ${s.id} reload failed: ${String(error)}`);
+            });
           }),
         );
     }
@@ -131,7 +135,7 @@ export class WorkspaceSkillCatalogService extends Service implements IWorkspaceS
 
   private loadSource(source: ISkillSource, fireChange = false): Promise<void> {
     const previous = this.sourceLoadTails.get(source) ?? Promise.resolve();
-    const current = previous.catch(() => undefined).then(async () => {
+    const current = previous.catch(() => {}).then(async () => {
       const contribution = await source.load();
       this.contributions.set(source.id, { c: contribution, priority: source.priority });
       if (fireChange) {

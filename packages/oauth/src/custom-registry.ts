@@ -1,6 +1,6 @@
 import { readApiErrorMessage } from './api-error';
 import { CUSTOM_REGISTRY_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
-import { isRecord } from './utils';
+import { isRecord, MAX_HTTP_RESPONSE_BYTES, readResponseBodyWithLimit } from './utils';
 import type { ManagedKimiConfigShape, ManagedKimiModelAlias } from './managed-kimi-code';
 
 export type { ManagedKimiConfigShape };
@@ -214,8 +214,13 @@ export async function fetchCustomRegistry(
     headers['Authorization'] = `Bearer ${source.apiKey}`;
   }
 
-  const init: RequestInit = { headers };
-  if (signal !== undefined) init.signal = signal;
+  const init: RequestInit = {
+    headers,
+    signal:
+      signal !== undefined
+        ? AbortSignal.any([signal, AbortSignal.timeout(15_000)])
+        : AbortSignal.timeout(15_000),
+  };
 
   const response = await fetchImpl(source.url, init);
   if (!response.ok) {
@@ -226,7 +231,9 @@ export async function fetchCustomRegistry(
     throw new CustomRegistryApiError(message, response.status);
   }
 
-  const payload: unknown = await response.json();
+  const payload: unknown = JSON.parse(
+    await readResponseBodyWithLimit(response, MAX_HTTP_RESPONSE_BYTES),
+  );
   if (!isRecord(payload)) {
     throw new Error(
       `Unexpected custom registry response at ${source.url}: expected a JSON object keyed by provider id.`,

@@ -417,7 +417,7 @@ export function assembleModelInspection(args: {
       supportEfforts: model.supportEfforts,
       defaultEffort: model.defaultEffort,
       alwaysThinking: model.alwaysThinking,
-      headers: model.headers,
+      headers: redactSecrets(model.headers),
       providerOptions: model.providerOptions,
     },
     sources: Object.fromEntries(sources),

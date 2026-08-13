@@ -1,9 +1,15 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { lookup } from 'node:dns/promises';
+
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import { ErrorCodes, Error2 } from '#/errors';
 import { buildMcpHttpHeaders, HttpMcpClient, isTerminalTransportError } from '#/mcpCore/client-http';
 
 import { startInProcessHttpMcpServer } from './stubs';
+
+vi.mock('node:dns/promises', () => ({ lookup: vi.fn() }));
+
+const lookupMock = lookup as unknown as Mock;
 
 const cleanups: Array<() => Promise<void> | void> = [];
 
@@ -13,9 +19,14 @@ afterEach(async () => {
   }
 });
 
-function expectConfigInvalid(fn: () => unknown): void {
+beforeEach(() => {
+  lookupMock.mockReset();
+  lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
+});
+
+async function expectConfigInvalid(fn: () => Promise<unknown>): Promise<void> {
   try {
-    fn();
+    await fn();
   } catch (error) {
     expect(error).toBeInstanceOf(Error2);
     expect((error as Error2).code).toBe(ErrorCodes.CONFIG_INVALID);
@@ -25,44 +36,44 @@ function expectConfigInvalid(fn: () => unknown): void {
 }
 
 describe('buildMcpHttpHeaders', () => {
-  it('returns undefined when no headers and no bearer are configured', () => {
-    expect(
-      buildMcpHttpHeaders({ transport: 'http', url: 'https://x.example.com' }, () => undefined),
-    ).toBeUndefined();
+  it('returns undefined when no headers and no bearer are configured', async () => {
+    await expect(
+      buildMcpHttpHeaders({ transport: 'http', url: 'https://x.example.com' }, () => {}),
+    ).resolves.toBeUndefined();
   });
 
-  it('passes through configured static headers', () => {
-    expect(
+  it('passes through configured static headers', async () => {
+    await expect(
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://x.example.com', headers: { 'X-Tenant': 'kimi' } },
-        () => undefined,
+        () => {},
       ),
-    ).toEqual({ 'X-Tenant': 'kimi' });
+    ).resolves.toEqual({ 'X-Tenant': 'kimi' });
   });
 
-  it('injects Authorization Bearer when env lookup yields a token', () => {
-    expect(
+  it('injects Authorization Bearer when env lookup yields a token', async () => {
+    await expect(
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://x.example.com', bearerTokenEnvVar: 'TOK' },
         (name) => (name === 'TOK' ? 'secret' : undefined),
       ),
-    ).toEqual({ Authorization: 'Bearer secret' });
+    ).resolves.toEqual({ Authorization: 'Bearer secret' });
   });
 
-  it('throws Error2(config.invalid) when a configured bearer token env var is empty or missing', () => {
-    expectConfigInvalid(() =>
+  it('throws Error2(config.invalid) when a configured bearer token env var is empty or missing', async () => {
+    await expectConfigInvalid(() =>
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://x.example.com', bearerTokenEnvVar: 'MISSING' },
-        () => undefined,
+        () => {},
       ),
     );
-    expect(() =>
+    await expect(
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://x.example.com', bearerTokenEnvVar: 'MISSING' },
-        () => undefined,
+        () => {},
       ),
-    ).toThrow(/"MISSING" is not set or is empty/);
-    expectConfigInvalid(() =>
+    ).rejects.toThrow(/"MISSING" is not set or is empty/);
+    await expectConfigInvalid(() =>
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://x.example.com', bearerTokenEnvVar: 'EMPTY' },
         () => '',
@@ -70,8 +81,8 @@ describe('buildMcpHttpHeaders', () => {
     );
   });
 
-  it('merges bearer over the same Authorization key from static headers', () => {
-    expect(
+  it('merges bearer over the same Authorization key from static headers', async () => {
+    await expect(
       buildMcpHttpHeaders(
         {
           transport: 'http',
@@ -81,11 +92,11 @@ describe('buildMcpHttpHeaders', () => {
         },
         () => 'fresh',
       ),
-    ).toEqual({ Authorization: 'Bearer fresh', 'X-Trace': '1' });
+    ).resolves.toEqual({ Authorization: 'Bearer fresh', 'X-Trace': '1' });
   });
 
-  it('strips case-variant authorization headers before injecting the bearer', () => {
-    expect(
+  it('strips case-variant authorization headers before injecting the bearer', async () => {
+    await expect(
       buildMcpHttpHeaders(
         {
           transport: 'http',
@@ -95,10 +106,10 @@ describe('buildMcpHttpHeaders', () => {
         },
         () => 'fresh',
       ),
-    ).toEqual({ Authorization: 'Bearer fresh', 'X-Trace': '1' });
+    ).resolves.toEqual({ Authorization: 'Bearer fresh', 'X-Trace': '1' });
   });
 
-  it('refuses bearer token for loopback / private / metadata URLs (SSRF guard)', () => {
+  it('refuses bearer token for loopback / private / metadata URLs (SSRF guard)', async () => {
     for (const url of [
       'http://127.0.0.1:8080/mcp',
       'http://127.1.2.3/mcp',
@@ -108,7 +119,7 @@ describe('buildMcpHttpHeaders', () => {
       'http://[::1]/mcp',
       'http://0.0.0.0/mcp',
     ]) {
-      expectConfigInvalid(() =>
+      await expectConfigInvalid(() =>
         buildMcpHttpHeaders(
           { transport: 'http', url, bearerTokenEnvVar: 'TOK' },
           () => 'secret',
@@ -117,45 +128,87 @@ describe('buildMcpHttpHeaders', () => {
     }
   });
 
-  it('allows bearer token for localhost and public URLs', () => {
-    expect(
+  it('allows bearer token for localhost and public URLs', async () => {
+    await expect(
       buildMcpHttpHeaders(
         { transport: 'http', url: 'http://localhost:8080/mcp', bearerTokenEnvVar: 'TOK' },
         () => 'secret',
       ),
-    ).toEqual({ Authorization: 'Bearer secret' });
-    expect(
+    ).resolves.toEqual({ Authorization: 'Bearer secret' });
+    await expect(
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://example.com/mcp', bearerTokenEnvVar: 'TOK' },
         () => 'secret',
       ),
-    ).toEqual({ Authorization: 'Bearer secret' });
+    ).resolves.toEqual({ Authorization: 'Bearer secret' });
   });
 
-  it('handles headers with empty values', () => {
-    expect(
+  it('resolves hostnames and refuses when any resolved address is private', async () => {
+    lookupMock.mockResolvedValue([
+      { address: '93.184.216.34', family: 4 },
+      { address: '10.0.0.7', family: 4 },
+    ]);
+    await expectConfigInvalid(() =>
+      buildMcpHttpHeaders(
+        { transport: 'http', url: 'https://sneaky.example.com/mcp', bearerTokenEnvVar: 'TOK' },
+        () => 'secret',
+      ),
+    );
+    expect(lookupMock).toHaveBeenCalledWith('sneaky.example.com', { all: true });
+  });
+
+  it('allows bearer token when every resolved address is public', async () => {
+    lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
+    await expect(
+      buildMcpHttpHeaders(
+        { transport: 'http', url: 'https://example.com/mcp', bearerTokenEnvVar: 'TOK' },
+        () => 'secret',
+      ),
+    ).resolves.toEqual({ Authorization: 'Bearer secret' });
+  });
+
+  it('fails closed when DNS resolution of the hostname fails', async () => {
+    lookupMock.mockRejectedValue(new Error('getaddrinfo ENOTFOUND b0rked.example'));
+    await expectConfigInvalid(() =>
+      buildMcpHttpHeaders(
+        { transport: 'http', url: 'https://b0rked.example/mcp', bearerTokenEnvVar: 'TOK' },
+        () => 'secret',
+      ),
+    );
+  });
+
+  it('refuses IPv4-mapped IPv6 loopback literals, including the hex form', async () => {
+    for (const url of ['http://[::ffff:127.0.0.1]/mcp', 'http://[::ffff:7f00:1]/mcp']) {
+      await expectConfigInvalid(() =>
+        buildMcpHttpHeaders({ transport: 'http', url, bearerTokenEnvVar: 'TOK' }, () => 'secret'),
+      );
+    }
+  });
+
+  it('handles headers with empty values', async () => {
+    await expect(
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://x.example.com', headers: { 'X-Empty': '' } },
-        () => undefined,
+        () => {},
       ),
-    ).toEqual({ 'X-Empty': '' });
+    ).resolves.toEqual({ 'X-Empty': '' });
   });
 
-  it('handles multiple headers with mixed case keys', () => {
-    expect(
+  it('handles multiple headers with mixed case keys', async () => {
+    await expect(
       buildMcpHttpHeaders(
         {
           transport: 'http',
           url: 'https://x.example.com',
           headers: { 'x-custom': 'v1', 'X-Custom-Trace': 'trace-123' },
         },
-        () => undefined,
+        () => {},
       ),
-    ).toEqual({ 'x-custom': 'v1', 'X-Custom-Trace': 'trace-123' });
+    ).resolves.toEqual({ 'x-custom': 'v1', 'X-Custom-Trace': 'trace-123' });
   });
 
-  it('throws config.invalid when bearerTokenEnvVar resolves to a whitespace-only string', () => {
-    expectConfigInvalid(() =>
+  it('throws config.invalid when bearerTokenEnvVar resolves to a whitespace-only string', async () => {
+    await expectConfigInvalid(() =>
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://x.example.com', bearerTokenEnvVar: 'SPACE' },
         () => '   ',

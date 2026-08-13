@@ -108,3 +108,61 @@ export function detectTextEncoding(sample: Uint8Array): TextEncodingDetection {
 export function decodeUtfText(bytes: Uint8Array, encoding: UtfTextEncoding): string {
   return new TextDecoder(encoding, { fatal: false }).decode(bytes);
 }
+
+const CJK_UNIFIED_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/;
+
+/**
+ * Min share of the file's bytes replaced by U+FFFD in a *lenient UTF-8*
+ * decode before the GBK hypothesis is trusted. A real GBK file is almost
+ * never valid UTF-8 — its lenient UTF-8 decode shows a high replacement
+ * ratio — whereas a UTF-8 payload with a small malformed tail decodes to
+ * GBK with zero replacements but stays (mostly) valid UTF-8. Gating on this
+ * ratio keeps the two apart.
+ */
+const MIN_GBK_UTF8_REPLACEMENT_RATIO = 0.15;
+
+/**
+ * Detect a legacy 8-bit encoding (GBK / GB18030) from bytes that already
+ * failed strict UTF-8 decoding.
+ *
+ * Heuristic: decode the whole payload with the GBK decoder; GBK maps nearly
+ * every byte, so a *real* GBK text decodes with zero U+FFFD replacement
+ * characters, whereas UTF-8 content misinterpreted as GBK usually trips
+ * unmappable byte pairs (e.g. `0xFF`) and yields replacements. Requiring at
+ * least one CJK unified ideograph rules out pure ASCII, and requiring a
+ * non-trivial lenient-UTF-8 replacement ratio rules out UTF-8 payloads with
+ * only a small malformed tail.
+ *
+ * Returns `'gbk'` on a confident match, `null` otherwise. Pure function over
+ * bytes; no io happens here.
+ */
+export function detectLegacyTextEncoding(bytes: Uint8Array): 'gbk' | null {
+  if (bytes.length === 0) return null;
+  const decoded = new TextDecoder('gbk', { fatal: false }).decode(bytes);
+  if (decoded.includes('\uFFFD')) return null;
+  if (!CJK_UNIFIED_RE.test(decoded)) return null;
+  const lenient = decodeUtf8Lenient(bytes);
+  if (lenient.replacedCount / bytes.length < MIN_GBK_UTF8_REPLACEMENT_RATIO) return null;
+  return 'gbk';
+}
+
+export interface LenientUtf8Decode {
+  /** Decoded text; malformed sequences replaced with U+FFFD. */
+  readonly text: string;
+  /** Number of replacement characters introduced by malformed sequences. */
+  readonly replacedCount: number;
+}
+
+/**
+ * Decode bytes as UTF-8 without failing: malformed sequences become U+FFFD.
+ * Use only as a fallback after strict UTF-8 (and legacy-encoding) detection
+ * has failed, and gate the result on a replacement ratio.
+ */
+export function decodeUtf8Lenient(bytes: Uint8Array): LenientUtf8Decode {
+  const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  let replacedCount = 0;
+  for (const ch of text) {
+    if (ch === '\uFFFD') replacedCount += 1;
+  }
+  return { text, replacedCount };
+}

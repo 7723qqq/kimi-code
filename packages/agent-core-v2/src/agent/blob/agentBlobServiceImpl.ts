@@ -23,6 +23,8 @@ import { ByteLruCache } from './byteLruCache';
 const DEFAULT_THRESHOLD = 4096;
 const DEFAULT_MAX_CACHE_SIZE = 50 * 1024 * 1024;
 const DATA_URI_HEADER_RE = /^data:([^;]+);base64,/;
+const BLOBREF_HASH_RE = /^[a-f0-9]{64}$/;
+const BLOBREF_MIME_CONTROL_RE = /[\u0000-\u001F\u007F]/;
 
 export class AgentBlobServiceImpl implements IAgentBlobService {
   declare readonly _serviceBrand: undefined;
@@ -113,7 +115,7 @@ export class AgentBlobServiceImpl implements IAgentBlobService {
     const cached = this.cache.get(hash);
     if (cached !== undefined) return cached;
 
-    const payload = await this.blobs.get(this.storageScope, hash).catch(() => undefined);
+    const payload = await this.blobs.get(this.storageScope, hash).catch(() => {});
     if (payload === undefined) return undefined;
 
     const buffer = Buffer.from(payload);
@@ -152,9 +154,11 @@ function parseBlobRef(url: string): { mimeType: string; hash: string } | undefin
   const rest = url.slice(BLOBREF_PROTOCOL.length);
   const semiIdx = rest.indexOf(';');
   if (semiIdx === -1) return undefined;
+  const mimeType = rest.slice(0, semiIdx);
   const hash = rest.slice(semiIdx + 1);
-  if (hash.length === 0) return undefined;
-  return { mimeType: rest.slice(0, semiIdx), hash };
+  if (!BLOBREF_HASH_RE.test(hash)) return undefined;
+  if (mimeType.includes(';') || BLOBREF_MIME_CONTROL_RE.test(mimeType)) return undefined;
+  return { mimeType, hash };
 }
 
 function formatDataUri(mimeType: string, payload: Buffer): string {

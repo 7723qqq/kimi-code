@@ -561,22 +561,25 @@ export class GoogleGenAIStreamedMessage implements StreamedMessage {
 
   private _extractUsage(response: Record<string, unknown>): void {
     const usageMetadata = response['usageMetadata'] as Record<string, unknown> | undefined;
-    if (usageMetadata) {
-      const promptTokenCount =
-        typeof usageMetadata['promptTokenCount'] === 'number'
-          ? usageMetadata['promptTokenCount']
-          : 0;
-      const cachedContentTokenCount =
-        typeof usageMetadata['cachedContentTokenCount'] === 'number'
-          ? usageMetadata['cachedContentTokenCount']
-          : 0;
-      this._usage = {
-        inputOther: Math.max(promptTokenCount - cachedContentTokenCount, 0),
-        output: (usageMetadata['candidatesTokenCount'] as number) ?? 0,
-        inputCacheRead: cachedContentTokenCount,
-        inputCacheCreation: 0,
-      };
+    if (usageMetadata === undefined) {
+      return;
     }
+    const usage: TokenUsage =
+      this._usage ?? { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 };
+    const promptTokenCount = usageMetadata['promptTokenCount'];
+    const cachedContentTokenCount = usageMetadata['cachedContentTokenCount'];
+    if (typeof promptTokenCount === 'number') {
+      const cached =
+        typeof cachedContentTokenCount === 'number' ? cachedContentTokenCount : usage.inputCacheRead;
+      usage.inputOther = Math.max(promptTokenCount - cached, 0);
+    }
+    if (typeof cachedContentTokenCount === 'number') {
+      usage.inputCacheRead = cachedContentTokenCount;
+    }
+    if (typeof usageMetadata['candidatesTokenCount'] === 'number') {
+      usage.output = usageMetadata['candidatesTokenCount'];
+    }
+    this._usage = usage;
   }
 
   private _extractId(response: Record<string, unknown>): void {

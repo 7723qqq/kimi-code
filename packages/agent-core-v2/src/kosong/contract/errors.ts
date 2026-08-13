@@ -269,7 +269,15 @@ export function isRetryableGenerateError(error: unknown): boolean {
     }
     return [408, 409, 429, 500, 502, 503, 504, 529].includes(error.statusCode);
   }
-  return error instanceof ChatProviderError && !isImageFormatError(error);
+  // A bare `ChatProviderError` is the transient fallback: unclassified
+  // provider failures are retried, except the deterministic gaps that have
+  // dedicated recovery paths (video upload capability, image format).
+  if (error instanceof ChatProviderError) {
+    if (error instanceof VideoUploadUnsupportedError) return false;
+    if (isImageFormatError(error)) return false;
+    return true;
+  }
+  return false;
 }
 
 const NETWORK_RE = /network|connection|connect|disconnect|terminated/i;

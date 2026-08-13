@@ -55,8 +55,8 @@ function immediateProcess(exitCode: number, stdoutText = ''): IProcess {
     pid: 30000 + exitCode,
     exitCode,
     wait: vi.fn().mockResolvedValue(exitCode) as IProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as IProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IProcess['dispose'],
+    kill: vi.fn().mockResolvedValue() as IProcess['kill'],
+    dispose: vi.fn().mockResolvedValue() as IProcess['dispose'],
   };
 }
 
@@ -80,7 +80,7 @@ function pendingProcess(): IProcess {
       currentExitCode = 143;
       resolveWait(143);
     }) as unknown as IProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IProcess['dispose'],
+    dispose: vi.fn().mockResolvedValue() as IProcess['dispose'],
   };
 }
 
@@ -183,7 +183,7 @@ function createAgentTaskService(options: {
     ? undefined
     : {
         trigger: vi.fn().mockResolvedValue([]),
-        triggerBlock: vi.fn().mockResolvedValue(undefined),
+        triggerBlock: vi.fn().mockResolvedValue(),
         fireAndForgetTrigger: options.hooks.fireAndForgetTrigger,
       };
   const overrides: TestAgentServiceOverride[] = [telemetryServices(telemetry)];
@@ -964,7 +964,7 @@ describe('AgentTaskService — agent recovery notification bodies', () => {
     await drainNotifications(ctx);
     const text = notificationMessageFor(agent, taskId).content[0]!.text;
     expect(text).toContain('agent_id="agent-7"');
-    expect(text).toMatch(/Agent\(resume="agent-7"/);
+    expect(text).toMatch(/Agent\(resume=&quot;agent-7&quot;/);
     expect(text).toMatch(/agent_id.*NOT source_id|source_id.*NOT agent_id/);
   });
 

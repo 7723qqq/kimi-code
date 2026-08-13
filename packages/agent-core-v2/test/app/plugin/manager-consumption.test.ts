@@ -624,6 +624,35 @@ describe('PluginManager consumption plane', () => {
     expect((await stat(root)).isDirectory()).toBe(true);
   });
 
+  it('remove() refuses to delete a record whose root is outside the managed directory', async () => {
+    const home = await makeKimiHome();
+    const outside = await makePlugin('outside');
+    await mkdir(path.join(home, 'plugins'), { recursive: true });
+    await writeFile(
+      path.join(home, 'plugins', 'installed.json'),
+      JSON.stringify({
+        version: 1,
+        plugins: [
+          {
+            id: 'outside',
+            root: outside,
+            source: 'local-path',
+            enabled: true,
+            installedAt: new Date().toISOString(),
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    const manager = new PluginManager({ kimiHomeDir: home });
+    await manager.load();
+    await expect(manager.remove('outside')).rejects.toThrow(/outside the managed directory/);
+    expect(manager.get('outside')).toBeDefined();
+    expect((await stat(outside)).isDirectory()).toBe(true);
+    await rm(outside, { recursive: true, force: true });
+  });
+
   it('enabledHooks() returns hooks from enabled plugins with cwd and env injected', async () => {
     const home = await makeKimiHome();
     const root = await makePlugin('demo', {

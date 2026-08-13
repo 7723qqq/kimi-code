@@ -99,6 +99,8 @@ export const createGoal = GoalModel.defineOp('goal.create', {
       status: GoalStatusSchema.optional(),
       actor: GoalActorSchema.optional(),
       budgetLimits: GoalBudgetLimitsSchema.optional(),
+      createdAt: z.number().finite().nonnegative().optional(),
+      updatedAt: z.number().finite().nonnegative().optional(),
     })
     .strip(),
   apply: (_s, p) => {
@@ -115,8 +117,8 @@ export const createGoal = GoalModel.defineOp('goal.create', {
       wallClockMs: 0,
       wallClockResumedAt: p.wallClockResumedAt,
       budgetLimits: {},
-      createdAt: now,
-      updatedAt: now,
+      createdAt: p.createdAt ?? now,
+      updatedAt: p.updatedAt ?? now,
     };
   },
 });
@@ -136,6 +138,7 @@ export const updateGoal = GoalModel.defineOp('goal.update', {
       budgetLimits: GoalBudgetLimitsSchema.optional(),
       actor: GoalActorSchema.optional(),
       blockedStreak: z.number().int().nonnegative().optional(),
+      updatedAt: z.number().finite().nonnegative().optional(),
     })
     .strip(),
   apply: (s, p) => {
@@ -178,7 +181,7 @@ export const updateGoal = GoalModel.defineOp('goal.update', {
     if (p.blockedStreak !== undefined && p.blockedStreak !== s.blockedStreak) {
       next = { ...(next ?? s), blockedStreak: p.blockedStreak };
     }
-    return next !== undefined ? { ...next, updatedAt: Date.now() } : s;
+    return next !== undefined ? { ...next, updatedAt: p.updatedAt ?? Date.now() } : s;
   },
 });
 

@@ -24,6 +24,8 @@ export interface EngineRequestOptions {
   timeoutMs?: number;
   method?: 'GET' | 'POST';
   body?: string;
+  /** Caller-supplied abort signal, combined with the internal timeout. */
+  signal?: AbortSignal;
   /** Do not follow redirects (the caller inspects the Location header). */
   manualRedirect?: boolean;
 }
@@ -33,6 +35,7 @@ export interface EngineHttpResponse {
   status: number;
   statusText: string;
   text(): Promise<string>;
+  stream(): ReadableStream<Uint8Array> | null;
   header(name: string): string | null;
 }
 
@@ -59,7 +62,12 @@ export async function engineFetch(
   const controller = new AbortController();
   const timer = setTimeout(() =>{  controller.abort(); }, timeoutMs);
   const dispatcher = dispatcherFor(url);
-  const signal = options.method === 'POST' || options.body !== undefined ? undefined : controller.signal;
+  // POST / body requests previously dropped the signal entirely; they now get
+  // the same timeout, and any caller-provided signal is combined with it.
+  const signal =
+    options.signal !== undefined
+      ? AbortSignal.any([controller.signal, options.signal])
+      : controller.signal;
   try {
     const response = await undiciFetch(url, {
       method: options.method ?? 'GET',
@@ -79,6 +87,7 @@ export async function engineFetch(
       status: response.status,
       statusText: response.statusText,
       text: () => response.text(),
+      stream: () => response.body,
       header: (name: string) => response.headers.get(name),
     };
   } finally {

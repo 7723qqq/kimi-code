@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  decodeUtf8Lenient,
   decodeUtfText,
+  detectLegacyTextEncoding,
   detectTextEncoding,
   ENCODING_DETECTION_SAMPLE_BYTES,
 } from '#/_base/text/encoding';
@@ -93,6 +95,53 @@ describe('decodeUtfText', () => {
 
   it('replaces malformed sequences instead of throwing', () => {
     expect(decodeUtfText(Buffer.from([0xff]), 'utf-16le')).toBe('�');
+  });
+});
+
+describe('detectLegacyTextEncoding', () => {
+  // "中文内容\n第二行" in GBK — the byte layout of Windows code page 936.
+  const GBK_TEXT = Buffer.from([0xd6, 0xd0, 0xce, 0xc4, 0xc4, 0xda, 0xc8, 0xdd, 0x0a, 0xb5, 0xda, 0xb6, 0xfe, 0xd0, 0xd0]);
+
+  it('detects GBK Chinese text', () => {
+    expect(detectLegacyTextEncoding(GBK_TEXT)).toBe('gbk');
+  });
+
+  it('detects larger GBK payloads spanning the full sample', () => {
+    const big = Buffer.concat(Array.from({ length: 64 }, () => GBK_TEXT));
+    expect(detectLegacyTextEncoding(big)).toBe('gbk');
+  });
+
+  it('returns null for UTF-8 content (misinterpreted as GBK it yields replacements)', () => {
+    // UTF-8 Chinese decoded as GBK trips unmappable byte pairs → U+FFFD.
+    expect(detectLegacyTextEncoding(Buffer.from('中文内容\n', 'utf8'))).toBeNull();
+  });
+
+  it('returns null for UTF-8 payloads with a small malformed tail', () => {
+    const bytes = Buffer.concat([
+      Buffer.from('正常文本行\n', 'utf8'),
+      Buffer.from([0x88, 0xa1, 0xff]),
+    ]);
+    expect(detectLegacyTextEncoding(bytes)).toBeNull();
+  });
+
+  it('returns null for pure ASCII and for empty input', () => {
+    expect(detectLegacyTextEncoding(Buffer.from('plain ascii\n'))).toBeNull();
+    expect(detectLegacyTextEncoding(new Uint8Array())).toBeNull();
+  });
+});
+
+describe('decodeUtf8Lenient', () => {
+  it('passes clean UTF-8 through with no replacements', () => {
+    const bytes = Buffer.from('中文内容\nsecond line\n', 'utf8');
+    expect(decodeUtf8Lenient(bytes)).toEqual({ text: '中文内容\nsecond line\n', replacedCount: 0 });
+  });
+
+  it('replaces malformed sequences and counts them', () => {
+    const bytes = Buffer.concat([Buffer.from('text\n', 'utf8'), Buffer.from([0xff, 0xfe])]);
+    const { text, replacedCount } = decodeUtf8Lenient(bytes);
+    expect(text.startsWith('text\n')).toBe(true);
+    expect(text).toContain('�');
+    expect(replacedCount).toBeGreaterThanOrEqual(1);
   });
 });
 

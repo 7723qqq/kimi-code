@@ -5,6 +5,7 @@ import {
 } from '#/legacy';
 import type { ImageLimits } from '@moonshot-ai/agent-core-v2';
 import type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
+import type { Kaos } from '@moonshot-ai/kaos';
 
 import { capabilityRpc, Session } from '#/session';
 import type { KimiAuthFacade } from '#/auth';
@@ -145,12 +146,19 @@ export class KimiHarness {
   async resumeSession(input: ResumeSessionInput): Promise<Session> {
     const id = normalizeSessionId(input.id);
     const active = this.activeSessions.get(id);
-    const { sessionStartedProperties: _sessionStartedProperties, ...resumeInput } = input;
+    const {
+      kaos,
+      persistenceKaos,
+      sessionStartedProperties: _sessionStartedProperties,
+      ...resumeInput
+    } = input;
     // A session whose close is in flight (`isClosed` but not yet unmapped)
-    // is not a valid resume target 鈥?fall through and re-resume fresh, which
+    // is not a valid resume target — fall through and re-resume fresh, which
     // the engine serializes behind that close.
     if (active !== undefined && !active.isClosed) {
-      if (input.agentProfile !== undefined) {
+      if (kaos !== undefined || persistenceKaos !== undefined) {
+        await this.rpc.resumeSessionWithKaos({ ...resumeInput, id }, kaos ?? persistenceKaos as Kaos, persistenceKaos);
+      } else if (input.agentProfile !== undefined) {
         await this.rpc.resumeSession({ ...resumeInput, id });
       }
       return active;
@@ -175,8 +183,11 @@ export class KimiHarness {
   }
 
   private async doResumeSession(input: ResumeSessionInput, id: string): Promise<Session> {
-    const { sessionStartedProperties, ...resumeInput } = input;
-    const summary = await this.rpc.resumeSession({ ...resumeInput, id });
+    const { kaos, persistenceKaos, sessionStartedProperties, ...resumeInput } = input;
+    const summary =
+      kaos === undefined && persistenceKaos === undefined
+        ? await this.rpc.resumeSession({ ...resumeInput, id })
+        : await this.rpc.resumeSessionWithKaos({ ...resumeInput, id }, kaos ?? persistenceKaos as Kaos, persistenceKaos);
     const session = new Session({
       id: summary.id,
       workDir: summary.workDir,
@@ -530,10 +541,17 @@ export class KimiHarness {
 const DEFAULT_SESSION_STARTED_UI_MODE = 'shell';
 
 function resumeCoalesceKey(id: string, input: ResumeSessionInput): string {
-  const { sessionStartedProperties: _sessionStartedProperties, ...rest } = input;
+  const {
+    kaos,
+    persistenceKaos,
+    sessionStartedProperties: _sessionStartedProperties,
+    ...rest
+  } = input;
   return JSON.stringify({
     ...rest,
     id,
+    kaos: kaos !== undefined,
+    persistenceKaos: persistenceKaos !== undefined,
   });
 }
 

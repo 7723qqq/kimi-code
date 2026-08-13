@@ -113,16 +113,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
       }
     }
 
-    const body = await response.text();
-
-    const actualBytes = Buffer.byteLength(body, 'utf8');
-    if (actualBytes > this.maxBytes) {
-      throw new Error2(
-        ErrorCodes.WEB_FETCH_FAILED,
-        `Response body too large: ${String(actualBytes)} bytes exceeds maxBytes (${String(this.maxBytes)}).`,
-        { details: { bytes: actualBytes, maxBytes: this.maxBytes } },
-      );
-    }
+    const body = await readBodyStreamed(response.body, this.maxBytes);
 
     const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
     if (contentType.startsWith('text/plain') || contentType.startsWith('text/markdown')) {
@@ -190,6 +181,10 @@ export class LocalFetchURLProvider implements UrlFetcher {
     }
     const dispatcher = new Agent({
       connect: { lookup: pinnedLookup(target.host, target.addresses) },
+      // Cap the response body at the provider limit; undici aborts the
+      // request when the stream exceeds it (covers the pinned path, where
+      // `readResponse`'s incremental counter cannot see the bytes).
+      maxResponseSize: this.maxBytes,
     });
     dispatchers.push(dispatcher);
     return dispatcher;
@@ -248,6 +243,41 @@ function isBlockedAddress(address: string): boolean {
   const normalized = address.split('%', 1)[0] ?? address;
   if (isIP(normalized) === 4) return PRIVATE_ADDRESS_BLOCKLIST.check(normalized, 'ipv4');
   return isIP(normalized) === 6 && PRIVATE_ADDRESS_BLOCKLIST.check(normalized, 'ipv6');
+}
+
+/**
+ * Read a response body as UTF-8 text with a hard byte cap: the stream is
+ * cancelled as soon as the accumulated bytes exceed `maxBytes` instead of
+ * buffering the whole payload first.
+ */
+async function readBodyStreamed(
+  body: ReadableStream<Uint8Array> | null,
+  maxBytes: number,
+): Promise<string> {
+  if (body === null) return '';
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        throw new Error2(
+          ErrorCodes.WEB_FETCH_FAILED,
+          `Response body too large: ${String(total)} bytes exceeds maxBytes (${String(maxBytes)}).`,
+          { details: { bytes: total, maxBytes } },
+        );
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => {
+    });
+    throw error;
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 interface SafeFetchTarget {

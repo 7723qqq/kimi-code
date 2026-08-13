@@ -11,7 +11,10 @@
  *
  * UTF-16 LE/BE text files (with a BOM, or recognized via the zero-byte
  * parity heuristic) are transparently transcoded to UTF-8 for display, up to
- * `TRANSCODE_MAX_BYTES`. Binary, other non-UTF encodings, NUL-containing,
+ * `TRANSCODE_MAX_BYTES`. GBK/GB18030 text is recognized as a fallback when
+ * strict UTF-8 decoding fails and transcoded the same way; files that are
+ * almost UTF-8 (a few malformed bytes) are shown leniently with replacements.
+ * Binary, other non-UTF encodings, NUL-containing,
  * image and video files are refused; images/videos are redirected to
  * ReadMediaFile. Supports one-based
  * `line_offset` / `n_lines` pagination and a negative `line_offset` tail

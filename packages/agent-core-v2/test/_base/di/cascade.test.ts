@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   CascadeEngine,
@@ -378,6 +378,42 @@ describe('cascade engine — mechanism matrix', () => {
     expect(entry.abortTimedOut).toBe(true);
     expect(ix.cascade.stateOf(IRoot)).toBeUndefined();
     ix.dispose();
+  });
+
+  it('9b. a fast abort hook clears the pending abort timeout timer', async () => {
+    vi.useFakeTimers();
+    const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
+    try {
+      const ix = makeContainer();
+      provideChain(ix);
+      let release!: () => void;
+      ix.cascade.configure({
+        abortWaitMs: 60_000,
+        onWillCascade: () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      });
+
+      const done = ix.cascade.submit({
+        action: 'unprovide',
+        token: IRoot,
+        reason: 'fast hook',
+      });
+      expect(ix.cascade.isInFlight(IRoot)).toBe(true);
+      release();
+      await done;
+
+      expect(clearSpy).toHaveBeenCalled();
+      const entry = ix.cascade.history().at(-1)!;
+      expect(entry.abortWaited).toBe(true);
+      expect(entry.abortTimedOut).toBe(false);
+      expect(ix.cascade.stateOf(IRoot)).toBeUndefined();
+      ix.dispose();
+    } finally {
+      clearSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('10. a resolution hitting the in-flight subgraph suspends and completes after the transaction', async () => {

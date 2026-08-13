@@ -70,7 +70,9 @@ export class WorkspaceInstructionsService
     super();
     this.states.register(workspaceInstructionsCurrentKey);
     this.ready = this.reload();
-    void this.watchCandidateFiles();
+    void this.watchCandidateFiles().catch((error) => {
+      this.log.warn(`instructions watch setup failed: ${String(error)}`);
+    });
   }
 
   private get current(): WorkspaceInstructionsSnapshot {
@@ -86,7 +88,7 @@ export class WorkspaceInstructionsService
   }
 
   reload(): Promise<void> {
-    const tail = this.reloadTail.catch(() => undefined).then(async () => {
+    const tail = this.reloadTail.catch(() => {}).then(async () => {
       const result = await loadAgentsMdForRoots(
         { fs: this.fs, homeDir: this.env.homeDir },
         this.bootstrap.homeDir,

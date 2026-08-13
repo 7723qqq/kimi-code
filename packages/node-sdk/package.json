@@ -62,6 +62,7 @@
   },
   "devDependencies": {
     "@moonshot-ai/agent-core-v2": "workspace:^",
+    "@moonshot-ai/kaos": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-i18n": "workspace:^",
     "@moonshot-ai/klient": "workspace:^",

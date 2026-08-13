@@ -127,6 +127,11 @@ export class Trace {
 
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+interface LiveRefInternal<T> extends LiveRef<T> {
+  _reattach(book: Ledger): void;
+}
+
 export class InstantiationService implements IInstantiationService {
   declare readonly _serviceBrand: undefined;
 
@@ -223,7 +228,7 @@ export class InstantiationService implements IInstantiationService {
       },
       recipeOf: (token) => {
         const entry = this._services.entry(token);
-        if (entry === undefined) return undefined;
+        if (entry === undefined) return;
         return entry.value instanceof SyncDescriptor ? entry.value : entry.recipe;
       },
       dependenciesOf: (recipe) =>
@@ -507,7 +512,7 @@ export class InstantiationService implements IInstantiationService {
       mintUid: () => ++this._root()._nextUnitUid,
       provideToken: (id, descriptor, options) => this._provideCore(id, descriptor, options),
       provideTokenInstance: <T>(id: ServiceIdentifier<T>, instance: T) =>
-        this._provideCore(id, instance, undefined),
+        this._provideCore(id, instance),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       tokenState: (id: ServiceIdentifier<any>) => {
         const owner = this._ownerOf(id) ?? this;
@@ -574,7 +579,7 @@ export class InstantiationService implements IInstantiationService {
     return this._parent?._materializedInstanceOf(id);
   }
 
-  private _liveRef<T>(id: ServiceIdentifier<T>): LiveRef<T> {
+  private _liveRef<T>(id: ServiceIdentifier<T>): LiveRefInternal<T> {
     const change = new Emitter<void>();
     const chain: InstantiationService[] = [this];
     for (let c = this._parent; c !== undefined; c = c._parent) {
@@ -585,18 +590,26 @@ export class InstantiationService implements IInstantiationService {
         change.fire();
       }),
     );
-    this._ledger.register(() => {
+    const disposer = (): void => {
       for (const subscription of subscriptions) {
         subscription.dispose();
       }
       change.dispose();
-    }, `ref:${String(id)}`);
+    };
+    let entry = this._ledger.register(disposer, `ref:${String(id)}`);
     const current = (): T | undefined => this._materializedInstanceOf(id);
-    const ref: LiveRef<T> = {
+    const ref: LiveRefInternal<T> = {
       get current(): T | undefined {
         return current();
       },
       onDidChange: change.event,
+      // Anchor the subscriptions to the instance's own book when the instance
+      // is a service unit: the ref then stays alive exactly as long as the
+      // instance does, instead of hanging on the container ledger.
+      _reattach: (book: Ledger): void => {
+        entry.release();
+        entry = book.register(disposer, `ref:${String(id)}`);
+      },
     };
     return ref;
   }
@@ -706,6 +719,7 @@ export class InstantiationService implements IInstantiationService {
   }): T {
     const serviceDependencies = _util.getServiceDependencies(ctor).toSorted((a, b) => a.index - b.index);
     const serviceArgs: unknown[] = [];
+    const pendingRefs: LiveRefInternal<unknown>[] = [];
     for (const dependency of serviceDependencies) {
       const kind = dependency.kind ?? 'instance';
       if (kind === 'collection') {
@@ -713,7 +727,9 @@ export class InstantiationService implements IInstantiationService {
         continue;
       }
       if (kind === 'ref') {
-        serviceArgs.push(this._liveRef(dependency.id));
+        const liveRef = this._liveRef(dependency.id);
+        pendingRefs.push(liveRef);
+        serviceArgs.push(liveRef);
         continue;
       }
         const service = this._getOrCreateServiceInstance(dependency.id, _trace);
@@ -759,6 +775,12 @@ export class InstantiationService implements IInstantiationService {
       instance = Reflect.construct<unknown[], T>(ctor as new (...args: any[]) => T, finalArgs);
     } finally {
       popConstructionFrame();
+    }
+    if (pendingRefs.length > 0) {
+      const book = (instance as UnitInternals).unitBook;
+      for (const liveRef of pendingRefs) {
+        liveRef._reattach(book);
+      }
     }
     bindServiceUnit(instance as UnitInternals & IDisposable, frame);
     return instance;
@@ -950,7 +972,7 @@ export class InstantiationService implements IInstantiationService {
           const out = result.dispose() as unknown as void | Promise<void>;
           return out;
         }
-        return undefined;
+        return;
       }, `service:${String(id)}`);
       this._instanceEntries.set(result, entry);
       this.cascade.observedMaterialization(id);

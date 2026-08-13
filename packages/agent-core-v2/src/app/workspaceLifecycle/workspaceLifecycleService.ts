@@ -130,6 +130,12 @@ export class WorkspaceLifecycleService extends Service implements IWorkspaceLife
       persistenceBackendId: LOCAL_PERSISTENCE_BACKEND_ID,
     };
     await this.hostEnv.ready;
+    // Re-check after the await: a racing materialization (e.g. started from a
+    // different alias spelling or a slower caller path) may have won and
+    // published its handler while this call was waiting, and creating another
+    // would clobber the live registry entry.
+    const existing = this.live.get(workspaceId);
+    if (existing !== undefined) return existing;
     const handle = createScopedChildHandle(
       this.instantiation,
       LifecycleScope.Workspace,

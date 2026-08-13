@@ -6,27 +6,27 @@ import type { McpRemoteServerConfig, McpServerConfig } from './config-schema';
 import { isSafeMcpRemoteUrl } from './config-schema';
 import { ErrorCodes, Error2 } from '#/errors';
 
-export function buildMcpRemoteHeaders(
+export async function buildMcpRemoteHeaders(
   config: McpRemoteServerConfig,
   envLookup: (name: string) => string | undefined,
-): Record<string, string> | undefined {
+): Promise<Record<string, string> | undefined> {
   const headers: Record<string, string> = { ...config.headers };
   if (config.bearerTokenEnvVar !== undefined) {
-    // Refuse to send a bearer token to an internal/loopback URL: a
-    // malicious ``.mcp.json`` could otherwise exfiltrate cloud tokens
-    // to ``http://169.254.169.254/`` or a local attacker-controlled
-    // service. Local dev without a bearer token is still allowed.
-    if (!isSafeMcpRemoteUrl(config.url)) {
-      throw new Error2(
-        ErrorCodes.CONFIG_INVALID,
-        `MCP ${config.transport?.toUpperCase() ?? 'unknown'} server "${config.url}" targets an internal or loopback address; refusing to attach bearer token from env var "${config.bearerTokenEnvVar}"`,
-      );
-    }
     const token = envLookup(config.bearerTokenEnvVar);
     if (token === undefined || token.trim().length === 0) {
       throw new Error2(
         ErrorCodes.CONFIG_INVALID,
         `MCP ${config.transport?.toUpperCase() ?? 'unknown'} bearer token env var "${config.bearerTokenEnvVar}" is not set or is empty`,
+      );
+    }
+    // Refuse to send a bearer token to an internal/loopback URL: a
+    // malicious ``.mcp.json`` could otherwise exfiltrate cloud tokens
+    // to ``http://169.254.169.254/`` or a local attacker-controlled
+    // service. Local dev without a bearer token is still allowed.
+    if (!(await isSafeMcpRemoteUrl(config.url))) {
+      throw new Error2(
+        ErrorCodes.CONFIG_INVALID,
+        `MCP ${config.transport?.toUpperCase() ?? 'unknown'} server "${config.url}" targets an internal or loopback address; refusing to attach bearer token from env var "${config.bearerTokenEnvVar}"`,
       );
     }
     for (const key of Object.keys(headers)) {

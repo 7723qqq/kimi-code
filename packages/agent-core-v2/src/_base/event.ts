@@ -121,7 +121,9 @@ export interface IWaitUntil {
 export type IWaitUntilData<T> = Omit<T, 'waitUntil' | 'signal'>;
 
 export class AsyncEmitter<T extends IWaitUntil> extends Emitter<T> {
-  private _asyncDeliveryQueue?: LinkedList<[(event: T) => void, IWaitUntilData<T>]>;
+  private _asyncDeliveryQueue?: LinkedList<
+    [(event: T) => void, IWaitUntilData<T>, AbortSignal]
+  >;
 
   async fireAsync(data: IWaitUntilData<T>, signal: AbortSignal): Promise<void> {
     if (this.isDisposed || this._listeners === undefined) {
@@ -135,17 +137,24 @@ export class AsyncEmitter<T extends IWaitUntil> extends Emitter<T> {
           entry.listener.call(entry.thisArg, event);
         },
         data,
+        signal,
       ]);
     }
 
     try {
-      while (this._asyncDeliveryQueue.size > 0 && !signal.aborted) {
-        const [deliver, eventData] = this._asyncDeliveryQueue.shift()!;
+      while (this._asyncDeliveryQueue.size > 0) {
+        const [deliver, eventData, entrySignal] = this._asyncDeliveryQueue.shift()!;
+        // Each entry carries the signal of the fire that queued it: an aborted
+        // fire skips its own remaining entries, and entries of other fires are
+        // never delivered with this call's signal.
+        if (entrySignal.aborted) {
+          continue;
+        }
         const thenables: Promise<unknown>[] = [];
 
         const event = {
           ...eventData,
-          signal,
+          signal: entrySignal,
           waitUntil: (p: Promise<unknown>): void => {
             if (Object.isFrozen(thenables)) {
               throw new Error('waitUntil can NOT be called asynchronously');
@@ -170,12 +179,21 @@ export class AsyncEmitter<T extends IWaitUntil> extends Emitter<T> {
         }
       }
     } finally {
-      // If the signal aborted mid-delivery, drop every entry still queued for
-      // this fire. Otherwise the NEXT fire would deliver them with the OLD data
-      // and the NEW signal — out of order and at the wrong time, and the queue
-      // would keep accumulating stale entries.
-      if (signal.aborted) {
-        this._asyncDeliveryQueue?.clear();
+      // If this fire's signal aborted mid-delivery, drop only the entries this
+      // fire queued (identified by their own signal). Entries of other fires
+      // keep their own signal and are delivered by their own loops — never
+      // with this call's signal.
+      if (signal.aborted && this._asyncDeliveryQueue !== undefined) {
+        const kept: [(event: T) => void, IWaitUntilData<T>, AbortSignal][] = [];
+        for (const item of this._asyncDeliveryQueue) {
+          if (item[2] !== signal) {
+            kept.push(item);
+          }
+        }
+        this._asyncDeliveryQueue.clear();
+        for (const item of kept) {
+          this._asyncDeliveryQueue.push(item);
+        }
       }
     }
   }

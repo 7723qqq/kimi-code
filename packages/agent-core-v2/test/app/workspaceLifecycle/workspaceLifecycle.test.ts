@@ -101,7 +101,7 @@ function catalogStub() {
     list: () => Promise.resolve([...workspaces.values()]),
     get: (id) => Promise.resolve(workspaces.get(id)),
     createOrTouch,
-    update: async () => {},
+    update: () => Promise.resolve(),
     delete: () => Promise.resolve(),
   };
   return { service, createOrTouch };
@@ -122,7 +122,7 @@ function sessionIndexStub(): ISessionIndex {
     _serviceBrand: undefined,
     prepare: () => Promise.resolve({ state: 'ready', generation: 0, degradedCount: 0 }),
     status: () => ({ state: 'ready', generation: 0, degradedCount: 0 }),
-    get: async () => {},
+    get: () => Promise.resolve(),
     listRecent: () => Promise.resolve({ items: [] }),
     count: () => Promise.resolve(0),
     remove: () => Promise.resolve(),
@@ -348,7 +348,6 @@ describe('WorkspaceLifecycleService', () => {
         flush: () => Promise.resolve(),
         close: () => Promise.resolve(),
         acquire: () => ({ dispose: () => {} }),
-        revision: () => 0,
       } satisfies IAppendLogStore),
       stubPair(IAtomicDocumentStore, {
         _serviceBrand: undefined,
@@ -385,7 +384,7 @@ describe('WorkspaceLifecycleService', () => {
       stubPair(ITelemetryService, recordingTelemetry(telemetryRecords)),
       stubPair(ICronTaskPersistence, {
         _serviceBrand: undefined,
-        get: async () => {},
+        get: () => Promise.resolve(),
         list: () => Promise.resolve([]),
         save: () => Promise.resolve(),
         delete: () => Promise.resolve(),

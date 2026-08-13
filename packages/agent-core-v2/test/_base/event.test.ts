@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { Disposable, DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
-import { Emitter, Event } from '#/_base/event';
+import { AsyncEmitter, Emitter, Event, type IWaitUntil } from '#/_base/event';
 import {
   resetUnexpectedErrorHandler,
   setUnexpectedErrorHandler,
@@ -321,7 +321,7 @@ describe('Event.any', () => {
     const emitter = new Emitter<number | undefined | null>();
     const seen: (number | undefined | null)[] = [];
     emitter.event((v) => seen.push(v));
-    emitter.fire(undefined);
+    emitter.fire();
     emitter.fire(null);
     expect(seen).toEqual([undefined, null]);
     emitter.dispose();
@@ -345,6 +345,84 @@ describe('Event.any', () => {
     sub.dispose();
     emitter.fire(2);
     expect(seen).toEqual([1]);
+    emitter.dispose();
+  });
+});
+
+describe('AsyncEmitter.fireAsync', () => {
+  interface WillEvent extends IWaitUntil {
+    kind: string;
+  }
+
+  it('delivers each entry with the signal of the fire that queued it', async () => {
+    const emitter = new AsyncEmitter<WillEvent>();
+    const received: { kind: string; signal: AbortSignal }[] = [];
+    let releaseHold!: () => void;
+    emitter.event((e) => {
+      received.push({ kind: e.kind, signal: e.signal });
+      if (e.kind === 'hold') {
+        const hold = new Promise<void>((resolve) => {
+          releaseHold = resolve;
+        });
+        e.waitUntil(hold);
+      }
+    });
+    emitter.event((e) => {
+      received.push({ kind: e.kind, signal: e.signal });
+    });
+
+    const firstController = new AbortController();
+    const first = emitter.fireAsync({ kind: 'hold' }, firstController.signal);
+    // The first listener's 'hold' event is delivered synchronously; the first
+    // fire suspends on its waitUntil. The second fire then drains the queue —
+    // it must deliver the still-queued first-fire entry with the FIRST signal,
+    // never with its own.
+    const secondController = new AbortController();
+    const second = emitter.fireAsync({ kind: 'release' }, secondController.signal);
+    releaseHold();
+    await Promise.all([first, second]);
+
+    expect(received).toEqual([
+      { kind: 'hold', signal: firstController.signal },
+      { kind: 'hold', signal: firstController.signal },
+      { kind: 'release', signal: secondController.signal },
+      { kind: 'release', signal: secondController.signal },
+    ]);
+    emitter.dispose();
+  });
+
+  it('an aborted fire skips its own queued entries and never delivers them with another signal', async () => {
+    const emitter = new AsyncEmitter<WillEvent>();
+    const received: { kind: string; signal: AbortSignal }[] = [];
+    let releaseHold!: () => void;
+    emitter.event((e) => {
+      received.push({ kind: e.kind, signal: e.signal });
+      if (e.kind === 'hold') {
+        const hold = new Promise<void>((resolve) => {
+          releaseHold = resolve;
+        });
+        e.waitUntil(hold);
+      }
+    });
+    emitter.event((e) => {
+      received.push({ kind: e.kind, signal: e.signal });
+    });
+
+    const firstController = new AbortController();
+    const first = emitter.fireAsync({ kind: 'hold' }, firstController.signal);
+    // One entry is being delivered (suspended); the other entry of this fire
+    // is still queued when the signal aborts.
+    firstController.abort();
+    const secondController = new AbortController();
+    const second = emitter.fireAsync({ kind: 'release' }, secondController.signal);
+    releaseHold();
+    await Promise.all([first, second]);
+
+    expect(received).toEqual([
+      { kind: 'hold', signal: firstController.signal },
+      { kind: 'release', signal: secondController.signal },
+      { kind: 'release', signal: secondController.signal },
+    ]);
     emitter.dispose();
   });
 });

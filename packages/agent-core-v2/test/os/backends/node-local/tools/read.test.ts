@@ -43,7 +43,7 @@ import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from 
 // every native export to return `undefined` so the TS line-iteration path runs.
 vi.mock('#/_base/native-tools', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
-  return Object.fromEntries(Object.keys(actual).map((key) => [key, () => undefined]));
+  return Object.fromEntries(Object.keys(actual).map((key) => [key, () => {}]));
 });
 
 const signal = new AbortController().signal;
@@ -529,11 +529,14 @@ describe('ReadTool', () => {
     expect(output).not.toContain('Python tools');
   });
 
-  it('rejects invalid UTF-8 instead of returning replacement characters', async () => {
+  it('refuses bytes that are neither UTF-8, UTF-16, nor GBK', async () => {
     const replacement = String.fromCodePoint(0xfffd);
     const { fs } = createSpiedMapFs({
-      '/tmp/not-utf8.txt': {
-        bytes: Buffer.from('text header'),
+      '/tmp/not-text.txt': {
+        // No NUL bytes (so the binary preflight passes), but the payload is
+        // mostly malformed UTF-8 and not GBK either — the fallback chain
+        // must refuse instead of returning replacement characters.
+        bytes: Buffer.concat([Buffer.from('text header\n'), Buffer.from([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff])]),
         readLines: async function* readLines(
           _path: string,
           options?: { errors?: 'strict' | 'replace' | 'ignore' },
@@ -547,16 +550,74 @@ describe('ReadTool', () => {
     });
     const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
-    const result = await execute(tool, { path: '/tmp/not-utf8.txt' });
+    const result = await execute(tool, { path: '/tmp/not-text.txt' });
     const output = toolContentString(result);
 
     expect(result.isError).toBe(true);
     expect(output).toBe(
-      '"/tmp/not-utf8.txt" is not valid UTF-8 or UTF-16 text. Only UTF-8 and UTF-16 text files can be read; for other encodings (e.g. GBK), convert the file to UTF-8 first (e.g. `iconv` via Bash).',
+      '"/tmp/not-text.txt" is not valid UTF-8, UTF-16, or GBK/GB18030 text. Only UTF-8, UTF-16 and GBK/GB18030 text files can be read; for other encodings, convert the file to UTF-8 first (e.g. `iconv` via Bash).',
     );
-    expect(output).not.toContain('Python tools');
     expect(output).not.toContain(replacement);
     expect(output).not.toContain('encoded data was not valid');
+  });
+
+  it('reads a GBK file by transcoding to UTF-8 when strict UTF-8 fails', async () => {
+    // "中文内容\n第二行" in GBK (Windows code page 936).
+    const gbkBytes = Buffer.from([
+      0xd6, 0xd0, 0xce, 0xc4, 0xc4, 0xda, 0xc8, 0xdd, 0x0a, 0xb5, 0xda, 0xb6, 0xfe, 0xd0, 0xd0,
+    ]);
+    const { fs } = createSpiedMapFs({
+      '/tmp/gbk.txt': {
+        bytes: gbkBytes,
+        readLines: async function* readLines(
+          _path: string,
+          options?: { errors?: 'strict' | 'replace' | 'ignore' },
+        ): AsyncGenerator<string> {
+          if (options?.errors === 'strict') {
+            throw new TypeError('The encoded data was not valid for encoding utf-8');
+          }
+          yield 'garbage\n';
+        },
+      },
+    });
+    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+
+    const result = await execute(tool, { path: '/tmp/gbk.txt' });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.output).toContain('1\t中文内容');
+    expect(result.output).toContain('2\t第二行');
+    expect(result.note).toContain('Detected GBK/GB18030 encoding');
+    expect(result.note).toContain('Total lines in file: 2.');
+  });
+
+  it('reads a UTF-8 file with a few malformed bytes leniently and flags the replacements', async () => {
+    const bytes = Buffer.concat([
+      Buffer.from('正常文本行\n第二行\n', 'utf8'),
+      Buffer.from([0x88, 0xa1, 0xff]),
+    ]);
+    const { fs } = createSpiedMapFs({
+      '/tmp/utf8-with-junk.txt': {
+        bytes,
+        readLines: async function* readLines(
+          _path: string,
+          options?: { errors?: 'strict' | 'replace' | 'ignore' },
+        ): AsyncGenerator<string> {
+          if (options?.errors === 'strict') {
+            throw new TypeError('The encoded data was not valid for encoding utf-8');
+          }
+          yield 'garbage\n';
+        },
+      },
+    });
+    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+
+    const result = await execute(tool, { path: '/tmp/utf8-with-junk.txt' });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.output).toContain('1\t正常文本行');
+    expect(result.output).toContain('2\t第二行');
+    expect(result.note).toContain('Some bytes were not valid UTF-8 and were replaced with U+FFFD');
   });
 
   it('reads a UTF-16 LE file with BOM by transcoding to UTF-8', async () => {

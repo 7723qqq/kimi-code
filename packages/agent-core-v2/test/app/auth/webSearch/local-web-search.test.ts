@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { resolveResultLimit, resolveSearchEngines } from '#/app/auth/webSearch/providers/local-web-search';
+import {
+  LocalWebSearchProvider,
+  resolveResultLimit,
+  resolveSearchEngines,
+} from '#/app/auth/webSearch/providers/local-web-search';
 import { parseBingSearchResults } from '#/app/auth/webSearch/engines/bing/parser';
 import { parseDuckDuckGoResults } from '#/app/auth/webSearch/engines/duckduckgo/parser';
 
@@ -59,5 +63,51 @@ describe('local web search engines', () => {
     expect(resolveResultLimit({})).toBe(10);
     expect(resolveResultLimit({ KIMI_CODE_SEARCH_RESULTS: '5' })).toBe(5);
     expect(resolveResultLimit({ KIMI_CODE_SEARCH_RESULTS: '99' })).toBe(10);
+  });
+});
+
+describe('LocalWebSearchProvider abort propagation', () => {
+  const multiEngineEnv = {
+    KIMI_CODE_SEARCH_ENGINE: 'duckduckgo',
+    KIMI_CODE_ALLOWED_SEARCH_ENGINES: 'duckduckgo,baidu',
+  };
+
+  it('rethrows immediately when the caller aborts, without trying remaining engines', async () => {
+    const controller = new AbortController();
+    const fetchImpl = vi.fn(async () => {
+      controller.abort();
+      throw new Error('aborted mid-search');
+    });
+    const provider = new LocalWebSearchProvider({ env: multiEngineEnv, fetchImpl });
+
+    await expect(provider.search('query', { signal: controller.signal })).rejects.toThrow(
+      'aborted mid-search',
+    );
+    // DuckDuckGo retries its own preload + html fallback (2 fetches); had the
+    // abort been swallowed, the second engine (baidu) would add a third call.
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('rethrows an engine AbortError instead of falling through to other engines', async () => {
+    const abortError = new Error('The operation was aborted.');
+    abortError.name = 'AbortError';
+    const fetchImpl = vi.fn(async () => {
+      throw abortError;
+    });
+    const provider = new LocalWebSearchProvider({ env: multiEngineEnv, fetchImpl });
+
+    await expect(provider.search('query')).rejects.toThrow('The operation was aborted.');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('still reports aggregate engine failures for non-abort errors', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('rate limited');
+    });
+    const provider = new LocalWebSearchProvider({ env: multiEngineEnv, fetchImpl });
+
+    await expect(provider.search('query')).rejects.toThrow(/All search engines failed/);
+    // duckduckgo preload + html fallback, then the baidu engine.
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 });

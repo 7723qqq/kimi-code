@@ -25,7 +25,7 @@ import { z } from 'zod';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
-import { errEnvelope, okEnvelope } from '../protocol/envelope';
+import { errEnvelope, internalErrorEnvelope, okEnvelope } from '../protocol/envelope';
 import {
   deleteFileParamSchema,
   deleteFileResponseSchema,
@@ -76,11 +76,10 @@ interface FilesReply {
 export function registerFilesRoutes(app: FilesRouteHost, core: Scope): void {
   app.register(multipart, {
     limits: {
-      // No upload size cap — local single-user deployment. The limit must be
-      // set explicitly: @fastify/multipart defaults `fileSize` to Fastify's
-      // `bodyLimit` (1 MiB) when it is left undefined, and silently truncates
-      // the file stream at that size.
-      fileSize: Number.MAX_SAFE_INTEGER,
+      // 1 GiB upload cap. The limit must be set explicitly: @fastify/multipart
+      // defaults `fileSize` to Fastify's `bodyLimit` (1 MiB) when it is left
+      // undefined, and silently truncates the file stream at that size.
+      fileSize: 1024 * 1024 * 1024,
       files: 1,
     },
   });
@@ -227,15 +226,7 @@ function sendMappedError(reply: FilesReply, req: { id: string }, err: unknown): 
     return;
   }
   requestLog(req)?.error({ err }, 'file request failed');
-  reply
-    .code(500)
-    .send(
-      errEnvelope(
-        ErrorCode.INTERNAL_ERROR,
-        err instanceof Error ? err.message : 'internal error',
-        requestId,
-      ),
-    );
+  reply.code(500).send(internalErrorEnvelope(err, requestId));
 }
 
 const fieldValueSchema = z.object({ value: z.unknown() });

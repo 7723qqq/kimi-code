@@ -25,6 +25,7 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { IEventBus } from '#/app/event/eventBus';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 /** Hard cap on a single captured file (mirrors Reasonix's 32 MiB). */
@@ -54,7 +55,8 @@ export const IAgentCheckpointService = createDecorator<IAgentCheckpointService>(
 
 interface FileSnapshot {
   readonly path: string;
-  readonly existed: boolean;
+  /** `null` when the capture read failed for a non-ENOENT reason (preimage unknown). */
+  readonly existed: boolean | null;
   readonly preimageSha: string;
   readonly blobKey: string;
   /** sha256 right after kimi's own write (for conflict detection). */
@@ -150,7 +152,7 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
   }
 
   private async captureFile(path: string): Promise<FileSnapshot | null> {
-    let existed = true;
+    let existed: boolean | null = true;
     let bytes: Uint8Array | undefined;
     try {
       const stat = await this.fs.stat(path);
@@ -159,9 +161,10 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
       }
       bytes = await this.fs.readBytes(path, CHECKPOINT_MAX_FILE_BYTES + 1);
       if (bytes.length > CHECKPOINT_MAX_FILE_BYTES) return null;
-    } catch {
-      // Missing file: preimage is "did not exist".
-      existed = false;
+    } catch (error) {
+      // ENOENT: preimage is "did not exist"; anything else leaves existence
+      // unknown so restore never deletes on an unverified preimage.
+      existed = isNotFound(error) ? false : null;
       bytes = undefined;
     }
     const key = `${sha256Bytes(new TextEncoder().encode(path)).slice(0, 16)}-${randomUUID()}.bin`;
@@ -228,6 +231,10 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
       return 'deleted';
     }
     if (!snapshot.existed) {
+      // Only delete when the preimage was confirmed absent and kimi's own
+      // write was verified; otherwise the file may be the user's — report a
+      // conflict instead of removing it.
+      if (snapshot.existed === null || snapshot.afterSha === undefined) return 'unknown_preimage';
       await this.fs.remove(path).catch(() => {});
       return 'restored';
     }
@@ -236,6 +243,11 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
     await this.fs.writeBytes(path, bytes);
     return 'restored';
   }
+}
+
+function isNotFound(error: unknown): boolean {
+  if (error instanceof HostFsError) return error.code === OsFsErrors.codes.OS_FS_NOT_FOUND;
+  return (error as NodeJS.ErrnoException).code === 'ENOENT';
 }
 
 function collectWritePaths(accesses: readonly { kind: string; operation?: string; path?: string }[] | undefined): string[] {

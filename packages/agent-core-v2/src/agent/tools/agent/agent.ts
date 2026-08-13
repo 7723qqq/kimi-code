@@ -61,6 +61,12 @@ export const SubagentToolInputSchema = z.preprocess(
       .describe(
         'Which model to run the subagent on: one of the aliases listed under "Available models" in this tool description, or "primary" for the main model you are running on (for hard, quality-sensitive tasks). When omitted, the configured default model is used. Ignored when resuming — resumed subagents keep their own model.',
       ),
+    backend: z
+      .enum(['in-process', 'claude-code', 'codex', 'acp'])
+      .optional()
+      .describe(
+        'Which backend to run the subagent on. "in-process" (default) runs a subagent inside this engine with the tools listed above. "claude-code", "codex" and "acp" spawn an external agent CLI (Claude Code, OpenAI Codex, or any Agent Client Protocol implementation) that runs with its own tools; they are experimental, require the corresponding CLI to be installed, and cannot be combined with resume.',
+      ),
   }),
 );
 

@@ -207,6 +207,10 @@ export function createMemoryDispatcher(
                 );
                 source = iterable[Symbol.asyncIterator]();
               })();
+              // `next()` observes the rejection through the awaited return;
+              // this side branch keeps an abandoned stream (early cancellation)
+              // from surfacing an unhandled rejection.
+              void started.catch(() => {});
               return started;
             };
 
@@ -253,6 +257,10 @@ export function createMemoryDispatcher(
               ) as AsyncIterable<unknown>;
               source = iterable[Symbol.asyncIterator]();
             })();
+            // `next()` observes the rejection through the awaited return;
+            // this side branch keeps an abandoned stream (early cancellation)
+            // from surfacing an unhandled rejection.
+            void started.catch(() => {});
             return started;
           };
 

@@ -7,7 +7,10 @@
  * `\r`), refuses binary / media files up front, and composes the `<system>`
  * finish note on the `note` side channel. UTF-16 LE/BE text (with a BOM or
  * the zero-byte parity heuristic) is decoded whole via `readBytes` and
- * transcoded to UTF-8, bounded by `TRANSCODE_MAX_BYTES`.
+ * transcoded to UTF-8, bounded by `TRANSCODE_MAX_BYTES`. When strict UTF-8
+ * streaming decoding fails mid-file, the reader falls back to whole-file
+ * GBK/GB18030 transcoding, then to lenient UTF-8 (malformed bytes replaced
+ * with U+FFFD) gated on the replacement ratio, before refusing the file.
  *
  * Path safety goes through the shared path access resolver used by
  * Read/Write/Edit. Read access flows through the os `hostFs` domain
@@ -42,7 +45,13 @@ import { MEDIA_SNIFF_BYTES, detectFileType } from '#/agent/media/file-type';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
 import { makeCarriageReturnsVisible, splitLinesKeepingTerminator, type LineEndingStyle } from '#/_base/text/line-endings';
-import { decodeUtfText, detectTextEncoding, type UtfTextEncoding } from '#/_base/text/encoding';
+import {
+  decodeUtf8Lenient,
+  decodeUtfText,
+  detectLegacyTextEncoding,
+  detectTextEncoding,
+  type UtfTextEncoding,
+} from '#/_base/text/encoding';
 import { renderPrompt } from '#/_base/utils/render-prompt';
 import { t } from '@moonshot-ai/kimi-i18n';
 import { tryNativeRead } from '#/_base/native-tools';
@@ -64,6 +73,22 @@ interface LineEndingFlags {
   hasLoneCr: boolean;
 }
 
+/**
+ * Encodings the Read tool can display: the UTF family from the shared
+ * detector, plus the fallback encodings produced by `readWithFallbackEncoding`
+ * (GBK/GB18030 transcoded whole, or UTF-8 decoded leniently with malformed
+ * bytes replaced).
+ */
+type ReadDisplayEncoding = UtfTextEncoding | 'gbk' | 'utf-8-lenient';
+
+/**
+ * Max share of the file's bytes that may be replaced by U+FFFD in the lenient
+ * UTF-8 fallback before the file is refused as binary/unknown-encoding. Must
+ * stay above `MIN_GBK_UTF8_REPLACEMENT_RATIO` so files that passed the GBK
+ * gate (i.e. lenient ratio below it) are always acceptable here.
+ */
+const MAX_LENIENT_REPLACEMENT_RATIO = 0.25;
+
 interface ReadLineEntry {
   readonly lineNo: number;
   readonly rawContent: string;
@@ -83,7 +108,7 @@ interface FinishReadResultInput {
   readonly startLine: number;
   readonly totalLines: number;
   readonly requestedLines: number;
-  readonly detectedEncoding?: UtfTextEncoding;
+  readonly detectedEncoding?: ReadDisplayEncoding;
 }
 
 function truncateLine(line: string, maxLength: number): string {
@@ -192,12 +217,16 @@ function containsNulByte(text: string): boolean {
   return text.includes('\u0000');
 }
 
-function encodingDisplayName(encoding: UtfTextEncoding): string {
+function encodingDisplayName(encoding: ReadDisplayEncoding): string {
   switch (encoding) {
     case 'utf-16le':
       return 'UTF-16 LE';
     case 'utf-16be':
       return 'UTF-16 BE';
+    case 'gbk':
+      return 'GBK/GB18030';
+    case 'utf-8-lenient':
+      return 'UTF-8';
     default:
       return 'UTF-8';
   }
@@ -217,9 +246,9 @@ function notReadableFileOutput(path: string): string {
 
 function notUtf8DecodableFileOutput(path: string): string {
   return (
-    `"${path}" is not valid UTF-8 or UTF-16 text. ` +
-    'Only UTF-8 and UTF-16 text files can be read; ' +
-    'for other encodings (e.g. GBK), convert the file to UTF-8 first (e.g. `iconv` via Bash).'
+    `"${path}" is not valid UTF-8, UTF-16, or GBK/GB18030 text. ` +
+    'Only UTF-8, UTF-16 and GBK/GB18030 text files can be read; ' +
+    'for other encodings, convert the file to UTF-8 first (e.g. `iconv` via Bash).'
   );
 }
 
@@ -274,8 +303,8 @@ export class ReadTool implements IReadTool {
   }
 
   private async execution(args: ReadInput, safePath: string): Promise<ExecutableToolResult> {
+    let stat: Awaited<ReturnType<IHostFileSystem['stat']>> | undefined;
     try {
-      let stat: Awaited<ReturnType<IHostFileSystem['stat']>>;
       try {
         stat = await this.fs.stat(safePath);
       } catch (error) {
@@ -284,7 +313,7 @@ export class ReadTool implements IReadTool {
         }
         throw error;
       }
-      if (!stat.isFile) {
+      if (stat === undefined || !stat.isFile) {
         return { isError: true, output: `"${args.path}" is not a file.` };
       }
 
@@ -381,7 +410,9 @@ export class ReadTool implements IReadTool {
         detectedEncoding,
       );
     } catch (error) {
-      if (isTextDecodeError(error)) {
+      if (isTextDecodeError(error) && stat !== undefined) {
+        const fallback = await this.readWithFallbackEncoding(args, safePath, stat.size);
+        if (fallback !== undefined) return fallback;
         return { isError: true, output: notUtf8DecodableFileOutput(args.path) };
       }
       return {
@@ -391,13 +422,54 @@ export class ReadTool implements IReadTool {
     }
   }
 
+  /**
+   * Fallback path when strict UTF-8 streaming decoding fails mid-file. Tries
+   * GBK/GB18030 (whole-file transcode, the common case for legacy Chinese
+   * text), then a lenient UTF-8 decode gated on the replacement ratio, and
+   * returns `undefined` when neither applies so the caller can refuse.
+   */
+  private async readWithFallbackEncoding(
+    args: ReadInput,
+    safePath: string,
+    fileSize: number,
+  ): Promise<ExecutableToolResult | undefined> {
+    if (fileSize > TRANSCODE_MAX_BYTES) return undefined;
+
+    const bytes = await this.fs.readBytes(safePath);
+    const legacy = detectLegacyTextEncoding(bytes);
+    if (legacy !== null) {
+      return this.readDecodedText(args, new TextDecoder('gbk', { fatal: false }).decode(bytes), legacy);
+    }
+
+    const lenient = decodeUtf8Lenient(bytes);
+    if (bytes.length > 0 && lenient.replacedCount / bytes.length <= MAX_LENIENT_REPLACEMENT_RATIO) {
+      return this.readDecodedText(args, lenient.text, 'utf-8-lenient');
+    }
+    return undefined;
+  }
+
+  private async readDecodedText(
+    args: ReadInput,
+    text: string,
+    encoding: 'gbk' | 'utf-8-lenient',
+  ): Promise<ExecutableToolResult> {
+    const lineOffset = args.line_offset ?? 1;
+    const requestedLines = args.n_lines ?? MAX_LINES;
+    const effectiveLimit = Math.min(requestedLines, MAX_LINES);
+    const lines = decodedLines(splitLinesKeepingTerminator(text));
+    if (lineOffset < 0) {
+      return this.readTail(args.path, lines, lineOffset, effectiveLimit, requestedLines, encoding);
+    }
+    return this.readForward(args.path, lines, lineOffset, effectiveLimit, requestedLines, encoding);
+  }
+
   private async readForward(
     displayPath: string,
     lines: AsyncIterable<string>,
     lineOffset: number,
     effectiveLimit: number,
     requestedLines: number,
-    detectedEncoding?: UtfTextEncoding,
+    detectedEncoding?: ReadDisplayEncoding,
   ): Promise<ExecutableToolResult> {
     const selectedEntries: ReadLineEntry[] = [];
     const flags: LineEndingFlags = { hasCrLf: false, hasLf: false, hasLoneCr: false };
@@ -456,7 +528,7 @@ export class ReadTool implements IReadTool {
     lineOffset: number,
     effectiveLimit: number,
     requestedLines: number,
-    detectedEncoding?: UtfTextEncoding,
+    detectedEncoding?: ReadDisplayEncoding,
   ): Promise<ExecutableToolResult> {
     const tailCount = Math.abs(lineOffset);
     const entries: ReadLineEntry[] = [];
@@ -494,7 +566,7 @@ export class ReadTool implements IReadTool {
     effectiveLimit: number;
     totalLines: number;
     requestedLines: number;
-    detectedEncoding?: UtfTextEncoding;
+    detectedEncoding?: ReadDisplayEncoding;
   }): ExecutableToolResult {
     const lineEndingStyle = lineEndingStyleFromFlags(input.lineEndingFlags);
     let renderedCandidates = input.entries.slice(0, input.effectiveLimit).map((entry) => {
@@ -577,7 +649,15 @@ export class ReadTool implements IReadTool {
         'Mixed or lone carriage-return line endings are shown as \\r. Use exact \\r\\n or \\r escapes in Edit.old_string for those lines.',
       );
     }
-    if (input.detectedEncoding !== undefined) {
+    if (input.detectedEncoding === 'gbk') {
+      parts.push(
+        'Detected GBK/GB18030 encoding; content transcoded to UTF-8 for display. Edit and Write expect UTF-8 — convert the file\'s encoding first (e.g. `iconv` via Bash).',
+      );
+    } else if (input.detectedEncoding === 'utf-8-lenient') {
+      parts.push(
+        'Some bytes were not valid UTF-8 and were replaced with U+FFFD; content shown best-effort.',
+      );
+    } else if (input.detectedEncoding !== undefined) {
       parts.push(
         `Detected file encoding: ${encodingDisplayName(input.detectedEncoding)}; content transcoded to UTF-8 for display. Edit and Write expect UTF-8 — convert the file's encoding first (e.g. \`iconv\` via Bash).`,
       );

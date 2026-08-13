@@ -41,6 +41,9 @@ import { toStorageIoError } from '#/persistence/interface/storage';
 
 const WATCH_DEBOUNCE_MS = 150;
 
+/** Matches absolute-path keys on both platforms: drive letter or leading separator. */
+const ABSOLUTE_KEY_RE = /^(?:[a-zA-Z]:[\\/]|[\\/])/;
+
 /** Bounded retry for the append mkdir→open ENOENT teardown race. */
 const APPEND_ENOENT_RETRIES = 3;
 const APPEND_ENOENT_RETRY_DELAY_MS = 10;
@@ -257,6 +260,9 @@ export class FileStorageService implements IFileSystemStorageService {
   async close(): Promise<void> {}
 
   private path(scope: string, key: string): string {
+    if (key.split(/[\\/]/).includes('..') || ABSOLUTE_KEY_RE.test(key)) {
+      throw new Error(`Invalid storage key: ${key}`);
+    }
     return join(this.baseDir, scope, key);
   }
 

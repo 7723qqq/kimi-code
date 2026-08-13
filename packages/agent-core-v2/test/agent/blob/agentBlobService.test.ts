@@ -215,4 +215,28 @@ describe('agent blob service (offload/load of inline media)', () => {
     expect(svc.isBlobRef('data:image/png;base64,AQID')).toBe(false);
     expect(svc.isBlobRef('https://example.com/a.png')).toBe(false);
   });
+
+  it('load treats blobrefs with a malformed hash as missing', async () => {
+    const svc = service();
+    const refs = [
+      'blobref:image/png;deadbeef',
+      `blobref:image/png;${'A'.repeat(64)}`,
+      `blobref:image/png;${'a'.repeat(63)}`,
+      `blobref:image/png;${'a'.repeat(65)}`,
+    ];
+
+    for (const ref of refs) {
+      const out = await svc.loadParts([imagePart(ref)]);
+      expect(imageUrl(out[0]!)).toBe(MISSING_MEDIA_PLACEHOLDER);
+    }
+  });
+
+  it('load treats a blobref with a control character in the mime type as missing', async () => {
+    const svc = service();
+    const ref = `blobref:image/png\u0000evil;${'a'.repeat(64)}`;
+
+    const out = await svc.loadParts([imagePart(ref)]);
+
+    expect(imageUrl(out[0]!)).toBe(MISSING_MEDIA_PLACEHOLDER);
+  });
 });

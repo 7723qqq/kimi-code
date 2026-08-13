@@ -187,6 +187,7 @@ function makeHost(
     stubPair(IConfigService, config),
     stubPair(IPluginService, pluginStub(pluginRoots, pluginReloadEmitter)),
     stubPair(IHostFsWatchService, fsWatchStub()),
+    stubPair(ILogService, stubLog()),
   ]);
   const workspace = host.child(LifecycleScope.Workspace, 'w1', [stubPair(IWorkspaceContext, ws)]);
   return { host, workspace, config };
@@ -394,6 +395,7 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(IConfigService, config),
       stubPair(IPluginService, pluginStub()),
       stubPair(IHostFsWatchService, fsWatchStub()),
+      stubPair(ILogService, stubLog()),
     ]);
     const workspace = host.child(LifecycleScope.Workspace, 'w1', [stubPair(IWorkspaceContext, ws)]);
 
@@ -430,6 +432,7 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(IConfigService, config),
       stubPair(IPluginService, pluginStub()),
       stubPair(IHostFsWatchService, fsWatchStub()),
+      stubPair(ILogService, stubLog()),
     ]);
     const workspace = host.child(LifecycleScope.Workspace, 'w1', [stubPair(IWorkspaceContext, ws)]);
 
@@ -646,6 +649,7 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(IConfigService, configStub()),
       stubPair(IPluginService, pluginStub()),
       stubPair(IHostFsWatchService, fsWatchStub()),
+      stubPair(ILogService, stubLog()),
     ]);
     const workspace = host.child(LifecycleScope.Workspace, 'w1', [
       stubPair(IWorkspaceContext, ws),
@@ -703,6 +707,7 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(IConfigService, configStub()),
       stubPair(IPluginService, pluginService),
       stubPair(IHostFsWatchService, fsWatchStub()),
+      stubPair(ILogService, stubLog()),
     ]);
     const workspace = host.child(LifecycleScope.Workspace, 'w1', [
       stubPair(IWorkspaceContext, ws),
@@ -759,6 +764,7 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(IConfigService, configStub()),
       stubPair(IProviderService, stubProviderService()),
       stubPair(IHostFsWatchService, fsWatchStub()),
+      stubPair(ILogService, stubLog()),
     ]);
     const ws = workspaceContextStub('/work');
     const workspace = host.child(LifecycleScope.Workspace, 'w1', [
@@ -869,6 +875,7 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(IBootstrapService, bootstrapStub),
       stubPair(IConfigService, configStub()),
       stubPair(IHostFsWatchService, watchService),
+      stubPair(ILogService, stubLog()),
     ]);
     const workspace = host.child(LifecycleScope.Workspace, 'w1', [
       stubPair(IWorkspaceContext, workspaceContextStub(workDir)),

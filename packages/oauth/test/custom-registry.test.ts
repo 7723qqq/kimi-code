@@ -166,7 +166,40 @@ describe('fetchCustomRegistry', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const call = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(call[1].signal).toBe(controller.signal);
+    // The caller's signal is combined with a 15s timeout, so the init signal is
+    // a derived signal rather than the exact controller signal.
+    expect(call[1].signal).toBeInstanceOf(AbortSignal);
+    expect(call[1].signal?.aborted).toBe(false);
+  });
+
+  it('applies a 15s timeout even without a caller signal', async () => {
+    const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
+
+    await fetchCustomRegistry(KOKUB_SOURCE, {
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+
+    const call = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(call[1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('rejects responses above the body size cap', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify(makeKokubResponseBody()), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': String(10 * 1024 * 1024 + 1),
+          },
+        }),
+    );
+
+    await expect(
+      fetchCustomRegistry(KOKUB_SOURCE, {
+        fetchImpl: fetchMock as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/Response body too large/);
   });
 
   it('throws CustomRegistryApiError with status on 401', async () => {
@@ -177,7 +210,7 @@ describe('fetchCustomRegistry', () => {
     const error = await fetchCustomRegistry(
       KOKUB_SOURCE,
       { fetchImpl: fetchMock as unknown as typeof fetch },
-    ).catch((caught: unknown) => caught);
+    ).catch((error: unknown) => error);
 
     expect(error).toBeInstanceOf(CustomRegistryApiError);
     expect((error as CustomRegistryApiError).status).toBe(401);
@@ -580,7 +613,7 @@ describe('applyCustomRegistryEntries', () => {
     applyCustomRegistryEntries(config, entries, source);
     applyCustomRegistryEntries(config, entries, source);
 
-    expect(Object.keys(config.providers).sort()).toEqual(['a', 'b', 'c']);
+    expect(Object.keys(config.providers).toSorted()).toEqual(['a', 'b', 'c']);
     expect(config.models?.['a/m1']).toBeDefined();
     expect(config.models?.['b/m1']).toBeDefined();
     expect(config.models?.['c/m1']).toBeDefined();

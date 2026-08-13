@@ -35,9 +35,13 @@ export interface SseMcpClientOptions {
 
 export class SseMcpClient implements MCPClient {
   private readonly client: Client;
-  private readonly transport: SSEClientTransport;
+  private readonly config: McpServerSseConfig;
+  private readonly envLookup: (name: string) => string | undefined;
+  private readonly fetchImpl: typeof fetch | undefined;
+  private readonly authProvider: OAuthClientProvider | undefined;
   private readonly startupTimeoutMs?: number;
   private readonly toolCallTimeoutMs?: number;
+  private transport: SSEClientTransport | undefined;
   private started = false;
   private closed = false;
   private ready = false;
@@ -48,20 +52,27 @@ export class SseMcpClient implements MCPClient {
   private unexpectedCloseFired = false;
 
   constructor(config: McpServerSseConfig, options: SseMcpClientOptions = {}) {
-    const envLookup = options.envLookup ?? ((name) => process.env[name]);
-    const headers = buildMcpRemoteHeaders(config, envLookup);
-
-    this.transport = new SSEClientTransport(new URL(config.url), {
-      requestInit: headers !== undefined ? { headers } : undefined,
-      fetch: createMcpOAuthFetch(options.oauthProvider, options.fetch),
-      authProvider: options.oauthProvider,
-    });
+    this.config = config;
+    this.envLookup = options.envLookup ?? ((name) => process.env[name]);
+    this.fetchImpl = options.fetch;
+    this.authProvider = options.oauthProvider;
     this.client = new Client({
       name: options.clientName ?? KIMI_MCP_CLIENT_NAME,
       version: options.clientVersion ?? KIMI_MCP_CLIENT_VERSION,
     });
     this.startupTimeoutMs = options.startupTimeoutMs;
     this.toolCallTimeoutMs = options.toolCallTimeoutMs;
+  }
+
+  private async ensureTransport(): Promise<SSEClientTransport> {
+    if (this.transport !== undefined) return this.transport;
+    const headers = await buildMcpRemoteHeaders(this.config, this.envLookup);
+    this.transport = new SSEClientTransport(new URL(this.config.url), {
+      requestInit: headers !== undefined ? { headers } : undefined,
+      fetch: createMcpOAuthFetch(this.authProvider, this.fetchImpl),
+      authProvider: this.authProvider,
+    });
+    return this.transport;
   }
 
   async connect(): Promise<void> {
@@ -72,7 +83,10 @@ export class SseMcpClient implements MCPClient {
     this.started = true;
     this.installTransportHooks();
     try {
-      await this.client.connect(this.transport, buildRequestOptions(this.startupTimeoutMs));
+      await this.client.connect(
+        await this.ensureTransport(),
+        buildRequestOptions(this.startupTimeoutMs),
+      );
     } catch (error) {
       await this.closeStartedClient();
       throw error;

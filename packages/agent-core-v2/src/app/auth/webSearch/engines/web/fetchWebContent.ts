@@ -94,8 +94,8 @@ export interface FetchWebContentResult {
 
 function normalizeText(text: string): string {
   return text
-    .replaceAll(/\r\n/g, '\n')
-    .replaceAll(/\u00A0/g, ' ')
+    .replaceAll('\r\n', '\n')
+    .replaceAll('\u00A0', ' ')
     .replaceAll(/[ \t]+\n/g, '\n')
     .replaceAll(/\n{3,}/g, '\n\n')
     .trim();
@@ -333,6 +333,7 @@ async function requestWithSafeRedirects(
           status: native.status,
           statusText: native.statusText,
           text: () => native.text(),
+          stream: () => native.body,
           header: (name: string) => native.headers.get(name),
         };
       } else {
@@ -383,6 +384,43 @@ function tooLargeError(bytes: number): Error2 {
   );
 }
 
+/**
+ * Read the response body as UTF-8 text while enforcing `MAX_DOWNLOAD_BYTES`
+ * incrementally: the stream is cancelled as soon as the cap is crossed, so an
+ * oversized payload is never buffered whole. Falls back to `text()` only when
+ * the response carries no readable stream.
+ */
+async function readBodyWithLimit(response: EngineHttpResponse): Promise<string> {
+  const body = response.stream();
+  if (body === null) {
+    const raw = await response.text();
+    const bytes = Buffer.byteLength(raw, 'utf8');
+    if (bytes > MAX_DOWNLOAD_BYTES) {
+      throw tooLargeError(bytes);
+    }
+    return raw;
+  }
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_DOWNLOAD_BYTES) {
+        throw tooLargeError(total);
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => {
+    });
+    throw error;
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 export async function fetchWebContent(
   url: string,
   options: FetchWebContentOptions = {},
@@ -403,7 +441,7 @@ export async function fetchWebContent(
     }
   }
 
-  let raw = await response.text();
+  let raw = await readBodyWithLimit(response);
   if (Buffer.byteLength(raw, 'utf8') > MAX_DOWNLOAD_BYTES) {
     throw tooLargeError(Buffer.byteLength(raw, 'utf8'));
   }

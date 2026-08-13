@@ -31,7 +31,7 @@ import {
   type KimiHostIdentity,
 } from '@moonshot-ai/kimi-code-oauth';
 import { createAsyncApiDocument } from './protocol/asyncapi';
-import { enableEnvelopeStackTraces } from './protocol/envelope';
+import { enableEnvelopeStackTraces, setExposeErrorDetails } from './protocol/envelope';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { installErrorHandler } from './error-handler';
@@ -344,6 +344,10 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   app.setValidatorCompiler(() => () => true);
   app.setSerializerCompiler(() => (data) => JSON.stringify(data));
   installErrorHandler(app);
+  // 50001 envelope messages keep the real failure text only on loopback binds;
+  // a non-loopback bind gets the fixed `internal error` text (the cause stays
+  // in the request log).
+  setExposeErrorDetails(exposureClass === 'loopback');
   const hostCheck = createHostCheck({
     boundHost: host,
     extra: [...parseAllowedHosts(process.env), ...(opts.allowedHosts ?? [])],
@@ -374,39 +378,45 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   }
 
   const close = async (): Promise<void> => {
-    await app.close();
-    configWarningSubscription.dispose();
-    authFailureLimiter?.dispose();
-    modelCatalogRefreshScheduler.dispose();
-    // Telemetry is best-effort and must never prevent core or instance cleanup.
     try {
-      await shutdownServerTelemetry(telemetry);
-    } catch (error) {
-      logger.warn(
-        { err: error instanceof Error ? error.message : String(error) },
-        'telemetry shutdown failed; continuing server cleanup',
-      );
-    }
-    try {
-      // Settle session metadata writes first: requests have stopped, and a
-      // queued write must land before the mirror flushes its summary and the
-      // scope disposal marks the service disposed.
-      await drainSessionMetadataWrites();
-      // Drain the session-index mirror while the query store is still open:
-      // requests have stopped, so no new summaries arrive and the queue just
-      // needs its final flush to land in the read model.
-      await core.accessor.get(ISessionIndexMirror).drain();
-      core.dispose();
-      // `core.dispose()` runs the mirror's, the search service's and the query
-      // store's synchronous `dispose()`, whose drains/closes are asynchronous —
-      // await them before releasing the instance registration (and before
-      // embedding hosts tear down homeDir).
-      await drainSessionIndexMirror();
-      await drainGlobalSearchDisposals();
-      await drainQueryStoreDisposals();
-      await drainSessionMetadataWrites();
+      await app.close();
     } finally {
-      await registration.release();
+      // `app.close()` must never block the teardown chain below: even when the
+      // listener or its onClose hooks throw, the registration release and the
+      // core scope disposal still run (a failed close is rethrown afterwards).
+      configWarningSubscription.dispose();
+      authFailureLimiter?.dispose();
+      modelCatalogRefreshScheduler.dispose();
+      // Telemetry is best-effort and must never prevent core or instance cleanup.
+      try {
+        await shutdownServerTelemetry(telemetry);
+      } catch (error) {
+        logger.warn(
+          { err: error instanceof Error ? error.message : String(error) },
+          'telemetry shutdown failed; continuing server cleanup',
+        );
+      }
+      try {
+        // Settle session metadata writes first: requests have stopped, and a
+        // queued write must land before the mirror flushes its summary and the
+        // scope disposal marks the service disposed.
+        await drainSessionMetadataWrites();
+        // Drain the session-index mirror while the query store is still open:
+        // requests have stopped, so no new summaries arrive and the queue just
+        // needs its final flush to land in the read model.
+        await core.accessor.get(ISessionIndexMirror).drain();
+        core.dispose();
+        // `core.dispose()` runs the mirror's, the search service's and the query
+        // store's synchronous `dispose()`, whose drains/closes are asynchronous —
+        // await them before releasing the instance registration (and before
+        // embedding hosts tear down homeDir).
+        await drainSessionIndexMirror();
+        await drainGlobalSearchDisposals();
+        await drainQueryStoreDisposals();
+        await drainSessionMetadataWrites();
+      } finally {
+        await registration.release();
+      }
     }
   };
 

@@ -204,7 +204,7 @@ export class MemoryTool implements IMemoryTool {
     }
 
     const lines = [t('toolsV2.memory.listHeader', { count: String(filtered.length) }) + '\n'];
-    const sorted = [...filtered].sort();
+    const sorted = [...filtered].toSorted();
     for (const p of sorted) {
       const entry = await this.store.get(p);
       if (entry) {
@@ -226,12 +226,18 @@ export class MemoryTool implements IMemoryTool {
       return { output: t('toolsV2.memory.notFound', { path }) };
     }
 
+    // Rebuild the on-disk path from the sanitized file name (same whitelist as
+    // handleWrite) so a crafted path cannot escape the memory root.
+    const fileName = sanitizeFileName(entry.path.split('/').pop() ?? '');
+    if (fileName === undefined) {
+      return { output: t('toolsV2.memory.invalidFilename', { path: args.path }), isError: true };
+    }
+
     // Delete from disk.
     const { unlink } = await import('node:fs/promises');
     const { join: joinPath } = await import('pathe');
-    const homeDir = this.sessionContext.sessionDir
-      .replace(/\/sessions\/.*$/, '');
-    const fullPath = joinPath(memoryDir(homeDir), path);
+    const homeDir = this.sessionContext.sessionDir.split(/[\\/]sessions[\\/]/)[0]!;
+    const fullPath = joinPath(scopeDir(memoryDir(homeDir), entry.scope, entry.scopeId), fileName);
     try {
       await unlink(fullPath);
     } catch {

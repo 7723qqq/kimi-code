@@ -71,8 +71,9 @@ import {
 } from '#/kosong/protocol/protocol';
 
 import { CONFIG_INVALID_ERROR_CODE } from '#/kosong/contract/errors';
+import type {
+  LATEST_OPUS_PROFILE} from '../provider/bases/anthropic/anthropic-profile';
 import {
-  LATEST_OPUS_PROFILE,
   matchKnownAnthropicModelProfile,
   matchUnknownClaudeProfile,
 } from '../provider/bases/anthropic/anthropic-profile';
@@ -132,6 +133,10 @@ interface CatalogEntry {
   readonly requester: ModelRequester;
   readonly trace: ResolutionTraceCollector;
 }
+
+// Connectivity-probe deadline: a ping that outlives this is reported as
+// `ok: false` — a hung wire must not block the caller indefinitely.
+const PING_TIMEOUT_MS = 20_000;
 
 // NOTE: stays Disposable — its own 'get' collides with the Fiber
 export class ModelCatalog extends Disposable implements IModelCatalog {
@@ -195,6 +200,8 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
   async ping(id: string): Promise<ModelPingResult> {
     const { requester } = this.entry(id);
     const startedAt = Date.now();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS);
     try {
       let text = '';
       let usage: TokenUsage | undefined;
@@ -205,7 +212,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
           tools: [],
           messages: [{ role: 'user', content: [{ type: 'text', text: 'ping' }], toolCalls: [] }],
         },
-        undefined,
+        controller.signal,
         { maxCompletionTokens: 512 },
       )) {
         if (event.type === 'part' && event.part.type === 'text') {
@@ -221,8 +228,15 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
       return {
         ok: false,
         durationMs: Date.now() - startedAt,
-        error: error instanceof Error ? error.message : String(error),
+        error:
+          controller.signal.aborted
+            ? `ping timed out after ${PING_TIMEOUT_MS}ms`
+            : error instanceof Error
+              ? error.message
+              : String(error),
       };
+    } finally {
+      clearTimeout(timer);
     }
   }
 

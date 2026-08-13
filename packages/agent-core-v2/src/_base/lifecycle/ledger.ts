@@ -174,7 +174,7 @@ export class Ledger {
         return !record.active;
       },
       dispose: (reason: TeardownReason = 'scope-close') => {
-        if (!record.active) return undefined;
+        if (!record.active) return;
         record.active = false;
         this._remove(record);
         return runGuarded(record, reason);
@@ -224,8 +224,9 @@ function runGuarded(record: EntryRecord, reason: TeardownReason): void | Promise
 
 function tagged(error: unknown, label: string): unknown {
   if (error instanceof Error) {
-    error.message = `[ledger:${label}] ${error.message}`;
-    return error;
+    const wrapped = new Error(`[ledger:${label}] ${error.message}`, { cause: error });
+    wrapped.name = error.name;
+    return wrapped;
   }
   return new Error(`[ledger:${label}] ${String(error)}`);
 }

@@ -265,5 +265,4 @@ export const AGENT_PANELS: readonly ServicePanelDef[] = [
       { label: 'exit', run: (svc) => call(svc, 'exit') },
     ],
   },
-
 ];

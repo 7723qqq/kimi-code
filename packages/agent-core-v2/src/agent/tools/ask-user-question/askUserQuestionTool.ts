@@ -19,10 +19,11 @@
  * register" pattern used by every agent tool. Bound at Agent scope.
  */
 
-import { z } from 'zod';
+import type { z } from 'zod';
 
 import { CoreErrors } from '#/_base/errors/codes';
 import { Error2 } from '#/_base/errors/errors';
+import { ILogService } from '#/_base/log/log';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { isAbortError } from '#/_base/utils/abort';
 import { IAgentTaskService } from '#/agent/task/task';
@@ -70,6 +71,7 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
+    @ILogService private readonly log: ILogService,
   ) {
     this.description = `${DESCRIPTION}- Set background=true when you can keep working without the answer. This starts a background question task and returns a task_id immediately. The answer arrives automatically in a later turn — you do not need to poll, sleep, or check on it. Continue with other work; never fabricate or predict the answer.`;
     this.parameters = toInputJsonSchema(this.inputSchema());
@@ -208,7 +210,13 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
         };
       }
 
-      return dismissedQuestionResult();
+      // Only an explicit dismissal (a `null` question result) maps to
+      // `dismissed`; any other failure must surface to the model as an error.
+      this.log.warn('question request failed', { toolCallId, error });
+      return {
+        isError: true,
+        output: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 }

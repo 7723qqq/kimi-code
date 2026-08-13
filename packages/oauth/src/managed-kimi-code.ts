@@ -6,7 +6,7 @@ import { OAuthUnauthorizedError } from './errors';
 import { parseKimiCodeCustomHeaders } from './identity';
 import { DEFAULT_KIMI_CODE_BASE_URL, kimiCodeBaseUrl } from './managed-usage';
 import { MANAGED_KIMI_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
-import { isRecord } from './utils';
+import { isRecord, MAX_HTTP_RESPONSE_BYTES, readResponseBodyWithLimit } from './utils';
 
 export const KIMI_CODE_PLATFORM_ID = 'kimi-code';
 export const KIMI_CODE_PROVIDER_NAME = 'managed:kimi-code';
@@ -312,9 +312,9 @@ export function kimiCodeEnvOAuthHost(env: ManagedKimiEnv = process.env): string 
 }
 
 // Base URLs that share the default `oauth/kimi-code` credential slot.
-const SHARED_DEFAULT_BASE_URLS: readonly string[] = [
+const SHARED_DEFAULT_BASE_URLS: readonly string[] = new Set([
   normalizeEndpoint(DEFAULT_KIMI_CODE_BASE_URL),
-];
+]);
 
 export function resolveKimiCodeOAuthKey(options: {
   readonly oauthHost?: string | undefined;
@@ -324,7 +324,7 @@ export function resolveKimiCodeOAuthKey(options: {
   const baseUrl = defaultBaseUrl(options.baseUrl);
   const defaultOauthHost = normalizeEndpoint(DEFAULT_KIMI_CODE_OAUTH_HOST);
 
-  if (oauthHost === defaultOauthHost && SHARED_DEFAULT_BASE_URLS.includes(baseUrl)) {
+  if (oauthHost === defaultOauthHost && SHARED_DEFAULT_BASE_URLS.has(baseUrl)) {
     return KIMI_CODE_OAUTH_KEY;
   }
 
@@ -496,6 +496,7 @@ export async function fetchManagedKimiCodeModels(
       Authorization: `Bearer ${options.accessToken}`,
       Accept: 'application/json',
     },
+    signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) {
     const message = await readApiErrorMessage(
@@ -512,7 +513,9 @@ export async function fetchManagedKimiCodeModels(
     }
     throw new Error(message);
   }
-  const payload: unknown = await response.json();
+  const payload: unknown = JSON.parse(
+    await readResponseBodyWithLimit(response, MAX_HTTP_RESPONSE_BYTES),
+  );
   if (!isRecord(payload) || !Array.isArray(payload['data'])) {
     throw new Error(`Unexpected models response for ${baseUrl}.`);
   }

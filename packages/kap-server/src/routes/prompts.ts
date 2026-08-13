@@ -48,7 +48,7 @@ import {
 } from '../protocol/rest-prompt';
 import { z } from 'zod';
 
-import { errEnvelope, okEnvelope } from '../envelope';
+import { errEnvelope, internalErrorEnvelope, okEnvelope } from '../envelope';
 import {
   assertPromptFileRefs,
   contentToCoreParts,
@@ -521,14 +521,7 @@ function sendMappedError(
     }
   }
   log?.error({ err }, 'prompt request failed');
-  reply.send(
-    errEnvelope(
-      ErrorCode.INTERNAL_ERROR,
-      err instanceof Error ? err.message : String(err),
-      requestId,
-      err instanceof Error ? err.stack : undefined,
-    ),
-  );
+  reply.send(internalErrorEnvelope(err, requestId));
 }
 
 function authProviderDetails(err: Error2): { provider_id: string } | undefined {

@@ -8,7 +8,7 @@
  * namespaces.
  */
 
-import { escapeXmlAttr } from '#/_base/utils/xml-escape';
+import { escapeXml, escapeXmlAttr } from '#/_base/utils/xml-escape';
 
 export function renderNotificationXml(data: Record<string, unknown>): string {
   const id = stringAttr(data['id'], 'unknown');
@@ -26,9 +26,9 @@ export function renderNotificationXml(data: Record<string, unknown>): string {
   const lines: string[] = [
     `<notification id="${id}" category="${category}" type="${type}" source_kind="${sourceKind}" source_id="${sourceId}"${agentIdAttr}>`,
   ];
-  if (title.length > 0) lines.push(`Title: ${title}`);
-  if (severity.length > 0) lines.push(`Severity: ${severity}`);
-  if (body.length > 0) lines.push(body);
+  if (title.length > 0) lines.push(`Title: ${escapeXml(title)}`);
+  if (severity.length > 0) lines.push(`Severity: ${escapeXml(severity)}`);
+  if (body.length > 0) lines.push(escapeXml(body));
   lines.push(...children);
 
   lines.push('</notification>');

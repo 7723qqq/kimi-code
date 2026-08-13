@@ -23,7 +23,7 @@ import { messageRoleSchema } from '../protocol/message';
 import { getMessageResponseSchema, listMessagesResponseSchema } from '../protocol/rest-message';
 import { z } from 'zod';
 
-import { errEnvelope, okEnvelope } from '../envelope';
+import { errEnvelope, internalErrorEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
 import {
@@ -105,8 +105,8 @@ export function registerMessagesRoutes(app: MessageRouteHost, core: Scope): void
         const { session_id } = req.params;
         const page = await listMessages(core, session_id, req.query);
         reply.send(okEnvelope(page, req.id));
-      } catch (err) {
-        sendMappedError(reply, req, err);
+      } catch (error) {
+        sendMappedError(reply, req, error);
       }
     },
   );
@@ -136,8 +136,8 @@ export function registerMessagesRoutes(app: MessageRouteHost, core: Scope): void
         const { session_id, message_id } = req.params;
         const message = await getMessage(core, session_id, message_id);
         reply.send(okEnvelope(message, req.id));
-      } catch (err) {
-        sendMappedError(reply, req, err);
+      } catch (error) {
+        sendMappedError(reply, req, error);
       }
     },
   );
@@ -170,7 +170,5 @@ function sendMappedError(
     return;
   }
   log?.error({ err }, 'message request failed');
-  reply.send(
-    errEnvelope(ErrorCode.INTERNAL_ERROR, err instanceof Error ? err.message : String(err), requestId, err instanceof Error ? err.stack : undefined),
-  );
+  reply.send(internalErrorEnvelope(err, requestId));
 }

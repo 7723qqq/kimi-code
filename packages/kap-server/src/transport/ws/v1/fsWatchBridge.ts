@@ -232,6 +232,8 @@ export class FsWatchBridge {
   private onSessionEvent(sessionId: string, ev: FsChangeEvent): void {
     const sw = this.bySession.get(sessionId);
     if (sw === undefined) return;
+    sw.seq += 1;
+    const seq = sw.seq;
     for (const { conn, paths } of sw.conns.values()) {
       let changes: FsChangeEntry[];
       if (ev.truncated === true) {
@@ -240,10 +242,9 @@ export class FsWatchBridge {
         changes = ev.changes.filter((c) => isUnderAny(c.path, paths));
         if (changes.length === 0) continue;
       }
-      sw.seq += 1;
       const frame: FsChangedFrame = {
         type: 'event.fs.changed',
-        seq: sw.seq,
+        seq,
         session_id: sessionId,
         timestamp: new Date().toISOString(),
         payload: {

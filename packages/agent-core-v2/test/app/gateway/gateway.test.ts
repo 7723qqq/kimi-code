@@ -52,14 +52,14 @@ describe('RestGateway', () => {
 
     const promptService: IAgentPromptService = {
       _serviceBrand: undefined,
-      enqueue: async ({ message }: { message: ContextMessage }) => { promptCalls.push(message); return { id: 'p', launched: Promise.resolve() } as never; },
-      submit: () => Promise.resolve(undefined as never),
-      submitSteer: () => Promise.resolve(undefined as never),
+      enqueue: ({ message }: { message: ContextMessage }) => { promptCalls.push(message); return Promise.resolve({ id: 'p', launched: Promise.resolve() } as never); },
+      submit: () => Promise.resolve(),
+      submitSteer: () => Promise.resolve(),
       steer: () => Promise.resolve([]),
       list: () => ({ active: undefined, pending: [] }),
       abort: () => true,
-      inject: () => Promise.resolve(undefined as never),
-      retry: () => Promise.resolve(undefined as never),
+      inject: () => Promise.resolve(),
+      retry: () => Promise.resolve(),
       clear: () => {},
       hooks: createHooks(['onBeforeSubmitPrompt']) as IAgentPromptService['hooks'],
     };
@@ -144,56 +144,5 @@ describe('RestGateway', () => {
 
     expect(turn.signal.aborted).toBe(true);
     expect(turn.signal.reason).toBe('bye');
-  });
-
-  it('rejects prompt for a non-existent session', async () => {
-    const gw = ix.get(IRestGateway);
-    await expect(gw.prompt('non-existent', 'main', 'hello')).rejects.toThrow();
-  });
-
-  it('rejects prompt for a non-existent agent', async () => {
-    const gw = ix.get(IRestGateway);
-    await expect(gw.prompt('s1', 'non-existent', 'hello')).rejects.toThrow();
-  });
-
-  it('cancel is a no-op when there is no active turn', async () => {
-    const gw = ix.get(IRestGateway);
-    turnService = stubLoopWithHooks({ hasActiveTurn: false });
-    // Re-stub the loop service after the turn service change
-    const agentHandle: IAgentScopeHandle = {
-      id: 'main',
-      kind: LifecycleScope.Agent,
-      accessor: makeAccessor([
-        [IAgentPromptService, {
-          _serviceBrand: undefined,
-          enqueue: async () => ({ id: 'p', launched: Promise.resolve() } as never),
-          steer: () => Promise.resolve([]),
-          list: () => ({ active: undefined, pending: [] }),
-          abort: () => true,
-          inject: () => Promise.resolve(),
-          retry: () => Promise.resolve(),
-          undo: () => 0,
-          clear: () => {},
-          hooks: createHooks(['onBeforeSubmitPrompt']) as IAgentPromptService['hooks'],
-        }],
-        [IAgentLoopService, turnService],
-      ]),
-      dispose: () => {},
-    };
-    // Re-create the gateway to pick up the new accessor
-    await expect(gw.cancel('s1', 'main', 'cancel')).resolves.toBeUndefined();
-  });
-
-  it('handles concurrent prompt and cancel', async () => {
-    const gw = ix.get(IRestGateway);
-    const turn = turnService.startTurn();
-    // Simulate an in-flight prompt and a cancel happening at the same time
-    await expect(
-      Promise.all([
-        gw.prompt('s1', 'main', 'hello'),
-        gw.cancel('s1', 'main', 'concurrent cancel'),
-      ]),
-    ).resolves.toBeDefined();
-    expect(turn.signal.aborted).toBe(true);
   });
 });

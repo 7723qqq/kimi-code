@@ -230,9 +230,10 @@ export class PluginManager {
     const key = normalizePluginId(id);
     const record = this.records.get(key);
     if (record === undefined) throw pluginNotFound(id);
+    await assertManagedPluginRoot(record.root, this.kimiHomeDir);
     const next = new Map(this.records);
     next.delete(key);
-    await rm(record.root, { recursive: true, force: true }).catch(() => {});
+    await rm(record.root, { recursive: true, force: true });
     await this.persist(next);
     this.records = next;
   }
@@ -540,6 +541,28 @@ async function normalizeInstallRoot(rootPath: string): Promise<string> {
     });
   }
   return resolved;
+}
+
+/**
+ * Refuse to remove a plugin whose (realpath) root is outside the managed
+ * plugin directory — a tampered `installed.json` must not be able to delete
+ * arbitrary directories. A root that no longer exists is fine (nothing to
+ * delete); a root outside the managed tree is rejected.
+ */
+async function assertManagedPluginRoot(root: string, kimiHomeDir: string): Promise<void> {
+  const managedDir = path.join(kimiHomeDir, 'plugins', 'managed');
+  let rootReal: string;
+  try {
+    rootReal = await realpath(root);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+  if (!rootReal.startsWith(`${managedDir}${path.sep}`)) {
+    throw new BugIndicatingError(
+      `Refusing to remove plugin root outside the managed directory: ${rootReal}`,
+    );
+  }
 }
 
 async function copyPluginToManagedRoot(

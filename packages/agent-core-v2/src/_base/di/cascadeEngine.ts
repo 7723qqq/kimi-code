@@ -392,7 +392,7 @@ export class CascadeEngine {
     const unit = this._units.get(token);
     if (unit !== undefined && unit.state === 'Pending') {
       unit.everActive = true;
-      this._setUnitState(token, unit, 'Active', undefined);
+      this._setUnitState(token, unit, 'Active');
     }
   }
 
@@ -425,7 +425,7 @@ export class CascadeEngine {
     if (this._disposed || !this._host.isMaterialized(token)) {
       return undefined;
     }
-    this._setUnitState(token, this._unitFor(token), 'Unloading', undefined);
+    this._setUnitState(token, this._unitFor(token), 'Unloading');
     const out = this._host.retire(token);
     tornDown.push(this._label({ scope: this._scope, token }));
     if (parkAsPending) {
@@ -454,7 +454,7 @@ export class CascadeEngine {
           this._host.applyProvideInstance(change.token, change.instance, change.config);
           const unit = this._unitFor(change.token);
           unit.everActive = true;
-          this._setUnitState(change.token, unit, 'Active', undefined);
+          this._setUnitState(change.token, unit, 'Active');
         }
         break;
       case 'unprovide':
@@ -564,18 +564,30 @@ export class CascadeEngine {
       return { waited: false, timedOut: false };
     }
     const waitMs = this._options.abortWaitMs ?? DEFAULT_ABORT_WAIT_MS;
-    return Promise.race([
+    return new Promise<{ waited: boolean; timedOut: boolean }>((resolve) => {
+      let settled = false;
+      const finish = (outcome: { waited: boolean; timedOut: boolean }): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve(outcome);
+      };
+      const timer = setTimeout(() => {
+        finish({ waited: true, timedOut: true });
+      }, waitMs);
       Promise.resolve(out).then(
-        () => ({ waited: true, timedOut: false }),
-        (error: unknown) => {
-          onUnexpectedError(error);
-          return { waited: true, timedOut: false };
+        () => {
+          clearTimeout(timer);
+          return finish({ waited: true, timedOut: false });
         },
-      ),
-      new Promise<{ waited: boolean; timedOut: boolean }>((resolve) => {
-        setTimeout(() => { resolve({ waited: true, timedOut: true }); }, waitMs);
-      }),
-    ]);
+        (error: unknown) => {
+          clearTimeout(timer);
+          onUnexpectedError(error);
+          return finish({ waited: true, timedOut: false });
+        },
+      );
+    });
   }
 
   private _applyTransaction(
@@ -605,7 +617,33 @@ export class CascadeEngine {
         );
         const out = owner._teardownForCascade(ref.token, tornDown, !removed);
         if (isPromiseLike(out)) {
-          return Promise.resolve(out).then(step);
+          const timeoutMs = this._options.resolveTimeoutMs ?? DEFAULT_RESOLVE_TIMEOUT_MS;
+          return new Promise<void>((resolve, reject) => {
+            let settled = false;
+            const finish = (): void => {
+              if (settled) {
+                return;
+              }
+              settled = true;
+              resolve();
+            };
+            const timer = setTimeout(() => {
+              onUnexpectedError(
+                new Error(`teardown of '${this._label(ref)}' timed out after ${timeoutMs}ms`),
+              );
+              finish();
+            }, timeoutMs);
+            Promise.resolve(out).then(
+              () => {
+                clearTimeout(timer);
+                return finish();
+              },
+              (error: unknown) => {
+                clearTimeout(timer);
+                return reject(error);
+              },
+            );
+          }).then(step);
         }
       }
       return undefined;
@@ -617,7 +655,7 @@ export class CascadeEngine {
       }
       const enginesInOrder = [...this._tree.engines]
         .filter((engine) => !engine._disposed)
-        .sort((a, b) => a._scope.cascadeDepth - b._scope.cascadeDepth);
+        .toSorted((a, b) => a._scope.cascadeDepth - b._scope.cascadeDepth);
       for (;;) {
         let progress = false;
         for (const engine of enginesInOrder) {
@@ -694,7 +732,7 @@ export class CascadeEngine {
     everActive?: boolean,
   ): void {
     const unit = this._unitFor(token);
-    this._setUnitState(token, unit, 'Pending', undefined);
+    this._setUnitState(token, unit, 'Pending');
     if (activation !== undefined) {
       unit.activation = activation;
     }
@@ -741,7 +779,7 @@ export class CascadeEngine {
           this._host.isMaterialized(token)
         ) {
           unit.everActive = true;
-          this._setUnitState(token, unit, 'Active', undefined);
+          this._setUnitState(token, unit, 'Active');
         }
       }
     }
@@ -750,11 +788,11 @@ export class CascadeEngine {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _activate(token: ServiceIdentifier<any>, rebuilt: string[], failed: string[]): void {
     const unit = this._unitFor(token);
-    this._setUnitState(token, unit, 'Activating', undefined);
+    this._setUnitState(token, unit, 'Activating');
     try {
       this._host.materialize(token);
       unit.everActive = true;
-      this._setUnitState(token, unit, 'Active', undefined);
+      this._setUnitState(token, unit, 'Active');
       rebuilt.push(this._label({ scope: this._scope, token }));
     } catch (error) {
       this._setUnitState(token, unit, 'Failed', error);

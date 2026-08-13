@@ -76,6 +76,7 @@ async function fetchDuckDuckGoText(
         status: native.status,
         statusText: native.statusText,
         text: () => native.text(),
+        stream: () => native.body,
         header: (name: string) => native.headers.get(name),
       };
     } else {

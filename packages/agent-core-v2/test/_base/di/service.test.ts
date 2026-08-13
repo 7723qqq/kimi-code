@@ -14,6 +14,7 @@ import { createDecorator, ref, type LiveRef } from '#/_base/di/instantiation';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import { Service } from '#/_base/di/service';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
+import type { Ledger } from '#/_base/lifecycle/ledger';
 
 interface IFoo {
   tag: string;
@@ -46,12 +47,12 @@ describe('Service — kernel construction protocol (L3)', () => {
         super();
         this.effect(() => {
           order.push('effect-a');
-          return undefined;
+          return;
         });
         this.provide(IFoo, Foo);
         this.effect(() => {
           order.push('effect-b');
-          return undefined;
+          return;
         });
       }
     }
@@ -91,7 +92,7 @@ describe('Service — kernel construction protocol (L3)', () => {
     class Unit extends Service {}
     const unit = new Unit();
     expect(() => unit.provide(IFoo, Foo)).toThrow(/no unit runtime/);
-    expect(() => unit.effect(() => undefined)).toThrow(/no unit runtime/);
+    expect(() => unit.effect(() => {})).toThrow(/no unit runtime/);
     expect(() => unit.on('x', () => {})).toThrow(/no unit runtime/);
     expect(() => unit.get(IFoo)).toThrow(/no unit runtime/);
     expect(() => unit.ref(IFoo)).toThrow(/no unit runtime/);
@@ -105,7 +106,7 @@ describe('Service — kernel construction protocol (L3)', () => {
     const ix = new InstantiationService(new ServiceCollection(), true);
     ix.provide(IBar, new SyncDescriptor(Outer));
     const outer = ix.invokeFunction((a) => a.get(IBar)) as unknown as Outer;
-    expect(() => outer.inner.effect(() => undefined)).toThrow(/no unit runtime/);
+    expect(() => outer.inner.effect(() => {})).toThrow(/no unit runtime/);
     ix.dispose();
   });
 
@@ -199,6 +200,36 @@ describe('Service — kernel construction protocol (L3)', () => {
     expect(consumer.fooRef.current?.tag).toBe('foo');
     provideHandle.dispose();
     expect(consumer.disposed).toBe(false);
+    ix.dispose();
+  });
+
+  it('releases a live @ref observation with its owning unit, not the container', () => {
+    class Consumer extends Service {
+      constructor(@ref(IFoo) public readonly fooRef: LiveRef<IFoo>) {
+        super();
+      }
+    }
+    const ix = new InstantiationService(new ServiceCollection(), true);
+    ix.provide(IBar, new SyncDescriptor(Consumer));
+    const consumer = ix.invokeFunction((a) => a.get(IBar)) as unknown as Consumer;
+    let changes = 0;
+    consumer.fooRef.onDidChange(() => { changes += 1; });
+
+    // The subscriptions anchor to the instance's own book; the container
+    // ledger no longer holds the ref entry.
+    expect(ix.ledger.entries().some((entry) => entry.label.startsWith('ref:'))).toBe(false);
+    const unitBook = (consumer as unknown as { unitBook: Ledger }).unitBook;
+    expect(unitBook.entries().map((entry) => entry.label)).toContain('ref:service-foo');
+
+    ix.provide(IFoo, new SyncDescriptor(Foo));
+    expect(changes).toBe(1);
+
+    // Disposing the unit tears the observation down with it: a later provide
+    // of the observed token no longer reaches the dead ref.
+    ix.unprovide(IBar);
+    expect(unitBook.state).toBe('disposed');
+    ix.provide(IFoo, new SyncDescriptor(Foo));
+    expect(changes).toBe(1);
     ix.dispose();
   });
 

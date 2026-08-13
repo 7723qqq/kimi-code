@@ -8,9 +8,10 @@
  * Query values are stringified and `null`/`undefined` entries dropped, the
  * rate limit is read from the `x-ratelimit-remaining` response header, and
  * non-2xx responses normalize to `GitHub API error <status>` with the raw
- * body preserved for the caller to surface. The `fetchImpl` / `getEnv`
- * dependencies are injectable so tests can mock the network and the
- * environment. Pure helper; no scoped service.
+ * body preserved for the caller to surface. Response bodies are capped at
+ * 5 MiB — oversized responses fail with an explicit error instead of being
+ * buffered. The `fetchImpl` / `getEnv` dependencies are injectable so tests
+ * can mock the network and the environment. Pure helper; no scoped service.
  */
 
 import { createDeadlineAbortSignal } from '#/_base/utils/abort';
@@ -20,6 +21,7 @@ export const GITHUB_API_VERSION = '2022-11-28';
 export const GITHUB_USER_AGENT = 'kimi-code';
 export const GITHUB_DEFAULT_ACCEPT = 'application/vnd.github+json';
 export const GITHUB_REQUEST_TIMEOUT_MS = 30_000;
+export const GITHUB_MAX_RESPONSE_BODY_BYTES = 5 * 1024 * 1024;
 
 export const GITHUB_NO_TOKEN_ERROR =
   'No GitHub token found. Set the GITHUB_TOKEN (or GH_TOKEN) environment variable.';
@@ -94,8 +96,17 @@ export async function githubRequest(
       }
       throw error;
     }
-    const bodyText = await response.text();
     const rateRemaining = parseRateLimitRemaining(response.headers.get('x-ratelimit-remaining'));
+    const bodyText = await readResponseBody(response, GITHUB_MAX_RESPONSE_BODY_BYTES);
+    if (bodyText === undefined) {
+      return {
+        status: response.status,
+        ok: false,
+        body: '',
+        error: `GitHub API response exceeds the ${String(GITHUB_MAX_RESPONSE_BODY_BYTES)} byte limit`,
+        rateRemaining,
+      };
+    }
     if (!response.ok) {
       return {
         status: response.status,
@@ -151,4 +162,29 @@ function parseRateLimitRemaining(raw: string | null): number | undefined {
   if (raw === null) return undefined;
   const parsed = Number(raw);
   return Number.isInteger(parsed) ? parsed : undefined;
+}
+
+/**
+ * Read the full response body, bailing out once it exceeds `maxBytes`
+ * (`Content-Length` when present, enforced while streaming otherwise).
+ * Returns `undefined` when the body exceeds the limit.
+ */
+async function readResponseBody(response: Response, maxBytes: number): Promise<string | undefined> {
+  const contentLength = response.headers.get('content-length');
+  if (contentLength !== null && Number(contentLength) > maxBytes) return undefined;
+  if (response.body === null) return '';
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > maxBytes) {
+      await reader.cancel();
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }

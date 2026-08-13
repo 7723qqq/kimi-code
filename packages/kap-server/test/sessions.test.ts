@@ -1366,11 +1366,8 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(submitted.body.code).toBe(0);
     sub.dispose();
 
-    const got = await vi.waitFor(async () => {
-      const res = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
-      expect(res.body.code).toBe(0);
-      return res;
-    });
+    const got = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
+    expect(got.body.code).toBe(0);
     expect(got.body.data.title).toBe('hello web title');
 
     const meta = events.find((e) => e.type === 'session.meta.updated');

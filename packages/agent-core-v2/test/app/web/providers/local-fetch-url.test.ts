@@ -341,4 +341,27 @@ describe('LocalFetchURLProvider connection pinning', () => {
     const dispatcher = (fetchImpl.mock.calls[0]![1] as RequestInit).dispatcher;
     expect(asUndiciAgent(dispatcher).closed).toBe(true);
   });
+
+  it('rejects a body exceeding maxBytes mid-stream when no content-length is sent', async () => {
+    vi.stubEnv('http_proxy', 'http://proxy.example:8080');
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(2048));
+        controller.close();
+      },
+    });
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(stream, {
+          status: 200,
+          headers: { 'content-type': 'text/plain' },
+        }),
+    );
+    const provider = new LocalFetchURLProvider({ fetchImpl, maxBytes: 1024 });
+
+    await expect(provider.fetch('https://example.com/')).rejects.toThrow(
+      'Response body too large',
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
 });

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiHarness, ImageLimits, KimiHarness, SDKRpcClientBase } from '#/index';
+import { createKimiHarness, ImageLimits, KimiHarness, SDKRpcClientBase, type SessionSummary } from '#/index';
 
 import { removeTempDirs } from './session-runtime-helpers';
 import { recordingTelemetry } from './telemetry';
@@ -35,8 +35,8 @@ function makeHarnessWithRpc(rpc: SDKRpcClientBase): KimiHarness {
     configPath: '/tmp/config.toml',
     auth: { status: async () => ({ providers: [] }) } as never,
     telemetry: recordingTelemetry([]),
-    ensureConfigFile: async () => undefined,
-    onClose: () => undefined,
+    ensureConfigFile: async () => {},
+    onClose: () => {},
   });
 }
 
@@ -131,12 +131,65 @@ read_byte_budget = 65536
       configPath: '/tmp/config.toml',
       auth: { status: async () => ({ providers: [] }) } as never,
       telemetry: recordingTelemetry([]),
-      ensureConfigFile: async () => undefined,
-      onClose: () => undefined,
+      ensureConfigFile: async () => {},
+      onClose: () => {},
       imageLimits: limits,
     });
 
     expect(harness.imageLimits).toBe(limits);
     expect(harness.imageLimits?.maxEdgePx()).toBe(900);
+  });
+});
+
+describe('KimiHarness close', () => {
+  it('is idempotent and runs the engine teardown exactly once', async () => {
+    let teardowns = 0;
+    const harness = new KimiHarness(new StubRpc(), {
+      homeDir: '/tmp/home',
+      configPath: '/tmp/config.toml',
+      auth: { status: async () => ({ providers: [] }) } as never,
+      telemetry: recordingTelemetry([]),
+      ensureConfigFile: async () => {},
+      onClose: () => {
+        teardowns += 1;
+      },
+    });
+
+    await harness.close();
+    await harness.close();
+
+    expect(teardowns).toBe(1);
+  });
+
+  it('a failing session close does not block engine teardown', async () => {
+    class FailingSessionRpc extends StubRpc {
+      async createSession(): Promise<SessionSummary> {
+        return {
+          id: 's1',
+          workDir: '/tmp/home',
+          sessionDir: '/tmp/home/.kimi/sessions/s1',
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      }
+      async closeSession(): Promise<void> {
+        throw new Error('session close failed');
+      }
+    }
+    let teardowns = 0;
+    const harness = new KimiHarness(new FailingSessionRpc(), {
+      homeDir: '/tmp/home',
+      configPath: '/tmp/config.toml',
+      auth: { status: async () => ({ providers: [] }) } as never,
+      telemetry: recordingTelemetry([]),
+      ensureConfigFile: async () => {},
+      onClose: () => {
+        teardowns += 1;
+      },
+    });
+
+    await harness.createSession({ workDir: '/tmp/home' });
+    await expect(harness.close()).resolves.toBeUndefined();
+    expect(teardowns).toBe(1);
   });
 });

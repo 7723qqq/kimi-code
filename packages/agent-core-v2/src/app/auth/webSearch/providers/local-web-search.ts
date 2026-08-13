@@ -110,6 +110,14 @@ export class LocalWebSearchProvider implements WebSearchProvider {
         const results = await executor(query, this.limit, { signal, fetchImpl: this.fetchImpl });
         if (results.length > 0) return results;
       } catch (error) {
+        // Abort is a caller decision, not an engine failure: propagate it
+        // immediately instead of falling through to the remaining engines.
+        if (
+          signal?.aborted === true ||
+          (error instanceof Error && error.name === 'AbortError')
+        ) {
+          throw error;
+        }
         failures.push(`${engine}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }

@@ -36,6 +36,7 @@ import { type IDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { IEventBus } from '#/app/event/eventBus';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { isToolActive } from '#/agent/toolPolicy/evaluate';
@@ -61,7 +62,7 @@ export class AgentToolActivationService extends Service implements IAgentToolAct
     super();
     this._register(
       eventBus.subscribe('agent.status.updated', () => {
-        void this.activate();
+        void this.activate().catch(onUnexpectedError);
       }),
     );
     this._register(
@@ -86,19 +87,25 @@ export class AgentToolActivationService extends Service implements IAgentToolAct
     const workspaceVeto = { disallowedTools: this.toolPolicyGate.disabledTools };
     this.instantiationService.invokeFunction((accessor) => {
       for (const record of records) {
-        const { id, options } = record;
-        const source = options.source ?? 'builtin';
-        if (this.toolRegistry.resolve(options.name) !== undefined) continue;
-        if (!isToolActive(workspaceVeto, options.name, source)) continue;
-        if (!isToolActive(policy, options.name, source)) continue;
-        if (options.when !== undefined && !options.when(accessor)) continue;
-        const tool = accessor.get(id);
-        const registration = this.toolRegistry.register(tool, {
-          source: options.source,
-          disclosure: options.disclosure,
-        });
-        this.registrations.set(record, registration);
-        this._register(registration);
+        try {
+          const { id, options } = record;
+          const source = options.source ?? 'builtin';
+          if (this.toolRegistry.resolve(options.name) !== undefined) continue;
+          if (!isToolActive(workspaceVeto, options.name, source)) continue;
+          if (!isToolActive(policy, options.name, source)) continue;
+          if (options.when !== undefined && !options.when(accessor)) continue;
+          const tool = accessor.get(id);
+          const registration = this.toolRegistry.register(tool, {
+            source: options.source,
+            disclosure: options.disclosure,
+          });
+          this.registrations.set(record, registration);
+          this._register(registration);
+        } catch (error) {
+          // A failing contribution must not block the rest of the fold:
+          // skip the tool and surface the failure.
+          onUnexpectedError(error);
+        }
       }
     });
   }

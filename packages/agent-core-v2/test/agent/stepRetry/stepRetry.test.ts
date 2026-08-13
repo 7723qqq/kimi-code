@@ -4,6 +4,8 @@ import {
   APIConnectionError,
   APIProviderRateLimitError,
   APIStatusError,
+  ChatProviderError,
+  VideoUploadUnsupportedError,
 } from '#/kosong/contract/errors';
 import { emptyUsage } from '#/kosong/contract/usage';
 import { IEventBus } from '#/app/event/eventBus';
@@ -177,6 +179,78 @@ describe('stepRetry plugin', () => {
     expect(result.type).toBe('failed');
     expect(calls).toBe(1);
     expect(rpcEvents('turn.step.retrying')).toEqual([]);
+  });
+
+  it('retries a bare ChatProviderError as a transient fallback', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    ctx = createTestAgent(
+      llmGenerateServices(async () => {
+        calls += 1;
+        if (calls === 1) throw new ChatProviderError('upstream failure');
+        return {
+          id: 'fallback-response',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'recovered' }],
+            toolCalls: [],
+          },
+          usage: emptyUsage(),
+          finishReason: 'completed',
+          rawFinishReason: 'stop',
+        };
+      }),
+    );
+
+    const result = await runTurn(1);
+
+    expect(result.type).toBe('completed');
+    expect(calls).toBe(2);
+    expect(rpcEvents('turn.step.retrying')).toHaveLength(1);
+  });
+
+  it('does not retry a VideoUploadUnsupportedError', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    ctx = createTestAgent(
+      llmGenerateServices(async () => {
+        calls += 1;
+        throw new VideoUploadUnsupportedError('provider has no video upload hook');
+      }),
+    );
+
+    const result = await runTurn(1);
+
+    expect(result.type).toBe('failed');
+    expect(calls).toBe(1);
+    expect(rpcEvents('turn.step.retrying')).toEqual([]);
+  });
+
+  it('retries a 5xx server status error', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    ctx = createTestAgent(
+      llmGenerateServices(async () => {
+        calls += 1;
+        if (calls === 1) throw new APIStatusError(503, 'server busy');
+        return {
+          id: 'recovered-response',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'recovered' }],
+            toolCalls: [],
+          },
+          usage: emptyUsage(),
+          finishReason: 'completed',
+          rawFinishReason: 'stop',
+        };
+      }),
+    );
+
+    const result = await runTurn(1);
+
+    expect(result.type).toBe('completed');
+    expect(calls).toBe(2);
   });
 
   it('cancels the turn when aborted during the backoff wait', async () => {

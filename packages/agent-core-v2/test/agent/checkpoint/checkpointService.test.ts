@@ -12,9 +12,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { IEventBus } from '#/app/event/eventBus';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import type { ExecutableTool } from '#/tool/toolContract';
 import { ToolAccesses } from '#/tool/toolContract';
-import { permissionModeServices, testAgent } from '../../harness';
+import { execEnvServices, permissionModeServices, testAgent } from '../../harness';
 
 let workDir: string;
 
@@ -115,5 +118,47 @@ describe('file checkpoints', () => {
 
     await ctx.rpc.undoHistory({ count: 1 });
     await expect(readFile(join(workDir, 'new.txt'), 'utf8')).rejects.toThrow();
+  });
+
+  it('reports a conflict instead of deleting when the preimage capture failed for a non-ENOENT reason', async () => {
+    await writeFile(join(workDir, 'c.txt'), 'user data', 'utf8');
+    const target = join(workDir, 'c.txt');
+    // stat fails with a non-ENOENT error for the target path, so the capture
+    // cannot know whether the preimage existed — undo must not delete the file.
+    const real = new HostFileSystem();
+    const hostFs = new Proxy(real, {
+      get(targetFs, prop, receiver) {
+        const value = Reflect.get(targetFs, prop, receiver);
+        if (prop === 'stat') {
+          return async (path: string) => {
+            if (path === target) {
+              throw new HostFsError(OsFsErrors.codes.OS_FS_PERMISSION_DENIED, 'denied');
+            }
+            return real.stat(path);
+          };
+        }
+        return typeof value === 'function' ? value.bind(real) : value;
+      },
+    }) as IHostFileSystem;
+    const ctx = testAgent(permissionModeServices('yolo'), execEnvServices({ hostFs }));
+    ctx.get(IAgentToolRegistryService).register(writeTool);
+    ctx.get(IAgentProfileService).update({ activeToolNames: ['FileWrite'] });
+
+    const restored = new Promise<unknown>((resolve) => {
+      const bus = ctx.get(IEventBus);
+      const d = bus.subscribe('checkpoint.restored', (e) => {
+        d.dispose();
+        resolve(e);
+      });
+    });
+    ctx.mockNextResponse({ type: 'text', text: 'writing' }, writeCall('c.txt', 'modified'));
+    ctx.mockNextResponse({ type: 'text', text: 'done' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'modify c.txt' }] });
+    await ctx.untilTurnEnd();
+
+    await ctx.rpc.undoHistory({ count: 1 });
+    const event = (await restored) as { conflicts: Array<{ path: string; reason: string }> };
+    expect(await readFile(join(workDir, 'c.txt'), 'utf8')).toBe('modified');
+    expect(event.conflicts.some((c) => c.path.endsWith('c.txt') && c.reason === 'unknown_preimage')).toBe(true);
   });
 });

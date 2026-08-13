@@ -72,7 +72,9 @@ export class WorkspaceDirsService extends Service implements IWorkspaceDirs {
     this.projectRoot = workspace.cwd;
     this.configPath = '';
     this.ready = this.enqueue(() => this.reloadFromDisk());
-    void this.ready.then(() => this.watchLocalToml());
+    void this.ready.then(() => this.watchLocalToml()).catch((error) => {
+      this.log.warn(`workspace dirs load failed: ${String(error)}`);
+    });
   }
 
   private get fileDirs(): readonly string[] {
@@ -206,8 +208,8 @@ export class WorkspaceDirsService extends Service implements IWorkspaceDirs {
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
     const run = this.mutationTail.then(work, work);
     this.mutationTail = run.then(
-      () => undefined,
-      () => undefined,
+      () => {},
+      () => {},
     );
     return run;
   }

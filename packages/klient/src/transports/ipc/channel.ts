@@ -195,25 +195,31 @@ export class IpcChannel implements KlientChannel {
         const ensureStarted = (): void => {
           if (started) return;
           started = true;
-          void this.ready.then(() => {
-            if (this.closed) {
-              pending.error(new Error('ipc closed'));
-              return;
-            }
-            streamId = this.nextId();
-            this.streams.set(streamId, pending);
-            this.send({
-              type: 'stream',
-              id: streamId,
-              scope: scopeKindOf(scope),
-              service,
-              method,
-              arg: trimTrailingUndefined(args),
-              workspaceId: scope.workspaceId,
-              sessionId: scope.sessionId,
-              agentId: scope.agentId,
+          void this.ready
+            .then(() => {
+              if (this.closed) {
+                pending.error(new Error('ipc closed'));
+                return;
+              }
+              streamId = this.nextId();
+              this.streams.set(streamId, pending);
+              this.send({
+                type: 'stream',
+                id: streamId,
+                scope: scopeKindOf(scope),
+                service,
+                method,
+                arg: trimTrailingUndefined(args),
+                workspaceId: scope.workspaceId,
+                sessionId: scope.sessionId,
+                agentId: scope.agentId,
+              });
+            })
+            .catch((error) => {
+              // The handshake failed before the stream started; surface it to
+              // every next() waiter instead of leaving them pending forever.
+              pending.error(error instanceof Error ? error : new Error(String(error)));
             });
-          });
         };
 
         return {

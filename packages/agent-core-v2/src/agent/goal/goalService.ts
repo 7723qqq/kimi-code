@@ -375,7 +375,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
                 if (approval.decision !== 'approved') return;
                 const mode = toGoalStartReviewPermissionMode(approval.selectedLabel);
                 if (mode !== undefined && mode !== this.permissionMode.mode) {
-                  this.permissionMode.setMode(mode);
+                  this.permissionMode.setModeAndBroadcast(mode);
                 }
                 return;
               },
@@ -522,12 +522,15 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     );
     this.prepareForGoalCreation(input.replace === true);
     const wallClockResumedAt = Date.now();
+    const createdAt = Date.now();
     this.wire.dispatch(
       createGoal({
         goalId: randomUUID(),
         objective,
         completionCriterion,
         wallClockResumedAt,
+        createdAt,
+        updatedAt: createdAt,
       }),
     );
     this.liveWallClockStartedAt = this.deadlineScheduler.now();
@@ -661,7 +664,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     this.assertSupportedAgent();
     const state = this.requireState();
     const budgetLimits = { ...state.budgetLimits, ...input.budgetLimits };
-    this.wire.dispatch(updateGoal({ budgetLimits }));
+    this.wire.dispatch(updateGoal({ budgetLimits, updatedAt: Date.now() }));
     const next = this.requireState();
     this.emitGoalUpdated(this.toSnapshot(next));
     this.telemetry.track2('goal_budget_set', {
@@ -735,7 +738,9 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
 
   private dispatchCompletion(state: GoalState, reason: string | undefined, actor: GoalActor): void {
     const wallClockMs = this.settleWallClock(state);
-    this.wire.dispatch(updateGoal({ status: 'complete', reason, wallClockMs, actor }));
+    this.wire.dispatch(
+      updateGoal({ status: 'complete', reason, wallClockMs, actor, updatedAt: Date.now() }),
+    );
   }
 
   private emitCompletion(
@@ -817,6 +822,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
         tokensUsed: state.tokensUsed + totalDelta,
         inputTokensUsed: state.inputTokensUsed + inputDelta,
         outputTokensUsed: state.outputTokensUsed + outputDelta,
+        updatedAt: Date.now(),
       }),
     );
     const next = this.requireState();
@@ -851,7 +857,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       return null;
     }
     const turnsUsed = state.turnsUsed + 1;
-    this.wire.dispatch(updateGoal({ turnsUsed }));
+    this.wire.dispatch(updateGoal({ turnsUsed, updatedAt: Date.now() }));
     const next = this.requireState();
     this.emitGoalUpdated(this.toSnapshot(next));
     this.telemetry.track2('goal_continued', { turns_used: next.turnsUsed });
@@ -1107,13 +1113,20 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     const pending: PendingContinuation = { receipt, goalId };
     this.pendingContinuation = pending;
     void receipt.assigned
-      .then(({ turn }) => {
-        pending.turnId = turn.id;
-        if (!this.goalDrivenTurns.has(turn.id)) {
-          this.pendingContinuationGoals.set(turn.id, pending.goalId);
-        }
-        return turn.result;
-      })
+      .then(
+        ({ turn }) => {
+          pending.turnId = turn.id;
+          if (!this.goalDrivenTurns.has(turn.id)) {
+            this.pendingContinuationGoals.set(turn.id, pending.goalId);
+          }
+          return turn.result;
+        },
+        () => {},
+      )
+      .then(
+        () => {},
+        () => {},
+      )
       .finally(() => {
         if (pending.turnId !== undefined) this.pendingContinuationGoals.delete(pending.turnId);
         if (this.pendingContinuation === pending) this.pendingContinuation = undefined;
@@ -1177,6 +1190,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
         reason,
         wallClockMs: this.settleWallClock(state),
         actor: 'runtime',
+        updatedAt: Date.now(),
       }),
     );
     this.trackStatusChanged(this.requireState(), 'runtime');
@@ -1234,7 +1248,9 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
       this.wallClockDeadline.clear();
       this.liveWallClockStartedAt = undefined;
     }
-    this.wire.dispatch(updateGoal({ status, reason, wallClockMs, wallClockResumedAt, actor }));
+    this.wire.dispatch(
+      updateGoal({ status, reason, wallClockMs, wallClockResumedAt, actor, updatedAt: Date.now() }),
+    );
     const next = this.requireState();
     if (status === 'active') this.adoptStarterTurn(actor);
     if (status === 'active') this.refreshWallClockDeadline(next);

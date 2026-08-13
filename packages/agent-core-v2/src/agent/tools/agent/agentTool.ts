@@ -95,6 +95,11 @@ import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceCo
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 import {
+  exposesSubagentBackends,
+  stripSubagentBackendParameter,
+} from '#/session/subagent/backend/configSection';
+import { ISubagentBackendService } from '#/session/subagent/backend/subagentBackend';
+import {
   buildSubagentModelDescriptions,
   exposesSubagentModelChoice,
   formatSubagentTimeoutDescription,
@@ -122,15 +127,22 @@ import AGENT_DESCRIPTION_BASE from './agent.md?raw';
 
 const SUBAGENT_TOOL_PARAMETERS = toInputJsonSchema(SubagentToolInputSchema);
 const SUBAGENT_TOOL_PARAMETERS_NO_MODEL = stripSubagentModelParameter(SUBAGENT_TOOL_PARAMETERS);
+const SUBAGENT_TOOL_PARAMETERS_NO_BACKEND = stripSubagentBackendParameter(SUBAGENT_TOOL_PARAMETERS);
+const SUBAGENT_TOOL_PARAMETERS_NO_MODEL_NO_BACKEND = stripSubagentBackendParameter(
+  SUBAGENT_TOOL_PARAMETERS_NO_MODEL,
+);
 
 export class SubagentTool implements ISubagentTool {
   declare readonly _serviceBrand: undefined;
   readonly name: string = 'Agent';
 
   get parameters(): Record<string, unknown> {
-    return exposesSubagentModelChoice(this.config, this.flags)
-      ? SUBAGENT_TOOL_PARAMETERS
-      : SUBAGENT_TOOL_PARAMETERS_NO_MODEL;
+    const modelChoice = exposesSubagentModelChoice(this.config, this.flags);
+    const backends = exposesSubagentBackends(this.flags);
+    if (modelChoice && backends) return SUBAGENT_TOOL_PARAMETERS;
+    if (modelChoice) return SUBAGENT_TOOL_PARAMETERS_NO_BACKEND;
+    if (backends) return SUBAGENT_TOOL_PARAMETERS_NO_MODEL;
+    return SUBAGENT_TOOL_PARAMETERS_NO_MODEL_NO_BACKEND;
   }
 
   private readonly callerAgentId: string;
@@ -155,6 +167,7 @@ export class SubagentTool implements ISubagentTool {
     @IConfigService private readonly config: IConfigService,
     @IFlagService private readonly flags: IFlagService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
+    @ISubagentBackendService private readonly backends: ISubagentBackendService,
     @AgentToolContribution private readonly contributions: CollectionView<AgentToolContribution>,
   ) {
     this.callerAgentId = scopeContext.agentId;
@@ -375,6 +388,31 @@ export class SubagentTool implements ISubagentTool {
     };
   }
 
+  private async launchForBackend(
+    args: SubagentToolInput,
+    toolCallId: string,
+    controller: AbortController,
+  ): Promise<SubagentHandle> {
+    const backendName = args.backend;
+    if (backendName === undefined || backendName === 'in-process') {
+      return this.launch(args, toolCallId, controller);
+    }
+    const backend = this.backends.get(backendName);
+    if (backend === undefined) {
+      throw new Error(`unknown subagent backend "${backendName}"`);
+    }
+    const run = await backend.start({
+      prompt: args.prompt,
+      cwd: this.workspace.workDir,
+      signal: controller.signal,
+    });
+    return {
+      agentId: run.id,
+      profileName: backendName,
+      completion: run.result.then((result) => ({ result: result.output })),
+    };
+  }
+
   private async ensureOwnedIdleSubagent(
     agentId: string,
     target: IAgentScopeHandle,
@@ -405,6 +443,12 @@ export class SubagentTool implements ISubagentTool {
       if (isResume && requestedProfileName !== undefined) {
         return { output: RESUME_WITH_TYPE_UNAVAILABLE, isError: true };
       }
+      if (isResume && args.backend !== undefined && args.backend !== 'in-process') {
+        return {
+          output: 'Cannot use an external backend when resuming an existing agent. Resume by agent id only.',
+          isError: true,
+        };
+      }
 
       const allowBackground = this.canRunInBackground();
       if (runInBackground && !allowBackground) {
@@ -422,7 +466,7 @@ export class SubagentTool implements ISubagentTool {
 
       let handle: SubagentHandle;
       try {
-        handle = await this.launch(args, toolCallId, controller);
+        handle = await this.launchForBackend(args, toolCallId, controller);
       } catch (error) {
         signal.removeEventListener('abort', abortBeforeRegister);
         this.log.warn('subagent launch failed', {

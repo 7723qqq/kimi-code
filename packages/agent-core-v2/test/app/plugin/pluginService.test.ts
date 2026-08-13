@@ -388,7 +388,7 @@ describe('PluginService (plugin boundary)', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() => {
-        downloadStarted.resolve(undefined);
+        downloadStarted.resolve();
         return downloadResponse.promise;
       }) as typeof fetch,
     );
@@ -454,7 +454,7 @@ describe('PluginService (plugin boundary)', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() => {
-        lookupStarted.resolve(undefined);
+        lookupStarted.resolve();
         return lookupResponse.promise;
       }) as typeof fetch,
     );
@@ -496,7 +496,7 @@ describe('PluginService (plugin boundary)', () => {
     const firstRead = deferred<InstalledFile>();
     const firstReadStarted = deferred<void>();
     readInstalled.mockImplementationOnce(async () => {
-      firstReadStarted.resolve(undefined);
+      firstReadStarted.resolve();
       return firstRead.promise;
     });
     const host = makeHost(home);
@@ -522,8 +522,10 @@ describe('PluginService (plugin boundary)', () => {
 
   it('keeps a queued removal when reload is already reading the installed file', async () => {
     const home = await makeHome();
-    const pluginRoot = await makePluginDir('demo', {});
-    createdDirs.push(pluginRoot);
+    // A record rooted inside the managed tree, as a real install would persist.
+    const pluginRoot = path.join(home, 'plugins', 'managed', 'demo');
+    await mkdir(pluginRoot, { recursive: true });
+    await writeFile(path.join(pluginRoot, 'kimi.plugin.json'), '{"name":"demo"}', 'utf8');
     await writeInstalledFile(home, JSON.stringify(installedFile('demo', pluginRoot)));
     const host = makeHost(home);
     try {
@@ -534,7 +536,7 @@ describe('PluginService (plugin boundary)', () => {
       const reloadRead = deferred<InstalledFile>();
       const reloadReadStarted = deferred<void>();
       readInstalled.mockImplementationOnce(async () => {
-        reloadReadStarted.resolve(undefined);
+        reloadReadStarted.resolve();
         return reloadRead.promise;
       });
 
@@ -618,7 +620,7 @@ describe('PluginService (plugin boundary)', () => {
     const providers = stubProviderService(providerConfigs, readyGate.promise);
     Object.defineProperty(providers, 'ready', {
       get: () => {
-        readyAccessed.resolve(undefined);
+        readyAccessed.resolve();
         return readyGate.promise;
       },
     });
@@ -637,7 +639,7 @@ describe('PluginService (plugin boundary)', () => {
         baseUrl: 'https://ready.example.test/',
         oauth: { storage: 'file', key: 'kimi', oauthHost: 'https://auth.ready.example.test' },
       };
-      readyGate.resolve(undefined);
+      readyGate.resolve();
 
       await expect(servers).resolves.toMatchObject({
         'plugin-ready-demo:finance': {

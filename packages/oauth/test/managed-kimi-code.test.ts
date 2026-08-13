@@ -1482,3 +1482,51 @@ describe('managed protocol routing', () => {
     expect(config.models?.['kimi-code/kimi-for-coding']?.protocol).toBeUndefined();
   });
 });
+
+describe('fetchManagedKimiCodeModels transport guards', () => {
+  it('passes a timeout signal on the models request', async () => {
+    const fetchImpl = vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch;
+
+    await fetchManagedKimiCodeModels({ accessToken: 't', fetchImpl });
+
+    const init = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit;
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('rejects responses advertised above the body size cap via content-length', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': String(10 * 1024 * 1024 + 1),
+          },
+        }),
+    ) as unknown as typeof fetch;
+
+    await expect(fetchManagedKimiCodeModels({ accessToken: 't', fetchImpl })).rejects.toThrow(
+      /Response body too large/,
+    );
+  });
+
+  it('rejects oversized bodies when no content-length is sent', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(11 * 1024 * 1024));
+        controller.close();
+      },
+    });
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(body, {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    ) as unknown as typeof fetch;
+
+    await expect(fetchManagedKimiCodeModels({ accessToken: 't', fetchImpl })).rejects.toThrow(
+      /Response body too large/,
+    );
+  });
+});

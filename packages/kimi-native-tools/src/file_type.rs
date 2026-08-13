@@ -47,12 +47,12 @@ pub fn detect_file_type(path: &Path, header: &[u8]) -> FileKind {
         return FileKind::Unknown;
     }
 
-    // If we got here and the header is valid UTF-8 (or ASCII), it's text.
-    if std::str::from_utf8(header).is_ok() {
-        FileKind::Text
-    } else {
-        FileKind::Unknown
-    }
+    // Everything that reached this point is text: legacy 8-bit encodings
+    // (GBK, Shift-JIS, …) and slightly malformed UTF-8 are still text files,
+    // even though they are not valid UTF-8. Whether the bytes decode cleanly
+    // is the reader's concern — the reader falls back to transcoding or
+    // lenient decoding instead of refusing the file outright.
+    FileKind::Text
 }
 
 /// Resolve MIME type from file extension and header bytes.
@@ -491,6 +491,29 @@ mod tests {
     fn test_text_content() {
         assert_eq!(
             detect_file_type(&PathBuf::from("test.txt"), b"hello world\n"),
+            FileKind::Text
+        );
+    }
+
+    #[test]
+    fn test_legacy_8bit_encoding_is_text() {
+        // GBK-encoded Chinese text is not valid UTF-8 but is still a text
+        // file — encoding is the reader's concern, not the type classifier's.
+        let gbk = [0xd6, 0xd0, 0xce, 0xc4, 0xc4, 0xda, 0xc8, 0xdd, 0x0a];
+        assert_eq!(
+            detect_file_type(&PathBuf::from("test.txt"), &gbk),
+            FileKind::Text
+        );
+    }
+
+    #[test]
+    fn test_malformed_utf8_without_nul_is_text() {
+        // UTF-8 payload with a trailing junk byte still classifies as text;
+        // the reader's lenient path handles the malformed tail.
+        let mut payload = b"plain text line\n".to_vec();
+        payload.push(0xff);
+        assert_eq!(
+            detect_file_type(&PathBuf::from("test.log"), &payload),
             FileKind::Text
         );
     }

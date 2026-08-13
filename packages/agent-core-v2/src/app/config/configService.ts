@@ -556,16 +556,25 @@ export class ConfigService extends Disposable implements IConfigService {
   private async load(source: ConfigChangeSource): Promise<void> {
     this.diagnosticsList.length = 0;
     let fileData: ResolvedConfig = {};
+    let readFailed = false;
     try {
       const data = await this.documentStore.get<ResolvedConfig>(CONFIG_SCOPE, this.configKey);
       fileData = data !== undefined && isPlainObject(data) ? data : {};
     } catch (error) {
+      readFailed = true;
       const message =
         error instanceof TomlError
           ? `Failed to parse ${this.bootstrap.configPath}: ${describeTomlSyntaxError(error)}`
           : describeUnknownError(error);
       this.pushDiagnostic({ severity: 'error', message });
       this.log.warn('config load failed', { error: describeUnknownError(error) });
+    }
+    if (readFailed) {
+      // Keep the previous rawSnake/raw/validated/effective intact — a failed
+      // read or parse must not wipe the working configuration, only surface
+      // the error diagnostic.
+      this.emitDiagnosticsIfChanged();
+      return;
     }
     const nextRawSnake = cloneRecord(fileData);
     // Key-deprecation warnings derive from the on-disk document, so collect

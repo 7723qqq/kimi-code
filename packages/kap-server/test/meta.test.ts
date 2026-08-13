@@ -31,7 +31,7 @@ describe('/api/v1/meta experimental_flags', () => {
     // only forces ON), but the per-flag env must be fully ABSENT — an
     // explicit '0' is an env override that outranks the config section.
     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_TOOL_SELECT', undefined as never);
+    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_TOOL_SELECT');
   });
 
   afterEach(async () => {

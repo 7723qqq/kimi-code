@@ -80,6 +80,7 @@ async function fetchRawReadme(rawUrl: string, options: SearchEngineOptions): Pro
         status: native.status,
         statusText: native.statusText,
         text: () => native.text(),
+        stream: () => native.body,
         header: (name: string) => native.headers.get(name),
       };
     } else {

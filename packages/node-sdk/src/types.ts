@@ -1,4 +1,5 @@
 import type { KimiHostIdentity, OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
+import type { Kaos } from '@moonshot-ai/kaos';
 import type { ContentPart, ModelCapability } from '@moonshot-ai/kosong';
 import type {
   AgentContextData,
@@ -241,6 +242,10 @@ export interface CreateSessionOptions {
    */
   readonly agentFiles?: readonly string[];
   readonly sessionStartedProperties?: TelemetryProperties;
+  /** Kaos (remote/isolated execution environment) session target, if any. */
+  readonly kaos?: Kaos | undefined;
+  /** Secondary persistence environment; falls back to `kaos` when set. */
+  readonly persistenceKaos?: Kaos | undefined;
   /**
    * Print-mode (`kimi -p`) only: when the main agent ends a turn while
    * background subagents (`kind === 'agent'`) are still running, hold the turn
@@ -278,6 +283,10 @@ export interface ResumeSessionInput {
    */
   readonly replayTurnLimit?: number;
   readonly sessionStartedProperties?: TelemetryProperties;
+  /** Kaos (remote/isolated execution environment) session target, if any. */
+  readonly kaos?: Kaos | undefined;
+  /** Secondary persistence environment; falls back to `kaos` when set. */
+  readonly persistenceKaos?: Kaos | undefined;
 }
 
 export interface ReloadSessionInput extends ResumeSessionInput {

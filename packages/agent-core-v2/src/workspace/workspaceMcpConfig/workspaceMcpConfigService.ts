@@ -92,7 +92,9 @@ export class WorkspaceMcpConfigService extends Disposable implements IWorkspaceM
         });
       }),
     );
-    void this.watchConfigFiles();
+    void this.watchConfigFiles().catch((error) => {
+      this.log.warn(`mcp config watch setup failed: ${String(error)}`);
+    });
   }
 
   servers(): Readonly<Record<string, McpServerConfig>> {
@@ -108,7 +110,7 @@ export class WorkspaceMcpConfigService extends Disposable implements IWorkspaceM
   }
 
   private mutate(work: () => Promise<void>): Promise<void> {
-    const tail = this.mutationTail.catch(() => undefined).then(work);
+    const tail = this.mutationTail.catch(() => {}).then(work);
     this.mutationTail = tail;
     return tail;
   }

@@ -12,6 +12,10 @@
  * than as the server's credentials.
  */
 
+import type { LookupAddress } from 'node:dns';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
+
 import { z } from 'zod';
 
 const StringRecordSchema = z.record(z.string(), z.string());
@@ -81,9 +85,12 @@ export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
 
 /**
  * Reject URLs that would let a configured MCP server exfiltrate bearer
- * tokens to internal networks or cloud metadata services.
+ * tokens to internal networks or cloud metadata services. Literal IPs are
+ * checked directly; hostnames are DNS-resolved (`all: true`) and every
+ * resolved address must pass the same checks before the URL is allowed.
+ * Resolution failure fails closed.
  */
-export function isSafeMcpRemoteUrl(value: string): boolean {
+export async function isSafeMcpRemoteUrl(value: string): Promise<boolean> {
   let parsed: URL;
   try {
     parsed = new URL(value);
@@ -97,6 +104,18 @@ export function isSafeMcpRemoteUrl(value: string): boolean {
   if (isPrivateOrLoopbackIPv4(host)) return false;
   if (isPrivateOrLoopbackIPv6(host)) return false;
   if (looksLikeObfuscatedLoopback(host)) return false;
+  if (isIP(host) !== 0) return true;
+  let addresses: readonly LookupAddress[];
+  try {
+    addresses = await lookup(host, { all: true });
+  } catch {
+    return false;
+  }
+  for (const { address } of addresses) {
+    const normalized = ipv4MappedToV4(address) ?? address;
+    if (isPrivateOrLoopbackIPv4(normalized)) return false;
+    if (isPrivateOrLoopbackIPv6(normalized)) return false;
+  }
   return true;
 }
 
@@ -120,10 +139,28 @@ function isPrivateOrLoopbackIPv6(host: string): boolean {
   if (h === '::1' || h === '::') return true;
   if (h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd')) return true;
   if (h.startsWith('::ffff:')) {
-    const v4 = h.slice('::ffff:'.length);
-    if (isPrivateOrLoopbackIPv4(v4)) return true;
+    const v4 = ipv4MappedToV4(h);
+    if (v4 !== undefined && isPrivateOrLoopbackIPv4(v4)) return true;
   }
   return false;
+}
+
+/**
+ * Extract the embedded IPv4 from an IPv4-mapped IPv6 literal
+ * (`::ffff:a.b.c.d` or the hex `::ffff:7f00:1` form), normalized to dotted
+ * decimal. Returns undefined for anything else so the caller can run its
+ * regular checks on the original value.
+ */
+function ipv4MappedToV4(host: string): string | undefined {
+  const h = host.toLowerCase();
+  const dotted = /^::ffff:(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (dotted !== null) return `${dotted[1]}.${dotted[2]}.${dotted[3]}.${dotted[4]}`;
+  const hexed = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(h);
+  if (hexed !== null) {
+    const value = Number.parseInt(hexed[1]!, 16) * 0x10000 + Number.parseInt(hexed[2]!, 16);
+    return `${(value >>> 24) & 0xff}.${(value >>> 16) & 0xff}.${(value >>> 8) & 0xff}.${value & 0xff}`;
+  }
+  return undefined;
 }
 
 function looksLikeObfuscatedLoopback(host: string): boolean {

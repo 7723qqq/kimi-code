@@ -9,14 +9,15 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { CoreErrors } from '#/_base/errors/codes';
 import { Error2 } from '#/_base/errors/errors';
+import { type ILogService } from '#/_base/log/log';
 import {
   AskUserQuestionInputSchema,
   type AskUserQuestionInput,
 } from '#/agent/tools/ask-user-question/ask-user-question';
 import { AskUserQuestionTool } from '#/agent/tools/ask-user-question/askUserQuestionTool';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentTaskService } from '#/agent/task/task';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import type { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { IAgentTaskService } from '#/agent/task/task';
+import type { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import type {
   ISessionQuestionService,
   QuestionRequest,
@@ -75,7 +76,8 @@ function makeTool(
   );
   const tasks = { registerTask, getTask } as unknown as IAgentTaskService;
   const scopeContext = { agentId: 'main' } as unknown as IAgentScopeContext;
-  const tool = new AskUserQuestionTool(question, telemetry, tasks, scopeContext);
+  const log = { warn: vi.fn() } as unknown as ILogService;
+  const tool = new AskUserQuestionTool(question, telemetry, tasks, scopeContext, log);
   return { tool, request, telemetryTrack, registerTask, getTask, lastRegisteredTask: () => lastTask };
 }
 
@@ -357,7 +359,7 @@ describe('AskUserQuestionTool', () => {
     expect(telemetryTrack).toHaveBeenCalledWith('question_dismissed', { trace_id: undefined });
   });
 
-  it('resolves question service error responses as dismissed answers', async () => {
+  it('surfaces question service failures as errors instead of dismissals', async () => {
     const { tool } = makeTool({
       request: async () => {
         throw new Error2(CoreErrors.codes.INTERNAL, 'question broker error');
@@ -371,14 +373,9 @@ describe('AskUserQuestionTool', () => {
       signal,
     });
 
-    expect(result).toMatchObject({ isError: false });
-    expect(result.output).toContain('dismissed');
-    expect(typeof result.output).toBe('string');
-    const output = typeof result.output === 'string' ? result.output : '';
-    expect(JSON.parse(output)).toEqual({
-      answers: {},
-      note: 'User dismissed the question without answering.',
-    });
+    expect(result).toMatchObject({ isError: true });
+    expect(result.output).toContain('question broker error');
+    expect(result.output).not.toContain('dismissed');
     expect(result.output).not.toContain('Do NOT call this tool again');
   });
 
