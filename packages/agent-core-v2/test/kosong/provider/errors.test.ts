@@ -159,7 +159,7 @@ describe('classifyKimiQuotaError (Kimi trait classifier)', () => {
       classifyKimiQuotaError(new OpenAIAPIError(403, undefined, QUOTA_MESSAGE, new Headers())),
     ).toBeUndefined();
     expect(classifyKimiQuotaError(new Error(QUOTA_MESSAGE))).toBeUndefined();
-    expect(classifyKimiQuotaError()).toBeUndefined();
+    expect(classifyKimiQuotaError(undefined)).toBeUndefined();
   });
 
   it('classifies the Anthropic SDK error shape (body nested under .error)', () => {

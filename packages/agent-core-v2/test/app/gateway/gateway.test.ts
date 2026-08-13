@@ -56,8 +56,8 @@ describe('RestGateway', () => {
       steer: () => Promise.resolve([]),
       list: () => ({ active: undefined, pending: [] }),
       abort: () => true,
-      inject: () => Promise.resolve(),
-      retry: () => Promise.resolve(),
+      inject: () => Promise.resolve(undefined),
+      retry: () => Promise.resolve(undefined),
       clear: () => {},
       hooks: createHooks(['onBeforeSubmitPrompt']) as IAgentPromptService['hooks'],
     };

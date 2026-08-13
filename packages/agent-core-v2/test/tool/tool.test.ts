@@ -3439,8 +3439,8 @@ function createFailingCommandRunner(stdout: string): ISessionProcessRunner {
       pid: 42,
       exitCode: 2,
       wait: vi.fn().mockResolvedValue(2) as IProcess['wait'],
-      kill: vi.fn().mockResolvedValue() as IProcess['kill'],
-      dispose: vi.fn().mockResolvedValue() as IProcess['dispose'],
+      kill: vi.fn().mockResolvedValue(undefined) as IProcess['kill'],
+      dispose: vi.fn().mockResolvedValue(undefined) as IProcess['dispose'],
     };
   }
   return createFakeProcessRunner({

@@ -199,7 +199,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue();
+    mocks.tuiStart.mockResolvedValue(undefined);
   }
 
   it('builds the v2 harness', async () => {
@@ -214,7 +214,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue();
+    mocks.tuiStart.mockResolvedValue(undefined);
     mocks.tuiGetStartupMcpMs.mockResolvedValue(47);
     mocks.tuiGetCurrentSessionId.mockReturnValue('ses-startup');
 
@@ -315,7 +315,7 @@ describe('runShell', () => {
   it('skips stty when it cannot be resolved outside the untrusted cwd', async () => {
     stubTuiStartup();
     if (process.platform === 'win32') return;
-    mocks.resolveCommandPath.mockReturnValue();
+    mocks.resolveCommandPath.mockReturnValue(undefined);
     await runShell(minimalCliOptions, '1.2.3-test');
     expect(mocks.resolveCommandPath).toHaveBeenCalledWith('stty');
     expect(execFileSync).not.toHaveBeenCalled();
@@ -327,7 +327,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue();
+    mocks.tuiStart.mockResolvedValue(undefined);
 
     await runShell(
       {
@@ -356,7 +356,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue();
+    mocks.tuiStart.mockResolvedValue(undefined);
 
     await runShell(
       {
@@ -386,7 +386,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue();
+    mocks.tuiStart.mockResolvedValue(undefined);
     mocks.createKimiDeviceId.mockImplementationOnce((homeDir, options) => {
       const deviceId = `device-for-${homeDir}`;
       options?.onFirstLaunch?.(deviceId);
@@ -423,7 +423,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue();
+    mocks.tuiStart.mockResolvedValue(undefined);
     mocks.harnessCreatesDeviceIdOnConstruction = true;
     const createdHomes = new Set<string>();
     mocks.createKimiDeviceId.mockImplementation((homeDir, options) => {
@@ -472,7 +472,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue();
+    mocks.tuiStart.mockResolvedValue(undefined);
     let currentSessionId = 'ses-startup';
     mocks.tuiGetCurrentSessionId.mockImplementation(() => currentSessionId);
     mocks.tuiGetStartupMcpMs.mockImplementation(async () => {
@@ -514,7 +514,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue();
+    mocks.tuiStart.mockResolvedValue(undefined);
 
     await runShell(
       {
@@ -567,7 +567,7 @@ describe('runShell', () => {
       }),
     );
     mocks.detectTerminalTheme.mockResolvedValue('light');
-    mocks.tuiStart.mockResolvedValue();
+    mocks.tuiStart.mockResolvedValue(undefined);
 
     await runShell(
       {
@@ -607,7 +607,7 @@ describe('runShell', () => {
     mocks.harnessGetConfigDiagnostics.mockResolvedValue({
       warnings: ['Ignored invalid config in config.toml: loop_control.'],
     });
-    mocks.tuiStart.mockResolvedValue();
+    mocks.tuiStart.mockResolvedValue(undefined);
 
     await runShell(
       {
@@ -641,7 +641,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue();
+    mocks.tuiStart.mockResolvedValue(undefined);
 
     const processOnSpy = vi.spyOn(process, 'on');
     const stdout = captureProcessWrite('stdout');
@@ -692,7 +692,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue();
+    mocks.tuiStart.mockResolvedValue(undefined);
 
     const processOnSpy = vi.spyOn(process, 'on');
     const stdout = captureProcessWrite('stdout');
@@ -776,7 +776,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue();
+    mocks.tuiStart.mockResolvedValue(undefined);
     mocks.tuiGetCurrentSessionId.mockReturnValue('ses-1');
     mocks.tuiHasSessionContent.mockReturnValue(true);
 
@@ -833,7 +833,7 @@ describe('runShell', () => {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
     });
-    mocks.tuiStart.mockResolvedValue();
+    mocks.tuiStart.mockResolvedValue(undefined);
     mocks.tuiGetCurrentSessionId.mockReturnValue('ses-1');
     mocks.tuiHasSessionContent.mockReturnValue(true);
 

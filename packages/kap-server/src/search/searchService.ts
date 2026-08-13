@@ -653,7 +653,7 @@ export class GlobalSearchService implements IGlobalSearchService {
     // continuously — so its keyset tokens carry no `g` and no generation
     // check applies; the (time, key) cursor itself is what keeps pages
     // consistent under concurrent appends.
-    const page = decodePageToken(q, 'live', pageToken);
+    const page = decodePageToken(q, 'live', pageToken, undefined);
     const source = this.liveSource;
     if (source === null) {
       // Unreachable (the router only enters with a source-wired store), but a
@@ -693,7 +693,7 @@ export class GlobalSearchService implements IGlobalSearchService {
       items: pageRows.map((row) => this.projectHit(q, row)),
       hasMore,
       pageToken: hasMore
-        ? encodePageToken(q, 'live', boundaryOf(q, pageRows.at(-1)!))
+        ? encodePageToken(q, 'live', boundaryOf(q, pageRows.at(-1)!), undefined)
         : undefined,
       incomplete: matched.incomplete,
       indexState: {

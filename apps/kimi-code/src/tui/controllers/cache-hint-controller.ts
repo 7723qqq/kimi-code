@@ -234,7 +234,7 @@ export class CacheHintController {
     // The resume dialog also covers this idle cycle: the first submit right
     // after it must not be intercepted again.
     this.idlePrompted = true;
-    await this.showDialog('resume', decision);
+    await this.showDialog('resume', decision, undefined);
   }
 
   /**

@@ -64,7 +64,7 @@ describe('PlanModeService dynamic injection content', () => {
     readText = async () => '';
     ctx = createTestAgent(execEnvServices({
       hostFs: createFakeHostFs({
-        mkdir: vi.fn().mockResolvedValue(),
+        mkdir: vi.fn().mockResolvedValue(undefined),
         readText: (path: string) => readText(path),
         writeText: vi.fn(async () => {}),
       }),
@@ -146,7 +146,7 @@ describe('PlanModeService dynamic injection cadence', () => {
   beforeEach(() => {
     ctx = createTestAgent(execEnvServices({
       hostFs: createFakeHostFs({
-        mkdir: vi.fn().mockResolvedValue(),
+        mkdir: vi.fn().mockResolvedValue(undefined),
         readText: async () => '',
         writeText: vi.fn(async () => {}),
       }),

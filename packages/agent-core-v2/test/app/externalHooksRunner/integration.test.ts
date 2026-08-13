@@ -737,7 +737,7 @@ describe('IExternalHooksRunnerService integration', () => {
     expect(parsed).toHaveLength(2);
     expect(parsed[0]).toMatchObject({ event: 'PreToolUse', matcher: 'Bash' });
     expect(parsed[1]).toMatchObject({ event: 'Notification', timeout: 5 });
-    expect(hooksToToml(parsed)).toEqual(raw);
+    expect(hooksToToml(parsed, undefined)).toEqual(raw);
   });
 
   it('exposes a summary map of event name to registered hook count', async () => {

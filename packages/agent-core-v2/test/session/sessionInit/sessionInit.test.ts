@@ -203,7 +203,7 @@ describe('SessionInitService', () => {
     const lifecycle = ix.get(IAgentLifecycleService) as unknown as {
       get: ReturnType<typeof vi.fn>;
     };
-    lifecycle.get.mockReturnValue();
+    lifecycle.get.mockReturnValue(undefined);
     const svc = ix.get(ISessionInitService);
 
     const error = await svc.generateAgentsMd().catch((error) => error);

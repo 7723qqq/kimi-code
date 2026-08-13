@@ -265,7 +265,7 @@ const SESSION_SEED_ADAPTERS: readonly ServiceClassRecipe[] = [
 
 export function installSessionSeedAdapters(container: InstantiationService): void {
   for (const recipe of SESSION_SEED_ADAPTERS) {
-    const adapter = container.fiberHost.constructService(recipe) as Partial<IDisposable>;
+    const adapter = container.fiberHost.constructService(recipe, undefined) as Partial<IDisposable>;
     container.anchorKernelEntry(() => {
       adapter.dispose?.();
     }, `sessionSeed:${recipe.name}`);

@@ -121,7 +121,7 @@ function hookContext(toolCalls: ToolCall[]): ResolvedToolExecutionHookContext {
 
 function mockSwarmHost({
   run = vi.fn().mockResolvedValue([]),
-  getSwarmItem = vi.fn().mockResolvedValue(),
+  getSwarmItem = vi.fn().mockResolvedValue(undefined),
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly run?: (...args: any[]) => any;

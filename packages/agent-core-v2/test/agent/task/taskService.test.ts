@@ -379,7 +379,7 @@ describe('AgentTaskService', () => {
       exitCode: null,
       wait: () => wait,
       kill,
-      dispose: vi.fn().mockResolvedValue(),
+      dispose: vi.fn().mockResolvedValue(undefined),
     } as unknown as IProcess;
     const svc = ix.get(IAgentTaskService);
     svc.registerTask(new ProcessTask(proc, 'ignore-term', 'long-running process'));
@@ -424,8 +424,8 @@ describe('AgentTaskService', () => {
       pid: 4245,
       exitCode: null,
       wait: () => wait,
-      kill: vi.fn().mockResolvedValue(),
-      dispose: vi.fn().mockResolvedValue(),
+      kill: vi.fn().mockResolvedValue(undefined),
+      dispose: vi.fn().mockResolvedValue(undefined),
     } as unknown as IProcess;
     const svc = ix.get(IAgentTaskService);
     svc.registerTask(new ProcessTask(proc, 'keep-running', 'long-running process'));
@@ -739,7 +739,7 @@ describe('AgentTaskService', () => {
       exitCode: null,
       wait: () => waitP,
       kill,
-      dispose: vi.fn().mockResolvedValue(),
+      dispose: vi.fn().mockResolvedValue(undefined),
     } as unknown as IProcess;
     return { proc, kill };
   }
@@ -771,7 +771,7 @@ describe('AgentTaskService', () => {
       exitCode: null,
       wait: () => waitP,
       kill,
-      dispose: vi.fn().mockResolvedValue(),
+      dispose: vi.fn().mockResolvedValue(undefined),
     } as unknown as IProcess;
     return { proc, kill };
   }

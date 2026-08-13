@@ -321,7 +321,7 @@ describe('Event.any', () => {
     const emitter = new Emitter<number | undefined | null>();
     const seen: (number | undefined | null)[] = [];
     emitter.event((v) => seen.push(v));
-    emitter.fire();
+    emitter.fire(undefined);
     emitter.fire(null);
     expect(seen).toEqual([undefined, null]);
     emitter.dispose();

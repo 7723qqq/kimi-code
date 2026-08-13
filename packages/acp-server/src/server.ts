@@ -712,7 +712,7 @@ export function createAcpAgentApp(getServer: () => AcpServer): AgentApp {
  */
 export function filterSessionSummariesByCwd(
   items: readonly SessionSummary[],
-  cwd: string | undefined,
+  cwd?: string | undefined,
 ): readonly SessionSummary[] {
   if (cwd === undefined) return items;
   return items.filter((s) => s.cwd === undefined || s.cwd === cwd);

@@ -170,7 +170,7 @@ export async function compressPromptImageParts(
  * with a warning.
  */
 export function acpMcpServersToConfigRecord(
-  servers: readonly McpServer[] | undefined,
+  servers?: readonly McpServer[] | undefined,
 ): Record<string, McpServerConfig> | undefined {
   if (servers === undefined || servers.length === 0) return undefined;
   const out: Record<string, McpServerConfig> = {};

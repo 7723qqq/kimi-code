@@ -421,14 +421,14 @@ function sanitizeLiveOutput(value: string): string {
   let result = '';
   let i = 0;
   while (i < value.length) {
-    const code = value.codePointAt(i);
+    const code = value.codePointAt(i)!;
     if (code === 0x1b) {
       const next = value.codePointAt(i + 1);
       if (next === 0x5b /* '[' */) {
         // CSI: ESC [ … final byte in 0x40–0x7e. Unterminated sequences are
         // consumed to the end of the string.
         i += 2;
-        while (i < value.length && !(value.codePointAt(i) >= 0x40 && value.codePointAt(i) <= 0x7e)) {
+        while (i < value.length && !(value.codePointAt(i)! >= 0x40 && value.codePointAt(i)! <= 0x7e)) {
           i += 1;
         }
         if (i < value.length) i += 1;

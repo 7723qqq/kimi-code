@@ -210,7 +210,7 @@ describe('git status cache', () => {
   });
 
   it('returns null without spawning when git cannot be resolved to a safe path', () => {
-    mocks.resolveCommandPath.mockReturnValue();
+    mocks.resolveCommandPath.mockReturnValue(undefined);
     expect(createGitStatusCache('/tmp/repo').getStatus()).toBeNull();
     expect(mocks.spawnSync).not.toHaveBeenCalled();
     expect(mocks.execFile).not.toHaveBeenCalled();

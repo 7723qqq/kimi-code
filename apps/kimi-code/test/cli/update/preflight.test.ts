@@ -636,7 +636,7 @@ describe('runUpdatePreflight', () => {
     mocks.detectInstallSource.mockResolvedValue('npm-global');
     mocks.promptForInstallChoice.mockResolvedValue('install');
     // Only resolvable inside the cwd (or missing entirely): refuse to run it.
-    mocks.resolveCommandPath.mockReturnValue();
+    mocks.resolveCommandPath.mockReturnValue(undefined);
     const { stdout, stderr, options } = captureOutput();
 
     await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
@@ -651,7 +651,7 @@ describe('runUpdatePreflight', () => {
     mocks.readUpdateInstallState.mockResolvedValue(installState());
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.resolveCommandPath.mockReturnValue();
+    mocks.resolveCommandPath.mockReturnValue(undefined);
     const { stderr, options } = captureOutput();
 
     await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');

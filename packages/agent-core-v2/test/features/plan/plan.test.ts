@@ -40,7 +40,7 @@ interface PlanFakes {
 
 function createPlanFakes(overrides: Partial<IHostFileSystem> = {}): PlanFakes {
   const fs = createFakeHostFs({
-    mkdir: vi.fn().mockResolvedValue(),
+    mkdir: vi.fn().mockResolvedValue(undefined),
     readText: vi.fn().mockResolvedValue(''),
     ...overrides,
   });
@@ -182,7 +182,7 @@ describe('Plan service', () => {
     });
 
     it('enters plan mode without starting a model turn and prepares the plan directory', async () => {
-      const mkdir = vi.fn().mockResolvedValue();
+      const mkdir = vi.fn().mockResolvedValue(undefined);
       const writeText = vi.fn().mockResolvedValue(0);
       useFakes(createPlanFakes({ mkdir, writeText }));
 
