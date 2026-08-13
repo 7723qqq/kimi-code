@@ -526,6 +526,9 @@ importers:
       '@moonshot-ai/kimi-i18n':
         specifier: workspace:^
         version: link:../i18n
+      '@moonshot-ai/kosong':
+        specifier: workspace:^
+        version: link:../kosong
       '@moonshot-ai/minidb':
         specifier: workspace:^
         version: link:../minidb
@@ -13369,7 +13372,7 @@ snapshots:
       obug: 2.1.4
       std-env: 4.0.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.10(@types/node@22.19.17)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.3))(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+      vitest: 4.1.10(@types/node@22.19.17)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
   '@vitest/expect@4.1.10':
     dependencies:

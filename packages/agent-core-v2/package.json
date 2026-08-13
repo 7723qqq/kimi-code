@@ -63,6 +63,7 @@
     "@modelcontextprotocol/core": "^2.0.0",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-i18n": "workspace:^",
+    "@moonshot-ai/kosong": "workspace:^",
     "@moonshot-ai/minidb": "workspace:^",
     "@moonshot-ai/protocol": "workspace:^",
     "@moonshot-ai/tree-sitter-bash": "workspace:^",
