@@ -367,7 +367,10 @@ key = "${titleOAuthRef.key}"
           sessionId: session.id,
           agentId: 'main',
           title: 'Generated title',
-          patch: { title: 'Generated title', isCustomTitle: false },
+          // Fork event shape nests the engine payload under `patch`.
+          patch: expect.objectContaining({
+            patch: expect.objectContaining({ title: 'Generated title', isCustomTitle: false }),
+          }),
         }),
       ]);
     } finally {
