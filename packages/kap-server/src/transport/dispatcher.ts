@@ -88,7 +88,7 @@ export async function resolveService(
   scopeKind: ScopeKind,
   params: Record<string, string>,
   serviceName: string,
-  lookup: ChannelLookup = resolveAnyScopedServiceId,
+  lookup: ChannelLookup = (name) => resolveAnyScopedServiceId(core, name),
 ): Promise<object> {
   const scope = await resolveScope(core, scopeKind, params);
   if (scope === undefined) {
@@ -164,7 +164,7 @@ export async function dispatch(
   serviceName: string,
   method: string,
   arg: unknown,
-  lookup: ChannelLookup = resolveAnyScopedServiceId,
+  lookup: ChannelLookup = (name) => resolveAnyScopedServiceId(core, name),
 ): Promise<unknown> {
   const service = await resolveService(core, scopeKind, params, serviceName, lookup);
   assertDispatchableMethod(serviceName, method);
