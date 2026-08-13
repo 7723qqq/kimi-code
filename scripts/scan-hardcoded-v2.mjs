@@ -131,6 +131,7 @@ async function loadTSModule(p) {
   } catch (err) {
     throw new Error(
       `Cannot load ${p}: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
     );
   }
 }

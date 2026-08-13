@@ -300,10 +300,13 @@ async function loadAccessToken() {
     if (isNotFound(err)) {
       throw new Error(
         `Kimi Code credentials file not found: ${credentialsFile}\nRun /login in Kimi Code first.`,
+        { cause: err },
       );
     }
     if (err instanceof SyntaxError) {
-      throw new Error(`Failed to parse Kimi Code credentials file: ${err.message}`);
+      throw new Error(`Failed to parse Kimi Code credentials file: ${err.message}`, {
+        cause: err,
+      });
     }
     throw err;
   }
@@ -360,7 +363,10 @@ async function callKimiTool(method, params, trace = {}) {
     }
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000} seconds.`);
+      throw new Error(
+        `Request timed out after ${REQUEST_TIMEOUT_MS / 1000} seconds.`,
+        { cause: err },
+      );
     }
     throw err;
   } finally {
