@@ -148,7 +148,7 @@ function promptProviderAddSource(
       },
       onCancel: () => {
         host.restoreEditor();
-        resolve();
+        resolve(undefined as never);
       },
     });
     host.mountEditorReplacement(picker);
