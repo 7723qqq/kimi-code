@@ -61,7 +61,6 @@ const goalJudgeProfile: AgentProfileInput = {
     'SetGoalBudget',
     'Workflow',
   ],
-  modelPreference: 'secondary',
   summaryPolicy: {
     minChars: 20,
     continuationPrompt: 'Output your final JSON verdict now.',

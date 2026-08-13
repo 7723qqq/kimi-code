@@ -445,7 +445,7 @@ async function handleBuiltInSlashCommand(
     case 'model':
       await handleModelCommand(host, args);
       return;
-    case 'secondary_model':
+    case 'secondary-model':
       await handleSecondaryModelCommand(host, args);
       return;
     case 'effort':

@@ -37,6 +37,11 @@ import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoad
 import { PluginAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoaderService';
 import { IBootstrapService, resolveHostArgs } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { IModelCatalog } from '#/kosong/model/catalog';
+import { IModelService } from '#/kosong/model/model';
+import { IProviderService } from '#/kosong/provider/provider';
+import { stubProviderService } from '../app/provider/stubs';
+import { IFlagService } from '#/app/flag/flag';
 import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
 import { IEventService } from '#/app/event/event';
 import { IPluginService } from '#/app/plugin/plugin';
@@ -103,6 +108,7 @@ import { IPluginSkillSource, PluginSkillSource } from '#/workspace/workspaceSkil
 import { IWorkspaceRootSkillSource, WorkspaceRootSkillSource } from '#/workspace/workspaceSkillCatalog/rootFileSkillSource';
 
 import { stubLog } from '../_base/log/stubs';
+import { stubFlag } from '../app/flag/stubs';
 import { stubSkill } from '../app/skillCatalog/stubs';
 import { stdioFixture } from '../mcpCore/stubs';
 
@@ -138,7 +144,7 @@ function workspaceCatalogStub(): IWorkspaceService {
       workspaces.set(id, workspace);
       return Promise.resolve(workspace);
     },
-    update: () => Promise.resolve(undefined),
+    update: () => Promise.resolve(),
     delete: () => Promise.resolve(),
   };
 }
@@ -292,7 +298,7 @@ describe('workspace resource sharing (handler chain)', () => {
         _serviceBrand: undefined,
         homeDir,
         osHomeDir: homeDir,
-        args: resolveHostArgs(undefined),
+        args: resolveHostArgs(),
         scope: (name: string) => name,
       } as unknown as IBootstrapService),
       stubPair(IHostEnvironment, {
@@ -307,9 +313,16 @@ describe('workspace resource sharing (handler chain)', () => {
       stubPair(IConfigService, {
         _serviceBrand: undefined,
         ready: Promise.resolve(),
-        get: () => undefined,
+        get: () => {},
         onDidSectionChange: () => ({ dispose: () => {} }),
       } as unknown as IConfigService),
+      stubPair(IModelCatalog, { _serviceBrand: undefined } as unknown as IModelCatalog),
+      stubPair(IModelService, {
+        _serviceBrand: undefined,
+        ready: Promise.resolve(),
+      } as unknown as IModelService),
+      stubPair(IProviderService, stubProviderService()),
+      stubPair(IFlagService, stubFlag(() => false)),
       stubPair(ITelemetryService, noopTelemetryService),
       stubPair(ISkillDiscovery, discovery),
       stubPair(IPluginService, pluginStub()),
@@ -317,7 +330,7 @@ describe('workspace resource sharing (handler chain)', () => {
       stubPair(ISessionIndex, {
         _serviceBrand: undefined,
         list: () => Promise.resolve({ items: [], total: 0, hasMore: false }),
-        get: () => Promise.resolve(undefined),
+        get: () => Promise.resolve(),
         countActive: () => Promise.resolve(0),
       } as unknown as ISessionIndex),
       stubPair(ISessionIndexMirror, {
@@ -337,7 +350,7 @@ describe('workspace resource sharing (handler chain)', () => {
       } as unknown as IAppendLogStore),
       stubPair(IAtomicDocumentStore, {
         _serviceBrand: undefined,
-        get: () => Promise.resolve(undefined),
+        get: () => Promise.resolve(),
         set: () => Promise.resolve(),
         delete: () => Promise.resolve(),
         list: () => Promise.resolve([]),
@@ -391,7 +404,7 @@ describe('workspace resource sharing (handler chain)', () => {
         onDidDispose: () => ({ dispose: () => {} }),
         create: () => Promise.reject(new Error('not implemented')),
         fork: () => Promise.reject(new Error('not implemented')),
-        get: () => undefined,
+        get: () => {},
         list: () => [],
         remove: () => Promise.resolve(),
         broadcastPermissionMode: () => {},

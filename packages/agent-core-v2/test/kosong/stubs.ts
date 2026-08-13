@@ -7,11 +7,12 @@
 
 import { Emitter, type Event } from '#/_base/event';
 import type { IOAuthService } from '#/app/auth/auth';
+import type {
+  IConfigService} from '#/app/config/config';
 import {
   type ConfigChangedEvent,
   type ConfigDiagnostic,
   type ConfigInspectValue,
-  IConfigService,
   type ResolvedConfig,
 } from '#/app/config/config';
 import type { IModelOAuthTokens } from '#/kosong/model/modelOAuth';
@@ -63,7 +64,7 @@ export class StubConfigService implements IConfigService {
 
   replace(domain: string, value: unknown): Promise<void> {
     const previousValue = this._values.get(domain);
-    if (value === undefined) {
+    if (value === undefined || value === null) {
       this._values.delete(domain);
     } else {
       this._values.set(domain, value);
@@ -75,7 +76,7 @@ export class StubConfigService implements IConfigService {
   replaceSections(sections: Readonly<Record<string, unknown>>): Promise<void> {
     for (const [domain, value] of Object.entries(sections)) {
       const previousValue = this._values.get(domain);
-      if (value === undefined) {
+      if (value === undefined || value === null) {
         this._values.delete(domain);
       } else {
         this._values.set(domain, value);
@@ -125,13 +126,13 @@ export function stubOAuthService(tokenProvider?: StubTokenProvider): IOAuthServi
   return {
     _serviceBrand: undefined,
     startLogin: () => Promise.reject(new Error('not implemented')),
-    getFlow: () => undefined,
+    getFlow: () => {},
     cancelLogin: () => Promise.reject(new Error('not implemented')),
     logout: () => Promise.reject(new Error('not implemented')),
     status: () => Promise.resolve({ loggedIn: false }),
     refreshOAuthProviderModels: () => Promise.reject(new Error('not implemented')),
     resolveTokenProvider: () => tokenProvider,
-    getCachedAccessToken: () => Promise.resolve(undefined),
+    getCachedAccessToken: () => Promise.resolve(),
   } as unknown as IOAuthService;
 }
 

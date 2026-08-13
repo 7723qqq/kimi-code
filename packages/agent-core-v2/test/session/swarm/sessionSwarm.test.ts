@@ -15,8 +15,6 @@ import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { IEventBus, type DomainEvent } from '#/app/event/eventBus';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
-import { SECONDARY_MODEL_SECTION } from '#/app/kosongConfig/configSection';
-import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { APIProviderRateLimitError } from '#/kosong/contract/errors';
@@ -1153,7 +1151,7 @@ describe('SessionSwarmService metadata compatibility', () => {
     const spawnTask: SessionSwarmSpawnTask = {
       ...spawnSessionTask('src/a.ts'),
       kind: 'spawn',
-      binding: { model: 'provider/secondary', thinking: 'low' },
+      binding: { model: 'provider/pool', thinking: 'low' },
     };
 
     await expect(
@@ -1167,7 +1165,7 @@ describe('SessionSwarmService metadata compatibility', () => {
       expect.objectContaining({
         binding: {
           profile: 'coder',
-          model: 'provider/secondary',
+          model: 'provider/pool',
           thinking: 'low',
         },
       }),
@@ -1176,45 +1174,13 @@ describe('SessionSwarmService metadata compatibility', () => {
       expect.objectContaining({
         type: 'subagent.spawned',
         subagentId: 'agent-new',
-        model: 'provider/secondary',
+        model: 'provider/pool',
         thinkingEffort: 'low',
       }),
     );
   });
 
-  it('emits the recipe base alias (never the derived entry id) as the spawned display model', async () => {
-    ix.stub(
-      IConfigService,
-      new StubConfigService({
-        [SECONDARY_MODEL_SECTION]: { model: 'provider/base', defaultEffort: 'low' },
-      }),
-    );
-    ix.stub(IFlagService, stubFlag((id) => id === SECONDARY_MODEL_FLAG_ID));
-    const service = ix.get(ISessionSwarmService);
-    const spawnTask: SessionSwarmSpawnTask = {
-      ...spawnSessionTask('src/a.ts'),
-      kind: 'spawn',
-      binding: { model: '__secondary__', thinking: 'low' },
-    };
-
-    await expect(
-      service.run({
-        callerAgentId: 'main',
-        tasks: [spawnTask],
-      }),
-    ).resolves.toMatchObject([{ status: 'completed', agentId: 'agent-new' }]);
-
-    expect(eventBus.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'subagent.spawned',
-        subagentId: 'agent-new',
-        model: 'provider/base',
-        thinkingEffort: 'low',
-      }),
-    );
-  });
-
-  it('points at the secondary model config when a spawn task binding is invalid', async () => {
+  it('points at the [secondary_model.models] config when a spawn task binding is invalid', async () => {
     const service = ix.get(ISessionSwarmService);
     const spawnTask: SessionSwarmSpawnTask = {
       ...spawnSessionTask('src/a.ts'),
@@ -1230,7 +1196,7 @@ describe('SessionSwarmService metadata compatibility', () => {
     ).resolves.toMatchObject([
       {
         status: 'failed',
-        error: expect.stringContaining('comes from [secondary_model].model / KIMI_SECONDARY_MODEL'),
+        error: expect.stringContaining('comes from [secondary_model.models]'),
       },
     ]);
     expect(createAgent).not.toHaveBeenCalled();

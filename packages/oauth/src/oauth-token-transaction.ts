@@ -20,7 +20,7 @@ export interface OAuthTokenTransactionOptions<T extends object> {
   readonly write: (tokens: T) => Promise<void>;
   readonly remove: () => Promise<void>;
   readonly parse: (value: unknown) => T | undefined;
-  readonly adopt?: (tokens: T | undefined) => void;
+  readonly adopt?: (tokens?: T | undefined) => void;
 }
 
 /**
@@ -179,7 +179,7 @@ export class OAuthTokenTransaction<T extends object> {
     return jsonResponse(current);
   }
 
-  private adopt(tokens: T | undefined): void {
+  private adopt(tokens?: T | undefined): void {
     this.options.adopt?.(tokens);
   }
 

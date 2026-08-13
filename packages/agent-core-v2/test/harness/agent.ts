@@ -186,7 +186,6 @@ import {
   MODELS_SECTION,
   PROVIDERS_SECTION,
 } from '#/app/kosongConfig/configSection';
-import { secondaryModelOverlay } from '#/app/kosongConfig/secondaryModelOverlay';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
 import { ModelCatalog } from '#/kosong/model/catalogService';
 import { IModelOAuthTokens } from '#/kosong/model/modelOAuth';
@@ -2383,11 +2382,7 @@ function applyTestAgentOptionsToConfig(config: KimiConfig, options: TestAgentOpt
 }
 
 function configService(readConfig: () => KimiConfig): IConfigService {
-  const effectiveConfig = () => {
-    const effective = { ...configWithEnvOverrides(readConfig()) } as Record<string, unknown>;
-    secondaryModelOverlay.apply(effective, () => {}, (_domain, value) => value);
-    return effective as unknown as KimiConfig;
-  };
+  const effectiveConfig = () => configWithEnvOverrides(readConfig());
   const memory = new Map<string, unknown>();
   const sectionEmitter = new Emitter<{
     readonly domain: string;

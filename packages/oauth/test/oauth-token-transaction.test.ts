@@ -115,7 +115,7 @@ describe('OAuthTokenTransaction', () => {
 function transaction(
   key: string,
   read: () => TestTokens | undefined,
-  write: (tokens: TestTokens | undefined) => void,
+  write: (tokens?: TestTokens | undefined) => void,
 ): OAuthTokenTransaction<TestTokens> {
   return new OAuthTokenTransaction({
     key,

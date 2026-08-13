@@ -42,7 +42,11 @@
  * transform's `setDefined` drops those). The kosong
  * persistence bridge then pushes the change into the registries, which is
  * also what invalidates the catalog cache. Multi-step sequences are
- * serialized through `enqueueProviderWrite`.
+ * serialized through `enqueueProviderWrite`. Replace and delete additionally
+ * cascade into the `[secondary_model]` subagent pool (repointing renamed
+ * aliases, filtering entries whose model alias disappeared, clearing the
+ * section when its default dangles) so the engine's create/resume pool
+ * validation never meets a dangling pool.
  */
 
 import {
@@ -54,7 +58,6 @@ import {
   IModelsDevImportService,
   isError2,
   ModelsDevImportErrors,
-  SECONDARY_DERIVED_MODEL_ID,
   type ModelRecord,
   type ModelsSection,
   type ProviderConfig,
@@ -69,6 +72,11 @@ import {
   MODELS_SECTION,
   PROVIDERS_SECTION,
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/configSection';
+import {
+  SECONDARY_MODEL_SECTION,
+  cascadeSubagentModelPool,
+  type SecondaryModelConfig,
+} from '@moonshot-ai/agent-core-v2/session/subagent/configSection';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -199,8 +207,8 @@ let providerWriteChain: Promise<unknown> = Promise.resolve();
 function enqueueProviderWrite<T>(task: () => Promise<T>): Promise<T> {
   const run = providerWriteChain.then(task, task);
   providerWriteChain = run.then(
-    () => undefined,
-    () => undefined,
+    () => {},
+    () => {},
   );
   return run;
 }
@@ -230,16 +238,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
     },
     async (req, reply) => {
       const items = await (await loadCatalog(core)).listModels();
-      // Presentation filter: the secondary-model derived entry is synthesized
-      // runtime state, not a configured alias — keep it out of pickers (the
-      // catalog still resolves it by id, and the overlay's strip keeps any
-      // default-model pointer to it out of config.toml).
-      reply.send(
-        okEnvelope(
-          { items: items.filter((item) => item.model !== SECONDARY_DERIVED_MODEL_ID) },
-          req.id,
-        ),
-      );
+      reply.send(okEnvelope({ items }, req.id));
     },
   );
   app.get(
@@ -278,9 +277,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         }
         const result = await (await loadCatalog(core)).setDefaultModel(parsed.id);
         reply.send(okEnvelope(result, req.id));
-      } catch (err) {
-        if (sendMappedError(reply, req.id, err)) return;
-        throw err;
+      } catch (error) {
+        if (sendMappedError(reply, req.id, error)) return;
+        throw error;
       }
     },
   );
@@ -566,6 +565,24 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
           }
         }
 
+        const renamedAliases = new Map<string, string>();
+        if (newId !== provider_id) {
+          for (const oldAlias of previousAliasIds) {
+            const bare = models[oldAlias]?.model;
+            const renamed = bare === undefined ? undefined : `${newId}/${bare}`;
+            if (renamed !== undefined && nextModels[renamed] !== undefined) {
+              renamedAliases.set(oldAlias, renamed);
+            }
+          }
+        }
+        const secondaryModel = config.inspect<SecondaryModelConfig>(
+          SECONDARY_MODEL_SECTION,
+        ).userValue;
+        const cascadedPool = cascadeSubagentModelPool(secondaryModel, nextModels, renamedAliases);
+        if (cascadedPool !== undefined) {
+          await config.replace(SECONDARY_MODEL_SECTION, cascadedPool);
+        }
+
         const saved = await core.accessor.get(IModelCatalog).getProvider(newId);
         reply.send(okEnvelope({ provider: saved }, req.id));
       });
@@ -669,9 +686,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
           providerId: parsed.id,
         });
         reply.send(okEnvelope(result, req.id));
-      } catch (err) {
-        if (sendMappedError(reply, req.id, err)) return;
-        throw err;
+      } catch (error) {
+        if (sendMappedError(reply, req.id, error)) return;
+        throw error;
       }
     },
   );
@@ -708,9 +725,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
             req.id,
           ),
         );
-      } catch (err) {
-        if (sendMappedError(reply, req.id, err)) return;
-        throw err;
+      } catch (error) {
+        if (sendMappedError(reply, req.id, error)) return;
+        throw error;
       }
     },
   );
@@ -775,6 +792,13 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         if (Object.keys(restModels).length !== Object.keys(models).length) {
           await config.replace(MODELS_SECTION, restModels);
         }
+        const secondaryModel = config.inspect<SecondaryModelConfig>(
+          SECONDARY_MODEL_SECTION,
+        ).userValue;
+        const cascadedPool = cascadeSubagentModelPool(secondaryModel, restModels);
+        if (cascadedPool !== undefined) {
+          await config.replace(SECONDARY_MODEL_SECTION, cascadedPool);
+        }
         (reply as unknown as StatusReply).code(204).send();
       });
     },
@@ -800,9 +824,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
       try {
         const items = await core.accessor.get(IModelsDevImportService).listModelsDevProviders();
         reply.send(okEnvelope({ items }, req.id));
-      } catch (err) {
-        if (sendModelsDevImportError(reply, req.id, err)) return;
-        throw err;
+      } catch (error) {
+        if (sendModelsDevImportError(reply, req.id, error)) return;
+        throw error;
       }
     },
   );
@@ -831,9 +855,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         const { catalog_id } = req.params;
         const item = await core.accessor.get(IModelsDevImportService).getModelsDevProvider(catalog_id);
         reply.send(okEnvelope(item, req.id));
-      } catch (err) {
-        if (sendModelsDevImportError(reply, req.id, err)) return;
-        throw err;
+      } catch (error) {
+        if (sendModelsDevImportError(reply, req.id, error)) return;
+        throw error;
       }
     },
   );
@@ -921,9 +945,9 @@ async function handleImportCatalog(
           req.id,
         ),
       );
-  } catch (err) {
-    if (sendModelsDevImportError(reply, req.id, err)) return;
-    throw err;
+  } catch (error) {
+    if (sendModelsDevImportError(reply, req.id, error)) return;
+    throw error;
   }
 }
 
@@ -959,9 +983,9 @@ async function handleImportRegistry(
           req.id,
         ),
       );
-  } catch (err) {
-    if (sendModelsDevImportError(reply, req.id, err)) return;
-    throw err;
+  } catch (error) {
+    if (sendModelsDevImportError(reply, req.id, error)) return;
+    throw error;
   }
 }
 

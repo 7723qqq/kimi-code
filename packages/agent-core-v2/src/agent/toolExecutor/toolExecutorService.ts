@@ -72,7 +72,10 @@ const ABORT_GRACE_MS = 2_000;
 const TOOL_OUTPUT_EMPTY = 'Tool output is empty.';
 const TOOL_OUTPUT_NON_TEXT = 'Tool returned non-text content.';
 
-const validators = new WeakMap<ExecutableTool, ToolArgsValidator>();
+const validators = new WeakMap<
+  ExecutableTool,
+  { schema: Record<string, unknown>; validator: ToolArgsValidator }
+>();
 
 export interface ToolExecutionTask {
   readonly accesses: ToolAccesses;
@@ -246,7 +249,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
           candidates.push(
             nextTimed.then(
               (result): ToolExecutionStreamEvent => ({ type: 'timed', result }),
-              (reason): ToolExecutionStreamEvent => ({ type: 'timedRejected', reason }),
+              (error): ToolExecutionStreamEvent => ({ type: 'timedRejected', error }),
             ),
           );
         }
@@ -276,7 +279,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
             options,
           ).then(
             (value): SettledToolExecutionResult => ({ status: 'fulfilled', value }),
-            (reason): SettledToolExecutionResult => ({ status: 'rejected', reason }),
+            (error): SettledToolExecutionResult => ({ status: 'rejected', error }),
           );
           finalizations.add(finalization);
           nextTimed = timedResults.next();
@@ -374,7 +377,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       task: ToolExecutionTask;
       stopBatchAfterThis?: boolean;
     } => {
-      const toolResult = this.normalizeAndMergeResult(result, call.toolName, undefined);
+      const toolResult = this.normalizeAndMergeResult(result, call.toolName);
       this.dispatchToolCall(call, args, options, displayFields);
       return {
         task: makeResolvedTask(
@@ -493,7 +496,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         index,
         pendingResult.then(
           (value): SettledTimedToolResult => ({ status: 'fulfilled', value }),
-          (reason): SettledTimedToolResult => ({ status: 'rejected', index, reason }),
+          (error): SettledTimedToolResult => ({ status: 'rejected', index, error }),
         ),
       );
     }
@@ -794,16 +797,17 @@ function preflightToolCall(
 }
 
 function validateExecutableToolArgs(tool: ExecutableTool, args: unknown): string | null {
-  let validator = validators.get(tool);
-  if (validator === undefined) {
+  const schema = tool.parameters;
+  let cached = validators.get(tool);
+  if (cached === undefined || cached.schema !== schema) {
     try {
-      validator = compileToolArgsValidator(tool.parameters);
-      validators.set(tool, validator);
+      cached = { schema, validator: compileToolArgsValidator(schema) };
+      validators.set(tool, cached);
     } catch (error) {
       return error instanceof Error ? error.message : String(error);
     }
   }
-  return validateToolArgs(validator, args as JsonType);
+  return validateToolArgs(cached.validator, args as JsonType);
 }
 
 function toolCallDisplayFieldsFromExecution(

@@ -35,6 +35,11 @@ import { Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { IModelCatalog } from '#/kosong/model/catalog';
+import { IModelService } from '#/kosong/model/model';
+import { IProviderService } from '#/kosong/provider/provider';
+import { stubProviderService } from '../../app/provider/stubs';
+import { IFlagService } from '#/app/flag/flag';
 import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
 import { IEventService } from '#/app/event/event';
 import {
@@ -86,6 +91,7 @@ import { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
 import { IWorkspaceSkillCatalog } from '#/workspace/workspaceSkillCatalog/workspaceSkillCatalog';
 
 import { stubLog } from '../../_base/log/stubs';
+import { stubFlag } from '../../app/flag/stubs';
 
 const normalizeSlashes = (p: string): string => p.replaceAll('\\', '/');
 
@@ -107,15 +113,15 @@ function workspaceCatalogStub(): IWorkspaceService {
       workspaces.set(id, workspace);
       return Promise.resolve(workspace);
     },
-    update: () => Promise.resolve(undefined),
+    update: () => Promise.resolve(),
     delete: () => Promise.resolve(),
   };
 }
 
 function workspaceSkillCatalogStub(): IWorkspaceSkillCatalog {
   const catalog = {
-    getSkill: () => undefined,
-    getPluginSkill: () => undefined,
+    getSkill: () => {},
+    getPluginSkill: () => {},
     renderSkillPrompt: () => '',
     listSkills: () => [],
     listInvocableSkills: () => [],
@@ -295,15 +301,22 @@ describe('workspace add-dir (handler chain)', () => {
       stubPair(IConfigService, {
         _serviceBrand: undefined,
         ready: Promise.resolve(),
-        get: () => undefined,
+        get: () => {},
         onDidSectionChange: () => ({ dispose: () => {} }),
       } as unknown as IConfigService),
+      stubPair(IModelCatalog, { _serviceBrand: undefined } as unknown as IModelCatalog),
+      stubPair(IModelService, {
+        _serviceBrand: undefined,
+        ready: Promise.resolve(),
+      } as unknown as IModelService),
+      stubPair(IProviderService, stubProviderService()),
+      stubPair(IFlagService, stubFlag(() => false)),
       stubPair(ITelemetryService, noopTelemetryService),
       stubPair(IWorkspaceService, workspaceCatalogStub()),
       stubPair(ISessionIndex, {
         _serviceBrand: undefined,
         list: () => Promise.resolve({ items: [], total: 0, hasMore: false }),
-        get: () => Promise.resolve(undefined),
+        get: () => Promise.resolve(),
         countActive: () => Promise.resolve(0),
       } as unknown as ISessionIndex),
       stubPair(ISessionIndexMirror, {
@@ -323,7 +336,7 @@ describe('workspace add-dir (handler chain)', () => {
       } as unknown as IAppendLogStore),
       stubPair(IAtomicDocumentStore, {
         _serviceBrand: undefined,
-        get: () => Promise.resolve(undefined),
+        get: () => Promise.resolve(),
         set: () => Promise.resolve(),
         delete: () => Promise.resolve(),
         list: () => Promise.resolve([]),
@@ -370,7 +383,7 @@ describe('workspace add-dir (handler chain)', () => {
         onDidDispose: () => ({ dispose: () => {} }),
         create: () => Promise.reject(new Error('not implemented')),
         fork: () => Promise.reject(new Error('not implemented')),
-        get: () => undefined,
+        get: () => {},
         list: () => [],
         remove: () => Promise.resolve(),
         broadcastPermissionMode: () => {},
