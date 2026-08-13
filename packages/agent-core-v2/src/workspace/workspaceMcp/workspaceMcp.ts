@@ -22,6 +22,7 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { McpConnectionManager } from '#/mcpCore/connection-manager';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
+import type { McpOAuthCredentialsChangedEvent } from '#/mcpCore/oauth/coordinator';
 import type { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 
 export interface ISessionMcpOverlay {
@@ -46,6 +47,8 @@ export interface IWorkspaceMcpService {
     servers: Readonly<Record<string, McpServerConfig>>,
     opts?: SessionMcpOverlayOptions,
   ): ISessionMcpOverlay;
+
+  reconnectMcpAfterCredentialsChanged(event: McpOAuthCredentialsChangedEvent): Promise<void>;
 }
 
 export const IWorkspaceMcpService: ServiceIdentifier<IWorkspaceMcpService> =

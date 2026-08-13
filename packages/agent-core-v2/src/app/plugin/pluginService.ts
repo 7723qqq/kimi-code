@@ -45,6 +45,7 @@ import type {
   PluginCommandDef,
   PluginInfo,
   PluginAgentRoot,
+  PluginMcpServerRuntimeConfig,
   PluginMutation,
   PluginMutationSummary,
   PluginSummary,
@@ -141,8 +142,8 @@ export class PluginService extends Service implements IPluginService {
       }
     });
     this.initialLoadPromise ??= reload.then(
-      () => undefined,
-      () => undefined,
+      () => {},
+      () => {},
     );
     return reload;
   }
@@ -208,6 +209,22 @@ export class PluginService extends Service implements IPluginService {
     });
   }
 
+  mcpServers(): Promise<readonly PluginMcpServerRuntimeConfig[]> {
+    return this.runConsumptionRead([], async () => {
+      const pluginServers = this.manager.mcpServers();
+      if (!pluginServers.some((server) => server.config.transport === 'stdio')) {
+        return pluginServers;
+      }
+      const managedEnv = await this.managedKimiCodeEnvForPlugins();
+      if (Object.keys(managedEnv).length === 0) return pluginServers;
+      return pluginServers.map((server) =>
+        server.config.transport === 'stdio'
+          ? { ...server, config: { ...server.config, env: { ...server.config.env, ...managedEnv } } }
+          : server,
+      );
+    });
+  }
+
   enabledHooks(): Promise<readonly HookDef[]> {
     return this.runConsumptionRead([], async () => this.manager.enabledHooks());
   }
@@ -261,8 +278,8 @@ export class PluginService extends Service implements IPluginService {
   private enqueueMutation<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.mutationQueue.then(operation);
     this.mutationQueue = result.then(
-      () => undefined,
-      () => undefined,
+      () => {},
+      () => {},
     );
     return result;
   }

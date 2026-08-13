@@ -139,6 +139,10 @@ class WorkspaceMcpStub implements IWorkspaceMcpService {
   sessionOverlay(): ISessionMcpOverlay {
     return { handle: this.sessionHandle(), shutdown: () => Promise.resolve() };
   }
+
+  reconnectMcpAfterCredentialsChanged(): Promise<void> {
+    return Promise.resolve();
+  }
 }
 
 class WorkspaceDirsStub implements IWorkspaceDirs {

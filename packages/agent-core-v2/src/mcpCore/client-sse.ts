@@ -9,6 +9,7 @@ import { ErrorCodes, Error2 } from '#/errors';
 import { t } from '@moonshot-ai/kimi-i18n';
 
 import { buildMcpRemoteHeaders } from './client-remote';
+import { createMcpOAuthFetch } from './oauth/provider';
 import {
   buildRequestOptions,
   KIMI_MCP_CLIENT_NAME,
@@ -52,7 +53,7 @@ export class SseMcpClient implements MCPClient {
 
     this.transport = new SSEClientTransport(new URL(config.url), {
       requestInit: headers !== undefined ? { headers } : undefined,
-      fetch: options.fetch,
+      fetch: createMcpOAuthFetch(options.oauthProvider, options.fetch),
       authProvider: options.oauthProvider,
     });
     this.client = new Client({

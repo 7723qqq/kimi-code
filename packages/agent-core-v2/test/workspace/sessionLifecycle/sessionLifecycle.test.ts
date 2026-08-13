@@ -400,6 +400,7 @@ function workspaceMcpServiceStub(ready: Promise<void> = Promise.resolve()): IWor
     sessionOverlay: () => {
       throw new Error('not implemented');
     },
+    reconnectMcpAfterCredentialsChanged: () => Promise.resolve(),
   };
 }
 

@@ -80,6 +80,7 @@ function pluginServiceStub(options: PluginServiceStubOptions): IPluginService {
     enabledSessionStarts: async () => options.sessionStarts,
     enabledSystemPrompts: async () => [],
     enabledMcpServers: async () => ({}),
+    mcpServers: async () => [],
     enabledHooks: async () => [],
     hasLoadedSnapshot: () => true,
   };

@@ -33,6 +33,7 @@ import {
   type PluginGithubMetadata,
   type PluginInfo,
   type PluginMcpServerInfo,
+  type PluginMcpServerRuntimeConfig,
   type PluginRecord,
   type PluginSource,
   type PluginSummary,
@@ -369,6 +370,29 @@ export class PluginManager {
           record.root,
           this.kimiHomeDir,
         );
+      }
+    }
+    return out;
+  }
+
+  mcpServers(): readonly PluginMcpServerRuntimeConfig[] {
+    const out: PluginMcpServerRuntimeConfig[] = [];
+    for (const record of this.records.values()) {
+      if (record.state !== 'ok' || record.manifest === undefined) continue;
+      for (const [serverName, config] of Object.entries(record.manifest.mcpServers ?? {})) {
+        const enabled = record.enabled && isMcpServerEnabled(record, serverName, config);
+        const runtimeName = pluginMcpRuntimeName(record.id, serverName);
+        out.push({
+          pluginId: record.id,
+          serverName,
+          runtimeName,
+          enabled,
+          config: withPluginMcpRuntime(
+            withMcpServerEnabled(config, enabled),
+            record.root,
+            this.kimiHomeDir,
+          ),
+        });
       }
     }
     return out;

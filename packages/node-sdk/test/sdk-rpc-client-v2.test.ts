@@ -1,5 +1,5 @@
 /**
- * Scenario: v2 wiring MVP — the harness talks to the in-process agent-core-v2
+ * Scenario: v2 wiring MVP 閳?the harness talks to the in-process agent-core-v2
  * engine (klient memory transport) instead of the v1 KimiCore RPC pair.
  * Responsibilities: `getExperimentalFeatures` is migrated end-to-end; every
  * not-yet-migrated method fails loudly with `not_implemented` instead of
@@ -182,7 +182,10 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring MVP)', () => {
       await harness.close();
       await statusServer.close();
     }
-  }, 15_000);
+    // 30s: each status pass probes the unreachable `*.example.test` URLs with
+    // stored credentials (~10s per pass on Windows DNS), so the default 15s
+    // upstream budget is too tight for the two-pass shape of this test.
+  }, 30_000);
 
   it('seeds the host request headers (User-Agent + X-Msh-*) into the engine', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
@@ -190,7 +193,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring MVP)', () => {
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
     try {
       // Without this seed the managed vendors go out with the SDK's default
-      // User-Agent and no X-Msh-* — the interactive-v2 path's identity bug.
+      // User-Agent and no X-Msh-* 閳?the interactive-v2 path's identity bug.
       const headers = client.engineAccessor.get(IHostRequestHeaders).headers;
       expect(headers['User-Agent']).toBe(`kimi-code-cli/${TEST_IDENTITY.version}`);
       expect(headers['X-Msh-Platform']).toBe('kimi_code_cli');
@@ -354,7 +357,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring MVP)', () => {
       expect(next.models?.['a/m1']).toBeDefined();
       expect(next.defaultModel).toBeUndefined();
       expect(next.defaultProvider).toBeUndefined();
-      // A fresh read from disk sees the same state — the cascade landed as a
+      // A fresh read from disk sees the same state 閳?the cascade landed as a
       // single atomic write, never a halfway-removed intermediate.
       const reread = await harness.getConfig({ reload: true });
       expect(reread.providers['b']).toBeUndefined();
@@ -655,3 +658,8 @@ async function writeSkill(dir: string, name: string): Promise<void> {  await mkd
     'utf-8',
   );
 }
+
+
+
+
+

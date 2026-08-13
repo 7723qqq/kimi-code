@@ -32,6 +32,7 @@ import { ErrorCodes, Error2, isError2 } from '#/errors';
 import { t } from '@moonshot-ai/kimi-i18n';
 
 import { startCallbackServer, type CallbackServer } from './callback-server';
+import type { McpOAuthCredentialsCoordinator } from './coordinator';
 import { McpOAuthClientProvider } from './provider';
 import { mcpOAuthStoreKey, type McpOAuthStore } from './store';
 
@@ -39,6 +40,7 @@ export interface McpOAuthServiceOptions {
   readonly store: McpOAuthStore;
   readonly clientLabel?: string;
   readonly resolveClientName?: () => string | undefined;
+  readonly coordinator?: McpOAuthCredentialsCoordinator;
 }
 
 export interface BeginAuthorizationOptions {
@@ -55,6 +57,7 @@ export class McpOAuthService {
   private readonly store: McpOAuthStore;
   private readonly clientLabel: string | undefined;
   private readonly resolveClientName: (() => string | undefined) | undefined;
+  private readonly coordinator: McpOAuthCredentialsCoordinator | undefined;
   private readonly providers = new Map<string, McpOAuthClientProvider>();
   /**
    * In-flight OAuth flows keyed by server name. A second `beginAuthorization`
@@ -68,6 +71,7 @@ export class McpOAuthService {
     this.store = options.store;
     this.clientLabel = options.clientLabel;
     this.resolveClientName = options.resolveClientName;
+    this.coordinator = options.coordinator;
   }
 
   getProvider(serverName: string, serverUrl: string | URL): McpOAuthClientProvider {
@@ -127,9 +131,13 @@ export class McpOAuthService {
 
     let authorizationUrl: URL | undefined;
     try {
-      const result = await auth(provider as OAuthClientProvider, { serverUrl });
+      const result = await auth(provider as OAuthClientProvider, {
+        serverUrl,
+        fetchFn: provider.createOAuthFetch(),
+      });
       if (result !== 'REDIRECT') {
         await callbackServer.close();
+        this.coordinator?.notifyCredentialsChanged(serverName, serverUrl);
         throw new AlreadyAuthorizedError(serverName);
       }
       authorizationUrl = provider.takeAuthorizationUrl();
@@ -173,6 +181,7 @@ export class McpOAuthService {
         const finalResult = await auth(provider as OAuthClientProvider, {
           serverUrl,
           authorizationCode: code,
+          fetchFn: provider.createOAuthFetch(),
         });
         if (finalResult !== 'AUTHORIZED') {
           throw new Error2(
@@ -188,6 +197,7 @@ export class McpOAuthService {
       settled = true;
       await callbackServer.close().catch(() => {});
       provider.resetFlow();
+      this.coordinator?.notifyCredentialsChanged(serverName, serverUrl);
     };
 
     const result: BeginAuthorizationResult = { authorizationUrl, complete, cancel };
@@ -221,6 +231,10 @@ export class McpOAuthService {
     scope: 'all' | 'client' | 'tokens' | 'discovery' = 'all',
   ): Promise<void> {
     return this.getProvider(serverName, serverUrl).invalidateCredentials(scope);
+  }
+
+  forgetProvider(serverName: string, serverUrl: string | URL): void {
+    this.providers.delete(mcpOAuthStoreKey(serverName, serverUrl));
   }
 }
 

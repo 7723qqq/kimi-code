@@ -3657,7 +3657,10 @@ describe('v1↔v2 global MCP parity', () => {
       await closeGlobalMcpPair(pair);
       await statusServer.close();
     }
-  }, 15_000);
+    // 30s: the status passes probe unreachable `*.example.test` URLs with
+    // stored credentials (~10s per pass on Windows DNS), so the default 15s
+    // upstream budget is too tight for the two-pass shape of this test.
+  }, 30_000);
 
   it('CRUD round-trips identically and writes byte-identical mcp.json files', async () => {
     const pair = await makeGlobalMcpParityPair({

@@ -155,6 +155,11 @@ import {
   McpOAuthService,
   type BeginAuthorizationResult,
 } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
+import {
+  McpOAuthCoordinator,
+  type McpOAuthCredentialsChangedEvent,
+} from '@moonshot-ai/agent-core-v2/mcpCore/oauth/coordinator';
+import { IPluginService } from '@moonshot-ai/agent-core-v2/app/plugin/plugin';
 import { createMcpOAuthStore } from '@moonshot-ai/agent-core-v2/app/mcpConfig/oauthStore';
 import { SECONDARY_MODEL_SECTION } from '@moonshot-ai/agent-core-v2/app/kosongConfig/configSection';
 import { IAtomicDocumentStore } from '@moonshot-ai/agent-core-v2/persistence/interface/atomicDocumentStore';
@@ -323,10 +328,16 @@ import { assertImportFits, buildImportContextMessage } from '#/v2/import-context
 import { foldAgentWireReplay } from '#/v2/resume-replay';
 import {
   GlobalMcpConfigStore,
+  appMcpServerDescriptors,
+  inspectAppMcpServerDescriptors,
+  legacyGlobalMcpAuthState,
+  legacyGlobalMcpAuthStateWithoutProbe,
   mcpConfigWithoutName,
   requireOAuthMcpServer,
   requireRemoteMcpServer,
+  selectAppMcpServerDescriptors,
   standaloneMcpTestResult,
+  type McpServerLocator,
 } from '#/v2/global-mcp';
 import {
   normalizeWorkDir,
@@ -410,6 +421,13 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   /** In-flight OAuth flows keyed by the flowId handed to the host (v1 shape). */
   private readonly globalMcpOAuthFlows = new Map<string, { flow: BeginAuthorizationResult }>();
   /**
+   * Credential-change coordinator for the client-side global OAuth service:
+   * flows completed here notify the engine's workspace MCP services, which
+   * reconnect the affected servers (the same cross-domain seam v1 wired
+   * through its session layer).
+   */
+  private readonly mcpOAuthCoordinator = new McpOAuthCoordinator();
+  /**
    * Per-live-session event/interaction wirings (`src/v2/session-wiring.ts`):
    * created when a session materializes through this client (create / resume /
    * fork / reload), dropped on close (ours or the engine's). Each wiring feeds
@@ -475,7 +493,19 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       app.accessor.get(IModelService).ready,
       app.accessor.get(IProviderService).ready,
     ]).then(() => {});
-    this.appSubscriptions.push(
+    this.appSubscriptions.push({
+      // Credential changes from the client-side global OAuth flows reach the
+      // engine through every live workspace handler's MCP service, which
+      // reconnects the affected server (v1's session-layer seam).
+      dispose: this.mcpOAuthCoordinator.onCredentialsChanged((event) => {
+        void this.reconnectMcpAfterCredentialsChanged(event).catch((error: unknown) => {
+          console.warn('mcp reconnect after credentials change failed', {
+            server: event.serverName,
+            error,
+          });
+        });
+      }),
+    },
       // v1's stream carries `session.meta.updated` (the prompt metadata
       // path) — the one v1-visible fact the v2 engine publishes on the
       // process-global IEventService rather than a per-agent bus. Every other
@@ -2216,6 +2246,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       this.globalMcpOAuth = new McpOAuthService({
         store: createMcpOAuthStore(this.engineAccessor.get(IAtomicDocumentStore)),
         resolveClientName: () => this.resolveMcpClientName(),
+        coordinator: this.mcpOAuthCoordinator,
       });
     }
     return this.globalMcpOAuth;
@@ -2225,19 +2256,65 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return this.globalMcpConfig.list();
   }
 
+  /**
+   * v1's `listGlobalMcpServerAuthStatuses` semantics: each global server gets
+   * its configured (probe-free) state when determinable, and a real-connection
+   * inspection otherwise. The inspection catalog spans global + plugin
+   * servers, so runtime-name collisions between them surface as
+   * `unavailable` instead of a wrong status. Legacy status values (and a
+   * fallback credential check for unreachable servers) are preserved exactly
+   * as v1 shaped them.
+   */
   override async listGlobalMcpServerAuthStatuses(): Promise<
     readonly GlobalMcpServerAuthStatus[]
   > {
-    const servers = await this.globalMcpConfig.list();
-    const oauth = new McpOAuthService({
-      store: createMcpOAuthStore(this.engineAccessor.get(IAtomicDocumentStore)),
-    });
-    return Promise.all(
-      servers.map(async (server) => ({
-        name: server.name,
-        authStatus: await this.globalMcpServerAuthState(server, oauth),
-      })),
+    const globals = await this.globalMcpConfig.list();
+    const oauth = await this.globalMcpOAuthService();
+    const pluginRuntimes = await this.engineAccessor.get(IPluginService).mcpServers();
+    const catalog = appMcpServerDescriptors(globals, pluginRuntimes);
+
+    const authStatuses = new Map<string, GlobalMcpServerAuthState>();
+    const targets: McpServerLocator[] = [];
+    for (const server of globals) {
+      const credentialPresent =
+        server.transport !== 'stdio' && (await oauth.hasTokens(server.name, server.url));
+      const authStatus = legacyGlobalMcpAuthStateWithoutProbe(server, credentialPresent);
+      if (authStatus === undefined) targets.push({ source: 'global', name: server.name });
+      else authStatuses.set(server.name, authStatus);
+    }
+
+    const inspections = await inspectAppMcpServerDescriptors(
+      selectAppMcpServerDescriptors(catalog, targets.length > 0 ? targets : undefined),
+      catalog,
+      oauth,
+      {
+        startupTimeoutMs: (await this.mcpStartupTimeouts()).startupTimeoutMs,
+        toolTimeoutMs: (await this.mcpStartupTimeouts()).toolTimeoutMs,
+        resolveClientName: () => this.resolveMcpClientName(),
+      },
     );
+    const inspectionsByName = new Map(inspections.map((server) => [server.runtimeName, server]));
+    return Promise.all(
+      globals.map(async (server) => {
+        const knownAuthStatus = authStatuses.get(server.name);
+        if (knownAuthStatus !== undefined) return { name: server.name, authStatus: knownAuthStatus };
+        const inspection = inspectionsByName.get(server.name)!;
+        const credentialPresent =
+          inspection.authStatus === 'unavailable' &&
+          inspection.config.transport !== 'stdio' &&
+          (await oauth.hasTokens(inspection.runtimeName, inspection.config.url));
+        return {
+          name: server.name,
+          authStatus: legacyGlobalMcpAuthState(inspection, credentialPresent),
+        };
+      }),
+    );
+  }
+
+  private async mcpStartupTimeouts(): Promise<{ startupTimeoutMs?: number; toolTimeoutMs?: number }> {
+    await this.configReady;
+    const section = this.engineAccessor.get(IConfigService).get<McpSection | undefined>(MCP_SECTION);
+    return { startupTimeoutMs: section?.startupTimeoutMs, toolTimeoutMs: section?.toolTimeoutMs };
   }
 
   override async addGlobalMcpServer(
@@ -2314,6 +2391,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const config = requireRemoteMcpServer(server);
     const oauth = await this.globalMcpOAuthService();
     await oauth.invalidate(server.name, config.url);
+    this.mcpOAuthCoordinator.notifyCredentialsInvalidated(server.name, config.url);
   }
 
   /**
@@ -2358,21 +2436,20 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     }
   }
 
-  private async globalMcpServerAuthState(
-    server: McpServerConfig,
-    oauth: McpOAuthService,
-  ): Promise<GlobalMcpServerAuthState> {
-    if (server.transport === 'stdio') return 'not-applicable';
-    if (server.bearerTokenEnvVar !== undefined) return 'bearer-token';
-    // Keep status classification aligned with the existing connection manager:
-    // unmarked static headers are not treated as OAuth credentials.
-    if (server.headers !== undefined && server.auth !== 'oauth') return 'not-applicable';
-    if (server.transport !== 'http' && server.auth !== 'oauth') return 'not-applicable';
-    if (await oauth.hasTokens(server.name, server.url)) return 'oauth-authorized';
-    if (server.auth === 'oauth') return 'oauth-required';
-
-    return this.withGlobalMcpServerProbe(server, undefined, (manager) =>
-      manager.get(server.name)?.status === 'needs-auth' ? 'oauth-required' : 'not-applicable',
+  /**
+   * Forward a credential change to every live workspace handler's MCP
+   * service, which reconnects the affected server once its current connect
+   * settles (the v1 session-layer seam, hoisted to the workspace layer).
+   */
+  private async reconnectMcpAfterCredentialsChanged(
+    event: McpOAuthCredentialsChangedEvent,
+  ): Promise<void> {
+    const lifecycle = this.engineAccessor.get(IWorkspaceLifecycleService);
+    await Promise.allSettled(
+      lifecycle.handlers.list().map(async (handler) => {
+        const mcp = handler.accessor.get(IWorkspaceMcpService);
+        await mcp.reconnectMcpAfterCredentialsChanged(event);
+      }),
     );
   }
 

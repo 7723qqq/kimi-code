@@ -31,9 +31,14 @@ import {
   type McpServerConfig,
 } from '#/config-local';
 import type { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
+import type { McpOAuthService } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
+import { canonicalMcpOAuthResource } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
+import type { PluginMcpServerRuntimeConfig } from '@moonshot-ai/agent-core-v2/app/plugin/types';
+import type { ILogger } from '@moonshot-ai/agent-core-v2/_base/log/log';
+import { McpConnectionManager as McpConnectionManagerValue } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
 import { atomicWrite } from '@moonshot-ai/agent-core-v2/_base/utils/fs';
 
-import type { McpTestResult } from '#/types';
+import type { GlobalMcpServerAuthState, McpTestResult } from '#/types';
 
 interface GlobalMcpConfigFile {
   readonly raw: Record<string, unknown>;
@@ -250,4 +255,246 @@ function describeError(error: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// ── effective authorization-state inspection (v1 rpc/core-impl port) ──
+
+export type McpServerLocator =
+  | { readonly source: 'global'; readonly name: string }
+  | {
+      readonly source: 'plugin';
+      readonly pluginId: string;
+      readonly serverName: string;
+    };
+
+export type AppMcpServerAuthState = GlobalMcpServerAuthState | 'unavailable';
+
+export type AppMcpServerConfig =
+  | (Omit<Extract<McpServerConfig, { readonly transport: 'stdio' }>, 'env'> & {
+      readonly envKeys?: readonly string[];
+    })
+  | (Omit<Exclude<McpServerConfig, { readonly transport: 'stdio' }>, 'headers'> & {
+      readonly headerKeys?: readonly string[];
+    });
+
+export interface AppMcpServerDescriptor {
+  readonly serverId: string;
+  readonly locator: McpServerLocator;
+  readonly runtimeName: string;
+  readonly canonicalUrl: string | undefined;
+  readonly origin: McpServerLocator['source'];
+  readonly config: McpServerConfig;
+  readonly enabled: boolean;
+  readonly editable: boolean;
+}
+
+export interface AppMcpServerInspection extends AppMcpServerDescriptor {
+  readonly authStatus: AppMcpServerAuthState;
+  readonly checkedAt?: number;
+  readonly error?: string;
+}
+
+export type AppMcpServerRuntimeDescriptor = Omit<AppMcpServerDescriptor, 'config'> & {
+  readonly config: McpServerConfig;
+};
+
+export type AppMcpServerRuntimeInspection = AppMcpServerRuntimeDescriptor &
+  Pick<AppMcpServerInspection, 'authStatus' | 'checkedAt' | 'error'>;
+
+export function mcpServerId(locator: McpServerLocator): string {
+  if (locator.source === 'global') return `global:${encodeURIComponent(locator.name)}`;
+  return `plugin:${encodeURIComponent(locator.pluginId)}:${encodeURIComponent(locator.serverName)}`;
+}
+
+function describeMcpServerLocator(locator: McpServerLocator): string {
+  if (locator.source === 'global') return locator.name;
+  return `${locator.pluginId}/${locator.serverName}`;
+}
+
+export function selectAppMcpServerDescriptors(
+  catalog: readonly AppMcpServerRuntimeDescriptor[],
+  targets?: readonly McpServerLocator[],
+): readonly AppMcpServerRuntimeDescriptor[] {
+  if (targets === undefined) return catalog;
+  const byId = new Map(catalog.map((server) => [server.serverId, server]));
+  return targets.map((target) => {
+    const server = byId.get(mcpServerId(target));
+    if (server !== undefined) return server;
+    throw new KimiError(
+      ErrorCodes.MCP_SERVER_NOT_FOUND,
+      `MCP server "${describeMcpServerLocator(target)}" was not found`,
+    );
+  });
+}
+
+export function configuredMcpAuthState(
+  server: AppMcpServerRuntimeDescriptor,
+): GlobalMcpServerAuthState | undefined {
+  if (!server.enabled || server.config.enabled === false) return 'not-applicable';
+  if (server.config.transport === 'stdio') return 'not-applicable';
+  if (server.config.bearerTokenEnvVar !== undefined) return 'bearer-token';
+  if (server.config.headers !== undefined && server.config.auth !== 'oauth') {
+    return 'not-applicable';
+  }
+  return undefined;
+}
+
+export function legacyGlobalMcpAuthState(
+  server: AppMcpServerInspection,
+  credentialPresent: boolean,
+): GlobalMcpServerAuthState {
+  if (server.authStatus !== 'unavailable') return server.authStatus;
+  if (credentialPresent) return 'oauth-authorized';
+  return server.config.transport !== 'stdio' && server.config.auth === 'oauth'
+    ? 'oauth-required'
+    : 'not-applicable';
+}
+
+export function legacyGlobalMcpAuthStateWithoutProbe(
+  server: GlobalMcpServerConfig,
+  credentialPresent: boolean,
+): GlobalMcpServerAuthState | undefined {
+  if (server.enabled === false || server.transport === 'stdio') return 'not-applicable';
+  if (server.bearerTokenEnvVar !== undefined) return 'bearer-token';
+  if (server.headers !== undefined && server.auth !== 'oauth') return 'not-applicable';
+  if (server.transport !== 'http' && server.auth !== 'oauth') return 'not-applicable';
+  if (server.auth === 'oauth' && !credentialPresent) return 'oauth-required';
+  return undefined;
+}
+
+export function isOAuthProbeCandidate(server: AppMcpServerRuntimeDescriptor): boolean {
+  return configuredMcpAuthState(server) === undefined;
+}
+
+export function sanitizeAppMcpServerInspection(
+  server: AppMcpServerRuntimeInspection,
+): AppMcpServerInspection {
+  return { ...server, config: sanitizeAppMcpServerConfig(server.config) };
+}
+
+export function sanitizeAppMcpServerConfig(config: McpServerConfig): AppMcpServerConfig {
+  if (config.transport === 'stdio') {
+    const { env, ...safe } = config;
+    return env === undefined ? safe : { ...safe, envKeys: Object.keys(env).toSorted() };
+  }
+  const { headers, ...safe } = config;
+  return headers === undefined ? safe : { ...safe, headerKeys: Object.keys(headers).toSorted() };
+}
+
+export function appMcpServerDescriptors(
+  globals: readonly GlobalMcpServerConfig[],
+  pluginRuntimes: readonly PluginMcpServerRuntimeConfig[],
+): readonly AppMcpServerRuntimeDescriptor[] {
+  const globalDescriptors = globals.map((server) => {
+    const locator = { source: 'global', name: server.name } as const;
+    const config = mcpConfigWithoutName(server);
+    return {
+      serverId: mcpServerId(locator),
+      locator,
+      runtimeName: server.name,
+      canonicalUrl:
+        config.transport === 'stdio' ? undefined : canonicalMcpOAuthResource(config.url),
+      origin: 'global' as const,
+      config,
+      enabled: config.enabled !== false,
+      editable: true,
+    };
+  });
+  const pluginDescriptors = pluginRuntimes.map((server) => {
+    const locator = {
+      source: 'plugin',
+      pluginId: server.pluginId,
+      serverName: server.serverName,
+    } as const;
+    return {
+      serverId: mcpServerId(locator),
+      locator,
+      runtimeName: server.runtimeName,
+      canonicalUrl:
+        server.config.transport === 'stdio'
+          ? undefined
+          : canonicalMcpOAuthResource(server.config.url),
+      origin: 'plugin' as const,
+      config: server.config,
+      enabled: server.enabled,
+      editable: false,
+    };
+  });
+  return [...globalDescriptors, ...pluginDescriptors];
+}
+
+export interface AppMcpServerInspectionOptions {
+  readonly startupTimeoutMs?: number;
+  readonly toolTimeoutMs?: number;
+  readonly resolveClientName?: () => string | undefined;
+  readonly log?: ILogger;
+}
+
+export async function inspectAppMcpServerDescriptors(
+  descriptors: readonly AppMcpServerRuntimeDescriptor[],
+  catalog: readonly AppMcpServerRuntimeDescriptor[],
+  oauth: McpOAuthService,
+  options: AppMcpServerInspectionOptions = {},
+): Promise<readonly AppMcpServerRuntimeInspection[]> {
+  const runtimeNameCounts = new Map<string, number>();
+  for (const server of new Map(catalog.map((item) => [item.serverId, item])).values()) {
+    if (!server.enabled || server.config.enabled === false) continue;
+    runtimeNameCounts.set(server.runtimeName, (runtimeNameCounts.get(server.runtimeName) ?? 0) + 1);
+  }
+  const credentialPresent = new Map<string, boolean>();
+  const probeConfigs = Object.create(null) as Record<string, McpServerConfig>;
+  for (const server of descriptors) {
+    if (!isOAuthProbeCandidate(server)) continue;
+    if (runtimeNameCounts.get(server.runtimeName) !== 1) continue;
+    const config = server.config as McpRemoteServerConfig;
+    credentialPresent.set(server.serverId, await oauth.hasTokens(server.runtimeName, config.url));
+    probeConfigs[server.runtimeName] = server.config;
+  }
+  let manager: McpConnectionManager | undefined;
+  try {
+    if (Object.keys(probeConfigs).length > 0) {
+      manager = new McpConnectionManagerValue({
+        log: options.log,
+        oauthService: oauth,
+        resolveClientName: options.resolveClientName,
+        resolveDefaultTimeouts: () => ({
+          startupTimeoutMs: options.startupTimeoutMs,
+          toolTimeoutMs: options.toolTimeoutMs,
+        }),
+      });
+      await manager.connectAll(probeConfigs);
+    }
+    const checkedAt = Date.now();
+    return descriptors.map((server) => {
+      const configured = configuredMcpAuthState(server);
+      if (configured !== undefined) return { ...server, authStatus: configured };
+      if (runtimeNameCounts.get(server.runtimeName) !== 1) {
+        return {
+          ...server,
+          authStatus: 'unavailable',
+          checkedAt,
+          error: `MCP runtime name "${server.runtimeName}" is not unique`,
+        };
+      }
+      const entry = manager?.get(server.runtimeName);
+      if (entry?.status === 'connected') {
+        return {
+          ...server,
+          authStatus: credentialPresent.get(server.serverId) ? 'oauth-authorized' : 'not-applicable',
+          checkedAt,
+        };
+      }
+      if (entry?.status === 'needs-auth') {
+        return { ...server, authStatus: 'oauth-required', checkedAt };
+      }
+      return {
+        ...server,
+        authStatus: 'unavailable',
+        checkedAt,
+        error: entry?.error ?? `MCP server finished with status ${entry?.status ?? 'unknown'}`,
+      };
+    });
+  } finally {
+    await manager?.shutdown();
+  }
 }

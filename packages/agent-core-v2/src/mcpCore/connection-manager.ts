@@ -88,6 +88,7 @@ export interface McpConnectionView {
   getRemoteServerUrl(name: string): string | undefined;
   reconnect(name: string): Promise<void>;
   reconnectAndJoin(name: string): Promise<void>;
+  reconnectAfterCurrent(name: string): Promise<void>;
   waitForInitialLoad(signal?: AbortSignal): Promise<void>;
   initialLoadDurationMs(): number;
   onStatusChange(listener: McpStatusListener): () => void;
@@ -339,6 +340,12 @@ export class McpConnectionManager implements McpConnectionView {
     });
     this.inFlightReconnects.set(name, work);
     return work;
+  }
+
+  async reconnectAfterCurrent(name: string): Promise<void> {
+    const existing = this.inFlightReconnects.get(name);
+    if (existing !== undefined) await existing.catch(() => {});
+    await this.reconnectAndJoin(name);
   }
 
   async shutdown(): Promise<void> {

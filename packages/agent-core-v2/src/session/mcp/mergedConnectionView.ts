@@ -57,12 +57,16 @@ export class MergedMcpConnectionView implements McpConnectionView {
     return this.owner(name).reconnectAndJoin(name);
   }
 
+  reconnectAfterCurrent(name: string): Promise<void> {
+    return this.owner(name).reconnectAfterCurrent(name);
+  }
+
   waitForInitialLoad(signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
     const both = Promise.all([
       this.base.waitForInitialLoad(),
       this.overlay.waitForInitialLoad(),
-    ]).then(() => undefined);
+    ]).then(() => {});
     return signal === undefined ? both : abortable(both, signal);
   }
 

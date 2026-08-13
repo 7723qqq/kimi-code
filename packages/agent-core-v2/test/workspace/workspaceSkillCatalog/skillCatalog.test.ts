@@ -88,7 +88,7 @@ function configStub(): IConfigService & {
     get: (domain: string) => {
       if (domain === EXTRA_SKILL_DIRS_SECTION) return [...extraSkillDirs];
       if (domain === MERGE_ALL_AVAILABLE_SKILLS_SECTION) return mergeAllAvailableSkills;
-      return undefined;
+      return;
     },
     inspect: () => ({ value: undefined, defaultValue: undefined, userValue: undefined, memoryValue: undefined }),
     getAll: () => ({}),
@@ -138,6 +138,7 @@ function pluginStub(
     enabledSessionStarts: async () => [],
     enabledSystemPrompts: async () => [],
     enabledMcpServers: async () => ({}),
+    mcpServers: async () => [],
     enabledHooks: async () => [],
     hasLoadedSnapshot: () => true,
   };
@@ -381,7 +382,7 @@ describe('WorkspaceSkillCatalogService', () => {
       get: (domain: string) => {
         if (domain === EXTRA_SKILL_DIRS_SECTION) return ready ? ['/'] : [];
         if (domain === MERGE_ALL_AVAILABLE_SKILLS_SECTION) return true;
-        return undefined;
+        return;
       },
     } as unknown as IConfigService;
     const store = new InMemorySkillDiscovery();
@@ -628,11 +629,11 @@ describe('WorkspaceSkillCatalogService', () => {
       load: () => {
         loadCount += 1;
         if (loadCount === 1) {
-          initialStarted.resolve(undefined);
+          initialStarted.resolve();
           return initialLoad.promise;
         }
         if (loadCount === 2) {
-          refreshedStarted.resolve(undefined);
+          refreshedStarted.resolve();
           return refreshedLoad.promise;
         }
         throw new Error('unexpected plugin source load');
@@ -839,7 +840,7 @@ describe('WorkspaceSkillCatalogService', () => {
           handles.length === 0 ? Promise.resolve() : replacementReady.promise,
         );
         handles.push(handle);
-        if (handles.length === 2) replacementStarted.resolve(undefined);
+        if (handles.length === 2) replacementStarted.resolve();
         return handle;
       },
     };
@@ -884,7 +885,7 @@ describe('WorkspaceSkillCatalogService', () => {
 
       expect(initialHandle.disposed).toBe(false);
 
-      replacementReady.resolve(undefined);
+      replacementReady.resolve();
       const contribution = await loading;
 
       expect(initialHandle.disposed).toBe(true);
