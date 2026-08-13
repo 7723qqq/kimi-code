@@ -92,10 +92,10 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring MVP)', () => {
     const authorizedUrl = 'https://authorized.example.test/mcp';
     const requiredUrl = 'https://required.example.test/mcp';
     const externalOAuth = new McpOAuthService({ kimiHomeDir: homeDir });
-    externalOAuth
+    await externalOAuth
       .getProvider('oauth-authorized', authorizedUrl)
       .saveTokens({ access_token: 'test-access-token', token_type: 'Bearer' });
-    externalOAuth
+    await externalOAuth
       .getProvider('sse', statusServer.oauthUrl)
       .saveTokens({ access_token: 'stale-sse-token', token_type: 'Bearer' });
     await writeFile(
@@ -140,10 +140,10 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring MVP)', () => {
         { name: 'oauth-authorized', authStatus: 'oauth-authorized' },
       ]);
 
-      externalOAuth
+      await externalOAuth
         .getProvider('oauth-required', requiredUrl)
         .saveTokens({ access_token: 'new-test-access-token', token_type: 'Bearer' });
-      externalOAuth.invalidate('oauth-authorized', authorizedUrl, 'tokens');
+      await externalOAuth.invalidate('oauth-authorized', authorizedUrl, 'tokens');
 
       await expect(harness.listMcpServerAuthStatuses()).resolves.toEqual([
         { name: 'stdio', authStatus: 'not-applicable' },

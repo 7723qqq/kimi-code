@@ -3575,10 +3575,10 @@ describe('v1↔v2 global MCP parity', () => {
     });
     for (const homeDir of [pair.v1HomeDir, pair.v2HomeDir]) {
       const externalOAuth = new McpOAuthService({ kimiHomeDir: homeDir });
-      externalOAuth
+      await externalOAuth
         .getProvider('oauth-authorized', authorizedUrl)
         .saveTokens({ access_token: 'test-access-token', token_type: 'Bearer' });
-      externalOAuth
+      await externalOAuth
         .getProvider('sse', statusServer.oauthUrl)
         .saveTokens({ access_token: 'stale-sse-token', token_type: 'Bearer' });
     }
