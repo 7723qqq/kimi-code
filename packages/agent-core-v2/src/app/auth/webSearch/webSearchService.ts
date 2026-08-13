@@ -9,7 +9,9 @@
  * state after a successful Kimi login), whose bearer token comes from
  * `IOAuthService.resolveTokenProvider(...)` and whose base URL is derived from
  * the provider's `baseUrl`. The explicit config wins over the managed
- * derivation. When neither source is configured it yields `undefined`.
+ * derivation. When neither source is configured the keyless local engines
+ * (`LocalWebSearchProvider` — DuckDuckGo / Bing) back the tool, so
+ * `WebSearch` is always available.
  * Tests and hosts that need a custom backend bind `IWebSearchProviderService`
  * directly. Bound at App scope.
  *
@@ -36,12 +38,15 @@ import { IProviderService, type ProviderConfig } from '#/kosong/provider/provide
 import { isOAuthCatalogVendor } from '#/kosong/provider/providerDefinition';
 
 import { SERVICES_SECTION, type ServicesConfig } from '../configSection';
+import { LocalWebSearchProvider } from './providers/local-web-search';
 import { MoonshotWebSearchProvider } from './providers/moonshot-web-search';
 import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';
 import { IWebSearchProviderService } from './webSearch';
 
 export class WebSearchProviderService implements IWebSearchProviderService {
   declare readonly _serviceBrand: undefined;
+
+  private local: LocalWebSearchProvider | undefined;
 
   constructor(
     @IProviderService private readonly providers: IProviderService,
@@ -52,11 +57,18 @@ export class WebSearchProviderService implements IWebSearchProviderService {
   ) {}
 
   getWebSearchProvider(): WebSearchProvider | undefined {
-    return this.fromServicesConfig() ?? this.fromManagedOAuth();
+    // Moonshot backend wins when configured; the keyless local engines
+    // (DuckDuckGo / Bing) always back the tool otherwise.
+    return this.fromServicesConfig() ?? this.fromManagedOAuth() ?? this.localProvider();
   }
 
   hasWebSearchProvider(): boolean {
-    return this.configuredSearch() !== undefined || this.managedTokenProvider() !== undefined;
+    return true;
+  }
+
+  private localProvider(): WebSearchProvider {
+    if (this.local === undefined) this.local = new LocalWebSearchProvider();
+    return this.local;
   }
 
   private configuredSearch(): (ServicesConfig['moonshotSearch'] & { baseUrl: string }) | undefined {
