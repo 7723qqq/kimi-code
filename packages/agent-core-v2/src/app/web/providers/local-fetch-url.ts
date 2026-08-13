@@ -19,7 +19,7 @@ import { BlockList, isIP, type LookupFunction } from 'node:net';
 import { Readability } from '@mozilla/readability';
 import { parseHTML as rawParseHTML } from 'linkedom';
 import { t } from '@moonshot-ai/kimi-i18n';
-import { Agent, type Dispatcher } from 'undici';
+import { Agent, fetch as undiciFetch, type Dispatcher } from 'undici';
 
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
 import { Error2, ErrorCodes } from '#/errors';
@@ -141,13 +141,25 @@ export class LocalFetchURLProvider implements UrlFetcher {
     let redirects = 0;
     for (;;) {
       const target = await resolveSafeFetchTarget(currentUrl, this.allowPrivateAddresses);
-      const response = await this.fetchImpl(currentUrl, {
-        method: 'GET',
-        headers: { 'User-Agent': this.userAgent },
-        signal,
-        redirect: 'manual',
-        dispatcher: this.pinnedDispatcherFor(target, dispatchers) as unknown,
-      } as RequestInit);
+      // Node's global fetch rejects an external undici `Agent` passed as
+      // `dispatcher` (the two undici builds are not wire-compatible), so a
+      // pinned agent fetches through undici's own fetch instead.
+      const pinned = this.pinnedDispatcherFor(target, dispatchers);
+      const response =
+        pinned !== undefined
+          ? ((await undiciFetch(currentUrl, {
+              method: 'GET',
+              headers: { 'User-Agent': this.userAgent },
+              signal,
+              redirect: 'manual',
+              dispatcher: pinned,
+            })) as Response)
+          : await this.fetchImpl(currentUrl, {
+              method: 'GET',
+              headers: { 'User-Agent': this.userAgent },
+              signal,
+              redirect: 'manual',
+            });
       if (!REDIRECT_STATUSES.has(response.status)) return response;
       const location = response.headers.get('location');
       if (location === null) return response;
