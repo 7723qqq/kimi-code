@@ -313,7 +313,7 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
       case 'context.append_loop_event': {
         const ev = rec.event;
         if (ev.type === 'step.begin') {
-          current ??= startTurn('prompt', entry.lineNo, t, '(no prompt record)', undefined);
+          current ??= startTurn('prompt', entry.lineNo, t, '(no prompt record)');
           const step: StepNode = {
             uuid: ev.uuid,
             step: ev.step,
@@ -493,12 +493,14 @@ function summarize(
 }
 
 function cacheStats(c: TokenUsage): CacheStats {
-  const inputTotal = c.inputOther + c.inputCacheRead + c.inputCacheCreation;
+  // Exact cache hit rate: cache reads / (reads + creations). Plain input is
+  // not part of the cache system and must not dilute the ratio.
+  const cacheMissTokens = c.inputCacheRead + c.inputCacheCreation;
   return {
     inputOther: c.inputOther,
     inputCacheRead: c.inputCacheRead,
     inputCacheCreation: c.inputCacheCreation,
     output: c.output,
-    hitRate: inputTotal > 0 ? c.inputCacheRead / inputTotal : null,
+    hitRate: cacheMissTokens > 0 ? c.inputCacheRead / cacheMissTokens : null,
   };
 }

@@ -3301,7 +3301,10 @@ export class KimiTUI {
     const patch: Partial<AppState> = {};
     if (usage !== undefined) {
       const read = usage.inputCacheRead ?? 0;
-      const miss = usage.inputOther ?? 0;
+      // Cache miss = tokens written into the cache (cache_creation). Plain
+      // input (input_other) is not part of the cache system, so it must not
+      // dilute the hit rate: read/(read+creation) is the exact hit rate.
+      const miss = usage.inputCacheCreation ?? 0;
       if (read > 0 || miss > 0) {
         patch.cacheReadTokens = this.state.appState.cacheReadTokens + read;
         patch.cacheMissTokens = this.state.appState.cacheMissTokens + miss;

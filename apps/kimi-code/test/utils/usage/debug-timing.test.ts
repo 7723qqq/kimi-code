@@ -39,7 +39,7 @@ describe('formatStepDebugTiming', () => {
       },
     });
     expect(result).toBe(
-      '[Debug] TTFT: 800ms | TPS: 40.0 tok/s (200 tokens in 5.0s) | tokens in 2k | cache read 1.2k (60%) / write 100',
+      '[Debug] TTFT: 800ms | TPS: 40.0 tok/s (200 tokens in 5.0s) | tokens in 2k | cache read 1.2k (92%) / write 100',
     );
   });
 

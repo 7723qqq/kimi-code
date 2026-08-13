@@ -173,6 +173,7 @@ describe('FooterComponent · live cache hit rate and token speed', () => {
   });
 
   it('renders the live cache hit rate next to the context readout', () => {
+    // hit rate = 1792 / (1792 + 99) = 95%; cacheMissTokens counts cache writes.
     const fc = new FooterComponent(
       baseState({ cacheReadTokens: 1_792, cacheMissTokens: 99 }),
     );

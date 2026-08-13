@@ -60,9 +60,9 @@ export interface AppState {
   contextUsage: number;
   contextTokens: number;
   maxContextTokens: number;
-  /** 会话累计缓存命中输入 token（实时缓存命中率 = read/(read+miss)）。 */
+  /** 会话累计缓存命中输入 token（精确命中率 = read/(read+creation)）。 */
   cacheReadTokens: number;
-  /** 会话累计缓存未命中输入 token。 */
+  /** 会话累计缓存写入输入 token（即缓存未命中，cache_creation）。 */
   cacheMissTokens: number;
   /** 最近一步的模型输出速度（tokens/秒）。 */
   tokenSpeed: number;

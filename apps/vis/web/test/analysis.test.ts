@@ -97,8 +97,8 @@ describe('analyzeWire', () => {
       loop({ type: 'step.begin', uuid: 'x', turnId: 'A', step: 0 }, 1),
       loop({ type: 'step.end', uuid: 'x', turnId: 'A', step: 0, finishReason: 'end_turn', usage: { inputOther: 25, output: 5, inputCacheRead: 75, inputCacheCreation: 0 } }, 2),
     ]);
-    // hitRate = 75 / (75 + 0 + 25) = 0.75
-    expect(a.cache.hitRate).toBeCloseTo(0.75, 5);
+    // hitRate = 75 / (75 + 0) = 1.0 (plain input excluded from the cache ratio)
+    expect(a.cache.hitRate).toBeCloseTo(1, 5);
   });
 
   it('collects config.update changes', () => {
