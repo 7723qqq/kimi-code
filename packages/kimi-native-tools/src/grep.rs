@@ -442,11 +442,19 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
                 .map(|(i, _)| i)
                 .collect();
 
+            // Deduplicate context lines that fall inside overlapping windows
+            // (two matches closer together than the combined context), so a
+            // directory walk emits each line once — mirroring the single-file
+            // path and ripgrep's context-merge behavior.
+            let mut shown_lines: std::collections::HashSet<usize> = std::collections::HashSet::new();
             for &line_idx in &matched_lines {
                 let start = if effective_before > 0 { line_idx.saturating_sub(effective_before) } else { line_idx };
                 let end = if effective_after > 0 { (line_idx + effective_after + 1).min(lines.len()) } else { line_idx + 1 };
 
                 for (ctx_idx, line_content) in lines.iter().enumerate().take(end).skip(start) {
+                    if !shown_lines.insert(ctx_idx) {
+                        continue;
+                    }
                     let line_no = ctx_idx + 1;
                     let entry = MatchEntry { file: path.to_path_buf(), line_no, line: line_content.to_string() };
                     let entry_bytes = format_entry_bytes(&entry, config, &search_path);
@@ -1057,6 +1065,40 @@ mod tests {
         assert!(result.content.contains("line 2"));
         assert!(result.content.contains("MATCH HERE"));
         assert!(result.content.contains("line 4"));
+    }
+
+    #[test]
+    fn test_grep_context_dedup_overlap() {
+        // Two matches closer together than the combined context window should
+        // not duplicate the shared lines between them (mirrors rg's context merge).
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("overlap.txt");
+        let mut f = fs::File::create(&file).unwrap();
+        writeln!(f, "line 1").unwrap();
+        writeln!(f, "MATCH A").unwrap();
+        writeln!(f, "line 3").unwrap();
+        writeln!(f, "MATCH B").unwrap();
+        writeln!(f, "line 5").unwrap();
+
+        let result = grep_search(&GrepConfig {
+            pattern: "MATCH".to_string(),
+            path: Some(dir.path().to_str().unwrap().to_string()),
+            output_mode: OutputMode::Content,
+            context: 1,
+            ..Default::default()
+        });
+        assert!(result.error.is_none());
+        // Each of lines 1..=5 should appear at most once in the rendered output.
+        for label in ["line 1", "line 3", "line 5"] {
+            assert_eq!(
+                result.content.matches(label).count(),
+                1,
+                "{label} should not be duplicated in overlapping context"
+            );
+        }
+        // The matched lines themselves must still be present.
+        assert!(result.content.contains("MATCH A"));
+        assert!(result.content.contains("MATCH B"));
     }
 
     // ── Structured grep (fs:grep service) ────────────────────────────────
