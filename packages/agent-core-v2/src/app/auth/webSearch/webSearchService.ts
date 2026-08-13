@@ -67,7 +67,7 @@ export class WebSearchProviderService implements IWebSearchProviderService {
   }
 
   private localProvider(): WebSearchProvider {
-    if (this.local === undefined) this.local = new LocalWebSearchProvider();
+    this.local ??= new LocalWebSearchProvider();
     return this.local;
   }
 
