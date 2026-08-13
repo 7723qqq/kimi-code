@@ -41,6 +41,7 @@ function fakeInitialAppState(): AppState {
     isReplaying: false,
     cacheReadTokens: 0,
     cacheMissTokens: 0,
+    cacheOtherTokens: 0,
     tokenSpeed: 0,
     outputTokens: 0,
     locale: 'en',

@@ -210,22 +210,35 @@ function formatContextStatus(usage: number, tokens?: number, maxTokens?: number)
 /**
  * Live cache hit rate and output speed readout, e.g. `cache 87% · 12.3 tok/s`.
  * Hidden until at least one step reported usage (no session traffic yet).
+ *
+ * Hit rate: reads / (reads + writes) when the provider reports cache writes.
+ * Providers that never surface cache writes (e.g. DeepSeek's Anthropic-compatible
+ * endpoint reports `cache_read_input_tokens` only) fall back to the share of
+ * total input that hit the cache — otherwise the readout would always read 100%.
  */
 function formatCacheStatus(
   cacheReadTokens: number,
   cacheMissTokens: number,
+  cacheOtherTokens: number,
   tokenSpeed: number,
 ): string | null {
   const read = cacheReadTokens ?? 0;
   const miss = cacheMissTokens ?? 0;
-  const total = read + miss;
-  if (total <= 0) return null;
-  const pct = String(Math.round((read / total) * 100));
+  const other = cacheOtherTokens ?? 0;
+  let pct: number;
+  if (miss > 0) {
+    pct = Math.round((read / (read + miss)) * 100);
+  } else if (read > 0) {
+    const inputTotal = read + other;
+    pct = inputTotal > 0 ? Math.round((read / inputTotal) * 100) : 0;
+  } else {
+    return null;
+  }
   const speed =
     (tokenSpeed ?? 0) > 0
       ? t('tui.chrome.footer.tokenSpeed', { speed: (tokenSpeed ?? 0).toFixed(1) })
       : '';
-  const hit = t('tui.chrome.footer.cacheHit', { pct });
+  const hit = t('tui.chrome.footer.cacheHit', { pct: String(pct) });
   return speed.length > 0 ? `${hit} · ${speed}` : hit;
 }
 
@@ -383,6 +396,7 @@ export class FooterComponent implements Component {
     const cacheText = formatCacheStatus(
       state.cacheReadTokens,
       state.cacheMissTokens,
+      state.cacheOtherTokens,
       state.tokenSpeed,
     );
     const contextText = formatContextStatus(

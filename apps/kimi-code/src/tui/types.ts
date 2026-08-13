@@ -64,6 +64,11 @@ export interface AppState {
   cacheReadTokens: number;
   /** 会话累计缓存写入输入 token（即缓存未命中，cache_creation）。 */
   cacheMissTokens: number;
+  /**
+   * 会话累计普通（非缓存）输入 token，供缓存写入数据缺失时回退计算
+   * "命中占总输入比例"（否则 read/(read+0) 恒为 100%）。
+   */
+  cacheOtherTokens: number;
   /** 最近一步的模型输出速度（tokens/秒）。 */
   tokenSpeed: number;
   isCompacting: boolean;

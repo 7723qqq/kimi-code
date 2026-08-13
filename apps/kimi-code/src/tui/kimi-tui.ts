@@ -253,6 +253,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     maxContextTokens: 0,
     cacheReadTokens: 0,
     cacheMissTokens: 0,
+    cacheOtherTokens: 0,
     tokenSpeed: 0,
     outputTokens: 0,
     locale: getLocale(),
@@ -3308,6 +3309,10 @@ export class KimiTUI {
       if (read > 0 || miss > 0) {
         patch.cacheReadTokens = this.state.appState.cacheReadTokens + read;
         patch.cacheMissTokens = this.state.appState.cacheMissTokens + miss;
+        // Keep plain input alongside so the footer can fall back to the
+        // share of total input when the provider never reports cache writes
+        // (otherwise read/(read+0) would always read 100%).
+        patch.cacheOtherTokens = this.state.appState.cacheOtherTokens + (usage.inputOther ?? 0);
       }
     }
     if (

@@ -190,6 +190,16 @@ describe('FooterComponent · live cache hit rate and token speed', () => {
     expect(out).toMatch(/cache 95% · 12.3 tok\/s/);
   });
 
+  it('falls back to the total-input share when cache writes are never reported', () => {
+    // DeepSeek's Anthropic-compatible endpoint reports reads but no writes:
+    // 200 read / (200 read + 800 plain) = 20%, not a fake 100%.
+    const fc = new FooterComponent(
+      baseState({ cacheReadTokens: 200, cacheMissTokens: 0, cacheOtherTokens: 800 }),
+    );
+    const out = strip(fc.render(200).join(''));
+    expect(out).toMatch(/cache 20%/);
+  });
+
   it('never renders NaN for partial/undefined cache state', () => {
     const fc = new FooterComponent(
       baseState({

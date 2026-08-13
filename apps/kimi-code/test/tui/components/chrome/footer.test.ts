@@ -44,6 +44,7 @@ const appState: AppState = {
   contextUsage: 0,
   cacheReadTokens: 0,
   cacheMissTokens: 0,
+    cacheOtherTokens: 0,
   tokenSpeed: 0,
   contextTokens: 0,
   maxContextTokens: 0,
