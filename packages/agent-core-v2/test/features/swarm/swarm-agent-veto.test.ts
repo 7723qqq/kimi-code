@@ -2,19 +2,19 @@
  * Test: Agent tool is hard-denied while swarm mode is active.
  *
  * These tests verify the veto listener added to AgentSwarmService that blocks
- * the `Agent` tool when swarm mode is on — the hard enforcement counterpart to
+ * the `Agent` tool when swarm mode is on 鈥?the hard enforcement counterpart to
  * the soft enter-reminder constraint.
  *
  * Coverage matrix:
  *
  * | Swarm State | Tool           | Expected      | Case ID |
  * |-------------|----------------|---------------|---------|
- * | active      | Agent          | ❌ VETO       | 1, 5    |
- * | inactive    | Agent          | ✅ pass-through| 2       |
- * | exited      | Agent          | ✅ pass-through| 3       |
- * | active      | Read (other)   | ✅ pass-through| 4       |
- * | active      | AgentSwarm     | ✅ pass-through| 6       |
- * | active      | Agent + mixed  | ❌ VETO       | 5       |
+ * | active      | Agent          | 鉂?VETO       | 1, 5    |
+ * | inactive    | Agent          | 鉁?pass-through| 2       |
+ * | exited      | Agent          | 鉁?pass-through| 3       |
+ * | active      | Read (other)   | 鉁?pass-through| 4       |
+ * | active      | AgentSwarm     | 鉁?pass-through| 6       |
+ * | active      | Agent + mixed  | 鉂?VETO       | 5       |
  */
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { t, setLocale } from '@moonshot-ai/kimi-i18n';
@@ -25,11 +25,11 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionSwarmService } from '#/session/swarm/sessionSwarm';
+import { ISessionSwarmService } from '#/features/swarm/session/sessionSwarm';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
-import { IAgentSwarmService } from '#/agent/swarm/swarm';
-import { AgentSwarmService } from '#/agent/swarm/swarmService';
+import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import { AgentSwarmService } from '#/features/swarm/agent/swarmService';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type {
@@ -47,11 +47,11 @@ import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 
-import { stubContextMemory } from '../contextMemory/stubs';
+import { stubContextMemory } from '../../agent/contextMemory/stubs';
 import { registerTestAgentWire, testWireScope } from '../../wire/stubs';
-import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../toolExecutor/stubs';
+import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// 鈹€鈹€ Helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 const signal = new AbortController().signal;
 
@@ -94,9 +94,9 @@ function expectedVetoShape(): { veto: { output: string; isError: boolean } } {
   };
 }
 
-// ── Test Suite ─────────────────────────────────────────────────────────────
+// 鈹€鈹€ Test Suite 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-describe('AgentSwarmService — Agent tool veto in swarm mode', () => {
+describe('AgentSwarmService 鈥?Agent tool veto in swarm mode', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let executorEvents: ToolExecutorEventStubs;
@@ -159,9 +159,9 @@ describe('AgentSwarmService — Agent tool veto in swarm mode', () => {
     return executorEvents.fireBeforeExecute(ctx);
   }
 
-  // ════════════════════════════════════════════════════════════════════════
+  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
   // Core veto behavior
-  // ════════════════════════════════════════════════════════════════════════
+  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
 
   describe('core veto behavior', () => {
     it('vetoes the Agent tool while swarm mode is active', async () => {
@@ -172,7 +172,7 @@ describe('AgentSwarmService — Agent tool veto in swarm mode', () => {
 
       // Must return a veto with exact shape
       expect(decision).toEqual(expectedVetoShape());
-      // Veto must short-circuit — downstream gate must NOT have run
+      // Veto must short-circuit 鈥?downstream gate must NOT have run
       expect(permissionGateRan).toBe(false);
       // Deny message must be formatted exactly once through the approval service
       expect(formatDenyMessage).toHaveBeenCalledTimes(1);
@@ -180,7 +180,7 @@ describe('AgentSwarmService — Agent tool veto in swarm mode', () => {
     });
 
     it('allows the Agent tool when swarm mode has never been activated', async () => {
-      // Intentionally NOT calling swarm.enter() — service exists but swarm is off
+      // Intentionally NOT calling swarm.enter() 鈥?service exists but swarm is off
       void ix.get(IAgentSwarmService);
 
       const decision = await fire(makeHookContext([makeToolCall('Agent', 'call_agent')]));
@@ -205,7 +205,7 @@ describe('AgentSwarmService — Agent tool veto in swarm mode', () => {
     it('allows the Agent tool after re-entering and exiting again (idempotency)', async () => {
       const swarm = ix.get(IAgentSwarmService);
 
-      // Cycle: active → exit → active → exit → verify Agent is allowed
+      // Cycle: active 鈫?exit 鈫?active 鈫?exit 鈫?verify Agent is allowed
       swarm.enter('task');
       swarm.exit();
       swarm.enter('tool');
@@ -218,9 +218,9 @@ describe('AgentSwarmService — Agent tool veto in swarm mode', () => {
     });
   })
 
-  // ════════════════════════════════════════════════════════════════════════
+  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
   // Non-target tools are not affected
-  // ════════════════════════════════════════════════════════════════════════
+  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
 
   describe('non-target tools pass through in swarm mode', () => {
     it('does not veto Read in swarm mode', async () => {
@@ -256,16 +256,16 @@ describe('AgentSwarmService — Agent tool veto in swarm mode', () => {
     });
   });
 
-  // ════════════════════════════════════════════════════════════════════════
+  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
   // Edge cases
-  // ════════════════════════════════════════════════════════════════════════
+  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
 
   describe('edge cases', () => {
     it('vetoes Agent even when batched with other tools (Agent is adjudicating)', async () => {
       const swarm = ix.get(IAgentSwarmService);
       swarm.enter('manual');
 
-      // Agent is toolCalls[0] → the one being adjudicated
+      // Agent is toolCalls[0] 鈫?the one being adjudicated
       const decision = await fire(
         makeHookContext([makeToolCall('Agent', 'call_agent'), makeToolCall('Read', 'call_read')]),
       );
@@ -323,9 +323,10 @@ describe('AgentSwarmService — Agent tool veto in swarm mode', () => {
     it('idempotent exit (calling exit when not active) does not throw', async () => {
       const swarm = ix.get(IAgentSwarmService);
 
-      // Never entered — exit should be safe no-op
+      // Never entered 鈥?exit should be safe no-op
       expect(() => swarm.exit()).not.toThrow();
       expect(swarm.isActive).toBe(false);
     });
   });
 });
+

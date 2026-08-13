@@ -6,7 +6,9 @@
  * derives `agent.status.updated` from the Ops' `toEvent`, announces the mode
  * through the `swarm_mode` context-injection provider (`SwarmInjection`),
  * mirrors replayable trailing-enter removal through `contextMemory`, and
- * auto-exits on turn end via `turn`. Bound at Agent scope. The service also
+ * auto-exits on turn end via `turn`. Bound at Agent scope — contributed into
+ * every Agent scope by `SwarmFeature` (`features/swarm/swarmFeature`). The
+ * service also
  * guards AgentSwarm batch exclusivity through an `onBeforeExecuteTool` veto
  * listener: an AgentSwarm call must be the only tool call in its batch;
  * anything else is vetoed with a `toolApproval.formatDenyMessage`-formatted
@@ -21,8 +23,6 @@
 import { t } from '@moonshot-ai/kimi-i18n';
 import { Service } from '#/_base/di/service';
 import { IInstantiationService } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
@@ -31,8 +31,9 @@ import { IEventBus } from '#/app/event/eventBus';
 import { IWireService } from '#/wire/wire';
 
 import { SwarmInjection } from './injection/swarmInjection';
-import { IAgentSwarmService, type SwarmModeTrigger } from './swarm';
-import { swarmEnter, swarmExit, SwarmModel } from './swarmOps';
+import type { IAgentSwarmService} from './swarm';
+import { type SwarmModeTrigger } from './swarm';
+import { swarmEnter, swarmExit, SwarmModel } from '../swarmOps';
 
 export class AgentSwarmService extends Service implements IAgentSwarmService {
   declare readonly _serviceBrand: undefined;
@@ -114,14 +115,6 @@ export class AgentSwarmService extends Service implements IAgentSwarmService {
     return trigger === 'task' || trigger === 'tool';
   }
 }
-
-registerScopedService(
-  LifecycleScope.Agent,
-  IAgentSwarmService,
-  AgentSwarmService,
-  ScopeActivation.OnScopeCreated,
-  'swarm',
-);
 
 function agentDeniedInSwarmModeMessage(): string {
   return t('toolsV2.swarm.agentDeniedInSwarmMode');

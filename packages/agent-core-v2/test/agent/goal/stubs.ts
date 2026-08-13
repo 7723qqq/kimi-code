@@ -2,15 +2,15 @@
  * Shared stubs for goal tests.
  */
 
-import type { IAgentSwarmService } from '#/agent/swarm/swarm';
+import type { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import type { IAgentGoalJudgeService, JudgeVerdict } from '#/agent/goal/judge/goalJudgeService';
 
 export function stubAgentSwarm(): IAgentSwarmService {
   return {
     _serviceBrand: undefined,
     isActive: false,
-    enter: () => undefined,
-    exit: () => undefined,
+    enter: () => {},
+    exit: () => {},
   };
 }
 

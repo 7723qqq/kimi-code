@@ -853,7 +853,7 @@ describe('onBeforeExecuteTool veto semantics', () => {
   it('never invokes waitUntil factories when an immediate veto decides the call', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);
-    const askFactory = vi.fn(async () => {});
+    const askFactory = vi.fn(async () => undefined as never);
     executor.onBeforeExecuteTool((event) => {
       event.waitUntil(askFactory);
     });

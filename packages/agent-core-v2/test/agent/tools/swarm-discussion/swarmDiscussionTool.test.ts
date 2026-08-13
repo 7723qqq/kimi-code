@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { setLocale } from '@moonshot-ai/kimi-i18n';
 
 import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import type { IAgentSwarmService } from '#/agent/swarm/swarm';
+import type { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import type {
   IPersistentSubagentService,
   PersistentSubagentHost,
@@ -49,7 +49,7 @@ function createToolStubs(replies: readonly string[] = []): ToolStubs {
       turns.push({ agentId, prompt });
       return replies[index] ?? `Speech ${String(index)} from ${agentId}`;
     },
-    getPersistentUsage: () => undefined,
+    getPersistentUsage: () => {},
     destroyPersistent: async (agentId) => {
       destroyed.push(agentId);
     },
@@ -282,3 +282,4 @@ describe('SwarmDiscussionTool', () => {
     ).toBe(true);
   });
 });
+

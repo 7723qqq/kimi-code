@@ -113,7 +113,7 @@ function workspaceCatalogStub(): IWorkspaceService {
       workspaces.set(id, workspace);
       return Promise.resolve(workspace);
     },
-    update: () => Promise.resolve(),
+    update: () => Promise.resolve(undefined as never),
     delete: () => Promise.resolve(),
   };
 }

@@ -1,5 +1,5 @@
 /**
- * `tools` domain — `AgentSwarmTool` implementation (the `AgentSwarm`
+ * `swarm` domain — `AgentSwarmTool` implementation (the `AgentSwarm`
  * tool).
  *
  * Launches a batch of child agents (an ordinary Agent scope each) through the
@@ -18,11 +18,8 @@
  * (or under `[secondary_model].force`) the parameter is not advertised at
  * all. Swarm mode is
  * entered through `IAgentSwarmService`; the caller's agent id comes from
- * `IAgentScopeContext`. Pure tool — owns no scoped state.
- *
- * Registered via the module-level `registerAgentToolService(IAgentSwarmTool,
- * AgentSwarmTool)` at the bottom of this file — the same "import = register"
- * pattern used by every agent tool. Bound at Agent scope.
+ * `IAgentScopeContext`. Pure tool — owns no scoped state. Bound at Agent
+ * scope — contributed by `SwarmFeature` (`features/swarm/swarmFeature`).
  */
 
 import { t } from '@moonshot-ai/kimi-i18n';
@@ -34,11 +31,10 @@ import {
   type ToolExecution,
 } from '#/tool/toolContract';
 import { Error2, ErrorCodes } from '#/errors';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
-import { ISessionSwarmService, type SessionSwarmTask } from '#/session/swarm/sessionSwarm';
+import { ISessionSwarmService, type SessionSwarmTask } from '#/features/swarm/session/sessionSwarm';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import {
@@ -46,7 +42,7 @@ import {
   subagentTypeNotAllowedMessage,
 } from '#/app/agentProfileCatalog/profile-shared';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentSwarmService } from '#/agent/swarm/swarm';
+import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import {
   buildSubagentModelDescriptions,
   exposesSubagentModelChoice,
@@ -54,9 +50,10 @@ import {
   resolveSubagentTimeoutMs,
   stripSubagentModelParameter,
 } from '#/session/subagent/configSection';
+import type {
+  IAgentSwarmTool} from './agent-swarm';
 import {
   AgentSwarmToolInputSchema,
-  IAgentSwarmTool,
   MAX_AGENT_SWARM_SUBAGENTS,
   PROMPT_TEMPLATE_PLACEHOLDER,
   type AgentSwarmToolInput,
@@ -236,8 +233,6 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     );
   }
 }
-
-registerAgentToolService(IAgentSwarmTool, AgentSwarmTool, { name: 'AgentSwarm', domain: 'swarm' });
 
 async function createAgentSwarmSpecs(
   args: AgentSwarmToolInput,

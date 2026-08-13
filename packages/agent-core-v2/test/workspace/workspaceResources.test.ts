@@ -144,7 +144,7 @@ function workspaceCatalogStub(): IWorkspaceService {
       workspaces.set(id, workspace);
       return Promise.resolve(workspace);
     },
-    update: () => Promise.resolve(),
+    update: () => Promise.resolve(undefined as never),
     delete: () => Promise.resolve(),
   };
 }
@@ -298,7 +298,7 @@ describe('workspace resource sharing (handler chain)', () => {
         _serviceBrand: undefined,
         homeDir,
         osHomeDir: homeDir,
-        args: resolveHostArgs(),
+        args: resolveHostArgs(undefined as never),
         scope: (name: string) => name,
       } as unknown as IBootstrapService),
       stubPair(IHostEnvironment, {

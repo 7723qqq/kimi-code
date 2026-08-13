@@ -5,7 +5,7 @@
  * Exercises the Agent-scoped service through DI and public loop boundaries,
  * with storage, session swarm execution, and approvals stubbed. Run:
  * `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
- * test/agent/swarm/swarm.test.ts`.
+ * test/features/swarm/swarm.test.ts`.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
@@ -25,7 +25,7 @@ import { AgentContextMemoryService } from '#/agent/contextMemory/contextMemorySe
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { DEFAULT_SUBAGENT_TIMEOUT_MS } from '#/session/subagent/configSection';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionSwarmService, type SessionSwarmRunResult, type SessionSwarmTask } from '#/session/swarm/sessionSwarm';
+import { ISessionSwarmService, type SessionSwarmRunResult, type SessionSwarmTask } from '#/features/swarm/session/sessionSwarm';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
@@ -34,12 +34,12 @@ import {
   wrapSystemReminder,
 } from '#/agent/systemReminder/systemReminder';
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
-import { IAgentSwarmService } from '#/agent/swarm/swarm';
-import { AgentSwarmService } from '#/agent/swarm/swarmService';
-import SWARM_MODE_ENTER_REMINDER from '../../../src/agent/swarm/enter-reminder.md?raw';
-import { SwarmModel } from '#/agent/swarm/swarmOps';
-import { AgentSwarmToolInputSchema } from '#/agent/tools/agent-swarm/agent-swarm';
-import { AgentSwarmTool } from '#/agent/tools/agent-swarm/agentSwarmTool';
+import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import { AgentSwarmService } from '#/features/swarm/agent/swarmService';
+import SWARM_MODE_ENTER_REMINDER from '../../../src/features/swarm/agent/enter-reminder.md?raw';
+import { SwarmModel } from '#/features/swarm/swarmOps';
+import { AgentSwarmToolInputSchema } from '#/features/swarm/tools/agent-swarm/agent-swarm';
+import { AgentSwarmTool } from '#/features/swarm/tools/agent-swarm/agentSwarmTool';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type {
@@ -66,8 +66,8 @@ import { EventBusService } from '#/app/event/eventBusService';
 
 import { executeTool } from '../../tools/fixtures/execute-tool';
 import { registerTestAgentWire, restoreTestAgentWire, testWireScope } from '../../wire/stubs';
-import { stubLoopWithHooks } from '../loop/stubs';
-import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../toolExecutor/stubs';
+import { stubLoopWithHooks } from '../../agent/loop/stubs';
+import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
 import { createTestAgent } from '../../harness';
 
 const signal = new AbortController().signal;
@@ -118,7 +118,7 @@ function hookContext(toolCalls: ToolCall[]): ResolvedToolExecutionHookContext {
 
 function mockSwarmHost({
   run = vi.fn().mockResolvedValue([]),
-  getSwarmItem = vi.fn().mockResolvedValue(),
+  getSwarmItem = vi.fn().mockResolvedValue(undefined as never),
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly run?: (...args: any[]) => any;

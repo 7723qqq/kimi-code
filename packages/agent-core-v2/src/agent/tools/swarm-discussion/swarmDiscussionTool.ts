@@ -25,7 +25,7 @@ import {
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { IPersistentSubagentService } from '#/session/subagent/persistentSubagent';
-import { IAgentSwarmService } from '#/agent/swarm/swarm';
+import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import {
   SwarmDiscussionCoordinator,

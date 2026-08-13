@@ -15,13 +15,12 @@
  * bindings are resolved through the model catalog before lifecycle allocation.
  * Resumed agents keep the model recorded in their own wire journal — with
  * per-subagent models there is no "child follows the parent's current model"
- * invariant to enforce. Bound at Session scope.
+ * invariant to enforce. Bound at Session scope — contributed into every
+ * Session scope by `SwarmFeature` (`features/swarm/swarmFeature`).
  */
 
 import type { TokenUsage } from '#/kosong/contract/usage';
 import { IModelCatalog } from '#/kosong/model/catalog';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2, ErrorCodes } from '#/errors';
 import { t } from '@moonshot-ai/kimi-i18n';
 import { linkAbortSignal } from '#/_base/utils/abort';
@@ -48,8 +47,9 @@ import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sess
 import { ISessionProcessRunner } from '#/session/process/processRunner';
 import { ILogService } from '#/_base/log/log';
 
+import type {
+  ISessionSwarmService} from './sessionSwarm';
 import {
-  ISessionSwarmService,
   type SessionSwarmRunArgs,
   type SessionSwarmRunResult,
   type SessionSwarmTask,
@@ -299,11 +299,3 @@ export class SessionSwarmService implements ISessionSwarmService {
 }
 
 export type _AgentRunUsage = TokenUsage;
-
-registerScopedService(
-  LifecycleScope.Session,
-  ISessionSwarmService,
-  SessionSwarmService,
-  ScopeActivation.OnScopeCreated,
-  'sessionSwarm',
-);
