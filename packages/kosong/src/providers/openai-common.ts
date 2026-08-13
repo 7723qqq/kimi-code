@@ -231,11 +231,18 @@ export function extractUsage(usage: unknown): TokenUsage | null {
     }
   }
 
+  // Cache writes are not reported by OpenAI-compatible APIs; the "miss"
+  // bucket (DeepSeek's `prompt_cache_miss_tokens`, or the non-cached
+  // remainder of the prompt) is the closest proxy — without it the hit rate
+  // reads/(reads+writes) would always be 100% whenever any token was read.
+  const hasMissField = miss !== undefined;
+  const cacheCreation = hasMissField ? (miss ?? 0) : cached > 0 ? Math.max(promptTokens - cached, 0) : 0;
+
   return {
-    inputOther: miss ?? Math.max(promptTokens - cached, 0),
+    inputOther: hasMissField ? 0 : cached > 0 ? 0 : Math.max(promptTokens - cached, 0),
     output: completionTokens,
     inputCacheRead: cached,
-    inputCacheCreation: 0,
+    inputCacheCreation: cacheCreation,
   };
 }
 /**

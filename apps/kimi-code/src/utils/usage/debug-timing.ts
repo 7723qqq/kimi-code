@@ -67,8 +67,19 @@ export function formatStepDebugTiming(input: StepTimingInput): string | undefine
     // Exact cache hit rate: cache reads / (reads + creations). Plain input
     // is not part of the cache system and must not dilute the ratio.
     const cacheMissTokens = cacheReadTokens + cacheCreationTokens;
-    const cacheHitRate =
-      cacheMissTokens > 0 ? Math.round((cacheReadTokens / cacheMissTokens) * 100) : 0;
+    let cacheHitRate: number;
+    if (cacheMissTokens > 0) {
+      cacheHitRate = Math.round((cacheReadTokens / cacheMissTokens) * 100);
+    } else if (cacheReadTokens > 0) {
+      // No cache-write data reported (the provider never surfaced
+      // `cache_creation_input_tokens`): reporting reads/(reads+0) would
+      // always read 100% even on the first turn. Fall back to the share of
+      // total input that hit the cache instead.
+      const inputTotal = cacheReadTokens + (input.usage.inputOther ?? 0);
+      cacheHitRate = inputTotal > 0 ? Math.round((cacheReadTokens / inputTotal) * 100) : 0;
+    } else {
+      cacheHitRate = 0;
+    }
     const cacheParts = [`cache read ${formatTokenCount(cacheReadTokens)} (${cacheHitRate}%)`];
     if (cacheCreationTokens > 0) {
       cacheParts.push(`write ${formatTokenCount(cacheCreationTokens)}`);

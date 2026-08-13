@@ -59,6 +59,24 @@ describe('formatStepDebugTiming', () => {
     expect(result).not.toContain('/ write 0');
   });
 
+  it('does not report a fake 100% when cache writes are missing', () => {
+    // A provider that never surfaces `cache_creation_input_tokens` must not
+    // show reads/(reads+0) = 100% on every turn: fall back to the share of
+    // total input that hit the cache.
+    const result = formatStepDebugTiming({
+      llmFirstTokenLatencyMs: 800,
+      llmStreamDurationMs: 5000,
+      usage: {
+        inputOther: 900,
+        inputCacheRead: 100,
+        inputCacheCreation: 0,
+        output: 200,
+      },
+    });
+    expect(result).toContain('cache read 100 (10%)');
+    expect(result).not.toContain('(100%)');
+  });
+
   it('omits TPS when the streamed window is too short to measure', () => {
     const result = formatStepDebugTiming({
       llmFirstTokenLatencyMs: 1200,

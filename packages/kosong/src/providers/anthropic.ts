@@ -701,11 +701,17 @@ class AnthropicStreamedMessage implements StreamedMessage {
     cache_read_input_tokens?: number;
     cache_creation_input_tokens?: number;
   }): void {
+    // Anthropic's `input_tokens` is the TOTAL input (plain + cache reads +
+    // cache creations); the split fields are additive, so plain input is
+    // the remainder — otherwise the total would be double-counted.
+    const inputTokens = usage.input_tokens ?? 0;
+    const cacheRead = usage.cache_read_input_tokens ?? 0;
+    const cacheCreation = usage.cache_creation_input_tokens ?? 0;
     this._usage = {
-      inputOther: usage.input_tokens ?? 0,
+      inputOther: Math.max(inputTokens - cacheRead - cacheCreation, 0),
       output: usage.output_tokens ?? 0,
-      inputCacheRead: usage.cache_read_input_tokens ?? 0,
-      inputCacheCreation: usage.cache_creation_input_tokens ?? 0,
+      inputCacheRead: cacheRead,
+      inputCacheCreation: cacheCreation,
     };
   }
 
@@ -864,7 +870,11 @@ class AnthropicStreamedMessage implements StreamedMessage {
               this._usage.inputCacheCreation = deltaUsage['cache_creation_input_tokens'];
             }
             if (typeof deltaUsage['input_tokens'] === 'number') {
-              this._usage.inputOther = deltaUsage['input_tokens'];
+              // Total input; the split fields are additive, so plain input
+              // is the remainder (see `_extractUsage`).
+              const read = this._usage.inputCacheRead;
+              const creation = this._usage.inputCacheCreation;
+              this._usage.inputOther = Math.max(deltaUsage['input_tokens'] - read - creation, 0);
             }
           }
           // The terminal `stop_reason` lives on `delta.stop_reason` of the
