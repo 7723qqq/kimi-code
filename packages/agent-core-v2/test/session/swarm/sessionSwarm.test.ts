@@ -1429,6 +1429,7 @@ function agentHandle(
     _serviceBrand: undefined,
     mode: 'auto',
     setMode: () => {},
+    setModeAndBroadcast: () => {},
     onDidChangeMode: Event.None,
   } as IAgentPermissionModeService;
   return {
@@ -1450,7 +1451,7 @@ function agentHandle(
         if (serviceId === IEventBus) return eventBus;
         if (serviceId === ITelemetryService) return noopTelemetryService;
         if (serviceId === IAgentLifecycleService) return lifecycle;
-        return undefined;
+        return;
       }) as IAgentScopeHandle['accessor']['get'],
     },
     dispose: () => {},

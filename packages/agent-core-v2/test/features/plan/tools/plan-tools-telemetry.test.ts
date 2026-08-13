@@ -64,6 +64,7 @@ function permissionMode(): IAgentPermissionModeService {
     _serviceBrand: undefined,
     mode: 'auto',
     setMode: () => {},
+    setModeAndBroadcast: () => {},
     onDidChangeMode: () => ({ dispose: () => {} }),
   };
 }
@@ -230,7 +231,7 @@ describe('AgentPlanService EnterPlanMode telemetry', () => {
         ctx = createTestAgent(
           execEnvServices({
             hostFs: createFakeHostFs({
-              mkdir: vi.fn().mockResolvedValue(undefined),
+              mkdir: vi.fn().mockResolvedValue(undefined as never),
               readText: vi.fn().mockResolvedValue(''),
             }),
           }),

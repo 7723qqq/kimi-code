@@ -148,6 +148,8 @@ export interface IAgentLoopService {
 
   cancel(turnId?: number, reason?: unknown): boolean;
 
+  cancelFromUser(turnId?: number): void;
+
   tryAcquireQuiescence(): IDisposable | undefined;
 
   settled(): Promise<void>;

@@ -11,6 +11,8 @@ import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
 import { summarizeSkill } from '#/app/skillCatalog/types';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { IEventService } from '#/app/event/event';
 import { AgentSkillService } from '#/agent/skill/skillService';
 import { ErrorCodes, Error2 } from '#/errors';
 import {
@@ -70,7 +72,7 @@ describe('AgentSkillService', () => {
       additionalServices: (reg) => {
         reg.definePartialInstance(IAgentPromptService, {
           enqueue: ({ message }: { message: ContextMessage }) => { prompted.push(message); return Promise.resolve({ launched: Promise.resolve(fakeTurn()) } as never); },
-          retry: () => Promise.resolve(undefined),
+          retry: () => Promise.resolve(undefined as never),
           clear: () => {},
         });
         registerTestAgentWireServices(reg, 'wire/skill-test');
@@ -78,6 +80,11 @@ describe('AgentSkillService', () => {
         reg.definePartialInstance(IAgentToolRegistryService, {
           register: () => ({ dispose: () => {} }),
         });
+        reg.definePartialInstance(ISessionMetadata, {
+          read: async () => ({ id: 'test-session', createdAt: 0, updatedAt: 0, archived: false }),
+          update: async () => {},
+        });
+        reg.definePartialInstance(IEventService, { publish: () => {} });
         reg.defineInstance(ISessionContext, stubSessionContext());
         reg.defineInstance(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
       },
@@ -166,7 +173,7 @@ describe('SkillTool', () => {
       additionalServices: (reg) => {
         reg.definePartialInstance(IAgentPromptService, {
           enqueue: ({ message }: { message: ContextMessage }) => { prompted.push(message); return Promise.resolve({ launched: Promise.resolve(fakeTurn()) } as never); },
-          retry: () => Promise.resolve(undefined),
+          retry: () => Promise.resolve(undefined as never),
           clear: () => {},
         });
         registerTestAgentWireServices(reg, 'wire/skill-test');
@@ -174,6 +181,11 @@ describe('SkillTool', () => {
         reg.definePartialInstance(IAgentToolRegistryService, {
           register: () => ({ dispose: () => {} }),
         });
+        reg.definePartialInstance(ISessionMetadata, {
+          read: async () => ({ id: 'test-session', createdAt: 0, updatedAt: 0, archived: false }),
+          update: async () => {},
+        });
+        reg.definePartialInstance(IEventService, { publish: () => {} });
         reg.defineInstance(ISessionContext, stubSessionContext());
         reg.defineInstance(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
       },
