@@ -17,6 +17,7 @@ import type {
   ExportSessionInput,
   ExportSessionResult,
   ForkSessionInput,
+  GenerateSessionTitleInput,
   GetConfigOptions,
   GlobalMcpServerAuthStatus,
   KimiConfig,
@@ -71,6 +72,7 @@ export class KimiHarness {
   private readonly uiMode: string;
   private readonly telemetry: TelemetryClient;
   private readonly activeSessions = new Map<string, Session>();
+  private readonly resumeInflight = new Map<string, Promise<Session>>();
   private readonly ensureConfigFileImpl: () => Promise<void>;
   private readonly closeImpl: () => void | Promise<void>;
   private readonly sessionStartedProperties: TelemetryProperties;
@@ -126,7 +128,9 @@ export class KimiHarness {
       summary,
       rpc: this.rpc,
       onClose: () => {
-        this.activeSessions.delete(summary.id);
+        if (this.activeSessions.get(summary.id) === session) {
+          this.activeSessions.delete(summary.id);
+        }
       },
     });
     this.activeSessions.set(session.id, session);
@@ -141,14 +145,37 @@ export class KimiHarness {
   async resumeSession(input: ResumeSessionInput): Promise<Session> {
     const id = normalizeSessionId(input.id);
     const active = this.activeSessions.get(id);
-    const { sessionStartedProperties, ...resumeInput } = input;
-    if (active !== undefined) {
+    const { sessionStartedProperties: _sessionStartedProperties, ...resumeInput } = input;
+    // A session whose close is in flight (`isClosed` but not yet unmapped)
+    // is not a valid resume target 鈥?fall through and re-resume fresh, which
+    // the engine serializes behind that close.
+    if (active !== undefined && !active.isClosed) {
       if (input.agentProfile !== undefined) {
         await this.rpc.resumeSession({ ...resumeInput, id });
       }
       return active;
     }
 
+    // Coalesce concurrent resumes of the same id onto one facade, keyed by
+    // the full input so a caller with different options (dirs, replay,
+    // profile, kaos) never has them silently dropped; without this,
+    // parallel identical callers each build their own Session over the
+    // shared engine handle, and one facade's close kills the engine handle
+    // under the other.
+    const key = resumeCoalesceKey(id, input);
+    const inflight = this.resumeInflight.get(key);
+    if (inflight !== undefined) return inflight;
+    const run = this.doResumeSession(input, id);
+    this.resumeInflight.set(key, run);
+    try {
+      return await run;
+    } finally {
+      if (this.resumeInflight.get(key) === run) this.resumeInflight.delete(key);
+    }
+  }
+
+  private async doResumeSession(input: ResumeSessionInput, id: string): Promise<Session> {
+    const { sessionStartedProperties, ...resumeInput } = input;
     const summary = await this.rpc.resumeSession({ ...resumeInput, id });
     const session = new Session({
       id: summary.id,
@@ -156,7 +183,9 @@ export class KimiHarness {
       summary,
       rpc: this.rpc,
       onClose: () => {
-        this.activeSessions.delete(summary.id);
+        if (this.activeSessions.get(summary.id) === session) {
+          this.activeSessions.delete(summary.id);
+        }
       },
     });
     this.activeSessions.set(session.id, session);
@@ -186,7 +215,9 @@ export class KimiHarness {
       summary,
       rpc: this.rpc,
       onClose: () => {
-        this.activeSessions.delete(summary.id);
+        if (this.activeSessions.get(summary.id) === session) {
+          this.activeSessions.delete(summary.id);
+        }
       },
     });
     this.activeSessions.set(session.id, session);
@@ -209,7 +240,9 @@ export class KimiHarness {
       summary,
       rpc: this.rpc,
       onClose: () => {
-        this.activeSessions.delete(summary.id);
+        if (this.activeSessions.get(summary.id) === session) {
+          this.activeSessions.delete(summary.id);
+        }
       },
     });
     this.activeSessions.set(session.id, session);
@@ -229,7 +262,7 @@ export class KimiHarness {
       return;
     }
     // The session exists server-side but was never materialized through this
-    // harness — close it directly (the RPC materializes + closes by id) so the
+    // harness 鈥?close it directly (the RPC materializes + closes by id) so the
     // server-side session isn't leaked.
     await this.rpc.closeSession({ sessionId: normalizeSessionId(id) });
   }
@@ -242,7 +275,18 @@ export class KimiHarness {
 
   async renameSession(input: RenameSessionInput): Promise<void> {
     await this.rpc.renameSession(input);
-    this.activeSessions.get(input.id)?.emitMetaUpdated({ title: input.title });
+    this.activeSessions
+      .get(input.id)
+      ?.emitMetaUpdated({ title: input.title, isCustomTitle: true });
+  }
+
+  /**
+   * Generate and apply a session title from the main agent's first prompts
+   * (v2 engine only). Resolves to `undefined` when generation is unavailable
+   * and the current title is kept.
+   */
+  async generateSessionTitle(input: GenerateSessionTitleInput): Promise<string | undefined> {
+    return this.rpc.generateSessionTitle(input);
   }
 
   async exportSession(input: ExportSessionInput): Promise<ExportSessionResult> {
@@ -485,6 +529,14 @@ export class KimiHarness {
 
 const DEFAULT_SESSION_STARTED_UI_MODE = 'shell';
 
+function resumeCoalesceKey(id: string, input: ResumeSessionInput): string {
+  const { sessionStartedProperties: _sessionStartedProperties, ...rest } = input;
+  return JSON.stringify({
+    ...rest,
+    id,
+  });
+}
+
 function normalizeSessionId(value: string): string {
   if (typeof value !== 'string') {
     throw new KimiError(ErrorCodes.SESSION_ID_REQUIRED, 'Session id is required.');
@@ -495,3 +547,4 @@ function normalizeSessionId(value: string): string {
   }
   return normalized;
 }
+

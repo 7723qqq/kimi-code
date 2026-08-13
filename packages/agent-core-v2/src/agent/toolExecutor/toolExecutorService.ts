@@ -1,5 +1,5 @@
 /**
- * `toolExecutor` domain — `IAgentToolExecutorService` implementation.
+ * `toolExecutor` domain 鈥?`IAgentToolExecutorService` implementation.
  *
  * Resolves executable tools through `toolRegistry`, adjudicates tool calls
  * through the `onBeforeExecuteTool` veto event, awaits readiness work
@@ -934,7 +934,7 @@ function isMediaContentPart(part: ContentPart): boolean {
 
 function abortedToolOutput(toolName: string, signal: AbortSignal): string {
   if (isUserCancellation(signal.reason)) {
-    return `The user manually interrupted "${toolName}" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause — wait for the user's next instruction.`;
+    return `The user manually interrupted "${toolName}" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause 鈥?wait for the user's next instruction.`;
   }
   return `Tool "${toolName}" was aborted`;
 }
@@ -988,3 +988,4 @@ registerScopedService(
   ScopeActivation.OnScopeCreated,
   'toolExecutor',
 );
+

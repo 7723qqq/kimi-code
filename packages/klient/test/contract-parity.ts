@@ -64,6 +64,7 @@ import type {
   SessionMetadataChangedEvent,
   SessionMetaPatch,
 } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
+import type { ISessionTitleService } from '@moonshot-ai/agent-core-v2/session/sessionTitle/sessionTitle';
 import type {
   AuthStatus,
   IOAuthService,
@@ -224,6 +225,7 @@ import type {
   questionResultSchema,
 } from '../src/contract/session/question.js';
 import type { skillSummarySchema } from '../src/contract/session/skills.js';
+import type { sessionTitleContract } from '../src/contract/session/title.js';
 
 import type {
   authStatusSchema,
@@ -493,6 +495,12 @@ const _questionResult: AssertWire<typeof questionResultSchema, QuestionResult> =
 
 // session/skills.ts
 const _skillSummary: AssertWire<typeof skillSummarySchema, SkillSummary> = true;
+
+// session/title.ts
+const _generateTitleOutput: AssertWire<
+  (typeof sessionTitleContract)['generateTitle']['output'],
+  Awaited<ReturnType<ISessionTitleService['generateTitle']>>
+> = true;
 
 // agent/activity.ts
 const _turnPhase: AssertWire<typeof turnPhaseSchema, TurnPhase> = true;
