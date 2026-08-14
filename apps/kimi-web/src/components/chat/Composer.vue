@@ -5,6 +5,8 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import SlashMenu from './SlashMenu.vue';
 import MentionMenu from './MentionMenu.vue';
+import ModelSelector from '../ModelSelector.vue';
+import SkillPanel from '../SkillPanel.vue';
 import { buildSlashItems, parseSlash, SKILL_COMMAND_PREFIX } from '../../lib/slashCommands';
 import { formatTokens } from '../../lib/formatTokens';
 import type { FileItem } from './MentionMenu.vue';
@@ -99,6 +101,8 @@ const emit = defineEmits<{
   toggleGoal: [];
   openBtw: [];
   createGoal: [objective: string];
+  /** The session model was switched via the ModelSelector. */
+  modelChanged: [modelId: string];
   controlGoal: [action: 'pause' | 'resume' | 'cancel'];
   focusGoal: [];
   focusSwarm: [];
@@ -836,6 +840,10 @@ function selectModel(modelId: string): void {
   emit('selectModel', modelId);
   closeDropdown();
 }
+
+function onModelChanged(modelId: string): void {
+  emit('modelChanged', modelId);
+}
 </script>
 
 <template>
@@ -907,6 +915,13 @@ function selectModel(modelId: string): void {
         />
 
         <div class="input-row">
+          <div class="composer-toolbar">
+            <ModelSelector
+              :session-id="sessionId"
+              @changed="onModelChanged"
+            />
+            <SkillPanel :session-id="sessionId" />
+          </div>
           <textarea
             ref="textareaRef"
             v-model="text"
@@ -1359,6 +1374,12 @@ function selectModel(modelId: string): void {
 }
 
 /* Input row */
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px 6px;
+}
 .input-row {
   display: flex;
   align-items: flex-start;
