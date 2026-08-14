@@ -320,7 +320,7 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
       if ((await readFile(userMcpConfigPath, 'utf8')) !== legacy.raw) return false;
       await rename(tempPath, userMcpConfigPath);
     } finally {
-      await rm(tempPath, { force: true }).catch(() => undefined);
+      await rm(tempPath, { force: true }).catch(() => {});
     }
     return true;
   }
@@ -391,7 +391,7 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
 
   async function bestEffort(command: string, args: readonly string[]): Promise<void> {
     await runCommand(ctx.hostProcess, command, args, { timeout: commandTimeoutMs }).catch(
-      () => undefined,
+      () => {},
     );
   }
 
@@ -413,7 +413,7 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
   }
 
   async function moveAppIntoPlace(unzippedApp: string): Promise<void> {
-    await rm(appPath, { recursive: true, force: true }).catch(() => undefined);
+    await rm(appPath, { recursive: true, force: true }).catch(() => {});
     const direct = await runCommand(ctx.hostProcess, 'ditto', [unzippedApp, appPath], {
       timeout: commandTimeoutMs,
     });
@@ -433,7 +433,7 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
     }
   }
 
-  async function install(report: CapabilityInstallReporter): Promise<void> {
+  async function install(report: CapabilityInstallReporter): Promise<string | undefined> {
     if (!supported) {
       throw new Error(`kimi-cu is only supported on macOS (current: ${ctx.platform})`);
     }
@@ -484,7 +484,7 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
           timeout: commandTimeoutMs,
         });
       } finally {
-        await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+        await rm(workDir, { recursive: true, force: true }).catch(() => {});
       }
     }
 
@@ -512,8 +512,9 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
         appBin,
         ['request-permissions', '--ax', '--screen'],
         { timeout: PERMISSIONS_TIMEOUT_MS },
-      ).catch(() => undefined);
+      ).catch(() => {});
     }
+    return undefined;
   }
 
   return {
@@ -630,7 +631,7 @@ function createWindowsKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry 
     };
   }
 
-  async function install(report: CapabilityInstallReporter): Promise<void> {
+  async function install(report: CapabilityInstallReporter): Promise<string | undefined> {
     if (!supported) {
       throw new Error(
         `kimi-cu is only supported on macOS or Windows x64 (current: ${ctx.platform}/${ctx.arch})`,
@@ -700,7 +701,7 @@ function createWindowsKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry 
           );
         }
       } finally {
-        await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+        await rm(workDir, { recursive: true, force: true }).catch(() => {});
       }
 
       const runtime = await runtimeStep(installPowerShell);
@@ -710,6 +711,7 @@ function createWindowsKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry 
         );
       }
     }
+    return undefined;
   }
 
   return {

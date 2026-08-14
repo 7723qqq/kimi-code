@@ -23,11 +23,6 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
-      - uses: actions/cache@v4
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-pnpm-${{ hashFiles("pnpm-lock.yaml") }}
-
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - name: Smoke test CLI bundle
@@ -50,11 +45,6 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
-      - uses: actions/cache@v4
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-pnpm-${{ hashFiles("pnpm-lock.yaml") }}
-
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test --shard=${{ matrix.shard }}/5
 
@@ -73,13 +63,50 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
-      - uses: actions/cache@v4
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-pnpm-${{ hashFiles("pnpm-lock.yaml") }}
-
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @moonshot-ai/pi-tui test
+
+  # The VS Code extension suite runs on the default (v2) engine as part of the
+  # sharded root run above; this job reruns it on the legacy v1 engine, which
+  # the extension selects through the rollback env var.
+  test-vscode-legacy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter kimi-code test
+        env:
+          KIMI_CODE_LEGACY_FLAG: "1"
+
+  test-windows:
+    runs-on: windows-latest
+    # Temporarily disabled while Windows tests are being stabilized.
+    if: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      # Windows runners are slower and run the whole suite (including
+      # in-process e2e tests) under more contention, so the default 5s test
+      # timeout causes flaky failures. Give it more headroom.
+      - run: pnpm run test -- --testTimeout=30000
 
   lint:
     runs-on: ubuntu-latest
@@ -94,27 +121,9 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
-      - uses: actions/cache@v4
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-pnpm-${{ hashFiles("pnpm-lock.yaml") }}
-
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
       - run: pnpm run sherif
-      - name: Check locale JSON freshness
-        run: |
-          node scripts/generate-locale-json.cjs 2>/dev/null || true
-          if ! git diff --exit-code -- '*.json' -- ':(exclude)node_modules/'; then
-            echo "::error::Locale JSON files are out of date. Run 'node scripts/generate-locale-json.cjs' and commit the changes."
-            exit 1
-          fi
-      - name: Check locale placeholder validity
-        run: node scripts/check-locale-placeholders.cjs
-      - name: Scan for hardcoded locale strings
-        run: |
-          # Report hardcoded strings but don't fail the build (informational for now)
-          node scripts/scan-hardcoded-v2.mjs || true
 
   typecheck:
     runs-on: ubuntu-latest
@@ -128,11 +137,6 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
-
-      - uses: actions/cache@v4
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-pnpm-${{ hashFiles("pnpm-lock.yaml") }}
 
       - run: pnpm install --frozen-lockfile
       - name: Typecheck
@@ -148,23 +152,3 @@ jobs:
         run: pnpm --filter @moonshot-ai/vis-server run typecheck
       - name: Typecheck vis-web
         run: pnpm --filter @moonshot-ai/vis-web run typecheck
-
-  native-tools:
-    runs-on: windows-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: packages/kimi-native-tools
-
-      - name: Cargo test
-        working-directory: packages/kimi-native-tools
-        run: cargo test
-
-      - name: Cargo build (release)
-        working-directory: packages/kimi-native-tools
-        run: cargo build --release

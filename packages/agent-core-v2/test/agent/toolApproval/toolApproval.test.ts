@@ -270,6 +270,8 @@ describe('AgentToolApprovalService', () => {
           summary: 'Approve Bash',
           detail: { command: 'printf hi' },
         },
+        // Engine-minted interaction id (upstream #2911).
+        id: expect.any(String),
         decision: 'rejected',
         feedback,
       });
@@ -308,6 +310,7 @@ describe('AgentToolApprovalService', () => {
       expect(request).toHaveBeenCalledTimes(1);
       expect(events.requested).toHaveBeenCalledWith({
         type: 'permission.approval.requested',
+        id: expect.stringMatching(/^approval_/),
         sessionId: 'test-session',
         agentId: 'main',
         turnId: 1,
@@ -323,6 +326,7 @@ describe('AgentToolApprovalService', () => {
       });
       expect(events.resolved).toHaveBeenCalledWith({
         type: 'permission.approval.resolved',
+        id: expect.stringMatching(/^approval_/),
         sessionId: 'test-session',
         agentId: 'main',
         turnId: 1,
@@ -356,6 +360,7 @@ describe('AgentToolApprovalService', () => {
       );
 
       expect(request).toHaveBeenCalledWith({
+        id: expect.stringMatching(/^approval_/),
         sessionId: 'test-session',
         agentId: 'main',
         turnId: 1,
@@ -364,6 +369,19 @@ describe('AgentToolApprovalService', () => {
         action: 'clean build output',
         display,
       });
+    });
+
+    it('mints one interaction id shared by the broker request and the events', async () => {
+      const events = subscribeApprovalEvents();
+      const request = useBroker(async () => ({ decision: 'approved' }));
+      const svc = make();
+
+      await svc.requestToolApproval(makeContext('Bash'), ask(), 'fallback-ask');
+
+      const brokerId = request.mock.calls[0]![0].id;
+      expect(brokerId).toMatch(/^approval_/);
+      expect(events.requested.mock.calls[0]![0]).toMatchObject({ id: brokerId });
+      expect(events.resolved.mock.calls[0]![0]).toMatchObject({ id: brokerId });
     });
 
     it('records a session-scope approval rule when approved for session', async () => {

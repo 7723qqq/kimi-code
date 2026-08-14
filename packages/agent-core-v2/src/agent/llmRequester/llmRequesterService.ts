@@ -16,7 +16,10 @@
  * model, effective thinking effort, and system prompt at the turn boundary
  * so loop telemetry and every request in that turn share one configuration.
  * Forwards streamed `part` events to the caller's `onPart`
- * handler, records `usage` through `IAgentUsageService`, resolves to an
+ * handler — rewriting duplicate provider tool call ids into per-agent unique
+ * ones through `ToolCallIdNormalizer`, since self-hosted endpoints may
+ * renumber ids per response and every downstream keying assumes uniqueness —
+ * records `usage` through `IAgentUsageService`, resolves to an
  * `AgentLLMRequestFinish` on the `finish` event, logs the request lifecycle
  * (config deduplicated by content, request/response/failure lines, plus
  * per-request fields) through `log`, publishes advisory model-capability
@@ -57,7 +60,7 @@ import {
   isRecoverableRequestStructureError,
   isRetryableGenerateError,
 } from '#/kosong/contract/errors';
-import { type Message } from '#/kosong/contract/message';
+import { isToolCall, type Message, type StreamedMessagePart } from '#/kosong/contract/message';
 import { type ThinkingEffort } from '#/kosong/contract/provider';
 import { type Tool } from '#/kosong/contract/tool';
 import { emptyUsage, inputTotal, type TokenUsage } from '#/kosong/contract/usage';
@@ -92,6 +95,10 @@ import {
   type PreparedTurnRequestConfig,
 } from './llmRequester';
 import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
+import {
+  ToolCallIdNormalizer,
+  type ToolCallIdResponseNormalizer,
+} from './toolCallIdNormalizer';
 import {
   LlmRequestTraceModel,
   llmRequest,
@@ -166,6 +173,8 @@ export const llmRequesterEmittedThinkingEffortWarningsKey = defineState<Set<stri
 
 export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   declare readonly _serviceBrand: undefined;
+
+  private readonly toolCallIdNormalizer = new ToolCallIdNormalizer();
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -353,6 +362,10 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     // would shift the cutoff and could truncate tool results inside the
     // keepRecentMessages tail.
     const compacted = this.microCompaction.compact(request.messages);
+    // Seed the tool-call-id normalizer from the persisted history so the
+    // provider's renumbered ids (self-hosted OpenAI-compatible endpoints) map
+    // back to the ids the engine minted (upstream #2911).
+    this.toolCallIdNormalizer.seedFrom(this.context.get());
     const shapedForModel = this.toolSelect.shapeHistory(compacted);
     let mediaStripSnapshot = this.mediaStripSnapshotForTurn(request.source);
     const requestInput = (projection: RequestProjection) => {
@@ -409,41 +422,59 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       let usage: TokenUsage | undefined;
       let timing: ModelRequestTiming | undefined;
       let finish: Extract<ModelRequestEvent, { type: 'finish' }> | undefined;
+      const toolCallIds = this.toolCallIdNormalizer.beginResponse();
 
       const setTraceId = (traceId: string | null | undefined): void => {
         const normalized = traceId ?? undefined;
         onRequestTrace(normalized);
       };
 
-      for await (const event of request.requester.request(input, signal, {
-        ...request.params,
-        onTraceId: setTraceId,
-      })) {
-        switch (event.type) {
-          case 'part':
-            await onPart(event.part);
-            break;
-          case 'usage':
-            usage = event.usage;
-            break;
-          case 'finish':
-            finish = event;
-            message = event.message;
-            setTraceId(event.traceId);
-            break;
-          case 'timing': {
-            const { type: _type, ...streamTiming } = event;
-            timing = streamTiming;
-            break;
+      try {
+        for await (const event of request.requester.request(input, signal, {
+          ...request.params,
+          onTraceId: setTraceId,
+        })) {
+          switch (event.type) {
+            case 'part':
+              await onPart(this.normalizeStreamPart(toolCallIds, event.part));
+              break;
+            case 'usage':
+              usage = event.usage;
+              break;
+            case 'finish':
+              finish = event;
+              message = event.message;
+              setTraceId(event.traceId);
+              break;
+            case 'timing': {
+              const { type: _type, ...streamTiming } = event;
+              timing = streamTiming;
+              break;
+            }
           }
         }
-      }
 
-      if (message === undefined || finish === undefined) {
-        throw new Error2(
-          ErrorCodes.PROVIDER_API_ERROR,
-          'LLM request stream ended without a finish event.',
-        );
+        if (message === undefined || finish === undefined) {
+          throw new Error2(
+            ErrorCodes.PROVIDER_API_ERROR,
+            'LLM request stream ended without a finish event.',
+          );
+        }
+
+        const finalizedCalls = toolCallIds.remapFinalizedCalls(message.toolCalls);
+        if (finalizedCalls !== message.toolCalls) {
+          message = { ...message, toolCalls: finalizedCalls };
+        }
+        for (const { raw, assigned } of toolCallIds.remapped) {
+          this.log.warn('Rewrote a duplicate provider tool call id into an agent-unique one.', {
+            raw,
+            assigned,
+            model: request.modelAlias,
+          });
+        }
+      } catch (error) {
+        toolCallIds.rollback();
+        throw error;
       }
 
       this.usage.record(request.modelAlias, usage ?? emptyUsage(), request.source);
@@ -534,6 +565,15 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         throw error;
       }
     }
+  }
+
+  private normalizeStreamPart(
+    toolCallIds: ToolCallIdResponseNormalizer,
+    part: StreamedMessagePart,
+  ): StreamedMessagePart {
+    if (!isToolCall(part)) return part;
+    const assigned = toolCallIds.remapStreamedId(part.id, part._streamIndex);
+    return assigned === part.id ? part : { ...part, id: assigned };
   }
 
   private warnAboutAnthropicThinkingEffort(request: ResolvedLLMRequest): void {

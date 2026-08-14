@@ -1,6 +1,6 @@
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { extname, join, normalize, relative, resolve, sep } from 'node:path';
 
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { t } from '../i18n';
@@ -50,15 +50,25 @@ async function serveWebAsset(
     return reply.code(404).type('text/plain; charset=utf-8').send('Not found');
   }
 
-  const fileInfo = await stat(filePath).catch(() => undefined);
+  const fileInfo = await stat(filePath).catch(() => {});
   if (fileInfo === undefined || !fileInfo.isFile()) {
     return reply.code(404).type('text/plain; charset=utf-8').send('Not found');
   }
 
   return reply
     .type(mimeType(filePath))
+    .header('Cache-Control', cacheControl(assetsDir, filePath))
     .header('Content-Length', String(fileInfo.size))
     .send(createReadStream(filePath));
+}
+
+function cacheControl(assetsDir: string, filePath: string): string {
+  const assetPath = relative(assetsDir, filePath);
+  const fileName = filePath.slice(filePath.lastIndexOf(sep) + 1);
+  if (assetPath.startsWith(`assets${sep}`) && /[-.][A-Za-z0-9_-]{8}\.[^.]+$/.test(fileName)) {
+    return 'public, max-age=31536000, immutable';
+  }
+  return 'no-cache';
 }
 
 async function resolveStaticFile(
@@ -83,7 +93,7 @@ async function resolveStaticFile(
     return undefined;
   }
 
-  const info = await stat(candidate).catch(() => undefined);
+  const info = await stat(candidate).catch(() => {});
   if (info?.isFile() === true) {
     return candidate;
   }

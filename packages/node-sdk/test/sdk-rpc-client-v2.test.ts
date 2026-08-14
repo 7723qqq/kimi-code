@@ -1,9 +1,10 @@
 /**
- * Scenario: v2 wiring MVP 閳?the harness talks to the in-process agent-core-v2
+ * Scenario: v2 wiring — the harness talks to the in-process agent-core-v2
  * engine (klient memory transport) instead of the v1 KimiCore RPC pair.
- * Responsibilities: `getExperimentalFeatures` is migrated end-to-end; every
- * not-yet-migrated method fails loudly with `not_implemented` instead of
- * silently hitting a v1 core.
+ * Responsibilities: v2-client behaviors the v1↔v2 parity gate does not
+ * compare (engine telemetry forwarding, host request headers, the Windows
+ * Git Bash probe, workspace trust, the config write cascade, deleteSession,
+ * foldAgentWireReplay).
  * Wiring: real v2 engine bootstrapped on a temp KIMI_CODE_HOME; remote provider calls are stubbed.
  * Run: pnpm exec vitest run test/sdk-rpc-client-v2.test.ts
  */
@@ -23,7 +24,6 @@ import type {
 import {
   createKimiHarnessV2,
   ErrorCodes,
-  KimiError,
   removeProviderFromConfig,
   SDKRpcClientV2,
   type Event,
@@ -40,28 +40,9 @@ import {
   OsProcessErrors,
 } from '@moonshot-ai/agent-core-v2';
 
-import { mcpOAuthStoreKey } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
-
 import { TEST_IDENTITY } from './test-identity';
 import { startMcpAuthStatusServer } from './mcp-auth-status-server';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
-
-/**
- * Pre-write an OAuth token record for a user-global MCP server, mirroring the
- * v2 engine's `<homeDir>/credentials/mcp/<key>-tokens.json` layout (plain-text
- * records stay readable for legacy compatibility).
- */
-async function writeOAuthToken(
-  homeDir: string,
-  serverName: string,
-  serverUrl: string,
-  token: { access_token: string; token_type: string },
-): Promise<void> {
-  const key = mcpOAuthStoreKey(serverName, serverUrl);
-  const dir = join(homeDir, 'credentials', 'mcp');
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, `${key}-tokens.json`), JSON.stringify(token), 'utf-8');
-}
 
 const hostEnvProbe = vi.hoisted(() => ({ failWithMissingShell: false }));
 
@@ -110,98 +91,33 @@ async function makeHarness(): Promise<{ harness: KimiHarness; homeDir: string }>
   return { harness: createKimiHarnessV2({ homeDir, identity: TEST_IDENTITY }), homeDir };
 }
 
-describe('SDKRpcClientV2 (agent-core-v2 wiring MVP)', () => {
-  it('reports global MCP authorization from the persisted v2 credential store', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
-    tempDirs.push(homeDir);
-    const statusServer = await startMcpAuthStatusServer();
-    const authorizedUrl = 'https://authorized.example.test/mcp';
-    const requiredUrl = 'https://required.example.test/mcp';
-    await writeOAuthToken(homeDir, 'oauth-authorized', authorizedUrl, {
-      access_token: 'test-access-token',
-      token_type: 'Bearer',
-    });
-    await writeOAuthToken(homeDir, 'sse', statusServer.oauthUrl, {
-      access_token: 'stale-sse-token',
-      token_type: 'Bearer',
-    });
-    await writeFile(
-      join(homeDir, 'mcp.json'),
-      JSON.stringify({
-        mcpServers: {
-          stdio: { command: 'local-command' },
-          plain: { transport: 'http', url: statusServer.plainUrl },
-          detected: { transport: 'http', url: statusServer.oauthUrl },
-          sse: { transport: 'sse', url: statusServer.oauthUrl },
-          'sse-oauth': { transport: 'sse', url: statusServer.oauthUrl, auth: 'oauth' },
-          bearer: {
-            transport: 'http',
-            url: 'https://bearer.example.test/mcp',
-            bearerTokenEnvVar: 'EXAMPLE_MCP_TOKEN',
-          },
-          'oauth-required': {
-            transport: 'http',
-            url: requiredUrl,
-            auth: 'oauth',
-          },
-          'oauth-authorized': {
-            transport: 'http',
-            url: authorizedUrl,
-            auth: 'oauth',
-          },
-        },
-      }),
-      'utf-8',
-    );
-    const harness = createKimiHarnessV2({ homeDir, identity: TEST_IDENTITY });
-
+/** Whether the persisted session directory exists under `<home>/sessions/<bucket>/<id>`. */
+async function sessionDirExists(homeDir: string, sessionId: string): Promise<boolean> {
+  let buckets: readonly string[];
+  try {
+    buckets = await readdir(join(homeDir, 'sessions'));
+  } catch {
+    return false;
+  }
+  for (const bucket of buckets) {
     try {
-      await expect(harness.listMcpServerAuthStatuses()).resolves.toEqual([
-        { name: 'stdio', authStatus: 'not-applicable' },
-        { name: 'plain', authStatus: 'not-applicable' },
-        { name: 'detected', authStatus: 'oauth-required' },
-        { name: 'sse', authStatus: 'not-applicable' },
-        { name: 'sse-oauth', authStatus: 'oauth-required' },
-        { name: 'bearer', authStatus: 'bearer-token' },
-        { name: 'oauth-required', authStatus: 'oauth-required' },
-        { name: 'oauth-authorized', authStatus: 'oauth-authorized' },
-      ]);
-
-      await writeOAuthToken(homeDir, 'oauth-required', requiredUrl, {
-        access_token: 'new-test-access-token',
-        token_type: 'Bearer',
-      });
-      await rm(
-        join(homeDir, 'credentials', 'mcp', `${mcpOAuthStoreKey('oauth-authorized', authorizedUrl)}-tokens.json`),
-        { force: true },
-      );
-
-      await expect(harness.listMcpServerAuthStatuses()).resolves.toEqual([
-        { name: 'stdio', authStatus: 'not-applicable' },
-        { name: 'plain', authStatus: 'not-applicable' },
-        { name: 'detected', authStatus: 'oauth-required' },
-        { name: 'sse', authStatus: 'not-applicable' },
-        { name: 'sse-oauth', authStatus: 'oauth-required' },
-        { name: 'bearer', authStatus: 'bearer-token' },
-        { name: 'oauth-required', authStatus: 'oauth-authorized' },
-        { name: 'oauth-authorized', authStatus: 'oauth-required' },
-      ]);
-    } finally {
-      await harness.close();
-      await statusServer.close();
+      await readdir(join(homeDir, 'sessions', bucket, sessionId));
+      return true;
+    } catch {
+      // Not under this bucket.
     }
-    // 30s: each status pass probes the unreachable `*.example.test` URLs with
-    // stored credentials (~10s per pass on Windows DNS), so the default 15s
-    // upstream budget is too tight for the two-pass shape of this test.
-  }, 30_000);
+  }
+  return false;
+}
 
+describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
   it('seeds the host request headers (User-Agent + X-Msh-*) into the engine', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
     tempDirs.push(homeDir);
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
     try {
       // Without this seed the managed vendors go out with the SDK's default
-      // User-Agent and no X-Msh-* 閳?the interactive-v2 path's identity bug.
+      // User-Agent and no X-Msh-* — the interactive-v2 path's identity bug.
       const headers = client.engineAccessor.get(IHostRequestHeaders).headers;
       expect(headers['User-Agent']).toBe(`kimi-code-cli/${TEST_IDENTITY.version}`);
       expect(headers['X-Msh-Platform']).toBe('kimi_code_cli');
@@ -722,7 +638,7 @@ key = "${titleOAuthRef.key}"
       expect(next.models?.['a/m1']).toBeDefined();
       expect(next.defaultModel).toBeUndefined();
       expect(next.defaultProvider).toBeUndefined();
-      // A fresh read from disk sees the same state 閳?the cascade landed as a
+      // A fresh read from disk sees the same state — the cascade landed as a
       // single atomic write, never a halfway-removed intermediate.
       const reread = await harness.getConfig({ reload: true });
       expect(reread.providers['b']).toBeUndefined();
@@ -821,15 +737,19 @@ key = "${titleOAuthRef.key}"
     }
   });
 
-  it('fails loudly with not_implemented for methods not yet migrated', async () => {
-    const { harness } = await makeHarness();
+  it('deleteSession removes a session and rejects a missing id with session_not_found', async () => {
+    const { harness, homeDir } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
+    tempDirs.push(workDir);
     try {
-      // `deleteSession` is the permanent case: the v2 engine has no
-      // session-deletion capability, so it stays not_implemented by design
-      // (tracked in `.tmp/v2-migration-tracker.md`).
-      await expect(harness.deleteSession('session_missing')).rejects.toThrowError(KimiError);
+      const session = await harness.createSession({ workDir });
+      await harness.deleteSession(session.id);
+      await expect(harness.resumeSession({ id: session.id })).rejects.toMatchObject({
+        code: ErrorCodes.SESSION_NOT_FOUND,
+      });
+      expect(await sessionDirExists(homeDir, session.id)).toBe(false);
       await expect(harness.deleteSession('session_missing')).rejects.toMatchObject({
-        code: ErrorCodes.NOT_IMPLEMENTED,
+        code: ErrorCodes.SESSION_NOT_FOUND,
       });
     } finally {
       await harness.close();
@@ -1150,8 +1070,3 @@ async function writeSkill(dir: string, name: string): Promise<void> {  await mkd
     'utf-8',
   );
 }
-
-
-
-
-
