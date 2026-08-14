@@ -430,6 +430,29 @@ describe('session lifecycle routing', () => {
     ).rejects.toBeInstanceOf(KlientValidationError);
     expect(channel.calls.some((call) => call.method === 'create')).toBe(false);
   });
+
+  it('sessions.create cleans up the created session with the bare id on partial failure', async () => {
+    const channel = new FakeChannel();
+    const klient = createKlientFromChannel(channel);
+    channel.results.set('workspaceLifecycleService.handlerFor', { id: 'w1', kind: 'workspace' });
+    channel.results.set('sessionLifecycleService.create', { id: 's1', kind: 'session' });
+    // A metadata read that fails contract validation trips the cleanup path.
+    channel.results.set('sessionMetadata.read', { invalid: true });
+
+    await expect(klient.global.sessions.create({ workDir: '/x' })).rejects.toBeInstanceOf(
+      KlientValidationError,
+    );
+
+    // The cleanup targets the lifecycle delete with the bare session id
+    // (`delete` is `z.tuple([z.string()])`; the old `[{ id }]` shape failed
+    // validation and silently orphaned the created session).
+    expect(channel.calls.at(-1)).toEqual({
+      scope: { sessionId: 's1' },
+      service: 'sessionLifecycleService',
+      method: 'delete',
+      args: ['s1'],
+    });
+  });
 });
 
 describe('contract validation', () => {

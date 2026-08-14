@@ -1,6 +1,7 @@
 import {
   ErrorCodes,
   KimiError,
+  log,
   withTelemetryContext,
 } from '#/legacy';
 import type { ImageLimits } from '@moonshot-ai/agent-core-v2';
@@ -77,6 +78,8 @@ export class KimiHarness {
   private readonly ensureConfigFileImpl: () => Promise<void>;
   private readonly closeImpl: () => void | Promise<void>;
   private readonly sessionStartedProperties: TelemetryProperties;
+  /** Guards {@link close}: the second call returns immediately. */
+  private closed = false;
 
   /**
    * Ingestion-side [image] limits owned by this harness's core; undefined for
@@ -158,7 +161,9 @@ export class KimiHarness {
     if (active !== undefined && !active.isClosed) {
       if (kaos !== undefined || persistenceKaos !== undefined) {
         await this.rpc.resumeSessionWithKaos({ ...resumeInput, id }, kaos ?? persistenceKaos as Kaos, persistenceKaos);
-      } else if (input.agentProfile !== undefined) {
+      } else if (input.agentProfile !== undefined || (input.additionalDirs?.length ?? 0) > 0) {
+        // Re-resume so the engine applies the deltas (profile re-select,
+        // additional-dir merge) instead of silently dropping them.
         await this.rpc.resumeSession({ ...resumeInput, id });
       }
       return active;
@@ -507,7 +512,20 @@ export class KimiHarness {
   }
 
   async close(): Promise<void> {
-    await Promise.all(Array.from(this.activeSessions.values(), (session) => session.close()));
+    if (this.closed) return;
+    this.closed = true;
+    // Best-effort session teardown: a session close failure must not block
+    // the engine teardown below (the host's onClose may remove homeDir).
+    const results = await Promise.allSettled(
+      Array.from(this.activeSessions.values(), (session) => session.close()),
+    );
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        log.error('A session close failed during harness shutdown; continuing teardown', {
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+      }
+    }
     await this.closeImpl();
   }
 

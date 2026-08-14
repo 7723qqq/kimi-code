@@ -124,7 +124,7 @@ function transaction(
       write(value);
     },
     remove: async () => {
-      write();
+      write(undefined);
     },
     parse: parseTokens,
   });

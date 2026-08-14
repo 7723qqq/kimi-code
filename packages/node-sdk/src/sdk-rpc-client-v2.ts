@@ -438,6 +438,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   private readonly sessionAccessQueues = new Map<string, Promise<void>>();
   /** App-scope subscriptions (global event forwarding, lifecycle tracking), disposed in {@link close}. */
   private readonly appSubscriptions: IDisposable[] = [];
+  /** Guards {@link close}: the second call returns immediately. */
+  private closed = false;
 
   constructor(options: SDKRpcClientV2Options = {}) {
     super();
@@ -552,6 +554,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
     for (const wiring of this.sessionWirings.values()) {
       wiring.dispose();
     }

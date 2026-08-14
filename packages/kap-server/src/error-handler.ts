@@ -23,7 +23,7 @@
 
 import { ErrorCodes, isError2 } from '@moonshot-ai/agent-core-v2';
 
-import { errEnvelope } from './envelope';
+import { errEnvelope, internalErrorEnvelope } from './envelope';
 import { ErrorCode } from './protocol/error-codes';
 import type { FastifyError } from 'fastify';
 
@@ -53,13 +53,6 @@ export function installErrorHandler(app: ErrorHandlerHost): void {
       return;
     }
     req.log.error({ err, request_id: requestId }, 'unhandled error');
-    reply.status(200).send(
-      errEnvelope(
-        ErrorCode.INTERNAL_ERROR,
-        err.message !== undefined && err.message !== '' ? err.message : 'internal error',
-        requestId,
-        err.stack,
-      ),
-    );
+    reply.status(200).send(internalErrorEnvelope(err, requestId));
   });
 }

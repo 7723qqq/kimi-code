@@ -136,7 +136,7 @@ import { workspaceIdSchema } from '../protocol/workspace';
 import { z } from 'zod';
 
 import { t } from '../i18n';
-import { errEnvelope, okEnvelope } from '../envelope';
+import { errEnvelope, internalErrorEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
 import { ensureMainAgent } from '../transport/mainAgent';
@@ -1381,12 +1381,5 @@ function sendMappedError(
     }
   }
   log?.error({ err }, 'session request failed');
-  reply.send(
-    errEnvelope(
-      ErrorCode.INTERNAL_ERROR,
-      err instanceof Error ? err.message : String(err),
-      requestId,
-      err instanceof Error ? err.stack : undefined,
-    ),
-  );
+  reply.send(internalErrorEnvelope(err, requestId));
 }
