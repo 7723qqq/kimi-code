@@ -94,6 +94,8 @@ import RiSubtractLine from '~icons/ri/subtract-line';
 import RiTargetLine from '~icons/ri/target-line';
 import RiTerminalBoxLine from '~icons/ri/terminal-box-line';
 import RiTimeLine from '~icons/ri/time-line';
+import RiThumbUpLine from '~icons/ri/thumb-up-line';
+import RiThumbDownLine from '~icons/ri/thumb-down-line';
 import RiToolsLine from '~icons/ri/tools-line';
 import RiUserLine from '~icons/ri/user-line';
 
@@ -166,6 +168,8 @@ import RawSubtractLine from '~icons/ri/subtract-line?raw';
 import RawTargetLine from '~icons/ri/target-line?raw';
 import RawTerminalBoxLine from '~icons/ri/terminal-box-line?raw';
 import RawTimeLine from '~icons/ri/time-line?raw';
+import RawThumbUpLine from '~icons/ri/thumb-up-line?raw';
+import RawThumbDownLine from '~icons/ri/thumb-down-line?raw';
 import RawToolsLine from '~icons/ri/tools-line?raw';
 import RawUserLine from '~icons/ri/user-line?raw';
 
@@ -239,6 +243,8 @@ export type IconName =
   | 'stop'
   | 'star'
   | 'star-outline'
+  | 'thumb-up'
+  | 'thumb-down'
   | 'dots-horizontal';
 
 export type IconSize = 'sm' | 'md' | 'lg';
@@ -325,6 +331,8 @@ export const ICONS: Record<IconName, IconEntry> = {
   stop: entry(RiStopFill, RawStopFill),
   star: entry(RiStarFill, RawStarFill),
   'star-outline': entry(RiStarLine, RawStarLine),
+  'thumb-up': entry(RiThumbUpLine, RawThumbUpLine),
+  'thumb-down': entry(RiThumbDownLine, RawThumbDownLine),
   'dots-horizontal': entry(KimiMore, RawKimiMore),
 };
 
@@ -421,7 +429,7 @@ export const ICON_GROUPS: ReadonlyArray<readonly [string, readonly IconName[]]> 
       'calendar-close',
     ],
   ],
-  ['Communication', ['message', 'mail', 'user']],
+  ['Communication', ['message', 'mail', 'user', 'thumb-up', 'thumb-down']],
   [
     'Status & media',
     [

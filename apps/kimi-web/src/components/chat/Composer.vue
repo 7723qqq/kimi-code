@@ -8,6 +8,7 @@ import MentionMenu from './MentionMenu.vue';
 import ModelSelector from '../ModelSelector.vue';
 import SkillPanel from '../SkillPanel.vue';
 import { buildSlashItems, parseSlash, SKILL_COMMAND_PREFIX } from '../../lib/slashCommands';
+import { getEnterBehavior } from '../../lib/enterBehavior';
 import { formatTokens } from '../../lib/formatTokens';
 import type { FileItem } from './MentionMenu.vue';
 import type { ActivationBadges, ConversationStatus, PermissionMode, QueuedPromptView } from '../../types';
@@ -371,6 +372,12 @@ function handleSubmit(): void {
   slashOpen.value = false;
   mentionOpen.value = false;
   collapseAndRefit();
+  // While the session is busy, Enter can either enqueue (default) or steer
+  // straight into the running turn — see lib/enterBehavior (settings row).
+  if (props.running && getEnterBehavior() === 'steer') {
+    emit('steer', payload);
+    return;
+  }
   emit('submit', payload);
 }
 

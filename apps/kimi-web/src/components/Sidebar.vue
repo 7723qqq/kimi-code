@@ -78,6 +78,7 @@ const props = withDefaults(
     /** Per-session pending counts split by kind, for the coloured tags. */
     pendingBySession?: Record<string, { approvals: number; questions: number }>;
     unreadBySession?: Record<string, boolean>;
+    subagentActivityBySession?: ReadonlyMap<string, { running: number; suspended: number }>;
     /** Width (px) of the session column, driven by the App resize handle. */
     colWidth?: number;
     /** True when the sidebar is collapsed: the container animates to width 0
@@ -94,6 +95,7 @@ const props = withDefaults(
     attentionBySession: () => ({}),
     pendingBySession: () => ({}),
     unreadBySession: () => ({}),
+    subagentActivityBySession: () => new Map(),
     colWidth: 220,
     collapsed: false,
     dragging: false,
@@ -766,6 +768,7 @@ onBeforeUnmount(() => {
               :rename-input-ref="getRenameInputRef()"
               :pending-by-session="pendingBySession"
               :unread-by-session="unreadBySession"
+              :subagent-activity-by-session="subagentActivityBySession"
               :ws-menu-open-id="wsMenuOpenId"
               :dragging="draggingWsId === g.workspace.id"
               :is-collapsed="isCollapsed"

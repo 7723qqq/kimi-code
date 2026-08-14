@@ -52,4 +52,7 @@ export default {
   awaitingPermissionTitle: '有操作等待你授权',
   aborted: '已中断',
   abortedTitle: '此会话在完成前被中断',
+  subagentsRunning: '{count} 个运行中',
+  subagentsSuspended: '{count} 个挂起',
+  subagentActivityTitle: '此会话下有子代理活动',
 };

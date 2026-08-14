@@ -151,6 +151,12 @@ const emit = defineEmits<{
   createChildSession: [];
   /** Chat header: open a parent/child session by id. */
   openSession: [id: string];
+  /** Chat header: open the trajectory (event ledger) panel. */
+  openTrajectory: [];
+  /** Chat header: open the subagent catalog panel. */
+  openSubagents: [];
+  /** The last assistant turn hit the output-token limit; send a continuation. */
+  continueTurn: [];
 }>();
 
 // Empty-composer workspace picker.
@@ -263,10 +269,10 @@ const hasDockWork = computed(() =>
   (props.todos?.length ?? 0) > 0 ||
   (props.queued?.length ?? 0) > 0,
 );
-const dockPanel = ref<'bash' | 'subagent' | 'todos' | null>(null);
+const dockPanel = ref<'bash' | 'subagent' | 'todos' | 'terminal' | null>(null);
 const changesCount = computed(() => (props.gitInfo ? props.changes?.length ?? 0 : 0));
 
-function toggleDockPanel(panel: 'bash' | 'subagent' | 'todos'): void {
+function toggleDockPanel(panel: 'bash' | 'subagent' | 'todos' | 'terminal'): void {
   dockPanel.value = dockPanel.value === panel ? null : panel;
 }
 
@@ -1285,6 +1291,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
       @export-session="(id) => emit('exportSession', id)"
       @create-child-session="emit('createChildSession')"
       @open-session="(id) => emit('openSession', id)"
+      @open-trajectory="emit('openTrajectory')"
+      @open-subagents="emit('openSubagents')"
     />
 
     <!-- Conversation outline: right edge rail of vertical bars (one per user
@@ -1438,6 +1446,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
               @copy-conversation-copied="handleCopyConversationCopied"
               @open-thinking="emit('openThinking', $event)"
               @open-compaction="emit('openCompaction', $event)"
+              @continue-turn="emit('continueTurn')"
               @open-agent="emit('openAgent', $event)"
               @open-tool-diff="emit('openToolDiff', $event)"
               @edit-message="handleEditMessage"

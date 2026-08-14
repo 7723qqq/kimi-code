@@ -211,6 +211,44 @@ export function useDetailPanel({
   }
 
   // ---------------------------------------------------------------------------
+  // Trajectory panel (event ledger view)
+  // ---------------------------------------------------------------------------
+  const trajectoryOpen = ref(false);
+
+  function openTrajectoryPanel(): void {
+    if (detailTarget.value === 'trajectory') {
+      closeTrajectoryPanel();
+      return;
+    }
+    detailTarget.value = 'trajectory';
+    trajectoryOpen.value = true;
+  }
+
+  function closeTrajectoryPanel(): void {
+    trajectoryOpen.value = false;
+    if (detailTarget.value === 'trajectory') detailTarget.value = null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Subagent catalog panel (lineage tree)
+  // ---------------------------------------------------------------------------
+  const subagentsOpen = ref(false);
+
+  function openSubagentsPanel(): void {
+    if (detailTarget.value === 'subagents') {
+      closeSubagentsPanel();
+      return;
+    }
+    detailTarget.value = 'subagents';
+    subagentsOpen.value = true;
+  }
+
+  function closeSubagentsPanel(): void {
+    subagentsOpen.value = false;
+    if (detailTarget.value === 'subagents') detailTarget.value = null;
+  }
+
+  // ---------------------------------------------------------------------------
   // Diff detail layer (opened from the chat header git area)
   // ---------------------------------------------------------------------------
   const detailDiffMode = ref<'list' | 'detail'>('list');
@@ -277,7 +315,9 @@ export function useDetailPanel({
       (detailTarget.value !== 'compaction' || compactionPanelVisible.value) &&
       (detailTarget.value !== 'agent' || agentPanelVisible.value) &&
       (detailTarget.value !== 'toolDiff' || toolDiffVisible.value) &&
-      (detailTarget.value !== 'btw' || btwVisible.value),
+      (detailTarget.value !== 'btw' || btwVisible.value) &&
+      (detailTarget.value !== 'trajectory' || trajectoryOpen.value) &&
+      (detailTarget.value !== 'subagents' || subagentsOpen.value),
   );
 
   /** True while the panel's resize handle is being dragged — the width
@@ -357,6 +397,8 @@ export function useDetailPanel({
     if (detailTarget.value === 'file') { closeFilePreview(); return true; }
     if (detailTarget.value === 'diff') { closeDiffDetail(); return true; }
     if (detailTarget.value === 'btw') { closeSideChat(); return true; }
+    if (detailTarget.value === 'trajectory' && trajectoryOpen.value) { closeTrajectoryPanel(); return true; }
+    if (detailTarget.value === 'subagents' && subagentsOpen.value) { closeSubagentsPanel(); return true; }
     return false;
   }
 
@@ -376,6 +418,8 @@ export function useDetailPanel({
     closeToolDiff();
     closeDiffDetail();
     hideSideChatPanel();
+    closeTrajectoryPanel();
+    closeSubagentsPanel();
     // Restore the entering session's panel, if it had one.
     if (newId) {
       restoreSnapshot(snapshotBySession.value[newId]);
@@ -414,6 +458,12 @@ export function useDetailPanel({
     openSideChatTab,
     closeSideChat,
     hideSideChatPanel,
+    trajectoryOpen,
+    openTrajectoryPanel,
+    closeTrajectoryPanel,
+    subagentsOpen,
+    openSubagentsPanel,
+    closeSubagentsPanel,
     sidePanelVisible,
     panelDragging,
     closeOpenSidePanel,

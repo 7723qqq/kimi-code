@@ -32,6 +32,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   openSwitcher: [];
   openSettings: [];
+  openTrajectory: [];
+  openSubagents: [];
 }>();
 
 /** First letter of the workspace name for the square glyph. */
@@ -75,6 +77,22 @@ const statusText = computed<string>(() =>
       </span>
     </button>
 
+    <IconButton
+      v-if="sessionTitle"
+      size="lg"
+      :label="t('trajectory.open')"
+      @click="emit('openTrajectory')"
+    >
+      <Icon name="list" size="lg" />
+    </IconButton>
+    <IconButton
+      v-if="sessionTitle"
+      size="lg"
+      :label="t('subagents.open')"
+      @click="emit('openSubagents')"
+    >
+      <Icon name="git-fork" size="lg" />
+    </IconButton>
     <IconButton
       size="lg"
       :label="t('mobile.openSettings')"

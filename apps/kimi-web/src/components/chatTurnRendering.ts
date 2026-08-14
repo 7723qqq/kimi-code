@@ -3,6 +3,7 @@
 // reactivity, no component state). Shared by ChatPane.vue's template and its
 // stateful copy/edit helpers.
 import type { ChatTurn, TurnBlock } from '../types';
+import { normalizeToolName } from '../lib/toolMeta';
 
 // Shared 1024-based token formatter (lib/formatTokens); re-exported so the
 // existing ChatPane import keeps working.
@@ -114,6 +115,61 @@ export function turnToMarkdown(turn: ChatTurn): string {
 
 export function toolStackKey(item: ToolStackItem): string {
   return item.tool.id || `tool-${item.sourceIndex}`;
+}
+
+// ---------------------------------------------------------------------------
+// Produced files: file paths written by successful Edit/Write/MultiEdit tool
+// calls in a turn, for the "produced files" chip row. Ported from
+// deepseek-harness ui-deliverables' produced-file detection (MIT).
+// ---------------------------------------------------------------------------
+
+function producedPathsFromArg(arg: string): string[] {
+  const s = arg.trim();
+  if (!s.startsWith('{')) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(s);
+  } catch {
+    return [];
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
+  const obj = parsed as Record<string, unknown>;
+  if (typeof obj.path === 'string') return [obj.path];
+  if (Array.isArray(obj.edits)) {
+    return obj.edits
+      .map((edit) =>
+        edit !== null && typeof edit === 'object'
+          ? (edit as Record<string, unknown>).path
+          : undefined,
+      )
+      .filter((path): path is string => typeof path === 'string');
+  }
+  return [];
+}
+
+/** Deduplicated absolute paths of files written by successful edit tools. */
+export function producedFilePaths(turn: ChatTurn): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const tool of turn.tools ?? []) {
+    if (tool.status !== 'ok') continue;
+    const kind = normalizeToolName(tool.name);
+    if (kind !== 'edit' && kind !== 'write' && kind !== 'multi_edit') continue;
+    for (const path of producedPathsFromArg(tool.arg)) {
+      if (path !== '' && !seen.has(path)) {
+        seen.add(path);
+        out.push(path);
+      }
+    }
+  }
+  return out;
+}
+
+/** Basename of a produced-file path (display label for the chip). */
+export function producedFileBasename(path: string): string {
+  const normalized = path.replaceAll('\\', '/');
+  const base = normalized.split('/').pop();
+  return base && base !== '' ? base : path;
 }
 
 export function renderBlockKey(block: AssistantRenderBlock, index: number): string {

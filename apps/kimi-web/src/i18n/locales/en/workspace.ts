@@ -52,4 +52,7 @@ export default {
   awaitingPermissionTitle: 'An action is waiting for your approval',
   aborted: 'Stopped',
   abortedTitle: 'This session was interrupted before finishing',
+  subagentsRunning: '{count} running',
+  subagentsSuspended: '{count} suspended',
+  subagentActivityTitle: 'Subagents are active under this session',
 } as const;

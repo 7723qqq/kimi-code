@@ -8,6 +8,8 @@ import ConversationPane from './components/chat/ConversationPane.vue';
 import FilePreview from './components/FilePreview.vue';
 import ThinkingPanel from './components/chat/ThinkingPanel.vue';
 import AgentDetailPanel from './components/chat/AgentDetailPanel.vue';
+import TrajectoryPanel from './components/chat/TrajectoryPanel.vue';
+import SubagentCatalogPanel from './components/chat/SubagentCatalogPanel.vue';
 import ToolDiffPanel from './components/chat/ToolDiffPanel.vue';
 import SideChatPanel from './components/chat/SideChatPanel.vue';
 import DiffView from './components/chat/DiffView.vue';
@@ -315,6 +317,12 @@ const {
   btwVisible,
   openSideChatTab,
   closeSideChat,
+  trajectoryOpen,
+  openTrajectoryPanel,
+  closeTrajectoryPanel,
+  subagentsOpen,
+  openSubagentsPanel,
+  closeSubagentsPanel,
   sidePanelVisible,
   panelDragging,
   closeOpenSidePanel,
@@ -641,6 +649,13 @@ async function handleSubmit(payload: SubmitPayload): Promise<void> {
   void client.sendPrompt(payload.text, payload.attachments);
 }
 
+// The last assistant turn was cut off by the output-token limit; send a short
+// continuation prompt so the agent keeps going with the same context.
+function handleContinueTurn(): void {
+  if (!client.activeSessionId.value) return;
+  void client.sendPrompt(t('maxTokens.continuePrompt'));
+}
+
 async function handleAddWorkspace(root: string): Promise<void> {
   addWorkspaceError.value = null;
   const added = await client.addWorkspaceByPath(root);
@@ -751,6 +766,7 @@ function openPr(url: string): void {
         :attention-by-session="client.attentionBySession.value"
         :pending-by-session="client.pendingBySession.value"
         :unread-by-session="client.unreadBySession.value"
+        :subagent-activity-by-session="client.subagentActivityBySession.value"
         :workspace-sort-mode="client.workspaceSortMode.value"
         :backend="client.backend.value"
         @select="client.selectSession($event)"
@@ -793,6 +809,8 @@ function openPr(url: string): void {
       :session-count="activeWorkspaceSessionCount"
       @open-switcher="showMobileSwitcher = true"
       @open-settings="showMobileSettings = true"
+      @open-trajectory="openTrajectoryPanel()"
+      @open-subagents="openSubagentsPanel()"
     />
 
     <ConversationPane
@@ -871,6 +889,8 @@ function openPr(url: string): void {
       @export-session="(id) => client.exportSession(id)"
       @create-child-session="onCreateChildSession()"
       @open-session="(id) => client.selectSession(id)"
+      @open-trajectory="openTrajectoryPanel()"
+      @open-subagents="openSubagentsPanel()"
       @compact="client.compact()"
       @pick-model="openModelPicker()"
       @select-model="handleComposerSelectModel($event)"
@@ -878,6 +898,7 @@ function openPr(url: string): void {
       @open-media="openMediaPreview($event)"
       @open-thinking="openThinkingPanel($event)"
       @open-compaction="openCompactionPanel($event)"
+      @continue-turn="handleContinueTurn"
       @open-agent="openAgentPanel($event)"
       @open-tool-diff="openToolDiff($event)"
       @edit-message="handleEditMessage"
@@ -970,6 +991,17 @@ function openPr(url: string): void {
         v-else-if="detailTarget === 'toolDiff' && toolDiffTarget"
         :target="toolDiffTarget"
         @close="closeToolDiff"
+      />
+      <TrajectoryPanel
+        v-else-if="detailTarget === 'trajectory' && trajectoryOpen"
+        :frames="(client.activeSessionId.value ? client.ledgers[client.activeSessionId.value]?.frames : null) ?? null"
+        @close="closeTrajectoryPanel"
+      />
+      <SubagentCatalogPanel
+        v-else-if="detailTarget === 'subagents' && subagentsOpen"
+        :tasks="client.activeAppTasks.value"
+        @close="closeSubagentsPanel"
+        @open-agent="openAgentPanel($event)"
       />
       <FilePreview
         v-else-if="detailTarget === 'file'"

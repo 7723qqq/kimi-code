@@ -59,6 +59,16 @@ import en_sideChat from './en/sideChat';
 import zh_sideChat from './zh/sideChat';
 import en_stats from './en/stats';
 import zh_stats from './zh/stats';
+import en_trajectory from './en/trajectory';
+import zh_trajectory from './zh/trajectory';
+import en_subagents from './en/subagents';
+import zh_subagents from './zh/subagents';
+import en_producedFiles from './en/producedFiles';
+import zh_producedFiles from './zh/producedFiles';
+import en_maxTokens from './en/maxTokens';
+import zh_maxTokens from './zh/maxTokens';
+import en_messageFeedback from './en/messageFeedback';
+import zh_messageFeedback from './zh/messageFeedback';
 
 export const messages = {
   en: {
@@ -92,6 +102,11 @@ export const messages = {
     header: en_header,
     sideChat: en_sideChat,
     stats: en_stats,
+    trajectory: en_trajectory,
+    subagents: en_subagents,
+    producedFiles: en_producedFiles,
+    maxTokens: en_maxTokens,
+    messageFeedback: en_messageFeedback,
   },
   zh: {
     common: zh_common,
@@ -124,6 +139,11 @@ export const messages = {
     header: zh_header,
     sideChat: zh_sideChat,
     stats: zh_stats,
+    trajectory: zh_trajectory,
+    subagents: zh_subagents,
+    producedFiles: zh_producedFiles,
+    maxTokens: zh_maxTokens,
+    messageFeedback: zh_messageFeedback,
   },
 } as const;
 

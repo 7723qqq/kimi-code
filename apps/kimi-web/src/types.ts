@@ -271,6 +271,12 @@ export interface ChatTurn {
       accumulated while the turn was running). Absent for old/historical turns
       or when the daemon reported no deltas. */
   usage?: TurnUsage;
+  /** True when the assistant output was cut off by the output-token limit
+      (provider finish reason 'length'). Renders a "continue" affordance. */
+  truncated?: boolean;
+  /** How many times this assistant bubble was retried within the turn.
+      Renders a retry badge. */
+  retryCount?: number;
   /** Skill activation metadata: when a user turn was triggered by a slash
       command (/skill), this holds the skill name and args for display. */
   skillActivation?: { name: string; args?: string };

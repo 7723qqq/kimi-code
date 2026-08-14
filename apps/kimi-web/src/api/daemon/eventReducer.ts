@@ -585,6 +585,8 @@ export function reduceAppEvent(
           ...m,
           content: event.content,
           durationMs: event.durationMs ?? m.durationMs,
+          truncated: event.truncated ?? m.truncated,
+          retryCount: event.retryCount ?? m.retryCount,
         };
       });
       break;

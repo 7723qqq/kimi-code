@@ -1,6 +1,6 @@
 <!-- apps/kimi-web/src/components/chat/ChatPane.vue -->
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ChatTurn, ApprovalBlock, FilePreviewRequest, ToolMedia, QueuedPromptView, TurnAttachment } from '../../types';
 import ToolCall from './ToolCall.vue';
@@ -20,9 +20,17 @@ import { useConfirmDialog } from '../../composables/useConfirmDialog';
 import { copyTextToClipboard } from '../../lib/clipboard';
 import { openFileAttachment } from '../../lib/openFileAttachment';
 import {
+  clearMessageFeedback,
+  getMessageFeedback,
+  setMessageFeedback,
+  type MessageFeedback,
+} from '../../lib/messageFeedback';
+import {
   assistantRenderBlocks,
   formatDuration,
   formatTokens,
+  producedFileBasename,
+  producedFilePaths,
   renderBlockKey,
   turnBlocks,
   turnFinalText,
@@ -200,6 +208,8 @@ const emit = defineEmits<{
   openThinking: [target: { turnId: string; blockIndex: number }];
   /** Show a compaction divider's summary text in the right-side panel. */
   openCompaction: [target: { turnId: string }];
+  /** The last assistant turn hit the output-token limit; send a continuation. */
+  continueTurn: [];
   /** Show a subagent's live detail in the right-side panel (keyed by the
    *  spawning `Agent` tool-call id). */
   openAgent: [toolCallId: string];
@@ -500,6 +510,52 @@ function copyUserMessage(turn: ChatTurn): void {
   }).catch(() => {/* ignore */});
 }
 
+// ---------------------------------------------------------------------------
+// Message feedback (like / dislike + optional note) — browser-local, keyed by
+// turn id. No daemon endpoint yet (see lib/messageFeedback).
+// ---------------------------------------------------------------------------
+const feedbackByTurn = reactive<Record<string, MessageFeedback>>({});
+const noteDrafts = reactive<Record<string, string>>({});
+
+function feedbackOf(turnId: string): MessageFeedback | null {
+  let fb = feedbackByTurn[turnId];
+  if (fb === undefined) {
+    fb = getMessageFeedback(turnId) ?? undefined;
+    if (fb !== undefined) {
+      feedbackByTurn[turnId] = fb;
+      if (fb.note) noteDrafts[turnId] = fb.note;
+    }
+  }
+  return fb ?? null;
+}
+
+function persistFeedback(turnId: string, feedback: MessageFeedback): void {
+  if (feedback.vote === null && !feedback.note) {
+    delete feedbackByTurn[turnId];
+    delete noteDrafts[turnId];
+    clearMessageFeedback(turnId);
+  } else {
+    feedbackByTurn[turnId] = feedback;
+    setMessageFeedback(turnId, feedback);
+  }
+}
+
+function toggleFeedback(turnId: string, vote: 'like' | 'dislike'): void {
+  const current = feedbackOf(turnId);
+  const note = current?.note;
+  persistFeedback(
+    turnId,
+    current?.vote === vote ? { vote: null, note } : { vote, note },
+  );
+}
+
+function saveNote(turnId: string): void {
+  const current = feedbackOf(turnId);
+  if (!current) return;
+  const note = (noteDrafts[turnId] ?? '').trim();
+  persistFeedback(turnId, { ...current, note: note || undefined });
+}
+
 function userAttachmentMedia(att: TurnAttachment): ToolMedia {
   // User-uploaded media carries no path/mime metadata; the preview panel falls
   // back to a generic label and sniffs the mime from the URL when needed. When
@@ -677,6 +733,38 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
           />
           <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" mobile :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" @open-agent="emit('openAgent', $event)" />
         </template>
+        <div
+          v-if="turn.id !== streamingTurnId && producedFilePaths(turn).length > 0"
+          class="a-files"
+        >
+          <span class="a-files-label">{{ t('producedFiles.title') }}</span>
+          <button
+            v-for="path in producedFilePaths(turn)"
+            :key="path"
+            type="button"
+            class="a-file-chip"
+            :title="path"
+            @click="emit('openFile', { path })"
+          >
+            <Icon name="file" size="sm" />
+            {{ producedFileBasename(path) }}
+          </button>
+        </div>
+        <div
+          v-if="turn.truncated && turn.id !== streamingTurnId"
+          class="a-trunc"
+        >
+          <span class="a-trunc-notice">{{ t('maxTokens.truncatedNotice') }}</span>
+          <button type="button" class="a-trunc-btn" @click="emit('continueTurn')">
+            {{ t('maxTokens.continueAction') }}
+          </button>
+        </div>
+        <div
+          v-if="turn.retryCount !== undefined && turn.retryCount > 0 && turn.id !== streamingTurnId"
+          class="a-retry"
+        >
+          {{ t('maxTokens.retried', { count: turn.retryCount }) }}
+        </div>
         <div v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti) && (assistantRunFinalText(ti).trim().length > 0 || turn.durationMs !== undefined)" class="a-msg-ft">
           <Tooltip :text="`${turn.durationMs} ms`">
             <span v-if="turn.durationMs !== undefined" class="a-duration">{{ formatDuration(turn.durationMs) }}</span>
@@ -691,6 +779,37 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
             <Icon v-if="copiedTurn !== turn.id" name="copy" size="sm" />
             <Icon v-else name="check" size="sm" />
           </button>
+          <template v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti)">
+            <button
+              type="button"
+              class="a-fb"
+              :class="{ on: feedbackOf(turn.id)?.vote === 'like' }"
+              :aria-label="t('messageFeedback.like')"
+              :aria-pressed="feedbackOf(turn.id)?.vote === 'like'"
+              @click="toggleFeedback(turn.id, 'like')"
+            >
+              <Icon name="thumb-up" size="sm" />
+            </button>
+            <button
+              type="button"
+              class="a-fb"
+              :class="{ on: feedbackOf(turn.id)?.vote === 'dislike' }"
+              :aria-label="t('messageFeedback.dislike')"
+              :aria-pressed="feedbackOf(turn.id)?.vote === 'dislike'"
+              @click="toggleFeedback(turn.id, 'dislike')"
+            >
+              <Icon name="thumb-down" size="sm" />
+            </button>
+            <input
+              v-if="feedbackOf(turn.id)?.vote"
+              v-model="noteDrafts[turn.id]"
+              class="a-fb-note"
+              type="text"
+              :placeholder="t('messageFeedback.notePlaceholder')"
+              @change="saveNote(turn.id)"
+              @keydown.enter="saveNote(turn.id)"
+            />
+          </template>
         </div>
       </div>
     </template>
@@ -1017,6 +1136,80 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
   margin-top: var(--chat-block-gap);
   overflow: visible;
 }
+/* Produced-files chip row — files written by successful Edit/Write calls in
+   this turn; click opens the file preview. */
+.a-files {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--chat-block-gap);
+}
+.a-files-label {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.a-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
+  background: var(--panel);
+  color: var(--dim);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  cursor: pointer;
+  max-width: 240px;
+}
+.a-file-chip:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.a-file-chip:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+/* Max-token truncation notice + continue affordance. */
+.a-trunc {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: var(--chat-block-gap);
+  padding: 6px 10px;
+  border: 1px solid var(--color-warning-bd);
+  border-radius: var(--radius-sm);
+  background: var(--color-warning-soft);
+}
+.a-trunc-notice {
+  font-size: var(--text-sm);
+  color: var(--color-warning);
+}
+.a-trunc-btn {
+  padding: 2px 10px;
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-warning);
+  font: var(--weight-medium) var(--text-sm) var(--font-ui);
+  cursor: pointer;
+}
+.a-trunc-btn:hover {
+  background: var(--color-warning);
+  color: var(--color-bg);
+}
+.a-trunc-btn:focus-visible {
+  outline: 2px solid var(--color-warning);
+  outline-offset: 1px;
+}
+/* Retry badge — shown when the assistant bubble was retried within the turn. */
+.a-retry {
+  margin-top: var(--chat-block-gap);
+  color: var(--muted);
+  font: var(--text-xs) var(--font-mono);
+}
 .a-duration {
   display: inline-flex;
   align-items: center;
@@ -1053,6 +1246,48 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
 .a-cpbtn svg {
   display: block;
   flex: none;
+}
+/* Message feedback buttons (like / dislike) — same family as the copy button. */
+.a-fb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 5px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  cursor: pointer;
+}
+.a-fb:hover {
+  color: var(--color-text);
+}
+.a-fb.on {
+  color: var(--color-accent);
+}
+.a-fb:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.a-fb svg {
+  display: block;
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+.a-fb-note {
+  width: 140px;
+  max-width: 40%;
+  padding: 2px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--text-xs) var(--font-ui);
+}
+.a-fb-note:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 /* Touch devices: always show the copy buttons (no hover to reveal them) and
    give the bubble-layout button a comfortable tap size. */

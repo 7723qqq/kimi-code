@@ -384,15 +384,18 @@ interface Group {
   /** Token usage attributed to this turn (from the last assistant message
    *  carrying it). */
   usage?: TurnUsage;
-  /**
-   * Normalized signatures already folded into this group, used to drop a
-   * duplicate assistant message. The same logical reply can reach us under two
-   * different ids — e.g. the streamed copy plus the persisted copy after a
-   * reload — and since both share the promptId they'd otherwise merge and
-   * render the text + tool cards twice. Dedupe by normalized content (see
-   * `contentSig` / `covers`) so a turn shows each reply once.
-   */
+  /** Normalized signatures already folded into this group, used to drop a
+   *  duplicate assistant message. The same logical reply can reach us under two
+   *  different ids — e.g. the streamed copy plus the persisted copy after a
+   *  reload — and since both share the promptId they'd otherwise merge and
+   *  render the text + tool cards twice. Dedupe by normalized content (see
+   *  `contentSig` / `covers`) so a turn shows each reply once. */
   foldedSigs: ContentSig[];
+  /** True when the final assistant step was cut off by the output-token limit
+   *  (provider finish reason 'length'). */
+  truncated: boolean;
+  /** Highest retry count reported across the group's assistant messages. */
+  retryCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -635,6 +638,8 @@ export function messagesToTurns(
       approvalId: g.approvalId,
       durationMs: g.durationMs,
       usage: g.usage,
+      truncated: g.truncated || undefined,
+      retryCount: g.retryCount > 0 ? g.retryCount : undefined,
     });
   }
 
@@ -922,6 +927,8 @@ export function messagesToTurns(
         foldedSigs: [],
         durationMs: msg.durationMs,
         usage: msg.usage,
+        truncated: msg.truncated === true,
+        retryCount: msg.retryCount ?? 0,
       };
     } else if (pendingGroup !== null && pendingGroup.promptId === undefined && pid !== undefined) {
       pendingGroup.promptId = pid;
@@ -934,6 +941,15 @@ export function messagesToTurns(
     // first one lacked (the reducer attaches it to the last assistant message).
     if (group.usage === undefined && msg.usage !== undefined) {
       group.usage = msg.usage;
+    }
+    // A later message may also carry the truncation mark (the last step's
+    // finish reason is what decides).
+    if (msg.truncated === true) {
+      group.truncated = true;
+    }
+    // Retry count rides on the message updated by each retry.
+    if ((msg.retryCount ?? 0) > group.retryCount) {
+      group.retryCount = msg.retryCount!;
     }
 
     // Drop an assistant message whose content was already folded into this group

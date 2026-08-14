@@ -24,6 +24,7 @@ const props = defineProps<{
   renameInputRef: Ref<HTMLInputElement | null>;
   pendingBySession: Record<string, { approvals: number; questions: number }>;
   unreadBySession: Record<string, boolean>;
+  subagentActivityBySession: ReadonlyMap<string, { running: number; suspended: number }>;
   wsMenuOpenId: string | null;
   /** True while this group is the active drag source (drag-to-reorder). */
   dragging: boolean;
@@ -180,6 +181,7 @@ function onHeaderDragStart(event: DragEvent): void {
         :approval-count="pendingBySession[s.id]?.approvals ?? 0"
         :question-count="pendingBySession[s.id]?.questions ?? 0"
         :unread="unreadBySession[s.id] ?? false"
+        :subagent-activity="subagentActivityBySession.get(s.id)"
         @select="emit('selectSession', $event)"
         @rename="(id, title) => emit('renameSession', id, title)"
         @archive="emit('archiveSession', $event)"

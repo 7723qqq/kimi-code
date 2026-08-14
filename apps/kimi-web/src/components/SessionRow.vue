@@ -26,8 +26,11 @@ const props = withDefaults(
     questionCount?: number;
     /** A background turn finished here that the user hasn't opened — blue dot. */
     unread?: boolean;
+    /** Live subagent lineage activity for this session: running / suspended
+     *  subagent counts (aggregated from the task store). */
+    subagentActivity?: { running: number; suspended: number };
   }>(),
-  { approvalCount: 0, questionCount: 0, unread: false },
+  { approvalCount: 0, questionCount: 0, unread: false, subagentActivity: undefined },
 );
 
 const emit = defineEmits<{
@@ -238,6 +241,25 @@ defineExpose({ closeMenu });
           {{ t('workspace.aborted') }}
         </Badge>
       </Tooltip>
+      <!-- Subagent lineage activity: live subagents under this session (running
+           accent / suspended warning). Aggregates descendant activity. -->
+      <Tooltip :text="t('workspace.subagentActivityTitle')">
+        <Badge
+          v-if="!renaming && (subagentActivity?.running ?? 0) > 0"
+          variant="info"
+          size="sm"
+          dot
+        >
+          {{ t('workspace.subagentsRunning', { count: subagentActivity!.running }) }}
+        </Badge>
+      </Tooltip>
+      <Badge
+        v-if="!renaming && (subagentActivity?.running ?? 0) === 0 && (subagentActivity?.suspended ?? 0) > 0"
+        variant="warning"
+        size="sm"
+      >
+        {{ t('workspace.subagentsSuspended', { count: subagentActivity!.suspended }) }}
+      </Badge>
 
       <!-- Trailing action slot: the relative time and the kebab share one grid
            cell and swap via `visibility` (never display:none), so the slot

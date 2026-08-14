@@ -3,6 +3,7 @@
 // No daemon wire details here — Vue components consume only these types.
 
 import type { SessionStats } from '../lib/sessionStats';
+import type { LedgerFrame } from '../lib/trajectory/ledger';
 
 // ---------------------------------------------------------------------------
 // Pagination
@@ -192,6 +193,12 @@ export interface AppMessage {
   parentMessageId?: string;
   /** Client-side measured duration from turn.started to turn.ended (ms). */
   durationMs?: number;
+  /** True when the assistant output was cut off by the output-token limit
+   *  (provider finish reason 'length'). Renders a "continue" affordance. */
+  truncated?: boolean;
+  /** How many times this assistant bubble was retried within the turn
+   *  (turn.step.retrying). Renders a retry badge. */
+  retryCount?: number;
   /** Token usage attributed to this assistant turn, accumulated client-side
    *  from usage deltas while the turn was in flight. */
   usage?: TurnUsage;
@@ -457,7 +464,7 @@ export type AppEvent =
   | { type: 'compactionCompleted'; sessionId: string; tokensBefore?: number; tokensAfter?: number; summary?: string }
   | { type: 'compactionCancelled'; sessionId: string }
   | { type: 'messageCreated'; message: AppMessage }
-  | { type: 'messageUpdated'; sessionId: string; messageId: string; content: AppMessageContent[]; status: 'pending' | 'completed' | 'error'; durationMs?: number }
+  | { type: 'messageUpdated'; sessionId: string; messageId: string; content: AppMessageContent[]; status: 'pending' | 'completed' | 'error'; durationMs?: number; truncated?: boolean; retryCount?: number }
   | { type: 'assistantDelta'; sessionId: string; messageId: string; contentIndex: number; delta: { text?: string; thinking?: string } }
   // Side-channel / non-main-agent streaming: carries text/thinking deltas for a
   // specific agent (e.g. a BTW side chat) without folding them into the parent
@@ -611,6 +618,8 @@ export interface KimiEventHandlers {
   onConnectionChange(connected: boolean): void;
   onTerminalOutput?(sessionId: string, terminalId: string, data: string, seq: number): void;
   onTerminalExit?(sessionId: string, terminalId: string, exitCode: number | null): void;
+  /** Raw main-agent frames the trajectory ledger archives (optional hook). */
+  onLedgerFrame?(sessionId: string, frame: LedgerFrame): void;
 }
 
 /** Raw stream coordinates are present only for kap-server assistant/thinking

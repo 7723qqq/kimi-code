@@ -11,6 +11,8 @@ import { useDialogFocus } from '../../composables/useDialogFocus';
 import LanguageSwitcher from './LanguageSwitcher.vue';
 import { serverEndpointLabel } from '../../api/config';
 import { downloadTraceLog, isTraceEnabled } from '../../debug/trace';
+import { getEnterBehavior, setEnterBehavior } from '../../lib/enterBehavior';
+import type { EnterBehavior } from '../../lib/enterBehavior';
 import type { Accent, ColorScheme } from '../../composables/useKimiWebClient';
 import type { AppConfig, AppModel } from '../../api/types';
 import Dialog from '../ui/Dialog.vue';
@@ -72,6 +74,14 @@ const emit = defineEmits<{
 type SettingsTab = 'general' | 'agent' | 'account' | 'advanced' | 'archived';
 
 const activeTab = ref<SettingsTab>('general');
+
+// Composer Enter behavior while busy (local UI preference, localStorage).
+const enterBehavior = ref<EnterBehavior>(getEnterBehavior());
+
+function onEnterBehaviorChange(value: EnterBehavior): void {
+  enterBehavior.value = value;
+  setEnterBehavior(value);
+}
 
 const tabs: { id: SettingsTab; labelKey: string }[] = [
   { id: 'general', labelKey: 'settings.tabs.general' },
@@ -395,6 +405,20 @@ function archiveTime(iso: string): string {
                 :model-value="conversationToc ?? true"
                 :label="t('settings.conversationToc')"
                 @update:model-value="emit('setConversationToc', $event)"
+              />
+            </div>
+            <div class="row">
+              <span class="rlabel">
+                {{ t('settings.enterBehavior') }}
+                <span class="hint">{{ t('settings.enterBehaviorHint') }}</span>
+              </span>
+              <SegmentedControl
+                :model-value="enterBehavior"
+                :options="[
+                  { value: 'queue', label: t('settings.enterQueue') },
+                  { value: 'steer', label: t('settings.enterSteer') },
+                ]"
+                @update:model-value="onEnterBehaviorChange($event as EnterBehavior)"
               />
             </div>
           </section>

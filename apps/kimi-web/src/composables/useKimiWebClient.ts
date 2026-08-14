@@ -80,6 +80,12 @@ import type { toAppEvent } from '../api/daemon/mappers';
 import { isPlaceholderSessionUsage } from '../api/daemon/mappers';
 
 import type { SessionStats } from '../lib/sessionStats';
+import {
+  createEventLedger,
+  feedLedger,
+  type EventLedgerState,
+  type LedgerFrame,
+} from '../lib/trajectory/ledger';
 import { messagesToTurns } from './messagesToTurns';
 import { latestTodos } from './latestTodos';
 import { buildSwarmGroups, countSwarmMembers, swarmMembersByToolCall } from './swarmGroups';
@@ -428,6 +434,14 @@ const rawState: ExtendedState = reactive({
   sessionsInitialCountByWorkspace: {},
   sessionsFullyLoaded: false,
 });
+
+// ---------------------------------------------------------------------------
+// Trajectory event ledger: raw main-agent frames archived per session for the
+// trajectory view. Kept outside the reducer (large append-only arrays; the
+// reducer would clone them on every event). Cleared on resync, like the
+// projector's per-session state.
+// ---------------------------------------------------------------------------
+const ledgersBySession = reactive<Record<string, EventLedgerState>>({});
 
 // ---------------------------------------------------------------------------
 // Draft mode staging (no active session yet).
@@ -1050,7 +1064,15 @@ function connectEventsIfNeeded(): void {
       }
     },
 
+    onLedgerFrame(sessionId: string, frame: LedgerFrame) {
+      ledgersBySession[sessionId] = feedLedger(
+        ledgersBySession[sessionId] ?? createEventLedger(),
+        frame,
+      );
+    },
+
     onResync(sessionId: string, currentSeq: number, epoch?: string) {
+      delete ledgersBySession[sessionId];
       traceKeyEvent('ws:resync', {
         sessionId,
         status: 'required',
@@ -1965,6 +1987,24 @@ const activeAppTasks = computed<AppTask[]>(() => {
 });
 
 const taskPoller = useTaskPoller(rawState, activeAppTasks);
+
+// Subagent activity per session for the sidebar lineage aggregation: counts of
+// live (running) and suspended subagents per session, derived from the full
+// task store (not just the active session's tasks).
+const subagentActivityBySession = computed<Map<string, { running: number; suspended: number }>>(() => {
+  const out = new Map<string, { running: number; suspended: number }>();
+  for (const [sid, tasks] of Object.entries(rawState.tasksBySession)) {
+    let running = 0;
+    let suspended = 0;
+    for (const task of tasks) {
+      if (task.kind !== 'subagent') continue;
+      if (task.status === 'running' || task.subagentPhase === 'working') running++;
+      else if (task.subagentPhase === 'suspended') suspended++;
+    }
+    if (running > 0 || suspended > 0) out.set(sid, { running, suspended });
+  }
+  return out;
+});
 
 const turns = computed<ChatTurn[]>(() => {
   const sid = rawState.activeSessionId;
@@ -3009,6 +3049,12 @@ export function useKimiWebClient() {
     // Config state + actions
     config,
     updateConfig: workspaceState.updateConfig,
+
+    // Trajectory ledger (raw frame archive per session)
+    ledgers: ledgersBySession,
+
+    // Subagent activity per session (sidebar lineage aggregation)
+    subagentActivityBySession,
 
     // Auth actions
     checkAuth: workspaceState.checkAuth,

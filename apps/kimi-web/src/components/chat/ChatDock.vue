@@ -17,6 +17,7 @@ import QuestionCard from './QuestionCard.vue';
 import ApprovalCard from './ApprovalCard.vue';
 import TasksPane from './TasksPane.vue';
 import TodoCard from './TodoCard.vue';
+import Terminal from '../Terminal.vue';
 import Icon from '../ui/Icon.vue';
 import Pill from '../ui/Pill.vue';
 
@@ -43,7 +44,7 @@ const props = defineProps<{
   skills?: AppSkill[];
   goal?: AppGoal | null;
   goalExpandSignal?: number;
-  dockPanel: 'bash' | 'subagent' | 'todos' | null;
+  dockPanel: 'bash' | 'subagent' | 'todos' | 'terminal' | null;
   bashTasks: TaskItem[];
   subagentTasks: TaskItem[];
   bashRunning: number;
@@ -82,7 +83,7 @@ const emit = defineEmits<{
   dismiss: [questionId: string];
   approval: [approvalId: string, response: { decision: 'approved' | 'rejected' | 'cancelled'; scope?: 'session'; feedback?: string; selectedLabel?: string }];
   cancelTask: [taskId: string];
-  'toggle-dock-panel': [panel: 'bash' | 'subagent' | 'todos'];
+  'toggle-dock-panel': [panel: 'bash' | 'subagent' | 'todos' | 'terminal'];
   'close-dock-panel': [];
   /** A background subagent chip was clicked — open its live detail panel. */
   openAgent: [taskId: string];
@@ -96,6 +97,7 @@ const composerRef = ref<{
 } | null>(null);
 const workPanelRef = ref<HTMLElement | null>(null);
 const workbarRef = ref<HTMLElement | null>(null);
+const terminalBarRef = ref<HTMLElement | null>(null);
 const dockRef = ref<HTMLElement | null>(null);
 
 function loadForEdit(value: string): boolean {
@@ -121,6 +123,7 @@ function onDocumentMouseDown(event: MouseEvent): void {
   if (!target) return;
   if (workPanelRef.value?.contains(target)) return;
   if (workbarRef.value?.contains(target)) return;
+  if (terminalBarRef.value?.contains(target)) return;
   emit('close-dock-panel');
 }
 
@@ -190,6 +193,12 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
           >
             {{ t('tasks.dockTodos') }} · {{ todoDoneCount }}/{{ todos?.length ?? 0 }}
           </span>
+          <span
+            v-else-if="dockPanel === 'terminal'"
+            class="dock-work-tab static"
+          >
+            {{ t('tasks.dockTerminal') }}
+          </span>
         </div>
         <div class="dock-work-body">
           <TasksPane
@@ -207,6 +216,7 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
             v-else-if="dockPanel === 'todos'"
             :todos="todos ?? []"
           />
+          <Terminal v-else-if="dockPanel === 'terminal'" :session-id="sessionId ?? ''" />
         </div>
       </div>
     </Transition>
@@ -247,6 +257,20 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
         <Icon name="check-list" size="md" />
         <span>{{ t('tasks.dockTodos') }}</span>
         <span class="dw-count">(<b>{{ todoDoneCount }}/{{ todos?.length ?? 0 }}</b>)</span>
+      </Pill>
+    </div>
+
+    <!-- Terminal pill lives OUTSIDE the workbar so it stays reachable even
+         when no background work is running (the workbar only renders with
+         hasDockWork). -->
+    <div v-if="sessionId" ref="terminalBarRef" class="dock-terminalbar">
+      <Pill
+        :active="dockPanel === 'terminal'"
+        :aria-pressed="dockPanel === 'terminal'"
+        @click="emit('toggle-dock-panel', 'terminal')"
+      >
+        <Icon name="terminal" size="md" />
+        <span>{{ t('tasks.dockTerminal') }}</span>
       </Pill>
     </div>
 
@@ -370,6 +394,9 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
   padding: 8px 10px;
   overflow-y: auto;
   min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 .dock-work-body :deep(.taskspane) {
   border: none;
@@ -385,6 +412,12 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
   align-items: center;
   gap: 6px;
   padding: 4px var(--dock-inline-right) 2px var(--dock-inline-left);
+}
+.dock-terminalbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px var(--dock-inline-right) 0 var(--dock-inline-left);
 }
 .dock-workbar .dw-count { margin-left: 1px; }
 .dock-workbar .dw-count b { font-weight: 500; }

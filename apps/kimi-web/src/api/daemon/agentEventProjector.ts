@@ -131,6 +131,11 @@ interface SessionState {
   // Bubble cleared by turn.step.retrying, to be reused by the retried
   // step.started (same turn) instead of stacking a new bubble.
   retryReuseMsgId: string | undefined;
+
+  // How many times the current assistant bubble has been retried within this
+  // turn (incremented on turn.step.retrying, reset on turn.ended). Surfaced
+  // on the final message as a retry badge.
+  retryCount: number;
 }
 
 function createSessionState(): SessionState {
@@ -152,6 +157,7 @@ function createSessionState(): SessionState {
     messages: [],
     subagentMeta: new Map(),
     retryReuseMsgId: undefined,
+    retryCount: 0,
   };
 }
 
@@ -921,6 +927,17 @@ export function createAgentProjector(): AgentProjector {
       case 'turn.step.completed': {
         const msgId = s.currentAssistantMsgId;
 
+        // The provider reports why the LLM stream stopped ('stop', 'length',
+        // 'tool_calls', …). 'length' = the output hit the token limit and was
+        // truncated — surface it so the UI can offer a "continue" affordance.
+        const finishReason: string | undefined =
+          typeof p?.providerFinishReason === 'string'
+            ? p.providerFinishReason
+            : typeof p?.finishReason === 'string'
+              ? p.finishReason
+              : undefined;
+        const truncated = finishReason === 'length' || finishReason === 'max_tokens';
+
         // Feed usage
         const u = normalizeUsage(p?.usage);
         s.totalInput += u.input;
@@ -955,6 +972,7 @@ export function createAgentProjector(): AgentProjector {
               messageId: msgId,
               content: msg.content.map((c) => ({ ...c })),
               status: 'completed',
+              truncated: truncated || undefined,
             });
           }
         }
@@ -1038,6 +1056,7 @@ export function createAgentProjector(): AgentProjector {
         s.turnTextLen = 0;
         s.turnThinkLen = 0;
         s.retryReuseMsgId = undefined;
+        s.retryCount = 0;
         break;
       }
 
@@ -1083,12 +1102,14 @@ export function createAgentProjector(): AgentProjector {
             msg.content = msg.content.filter(
               (c) => c.type !== 'text' && c.type !== 'thinking' && c.type !== 'toolUse',
             );
+            s.retryCount += 1;
             out.push({
               type: 'messageUpdated',
               sessionId,
               messageId: msgId,
               content: msg.content.map((c) => ({ ...c })),
               status: 'pending',
+              retryCount: s.retryCount,
             });
             s.retryReuseMsgId = msgId;
           }
