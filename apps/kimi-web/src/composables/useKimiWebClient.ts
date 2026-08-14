@@ -79,6 +79,7 @@ import { createInitialState, reduceAppEvent, type CompactionStatus, type KimiCli
 import type { toAppEvent } from '../api/daemon/mappers';
 import { isPlaceholderSessionUsage } from '../api/daemon/mappers';
 
+import type { SessionStats } from '../lib/sessionStats';
 import { messagesToTurns } from './messagesToTurns';
 import { latestTodos } from './latestTodos';
 import { buildSwarmGroups, countSwarmMembers, swarmMembersByToolCall } from './swarmGroups';
@@ -825,6 +826,7 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
     turnActiveBySession: rawState.turnActiveBySession,
     compactionBySession: rawState.compactionBySession,
     pendingUsageBySession: rawState.pendingUsageBySession,
+    statsBySession: rawState.statsBySession,
     config: rawState.config,
     warnings: rawState.warnings,
   };
@@ -2285,6 +2287,28 @@ const lastTurnSpeed = computed<number | undefined>(() => {
   return;
 });
 
+/**
+ * Live session statistics for the active session (turns/steps/timing), with
+ * token totals overlaid from the durable session usage so cache-hit share
+ * and billed tokens cover the full history even right after a reload.
+ * Null until the first stats frame arrives for the active session.
+ */
+const sessionStats = computed<SessionStats | null>(() => {
+  const activeId = rawState.activeSessionId;
+  if (activeId === undefined) return null;
+  const live = rawState.statsBySession[activeId];
+  if (live === undefined) return null;
+  const usage = activeSessionUsage.value;
+  if (usage === null) return live;
+  return {
+    ...live,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cacheReadTokens: usage.cacheReadTokens,
+    cacheCreationTokens: usage.cacheCreationTokens,
+  };
+});
+
 const authReady = computed<boolean>(() => rawState.authReady);
 const defaultModel = computed<string | null>(() => rawState.defaultModel);
 const managedProviderStatus = computed<string | null>(() => rawState.managedProviderStatus);
@@ -2843,6 +2867,7 @@ export function useKimiWebClient() {
     questions,
     activity,
     turnActive,
+    sessionStats,
     inFlight,
     working,
     isStartingFirstPrompt,
@@ -2894,6 +2919,9 @@ export function useKimiWebClient() {
     startSessionAndSendPrompt: workspaceState.startSessionAndSendPrompt,
     startSessionAndActivateSkill: workspaceState.startSessionAndActivateSkill,
     startSessionAndOpenSideChat: workspaceState.startSessionAndOpenSideChat,
+    createChildSession: workspaceState.createChildSession,
+    listChildSessions: workspaceState.listChildSessions,
+    cachedChildSessions: workspaceState.cachedChildSessions,
     addWorkspaceByPath: workspaceState.addWorkspaceByPath,
     browseFs: workspaceState.browseFs,
     getFsHome: workspaceState.getFsHome,

@@ -7,7 +7,7 @@
 // the view-model computeds stay in the facade; cross-dependencies are injected
 // here as params.
 
-import { reactive, type ComputedRef, type Ref } from 'vue';
+import { reactive, ref, type ComputedRef, type Ref } from 'vue';
 import { getKimiWebApi } from '../../api';
 import { i18n } from '../../i18n';
 import { useConfirmDialog } from '../useConfirmDialog';
@@ -2533,6 +2533,49 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Child sessions — forked side branches that inherit the parent's context
+  // (POST /sessions/{id}/children). Tagged with parentSessionId, so they stay
+  // out of the main session list and are navigated from the parent's header:
+  // create → select the child; list → parent menu. Children cache per parent.
+  // -------------------------------------------------------------------------
+  const childSessionsByParent = ref<Record<string, AppSession[]>>({});
+
+  async function createChildSession(sessionId?: string, title?: string): Promise<string | null> {
+    const sid = sessionId ?? rawState.activeSessionId;
+    if (!sid) return null;
+    try {
+      const child = await getKimiWebApi().createChildSession(sid, title ? { title } : undefined);
+      upsertSessionFront(child);
+      const siblings = childSessionsByParent.value[sid] ?? [];
+      childSessionsByParent.value = { ...childSessionsByParent.value, [sid]: [child, ...siblings] };
+      await selectSession(child.id);
+      return child.id;
+    } catch (error) {
+      pushOperationFailure('createChildSession', error, { sessionId: sid });
+      return null;
+    }
+  }
+
+  /** Children of `sessionId`, from the in-memory cache (no network). */
+  function cachedChildSessions(sessionId: string): AppSession[] {
+    return childSessionsByParent.value[sessionId] ?? [];
+  }
+
+  /** Children of `sessionId`, fetching once and caching per parent. */
+  async function listChildSessions(sessionId: string): Promise<AppSession[]> {
+    const cached = childSessionsByParent.value[sessionId];
+    if (cached) return cached;
+    try {
+      const items = await getKimiWebApi().listChildSessions(sessionId);
+      childSessionsByParent.value = { ...childSessionsByParent.value, [sessionId]: items };
+      return items;
+    } catch (error) {
+      pushOperationFailure('listChildSessions', error, { sessionId });
+      return [];
+    }
+  }
+
   /**
    * Undo the last `count` turns of the active session (daemon :undo), then re-sync
    * the snapshot so the local transcript matches the daemon's post-undo history.
@@ -2822,6 +2865,9 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     logout,
     compact,
     forkSession,
+    createChildSession,
+    listChildSessions,
+    cachedChildSessions,
     undo,
     listDir,
     readFileContent,

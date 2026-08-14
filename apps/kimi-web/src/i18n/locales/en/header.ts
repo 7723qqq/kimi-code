@@ -22,4 +22,8 @@ export default {
   archiveSession: 'Archive',
   exportSession: 'Export session',
   files: 'Browse workspace files',
+  newChildSession: 'New child session',
+  childSessions: 'Child sessions',
+  backToParent: 'Back to parent session',
+  untitledChild: 'Untitled',
 };

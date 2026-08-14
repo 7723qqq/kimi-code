@@ -10,6 +10,7 @@ import ChatPane from './ChatPane.vue';
 import ChatHeader from './ChatHeader.vue';
 import Composer from './Composer.vue';
 import ChatDock from './ChatDock.vue';
+import type { SessionStats } from '../../lib/sessionStats';
 import ConversationToc, { type ConversationTocItem } from './ConversationToc.vue';
 import Icon from '../ui/Icon.vue';
 import Spinner from '../ui/Spinner.vue';
@@ -34,6 +35,8 @@ const props = defineProps<{
   planMode?: boolean;
   swarmMode?: boolean;
   goalMode?: boolean;
+  /** Live session statistics strip (threaded to the dock's StatsLine). */
+  sessionStats?: SessionStats | null;
   questions?: UIQuestion[];
   /** Question ids with an in-flight respond/dismiss (drives the card loading
    *  state). Keyed by questionId with the action kind. */
@@ -144,6 +147,10 @@ const emit = defineEmits<{
   archiveSession: [id: string];
   /** Chat header: export current session. */
   exportSession: [id: string];
+  /** Chat header: create a forked child session (inherits this context). */
+  createChildSession: [];
+  /** Chat header: open a parent/child session by id. */
+  openSession: [id: string];
 }>();
 
 // Empty-composer workspace picker.
@@ -1276,6 +1283,8 @@ defineExpose({ loadComposerForEdit, focusComposer });
       @fork-session="(id) => emit('forkSession', id)"
       @archive-session="(id) => emit('archiveSession', id)"
       @export-session="(id) => emit('exportSession', id)"
+      @create-child-session="emit('createChildSession')"
+      @open-session="(id) => emit('openSession', id)"
     />
 
     <!-- Conversation outline: right edge rail of vertical bars (one per user
@@ -1455,6 +1464,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
         :plan-mode="planMode"
         :swarm-mode="swarmMode"
         :goal-mode="goalMode"
+        :stats="sessionStats"
         :activation-badges="activationBadges"
         :models="models"
         :starred-ids="starredIds"

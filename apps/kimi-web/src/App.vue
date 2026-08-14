@@ -447,6 +447,12 @@ async function confirmArchiveSession(id: string): Promise<void> {
   });
 }
 
+/** Create a forked child session that inherits the current session's context
+ *  (POST /sessions/{id}/children) and open it. */
+function onCreateChildSession(): void {
+  void client.createChildSession();
+}
+
 async function confirmDeleteWorkspace(id: string): Promise<void> {
   const name = client.workspacesView.value.find((w) => w.id === id)?.name ?? id;
   await confirm({
@@ -806,6 +812,7 @@ function openPr(url: string): void {
       :plan-mode="client.planMode.value"
       :swarm-mode="client.swarmMode.value"
       :goal-mode="client.goalMode.value"
+      :session-stats="client.sessionStats.value"
       :models="client.models.value"
       :starred-ids="client.starredModelIds.value"
       :skills="client.skills.value"
@@ -862,6 +869,8 @@ function openPr(url: string): void {
       @fork-session="(id) => client.forkSession(id)"
       @archive-session="confirmArchiveSession($event)"
       @export-session="(id) => client.exportSession(id)"
+      @create-child-session="onCreateChildSession()"
+      @open-session="(id) => client.selectSession(id)"
       @compact="client.compact()"
       @pick-model="openModelPicker()"
       @select-model="handleComposerSelectModel($event)"

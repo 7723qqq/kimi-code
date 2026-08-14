@@ -22,4 +22,8 @@ export default {
   archiveSession: '归档',
   exportSession: '导出会话',
   files: '浏览工作区文件',
+  newChildSession: '新建子会话',
+  childSessions: '子会话',
+  backToParent: '返回父会话',
+  untitledChild: '未命名',
 };

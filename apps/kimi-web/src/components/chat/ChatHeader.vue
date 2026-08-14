@@ -3,10 +3,13 @@
      status, "open in editor", and a ⋮ more-menu that bundles copy-all plus
      the same session actions available from the sidebar session row. -->
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { copyTextToClipboard } from '../../lib/clipboard';
 import { isMacosDesktop } from '../../lib/desktopFlag';
+import { getKimiWebApi } from '../../api';
+import type { AppSession } from '../../api/types';
+import { isDaemonApiError } from '../../api/errors';
 import Menu from '../ui/Menu.vue';
 import MenuItem from '../ui/MenuItem.vue';
 import IconButton from '../ui/IconButton.vue';
@@ -44,6 +47,10 @@ const emit = defineEmits<{
   forkSession: [id: string];
   archiveSession: [id: string];
   exportSession: [id: string];
+  /** Create a forked child session that inherits this session's context. */
+  createChildSession: [];
+  /** Open a session (parent or child) by id. */
+  openSession: [id: string];
 }>();
 
 const ahead = computed(() => props.ahead ?? 0);
@@ -96,6 +103,7 @@ async function toggleMenu(e: Event): Promise<void> {
     return;
   }
   menuOpen.value = true;
+  void loadChildSessions();
   document.addEventListener('mousedown', onDocClick);
   window.addEventListener('resize', onScrollOrResize);
   await nextTick();
@@ -222,12 +230,78 @@ function startArchive(): void {
 // Workspace file browser — self-contained, opens from a header icon.
 // ---------------------------------------------------------------------------
 const fileBrowserOpen = ref(false);
+
+// ---------------------------------------------------------------------------
+// Child sessions — self-contained: the header resolves the current session's
+// parent/children through the daemon API (no shared client state).
+// ---------------------------------------------------------------------------
+const parentInfo = ref<{ id: string; title: string } | null>(null);
+const childSessions = ref<AppSession[] | null>(null);
+const childLoadError = ref<string | null>(null);
+
+async function loadParentInfo(sessionId: string | undefined): Promise<void> {
+  parentInfo.value = null;
+  if (!sessionId) return;
+  try {
+    const session = await getKimiWebApi().getSession(sessionId);
+    if (!session.parentSessionId) return;
+    const parent = await getKimiWebApi().getSession(session.parentSessionId);
+    parentInfo.value = { id: parent.id, title: parent.title || session.parentSessionId };
+  } catch {
+    // Non-fatal: the back-to-parent affordance simply won't show.
+  }
+}
+
+async function loadChildSessions(): Promise<void> {
+  if (!props.sessionId) return;
+  if (childSessions.value !== null) return;
+  childLoadError.value = null;
+  try {
+    childSessions.value = await getKimiWebApi().listChildSessions(props.sessionId);
+  } catch (err) {
+    childLoadError.value = isDaemonApiError(err) ? err.message : String(err);
+  }
+}
+
+watch(
+  () => props.sessionId,
+  (sid) => {
+    childSessions.value = null;
+    childLoadError.value = null;
+    void loadParentInfo(sid);
+  },
+  { immediate: true },
+);
+
+function createChild(): void {
+  closeMenu();
+  emit('createChildSession');
+}
+
+function openSession(id: string): void {
+  closeMenu();
+  emit('openSession', id);
+}
+
+function childTitle(child: AppSession): string {
+  return child.title || t('header.untitledChild');
+}
 </script>
 
 <template>
   <header class="chat-header" :class="{ 'macos-desktop': isMacosDesktop }">
     <!-- Workspace / session breadcrumb -->
     <div class="ch-id">
+      <button
+        v-if="parentInfo"
+        type="button"
+        class="ch-parent"
+        :title="t('header.backToParent')"
+        @click="openSession(parentInfo.id)"
+      >
+        <Icon name="undo" size="sm" />
+        <span class="ch-parent-title">{{ parentInfo.title }}</span>
+      </button>
       <span v-if="workspaceName" class="ch-ws">{{ workspaceName }}</span>
       <span v-if="workspaceName && sessionTitle" class="ch-sep">/</span>
       <input
@@ -297,10 +371,24 @@ const fileBrowserOpen = ref(false);
           <Icon name="git-fork" size="sm" />
           {{ t('header.forkSession') }}
         </MenuItem>
+        <MenuItem v-if="!parentInfo" @click="createChild">
+          <Icon name="chat-new" size="sm" />
+          {{ t('header.newChildSession') }}
+        </MenuItem>
         <MenuItem @click="exportSession">
           <Icon name="download" size="sm" />
           {{ t('header.exportSession') }}
         </MenuItem>
+        <template v-if="childSessions && childSessions.length > 0">
+          <MenuItem separator />
+          <div class="ch-child-label">{{ t('header.childSessions') }}</div>
+          <MenuItem v-for="child in childSessions" :key="child.id" @click="openSession(child.id)">
+            <Icon name="chat-new" size="sm" />
+            <span class="ch-child-name">{{ childTitle(child) }}</span>
+          </MenuItem>
+        </template>
+        <MenuItem v-if="childLoadError" separator />
+        <div v-if="childLoadError" class="ch-child-label ch-child-error">{{ childLoadError }}</div>
         <MenuItem danger @click="startArchive">
           <Icon name="archive" size="sm" />
           {{ t('header.archiveSession') }}
@@ -378,6 +466,40 @@ const fileBrowserOpen = ref(false);
   -webkit-app-region: no-drag;
 }
 .ch-id { display: flex; align-items: center; gap: 6px; min-width: 0; flex: none; max-width: 46%; }
+.ch-parent {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 140px;
+  padding: 2px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-sunken);
+  color: var(--color-accent-hover);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  min-width: 0;
+}
+.ch-parent:hover { border-color: var(--color-line-strong); }
+.ch-parent-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ch-child-label {
+  padding: 5px 10px 3px;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-faint);
+}
+.ch-child-label.ch-child-error { text-transform: none; letter-spacing: 0; color: var(--color-danger); }
+.ch-child-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ch-ws { color: var(--color-text-muted); font-size: var(--text-base); font-weight: var(--weight-medium); flex: none; }
 .ch-sep { color: var(--color-text-faint); flex: none; }
 .ch-ses {
