@@ -8,13 +8,26 @@
 
 import type { AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 
+/**
+ * Delegation-depth ceiling for subagent chains (ported from
+ * deepseek-harness `subagent`'s delegation-depth accounting, MIT). A parent
+ * spawns a child at depth + 1; spawning at or beyond this cap is rejected so
+ * a recursive delegation loop cannot nest without bound.
+ */
+export const MAX_SUBAGENT_DEPTH = 8;
+
+const SUBAGENT_DEPTH_LABEL = 'subagentDepth';
+
 export function subagentLabels(
   parentAgentId: string,
-  options: { readonly swarmItem?: string } = {},
+  options: { readonly swarmItem?: string; readonly depth?: number } = {},
 ): Readonly<Record<string, string>> {
   const labels: Record<string, string> = { parentAgentId };
   if (options.swarmItem !== undefined) {
     labels['swarmItem'] = options.swarmItem;
+  }
+  if (options.depth !== undefined) {
+    labels[SUBAGENT_DEPTH_LABEL] = String(options.depth);
   }
   return labels;
 }
@@ -48,6 +61,21 @@ export function subagentParentAgentId(meta: AgentMeta | undefined): string | und
 export function subagentSwarmItem(meta: AgentMeta | undefined): string | undefined {
   if (meta === undefined) return undefined;
   return firstNonEmpty(meta.labels?.['swarmItem'], meta.swarmItem);
+}
+
+/**
+ * Read an agent's delegation depth from its persisted metadata, treating
+ * absence (and malformed values) as top-level depth zero. The persisted
+ * label is authoritative and monotone: a resumed child keeps its depth
+ * instead of counting from zero as if it were top-level.
+ */
+export function subagentDepthOf(meta: AgentMeta | undefined): number {
+  if (meta === undefined) return 0;
+  const raw = meta.labels?.[SUBAGENT_DEPTH_LABEL];
+  if (raw === undefined) return 0;
+  const depth = Number.parseInt(raw, 10);
+  if (!Number.isSafeInteger(depth) || depth < 0) return 0;
+  return depth;
 }
 
 function firstNonEmpty(...values: readonly (string | undefined)[]): string | undefined {

@@ -291,6 +291,8 @@ export const en = {
     subagentNotSubagent: 'Agent instance "{{agentId}}" is not a subagent',
     subagentWrongParent: 'Agent instance "{{agentId}}" does not belong to this parent agent',
     subagentAlreadyRunning: 'Agent instance "{{agentId}}" is already running and cannot run concurrently',
+    subagentDepthExceeded:
+      'Subagent delegation depth exceeded (max {{maxDepth}}) — use a persistent subagent or restructure the delegation',
     rgNotAvailable: 'ripgrep (rg) is not available on PATH',
     pathRejectedEmpty: 'path "{{path}}" rejected (empty)',
     pathRejectedAbsolute: 'path "{{path}}" rejected (absolute)',

@@ -13,6 +13,7 @@ export const AgentLifecycleErrors = {
     AGENT_NOT_OWNED: 'agent.not_owned',
     AGENT_TYPE_NOT_ALLOWED: 'agent.type_not_allowed',
     AGENT_MAX_TOKENS_EXCEEDED: 'agent.max_tokens_exceeded',
+    SUBAGENT_DEPTH_EXCEEDED: 'agent.subagent_depth_exceeded',
   },
 } as const satisfies ErrorDomain;
 

@@ -87,7 +87,13 @@ import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { IModelCatalog } from '#/kosong/model/catalog';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { isSubagentMeta, subagentLabels, subagentParentAgentId } from '#/session/agentLifecycle/subagentMetadata';
+import {
+  isSubagentMeta,
+  MAX_SUBAGENT_DEPTH,
+  subagentDepthOf,
+  subagentLabels,
+  subagentParentAgentId,
+} from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionProcessRunner } from '#/session/process/processRunner';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
@@ -324,6 +330,15 @@ export class SubagentTool implements ISubagentTool {
       if (own.modelAlias === undefined) {
         throw new Error(t('v2Errors.callerAgentNoModel'));
       }
+      const callerMeta = (await this.sessionMetadata.read()).agents?.[this.callerAgentId];
+      const callerDepth = subagentDepthOf(callerMeta);
+      if (callerDepth >= MAX_SUBAGENT_DEPTH) {
+        throw new Error2(
+          ErrorCodes.SUBAGENT_DEPTH_EXCEEDED,
+          t('v2Errors.subagentDepthExceeded', { maxDepth: String(MAX_SUBAGENT_DEPTH) }),
+          { details: { depth: callerDepth, maxDepth: MAX_SUBAGENT_DEPTH } },
+        );
+      }
       const binding = resolveSubagentBinding(
         this.config,
         this.flags,
@@ -339,7 +354,7 @@ export class SubagentTool implements ISubagentTool {
             model: binding.model,
             thinking: binding.thinking,
           },
-          labels: subagentLabels(this.callerAgentId),
+          labels: subagentLabels(this.callerAgentId, { depth: callerDepth + 1 }),
         });
       } catch (error) {
         throw wrapSubagentModelError(error, binding.model, own.modelAlias);

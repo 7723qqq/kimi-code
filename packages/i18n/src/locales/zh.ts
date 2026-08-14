@@ -283,6 +283,7 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     subagentNotSubagent: '智能体实例 "{{agentId}}" 不是子智能体',
     subagentWrongParent: '智能体实例 "{{agentId}}" 不属于此父智能体',
     subagentAlreadyRunning: '智能体实例 "{{agentId}}" 已在运行，无法并发执行',
+    subagentDepthExceeded: '子代理委托深度超出限制（最大 {{maxDepth}}）——请使用持久子代理或调整委托结构',
     rgNotAvailable: 'PATH 中未找到 ripgrep (rg)',
     pathRejectedEmpty: '路径 "{{path}}" 被拒绝（为空）',
     pathRejectedAbsolute: '路径 "{{path}}" 被拒绝（绝对路径）',
