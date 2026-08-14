@@ -3,6 +3,7 @@ export default {
   title: '文件',
   workspace: '工作区',
   refresh: '刷新',
+  filter: '筛选文件…',
   loading: '加载中…',
   empty: '没有文件',
   loadFailed: '目录加载失败',

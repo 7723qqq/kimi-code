@@ -6,7 +6,11 @@ import { buildRestUrl, buildWsUrl } from '../config';
 import { traceKeyEvent } from '../../debug/trace';
 import type {
   AppConfig,
+  AppCronTask,
   AppGoal,
+  AppMcpServer,
+  AppMcpServerDetail,
+  AppMcpServerStatus,
   AppMessage,
   AppMessageRole,
   AppModel,
@@ -180,6 +184,64 @@ interface WireQuestionResolveResult {
 
 interface WireCancelResult {
   cancelled: true;
+}
+
+interface WireMcpServer {
+  name: string;
+  transport: 'stdio' | 'http' | 'sse';
+  status: AppMcpServerStatus;
+  tool_count: number;
+  error?: string;
+}
+
+function toAppMcpServer(w: WireMcpServer): AppMcpServer {
+  return {
+    name: w.name,
+    transport: w.transport,
+    status: w.status,
+    toolCount: w.tool_count,
+    ...(w.error !== undefined ? { error: w.error } : {}),
+  };
+}
+
+interface WireMcpTool {
+  name: string;
+  description: string;
+}
+
+interface WireMcpServerDetail extends WireMcpServer {
+  tools: WireMcpTool[];
+}
+
+function toAppMcpServerDetail(w: WireMcpServerDetail): AppMcpServerDetail {
+  return {
+    ...toAppMcpServer(w),
+    tools: w.tools.map((tool) => ({ name: tool.name, description: tool.description })),
+  };
+}
+
+interface WireCronTask {
+  id: string;
+  cron: string;
+  human_schedule?: string;
+  prompt: string;
+  created_at: number;
+  recurring?: boolean;
+  last_fired_at?: number;
+  next_fire_at?: number | null;
+}
+
+function toAppCronTask(w: WireCronTask): AppCronTask {
+  return {
+    id: w.id,
+    cron: w.cron,
+    ...(w.human_schedule !== undefined ? { humanSchedule: w.human_schedule } : {}),
+    prompt: w.prompt,
+    createdAt: w.created_at,
+    ...(w.recurring !== undefined ? { recurring: w.recurring } : {}),
+    ...(w.last_fired_at !== undefined ? { lastFiredAt: w.last_fired_at } : {}),
+    ...(w.next_fire_at !== undefined ? { nextFireAt: w.next_fire_at } : {}),
+  };
 }
 
 interface WireSkillDescriptor {
@@ -826,6 +888,56 @@ export class DaemonKimiWebApi implements KimiWebApi {
     return data;
   }
 
+  // MCP servers — session connection view -------------------------------
+  async listMcpServers(sessionId: string): Promise<{ servers: AppMcpServer[] }> {
+    const data = await this.http.get<{ servers: WireMcpServer[] }>(
+      `/sessions/${encodeURIComponent(sessionId)}/mcp/servers`,
+    );
+    return { servers: data.servers.map(toAppMcpServer) };
+  }
+
+  async getMcpServerDetail(sessionId: string, name: string): Promise<AppMcpServerDetail> {
+    const data = await this.http.get<WireMcpServerDetail>(
+      `/sessions/${encodeURIComponent(sessionId)}/mcp/servers/${encodeURIComponent(name)}`,
+    );
+    return toAppMcpServerDetail(data);
+  }
+
+  async reconnectMcpServer(sessionId: string, name: string): Promise<{ reconnected: true }> {
+    return this.http.post<{ reconnected: true }>(
+      `/sessions/${encodeURIComponent(sessionId)}/mcp/servers/${encodeURIComponent(name)}:reconnect`,
+    );
+  }
+
+  // Cron tasks — session scheduling --------------------------------------
+  async listCronTasks(sessionId: string): Promise<{ tasks: AppCronTask[] }> {
+    const data = await this.http.get<{ tasks: WireCronTask[] }>(
+      `/sessions/${encodeURIComponent(sessionId)}/cron`,
+    );
+    return { tasks: data.tasks.map(toAppCronTask) };
+  }
+
+  async createCronTask(
+    sessionId: string,
+    input: { cron: string; prompt: string; recurring?: boolean },
+  ): Promise<AppCronTask> {
+    const data = await this.http.post<WireCronTask>(
+      `/sessions/${encodeURIComponent(sessionId)}/cron`,
+      {
+        cron: input.cron,
+        prompt: input.prompt,
+        ...(input.recurring !== undefined ? { recurring: input.recurring } : {}),
+      },
+    );
+    return toAppCronTask(data);
+  }
+
+  async deleteCronTask(sessionId: string, taskId: string): Promise<{ deleted: boolean }> {
+    return this.http.delete<{ deleted: boolean }>(
+      `/sessions/${encodeURIComponent(sessionId)}/cron/${encodeURIComponent(taskId)}`,
+    );
+  }
+
   async listTerminals(sessionId: string): Promise<AppTerminal[]> {
     const data = await this.http.get<{ items: WireTerminal[] }>(
       `/sessions/${encodeURIComponent(sessionId)}/terminals`,
@@ -1436,6 +1548,13 @@ export class DaemonKimiWebApi implements KimiWebApi {
       // -----------------------------------------------------------------------
       onRawAgentEvent: (frame) => {
         const { type, seq, session_id: sessionId, payload, offset } = frame;
+        // Archive the raw frame for the trajectory view (before projection).
+        handlers.onLedgerFrame?.(sessionId, {
+          type,
+          seq,
+          timestamp: frame.timestamp,
+          payload: (payload ?? null) as Record<string, unknown> | null,
+        });
         // Fold the frame into the live session stats and surface changes as a
         // first-class event (same channel as the projected events below).
         const prevStats = statsBySession.get(sessionId) ?? createSessionStatsState();

@@ -3,6 +3,7 @@ export default {
   title: 'Files',
   workspace: 'Workspace',
   refresh: 'Refresh',
+  filter: 'Filter files…',
   loading: 'Loading…',
   empty: 'No files',
   loadFailed: 'Failed to list directory',

@@ -16,6 +16,7 @@ import IconButton from '../ui/IconButton.vue';
 import Icon from '../ui/Icon.vue';
 import Tooltip from '../ui/Tooltip.vue';
 import WorkspaceFileBrowser from '../WorkspaceFileBrowser.vue';
+import SessionToolsDialog from '../SessionToolsDialog.vue';
 
 const { t } = useI18n();
 
@@ -51,6 +52,10 @@ const emit = defineEmits<{
   createChildSession: [];
   /** Open a session (parent or child) by id. */
   openSession: [id: string];
+  /** Open the trajectory (event ledger) panel. */
+  openTrajectory: [];
+  /** Open the subagent catalog panel. */
+  openSubagents: [];
 }>();
 
 const ahead = computed(() => props.ahead ?? 0);
@@ -231,6 +236,9 @@ function startArchive(): void {
 // ---------------------------------------------------------------------------
 const fileBrowserOpen = ref(false);
 
+// Session tools (MCP servers + cron) — self-contained dialog.
+const sessionToolsOpen = ref(false);
+
 // ---------------------------------------------------------------------------
 // Child sessions — self-contained: the header resolves the current session's
 // parent/children through the daemon API (no shared client state).
@@ -320,7 +328,7 @@ function childTitle(child: AppSession): string {
       </Tooltip>
     </div>
 
-    <!-- Workspace file browser + more menu triggers -->
+    <!-- Workspace file browser + session tools + more menu triggers -->
     <IconButton
       v-if="sessionId"
       class="ch-act-files"
@@ -328,6 +336,30 @@ function childTitle(child: AppSession): string {
       @click="fileBrowserOpen = true"
     >
       <Icon name="folder" size="md" />
+    </IconButton>
+    <IconButton
+      v-if="sessionId"
+      class="ch-act-files"
+      :label="t('status.sessionToolsTitle')"
+      @click="sessionToolsOpen = true"
+    >
+      <Icon name="bolt" size="md" />
+    </IconButton>
+    <IconButton
+      v-if="sessionId"
+      class="ch-act-trajectory"
+      :label="t('trajectory.open')"
+      @click="emit('openTrajectory')"
+    >
+      <Icon name="list" size="md" />
+    </IconButton>
+    <IconButton
+      v-if="sessionId"
+      class="ch-act-subagents"
+      :label="t('subagents.open')"
+      @click="emit('openSubagents')"
+    >
+      <Icon name="git-fork" size="md" />
     </IconButton>
     <IconButton
       ref="kebabRef"
@@ -439,6 +471,11 @@ function childTitle(child: AppSession): string {
       v-model:open="fileBrowserOpen"
       :session-id="sessionId"
       :workspace-root="workspaceRoot"
+    />
+
+    <SessionToolsDialog
+      v-model:open="sessionToolsOpen"
+      :session-id="sessionId"
     />
   </header>
 </template>

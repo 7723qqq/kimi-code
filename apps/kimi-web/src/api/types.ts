@@ -512,6 +512,52 @@ export type AppEvent =
   | { type: 'unknown'; raw: unknown };
 
 // ---------------------------------------------------------------------------
+// MCP servers + cron tasks (session-level REST surfaces)
+// ---------------------------------------------------------------------------
+
+/** Connection status of an MCP server (mirrors the engine's McpServerStatus). */
+export type AppMcpServerStatus =
+  | 'pending'
+  | 'pending-approval'
+  | 'connected'
+  | 'failed'
+  | 'disabled'
+  | 'needs-auth'
+  | 'removed';
+
+export interface AppMcpServer {
+  name: string;
+  transport: 'stdio' | 'http' | 'sse';
+  status: AppMcpServerStatus;
+  toolCount: number;
+  error?: string;
+}
+
+/** A tool resolved from a connected MCP server. */
+export interface AppMcpTool {
+  name: string;
+  description: string;
+}
+
+/** Detail view of one MCP server: entry fields + resolved tool list. */
+export interface AppMcpServerDetail extends AppMcpServer {
+  tools: AppMcpTool[];
+}
+
+/** A cron task scheduled for a session (timestamps in ms since epoch). */
+export interface AppCronTask {
+  id: string;
+  cron: string;
+  /** Human-readable rendering of the expression, when the engine can parse it. */
+  humanSchedule?: string;
+  prompt: string;
+  createdAt: number;
+  recurring?: boolean;
+  lastFiredAt?: number;
+  nextFireAt?: number | null;
+}
+
+// ---------------------------------------------------------------------------
 // WebSocket connection helpers
 // ---------------------------------------------------------------------------
 
@@ -767,6 +813,18 @@ export interface KimiWebApi {
   listTasks(sessionId: string, status?: AppTaskStatus): Promise<AppTask[]>;
   getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number }): Promise<AppTask>;
   cancelTask(sessionId: string, taskId: string): Promise<{ cancelled: true }>;
+  /** Session MCP server connection view — GET /sessions/{id}/mcp/servers. */
+  listMcpServers(sessionId: string): Promise<{ servers: AppMcpServer[] }>;
+  /** One MCP server with its resolved tool list — GET /sessions/{id}/mcp/servers/{name}. */
+  getMcpServerDetail(sessionId: string, name: string): Promise<AppMcpServerDetail>;
+  /** Reconnect a session MCP server — POST /sessions/{id}/mcp/servers/{name}:reconnect. */
+  reconnectMcpServer(sessionId: string, name: string): Promise<{ reconnected: true }>;
+  /** Session cron tasks — GET /sessions/{id}/cron. */
+  listCronTasks(sessionId: string): Promise<{ tasks: AppCronTask[] }>;
+  /** Schedule a cron task — POST /sessions/{id}/cron. */
+  createCronTask(sessionId: string, input: { cron: string; prompt: string; recurring?: boolean }): Promise<AppCronTask>;
+  /** Remove a session cron task — DELETE /sessions/{id}/cron/{task_id}. */
+  deleteCronTask(sessionId: string, taskId: string): Promise<{ deleted: boolean }>;
   listTerminals(sessionId: string): Promise<AppTerminal[]>;
   createTerminal(sessionId: string, input?: { cwd?: string; shell?: string; cols?: number; rows?: number }): Promise<AppTerminal>;
   getTerminal(sessionId: string, terminalId: string): Promise<AppTerminal>;

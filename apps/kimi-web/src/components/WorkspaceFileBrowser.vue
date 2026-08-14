@@ -1,16 +1,22 @@
 <!-- apps/kimi-web/src/components/WorkspaceFileBrowser.vue -->
-<!-- Workspace file browser: lazy directory tree (left) + file preview (right),
-     opened from the chat header. Self-contained â€?pulls everything through
-     getKimiWebApi() (relative-to-cwd paths), no shared client state. -->
+<!-- Workspace file browser: lazy recursive directory tree (left) + file
+     preview (right), opened from the chat header. Self-contained â€” pulls
+     everything through getKimiWebApi() (relative-to-cwd paths). The tree is
+     rendered by the recursive FileTreeRow over a shared provide/inject
+     store; a name filter narrows file rows, directories sort first. -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { getKimiWebApi } from '../api';
-import type { FsEntry } from '../api/types';
 import { isDaemonApiError } from '../api/errors';
+import {
+  createFileTreeBrowserStore,
+  provideFileTreeBrowser,
+} from '../composables/useFileTreeBrowser';
 import Dialog from './ui/Dialog.vue';
 import Icon from './ui/Icon.vue';
 import Spinner from './ui/Spinner.vue';
+import FileTreeRow from './fileTree/FileTreeRow.vue';
 
 const props = defineProps<{
   /** Session whose cwd is browsed. When unset the browser shows an empty state. */
@@ -34,74 +40,15 @@ const emitOpen = (v: boolean) => {
 };
 
 // ---------------------------------------------------------------------------
-// Tree state: per-directory listing cache + expanded set, lazy-loaded.
+// Tree store (shared with the recursive rows)
 // ---------------------------------------------------------------------------
 
-/** Loaded directory listings, keyed by the directory's relative path ('' = cwd). */
-const dirCache = ref<Map<string, FsEntry[] | null>>(new Map());
-/** Directories currently expanded. */
-const expanded = ref<Set<string>>(new Set());
-const loadingDirs = ref<Set<string>>(new Set());
-const treeError = ref<string | null>(null);
+const sessionIdRef = computed(() => props.sessionId);
+const store = createFileTreeBrowserStore(sessionIdRef);
+provideFileTreeBrowser(store);
 
-function isDirectory(entry: FsEntry): boolean {
-  return entry.kind === 'directory';
-}
-
-async function loadDir(dirPath: string): Promise<FsEntry[]> {
-  const sid = props.sessionId;
-  if (!sid) return [];
-  loadingDirs.value = new Set(loadingDirs.value).add(dirPath);
-  treeError.value = null;
-  try {
-    const result = await getKimiWebApi().listDirectory(sid, {
-      path: dirPath,
-      depth: 1,
-      includeGitStatus: true,
-    });
-    const next = new Map(dirCache.value);
-    next.set(dirPath, result.items);
-    dirCache.value = next;
-    return result.items;
-  } catch (err) {
-    treeError.value = isDaemonApiError(err) ? err.message : String(err);
-    const next = new Map(dirCache.value);
-    next.set(dirPath, []);
-    dirCache.value = next;
-    return [];
-  } finally {
-    const rest = new Set(loadingDirs.value);
-    rest.delete(dirPath);
-    loadingDirs.value = rest;
-  }
-}
-
-async function toggleDir(entry: FsEntry): Promise<void> {
-  const path = entry.path;
-  const next = new Set(expanded.value);
-  if (next.has(path)) {
-    next.delete(path);
-    expanded.value = next;
-    return;
-  }
-  next.add(path);
-  expanded.value = next;
-  if (!dirCache.value.has(path)) {
-    await loadDir(path);
-  }
-}
-
-function dirChildren(dirPath: string): FsEntry[] {
-  return dirCache.value.get(dirPath) ?? [];
-}
-
-async function refresh(): Promise<void> {
-  dirCache.value = new Map();
-  expanded.value = new Set();
-  selectedPath.value = null;
-  preview.value = null;
-  await loadDir('');
-}
+// Name filter for file rows (directories always visible).
+const filter = ref('');
 
 // ---------------------------------------------------------------------------
 // File preview
@@ -119,17 +66,16 @@ interface PreviewData {
   languageId?: string;
 }
 
-const selectedPath = ref<string | null>(null);
 const preview = ref<PreviewData | null>(null);
 const previewLoading = ref(false);
 const previewError = ref<string | null>(null);
 let previewSeq = 0;
 
-async function openFile(entry: FsEntry): Promise<void> {
+async function openFile(entry: { path: string; name: string }): Promise<void> {
   const sid = props.sessionId;
-  if (!sid || entry.kind === 'directory') return;
+  if (!sid) return;
   const seq = ++previewSeq;
-  selectedPath.value = entry.path;
+  store.selectedPath.value = entry.path;
   preview.value = null;
   previewError.value = null;
   previewLoading.value = true;
@@ -185,39 +131,20 @@ const sizeLine = computed(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Git status badges
-// ---------------------------------------------------------------------------
-
-const GIT_STATUS_LABEL: Record<string, string> = {
-  M: 'fileTree.gitModified',
-  A: 'fileTree.gitAdded',
-  D: 'fileTree.gitDeleted',
-  U: 'fileTree.gitConflict',
-  '??': 'fileTree.gitUntracked',
-};
-
-function gitLabel(status: string | undefined): string | null {
-  if (!status) return null;
-  return GIT_STATUS_LABEL[status] ?? null;
-}
-
-function gitClass(status: string | undefined): string {
-  if (status === 'M') return 'st-modified';
-  if (status === 'A') return 'st-added';
-  if (status === 'D') return 'st-deleted';
-  if (status === 'U') return 'st-conflict';
-  return 'st-untracked';
-}
-
-// ---------------------------------------------------------------------------
 // Lifecycle: load the root when the dialog opens.
 // ---------------------------------------------------------------------------
 
 watch(open, (isOpen) => {
   if (isOpen) {
-    void loadDir('');
+    store.reset();
+    void store.loadDir('');
   }
 });
+
+function refresh(): void {
+  store.reset();
+  void store.loadDir('');
+}
 
 onBeforeUnmount(() => {
   previewSeq += 1;
@@ -239,138 +166,37 @@ onBeforeUnmount(() => {
           <div class="wfb-title">{{ t('fileTree.title') }}</div>
           <div v-if="workspaceRoot" class="wfb-root" :title="workspaceRoot">{{ workspaceRoot }}</div>
         </div>
-        <button type="button" class="wfb-refresh" @click="refresh">
-          {{ t('fileTree.refresh') }}
-        </button>
+        <div class="wfb-head-actions">
+          <input
+            v-model="filter"
+            class="wfb-filter"
+            type="search"
+            :placeholder="t('fileTree.filter')"
+            :aria-label="t('fileTree.filter')"
+          />
+          <button type="button" class="wfb-refresh" @click="refresh">
+            {{ t('fileTree.refresh') }}
+          </button>
+        </div>
       </div>
     </template>
 
     <div class="wfb-body">
       <!-- Left: directory tree -->
       <div class="wfb-tree">
-        <div v-if="loadingDirs.has('') && dirCache.get('') === undefined" class="wfb-loading">
+        <div v-if="store.loadingDirs.value.has('') && store.dirCache.value.get('') === undefined" class="wfb-loading">
           <Spinner size="sm" />
           <span>{{ t('fileTree.loading') }}</span>
         </div>
         <template v-else>
-          <div v-if="dirChildren('').length === 0" class="wfb-empty">{{ t('fileTree.empty') }}</div>
-          <div v-for="entry in dirChildren('')" :key="entry.path" class="wfb-row">
-            <div
-              v-if="isDirectory(entry)"
-              class="wfb-row-main wfb-dir"
-              role="button"
-              :tabindex="0"
-              @click="toggleDir(entry)"
-              @keydown.enter="toggleDir(entry)"
-              @keydown.space.prevent="toggleDir(entry)"
-            >
-              <Icon class="wfb-chevron" :class="{ open: expanded.has(entry.path) }" name="chevron-right" size="sm" />
-              <Icon class="wfb-folder" name="folder" size="sm" />
-              <span class="wfb-name">{{ entry.name }}</span>
-              <span v-if="expanded.has(entry.path)" class="wfb-spin">
-                <Spinner v-if="loadingDirs.has(entry.path)" size="sm" />
-              </span>
-            </div>
-            <div
-              v-else
-              class="wfb-row-main wfb-file"
-              :class="{ selected: selectedPath === entry.path }"
-              role="button"
-              :tabindex="0"
-              @click="openFile(entry)"
-              @keydown.enter="openFile(entry)"
-              @keydown.space.prevent="openFile(entry)"
-            >
-              <Icon class="wfb-folder" name="file-text" size="sm" />
-              <span class="wfb-name">{{ entry.name }}</span>
-              <span v-if="gitLabel(entry.gitStatus)" class="wfb-git" :class="gitClass(entry.gitStatus)">
-                {{ t(gitLabel(entry.gitStatus)!) }}
-              </span>
-            </div>
-            <!-- Lazy children of an expanded directory -->
-            <div v-if="isDirectory(entry) && expanded.has(entry.path)" class="wfb-children">
-              <div v-if="loadingDirs.has(entry.path)" class="wfb-loading wfb-inline">
-                <Spinner size="sm" />
-              </div>
-              <div v-else-if="dirChildren(entry.path).length === 0" class="wfb-empty wfb-inline">
-                {{ t('fileTree.empty') }}
-              </div>
-              <div v-for="child in dirChildren(entry.path)" :key="child.path" class="wfb-row">
-                <div
-                  v-if="isDirectory(child)"
-                  class="wfb-row-main wfb-dir"
-                  role="button"
-                  :tabindex="0"
-                  @click="toggleDir(child)"
-                  @keydown.enter="toggleDir(child)"
-                  @keydown.space.prevent="toggleDir(child)"
-                >
-                  <Icon class="wfb-chevron" :class="{ open: expanded.has(child.path) }" name="chevron-right" size="sm" />
-                  <Icon class="wfb-folder" name="folder" size="sm" />
-                  <span class="wfb-name">{{ child.name }}</span>
-                  <span v-if="expanded.has(child.path)" class="wfb-spin">
-                    <Spinner v-if="loadingDirs.has(child.path)" size="sm" />
-                  </span>
-                </div>
-                <div
-                  v-else
-                  class="wfb-row-main wfb-file"
-                  :class="{ selected: selectedPath === child.path }"
-                  role="button"
-                  :tabindex="0"
-                  @click="openFile(child)"
-                  @keydown.enter="openFile(child)"
-                  @keydown.space.prevent="openFile(child)"
-                >
-                  <Icon class="wfb-folder" name="file-text" size="sm" />
-                  <span class="wfb-name">{{ child.name }}</span>
-                  <span v-if="gitLabel(child.gitStatus)" class="wfb-git" :class="gitClass(child.gitStatus)">
-                    {{ t(gitLabel(child.gitStatus)!) }}
-                  </span>
-                </div>
-                <div v-if="isDirectory(child) && expanded.has(child.path)" class="wfb-children">
-                  <div v-if="loadingDirs.has(child.path)" class="wfb-loading wfb-inline">
-                    <Spinner size="sm" />
-                  </div>
-                  <div v-else-if="dirChildren(child.path).length === 0" class="wfb-empty wfb-inline">
-                    {{ t('fileTree.empty') }}
-                  </div>
-                  <div v-for="grand in dirChildren(child.path)" :key="grand.path" class="wfb-row">
-                    <div
-                      v-if="isDirectory(grand)"
-                      class="wfb-row-main wfb-dir"
-                      role="button"
-                      :tabindex="0"
-                      @click="toggleDir(grand)"
-                      @keydown.enter="toggleDir(grand)"
-                      @keydown.space.prevent="toggleDir(grand)"
-                    >
-                      <Icon class="wfb-chevron" :class="{ open: expanded.has(grand.path) }" name="chevron-right" size="sm" />
-                      <Icon class="wfb-folder" name="folder" size="sm" />
-                      <span class="wfb-name">{{ grand.name }}</span>
-                    </div>
-                    <div
-                      v-else
-                      class="wfb-row-main wfb-file"
-                      :class="{ selected: selectedPath === grand.path }"
-                      role="button"
-                      :tabindex="0"
-                      @click="openFile(grand)"
-                      @keydown.enter="openFile(grand)"
-                      @keydown.space.prevent="openFile(grand)"
-                    >
-                      <Icon class="wfb-folder" name="file-text" size="sm" />
-                      <span class="wfb-name">{{ grand.name }}</span>
-                      <span v-if="gitLabel(grand.gitStatus)" class="wfb-git" :class="gitClass(grand.gitStatus)">
-                        {{ t(gitLabel(grand.gitStatus)!) }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div v-if="treeError" class="wfb-error">{{ treeError }}</div>
+          <div v-if="store.dirChildren('').length === 0" class="wfb-empty">{{ t('fileTree.empty') }}</div>
+          <FileTreeRow
+            v-else
+            :dir-path="''"
+            :filter="filter"
+            @open-file="openFile"
+          />
+          <div v-if="store.treeError" class="wfb-error">{{ store.treeError }}</div>
         </template>
       </div>
 
@@ -439,6 +265,23 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   max-width: 420px;
 }
+.wfb-head-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wfb-filter {
+  width: 180px;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  padding: 4px 9px;
+  outline: none;
+}
+.wfb-filter:focus { border-color: var(--color-accent); }
 .wfb-refresh {
   flex: none;
   background: var(--color-surface-sunken);
@@ -469,49 +312,6 @@ onBeforeUnmount(() => {
   padding: 8px 6px;
   font-size: var(--text-base);
 }
-.wfb-row { min-width: 0; }
-.wfb-children { margin-left: 14px; }
-.wfb-row-main {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 6px;
-  border-radius: var(--radius-xs);
-  min-width: 0;
-  cursor: pointer;
-  outline: none;
-}
-.wfb-row-main:hover { background: var(--color-surface-sunken); }
-.wfb-row-main:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -1px; }
-.wfb-file.selected { background: var(--color-accent-soft); }
-.wfb-chevron {
-  flex: none;
-  color: var(--color-text-faint);
-  transition: transform 0.12s;
-}
-.wfb-chevron.open { transform: rotate(90deg); }
-.wfb-folder { flex: none; color: var(--color-text-faint); }
-.wfb-file.selected .wfb-folder { color: var(--color-accent-hover); }
-.wfb-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--color-text);
-}
-.wfb-spin { flex: none; display: inline-flex; }
-.wfb-git {
-  flex: none;
-  font-size: calc(var(--text-xs) - 1px);
-  padding: 0 5px;
-  border-radius: 999px;
-}
-.st-modified { color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 12%, transparent); }
-.st-added { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 12%, transparent); }
-.st-deleted { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 12%, transparent); }
-.st-conflict { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 12%, transparent); }
-.st-untracked { color: var(--color-text-muted); background: var(--color-surface-sunken); }
 
 .wfb-loading {
   display: flex;
@@ -521,7 +321,6 @@ onBeforeUnmount(() => {
   color: var(--color-text-muted);
   font-size: var(--text-base);
 }
-.wfb-inline { padding: 4px 8px; }
 .wfb-empty {
   padding: 12px;
   text-align: center;
@@ -645,5 +444,6 @@ onBeforeUnmount(() => {
     border-right: none;
     border-bottom: 1px solid var(--color-line);
   }
+  .wfb-filter { width: 120px; }
 }
 </style>
