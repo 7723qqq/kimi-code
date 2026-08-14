@@ -135,7 +135,9 @@ describe('goal tools', () => {
     expect(result.stopTurn).toBe(true);
     expect(result.output).toContain('will stop now');
     expect(goals.getGoal().goal).toMatchObject({
-      status: 'blocked',
+      // Budget exhaustion lands budget_limited (not blocked) so the model may
+      // produce one final wrap-up message.
+      status: 'budget_limited',
       budget: { overBudget: true },
     });
   });
@@ -211,7 +213,7 @@ describe('goal tools', () => {
 
     const results = await executeGoalCalls(
       [
-        goalToolCall('call_create', 'CreateGoal', { objective: 'new task' }),
+        goalToolCall('call_create', 'CreateGoal', { objective: 'new task', completionCriterion: 'verify the change with a test run' }),
         goalToolCall('call_budget', 'SetGoalBudget', { value: 5, unit: 'turns' }),
       ],
       2,
@@ -232,7 +234,7 @@ describe('goal tools', () => {
 
     const results = await executeGoalCalls(
       [
-        goalToolCall('call_replace', 'CreateGoal', { objective: 'new task', replace: true }),
+        goalToolCall('call_replace', 'CreateGoal', { objective: 'new task', replace: true, completionCriterion: 'verify the change with a test run' }),
         goalToolCall('call_budget', 'SetGoalBudget', { value: 5, unit: 'turns' }),
       ],
       3,
@@ -287,6 +289,10 @@ describe('goal tools', () => {
 
   it('UpdateGoal blocked returns the blocked-reason prompt and stops the turn', async () => {
     await goals.createGoal({ objective: 'ship it' });
+    // The blocking streak must reach the 3-turn threshold (attempts 0,1,2)
+    // before UpdateGoal actually marks the goal blocked.
+    await goals.recordBlockedAttempt();
+    await goals.recordBlockedAttempt();
     const execution = updateGoalTool.resolveExecution({ status: 'blocked' });
     if (execution.isError === true) throw new Error('execution should not be an error');
     const result = await execution.execute({ turnId: 0, toolCallId: 'call_b', signal });
@@ -305,7 +311,7 @@ describe('goal tools', () => {
 
     const result = await execution.execute({ turnId: 0, toolCallId: 'call_old_outcome', signal });
 
-    expect(result.output).toBe('Goal not completed: the current goal changed.');
+    expect(result.output).toBe('Goal not updated: the current goal changed.');
     expect(result.stopTurn).toBeFalsy();
     expect(goals.getGoal().goal).toMatchObject({
       goalId: replacement.goalId,
@@ -324,7 +330,7 @@ describe('goal tools', () => {
       signal,
     });
 
-    expect(result.output).toBe('Goal not completed: the current goal changed.');
+    expect(result.output).toBe('Goal not updated: the current goal changed.');
     expect(result.stopTurn).toBeFalsy();
     expect(goals.getGoal().goal).toMatchObject({
       goalId: created.goalId,
@@ -332,52 +338,77 @@ describe('goal tools', () => {
     });
   });
 
-  it.each([
-    ['complete', null, 'Goal completed successfully'],
-    ['blocked', 'blocked', 'Goal blocked.'],
-  ] as const)(
-    'UpdateGoal applies %s to a goal replaced earlier in the same batch',
-    async (updateStatus, expectedCurrentStatus, expectedOutput) => {
-      await goals.createGoal({ objective: 'old task' });
-      eventBus.publish({ type: 'turn.started', turnId: 4, origin: USER_PROMPT_ORIGIN });
+  it('UpdateGoal applies complete to a goal replaced earlier in the same batch', async () => {
+    await goals.createGoal({ objective: 'old task' });
+    eventBus.publish({ type: 'turn.started', turnId: 4, origin: USER_PROMPT_ORIGIN });
 
-      const results = await executeGoalCalls(
-        [
-          goalToolCall('call_replace', 'CreateGoal', { objective: 'new task', replace: true }),
-          goalToolCall('call_outcome', 'UpdateGoal', { status: updateStatus }),
-        ],
-        4,
-      );
+    const results = await executeGoalCalls(
+      [
+        goalToolCall('call_replace', 'CreateGoal', { objective: 'new task', replace: true, completionCriterion: 'verify the change with a test run' }),
+        goalToolCall('call_outcome', 'UpdateGoal', { status: 'complete' }),
+      ],
+      4,
+    );
 
-      const outcome = results.find((result) => result.toolName === 'UpdateGoal')?.result;
-      expect(outcome?.output).toContain(expectedOutput);
-      expect(outcome?.stopTurn).toBe(true);
-      expect(goals.getGoal().goal?.status ?? null).toBe(expectedCurrentStatus);
-    },
-  );
+    const outcome = results.find((result) => result.toolName === 'UpdateGoal')?.result;
+    expect(outcome?.output).toContain('Goal completed successfully');
+    expect(outcome?.stopTurn).toBe(true);
+    expect(goals.getGoal().goal?.status ?? null).toBe(null);
+  });
 
-  it.each([
-    ['complete', null, 'Goal completed successfully'],
-    ['blocked', 'blocked', 'Goal blocked.'],
-  ] as const)(
-    'UpdateGoal applies %s when the goal was created earlier in the same batch',
-    async (updateStatus, expectedCurrentStatus, expectedOutput) => {
-      eventBus.publish({ type: 'turn.started', turnId: 5, origin: USER_PROMPT_ORIGIN });
+  it('UpdateGoal notes the first blocked attempt on a goal replaced earlier in the same batch', async () => {
+    await goals.createGoal({ objective: 'old task' });
+    eventBus.publish({ type: 'turn.started', turnId: 4, origin: USER_PROMPT_ORIGIN });
 
-      const results = await executeGoalCalls(
-        [
-          goalToolCall('call_create', 'CreateGoal', { objective: 'new task', replace: true }),
-          goalToolCall('call_outcome', 'UpdateGoal', { status: updateStatus }),
-        ],
-        5,
-      );
+    const results = await executeGoalCalls(
+      [
+        goalToolCall('call_replace', 'CreateGoal', { objective: 'new task', replace: true, completionCriterion: 'verify the change with a test run' }),
+        goalToolCall('call_outcome', 'UpdateGoal', { status: 'blocked' }),
+      ],
+      4,
+    );
 
-      const outcome = results.find((result) => result.toolName === 'UpdateGoal')?.result;
-      expect(outcome?.output).toContain(expectedOutput);
-      expect(outcome?.stopTurn).toBe(true);
-      expect(goals.getGoal().goal?.status ?? null).toBe(expectedCurrentStatus);
-    },
-  );
+    // A freshly created goal has no blocking streak, so the first blocked
+    // update only records the attempt instead of marking the goal blocked.
+    const outcome = results.find((result) => result.toolName === 'UpdateGoal')?.result;
+    expect(outcome?.output).toContain('Blocking condition noted (attempt 1/3');
+    expect(outcome?.stopTurn).toBeFalsy();
+    expect(goals.getGoal().goal?.status).toBe('active');
+  });
+
+  it('UpdateGoal applies complete when the goal was created earlier in the same batch', async () => {
+    eventBus.publish({ type: 'turn.started', turnId: 5, origin: USER_PROMPT_ORIGIN });
+
+    const results = await executeGoalCalls(
+      [
+        goalToolCall('call_create', 'CreateGoal', { objective: 'new task', replace: true, completionCriterion: 'verify the change with a test run' }),
+        goalToolCall('call_outcome', 'UpdateGoal', { status: 'complete' }),
+      ],
+      5,
+    );
+
+    const outcome = results.find((result) => result.toolName === 'UpdateGoal')?.result;
+    expect(outcome?.output).toContain('Goal completed successfully');
+    expect(outcome?.stopTurn).toBe(true);
+    expect(goals.getGoal().goal?.status ?? null).toBe(null);
+  });
+
+  it('UpdateGoal notes the first blocked attempt when the goal was created earlier in the same batch', async () => {
+    eventBus.publish({ type: 'turn.started', turnId: 5, origin: USER_PROMPT_ORIGIN });
+
+    const results = await executeGoalCalls(
+      [
+        goalToolCall('call_create', 'CreateGoal', { objective: 'new task', replace: true, completionCriterion: 'verify the change with a test run' }),
+        goalToolCall('call_outcome', 'UpdateGoal', { status: 'blocked' }),
+      ],
+      5,
+    );
+
+    const outcome = results.find((result) => result.toolName === 'UpdateGoal')?.result;
+    expect(outcome?.output).toContain('Blocking condition noted (attempt 1/3');
+    expect(outcome?.stopTurn).toBeFalsy();
+    expect(goals.getGoal().goal?.status).toBe('active');
+  });
 
   it('UpdateGoal reports no active goal when completing/blocking/resuming without one', async () => {
     const done = updateGoalTool.resolveExecution({ status: 'complete' });

@@ -530,7 +530,7 @@ describe('AgentGoalService', () => {
       const execution = tool.resolveExecution({ status: 'paused' } as never);
       expect(execution).toMatchObject({
         isError: true,
-        output: 'Invalid goal status. Use `complete` or `blocked`.',
+        output: 'Invalid goal status. Use `active`, `complete`, or `blocked`.',
       });
       expect(goals.getGoal().goal?.status).toBe('active');
     });

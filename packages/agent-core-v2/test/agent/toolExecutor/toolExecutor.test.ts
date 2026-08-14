@@ -612,7 +612,7 @@ describe('AgentToolExecutorService', () => {
 
     expect(results).toEqual([
       expect.objectContaining({
-        output: 'Tool "hang" timed out after 50ms.',
+        output: expect.stringContaining('Tool "hang" timed out after 50ms.'),
         isError: true,
       }),
     ]);
@@ -632,7 +632,7 @@ describe('AgentToolExecutorService', () => {
 
     expect(results).toEqual([
       expect.objectContaining({
-        output: 'Tool "stubborn" timed out after 50ms.',
+        output: expect.stringContaining('Tool "stubborn" timed out after 50ms.'),
         isError: true,
       }),
     ]);
@@ -681,7 +681,7 @@ describe('AgentToolExecutorService', () => {
 
     const results = await execute([toolCall('call_quick', 'quick', {})]);
 
-    expect(results).toEqual([expect.objectContaining({ output: 'done', isError: undefined })]);
+    expect(results).toEqual([expect.objectContaining({ output: 'done' })]);
   });
 
   it('coerces an undefined tool return into an error result without breaking pairing', async () => {

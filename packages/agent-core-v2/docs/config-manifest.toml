@@ -8,7 +8,7 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (29 sections · 2 overlay(s))
+# Index (30 sections · 2 overlay(s))
 #   background               src\agent\task\configSection.ts
 #   builtinProductSkills     src\app\skillCatalog\configSection.ts
 #   cron                     src\app\cron\configSection.ts
@@ -29,6 +29,7 @@
 #   models                   src\app\kosongConfig\configSection.ts
 #   permission               src\agent\permissionRules\configSection.ts
 #   providers                src\app\kosongConfig\configSection.ts
+#   sandbox                  src\workspace\sandbox\sandbox.ts
 #   secondaryModel           src\session\subagent\configSection.ts
 #   services                 src\app\auth\configSection.ts
 #   shell                    src\os\configSection.ts
@@ -337,6 +338,15 @@ merge_all_available_skills = true
   # env: record<string, string>
   # source: record<string, any>
   # cache_key: boolean
+
+# ##########################################################################
+# sandbox
+#   owner: src\workspace\sandbox\sandbox.ts
+#   scope: core
+# ##########################################################################
+
+[sandbox]
+mode = "off"
 
 # ##########################################################################
 # secondaryModel (config.toml: secondary_model)
