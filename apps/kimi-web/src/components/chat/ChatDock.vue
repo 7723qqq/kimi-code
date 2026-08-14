@@ -11,6 +11,8 @@ import type { FileItem } from './MentionMenu.vue';
 import type { PromptAttachment } from '../../composables/useKimiWebClient';
 import Composer from './Composer.vue';
 import GoalStrip from './GoalStrip.vue';
+import StatsLine from './StatsLine.vue';
+import type { SessionStats } from '../../lib/sessionStats';
 import QuestionCard from './QuestionCard.vue';
 import ApprovalCard from './ApprovalCard.vue';
 import TasksPane from './TasksPane.vue';
@@ -33,6 +35,8 @@ const props = defineProps<{
   planMode?: boolean;
   swarmMode?: boolean;
   goalMode?: boolean;
+  /** Live session statistics strip (null/absent until data arrives). */
+  stats?: SessionStats | null;
   activationBadges?: ActivationBadges;
   models?: AppModel[];
   starredIds?: string[];
@@ -263,9 +267,10 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
       :busy="approvalBusy"
       @decide="emit('approval', pendingApproval!.approvalId, $event)"
     />
-    <Composer
-      v-else
-      ref="composerRef"
+    <div v-else class="composer-stack">
+      <StatsLine v-if="stats && stats.steps > 0" :stats="stats" />
+      <Composer
+        ref="composerRef"
       :session-id="sessionId"
       :running="running"
       :queued="queued"
@@ -297,9 +302,10 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
       @focus-goal="emit('focusGoal')"
       @focus-swarm="emit('focusSwarm')"
       @compact="emit('compact')"
-      @pick-model="emit('pickModel')"
-      @select-model="emit('selectModel', $event)"
-    />
+        @pick-model="emit('pickModel')"
+        @select-model="emit('selectModel', $event)"
+      />
+    </div>
   </div>
 </template>
 
@@ -317,6 +323,11 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
   z-index: var(--z-sticky);
 }
 .chat-dock.align-center { margin-left: auto; margin-right: auto; }
+.composer-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
 .chat-dock.align-left { margin-left: 0; margin-right: auto; }
 .chat-dock.align-mobile { max-width: none; }
 

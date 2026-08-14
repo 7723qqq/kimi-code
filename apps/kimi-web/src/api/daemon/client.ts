@@ -35,6 +35,11 @@ import type {
   QuestionResponse,
 } from '../types';
 import { createAgentProjector } from './agentEventProjector';
+import {
+  createSessionStatsState,
+  feedSessionStats,
+  type SessionStatsState,
+} from '../../lib/sessionStats';
 import { DaemonHttpClient } from './http';
 import {
   toAppApprovalRequest,
@@ -1399,6 +1404,9 @@ export class DaemonKimiWebApi implements KimiWebApi {
     // Per-session projector for raw agent-core events.
     // Keyed by session_id; reset when a session is re-subscribed or resynced.
     const projector = createAgentProjector();
+    // Per-session live stats accumulator (turns/steps/timing). Fed from the
+    // same raw frames; reset together with the projector on resync.
+    const statsBySession = new Map<string, SessionStatsState>();
 
     const socket = new DaemonEventSocket(wsUrl, this.config.clientId, {
       // -----------------------------------------------------------------------
@@ -1428,6 +1436,22 @@ export class DaemonKimiWebApi implements KimiWebApi {
       // -----------------------------------------------------------------------
       onRawAgentEvent: (frame) => {
         const { type, seq, session_id: sessionId, payload, offset } = frame;
+        // Fold the frame into the live session stats and surface changes as a
+        // first-class event (same channel as the projected events below).
+        const prevStats = statsBySession.get(sessionId) ?? createSessionStatsState();
+        const nextStats = feedSessionStats(prevStats, {
+          type,
+          session_id: sessionId,
+          timestamp: frame.timestamp,
+          payload: (payload ?? null) as Record<string, unknown> | null,
+        });
+        if (nextStats !== prevStats) {
+          statsBySession.set(sessionId, nextStats);
+          handlers.onEvent(
+            { type: 'sessionStatsUpdated', sessionId, stats: nextStats.stats },
+            { sessionId, seq },
+          );
+        }
         const appEvents = projector.project(type, payload, sessionId, { offset });
         for (const appEvent of appEvents) {
           const turnId = (payload as { turnId?: unknown } | null)?.turnId;
@@ -1456,6 +1480,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
       onResync: (sessionId: string, currentSeq: number, epoch?: string) => {
         // Reset per-session projector state on resync
         projector.reset(sessionId);
+        statsBySession.delete(sessionId);
         handlers.onResync(sessionId, currentSeq, epoch);
       },
 

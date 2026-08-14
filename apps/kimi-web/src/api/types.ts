@@ -2,6 +2,8 @@
 // App-facing camelCase model + KimiWebApi interface.
 // No daemon wire details here — Vue components consume only these types.
 
+import type { SessionStats } from '../lib/sessionStats';
+
 // ---------------------------------------------------------------------------
 // Pagination
 // ---------------------------------------------------------------------------
@@ -506,6 +508,7 @@ export type AppEvent =
       unchanged: string[];
       failed: { provider: string; reason: string }[];
     }
+  | { type: 'sessionStatsUpdated'; sessionId: string; stats: SessionStats }
   | { type: 'unknown'; raw: unknown };
 
 // ---------------------------------------------------------------------------

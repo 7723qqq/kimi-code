@@ -24,6 +24,7 @@ import type {
   CompactionMarkerMetadata,
 } from '../types';
 import { COMPACTION_MARKER_METADATA_KEY } from '../types';
+import type { SessionStats } from '../../lib/sessionStats';
 import type { TurnUsage } from '../../types';
 import { i18n } from '../../i18n';
 
@@ -80,6 +81,8 @@ export interface KimiClientState {
    *  while the turn is running; cleared when the next assistant message is
    *  created. */
   pendingUsageBySession: Record<string, TurnUsage>;
+  /** Live session statistics (turns/steps/timing), keyed by session id. */
+  statsBySession: Record<string, SessionStats>;
   config?: AppConfig | null;
   warnings: AppWarning[];
 }
@@ -99,6 +102,7 @@ export function createInitialState(): KimiClientState {
     turnActiveBySession: {},
     compactionBySession: {},
     pendingUsageBySession: {},
+    statsBySession: {},
     warnings: [],
   };
 }
@@ -128,6 +132,7 @@ function cloneState(s: KimiClientState): KimiClientState {
     turnActiveBySession: { ...s.turnActiveBySession },
     compactionBySession: { ...s.compactionBySession },
     pendingUsageBySession: { ...s.pendingUsageBySession },
+    statsBySession: { ...s.statsBySession },
     warnings: [...s.warnings],
   };
 }
@@ -357,6 +362,7 @@ export function reduceAppEvent(
       delete next.approvalsBySession[id];
       delete next.questionsBySession[id];
       delete next.lastSeqBySession[id];
+      delete next.statsBySession[id];
       delete next.turnActiveBySession[id];
       if (next.activeSessionId === id) {
         next.activeSessionId = undefined;
@@ -445,6 +451,15 @@ export function reduceAppEvent(
           ];
         }
       }
+      break;
+    }
+
+    // -------------------------------------------------------------------------
+    case 'sessionStatsUpdated': {
+      next.statsBySession = {
+        ...next.statsBySession,
+        [event.sessionId]: event.stats,
+      };
       break;
     }
 
