@@ -48,3 +48,9 @@ handover.md
 # Vendored reference copies (not part of this repo)
 参考目录/
 graphify-out/
+
+# Secrets and logs - never commit
+.env*
+!.env.example
+*.log
+logs/
