@@ -51,6 +51,7 @@ import {
 import { handleReloadCommand, handleReloadTuiCommand } from './reload';
 import type { SkillListSession } from './skills';
 import {
+  canRestoreSubmittedInput,
   resolveSlashCommandInput,
   slashBusyMessage,
   slashCommandBusyReason,
@@ -235,6 +236,9 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
     case 'blocked':
       host.track('input_command_invalid', { reason: 'blocked', command: intent.commandName });
       host.showError(slashBusyMessage(intent.commandName, intent.reason));
+      // The editor buffer was already cleared on submit; give the rejected
+      // command line back so hand-typed input is not lost.
+      host.restoreInputText(input);
       return;
     case 'invalid':
       host.track('input_command_invalid', {
@@ -310,7 +314,7 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
         host.track('clear');
       }
       try {
-        await handleBuiltInSlashCommand(host, intent.name, intent.args);
+        await handleBuiltInSlashCommand(host, intent.name, intent.args, input);
       } catch (error) {
         host.showError(formatErrorMessage(error));
       }
@@ -351,10 +355,16 @@ async function handleBuiltInSlashCommand(
   host: SlashCommandHost,
   name: BuiltinSlashCommandName,
   args: string,
+  input: string,
 ): Promise<void> {
   if (host.session === undefined && SESSION_REQUIRING_COMMANDS.has(name)) {
     const session = await ensureSessionForCommand(host);
-    if (session === undefined) return;
+    if (session === undefined) {
+      // Creation failed after submit cleared the buffer; give the input
+      // back unless the user moved on — a newer draft or an opened panel.
+      if (canRestoreSubmittedInput(host)) host.restoreInputText(input);
+      return;
+    }
     // A first prompt may have started a turn while the session was being
     // created; re-check the availability gate that was resolved before the
     // await (idle-only commands are blocked while a turn is active).
@@ -369,6 +379,9 @@ async function handleBuiltInSlashCommand(
       resolveSlashCommandAvailability(command, args) === 'idle-only'
     ) {
       host.showError(slashBusyMessage(name, busyReason));
+      // Same as the dispatch blocked branch: give the cleared input back,
+      // guarded the same way — session creation awaited above.
+      if (canRestoreSubmittedInput(host)) host.restoreInputText(input);
       return;
     }
   }
