@@ -23,6 +23,8 @@ import { ToolResultBuilder } from '#/tool/result-builder';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
 import { IWebFetchService } from '#/app/web/web';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISpillService, type SpillRef } from '#/features/spill/spill';
 import { HttpFetchError } from '#/app/web/tools/fetch-url-types';
 import { FetchURLInputSchema, IFetchURLTool, type FetchURLInput } from './fetch-url';
 import { t } from '@moonshot-ai/kimi-i18n';
@@ -34,7 +36,11 @@ export class FetchURLTool implements IFetchURLTool {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(FetchURLInputSchema);
 
-  constructor(@IWebFetchService private readonly webFetch: IWebFetchService) {}
+  constructor(
+    @IWebFetchService private readonly webFetch: IWebFetchService,
+    @ISessionContext private readonly session: ISessionContext,
+    @ISpillService private readonly spill?: ISpillService,
+  ) {}
 
   resolveExecution(args: FetchURLInput): ToolExecution {
     const preview = args.url.length > 50 ? `${args.url.slice(0, 50)}…` : args.url;
@@ -64,13 +70,21 @@ export class FetchURLTool implements IFetchURLTool {
         };
       }
 
-      const builder = new ToolResultBuilder({ maxLineLength: null });
+      const spill = this.spill;
+      const builder = new ToolResultBuilder({
+        maxLineLength: null,
+        onTruncated:
+          spill === undefined
+            ? undefined
+            : (fullText) => this.spillSave(spill, fullText, toolCallId),
+      });
       const note =
         kind === 'passthrough'
           ? t('toolsV2.fetchUrl.passthroughNote')
           : t('toolsV2.fetchUrl.extractedNote');
       const citeReminder = t('toolsV2.fetchUrl.citeReminder');
       builder.write(`${note} ${citeReminder}\n\n${content}`);
+      await builder.spillFullText();
       return builder.ok();
     } catch (error) {
       if (signal.aborted) throw error;
@@ -86,6 +100,19 @@ export class FetchURLTool implements IFetchURLTool {
         output: t('toolsV2.fetchUrl.networkError', { url: args.url, message: msg }),
       };
     }
+  }
+
+  private spillSave(
+    spill: ISpillService,
+    fullText: string,
+    toolCallId: string,
+  ): Promise<SpillRef> {
+    return spill.saveText({
+      owner: { sessionId: this.session.sessionId },
+      source: { toolName: 'fetch-url', callId: toolCallId, label: 'page-content' },
+      suggestedName: 'fetch-url.txt',
+      content: fullText,
+    });
   }
 }
 

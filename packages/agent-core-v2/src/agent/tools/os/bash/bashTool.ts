@@ -59,6 +59,7 @@ import { renderPrompt } from '#/_base/utils/render-prompt';
 import { t } from '@moonshot-ai/kimi-i18n';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { isSandboxBackendAvailable, resolveSandboxPolicy } from '#/workspace/sandbox/sandbox';
+import { ISpillService, type SpillRef } from '#/features/spill/spill';
 import bashDescriptionTemplate from './bash.md?raw';
 import { ProcessTask } from './process-task';
 import {
@@ -179,6 +180,7 @@ export class BashTool implements IBashTool {
     @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @IConfigService private readonly config: IConfigService,
+    @ISpillService private readonly spill?: ISpillService,
   ) {
     this.isWindowsBash = this.env.osKind === 'Windows' && this.env.shellName === 'bash';
     this.isWindowsPowerShell =
@@ -284,8 +286,7 @@ export class BashTool implements IBashTool {
     signal: AbortSignal,
     onUpdate?: (update: ToolUpdate) => void,
     onForegroundTaskStart?: (taskId: string) => void,
-  ): Promise<ExecutableToolResult> {
-    const validationError = this.validateRunRequest(args, signal);
+  ): Promise<ExecutableToolResult> {    const validationError = this.validateRunRequest(args, signal);
     if (validationError !== undefined) return validationError;
 
     const effectiveCwd = args.cwd ?? this.ctx.cwd;
@@ -307,7 +308,13 @@ export class BashTool implements IBashTool {
         : normalizeTimeoutMs(args.timeout, true)
       : foregroundTimeoutMs;
 
-    const builder = new ToolResultBuilder();
+    const spill = this.spill;
+    const builder = new ToolResultBuilder({
+      onTruncated:
+        spill === undefined
+          ? undefined
+          : (fullText) => this.spillSave(spill, fullText),
+    });
     let proc: IProcess;
     try {
       proc = await this.spawn(effectiveCwd, command);
@@ -401,11 +408,19 @@ export class BashTool implements IBashTool {
     return command;
   }
 
+  private spillSave(spill: ISpillService, fullText: string): Promise<SpillRef> {
+    return spill.saveText({
+      owner: { sessionId: this.ctx.sessionId },
+      source: { toolName: 'bash', callId: 'foreground', label: 'full-output' },
+      suggestedName: 'bash-output.txt',
+      content: fullText,
+    });
+  }
+
   private validateRunRequest(
     args: BashInput,
     signal: AbortSignal,
-  ): ExecutableToolResult | undefined {
-    if (signal.aborted) return { isError: true, output: t('shell.abortedBeforeStart') };
+  ): ExecutableToolResult | undefined {    if (signal.aborted) return { isError: true, output: t('shell.abortedBeforeStart') };
     if (args.command.length === 0) return { isError: true, output: t('shell.commandCannotBeEmpty') };
     if (args.run_in_background !== true) return undefined;
     if (!this.allowBackground()) {
@@ -455,6 +470,7 @@ export class BashTool implements IBashTool {
         brief: t('shell.failedWithExitCodeBrief', { exitCode: String(exitCode) }),
       });
     }
+    await builder.spillFullText();
     return this.addForegroundOutputReference(taskId, result);
   }
 
@@ -473,6 +489,9 @@ export class BashTool implements IBashTool {
       '\n\n' + t('background.fullOutputSaved') + '\n' +
       t('shell.taskIdLabel', { taskId }) + '\n' +
       t('shell.outputPathLabel', { path: output.outputPath }) + '\n' +
+      (result.spilled !== undefined
+        ? result.spilled.retrievalHint + '\n'
+        : '') +
       t('shell.outputSizeLabel', { bytes: String(output.outputSizeBytes) }) + '\n' +
       t('shell.nextStepReadOutput', { hint: taskOutputHint });
     return { ...result, output: `${result.output}${reference}` };
