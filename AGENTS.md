@@ -11,7 +11,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Author**: Moonshot AI
 - **License**: MIT
 - **Homepage**: https://github.com/MoonshotAI/kimi-code
-- **Version**: `@moonshot-ai/kimi-code` 0.30.0 (the main CLI app)
+- **Version**: `@moonshot-ai/kimi-code` 0.36.0 (the main CLI app)
 
 > **Note**: This repository is a personal experimental fork of MoonshotAI/kimi-code. Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream.
 
@@ -71,6 +71,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 ```
 apps/
   kimi-code/        — Main CLI / TUI application (entry point, incl. dist-web web bundle)
+  kimi-web/         — Vue 3 Web UI (fork addition; excluded from the pnpm workspace)
   vscode/           — VS Code extension (React 19 webview)
   kimi-inspect/     — Web inspector for kap-server /api/v1/debug RPC surface
   vis/              — Session replay & debugging visualizer
@@ -109,9 +110,9 @@ src/
   generated/          — Generated asset references
 ```
 
-**CLI subcommands:** `acp`, `doctor`, `export`, `login`, `login-flow`, `plugin-run-node`, `provider`, `upgrade`, `vis`, `web`
+**CLI subcommands:** `acp`, `doctor`, `export`, `login`, `migrate`, `provider`, `upgrade`, `vis`, `web` (plus the hidden `__plugin_run_node` for plugin execution)
 
-**TUI slash commands (26+):** `add-dir`, `auth`, `btw`, `complete-args`, `config`, `copy`, `discuss`, `dispatch`, `experimental-flags`, `goal`, `info`, `parse`, `plugin-commands`, `plugins`, `prompts`, `provider`, `registry`, `reload`, `resolve`, `session`, `skills`, `swarm`, `types`, `undo`, `web`, `workflow`
+**TUI slash commands (43 built-in, see `src/tui/commands/registry.ts`):** `yolo`, `auto`, `permission`, `settings`, `plan`, `swarm`, `discuss`, `model`, `secondary-model`, `effort`, `provider`, `multi-llm`, `btw`, `help`, `new`, `sessions`, `tasks`, `mcp`, `plugins`, `add-dir`, `experiments`, `reload`, `reload-tui`, `compact`, `goal`, `init`, `fork`, `title`, `usage`, `status`, `feedback`, `workflow`, `undo`, `editor`, `theme`, `logout`, `login`, `export-md`, `export-debug-zip`, `copy`, `web`, `exit`, `version`
 
 **Build output:**
 | Output | Path |
@@ -121,9 +122,9 @@ src/
 | Native prebuilds | `apps/kimi-code/native/` |
 | SEA binary | `apps/kimi-code/dist-native/bin/` |
 
-#### Web UI (`apps/kimi-code/dist-web`)
+#### Web UI (`apps/kimi-code/dist-web` + `apps/kimi-web`)
 
-The browser web UI source no longer lives in this repo — it is developed in the code-app repo and shipped as the committed, prebuilt bundle `apps/kimi-code/dist-web`, synced from code-app. To hack on the web UI against this repo's server, run `pnpm dev:server` here and point code-app's `pnpm dev:web` at it via `KIMI_SERVER_URL`.
+The shipped `apps/kimi-code/dist-web` bundle is a committed, prebuilt bundle synced from the code-app repo; the fork also carries its own Vue 3 web UI source in `apps/kimi-web` (excluded from the workspace, see below). To hack on the web UI against this repo's server, run `pnpm dev:server` here and point the web UI dev server at it via `KIMI_SERVER_URL`.
 
 #### `apps/vscode` — VS Code Extension
 
@@ -151,6 +152,7 @@ packages/
   agent-core-v2/       — Agent engine v2 (DI × Scope architecture)
   i18n/                — Shared i18n infrastructure (t() with en/zh support)
   i18n-shared/         — Shared i18n core (types, locale detection, web-safe)
+  kaos/                — Execution environment abstraction (local / ssh / login-shell)
   kap-server/          — Kimi Code local server (REST + WebSocket)
   kimi-agent/          — Rust agent engine (experimental)
   kimi-build/          — Rust native build tool (SEA binary injection)
@@ -214,7 +216,7 @@ scripts/
 
 ## Environment Requirements
 
-- **Node.js**: `>=24.15.0` (`.nvmrc` is `24.15.0`). `engine-strict=true` in `.npmrc` — `pnpm install` fails immediately if the Node version is not met.
+- **Node.js**: `>=24.15.0` (`.nvmrc` is `24.15.0`). `engine-strict=false` in `.npmrc`, so `pnpm install` does **not** fail on a Node version mismatch — verify with `.nvmrc` instead.
 - **pnpm**: `10.33.0` (specified in root `package.json` `packageManager`).
 - **Rust** (optional, for native tools): Stable toolchain, MSVC on Windows.
 - **Git for Windows** (Windows only): Required for runtime shell environment.
@@ -426,7 +428,7 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 ## Monorepo Workspace Maintenance
 
-- **`pnpm-workspace.yaml`** is the source of truth for workspace membership (uses globs: `packages/*`, `apps/*`).
+- **`pnpm-workspace.yaml`** is the source of truth for workspace membership. Globs: `packages/*` (minus `!packages/kimi-build`), `apps/*` (minus `!apps/kimi-web`), `apps/vis/server`, `apps/vis/web`, and `docs`.
 - **`flake.nix`** also contains hardcoded `workspacePaths` and `workspaceNames` lists that must be manually kept in sync.
 - **Whenever you add or remove a workspace package, you MUST update both `pnpm-workspace.yaml` and `flake.nix`** — for every package, including leaf / test / e2e packages that nothing depends on.
   - Missing a path in `flake.nix`'s `workspacePaths` silently drops files from the Nix build's `src` fileset.
