@@ -72,12 +72,13 @@ export class CodexWire {
     this.write({ jsonrpc: '2.0', method, params });
   }
 
-  onNotification(method: string, handler: NotificationHandler): () => void {
+  onNotification<T>(method: string, handler: (params: T) => void): () => void {
     const handlers = this.handlers.get(method) ?? new Set<NotificationHandler>();
-    handlers.add(handler);
+    const wrapped = handler as unknown as NotificationHandler;
+    handlers.add(wrapped);
     this.handlers.set(method, handlers);
     return () => {
-      handlers.delete(handler);
+      handlers.delete(wrapped);
     };
   }
 
@@ -87,15 +88,15 @@ export class CodexWire {
   }
 
   private handleMessage(message: Record<string, unknown>): void {
-    if (typeof message.id === 'number' || typeof message.id === 'string') {
-      const pending = this.pending.get(message.id);
+    if (typeof message['id'] === 'number' || typeof message['id'] === 'string') {
+      const pending = this.pending.get(message['id']);
       if (pending === undefined) return;
-      this.pending.delete(message.id);
+      this.pending.delete(message['id']);
       if (pending.signal !== undefined) {
         pending.signal.removeEventListener('abort', pending.onAbort);
       }
-      if (message.error !== undefined) {
-        const raw = message.error;
+      if (message['error'] !== undefined) {
+        const raw = message['error'];
         const errorMessage =
           typeof raw === 'string'
             ? raw
@@ -104,15 +105,15 @@ export class CodexWire {
               : 'codex error';
         pending.reject(new Error(errorMessage));
       } else {
-        pending.resolve(message.result);
+        pending.resolve(message['result']);
       }
       return;
     }
-    if (typeof message.method === 'string') {
-      const handlers = this.handlers.get(message.method);
+    if (typeof message['method'] === 'string') {
+      const handlers = this.handlers.get(message['method']);
       if (handlers === undefined) return;
       for (const handler of handlers) {
-        handler(message.params);
+        handler(message['params']);
       }
     }
   }

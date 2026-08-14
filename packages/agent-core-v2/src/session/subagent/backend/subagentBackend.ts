@@ -42,7 +42,7 @@ export interface ISubagentBackend {
 export interface ISubagentBackendService {
   readonly _serviceBrand: undefined;
 
-  get(name: SubagentBackendName): ISubagentBackend | undefined;
+  getBackend(name: SubagentBackendName): ISubagentBackend | undefined;
 
   list(): readonly ISubagentBackend[];
 }

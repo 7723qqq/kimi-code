@@ -401,7 +401,7 @@ export class SubagentTool implements ISubagentTool {
     if (backendName === undefined || backendName === 'in-process') {
       return this.launch(args, toolCallId, controller);
     }
-    const backend = this.backends.get(backendName);
+    const backend = this.backends.getBackend(backendName);
     if (backend === undefined) {
       throw new Error(`unknown subagent backend "${backendName}"`);
     }

@@ -38,7 +38,7 @@ export class SubagentBackendService extends Service implements ISubagentBackendS
     this.register(new AcpBackend(processRunner, config));
   }
 
-  get(name: SubagentBackendName): ISubagentBackend | undefined {
+  getBackend(name: SubagentBackendName): ISubagentBackend | undefined {
     return this.backends.get(name);
   }
 

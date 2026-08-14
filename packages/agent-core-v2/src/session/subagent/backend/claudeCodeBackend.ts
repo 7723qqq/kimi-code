@@ -66,8 +66,10 @@ export class ClaudeCodeBackend implements ISubagentBackend {
               }
               return;
             }
-            if (event.type === 'stream_event' && event.event.type === 'text') {
-              output += event.event.text;
+            if (event.type === 'stream_event' && event.event.type === 'content_block_delta') {
+              if (event.event.delta.type === 'text_delta') {
+                output += event.event.delta.text;
+              }
             }
           }
           resolve({ output, stopReason: 'completed' });

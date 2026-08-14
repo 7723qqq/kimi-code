@@ -22,8 +22,8 @@ describe('SubagentBackendService', () => {
       { get: () => undefined } as unknown as IConfigService,
     );
     expect(service.list().map((backend) => backend.name).toSorted()).toEqual(['acp', 'claude-code', 'codex']);
-    expect(service.get('codex')?.name).toBe('codex');
-    expect(service.get('claude-code')?.name).toBe('claude-code');
-    expect(service.get('acp')?.name).toBe('acp');
+    expect(service.getBackend('codex')?.name).toBe('codex');
+    expect(service.getBackend('claude-code')?.name).toBe('claude-code');
+    expect(service.getBackend('acp')?.name).toBe('acp');
   });
 });
