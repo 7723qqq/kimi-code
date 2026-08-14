@@ -3,6 +3,7 @@
  * session's MCP server connection view (`ISessionMcpHandle.connectionManager`).
  *
  *   GET  /sessions/{session_id}/mcp/servers                       data: {servers[]}
+ *   GET  /sessions/{session_id}/mcp/servers/{name}                data: {server detail incl. tools}
  *   POST /sessions/{session_id}/mcp/servers/{name}:reconnect      data: {reconnected:true}
  */
 
@@ -32,6 +33,18 @@ export const listMcpServersResponseSchema = z.object({
   servers: z.array(mcpServerEntrySchema),
 });
 export type ListMcpServersResponse = z.infer<typeof listMcpServersResponseSchema>;
+
+export const mcpToolSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+});
+export type McpTool = z.infer<typeof mcpToolSchema>;
+
+/** Detail view of one server: entry fields + the resolved tool list. */
+export const mcpServerDetailSchema = mcpServerEntrySchema.extend({
+  tools: z.array(mcpToolSchema),
+});
+export type McpServerDetail = z.infer<typeof mcpServerDetailSchema>;
 
 export const reconnectMcpResultSchema = z.object({
   reconnected: z.literal(true),

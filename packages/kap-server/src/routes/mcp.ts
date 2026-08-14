@@ -28,6 +28,7 @@ import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   listMcpServersResponseSchema,
+  mcpServerDetailSchema,
   reconnectMcpResultSchema,
 } from '../protocol/rest-mcp';
 import { parseActionSuffix } from './action-suffix';
@@ -125,6 +126,62 @@ export function registerMcpRoutes(app: McpRouteHost, core: Scope): void {
     listRoute.path,
     listRoute.options,
     listRoute.handler as Parameters<McpRouteHost['get']>[2],
+  );
+
+  // GET /sessions/{session_id}/mcp/servers/{name} --------------------------
+  // Bare-form of the shared `:tail` segment (no `:action` suffix) — the name
+  // is the whole tail, colons inside a name are legal (qualified MCP tools).
+  const detailRoute = defineRoute(
+    {
+      method: 'GET',
+      path: '/sessions/{session_id}/mcp/servers/{tail}',
+      params: sessionAndServerNameParamSchema,
+      success: { data: mcpServerDetailSchema },
+      errors: {
+        [ErrorCode.SESSION_NOT_FOUND]: {},
+        [ErrorCode.VALIDATION_FAILED]: {},
+      },
+      description: 'Detail of one MCP server: status + resolved tool list',
+      tags: ['mcp'],
+      operationId: 'getMcpServer',
+    },
+    async (req, reply) => {
+      const { session_id, tail } = req.params;
+      const resolved = await resolveMcpView(core, session_id, req.id);
+      if ('envelope' in resolved) {
+        reply.send(resolved.envelope);
+        return;
+      }
+      const entry = resolved.view.get(tail);
+      if (entry === undefined) {
+        reply.send(
+          errEnvelope(ErrorCode.VALIDATION_FAILED, `unknown MCP server: ${tail}`, req.id),
+        );
+        return;
+      }
+      const detail = resolved.view.resolved(tail);
+      const tools = detail
+        ? detail.rawTools.map((tool) => ({ name: tool.name, description: tool.description }))
+        : [];
+      reply.send(
+        okEnvelope(
+          {
+            name: entry.name,
+            transport: entry.transport,
+            status: entry.status,
+            tool_count: entry.toolCount,
+            tools,
+            ...(entry.error !== undefined ? { error: entry.error } : {}),
+          },
+          req.id,
+        ),
+      );
+    },
+  );
+  app.get(
+    detailRoute.path,
+    detailRoute.options,
+    detailRoute.handler as Parameters<McpRouteHost['get']>[2],
   );
 
   // POST /sessions/{session_id}/mcp/servers/{name}:reconnect --------------
