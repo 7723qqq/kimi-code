@@ -12,6 +12,7 @@ import MenuItem from '../ui/MenuItem.vue';
 import IconButton from '../ui/IconButton.vue';
 import Icon from '../ui/Icon.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import WorkspaceFileBrowser from '../WorkspaceFileBrowser.vue';
 
 const { t } = useI18n();
 
@@ -216,6 +217,11 @@ function startArchive(): void {
   closeMenu();
   emit('archiveSession', props.sessionId);
 }
+
+// ---------------------------------------------------------------------------
+// Workspace file browser — self-contained, opens from a header icon.
+// ---------------------------------------------------------------------------
+const fileBrowserOpen = ref(false);
 </script>
 
 <template>
@@ -240,7 +246,15 @@ function startArchive(): void {
       </Tooltip>
     </div>
 
-    <!-- More menu trigger: copy-all + session actions -->
+    <!-- Workspace file browser + more menu triggers -->
+    <IconButton
+      v-if="sessionId"
+      class="ch-act-files"
+      :label="t('header.files')"
+      @click="fileBrowserOpen = true"
+    >
+      <Icon name="folder" size="md" />
+    </IconButton>
     <IconButton
       ref="kebabRef"
       class="ch-act-more"
@@ -333,6 +347,11 @@ function startArchive(): void {
       <span>PR #{{ pr.number }} · {{ prStateLabel(pr.state) }}</span>
     </button>
 
+    <WorkspaceFileBrowser
+      v-model:open="fileBrowserOpen"
+      :session-id="sessionId"
+      :workspace-root="workspaceRoot"
+    />
   </header>
 </template>
 
@@ -428,6 +447,7 @@ function startArchive(): void {
 /* Overflow "…" trigger — IconButton (md). The "open" state keeps the
    sunken highlight while the menu is showing. */
 .ch-act-more.open { background: var(--color-surface-sunken); color: var(--color-text); }
+.ch-act-files { flex: none; }
 
 /* GitHub PR badge — semantic state colors aligned with GitHub
    (open=green, merged=purple, closed=red, draft=gray). */

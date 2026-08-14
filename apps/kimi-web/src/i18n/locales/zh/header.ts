@@ -21,4 +21,5 @@ export default {
   forkSession: '分叉会话',
   archiveSession: '归档',
   exportSession: '导出会话',
+  files: '浏览工作区文件',
 };

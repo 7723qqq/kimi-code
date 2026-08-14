@@ -21,4 +21,5 @@ export default {
   forkSession: 'Fork session',
   archiveSession: 'Archive',
   exportSession: 'Export session',
+  files: 'Browse workspace files',
 };
