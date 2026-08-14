@@ -34,6 +34,10 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "DELETE",
+      "/api/v1/sessions/{session_id}/cron/{task_id}",
+    ],
+    [
+      "DELETE",
       "/api/v1/workspaces/{workspace_id}",
     ],
     [
@@ -154,11 +158,19 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "GET",
+      "/api/v1/sessions/{session_id}/cron",
+    ],
+    [
+      "GET",
       "/api/v1/sessions/{session_id}/fs/{*}",
     ],
     [
       "GET",
       "/api/v1/sessions/{session_id}/goal",
+    ],
+    [
+      "GET",
+      "/api/v1/sessions/{session_id}/mcp/servers",
     ],
     [
       "GET",
@@ -355,6 +367,10 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     [
       "POST",
       "/api/v1/sessions/{session_id}/export",
+    ],
+    [
+      "POST",
+      "/api/v1/sessions/{session_id}/mcp/servers/{tail}",
     ],
     [
       "POST",
