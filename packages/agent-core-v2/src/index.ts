@@ -213,6 +213,7 @@ export * from '#/app/plugin/source';
 export * from '#/app/plugin/github-resolver';
 export * from '#/app/plugin/archive';
 export * from '#/app/plugin/manager';
+export * from '#/app/plugin/marketplace';
 export * from '#/app/plugin/plugin';
 export * from '#/app/plugin/pluginService';
 export * from '#/app/capability/capability';

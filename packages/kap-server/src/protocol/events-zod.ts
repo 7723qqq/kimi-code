@@ -628,6 +628,22 @@ export const configWarningEventSchema = z.object({
   ),
 });
 
+export const pluginChangedEventSchema = z.object({
+  type: z.literal('event.plugin.changed'),
+});
+
+export const capabilityChangedEventSchema = z.object({
+  type: z.literal('event.capability.changed'),
+  capability_id: z.string(),
+  install: z.object({
+    running: z.boolean(),
+    step: z.string().optional(),
+    percent: z.number().optional(),
+    error: z.string().optional(),
+    note: z.string().optional(),
+  }),
+});
+
 export const diUnitChangedEventSchema = z.object({
   type: z.literal('event.di.unit_changed'),
   scope: z.string().min(1),
@@ -965,6 +981,8 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   sessionWorkChangedEventSchema,
   sessionStatusChangedEventSchema,
   diUnitChangedEventSchema,
+  pluginChangedEventSchema,
+  capabilityChangedEventSchema,
   goalUpdatedEventSchema,
   skillActivatedEventSchema,
   pluginCommandActivatedEventSchema,
