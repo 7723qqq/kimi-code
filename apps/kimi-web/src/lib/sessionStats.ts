@@ -210,12 +210,21 @@ export function tokensPerSecond(stats: SessionStats): number | null {
   return stats.decodeMs === 0 ? null : (stats.decodeTokens / stats.decodeMs) * 1000;
 }
 
-/** Compact duration: "45.2s" under a minute, "2m42s" from there on. */
+/** Compact duration: "45.2s" under a minute, "2m42s" from there on (no zero padding — "58m5s", matching upstream). */
 export function formatDurationMs(ms: number): string {
   const s = ms / 1000;
   if (s < 60) return `${Math.round(s * 10) / 10}s`;
   const whole = Math.round(s);
-  return `${Math.floor(whole / 60)}m${String(whole % 60).padStart(2, '0')}s`;
+  return `${Math.floor(whole / 60)}m${whole % 60}s`;
+}
+
+/** Compact decimal-base token count (1K = 1000, "517 / 12.2K / 64.6M") — the display convention used by upstream StatsLine. */
+export function formatTokensDecimal(n: number): string {
+  const scaled = (v: number): string =>
+    v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10);
+  if (n < 1_000) return String(n);
+  if (n < 1_000_000) return `${scaled(n / 1_000)}K`;
+  return `${scaled(n / 1_000_000)}M`;
 }
 
 /** Throughput number — one decimal under 10, rounded above; the "tok/s" unit is supplied by the caller's locale string. */

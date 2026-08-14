@@ -16,6 +16,7 @@ import {
   createSessionStatsState,
   feedSessionStats,
   formatDurationMs,
+  formatTokensDecimal,
   formatTokensPerSecond,
   normalizeUsage,
   tokensPerSecond,
@@ -147,8 +148,17 @@ describe('derived figures', () => {
   it('formats durations and throughput compactly', () => {
     expect(formatDurationMs(45_200)).toBe('45.2s');
     expect(formatDurationMs(162_000)).toBe('2m42s');
+    // No zero padding on the seconds (upstream convention): "58m5s".
+    expect(formatDurationMs(3_485_000)).toBe('58m5s');
     expect(formatTokensPerSecond(129.4)).toBe('129');
     expect(formatTokensPerSecond(9.56)).toBe('9.6');
+  });
+
+  it('formats token counts on the decimal base like upstream', () => {
+    expect(formatTokensDecimal(517)).toBe('517');
+    expect(formatTokensDecimal(12_200)).toBe('12.2K');
+    expect(formatTokensDecimal(64_600_000)).toBe('64.6M');
+    expect(formatTokensDecimal(517_000)).toBe('517K');
   });
 });
 

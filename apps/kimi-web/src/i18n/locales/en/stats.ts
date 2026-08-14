@@ -1,9 +1,9 @@
 export default {
   counts: '{turns} turns · {steps} steps',
   llm: 'LLM {duration}',
-  toolCall: 'tools {duration}',
-  ttftAverage: 'TTFT {duration}',
-  tokensPerSecond: '{tps} tok/s',
-  cacheHit: 'cache {percent}%',
-  inputOutput: 'in {input} · out {output}',
+  toolCall: 'Tool call {duration}',
+  ttftAverage: 'TTFT avg {duration}',
+  tokensPerSecond: '{throughput} tok/s',
+  cacheHit: 'Cache hit {percent}%',
+  tokens: 'Input {input} tok · Output {output} tok',
 } as const;
