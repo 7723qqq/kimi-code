@@ -195,7 +195,7 @@ const visible = computed(() => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--color-line);
 }
 .trajectory-ledger__inner {
   position: relative;
@@ -214,9 +214,9 @@ const visible = computed(() => {
   box-sizing: border-box;
   height: 22px;
   padding: 0 var(--space-3);
-  background: var(--panel);
-  color: var(--dim);
-  font-size: var(--ui-font-size-xs);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -224,16 +224,16 @@ const visible = computed(() => {
 .trajectory-ledger__collapse {
   background: none;
   border: none;
-  color: var(--muted);
+  color: var(--color-text-muted);
   cursor: pointer;
-  font-size: var(--ui-font-size-xs);
+  font-size: var(--text-xs);
 }
 .trajectory-ledger__group {
   box-sizing: border-box;
   height: 18px;
   padding: 0 var(--space-3);
-  color: var(--faint);
-  font-size: var(--ui-font-size-xs);
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
 }
 .trajectory-ledger__record {
   display: flex;
@@ -245,35 +245,35 @@ const visible = computed(() => {
   cursor: pointer;
   border-left: 2px solid transparent;
 }
-.trajectory-ledger__record:hover { background: var(--hover); }
+.trajectory-ledger__record:hover { background: var(--color-hover); }
 .trajectory-ledger__record.selected {
-  background: var(--soft);
-  border-left-color: var(--blue);
+  background: var(--color-surface-raised);
+  border-left-color: var(--color-accent);
 }
-.trajectory-ledger__record.focused { background: var(--bluebg); }
-.trajectory-ledger__record.error .trajectory-ledger__text { color: var(--err); }
+.trajectory-ledger__record.focused { background: var(--color-accent-soft); }
+.trajectory-ledger__record.error .trajectory-ledger__text { color: var(--color-danger); }
 .trajectory-ledger__index {
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: var(--ui-font-size-xs);
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
 }
 .trajectory-ledger__kind {
   min-width: 58px;
-  color: var(--muted);
-  font-size: var(--ui-font-size-xs);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
 }
 .trajectory-ledger__text {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  color: var(--dim);
-  font-size: var(--ui-font-size-sm);
+  color: var(--color-text);
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .trajectory-ledger__duration {
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: var(--ui-font-size-xs);
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
 }
 </style>

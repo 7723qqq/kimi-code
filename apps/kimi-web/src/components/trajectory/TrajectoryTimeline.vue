@@ -157,34 +157,34 @@ function turnBoundaryStyle(time: number): Record<string, string> {
 .trajectory-timeline__lane {
   position: absolute;
   inset: 6px 0 14px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--color-line);
 }
 .trajectory-timeline__span {
   position: absolute;
   height: 8px;
-  border-radius: 2px;
-  background: var(--blue);
+  border-radius: var(--radius-xs);
+  background: var(--color-accent);
   opacity: 0.75;
 }
 .trajectory-timeline__span.lane-0 { top: 0; }
 .trajectory-timeline__span.lane-1 { top: 13px; }
 .trajectory-timeline__span.lane-2 { top: 26px; }
-.trajectory-timeline__span.error { background: var(--err); }
-.trajectory-timeline__span.selected { opacity: 1; outline: 1px solid var(--faint); }
+.trajectory-timeline__span.error { background: var(--color-danger); }
+.trajectory-timeline__span.selected { opacity: 1; outline: 1px solid var(--color-text-faint); }
 .trajectory-timeline__boundary {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 1px;
-  background: var(--muted);
+  background: var(--color-text-muted);
   opacity: 0.5;
 }
 .trajectory-timeline__drag {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: var(--soft);
-  border: 1px solid var(--bd);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
   pointer-events: none;
 }
 .trajectory-timeline__hint {
@@ -193,8 +193,8 @@ function turnBoundaryStyle(time: number): Record<string, string> {
   bottom: 0;
   left: 0;
   overflow: hidden;
-  color: var(--faint);
-  font-size: var(--ui-font-size-xs);
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;

@@ -129,21 +129,21 @@ const sections = computed(() => [
   gap: var(--space-2);
 }
 .trajectory-inspector__index {
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: var(--ui-font-size-xs);
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
 }
 .trajectory-inspector__turn {
-  color: var(--muted);
-  font-size: var(--ui-font-size-sm);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
 .trajectory-inspector__clear {
   margin-left: auto;
   padding: 0;
   background: none;
   border: none;
-  color: var(--blue);
-  font-size: var(--ui-font-size-xs);
+  color: var(--color-accent);
+  font-size: var(--text-xs);
   cursor: pointer;
 }
 .trajectory-inspector__clear:hover {
@@ -152,13 +152,13 @@ const sections = computed(() => [
 .trajectory-inspector__meta {
   display: flex;
   gap: var(--space-3);
-  color: var(--muted);
-  font-size: var(--ui-font-size-sm);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
 .trajectory-inspector__section-title {
   margin-top: var(--space-2);
-  color: var(--dim);
-  font-size: var(--ui-font-size-xs);
+  color: var(--color-text);
+  font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -174,12 +174,12 @@ const sections = computed(() => [
   gap: 2px;
 }
 .trajectory-inspector__cell-label {
-  color: var(--faint);
-  font-size: var(--ui-font-size-xs);
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
 }
 .trajectory-inspector__cell-value {
-  font-family: var(--mono);
-  font-size: var(--ui-font-size-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
 }
 .trajectory-inspector__section {
   min-width: 0;
@@ -190,12 +190,12 @@ const sections = computed(() => [
   box-sizing: border-box;
   max-height: 260px;
   overflow: auto;
-  border: 1px solid var(--line);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-sm);
-  background: var(--panel);
-  color: var(--dim);
-  font-family: var(--mono);
-  font-size: var(--ui-font-size-xs);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
