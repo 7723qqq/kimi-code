@@ -292,6 +292,8 @@ import '#/agent/activityView/activityViewService';
 export * from '#/features/btw/btw';
 export * from '#/features/btw/btwService';
 import '#/features/btw/btwFeature';
+export * from '#/features/codeRuntime/codeRuntime';
+import '#/features/codeRuntime/codeRuntimeFeature';
 import '#/features/plan/profile/plan';
 export * from '#/features/plan/tools/enter-plan-mode/enter-plan-mode';
 import '#/features/plan/tools/enter-plan-mode/enterPlanModeTool';
