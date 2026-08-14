@@ -58,6 +58,7 @@ import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import { renderPrompt } from '#/_base/utils/render-prompt';
 import { t } from '@moonshot-ai/kimi-i18n';
 import { userCancellationReason } from '#/_base/utils/abort';
+import { isSandboxBackendAvailable, resolveSandboxPolicy } from '#/workspace/sandbox/sandbox';
 import bashDescriptionTemplate from './bash.md?raw';
 import { ProcessTask } from './process-task';
 import {
@@ -287,10 +288,18 @@ export class BashTool implements IBashTool {
     const validationError = this.validateRunRequest(args, signal);
     if (validationError !== undefined) return validationError;
 
+    const effectiveCwd = args.cwd ?? this.ctx.cwd;
+    const policy = resolveSandboxPolicy(this.config, effectiveCwd);
+    if (policy.mode !== 'off' && !isSandboxBackendAvailable()) {
+      return {
+        isError: true,
+        output: t('toolsV2.bash.sandboxBackendUnavailable', { mode: policy.mode }),
+      };
+    }
+
     const startsInBackground = args.run_in_background === true;
     const foregroundTimeoutMs = normalizeTimeoutMs(args.timeout, false);
     const command = this.rewriteCommandForShell(args.command);
-    const effectiveCwd = args.cwd ?? this.ctx.cwd;
     const description = startsInBackground ? args.description!.trim() : foregroundDescription(args);
     const timeoutMs = startsInBackground
       ? args.disable_timeout

@@ -536,7 +536,8 @@
     },
     "bash": {
       "startingBackground": "正在启动后台: {{preview}}",
-      "running": "正在运行: {{preview}}"
+      "running": "正在运行: {{preview}}",
+      "sandboxBackendUnavailable": "已配置沙箱模式 \"{{mode}}\"，但当前主机没有可用的沙箱后端 —— 拒绝执行（fail closed）。设置 `[sandbox] mode = \"off\"` 可无沙箱运行。"
     },
     "swarm": {
       "launching": "正在启动 agent swarm: {{description}}",

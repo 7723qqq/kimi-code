@@ -582,6 +582,8 @@ export const en = {
     bash: {
       startingBackground: 'Starting background: {{preview}}',
       running: 'Running: {{preview}}',
+      sandboxBackendUnavailable:
+        'Sandbox mode "{{mode}}" is configured but no sandbox backend is available on this host — refusing to run (fail closed). Set `[sandbox] mode = "off"` to run unsandboxed.',
     },
     swarm: {
       launching: 'Launching agent swarm: {{description}}',
