@@ -42,4 +42,5 @@ export default {
   search: '搜索',
   searchHint: '↑↓ 选择 · ↵ 打开 · Esc 关闭',
   searchNoResults: '没有匹配的会话',
+  searchContentHit: '消息',
 };

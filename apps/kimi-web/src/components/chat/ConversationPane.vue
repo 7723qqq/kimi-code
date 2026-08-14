@@ -157,6 +157,8 @@ const emit = defineEmits<{
   openSubagents: [];
   /** The last assistant turn hit the output-token limit; send a continuation. */
   continueTurn: [];
+  /** Reveal a produced file in the OS file manager. */
+  revealFile: [path: string];
 }>();
 
 // Empty-composer workspace picker.
@@ -1447,6 +1449,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
               @open-thinking="emit('openThinking', $event)"
               @open-compaction="emit('openCompaction', $event)"
               @continue-turn="emit('continueTurn')"
+              @reveal-file="emit('revealFile', $event)"
               @open-agent="emit('openAgent', $event)"
               @open-tool-diff="emit('openToolDiff', $event)"
               @edit-message="handleEditMessage"

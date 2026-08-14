@@ -15,6 +15,9 @@ const { t } = useI18n();
 const props = defineProps<{
   sessions: Session[];
   activeId: string;
+  /** Current-session message texts (already loaded in the client) — searched
+   *  as content hits in addition to session titles / last prompts. */
+  currentMessages?: { messageId: string; text: string; role: string }[];
 }>();
 
 const emit = defineEmits<{
@@ -32,6 +35,8 @@ const inputRef = ref<HTMLInputElement | null>(null);
 const listRef = ref<HTMLElement | null>(null);
 
 interface Hit {
+  /** Stable row key (session id, or `message:<messageId>` for content hits). */
+  key: string;
   session: Session;
   /** Title matched the query (controls title highlighting). */
   inTitle: boolean;
@@ -39,6 +44,8 @@ interface Hit {
   inWorkspace: boolean;
   /** Snippet of lastPrompt to preview under the title (empty when absent). */
   snippetText: string;
+  /** True for content hits: a message inside the ACTIVE session matched. */
+  isContentHit: boolean;
 }
 
 const RESULT_CAP = 200;
@@ -56,14 +63,37 @@ const results = computed<Hit[]>(() => {
     // Empty query → show the full (recent) list; otherwise require a hit.
     if (q.length > 0 && !inTitle && !inLast && !inWorkspace) continue;
     out.push({
+      key: s.id,
       session: s,
       inTitle,
       inWorkspace,
       // Preview the last prompt whenever available; when searching, anchor the
       // snippet on the match (no-ops to the head when the title matched only).
       snippetText: last ? snippet(last, query.value) : '',
+      isContentHit: false,
     });
     if (out.length >= RESULT_CAP) break;
+  }
+  // Content hits from the active session's loaded messages: each matching
+  // message becomes a row previewing the matched text. Cheap (no server
+  // round-trip); only covers messages the client has already loaded.
+  if (q.length > 0) {
+    const active = props.sessions.find((s) => s.id === props.activeId);
+    if (active) {
+      for (const msg of props.currentMessages ?? []) {
+        if (msg.role !== 'user' && msg.role !== 'assistant') continue;
+        if (!msg.text.toLowerCase().includes(q)) continue;
+        if (out.length >= RESULT_CAP) break;
+        out.push({
+          key: `message:${msg.messageId}`,
+          session: active,
+          inTitle: false,
+          inWorkspace: false,
+          snippetText: snippet(msg.text, query.value),
+          isContentHit: true,
+        });
+      }
+    }
   }
   return out;
 });
@@ -145,7 +175,7 @@ onMounted(() => {
       <template v-if="results.length > 0">
         <button
           v-for="(hit, i) in results"
-          :key="hit.session.id"
+          :key="hit.key"
           class="sd-row"
           :class="{ on: i === selectedIndex, active: hit.session.id === activeId }"
           role="option"
@@ -161,6 +191,7 @@ onMounted(() => {
               v-html="highlightHtml(hit.session.workspaceName ?? hit.session.workspaceId ?? '', hit.inWorkspace ? query : '')"
             ></span>
             <span class="sd-time">{{ hit.session.time }}</span>
+            <span v-if="hit.isContentHit" class="sd-content-tag">{{ t('sidebar.searchContentHit') }}</span>
           </span>
           <!-- eslint-disable-next-line vue/no-v-html -- highlightHtml escapes the source before injecting <mark>. -->
           <span class="sd-title" v-html="highlightHtml(hit.session.title, hit.inTitle ? query : '')"></span>
@@ -258,6 +289,15 @@ onMounted(() => {
   flex: none;
   font-family: var(--font-mono);
   color: var(--color-text-faint);
+}
+.sd-content-tag {
+  flex: none;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+  font-size: var(--text-xs);
 }
 
 .sd-title {

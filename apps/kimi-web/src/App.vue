@@ -656,6 +656,14 @@ function handleContinueTurn(): void {
   void client.sendPrompt(t('maxTokens.continuePrompt'));
 }
 
+// Active-session message texts for the spotlight content search — only the
+// messages the client has already loaded (no server round-trip).
+const currentSearchMessages = computed(() =>
+  client.turns.value
+    .filter((turn) => turn.role === 'user' || turn.role === 'assistant')
+    .map((turn) => ({ messageId: turn.id, text: turn.text, role: turn.role })),
+);
+
 async function handleAddWorkspace(root: string): Promise<void> {
   addWorkspaceError.value = null;
   const added = await client.addWorkspaceByPath(root);
@@ -767,6 +775,7 @@ function openPr(url: string): void {
         :pending-by-session="client.pendingBySession.value"
         :unread-by-session="client.unreadBySession.value"
         :subagent-activity-by-session="client.subagentActivityBySession.value"
+        :current-messages="currentSearchMessages"
         :workspace-sort-mode="client.workspaceSortMode.value"
         :backend="client.backend.value"
         @select="client.selectSession($event)"
@@ -899,6 +908,7 @@ function openPr(url: string): void {
       @open-thinking="openThinkingPanel($event)"
       @open-compaction="openCompactionPanel($event)"
       @continue-turn="handleContinueTurn"
+      @reveal-file="client.revealWorkspaceFile($event)"
       @open-agent="openAgentPanel($event)"
       @open-tool-diff="openToolDiff($event)"
       @edit-message="handleEditMessage"

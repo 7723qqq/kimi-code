@@ -79,6 +79,8 @@ const props = withDefaults(
     pendingBySession?: Record<string, { approvals: number; questions: number }>;
     unreadBySession?: Record<string, boolean>;
     subagentActivityBySession?: ReadonlyMap<string, { running: number; suspended: number }>;
+    /** Active-session message texts for content search in the spotlight dialog. */
+    currentMessages?: { messageId: string; text: string; role: string }[];
     /** Width (px) of the session column, driven by the App resize handle. */
     colWidth?: number;
     /** True when the sidebar is collapsed: the container animates to width 0
@@ -96,6 +98,7 @@ const props = withDefaults(
     pendingBySession: () => ({}),
     unreadBySession: () => ({}),
     subagentActivityBySession: () => new Map(),
+    currentMessages: () => [],
     colWidth: 220,
     collapsed: false,
     dragging: false,
@@ -873,6 +876,7 @@ onBeforeUnmount(() => {
       v-if="showSearch"
       :sessions="sessions"
       :active-id="activeId"
+      :current-messages="currentMessages"
       @select="onSelectSession"
       @close="showSearch = false"
     />

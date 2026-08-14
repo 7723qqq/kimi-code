@@ -42,4 +42,5 @@ export default {
   search: 'Search',
   searchHint: '↑↓ navigate · ↵ open · Esc close',
   searchNoResults: 'No matching sessions',
+  searchContentHit: 'message',
 } as const;

@@ -210,6 +210,8 @@ const emit = defineEmits<{
   openCompaction: [target: { turnId: string }];
   /** The last assistant turn hit the output-token limit; send a continuation. */
   continueTurn: [];
+  /** Reveal a produced file in the OS file manager. */
+  revealFile: [path: string];
   /** Show a subagent's live detail in the right-side panel (keyed by the
    *  spawning `Agent` tool-call id). */
   openAgent: [toolCallId: string];
@@ -738,17 +740,31 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
           class="a-files"
         >
           <span class="a-files-label">{{ t('producedFiles.title') }}</span>
-          <button
+          <span
             v-for="path in producedFilePaths(turn)"
             :key="path"
-            type="button"
             class="a-file-chip"
             :title="path"
-            @click="emit('openFile', { path })"
           >
-            <Icon name="file" size="sm" />
-            {{ producedFileBasename(path) }}
-          </button>
+            <button
+              type="button"
+              class="a-file-open"
+              @click="emit('openFile', { path })"
+            >
+              <Icon name="file" size="sm" />
+              {{ producedFileBasename(path) }}
+            </button>
+            <Tooltip :text="t('producedFiles.reveal')">
+              <button
+                type="button"
+                class="a-file-reveal"
+                :aria-label="t('producedFiles.reveal')"
+                @click="emit('revealFile', path)"
+              >
+                <Icon name="folder" size="sm" />
+              </button>
+            </Tooltip>
+          </span>
         </div>
         <div
           v-if="turn.truncated && turn.id !== streamingTurnId"
@@ -1152,22 +1168,55 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
 .a-file-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 9px;
+  gap: 2px;
+  padding: 3px 4px 3px 9px;
   border: 1px solid var(--line);
   border-radius: var(--radius-full);
   background: var(--panel);
   color: var(--dim);
   font-size: var(--text-sm);
   font-family: var(--font-mono);
-  cursor: pointer;
   max-width: 240px;
 }
 .a-file-chip:hover {
   border-color: var(--color-accent);
+}
+.a-file-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.a-file-open:hover {
   color: var(--color-accent);
 }
-.a-file-chip:focus-visible {
+.a-file-reveal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  cursor: pointer;
+  flex: none;
+}
+.a-file-reveal:hover {
+  color: var(--color-accent);
+}
+.a-file-chip:focus-within,
+.a-file-open:focus-visible,
+.a-file-reveal:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
