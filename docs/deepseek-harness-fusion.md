@@ -34,10 +34,10 @@ Cordis plugin model, not transferable.
 | `workflow` | **equivalent** | `app/workflow` (registry/runtime/service/tools). |
 | `compaction` | **equivalent** | `agent/fullCompaction`, `agent/microCompaction`, native compaction. |
 | `session` (JSONL/SQLite backends, titles, reporting) | **equivalent** | `session/sessionLog`, `session/sessionTitle`, `transcript`, `persistence/*`. |
-| `session-query` (full-text, lineage, semantic filtering) | **deferred** | kimi has minidb full-text + kap-server search surface; semantic-filtering / lineage query language would be a new API surface. |
+| `session-query` (full-text, lineage, semantic filtering) | **ported (rounds 4–6)** | `features/sessionQuery` — corpus/filters/lineage, event full-text search, and the model-facing `session_query` tool; built on minidb full-text + the transcript event log. |
 | `interaction` (approval seams, permission presets, ask-user) | **equivalent** | `agent/permission*`, `agent/toolApproval`, `agent/tools/ask-user-question`. |
-| `attachment` (content-addressed durable storage) | **deferred** | kimi has `agent/blob` + media originals; a content-addressed public attachment identity is a protocol-level change. |
-| `spill` (tool-result spill to disk) | **deferred** | kimi truncates oversized tool output (native truncation + `toolResultTruncation`); spilling to files requires a model-visible read path and context-memory integration. |
+| `attachment` (content-addressed durable storage) | **ported (round 7)** | `features/attachment` — content-addressed attachment store + service, layered on the existing blob/media originals. |
+| `spill` (tool-result spill to disk) | **ported (round 3)** | `features/spill` — truncated tool output persisted to a session-scoped artifact with a model-facing locator; wired into Bash and FetchURL. |
 | `extensions` (model-written plugin mount/unmount) | **deferred** | kimi has a plugin system; self-modification surface is risky and needs its own design. |
 | `hooks` (Claude Code / Codex wire protocol) | **deferred** | Overlaps with in-flight subagent backends work (`session/subagent/backend/*`). |
 | `e2b` (cloud sandbox) | **deferred** | Niche; requires external service; OS-level sandbox already ported. |
