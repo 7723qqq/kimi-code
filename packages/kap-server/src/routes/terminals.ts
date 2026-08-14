@@ -111,8 +111,8 @@ export function registerTerminalsRoutes(app: TerminalsRouteHost, core: Scope): v
         const { session_id } = req.params;
         const items = await (await resolveTerminal(core, session_id)).list();
         reply.send(okEnvelope({ items }, req.id));
-      } catch (err) {
-        sendMappedError(reply, req.id, err);
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
       }
     },
   );
@@ -143,8 +143,8 @@ export function registerTerminalsRoutes(app: TerminalsRouteHost, core: Scope): v
         const terminal = await (await resolveTerminal(core, session_id)).create(req.body);
         requestLog(req)?.info({ session_id, terminal_id: terminal.id }, 'terminal created');
         reply.send(okEnvelope(terminal, req.id));
-      } catch (err) {
-        sendMappedError(reply, req.id, err);
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
       }
     },
   );
@@ -173,8 +173,8 @@ export function registerTerminalsRoutes(app: TerminalsRouteHost, core: Scope): v
         const { session_id, terminal_id } = req.params;
         const terminal = await (await resolveTerminal(core, session_id)).get(terminal_id);
         reply.send(okEnvelope(terminal, req.id));
-      } catch (err) {
-        sendMappedError(reply, req.id, err);
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
       }
     },
   );
@@ -216,8 +216,8 @@ export function registerTerminalsRoutes(app: TerminalsRouteHost, core: Scope): v
         const result = await (await resolveTerminal(core, session_id)).close(parsed.id);
         requestLog(req)?.info({ session_id, terminal_id: parsed.id }, 'terminal closed');
         reply.send(okEnvelope(result, req.id));
-      } catch (err) {
-        sendMappedError(reply, req.id, err);
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
       }
     },
   );
@@ -241,15 +241,10 @@ function sendMappedError(
       case ErrorCodes.TERMINAL_NOT_FOUND:
         reply.send(errEnvelope(ErrorCode.TERMINAL_NOT_FOUND, err.message, requestId, err.stack));
         return;
+      case ErrorCodes.FS_PATH_ESCAPES:
+        reply.send(errEnvelope(ErrorCode.FS_PATH_ESCAPES_SESSION, err.message, requestId, err.stack));
+        return;
     }
-  }
-  // `ISessionWorkspaceContext.assertAllowed` throws a plain (uncoded) Error when a cwd
-  // escapes the workspace — map it to the same wire code v1 uses for path
-  // escapes. TODO: push a coded error into `assertAllowed` so this branch can
-  // be folded into the `isError2` switch above.
-  if (err instanceof Error && err.message.startsWith('Path outside workspace')) {
-    reply.send(errEnvelope(ErrorCode.FS_PATH_ESCAPES_SESSION, err.message, requestId, err.stack));
-    return;
   }
   throw err;
 }
