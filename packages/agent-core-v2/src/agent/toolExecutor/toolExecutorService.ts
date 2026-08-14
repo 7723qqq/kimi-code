@@ -7,7 +7,10 @@
  * through the ordered `onDidExecuteTool` hook, publishes tool lifecycle
  * events through `event`, records telemetry through `telemetry`, truncates
  * oversized outputs through `toolResultTruncation`, and logs parse
- * diagnostics through `log`. The mutable dup-type tracking state
+ * diagnostics through `log`. A tool that declares an execution budget
+ * (`RunnableToolExecution.timeoutMs`) is cut off with a `timed out` error
+ * result when the budget elapses (ported from deepseek-harness
+ * `guard/timeout-policy`, MIT). The mutable dup-type tracking state
  * (`toolCallDupTypes`, `dupTypeTurnId`) is registered into `agentState`
  * (`IAgentStateService`) and read/written through it; the emitters, the hook
  * slot, and the describer/guard registration slots stay plain fields. Bound
@@ -30,7 +33,7 @@ import {
 } from '#/tool/args-validator';
 import { parseToolCallArguments } from '#/tool/tool-args-parse';
 import { PathSecurityError } from '#/tool/path-access';
-import { isAbortError, isUserCancellation } from '#/_base/utils/abort';
+import { createDeadlineAbortSignal, isAbortError, isUserCancellation } from '#/_base/utils/abort';
 import { IEventBus } from '#/app/event/eventBus';
 import {
   ToolAccesses,
@@ -532,6 +535,16 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       };
     }
 
+    // A tool that declares an execution budget gets a fused deadline signal;
+    // whichever of upstream cancellation / timeout fires first wins, and a
+    // timeout surfaces as an explicit 'timed out' error result (ported from
+    // deepseek-harness guard/timeout-policy, MIT).
+    const deadline =
+      execution.timeoutMs === undefined
+        ? undefined
+        : createDeadlineAbortSignal(signal, execution.timeoutMs);
+    const execSignal = deadline?.signal ?? signal;
+
     let rawResult: ExecutableToolResult;
     try {
       const executePromise = execution.execute({
@@ -539,20 +552,35 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         toolCallId: call.toolCall.id,
         trace: options.trace,
         metadata,
-        signal,
+        signal: execSignal,
         onUpdate: (update) => {
-          if (signal.aborted) return;
+          if (execSignal.aborted) return;
           this.dispatchToolProgress(call, update, options);
         },
       });
-      rawResult = await raceWithAbortGrace(executePromise, signal, call.toolName);
+      rawResult = await raceWithAbortGrace(executePromise, execSignal, call.toolName);
     } catch (error) {
-      const aborted = isAbortError(error) || signal.aborted;
-      const output = aborted
-        ? abortedToolOutput(call.toolName, signal)
-        : `Tool "${call.toolName}" failed: ${errorMessage(error)}`;
+      const aborted = isAbortError(error) || execSignal.aborted;
+      const output = deadline?.timedOut()
+        ? timeoutToolOutput(call.toolName, execution.timeoutMs)
+        : aborted
+          ? abortedToolOutput(call.toolName, signal)
+          : `Tool "${call.toolName}" failed: ${errorMessage(error)}`;
       return {
         result: makeErrorToolResult(call, call.args, output).result,
+        outcome: 'executed',
+      };
+    } finally {
+      deadline?.clear();
+    }
+
+    if (deadline?.timedOut()) {
+      return {
+        result: makeErrorToolResult(
+          call,
+          call.args,
+          timeoutToolOutput(call.toolName, execution.timeoutMs),
+        ).result,
         outcome: 'executed',
       };
     }
@@ -959,6 +987,10 @@ function abortedToolOutput(toolName: string, signal: AbortSignal): string {
     return `The user manually interrupted "${toolName}" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause 閳?wait for the user's next instruction.`;
   }
   return `Tool "${toolName}" was aborted`;
+}
+
+function timeoutToolOutput(toolName: string, timeoutMs: number | undefined): string {
+  return `Tool "${toolName}" timed out after ${String(timeoutMs)}ms. The call exceeded its execution budget; do not retry the same call blindly — inspect any partial result, reduce the scope, or try different arguments.`;
 }
 
 async function raceWithAbortGrace<Result>(

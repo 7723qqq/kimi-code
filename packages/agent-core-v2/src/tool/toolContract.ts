@@ -82,6 +82,13 @@ export interface RunnableToolExecution {
   readonly stopBatchAfterThis?: boolean | undefined;
   readonly approvalRule: string;
   readonly matchesRule?: ((ruleArgs: string) => boolean) | undefined;
+  /**
+   * Optional per-call execution budget in milliseconds. When set, the
+   * executor arms a deadline over the execution's abort signal and reports
+   * a 'timed out' error result if the budget elapses before the tool
+   * settles (ported from deepseek-harness guard/timeout-policy, MIT).
+   */
+  readonly timeoutMs?: number | undefined;
   readonly execute: (ctx: ExecutableToolContext) => Promise<ExecutableToolResult>;
 }
 

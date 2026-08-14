@@ -25,6 +25,12 @@
  * When the server has been tombstoned as removed (`options.isRemoved`),
  * the call short-circuits to an error result telling the model to stop
  * calling the tool — no client call, no reconnect.
+ *
+ * Every call declares a per-call execution budget
+ * (`MCP_TOOL_CALL_TIMEOUT_MS`, ported from deepseek-harness `mcp`'s
+ * `toolCallTimeoutMs` default, MIT): the executor-level deadline covers all
+ * transports and the reconnect path, including the stdio and SSE clients
+ * that have no request timeout of their own.
  */
 
 import type { Tool as KosongTool } from '#/kosong/contract/tool';
@@ -49,6 +55,8 @@ interface McpToolOptions {
   readonly isRemoved?: () => boolean;
 }
 
+const MCP_TOOL_CALL_TIMEOUT_MS = 60_000;
+
 export function createMcpTool(
   qualifiedName: string,
   tool: KosongTool,
@@ -63,6 +71,7 @@ export function createMcpTool(
     parameters: tool.parameters,
     resolveExecution: (args) => ({
       approvalRule: qualifiedName,
+      timeoutMs: MCP_TOOL_CALL_TIMEOUT_MS,
       execute: async (context) => {
         if (options.isRemoved?.() === true) {
           return {

@@ -22,6 +22,7 @@ import type {
 } from '#/agent/toolExecutor/toolHooks';
 import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
 import { parseToolCallArguments } from '#/tool/tool-args-parse';
+import { userCancellationReason } from '#/_base/utils/abort';
 import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import { makeAgentScopeContext, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -591,6 +592,98 @@ describe('AgentToolExecutorService', () => {
     ]);
   });
 
+  it('times out a tool that declares timeoutMs when the budget elapses', async () => {
+    const tool = new TestTool('hang', {
+      timeoutMs: 50,
+      execute: async (ctx) => {
+        await new Promise<void>((resolve, reject) => {
+          ctx.signal.addEventListener(
+            'abort',
+            () => reject(ctx.signal.reason instanceof Error ? ctx.signal.reason : new Error('aborted')),
+            { once: true },
+          );
+        });
+        return { output: 'late' };
+      },
+    });
+    registry.register(tool);
+
+    const results = await execute([toolCall('call_hang', 'hang', {})]);
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        output: 'Tool "hang" timed out after 50ms.',
+        isError: true,
+      }),
+    ]);
+  });
+
+  it('reports a timeout even when the tool ignores the deadline signal', async () => {
+    const tool = new TestTool('stubborn', {
+      timeoutMs: 50,
+      execute: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        return { output: 'late' };
+      },
+    });
+    registry.register(tool);
+
+    const results = await execute([toolCall('call_stubborn', 'stubborn', {})]);
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        output: 'Tool "stubborn" timed out after 50ms.',
+        isError: true,
+      }),
+    ]);
+  });
+
+  it('reports user cancellation instead of a timeout when the user aborts first', async () => {
+    const controller = new AbortController();
+    const tool = new TestTool('slow', {
+      timeoutMs: 2_000,
+      execute: async (ctx) => {
+        await new Promise<void>((resolve, reject) => {
+          ctx.signal.addEventListener(
+            'abort',
+            () => reject(ctx.signal.reason instanceof Error ? ctx.signal.reason : new Error('aborted')),
+            { once: true },
+          );
+        });
+        return { output: 'late' };
+      },
+    });
+    registry.register(tool);
+
+    const pending = execute([toolCall('call_slow', 'slow', {})], controller.signal);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    controller.abort(userCancellationReason());
+
+    const results = await pending;
+    expect(results).toEqual([
+      expect.objectContaining({
+        output: expect.stringContaining('manually interrupted'),
+        isError: true,
+      }),
+    ]);
+  });
+
+  it('lets a tool with a generous budget complete normally', async () => {
+    const tool = new TestTool('quick', {
+      timeoutMs: 5_000,
+      execute: async (ctx) => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        if (ctx.signal.aborted) throw ctx.signal.reason;
+        return { output: 'done' };
+      },
+    });
+    registry.register(tool);
+
+    const results = await execute([toolCall('call_quick', 'quick', {})]);
+
+    expect(results).toEqual([expect.objectContaining({ output: 'done', isError: undefined })]);
+  });
+
   it('coerces an undefined tool return into an error result without breaking pairing', async () => {
     const tool = new TestTool('corrupt', {
       execute: async () => undefined as unknown as ExecutableToolResult,
@@ -1111,6 +1204,7 @@ class TestTool implements ExecutableTool<Record<string, unknown>> {
       readonly stopBatchAfterThis?: boolean;
       readonly description?: string;
       readonly display?: ToolInputDisplay;
+      readonly timeoutMs?: number;
       readonly result?: ExecutableToolResult;
       readonly execute?: (
         ctx: ExecutableToolContext,
@@ -1128,6 +1222,7 @@ class TestTool implements ExecutableTool<Record<string, unknown>> {
       stopBatchAfterThis: this.options.stopBatchAfterThis,
       description: this.options.description,
       display: this.options.display,
+      timeoutMs: this.options.timeoutMs,
       execute: async (ctx) => {
         this.calls.push({ ...ctx, args });
         if (this.options.execute !== undefined) {
