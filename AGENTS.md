@@ -21,6 +21,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Swarm Discussion** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
 - **Rust Native Tools** — Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as a native Node addon, significantly faster than JS.
 - **Windows one-click launchers** — `start-native.bat` and `start-desktop.bat` for quick launch on Windows.
+- **DeepSeek Harness capability fusion** — Selected capabilities ported from [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (MIT): MCP auto-reconnect with bounded exponential backoff (`mcpCore/connection-manager.ts`). Ported modules carry a source note in their header; capability selection and comparison notes live in the session report.
 
 ---
 
