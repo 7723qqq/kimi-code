@@ -30,6 +30,7 @@ import { ModelsDevImportErrors } from '#/app/kosongConfig/errors';
 import { SessionExportErrors } from '#/app/sessionExport/errors';
 import { SessionErrors } from '#/session/errors';
 import { SessionQueryErrors } from '#/features/sessionQuery/errors';
+import { AttachmentErrors } from '#/features/attachment/errors';
 import { SkillErrors } from '#/app/skillCatalog/errors';
 import { StorageErrors } from '#/persistence/interface/storage';
 import { TerminalErrors } from '#/os/interface/terminalErrors';
@@ -68,6 +69,7 @@ export { ModelsDevImportErrors } from '#/app/kosongConfig/errors';
 export { SessionExportErrors } from '#/app/sessionExport/errors';
 export { SessionErrors } from '#/session/errors';
 export { SessionQueryErrors } from '#/features/sessionQuery/errors';
+export { AttachmentErrors } from '#/features/attachment/errors';
 export { SkillErrors } from '#/app/skillCatalog/errors';
 export { StorageErrors } from '#/persistence/interface/storage';
 export { TerminalErrors } from '#/os/interface/terminalErrors';
@@ -103,6 +105,7 @@ export const ErrorCodes = {
   ...SessionExportErrors.codes,
   ...SessionErrors.codes,
   ...SessionQueryErrors.codes,
+  ...AttachmentErrors.codes,
   ...SkillErrors.codes,
   ...StorageErrors.codes,
   ...TerminalErrors.codes,

@@ -596,6 +596,10 @@ export const en = {
     spill: {
       retrievalHint: 'Full output spilled to {{path}} — read it with the Read tool to see the complete result.',
     },
+    sessionQuery: {
+      mainAgentOnly: 'The session_query tool is available to the main agent only.',
+      unknownOperation: 'Unknown session_query operation.',
+    },
     swarm: {
       launching: 'Launching agent swarm: {{description}}',
       childDescription: '{{description}} #{{index}} ({{profileName}})',

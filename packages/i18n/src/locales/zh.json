@@ -547,6 +547,10 @@
     "spill": {
       "retrievalHint": "完整输出已落盘到 {{path}} —— 使用 Read 工具读取以查看完整结果。"
     },
+    "sessionQuery": {
+      "mainAgentOnly": "session_query 工具仅主 agent 可用。",
+      "unknownOperation": "未知的 session_query 操作。"
+    },
     "swarm": {
       "launching": "正在启动 agent swarm: {{description}}",
       "childDescription": "{{description}} #{{index}} ({{profileName}})",
