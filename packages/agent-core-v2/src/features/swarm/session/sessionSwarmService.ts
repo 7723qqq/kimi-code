@@ -34,6 +34,7 @@ import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalo
 import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import {
+  assertSubagentDepthAllowed,
   isSubagentMeta,
   subagentLabels,
   subagentParentAgentId,
@@ -157,6 +158,8 @@ export class SessionSwarmService implements ISessionSwarmService {
         details: { agentId: callerAgentId },
       });
     }
+    const callerMeta = (await this.metadata.read()).agents?.[callerAgentId];
+    const nextDepth = assertSubagentDepthAllowed(callerMeta);
     const binding = options.binding ?? {
       model: callerData.modelAlias,
       thinking: callerData.thinkingLevel,
@@ -170,7 +173,10 @@ export class SessionSwarmService implements ISessionSwarmService {
           model: binding.model,
           thinking: binding.thinking,
         },
-        labels: subagentLabels(callerAgentId, { swarmItem: options.swarmItem }),
+        labels: subagentLabels(callerAgentId, {
+          swarmItem: options.swarmItem,
+          depth: nextDepth,
+        }),
       });
     } catch (error) {
       throw wrapSubagentModelError(error, binding.model, callerData.modelAlias);

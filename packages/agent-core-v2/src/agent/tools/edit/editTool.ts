@@ -37,6 +37,8 @@ import {
 } from '#/tool/toolContract';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { t } from '@moonshot-ai/kimi-i18n';
+import { IConfigService } from '#/app/config/config';
+import { resolveSandboxPolicy, sandboxWriteGuard } from '#/workspace/sandbox/sandbox';
 
 import { EditInputSchema, IEditTool, type EditInput } from './edit';
 import editDescriptionTemplate from './edit.md?raw';
@@ -51,6 +53,7 @@ export class EditTool implements IEditTool {
     @IFileEditService private readonly editor: IFileEditService,
     @IHostEnvironment private readonly env: IHostEnvironment,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
+    @IConfigService private readonly config: IConfigService,
     @ISessionSkillCatalog private readonly skillCatalog?: ISessionSkillCatalog,
   ) {}
 
@@ -93,6 +96,14 @@ export class EditTool implements IEditTool {
   }
 
   private async execution(args: EditInput, safePath: string): Promise<ExecutableToolResult> {
+    const sandboxError = sandboxWriteGuard(
+      resolveSandboxPolicy(this.config, this.workspaceConfig.workspaceDir),
+      safePath,
+    );
+    if (sandboxError !== undefined) {
+      return { isError: true, output: sandboxError };
+    }
+
     if (args.old_string === args.new_string) {
       return {
         isError: true,

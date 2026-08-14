@@ -22,6 +22,10 @@ import { CHECKPOINTED_MODELS, type Checkpointed } from '#/agent/contextMemory/co
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
 import { SessionCronServiceImpl } from '#/session/cron/sessionCronServiceImpl';
+import { ISubagentBackendService } from '#/session/subagent/backend/subagentBackend';
+import { SubagentBackendService } from '#/session/subagent/backend/subagentBackendService';
+import { ISpillService } from '#/features/spill/spill';
+import { SpillService } from '#/features/spill/spillService';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
 import { CronTaskPersistenceService } from '#/app/cron/cronTaskPersistenceService';
@@ -1274,6 +1278,11 @@ export class AgentTestContext {
               ISessionCronService,
               new SyncDescriptor(SessionCronServiceImpl),
             );
+            reg.defineDescriptor(
+              ISubagentBackendService,
+              new SyncDescriptor(SubagentBackendService),
+            );
+            reg.defineDescriptor(ISpillService, new SyncDescriptor(SpillService));
           },
         ],
         this.serviceOverrides,

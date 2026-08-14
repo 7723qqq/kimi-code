@@ -47,9 +47,30 @@ const MAX_REDIRECT_HOPS = 10;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
+/** Init for connection-pinned requests (undici's `dispatcher` pinning knob). */
+export interface PinnedFetchInit {
+  readonly method?: string;
+  readonly headers?: unknown;
+  readonly signal?: AbortSignal | null;
+  readonly redirect?: unknown;
+  readonly dispatcher?: unknown;
+}
+
+/** Fetch signature for connection-pinned requests (undici-compatible). */
+export type PinnedFetch = (
+  input: string | URL | Request,
+  init?: PinnedFetchInit,
+) => Promise<Response>;
+
 export interface LocalFetchURLProviderOptions {
   userAgent?: string;
   fetchImpl?: typeof fetch;
+  /**
+   * Fetch used for connection-pinned requests (the undici build, since
+   * Node's global fetch rejects an external undici `Agent` dispatcher).
+   * Injectable for tests; defaults to `undici`'s own fetch.
+   */
+  pinnedFetchImpl?: PinnedFetch;
   maxBytes?: number;
   allowPrivateAddresses?: boolean;
 }
@@ -57,12 +78,15 @@ export interface LocalFetchURLProviderOptions {
 export class LocalFetchURLProvider implements UrlFetcher {
   private readonly userAgent: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly pinnedFetchImpl: PinnedFetch;
   private readonly maxBytes: number;
   private readonly allowPrivateAddresses: boolean;
 
   constructor(options: LocalFetchURLProviderOptions = {}) {
     this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+    this.pinnedFetchImpl =
+      options.pinnedFetchImpl ?? (undiciFetch as unknown as PinnedFetch);
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     this.allowPrivateAddresses = options.allowPrivateAddresses ?? false;
   }
@@ -138,7 +162,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
       const pinned = this.pinnedDispatcherFor(target, dispatchers);
       const response =
         pinned !== undefined
-          ? ((await undiciFetch(currentUrl, {
+          ? ((await this.pinnedFetchImpl(currentUrl, {
               method: 'GET',
               headers: { 'User-Agent': this.userAgent },
               signal,

@@ -19,7 +19,11 @@ import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService, type IAgentScopeHandle } from '#/_base/di/scope';
 import type { TokenUsage } from '#/kosong/contract/usage';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { subagentLabels } from '#/session/agentLifecycle/subagentMetadata';
+import {
+  assertSubagentDepthAllowed,
+  subagentLabels,
+} from '#/session/agentLifecycle/subagentMetadata';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
@@ -47,6 +51,7 @@ export class PersistentSubagentService extends Service implements IPersistentSub
     @IAgentLifecycleService private readonly lifecycle: IAgentLifecycleService,
     @ISessionSubagentService private readonly subagents: ISessionSubagentService,
     @ISessionAgentProfileCatalog private readonly catalog: ISessionAgentProfileCatalog,
+    @ISessionMetadata private readonly sessionMetadata: ISessionMetadata,
   ) {
     super();
   }
@@ -75,13 +80,15 @@ export class PersistentSubagentService extends Service implements IPersistentSub
       });
     }
     const callerData = caller.accessor.get(IAgentProfileService).data();
+    const callerMeta = (await this.sessionMetadata.read()).agents?.[ownerAgentId];
+    const nextDepth = assertSubagentDepthAllowed(callerMeta);
     const child = await this.lifecycle.create({
       binding: {
         profile: profile.name,
         model: callerData.modelAlias,
         thinking: callerData.thinkingLevel,
       },
-      labels: subagentLabels(ownerAgentId),
+      labels: subagentLabels(ownerAgentId, { depth: nextDepth }),
     });
     child.accessor
       .get(IAgentPermissionModeService)

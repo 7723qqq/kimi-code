@@ -12,6 +12,8 @@
 
 import { z } from 'zod';
 
+import { t } from '@moonshot-ai/kimi-i18n';
+
 import type { IConfigService } from '#/app/config/config';
 import { registerConfigSection } from '#/app/config/configSectionContributions';
 
@@ -53,4 +55,46 @@ export function resolveSandboxPolicy(
  */
 export function isSandboxBackendAvailable(): boolean {
   return false;
+}
+
+/**
+ * Fail-closed guard for tool paths that write to the filesystem (Write /
+ * Edit) or execute code (run_code). Returns an error message when the
+ * configured sandbox mode blocks the operation, or `undefined` when it is
+ * allowed. `read-only` blocks every write; `workspace-write` blocks writes
+ * outside the workspace root. Mirrors the BashTool execution boundary so a
+ * configured sandbox cannot be bypassed through another tool.
+ */
+export function sandboxWriteGuard(
+  policy: SandboxExecutionPolicy,
+  targetPath: string,
+): string | undefined {
+  if (policy.mode === 'off') return undefined;
+  if (policy.mode === 'read-only') {
+    return t('toolsV2.sandbox.writeBlockedReadOnly', { mode: policy.mode });
+  }
+  if (!isPathWithinWorkspace(targetPath, policy.workspaceRoot)) {
+    return t('toolsV2.sandbox.writeBlockedOutsideWorkspace', {
+      mode: policy.mode,
+      path: targetPath,
+      workspace: policy.workspaceRoot,
+    });
+  }
+  return undefined;
+}
+
+function isPathWithinWorkspace(targetPath: string, workspaceRoot: string): boolean {
+  const normalizedTarget = normalizePathForComparison(targetPath);
+  const normalizedRoot = normalizePathForComparison(workspaceRoot);
+  if (normalizedRoot === '') return false;
+  return (
+    normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`)
+  );
+}
+
+function normalizePathForComparison(path: string): string {
+  const normalized = path.replaceAll('\\', '/').replace(/\/+$/, '');
+  // Windows paths are case-insensitive; compare lowercased so a drive-letter
+  // case difference does not defeat the guard.
+  return /^[a-z]:\//i.test(normalized) ? normalized.toLowerCase() : normalized;
 }

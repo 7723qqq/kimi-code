@@ -39,6 +39,8 @@ import {
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
 import { t } from '@moonshot-ai/kimi-i18n';
+import { IConfigService } from '#/app/config/config';
+import { resolveSandboxPolicy, sandboxWriteGuard } from '#/workspace/sandbox/sandbox';
 import { IWriteTool, WriteInputSchema, type WriteInput } from './write';
 import WRITE_DESCRIPTION from './write.md?raw';
 import { tryNativeWrite } from '#/_base/native-tools';
@@ -53,6 +55,7 @@ export class WriteTool implements IWriteTool {
     @IHostFileSystem private readonly fs: IHostFileSystem,
     @IHostEnvironment private readonly env: IHostEnvironment,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
+    @IConfigService private readonly config: IConfigService,
     @ISessionSkillCatalog private readonly skillCatalog?: ISessionSkillCatalog,
   ) {}
 
@@ -89,6 +92,14 @@ export class WriteTool implements IWriteTool {
   }
 
   private async execution(args: WriteInput, safePath: string): Promise<ExecutableToolResult> {
+    const sandboxError = sandboxWriteGuard(
+      resolveSandboxPolicy(this.config, this.workspaceConfig.workspaceDir),
+      safePath,
+    );
+    if (sandboxError !== undefined) {
+      return { isError: true, output: sandboxError };
+    }
+
     // Reject writes whose target is an existing directory. The underlying fs
     // write would fail anyway, and native may silently succeed on some
     // platforms, so the guard runs before the native fast-path.

@@ -10,15 +10,16 @@
  */
 
 import { Service } from '#/_base/di/service';
+import { LifecycleScope } from '#/app/scopes';
 import { IConfigService } from '#/app/config/config';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ISessionProcessRunner } from '#/session/process/processRunner';
 
 import { AcpBackend } from './acpBackend';
 import { ClaudeCodeBackend } from './claudeCodeBackend';
 import { CodexBackend } from './codexBackend';
-import type {
-  ISubagentBackendService} from './subagentBackend';
 import {
+  ISubagentBackendService,
   type ISubagentBackend,
   type SubagentBackendName,
 } from './subagentBackend';
@@ -50,3 +51,11 @@ export class SubagentBackendService extends Service implements ISubagentBackendS
     this.backends.set(backend.name, backend);
   }
 }
+
+registerScopedService(
+  LifecycleScope.Session,
+  ISubagentBackendService,
+  SubagentBackendService,
+  ScopeActivation.OnScopeCreated,
+  'subagent',
+);

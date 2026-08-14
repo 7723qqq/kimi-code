@@ -6,6 +6,8 @@
  * itself.
  */
 
+import { Error2, ErrorCodes } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
 import type { AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 
 /**
@@ -76,6 +78,25 @@ export function subagentDepthOf(meta: AgentMeta | undefined): number {
   const depth = Number.parseInt(raw, 10);
   if (!Number.isSafeInteger(depth) || depth < 0) return 0;
   return depth;
+}
+
+/**
+ * Enforce the delegation-depth ceiling for one caller, returning the depth
+ * to stamp on the child (`callerDepth + 1`). Throws
+ * `SUBAGENT_DEPTH_EXCEEDED` when the caller already sits at the cap, so any
+ * spawning path (Agent tool, swarm, persistent subagents) fails closed the
+ * same way and a recursive delegation loop cannot nest without bound.
+ */
+export function assertSubagentDepthAllowed(meta: AgentMeta | undefined): number {
+  const callerDepth = subagentDepthOf(meta);
+  if (callerDepth >= MAX_SUBAGENT_DEPTH) {
+    throw new Error2(
+      ErrorCodes.SUBAGENT_DEPTH_EXCEEDED,
+      t('v2Errors.subagentDepthExceeded', { maxDepth: String(MAX_SUBAGENT_DEPTH) }),
+      { details: { depth: callerDepth, maxDepth: MAX_SUBAGENT_DEPTH } },
+    );
+  }
+  return callerDepth + 1;
 }
 
 function firstNonEmpty(...values: readonly (string | undefined)[]): string | undefined {

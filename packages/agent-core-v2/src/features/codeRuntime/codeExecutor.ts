@@ -55,7 +55,17 @@ export async function runCodeInWorker(
 ): Promise<CodeRunOutcome> {
   const timeoutMs = Math.min(Math.max(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000), MAX_TIMEOUT_MS);
   const maxOutputChars = options.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
-  const worker = new Worker(CODE_WORKER_SOURCE, { eval: true });
+  const worker = new Worker(CODE_WORKER_SOURCE, {
+    eval: true,
+    // Bound the worker's heap so a runaway program cannot exhaust the host
+    // process memory before the timeout fires. The worker is a soft
+    // isolation boundary, but an OOM here would take the whole agent down.
+    resourceLimits: {
+      maxOldGenerationSizeMb: 256,
+      maxYoungGenerationSizeMb: 64,
+      stackSizeMb: 4,
+    },
+  });
 
   return new Promise<CodeRunOutcome>((resolve) => {
     const logs: string[] = [];
@@ -65,6 +75,7 @@ export async function runCodeInWorker(
     const cleanup = (): void => {
       worker.off('message', onMessage);
       worker.off('error', onError);
+      worker.off('exit', onExit);
       options.signal?.removeEventListener('abort', onAbort);
       if (timer !== undefined) clearTimeout(timer);
     };
@@ -107,8 +118,26 @@ export async function runCodeInWorker(
       });
     };
 
+    // A program that calls process.exit() (or closes its parent port) drops
+    // the worker without a `done` message; without this the host would sit
+    // idle until the full timeout instead of reporting the exit immediately.
+    const onExit = (exitCode: number | null): void => {
+      if (settled) return;
+      settle({
+        logs: [...logs],
+        error: {
+          kind: 'worker-exit',
+          message:
+            exitCode === null
+              ? 'worker terminated by signal without reporting a result'
+              : `worker exited with code ${String(exitCode)} without reporting a result`,
+        },
+      });
+    };
+
     worker.on('message', onMessage);
     worker.on('error', onError);
+    worker.on('exit', onExit);
     options.signal?.addEventListener('abort', onAbort);
     if (options.signal?.aborted) {
       onAbort();

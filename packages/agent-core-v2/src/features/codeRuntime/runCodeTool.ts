@@ -18,6 +18,9 @@ import type {
   ExecutableToolResult,
   ToolExecution,
 } from '#/tool/toolContract';
+import { IConfigService } from '#/app/config/config';
+import { resolveSandboxPolicy } from '#/workspace/sandbox/sandbox';
+import { t } from '@moonshot-ai/kimi-i18n';
 
 import { runCodeInWorker } from './codeExecutor';
 import type { IRunCodeTool} from './codeRuntime';
@@ -30,7 +33,7 @@ export class RunCodeTool implements IRunCodeTool {
   readonly description: string;
   readonly parameters: Record<string, unknown>;
 
-  constructor() {
+  constructor(@IConfigService private readonly config: IConfigService) {
     this.description = DESCRIPTION;
     this.parameters = toInputJsonSchema(RunCodeInputSchema);
   }
@@ -51,6 +54,14 @@ export class RunCodeTool implements IRunCodeTool {
     args: RunCodeInput,
     { signal }: Pick<ExecutableToolContext, 'signal'>,
   ): Promise<ExecutableToolResult> {
+    const policy = resolveSandboxPolicy(this.config, process.cwd());
+    if (policy.mode !== 'off') {
+      return {
+        isError: true,
+        output: t('toolsV2.sandbox.codeExecutionBlocked', { mode: policy.mode }),
+      };
+    }
+
     const outcome = await runCodeInWorker(args.code, {
       timeoutMs: args.timeout_ms,
       signal,

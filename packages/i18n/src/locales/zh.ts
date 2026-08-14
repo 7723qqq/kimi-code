@@ -547,6 +547,17 @@ export const zh: DeepPartial<typeof import('./en').default> = {
       sandboxBackendUnavailable:
         '已配置沙箱模式 "{{mode}}"，但当前主机没有可用的沙箱后端 —— 拒绝执行（fail closed）。设置 `[sandbox] mode = "off"` 可无沙箱运行。',
     },
+    sandbox: {
+      writeBlockedReadOnly:
+        '沙箱模式 "{{mode}}" 禁止写入文件系统。设置 `[sandbox] mode = "off"`（或 "workspace-write"）以允许写入。',
+      writeBlockedOutsideWorkspace:
+        '沙箱模式 "{{mode}}" 禁止在工作区根目录 "{{workspace}}" 之外写入。目标路径 "{{path}}" 在其之外。',
+      codeExecutionBlocked:
+        '沙箱模式 "{{mode}}" 禁止代码执行（run_code）。设置 `[sandbox] mode = "off"` 以允许执行。',
+    },
+    spill: {
+      retrievalHint: '完整输出已落盘到 {{path}} —— 使用 Read 工具读取以查看完整结果。',
+    },
     swarm: {
       launching: '正在启动 agent swarm: {{description}}',
       childDescription: '{{description}} #{{index}} ({{profileName}})',
@@ -598,9 +609,11 @@ export const zh: DeepPartial<typeof import('./en').default> = {
       rejectedStaysActive: '计划已被用户拒绝。计划模式保持激活。',
     },
     goal: {
-      invalidStatus: '无效的目标状态。请使用 `complete` 或 `blocked`。',
+      invalidStatus: '无效的目标状态。请使用 `active`、`complete` 或 `blocked`。',
       notCompleted: '目标未完成：没有活跃的目标。',
       notBlocked: '目标未阻塞：没有活跃的目标。',
+      notResumed: '目标未恢复：没有当前目标。',
+      resumed: '目标已恢复。',
       budgetNotSet: '目标预算未设置：没有当前目标。',
       budgetStale: '目标预算未设置：当前目标已变更。',
       notCreatedStale: '目标未创建：当前目标已变更。',

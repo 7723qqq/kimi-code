@@ -18,6 +18,7 @@ import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSyste
 import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import { type WriteInput, WriteInputSchema } from '#/agent/tools/os/write/write';
 import { WriteTool } from '#/agent/tools/os/write/writeTool';
+import type { IConfigService } from '#/app/config/config';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
@@ -89,9 +90,14 @@ function createWriteFs(options: WriteFsOptions = {}) {
 
 function makeTool(options: WriteFsOptions = {}, workspace = PERMISSIVE_WORKSPACE) {
   const fakes = createWriteFs(options);
-  const tool = new WriteTool(fakes.fs, createTestEnv(), workspace);
+  const tool = new WriteTool(fakes.fs, createTestEnv(), workspace, sandboxOffConfig);
   return { tool, ...fakes };
 }
+
+const sandboxOffConfig = {
+  _serviceBrand: undefined,
+  get: () => undefined,
+} as unknown as IConfigService;
 
 function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
@@ -213,7 +219,12 @@ describe('WriteTool', () => {
 
   it('expands leading tilde paths using the kaos home directory', async () => {
     const fakes = createWriteFs();
-    const tool = new WriteTool(fakes.fs, createTestEnv('/home/test'), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(
+      fakes.fs,
+      createTestEnv('/home/test'),
+      PERMISSIVE_WORKSPACE,
+      sandboxOffConfig,
+    );
 
     const result = await execute(tool, { path: '~/notes/today.txt', content: 'hello' });
 

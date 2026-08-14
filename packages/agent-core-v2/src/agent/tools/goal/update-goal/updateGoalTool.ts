@@ -67,6 +67,10 @@ export class UpdateGoalTool implements IUpdateGoalTool {
         ) {
           return { output: changedGoalOutput(status) };
         }
+        if (status === 'active') {
+          await this.goal.resumeGoal({}, 'model');
+          return { output: t('toolsV2.goal.resumed') };
+        }
         if (status === 'complete') {
           // Complete the goal directly. The judge evaluation is skipped because
           // the subagent infrastructure required for independent verification
@@ -106,12 +110,13 @@ export class UpdateGoalTool implements IUpdateGoalTool {
 }
 
 function isUpdateGoalStatus(status: unknown): status is UpdateGoalToolInput['status'] {
-  return status === 'complete' || status === 'blocked';
+  return status === 'active' || status === 'complete' || status === 'blocked';
 }
 
 function missingGoalOutput(status: UpdateGoalToolInput['status']): string {
   if (status === 'complete') return t('toolsV2.goal.notCompleted');
-  return t('toolsV2.goal.notBlocked');
+  if (status === 'blocked') return t('toolsV2.goal.notBlocked');
+  return t('toolsV2.goal.notResumed');
 }
 
 function changedGoalOutput(_status: UpdateGoalToolInput['status']): string {

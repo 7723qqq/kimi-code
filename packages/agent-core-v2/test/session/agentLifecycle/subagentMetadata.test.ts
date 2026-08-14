@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import {
+  assertSubagentDepthAllowed,
   MAX_SUBAGENT_DEPTH,
   subagentDepthOf,
   subagentLabels,
@@ -53,5 +54,16 @@ describe('subagent delegation depth', () => {
     expect(subagentDepthOf(metaWith({ subagentDepth: String(MAX_SUBAGENT_DEPTH) }))).toBe(
       MAX_SUBAGENT_DEPTH,
     );
+  });
+
+  it('returns the child depth (caller + 1) for a caller below the ceiling', () => {
+    expect(assertSubagentDepthAllowed(undefined)).toBe(1);
+    expect(assertSubagentDepthAllowed(metaWith({ subagentDepth: '3' }))).toBe(4);
+  });
+
+  it('throws SUBAGENT_DEPTH_EXCEEDED for a caller at the ceiling', () => {
+    expect(() =>
+      assertSubagentDepthAllowed(metaWith({ subagentDepth: String(MAX_SUBAGENT_DEPTH) })),
+    ).toThrowError(/delegation depth exceeded/i);
   });
 });

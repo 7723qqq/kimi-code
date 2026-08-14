@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 
+import type { IConfigService } from '#/app/config/config';
 import { runCodeInWorker } from '#/features/codeRuntime/codeExecutor';
 import { RunCodeTool } from '#/features/codeRuntime/runCodeTool';
 
@@ -78,6 +79,24 @@ describe('runCodeInWorker', () => {
     expect(outcome.error?.kind).toBe('cancelled');
   });
 
+  it('reports a program that calls process.exit() as worker-exit instead of hanging', async () => {
+    const outcome = await runCodeInWorker("console.log('bye'); process.exit(0);", {
+      timeoutMs: 5_000,
+    });
+    expect(outcome.error?.kind).toBe('worker-exit');
+    expect(outcome.error?.message).toContain('exit');
+    // Logs emitted before the exit are still reported.
+    expect(outcome.logs).toContain('bye');
+  });
+
+  it('reports a program that closes its parent port as worker-exit instead of hanging', async () => {
+    const outcome = await runCodeInWorker(
+      "const { parentPort } = require('node:worker_threads'); parentPort.close();",
+      { timeoutMs: 5_000 },
+    );
+    expect(outcome.error?.kind).toBe('worker-exit');
+  });
+
   it('fails with output-limit when logs exhaust the shared budget', async () => {
     const outcome = await runCodeInWorker(`
       for (let i = 0; i < 1000; i++) console.log('line-' + i);
@@ -89,8 +108,13 @@ describe('runCodeInWorker', () => {
 });
 
 describe('RunCodeTool', () => {
+  const configStub = {
+    _serviceBrand: undefined,
+    get: () => undefined,
+  } as unknown as IConfigService;
+
   it('exposes the run_code tool contract and renders results', async () => {
-    const tool = new RunCodeTool();
+    const tool = new RunCodeTool(configStub);
     expect(tool.name).toBe('run_code');
     expect((tool.parameters['properties'] as Record<string, unknown>)['code']).toBeDefined();
 
@@ -111,7 +135,7 @@ describe('RunCodeTool', () => {
   });
 
   it('marks a failing program as an error result', async () => {
-    const tool = new RunCodeTool();
+    const tool = new RunCodeTool(configStub);
     const execution = tool.resolveExecution({ code: "throw new Error('nope');", timeout_ms: 30_000 });
     if (!('execute' in execution)) throw new Error('expected a runnable execution');
     const result = await execution.execute({

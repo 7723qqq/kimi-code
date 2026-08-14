@@ -539,6 +539,14 @@
       "running": "Running: {{preview}}",
       "sandboxBackendUnavailable": "Sandbox mode \"{{mode}}\" is configured but no sandbox backend is available on this host — refusing to run (fail closed). Set `[sandbox] mode = \"off\"` to run unsandboxed."
     },
+    "sandbox": {
+      "writeBlockedReadOnly": "Sandbox mode \"{{mode}}\" blocks writes to the filesystem. Set `[sandbox] mode = \"off\"` (or \"workspace-write\") to allow writes.",
+      "writeBlockedOutsideWorkspace": "Sandbox mode \"{{mode}}\" blocks writes outside the workspace root \"{{workspace}}\". Target path \"{{path}}\" is outside it.",
+      "codeExecutionBlocked": "Sandbox mode \"{{mode}}\" blocks code execution (run_code). Set `[sandbox] mode = \"off\"` to allow it."
+    },
+    "spill": {
+      "retrievalHint": "Full output spilled to {{path}} — read it with the Read tool to see the complete result."
+    },
     "swarm": {
       "launching": "Launching agent swarm: {{description}}",
       "childDescription": "{{description}} #{{index}} ({{profileName}})",
@@ -590,9 +598,11 @@
       "rejectedStaysActive": "Plan rejected by user. Plan mode remains active."
     },
     "goal": {
-      "invalidStatus": "Invalid goal status. Use `complete` or `blocked`.",
+      "invalidStatus": "Invalid goal status. Use `active`, `complete`, or `blocked`.",
       "notCompleted": "Goal not completed: no active goal.",
       "notBlocked": "Goal not blocked: no active goal.",
+      "notResumed": "Goal not resumed: no current goal.",
+      "resumed": "Goal resumed.",
       "budgetNotSet": "Goal budget not set: no current goal.",
       "budgetStale": "Goal budget not set: the current goal changed.",
       "notCreatedStale": "Goal not created: the current goal changed.",

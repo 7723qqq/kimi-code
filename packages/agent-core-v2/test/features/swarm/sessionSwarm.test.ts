@@ -1050,7 +1050,11 @@ describe('SessionSwarmService metadata compatibility', () => {
           model: 'kimi-test',
           thinking: 'medium',
         },
-        labels: { parentAgentId: 'main', swarmItem: 'src/a.ts' },
+        labels: expect.objectContaining({
+          parentAgentId: 'main',
+          swarmItem: 'src/a.ts',
+          subagentDepth: '1',
+        }),
       }),
     );
   });
