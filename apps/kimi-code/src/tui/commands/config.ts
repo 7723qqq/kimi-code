@@ -670,7 +670,7 @@ function showSecondaryModelPicker(
       // Subagent pool bindings carry no explicit thinking level, so the picker
       // hides the Thinking footer instead of offering a no-op choice.
       thinkingControl: false,
-      title: ' Select a secondary model (subagents)',
+      title: t('tui.dialogs.modelSelector.secondaryTitle'),
       onSelect: ({ alias }) => {
         host.restoreEditor();
         void performSecondaryModelSave(host, alias);

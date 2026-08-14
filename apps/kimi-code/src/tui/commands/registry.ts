@@ -159,15 +159,14 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'yolo',
     aliases: ['yes'],
-    description:
-      'Toggle YOLO mode: auto-approve tool actions, but the agent may still ask questions.',
+    description: t('tui.slashCommands.yolo'),
     priority: 101,
     availability: 'always',
   },
   {
     name: 'auto',
     aliases: [],
-    description: 'Toggle Auto mode: fully autonomous, agent decides everything without asking.',
+    description: t('tui.slashCommands.auto'),
     priority: 99,
     availability: 'always',
   },
@@ -204,7 +203,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'discuss',
     aliases: [],
-    description: 'Run a multi-agent discussion on a topic and converge on a consensus',
+    description: t('tui.slashCommands.discuss'),
     priority: 95,
     argumentHint: '<topic>',
     availability: 'idle-only',
@@ -219,7 +218,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'secondary-model',
     aliases: ['subagent-model'],
-    description: 'Configure the secondary model for subagents',
+    description: t('tui.slashCommands.secondaryModel'),
     priority: 90,
     availability: 'always',
     experimentalFlag: 'secondary-model',
@@ -241,7 +240,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'multi-llm',
     aliases: ['multillm'],
-    description: 'Configure MultiLLM concurrent providers (Rust engine)',
+    description: t('tui.slashCommands.multiLlm'),
     priority: 90,
     availability: 'always',
   },
@@ -354,7 +353,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'fork',
     aliases: [],
-    description: 'Fork the current session into a copy without switching to it',
+    description: t('tui.slashCommands.fork'),
     priority: 80,
   },
   {
@@ -448,7 +447,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'web',
     aliases: [],
-    description: 'Open the current session in the Web UI by starting a new server',
+    description: t('tui.slashCommands.web'),
     priority: 40,
     availability: 'always',
   },

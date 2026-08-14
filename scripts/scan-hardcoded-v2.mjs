@@ -18,13 +18,11 @@
  */
 
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
-import { join, relative, resolve, dirname } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { join, relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { register } from 'node:module';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const ROOT = resolve(__dirname, '..');
+const ROOT = resolve(import.meta.dirname, '..');
 
 const SKIP_DIRS = new Set([
   'node_modules', '.git', 'dist', 'target', '.vite', '.cache',
@@ -61,9 +59,7 @@ const MODULES = [
     name: 'kimi-web',
     srcDir: 'apps/kimi-web/src',
     localeDir: 'apps/kimi-web/src/i18n/locales',
-    localeEn: 'apps/kimi-web/src/i18n/locales/en.json',
-    localeZh: 'apps/kimi-web/src/i18n/locales/zh.json',
-    localeIsJson: true,
+    localeKind: 'dir',
     tPattern: /\$t\(['"]/,
     importPattern: /useI18n/,
     skipDirs: ['i18n'],
@@ -128,10 +124,10 @@ async function loadTSModule(p) {
   try {
     const mod = await import(fileUrl);
     return mod.default || mod;
-  } catch (err) {
+  } catch (error) {
     throw new Error(
-      `Cannot load ${p}: ${err instanceof Error ? err.message : String(err)}`,
-      { cause: err },
+      `Cannot load ${p}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }
@@ -154,12 +150,33 @@ function collectLeaves(obj, prefix = '') {
 }
 
 /**
+ * Merge every per-section TS locale file under `locales/<lang>/*.ts` into a
+ * single object (used by modules whose locales are split into section files,
+ * e.g. kimi-web).
+ */
+async function loadLocaleDir(modInfo, lang) {
+  const dir = resolve(ROOT, join(modInfo.localeDir, lang));
+  const merged = {};
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.ts')) continue;
+    const mod = await loadTSModule(join(dir, entry.name));
+    const data = mod?.default ?? mod;
+    if (data !== null && typeof data === 'object') Object.assign(merged, data);
+  }
+  return merged;
+}
+
+/**
  * Extract locale values from a TS module or JSON file.
  */
 async function extractLocaleValues(modInfo) {
   let enData, zhData;
 
-  if (modInfo.localeIsJson) {
+  if (modInfo.localeKind === 'dir') {
+    // Directory of per-section TS files — merge the sections.
+    enData = await loadLocaleDir(modInfo, 'en');
+    zhData = await loadLocaleDir(modInfo, 'zh');
+  } else if (modInfo.localeIsJson) {
     // JSON files — load directly
     const enPath = resolve(ROOT, modInfo.localeEn);
     const zhPath = resolve(ROOT, modInfo.localeZh);
@@ -179,7 +196,7 @@ async function extractLocaleValues(modInfo) {
   // Build a map from leaf value → [keys] (one value might appear under multiple keys)
   const valueToKeys = new Map();
   for (const entry of [...enLeaves, ...zhLeaves]) {
-    const normalized = entry.value.trim().replace(/\{\{(\w+)\}\}/g, '*'); // normalize params
+    const normalized = entry.value.trim().replaceAll(/\{\{(\w+)\}\}/g, '*'); // normalize params
     if (!valueToKeys.has(normalized)) {
       valueToKeys.set(normalized, []);
     }
@@ -194,7 +211,7 @@ async function extractLocaleValues(modInfo) {
 function scanFile(filePath, content, moduleInfo, valueToKeys) {
   const findings = [];
   const lines = content.split('\n');
-  const relPath = relative(ROOT, filePath).replace(/\\/g, '/');
+  const relPath = relative(ROOT, filePath).replaceAll('\\', '/');
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -211,18 +228,18 @@ function scanFile(filePath, content, moduleInfo, valueToKeys) {
     // Look for locale values appearing as string literals
     for (const [normalizedValue, keys] of valueToKeys) {
       // Skip single-word short values that look like identifiers, not display text
-      const plainValue = normalizedValue.replace(/\*/g, '');
-      if (plainValue.length < 5 && !/[\u4e00-\u9fff]/.test(plainValue)) continue;
+      const plainValue = normalizedValue.replaceAll('*', '');
+      if (plainValue.length < 5 && !/[\u4E00-\u9FFF]/.test(plainValue)) continue;
       if (/^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$/.test(plainValue) && plainValue.length < 20) continue;
       // Skip single-word PascalCase values (likely command names or identifiers)
       if (/^[A-Z][a-z]+$/.test(plainValue) && plainValue.length < 15) continue;
       // Skip single words without spaces (likely identifiers, not display text)
-      if (!plainValue.includes(' ') && plainValue.length < 12 && !/[\u4e00-\u9fff]/.test(plainValue)) continue;
+      if (!plainValue.includes(' ') && plainValue.length < 12 && !/[\u4E00-\u9FFF]/.test(plainValue)) continue;
 
       // Build a regex from the value, escaping regex special chars
-      const escaped = normalizedValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const escaped = normalizedValue.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
       // Replace placeholder * with .+ for fuzzy matching
-      const fuzzyPattern = escaped.replace(/\*/g, '.+?');
+      const fuzzyPattern = escaped.replaceAll('*', '.+?');
       const valueRegex = new RegExp(`['"\`]${fuzzyPattern}['"\`]`);
 
       if (valueRegex.test(trimmed)) {
@@ -247,7 +264,7 @@ function scanFile(filePath, content, moduleInfo, valueToKeys) {
           type: 'hardcoded_locale_value',
           text: normalizedValue,
           keys,
-          context: trimmed.substring(0, 100),
+          context: trimmed.slice(0, 100),
         });
       }
     }
@@ -259,7 +276,7 @@ function scanFile(filePath, content, moduleInfo, valueToKeys) {
       // Skip error class names / PascalCase identifiers
       if (/^[A-Z][a-z]+Error$/.test(str)) continue;
       // Check if this string exists in locale values
-      const normalized = str.replace(/\{\{(\w+)\}\}/g, '*');
+      const normalized = str.replaceAll(/\{\{(\w+)\}\}/g, '*');
       if (valueToKeys.has(normalized)) {
         findings.push({
           file: relPath,
@@ -267,7 +284,7 @@ function scanFile(filePath, content, moduleInfo, valueToKeys) {
           type: 'throw_error_with_locale_key',
           text: str,
           keys: valueToKeys.get(normalized),
-          context: trimmed.substring(0, 100),
+          context: trimmed.slice(0, 100),
         });
       } else if (looksLikeUserFacing(str)) {
         findings.push({
@@ -276,7 +293,7 @@ function scanFile(filePath, content, moduleInfo, valueToKeys) {
           type: 'throw_error_hardcoded',
           text: str,
           keys: [],
-          context: trimmed.substring(0, 100),
+          context: trimmed.slice(0, 100),
         });
       }
     }
@@ -288,7 +305,7 @@ function scanFile(filePath, content, moduleInfo, valueToKeys) {
       );
       for (const cm of chalkMatches) {
         const str = cm[1].trim();
-        const normalized = str.replace(/\{\{(\w+)\}\}/g, '*');
+        const normalized = str.replaceAll(/\{\{(\w+)\}\}/g, '*');
         if (!valueToKeys.has(normalized) && looksLikeUserFacing(str)) {
           findings.push({
             file: relPath,
@@ -296,7 +313,7 @@ function scanFile(filePath, content, moduleInfo, valueToKeys) {
             type: 'chalk_output_no_locale',
             text: str,
             keys: [],
-            context: trimmed.substring(0, 100),
+            context: trimmed.slice(0, 100),
           });
         }
       }
@@ -312,7 +329,7 @@ function looksLikeUserFacing(str) {
   if (/^[A-Z][A-Z_]+$/.test(str)) return false;         // ALL_CAPS
   if (/^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$/.test(str) && str.length < 24) return false; // snake/kebab
   // Must start with a capital letter (English) or contain Chinese
-  return /^[A-Z]/.test(str) && /[a-z]/.test(str) || /[\u4e00-\u9fff]/.test(str);
+  return /^[A-Z]/.test(str) && /[a-z]/.test(str) || /[\u4E00-\u9FFF]/.test(str);
 }
 
 function walkDir(dirPath, moduleInfo, valueToKeys) {
@@ -376,8 +393,8 @@ async function main() {
       valueToKeys = localeData.valueToKeys;
       console.log(`  en: ${localeData.enLeaves.length} keys, zh: ${localeData.zhLeaves.length} keys`);
       console.log(`  ${valueToKeys.size} unique value patterns`);
-    } catch (err) {
-      console.error(`  Failed to load locales: ${err.message}`);
+    } catch (error) {
+      console.error(`  Failed to load locales: ${error.message}`);
       continue;
     }
 
@@ -421,7 +438,7 @@ async function main() {
   process.exit(totalFindings > 0 ? 1 : 0);
 }
 
-main().catch((err) => {
-  console.error('Fatal error:', err);
+main().catch((error) => {
+  console.error('Fatal error:', error);
   process.exit(1);
 });

@@ -15,6 +15,7 @@ import {
   visibleWidth,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
+import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { formatIdleDuration } from '#/tui/utils/cache-hint';
@@ -32,20 +33,20 @@ interface CacheHintOption {
 const OPTIONS: readonly CacheHintOption[] = [
   {
     value: 'compact',
-    label: 'Compact and continue',
-    description: 'one-time compact cost · cheapest way to keep this topic',
+    label: t('tui.dialogs.cacheHint.compactLabel'),
+    description: t('tui.dialogs.cacheHint.compactDesc'),
   },
   {
     value: 'new',
-    label: 'Start a new session',
-    description: 'zero context cost · best for a new task',
+    label: t('tui.dialogs.cacheHint.newLabel'),
+    description: t('tui.dialogs.cacheHint.newDesc'),
   },
   {
     value: 'continue',
-    label: 'Continue as-is',
-    description: 'full history kept · highest cost per turn',
+    label: t('tui.dialogs.cacheHint.continueLabel'),
+    description: t('tui.dialogs.cacheHint.continueDesc'),
   },
-  { value: 'never', label: "Don't ask me again" },
+  { value: 'never', label: t('tui.dialogs.cacheHint.neverLabel') },
 ];
 
 export interface CacheHintDialogOptions {
@@ -86,16 +87,16 @@ export class CacheHintDialogComponent extends Container implements Focusable {
 
   override render(width: number): string[] {
     const view = this.list.view();
-    const title = `This session has been idle for ${formatIdleDuration(this.opts.idleSeconds)} and is ~${formatTokenCount(this.opts.totalTokens)} tokens.`;
+    const title = t('tui.dialogs.cacheHint.title', {
+      idle: formatIdleDuration(this.opts.idleSeconds),
+      tokens: formatTokenCount(this.opts.totalTokens),
+    });
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
       currentTheme.boldFg('primary', ` ${title}`),
-      currentTheme.fg('textMuted', ' ↑↓ navigate · Enter select · Esc cancel'),
+      currentTheme.fg('textMuted', t('tui.dialogs.cacheHint.navHint')),
       '',
-      currentTheme.fg(
-        'text',
-        ' Cache expired — the next message re-sends the entire history at full price.',
-      ),
+      currentTheme.fg('text', t('tui.dialogs.cacheHint.expired')),
     ];
 
     const maxLabelWidth = Math.max(...OPTIONS.map((o) => visibleWidth(o.label)));

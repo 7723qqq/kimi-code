@@ -32,13 +32,13 @@ interface TrustPromptOption {
 const OPTIONS: readonly TrustPromptOption[] = [
   {
     value: 'trust',
-    label: 'Trust this folder',
-    description: 'Enable project MCP servers. Remembered for this folder.',
+    label: t('tui.dialogs.trustPrompt.trustLabel'),
+    description: t('tui.dialogs.trustPrompt.trustDesc'),
   },
   {
     value: 'distrust',
-    label: "Don't trust",
-    description: 'Exit Kimi Code. Asked again next launch.',
+    label: t('tui.dialogs.trustPrompt.distrustLabel'),
+    description: t('tui.dialogs.trustPrompt.distrustDesc'),
   },
 ];
 
@@ -72,8 +72,8 @@ export class TrustPromptComponent implements Component, Focusable {
     const rule = currentTheme.fg('primary', '─'.repeat(width));
     const lines = [
       rule,
-      currentTheme.boldFg('primary', ' Trust this folder?'),
-      currentTheme.fg('textMuted', ' ↑↓ navigate · Enter select · Esc exit'),
+      currentTheme.boldFg('primary', t('tui.dialogs.trustPrompt.title')),
+      currentTheme.fg('textMuted', t('tui.dialogs.trustPrompt.navHint')),
       '',
       ...wrapTextWithAnsi(this.opts.workDir, Math.max(20, width - 2)).map(
         (line) => ` ${currentTheme.fg('textStrong', line)}`,
@@ -81,8 +81,7 @@ export class TrustPromptComponent implements Component, Focusable {
       '',
     ];
 
-    const notice =
-      'Project-level MCP servers are disabled until you explicitly choose Trust. Trust starts the listed project MCP targets and remembers this folder.';
+    const notice = t('tui.dialogs.trustPrompt.notice');
     for (const line of wrapTextWithAnsi(notice, Math.max(20, width - 2))) {
       lines.push(` ${currentTheme.fg('textMuted', line)}`);
     }

@@ -8,18 +8,18 @@ function permissionOptions(): readonly ChoiceOption[] {
   return [
     {
       value: 'manual',
-      label: 'Manual',
+      label: t('tui.dialogs.permissionSelector.manual'),
       description: t('tui.dialogs.permissionSelector.manualDesc'),
     },
     {
       value: 'yolo',
-      label: 'YOLO',
-      description: 'Auto-approve tool actions, but the agent may still ask questions.',
+      label: t('tui.dialogs.permissionSelector.yolo'),
+      description: t('tui.dialogs.permissionSelector.yoloDesc'),
     },
     {
       value: 'auto',
-      label: 'Auto',
-      description: 'Fully autonomous — agent decides everything without asking.',
+      label: t('tui.dialogs.permissionSelector.auto'),
+      description: t('tui.dialogs.permissionSelector.autoDesc'),
     },
   ];
 }

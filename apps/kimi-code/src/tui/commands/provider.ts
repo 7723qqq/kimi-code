@@ -137,7 +137,7 @@ function promptProviderAddSource(
 ): Promise<'known' | 'custom' | undefined> {
   return new Promise((resolve) => {
     const picker = new ChoicePickerComponent({
-      title: 'Add provider',
+      title: t('tui.statusMessages.addProviderTitle'),
       options: [
         { value: 'known', label: t('tui.statusMessages.knownThirdPartyProvider') },
         { value: 'custom', label: t('tui.statusMessages.customRegistryOption') },
@@ -162,7 +162,7 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
   };
   host.cancelInFlight = cancel;
 
-  const spinner = host.showLoginProgressSpinner(`Fetching catalog from ${DEFAULT_CATALOG_URL}`);
+  const spinner = host.showLoginProgressSpinner(t('tui.statusMessages.fetchingCatalog', { url: DEFAULT_CATALOG_URL }));
   let catalog: Catalog | undefined;
   try {
     const loaded = await fetchCatalogOrBuiltIn(DEFAULT_CATALOG_URL, {
@@ -173,16 +173,21 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
     spinner.stop({
       ok: true,
       label: loaded.fromBuiltIn
-        ? 'Catalog loaded from built-in snapshot (models.dev unreachable).'
+        ? t('tui.statusMessages.catalogFromBuiltIn')
         : t('tui.statusMessages.catalogLoaded'),
     });
   } catch (error) {
     if (controller.signal.aborted) {
-      spinner.stop({ ok: false, label: 'Aborted.' });
+      spinner.stop({ ok: false, label: t('tui.statusMessages.aborted') });
     } else {
       const hint = error instanceof CatalogFetchError ? ` (HTTP ${error.status})` : '';
       spinner.stop({ ok: false, label: t('tui.statusMessages.catalogFailedToLoad') });
-      host.showError(`Failed to fetch catalog${hint}: ${formatErrorMessage(error)}`);
+      host.showError(
+        t('tui.statusMessages.catalogFetchFailed', {
+          hint,
+          error: formatErrorMessage(error),
+        }),
+      );
     }
   } finally {
     if (host.cancelInFlight === cancel) host.cancelInFlight = undefined;
