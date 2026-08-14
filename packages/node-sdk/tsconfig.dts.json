@@ -14,6 +14,7 @@
     "../agent-core-v2/src/**/*.ts",
     "../i18n/src/**/*.ts",
     "../i18n-shared/src/**/*.ts",
+    "../kaos/src/**/*.ts",
     "../klient/src/**/*.ts",
     "../kosong/src/**/*.ts",
     "../oauth/src/**/*.ts",

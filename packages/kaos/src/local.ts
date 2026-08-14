@@ -57,7 +57,7 @@ function cycleKey(s: { dev: number; ino: number }): string | null {
 export function buildLocalSpawnOptions(
   isWindows: boolean,
   cwd: string,
-  env: Record<string, string> | undefined,
+  env?: Record<string, string>,
 ): SpawnOptions {
   return {
     cwd,
