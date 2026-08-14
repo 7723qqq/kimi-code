@@ -65,6 +65,142 @@ Ported: **`timeout-policy`** — per-call tool execution deadline.
 Deferred (documented for a future round): `session-query`, `spill`,
 `extensions`, `attachment`, `e2b`.
 
+## Second round: session statistics strip
+
+Ported: **`ui-conversation` StatsLine** — the live session statistics strip
+(turns · steps | LLM · tool wall time | avg TTFT · tok/s | cache hit · tokens).
+
+- Upstream: `packages/client/ui-conversation/src/client/chat/StatsLine.tsx` +
+  `turn-metrics.ts` + `message-chrome.ts` (MIT).
+- Data path: the kap-server WS already streams raw engine frames
+  (`turn.started` / `turn.step.completed` with `usage`,
+  `llmFirstTokenLatencyMs`, `llmStreamDurationMs`, `llmRequestBuildMs`;
+  `tool.call.started` / `tool.result` with frame timestamps), so the whole
+  port is client-side in `apps/kimi-web` — no protocol changes needed.
+- Adaptation notes:
+  - Upstream folds a durable server-side `sessionStats` projection and a
+    `tokenUsage` projection; kimi-web accumulates live from the raw frame
+    stream (`lib/sessionStats.ts`, pure reducer) and overlays durable token
+    totals from the session usage snapshot so cache-hit share and billed
+    tokens survive a reload (timings are "since subscribe", like upstream's
+    window-scoped fallback).
+  - Upstream's `deriveStats` node fold maps to the kimi client-side
+    projector's per-frame handling; subagent (non-main-agent) frames are
+    excluded the same way the transcript projector excludes them.
+  - UI: `StatsLine.vue` mounts above the composer in `ChatDock.vue`,
+    mirroring the composer-dock placement upstream; groups with no data drop
+    out wholesale.
+- Verification: `vue-tsc` clean for the touched files (two pre-existing
+  errors in `useAppearance.ts` remain, untouched), oxlint clean, locale
+  placeholder check OK; the pure-logic unit tests
+  (`apps/kimi-web/test/session-stats.test.ts`) were typechecked but not run
+  (vitest cannot start in the sandboxed shell).
+
+Deferred (documented for a future round): `session-query`, `spill`,
+`extensions`, `attachment`, `e2b`.
+
+## Third round: spill storage
+
+Ported: **`spill`** — tool-output spill storage (oversized tool results
+persisted to a session-scoped artifact with a model-facing locator).
+
+- Upstream: `packages/spill/spill` + `packages/spill/spill-local` (MIT).
+- Rationale: kimi truncates oversized tool output (50k chars via
+  `ToolResultBuilder`) and only Bash persisted truncated output to a task
+  snapshot; spill generalizes the "truncate → persist → model-readable
+  reference" pattern to any tool.
+- Adaptation notes:
+  - Upstream's Cordis `SpillStore` service maps to `ISpillService` (Session
+    scope) contributed by a `SpillFeature` unit with a `[spill] root` config
+    section (default: lazily-created 0700 per-process temp root).
+  - The DI-free store mechanics (`privateRoot`, `encodeSegment` safe-path
+    encoding, `sessionDir` hash scoping, exclusive `wx`/0600 writes) port
+    verbatim from `spill-local/src/store.ts`.
+  - `ToolResultBuilder` gained an optional `onTruncated(fullText)` hook that
+    collects the full untruncated stream (bounded at 50 MB) and attaches a
+    `spilled?: SpillRef` to built results via `spillFullText()`; hook
+    failures degrade best-effort (inline truncated result stands).
+  - Consumers: `BashTool` (spill hint alongside the existing task-output
+    path) and `FetchURLTool` (page-content spill). `ReadTool` was not wired:
+    it truncates per-line with an inherent file path the model can re-read.
+  - `SpillService.readText` refuses locators outside the configured root.
+- Verification: `tsc --noEmit` clean; new unit tests
+  (`test/features/spill/spill.test.ts`, 17 cases) covering encoding, exclusive
+  writes, builder hook semantics, and service round-trip/escape guard; full
+  `agent-core-v2` suite green (this round also refreshed an outdated
+  `tool.test.ts` tools-snapshot that predated the lsp/select_tools tools).
+
+Deferred (documented for a future round): `session-query`, `extensions`,
+`attachment`, `e2b`.
+
+## Fourth round: session-query (stage A — corpus, filters, lineage)
+
+Ported: **`session-query` stage A** — the logical-corpus read model: session
+listing with availability, ANDed/ORed session filters, and fork lineage
+tracing.
+
+- Upstream: `packages/session-query/session-query` (MIT).
+- Adaptation notes:
+  - `SessionRecord` maps to kimi's `SessionSummary` (id/cwd/createdAt) plus
+    `parentSessionId` read from the session index's
+    `custom.parent_session_id` fork-provenance field; `live` comes from the
+    workspace lifecycle session registry, `persisted` from the session index.
+  - `filters.ts` ports the upstream pure predicates verbatim
+    (id/cwd/created-at/parent/availability with per-clause OR and
+    cross-clause AND); `materializeSessionResultFilters` validates and
+    detaches clauses, reporting `session_query.*` error codes.
+  - `lineage.ts` walks `parentSessionId` into ancestor chains and complete
+    descendant trees with the upstream `complete`/`unresolvedParentId`
+    contract.
+  - `SessionQueryService` (App scope) lists the corpus through
+    `ISessionIndex.listRecent` keyset pages (all sessions, archived
+    included) and stamps live ids from `IWorkspaceLifecycleService`.
+  - Event-level records, full-text search, and the model tool are deferred
+    to stage B/C.
+- Verification: `tsc --noEmit` clean; oxlint clean; new unit tests
+  (`test/features/sessionQuery/sessionQuery.test.ts`, 19 cases) covering
+  filter semantics, lineage walks, and service resolution against stubbed
+  index/registry sources; full `agent-core-v2` suite green.
+
+Deferred (documented for a future round): `session-query` stages B (full-text
+search) and C (model tool), `extensions`, `attachment`, `e2b`.
+
+## Fifth round: session-query (stage B — event filtering and full-text search)
+
+Ported: **`session-query` stage B** — event-level filtering and full-text
+search over a session's wire journal.
+
+- Upstream: `packages/session-query/session-query` (MIT).
+- Adaptation notes:
+  - The event source is the main-agent wire journal (`wire.jsonl`): one event
+    is one wire record (seq = journal order, type = record type, time =
+    record timestamp), read through `IAppendLogStore` and cached per session
+    with the journal `revision()` as the invalidation key — the same
+    "revision unchanged ⇒ cache fresh" contract the store documents.
+  - `wireRecordText` renders the searchable text of a record (textual
+    payload fields plus `content`-part and `message`-nested text); subagent
+    journals are out of scope.
+  - `filterSessionEvents` ports the upstream metadata/literal-text predicates
+    (seq/time/type/text; the text clause is a case-insensitive,
+    whitespace-flexible literal scan, regex-injection safe).
+  - `searchEventDocuments` ranks by exact-token overlap using the embedded
+    store's own tokenizer (`@moonshot-ai/minidb` `tokenize`, ASCII words +
+    CJK uni/bigrams), builds bounded snippets (±40 chars), and pages through
+    an opaque offset cursor. Query text is data, never query syntax.
+  - `SessionQueryService` gained `filterEvents` / `searchEvents` /
+    `searchSessions`; cross-session search defaults to live sessions
+    (bounded work) and honors session filters to widen the corpus.
+  - The upstream SQLite-backed index is NOT ported — the engine layer keeps
+    an in-memory journal cache; durable archive search remains kap-server's
+    minidb search surface.
+- Verification: `tsc --noEmit` clean; oxlint clean; new unit tests
+  (`test/features/sessionQuery/eventSearch.test.ts`, 16 cases) covering
+  filters, ranking/snippets, cursor paging, and revision-keyed cache
+  rebuild; full `agent-core-v2` suite green.
+
+Deferred (documented for a future round): `session-query` stage C (model
+tool), `extensions`, `attachment`, `e2b`.
+
 ## Verification
 
 - `tsc --noEmit` on `agent-core-v2` and `kosong` (typecheck of the full app is
