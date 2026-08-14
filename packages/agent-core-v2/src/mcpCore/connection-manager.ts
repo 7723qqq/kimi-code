@@ -5,8 +5,11 @@
  * Owns the configured MCP servers and their runtime clients: connects
  * (stdio / SSE / HTTP), discovers and registers tools, attaches the OAuth
  * provider when tokens are present, flips failing servers into `needs-auth`
- * on 401, and reconnects after authentication. Applies per-server settings
- * over the configured defaults and emits status changes to subscribers.
+ * on 401, and reconnects after authentication. An established connection
+ * that closes unexpectedly is restored automatically with bounded exponential
+ * backoff (per-server reconnect budget, see `RECONNECT_DEFAULTS`). Applies
+ * per-server settings over the configured defaults and emits status changes
+ * to subscribers.
  *
  * `resolveClientName` supplies the name announced to servers during initialize
  * (and the OAuth dynamic-registration label), consulted per connection so an
@@ -61,6 +64,12 @@ interface InternalEntry {
   enabledNames?: ReadonlySet<string>;
   error?: string;
   client?: RuntimeMcpClient;
+  /** Auto-reconnect state; created on first unexpected close. */
+  reconnect?: {
+    timer?: NodeJS.Timeout;
+    failedAttempts: number;
+    connectedAt?: number;
+  };
 }
 
 export type McpStatusListener = (entry: McpServerEntry) => void;
@@ -95,6 +104,20 @@ export interface McpConnectionView {
 }
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
+
+/**
+ * Auto-reconnect policy for a server whose established connection closed
+ * unexpectedly (ported from deepseek-harness `mcp-client`'s connection
+ * supervisor, MIT). Delays double from `initialDelayMs` per consecutive
+ * failed attempt up to `maxDelayMs`; a connection that stays up past
+ * `maxDelayMs` (the stability window) resets the budget, while a
+ * crash-looping server still exhausts `maxAttempts` and stops.
+ */
+const RECONNECT_DEFAULTS = {
+  initialDelayMs: 500,
+  maxDelayMs: 30_000,
+  maxAttempts: 10,
+} as const;
 
 type RuntimeMcpClient = StdioMcpClient | HttpMcpClient | SseMcpClient;
 const defaultLog: Logger = {
@@ -232,6 +255,7 @@ export class McpConnectionManager implements McpConnectionView {
   async remove(name: string): Promise<boolean> {
     const entry = this.entries.get(name);
     if (entry === undefined) return false;
+    this.clearReconnectTimer(entry);
     await this.closeClient(entry);
     entry.status = 'disabled';
     entry.tools = undefined;
@@ -246,6 +270,7 @@ export class McpConnectionManager implements McpConnectionView {
   async markRemoved(name: string): Promise<boolean> {
     const entry = this.entries.get(name);
     if (entry === undefined) return false;
+    this.clearReconnectTimer(entry);
     await this.closeClient(entry);
     entry.status = 'removed';
     entry.tools = undefined;
@@ -318,6 +343,7 @@ export class McpConnectionManager implements McpConnectionView {
     if (entry.config.enabled === false) {
       throw new Error2(ErrorCodes.MCP_SERVER_DISABLED, `MCP server is disabled: ${name}`);
     }
+    this.clearReconnectTimer(entry);
     const attemptId = this.beginConnectAttempt(entry);
     await this.closeClient(entry);
     if (!this.isCurrent(entry, attemptId)) return;
@@ -351,6 +377,7 @@ export class McpConnectionManager implements McpConnectionView {
   async shutdown(): Promise<void> {
     const entries = Array.from(this.entries.values());
     this.entries.clear();
+    for (const entry of entries) this.clearReconnectTimer(entry);
     const tasks = entries.map((entry) => this.closeClient(entry));
     await Promise.allSettled(tasks);
   }
@@ -381,6 +408,7 @@ export class McpConnectionManager implements McpConnectionView {
       entry.rawTools = discovered.rawTools;
       entry.enabledNames = computeEnabledNames(entry.config, discovered.tools);
       entry.status = 'connected';
+      if (entry.reconnect !== undefined) entry.reconnect.connectedAt = Date.now();
       this.watchForUnexpectedClose(entry, startupClient, attemptId);
     } catch (error) {
       if (!this.isCurrent(entry, attemptId)) {
@@ -421,7 +449,61 @@ export class McpConnectionManager implements McpConnectionView {
       entry.client = undefined;
       void this.closeRuntimeClient(client);
       this.emit(entry);
+      this.scheduleAutoReconnect(entry, attemptId);
     });
+  }
+
+  /**
+   * Restore a server whose established connection closed unexpectedly, with
+   * bounded exponential backoff. One outage shares one attempt budget;
+   * staying up past the stability window (`maxDelayMs`) resets it, so a
+   * crash-looping server still exhausts the cap and stops reconnecting.
+   */
+  private scheduleAutoReconnect(entry: InternalEntry, attemptId: number): void {
+    const state = (entry.reconnect ??= { failedAttempts: 0 });
+    if (state.connectedAt !== undefined && Date.now() - state.connectedAt >= RECONNECT_DEFAULTS.maxDelayMs) {
+      state.failedAttempts = 0;
+    }
+    state.connectedAt = undefined;
+    state.failedAttempts += 1;
+    if (state.failedAttempts > RECONNECT_DEFAULTS.maxAttempts) {
+      this.log.error(`mcp server "${entry.name}" gave up after ${RECONNECT_DEFAULTS.maxAttempts} consecutive reconnect attempts — tools unregistered; reconnect manually to restore it`);
+      return;
+    }
+    const delayMs = Math.min(
+      RECONNECT_DEFAULTS.maxDelayMs,
+      RECONNECT_DEFAULTS.initialDelayMs * 2 ** (state.failedAttempts - 1),
+    );
+    this.log.warn(
+      `mcp server "${entry.name}" closed unexpectedly — reconnecting in ${delayMs}ms (attempt ${state.failedAttempts}/${RECONNECT_DEFAULTS.maxAttempts})`,
+    );
+    state.timer = setTimeout(() => {
+      state.timer = undefined;
+      void this.reconnectAfterClose(entry, attemptId);
+    }, delayMs);
+    state.timer.unref?.();
+  }
+
+  private async reconnectAfterClose(entry: InternalEntry, previousAttemptId: number): Promise<void> {
+    if (!this.isCurrent(entry, previousAttemptId)) return;
+    if (entry.status === 'removed' || entry.status === 'disabled') return;
+    const attemptId = this.beginConnectAttempt(entry);
+    await this.closeClient(entry);
+    if (!this.isCurrent(entry, attemptId)) return;
+    entry.status = 'pending';
+    entry.tools = undefined;
+    entry.enabledNames = undefined;
+    entry.rawTools = undefined;
+    entry.error = undefined;
+    this.emit(entry);
+    await this.connectOne(entry, attemptId);
+  }
+
+  private clearReconnectTimer(entry: InternalEntry): void {
+    if (entry.reconnect?.timer !== undefined) {
+      clearTimeout(entry.reconnect.timer);
+      entry.reconnect.timer = undefined;
+    }
   }
 
   private beginConnectAttempt(entry: InternalEntry): number {

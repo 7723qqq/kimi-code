@@ -51,6 +51,20 @@ function stdioConfig(args: string[] = [stdioFixture]) {
   };
 }
 
+async function waitForStatus(
+  cm: McpConnectionManager,
+  name: string,
+  status: McpServerEntry['status'],
+  timeoutMs: number,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (cm.get(name)?.status === status) return;
+    await sleep(50);
+  }
+  throw new Error(`timed out waiting for "${name}" to reach ${status}; now ${cm.get(name)?.status}`);
+}
+
 describe('McpConnectionManager', () => {
   it('connects servers in parallel and exposes connected entries with their tool count', async () => {
     const cm = new McpConnectionManager();
@@ -778,7 +792,7 @@ describe('McpConnectionManager', () => {
     }
   }, 15000);
 
-  it('flips connected stdio servers to failed when the child exits unexpectedly', async () => {
+  it('auto-reconnects with backoff after an unexpected close', async () => {
     const cm = new McpConnectionManager();
     const seen: Array<{ name: string; status: McpServerEntry['status'] }> = [];
     cm.onStatusChange((e) => seen.push({ name: e.name, status: e.status }));
@@ -788,30 +802,30 @@ describe('McpConnectionManager', () => {
           transport: 'stdio',
           command: process.execPath,
           args: [crashAfterConnectFixture],
-          env: { KIMI_TEST_MCP_EXIT_AFTER_MS: '500', KIMI_TEST_MCP_STDERR: 'fatal: out of memory' },
+          env: { KIMI_TEST_MCP_EXIT_AFTER_MS: '400', KIMI_TEST_MCP_STDERR: 'fatal: out of memory' },
           startupTimeoutMs: 4_000,
         },
       });
       expect(cm.get('crashy')?.status).toBe('connected');
 
-      for (let i = 0; i < 100; i++) {
-        if (cm.get('crashy')?.status === 'failed') break;
-        await sleep(50);
-      }
+      // First unexpected close: marked failed with the captured stderr.
+      await waitForStatus(cm, 'crashy', 'failed', 10_000);
       const entry = cm.get('crashy');
-      expect(entry?.status).toBe('failed');
       expect(entry?.toolCount).toBe(0);
       expect(entry?.error?.toLowerCase()).toContain('closed');
       expect(entry?.error).toContain('fatal: out of memory');
-      expect(seen.filter((s) => s.name === 'crashy').map((s) => s.status)).toEqual([
-        'pending',
-        'connected',
-        'failed',
-      ]);
+
+      // Auto-reconnect: bounded backoff + fresh spawn restores the connection.
+      // The fixture exits again shortly after re-connecting, which proves the
+      // reconnect path actually re-established a live generation.
+      await waitForStatus(cm, 'crashy', 'connected', 10_000);
+      const sequence = seen.filter((s) => s.name === 'crashy').map((s) => s.status);
+      expect(sequence.slice(0, 3)).toEqual(['pending', 'connected', 'failed']);
+      expect(sequence).toContain('connected');
     } finally {
       await cm.shutdown();
     }
-  }, 10000);
+  }, 20000);
 
   it('includes captured stderr in the error when stdio connect fails before handshake', async () => {
     const cm = new McpConnectionManager();
