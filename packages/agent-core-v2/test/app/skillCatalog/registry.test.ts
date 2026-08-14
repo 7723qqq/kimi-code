@@ -77,18 +77,42 @@ describe('InMemorySkillCatalog skill listing', () => {
     expect(rendered).toContain('  - Description: Alpha does things');
   });
 
-  it('keeps the first registered same-name skill unless replacement is requested', () => {
+  it('lets a higher-rank source override a same-name skill, first-wins within one source', () => {
     const registry = new InMemorySkillCatalog();
-    registry.register(makeSkill('foo', 'project', 'project version'));
-    registry.register(makeSkill('foo', 'user', 'user version'));
     registry.register(makeSkill('foo', 'builtin', 'builtin version'));
+    registry.register(makeSkill('foo', 'extra', 'extra version'));
+    registry.register(makeSkill('foo', 'project', 'project version'));
+    registry.register(makeSkill('foo', 'project', 'project second'));
 
     const rendered = registry.getKimiSkillsDescription();
 
     expect(rendered.match(/\n- foo\n/g) ?? []).toHaveLength(1);
     expect(sectionFor(rendered, '### Project')).toContain('foo');
     expect(rendered).toContain('project version');
-    expect(rendered).not.toContain('user version');
+    expect(rendered).not.toContain('builtin version');
+    expect(rendered).not.toContain('extra version');
+    expect(rendered).not.toContain('project second');
+  });
+
+  it('keeps an earlier same-rank skill over a later one', () => {
+    const registry = new InMemorySkillCatalog();
+    registry.register(makeSkill('foo', 'project', 'first'));
+    registry.register(makeSkill('foo', 'project', 'second'));
+
+    const rendered = registry.getKimiSkillsDescription();
+
+    expect(rendered).toContain('first');
+    expect(rendered).not.toContain('second');
+  });
+
+  it('explicit replace still wins regardless of rank', () => {
+    const registry = new InMemorySkillCatalog();
+    registry.register(makeSkill('foo', 'builtin', 'builtin version'));
+    registry.register(makeSkill('foo', 'project', 'project version'), { replace: true });
+
+    const rendered = registry.getKimiSkillsDescription();
+
+    expect(rendered).toContain('project version');
     expect(rendered).not.toContain('builtin version');
   });
 

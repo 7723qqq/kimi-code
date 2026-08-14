@@ -14,6 +14,25 @@
 
 export type SkillSource = 'project' | 'user' | 'extra' | 'builtin';
 
+/**
+ * Source precedence for same-named skills (inspired by deepseek-harness
+ * `skill-filesystem`'s source ranks, MIT): a higher rank wins when two
+ * sources register the same skill name. Project-defined skills win over
+ * user-level ones, user over plugin extras, and built-ins only fill gaps —
+ * a local definition always shadows a bundled one. Within one source, first
+ * registration wins.
+ */
+export const SKILL_SOURCE_RANK: Readonly<Record<SkillSource, number>> = {
+  project: 400,
+  user: 300,
+  extra: 200,
+  builtin: 100,
+};
+
+export function skillSourceRank(source: SkillSource): number {
+  return SKILL_SOURCE_RANK[source];
+}
+
 export interface SkillMetadata {
   readonly name?: string | undefined;
   readonly description?: string | undefined;

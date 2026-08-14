@@ -16,7 +16,7 @@ import type {
   SkillSource,
   SkippedSkill,
 } from './types';
-import { isInlineSkillType, normalizeSkillName } from './types';
+import { isInlineSkillType, normalizeSkillName, skillSourceRank } from './types';
 
 const LISTING_DESC_MAX = 250;
 
@@ -42,7 +42,12 @@ export class InMemorySkillCatalog implements SkillCatalog {
 
   register(skill: SkillDefinition, options: { readonly replace?: boolean } = {}): void {
     const key = normalizeSkillName(skill.name);
-    if (options.replace === true || !this.byName.has(key)) {
+    const existing = this.byName.get(key);
+    if (
+      options.replace === true ||
+      existing === undefined ||
+      skillSourceRank(skill.source) > skillSourceRank(existing.source)
+    ) {
       this.byName.set(key, skill);
     }
     this.indexPluginSkill(skill, options);
@@ -283,5 +288,5 @@ function tokenizeArgs(raw: string): string[] {
 }
 
 function escapeRegExp(value: string): string {
-  return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+  return value.replaceAll(/[\\^$.*+?()[\]{}|]/g, '\\$&');
 }
