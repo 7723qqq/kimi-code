@@ -83,7 +83,7 @@ function durationSeconds(startedAt: number | null, endedAt: number | null): numb
 
 function singleLine(value: string | undefined, max = 240): string {
   if (value === undefined) return '';
-  const collapsed = value.replaceAll(/\s+/, ' ').trim();
+  const collapsed = value.replaceAll(/\s+/g, ' ').trim();
   return collapsed.length > max ? `${collapsed.slice(0, max)}…` : collapsed;
 }
 
@@ -96,7 +96,8 @@ function textOfContent(content: unknown): string {
       if (b['type'] === 'text' && typeof b['text'] === 'string') return b['text'];
       if (b['type'] === 'thinking' && typeof b['thinking'] === 'string') return b['thinking'];
       if (b['type'] === 'tool_use') {
-        return `[${String(b['tool_name'] ?? 'tool')}]`;
+        const toolName = b['tool_name'];
+        return `[${typeof toolName === 'string' ? toolName : 'tool'}]`;
       }
       return '';
     })
@@ -118,7 +119,10 @@ function usageFields(usage: unknown): {
     return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
   };
   return {
-    input: n('inputOther'),
+    // Total input: non-cached + cache-read + cache-creation (deepseek-harness
+    // TrajectoryTable sums the same three into the "input" cell).
+    input:
+      (n('inputOther') ?? 0) + (n('inputCacheRead') ?? 0) + (n('inputCacheCreation') ?? 0),
     cacheRead: n('inputCacheRead'),
     cacheWrite: n('inputCacheCreation'),
     output: n('output'),
@@ -162,6 +166,10 @@ interface Builder {
   pendingUser: Omit<TrajectoryRecord, 'index' | 'turn' | 'group'> | null;
   openAssistant: OpenAssistant | null;
   openTools: Map<string, OpenTool>;
+  /** Tools whose results arrived but are not settled into a group yet. They
+   *  settle AFTER the current step's assistant record so a step's records
+   *  keep call order (assistant text first, then its tool calls). */
+  pendingTools: OpenTool[];
   index: number;
 }
 
@@ -200,9 +208,20 @@ function settleAssistant(b: Builder, finishedAt: number | null): void {
   });
 }
 
-function settleTool(b: Builder, callId: string, tool: OpenTool): void {
-  const turn = b.currentTurn ?? b.nextTurn - 1;
+/** Settle the open assistant (if any), then any tools whose results arrived
+ *  while it was open — in call order. */
+function settleStep(b: Builder, finishedAt: number | null): void {
   const step = b.openAssistant?.step ?? 0;
+  settleAssistant(b, finishedAt);
+  for (const tool of b.pendingTools) {
+    settleTool(b, tool.callId, tool, step);
+  }
+  b.pendingTools = [];
+}
+
+function settleTool(b: Builder, callId: string, tool: OpenTool, stepOverride?: number): void {
+  const turn = b.currentTurn ?? b.nextTurn - 1;
+  const step = stepOverride ?? b.openAssistant?.step ?? 0;
   pushRecord(b, turn, `Step ${step}`, {
     id: `tool\u0000call\u0000${callId}`,
     kind: 'tool',
@@ -231,6 +250,7 @@ export function deriveTrajectoryLayout(frames: readonly LedgerFrame[]): readonly
     pendingUser: null,
     openAssistant: null,
     openTools: new Map(),
+    pendingTools: [],
     index: 0,
   };
 
@@ -246,7 +266,7 @@ export function deriveTrajectoryLayout(frames: readonly LedgerFrame[]): readonly
     const time = frameTime(frame);
     switch (frame.type) {
       case 'prompt.submitted': {
-        settleAssistant(b, time);
+        settleStep(b, time);
         const content = textOfContent(p['content'] ?? p['prompt']);
         b.pendingUser = {
           id: `user\u0000seq\u0000${frame.seq}`,
@@ -267,7 +287,7 @@ export function deriveTrajectoryLayout(frames: readonly LedgerFrame[]): readonly
         break;
       }
       case 'turn.step.started': {
-        settleAssistant(b, time);
+        settleStep(b, time);
         const step = num(p['step']) ?? (b.openAssistant?.step ?? 0) + 1;
         b.openAssistant = { step, startedAt: time, text: '', thinking: '', interrupted: false, finishedAt: null };
         break;
@@ -307,7 +327,9 @@ export function deriveTrajectoryLayout(frames: readonly LedgerFrame[]): readonly
         tool.isError = p['isError'] === true;
         const output = p['output'];
         tool.output = typeof output === 'string' ? output : JSON.stringify(output ?? '');
-        settleTool(b, callId, tool);
+        // Defer settling until the step's assistant record is in place, so a
+        // step's records keep call order (assistant text, then tool calls).
+        b.pendingTools.push(tool);
         b.openTools.delete(callId);
         break;
       }
@@ -334,16 +356,21 @@ export function deriveTrajectoryLayout(frames: readonly LedgerFrame[]): readonly
           };
           b.openAssistant = null;
           pushRecord(b, b.currentTurn ?? b.nextTurn - 1, `Step ${a.step}`, record);
+          // The step's tool calls settle right after their assistant record.
+          for (const tool of b.pendingTools) {
+            settleTool(b, tool.callId, tool, a.step);
+          }
+          b.pendingTools = [];
         }
         break;
       }
       case 'turn.step.interrupted': {
         if (b.openAssistant !== null) b.openAssistant.interrupted = true;
-        settleAssistant(b, time);
+        settleStep(b, time);
         break;
       }
       case 'turn.ended': {
-        settleAssistant(b, time);
+        settleStep(b, time);
         for (const [callId, tool] of b.openTools) {
           tool.finishedAt = time;
           settleTool(b, callId, tool);
@@ -354,7 +381,7 @@ export function deriveTrajectoryLayout(frames: readonly LedgerFrame[]): readonly
         break;
       }
       case 'session.history_compacted': {
-        settleAssistant(b, time);
+        settleStep(b, time);
         const reason = str(p['reason']) ?? 'manual_compact';
         const turn = b.currentTurn ?? null;
         const title = `Compaction ${frame.seq}`;
@@ -389,7 +416,7 @@ export function deriveTrajectoryLayout(frames: readonly LedgerFrame[]): readonly
   }
 
   // Flush trailing state (session still running).
-  settleAssistant(b, null);
+  settleStep(b, null);
   for (const [callId, tool] of b.openTools) {
     settleTool(b, callId, tool);
   }

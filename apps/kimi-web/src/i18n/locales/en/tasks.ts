@@ -7,6 +7,7 @@ export default {
   dockBash: 'Bash',
   dockSubagent: 'Sub Agent',
   dockTodos: 'Todos',
+  dockTerminal: 'Terminal',
   running: 'running',
   closePanel: 'Close panel',
   timingRunning: 'Running · {time}',

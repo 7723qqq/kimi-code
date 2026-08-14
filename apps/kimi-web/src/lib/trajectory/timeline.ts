@@ -201,5 +201,5 @@ export function formatTimelineOffset(milliseconds: number): string {
 export function formatDurationMillis(milliseconds: number | null): string {
   if (milliseconds === null || !Number.isFinite(milliseconds)) return '—';
   const integer = String(Math.round(milliseconds));
-  return `${integer.replaceAll(/\B(?=(\d{3})+(?!\d))/, ',')} ms`;
+  return `${integer.replaceAll(/\B(?=(\d{3})+(?!\d))/g, ',')} ms`;
 }

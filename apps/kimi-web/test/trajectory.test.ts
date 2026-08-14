@@ -155,7 +155,9 @@ describe('timeline projection', () => {
     expect(model!.spans.map((s) => s.kind)).toEqual(['user', 'assistant']);
     expect(model!.spans[0]!.lane).toBe(0);
     expect(model!.spans[1]!.lane).toBe(1);
-    expect(model!.turnBoundaries).toEqual([{ turn: 1, time: 1 }]);
+    // The boundary marks the turn's start in span units (0 = before its first
+    // span), mirroring deepseek-harness's timeline projection.
+    expect(model!.turnBoundaries).toEqual([{ turn: 1, time: 0 }]);
   });
 
   it('focuses the records active inside a selected interval', () => {
@@ -172,9 +174,11 @@ describe('timeline projection', () => {
       { start: 0.5, end: 1.5 },
       'sequence',
     );
-    // Sequence domain: step 1 at [1,2), step 2 at [2,3). Interval [0.5,1.5]
-    // touches step 1 only.
-    expect(focused).toEqual(new Set([turns[0]!.groups[0]!.records[0]!.index]));
+    // Sequence domain: step 1 at [0,1), step 2 at [1,2). The inclusive
+    // interval [0.5,1.5] touches both steps.
+    expect(focused).toEqual(
+      new Set([turns[0]!.groups[0]!.records[0]!.index, turns[0]!.groups[1]!.records[0]!.index]),
+    );
   });
 });
 
