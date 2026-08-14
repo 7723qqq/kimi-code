@@ -66,6 +66,7 @@
         ./packages/agent-core-v2
         ./packages/i18n
         ./packages/i18n-shared
+        ./packages/kaos
         ./packages/kap-server
         ./packages/kimi-native-tools
         ./packages/kimi-agent
@@ -94,6 +95,7 @@
         "@moonshot-ai/agent-core-v2"
         "@moonshot-ai/kimi-i18n"
         "@moonshot-ai/i18n-shared"
+        "@moonshot-ai/kaos"
         "@moonshot-ai/kap-server"
         "@moonshot-ai/kosong"
         "@moonshot-ai/migration-legacy"
