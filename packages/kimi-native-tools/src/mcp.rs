@@ -234,15 +234,15 @@ fn parse_server_config(
 
     let mut config = McpServerConfig {
         transport: transport.clone(),
-        command: obj.get("command").and_then(|v| v.as_str()).map(String::from),
-        args: obj
-            .get("args")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            }),
+        command: obj
+            .get("command")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        args: obj.get("args").and_then(|v| v.as_array()).map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        }),
         env: parse_string_map(obj.get("env")),
         cwd: obj.get("cwd").and_then(|v| v.as_str()).map(String::from),
         url: obj.get("url").and_then(|v| v.as_str()).map(String::from),
@@ -288,12 +288,7 @@ fn parse_server_config(
             if let Some(base) = stdio_cwd_base {
                 if let Some(cwd) = &config.cwd {
                     if !Path::new(cwd).is_absolute() {
-                        config.cwd = Some(
-                            Path::new(base)
-                                .join(cwd)
-                                .to_string_lossy()
-                                .to_string(),
-                        );
+                        config.cwd = Some(Path::new(base).join(cwd).to_string_lossy().to_string());
                     }
                 }
             }
@@ -310,12 +305,11 @@ fn parse_server_config(
 }
 
 fn parse_string_map(v: Option<&Value>) -> Option<HashMap<String, String>> {
-    v.and_then(|v| v.as_object())
-        .map(|obj| {
-            obj.iter()
-                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                .collect()
-        })
+    v.and_then(|v| v.as_object()).map(|obj| {
+        obj.iter()
+            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+            .collect()
+    })
 }
 
 /// Walk up from `start` looking for a `.git` entry; fall back to `start`.
@@ -323,7 +317,8 @@ fn find_project_root(start: &Path) -> PathBuf {
     let start = if start.is_absolute() {
         start.to_path_buf()
     } else {
-        std::env::current_dir().unwrap_or_else(|_| start.to_path_buf())
+        std::env::current_dir()
+            .unwrap_or_else(|_| start.to_path_buf())
             .join(start)
     };
 
@@ -431,10 +426,10 @@ pub async fn stdio_spawn(config: &StdioSpawnConfig) -> Result<StdioSpawnResult, 
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
 
-    // On Windows, hide the console window.
+    // On Windows, hide the console window. (`creation_flags` is an inherent
+    // method on tokio's Command on Windows — no CommandExt import needed.)
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
@@ -512,9 +507,8 @@ pub async fn stdio_initialize(
     client_version: &str,
     timeout_ms: Option<u32>,
 ) -> Result<Value, String> {
-    let timeout = Duration::from_millis(
-        timeout_ms.unwrap_or(DEFAULT_STARTUP_TIMEOUT_MS as u32) as u64,
-    );
+    let timeout =
+        Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_STARTUP_TIMEOUT_MS as u32) as u64);
 
     let request = json!({
         "jsonrpc": "2.0",
@@ -530,19 +524,18 @@ pub async fn stdio_initialize(
         }
     });
 
-    let response = tokio::time::timeout(
-        timeout,
-        send_request_inner(handle, request),
-    )
-    .await
-    .map_err(|_| {
-        let stderr = try_get_stderr(handle);
-        format!(
-            "MCP initialize timed out after {}ms{}",
-            timeout.as_millis(),
-            stderr.map(|s| format!("\nstderr: {}", s)).unwrap_or_default()
-        )
-    })??;
+    let response = tokio::time::timeout(timeout, send_request_inner(handle, request))
+        .await
+        .map_err(|_| {
+            let stderr = try_get_stderr(handle);
+            format!(
+                "MCP initialize timed out after {}ms{}",
+                timeout.as_millis(),
+                stderr
+                    .map(|s| format!("\nstderr: {}", s))
+                    .unwrap_or_default()
+            )
+        })??;
 
     // Send the initialized notification (no response expected).
     let notification = json!({
@@ -624,24 +617,22 @@ pub async fn stdio_call_tool(
         }
     });
 
-    let timeout = Duration::from_millis(
-        timeout_ms.unwrap_or(DEFAULT_TOOL_TIMEOUT_MS as u32) as u64,
-    );
+    let timeout =
+        Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_TOOL_TIMEOUT_MS as u32) as u64);
 
-    let response = tokio::time::timeout(
-        timeout,
-        send_request_inner(handle, request),
-    )
-    .await
-    .map_err(|_| {
-        let stderr = try_get_stderr(handle);
-        format!(
-            "tools/call '{}' timed out after {}ms{}",
-            name,
-            timeout.as_millis(),
-            stderr.map(|s| format!("\nstderr: {}", s)).unwrap_or_default()
-        )
-    })??;
+    let response = tokio::time::timeout(timeout, send_request_inner(handle, request))
+        .await
+        .map_err(|_| {
+            let stderr = try_get_stderr(handle);
+            format!(
+                "tools/call '{}' timed out after {}ms{}",
+                name,
+                timeout.as_millis(),
+                stderr
+                    .map(|s| format!("\nstderr: {}", s))
+                    .unwrap_or_default()
+            )
+        })??;
 
     Ok(response)
 }
@@ -687,7 +678,7 @@ pub async fn stdio_is_alive(handle: u64) -> bool {
     };
     if let Some(client) = clients.get_mut(&handle) {
         match client.child.try_wait() {
-            Ok(None) => true,   // Still running
+            Ok(None) => true,     // Still running
             Ok(Some(_)) => false, // Exited
             Err(_) => false,
         }
@@ -700,10 +691,7 @@ pub async fn stdio_is_alive(handle: u64) -> bool {
 
 /// Send a JSON-RPC request and wait for the matching response.
 async fn send_request_inner(handle: u64, request: Value) -> Result<Value, String> {
-    let id = request
-        .get("id")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+    let id = request.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
 
     let request_str = serde_json::to_string(&request)
         .map_err(|e| format!("Failed to serialize request: {}", e))?;
@@ -785,10 +773,7 @@ async fn send_request_inner(handle: u64, request: Value) -> Result<Value, String
                             .unwrap_or("unknown error")
                     ));
                 }
-                return Ok(msg
-                    .get("result")
-                    .cloned()
-                    .unwrap_or(Value::Null));
+                return Ok(msg.get("result").cloned().unwrap_or(Value::Null));
             }
         }
         // Notifications or unmatched responses are ignored.

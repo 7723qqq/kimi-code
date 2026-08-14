@@ -1,12 +1,12 @@
-/// MCP tool name sanitization and qualification.
-///
-/// Mirrors `packages/agent-core/src/mcp/tool-naming.ts`:
-///   - `sanitize_mcp_name_part`: replace non-safe chars with `_`, collapse runs
-///   - `qualify_mcp_tool_name`: build `mcp__<server>__<tool>` with length cap + hash
-///   - `is_mcp_tool_name`: check if a name starts with the MCP prefix
-///
-/// Called once per MCP tool registration (10-50 tools per session).
-/// The FNV-1a hash is a single tight loop — trivially fast in Rust.
+//! MCP tool name sanitization and qualification.
+//!
+//! Mirrors `packages/agent-core/src/mcp/tool-naming.ts`:
+//!   - `sanitize_mcp_name_part`: replace non-safe chars with `_`, collapse runs
+//!   - `qualify_mcp_tool_name`: build `mcp__<server>__<tool>` with length cap + hash
+//!   - `is_mcp_tool_name`: check if a name starts with the MCP prefix
+//!
+//! Called once per MCP tool registration (10-50 tools per session).
+//! The FNV-1a hash is a single tight loop — trivially fast in Rust.
 
 const MCP_NAME_PREFIX: &str = "mcp__";
 const MCP_NAME_SEPARATOR: &str = "__";

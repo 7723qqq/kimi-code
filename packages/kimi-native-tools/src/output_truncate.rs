@@ -1,18 +1,18 @@
-/// Streaming tool-output truncation.
-///
-/// Mirrors `ToolResultBuilder.write()` in
-/// `packages/agent-core/src/tools/support/result-builder.ts`.
-///
-/// The TS class accumulates tool output chunk-by-chunk, splitting each chunk
-/// into lines, truncating lines that exceed `max_line_length`, and stopping
-/// once the total character count reaches `max_chars`. This module implements
-/// the per-chunk processing as a stateless function: the TS caller holds the
-/// running state (`nChars`, `truncated`, `buffer`) and calls `write_chunk`
-/// for each incoming text chunk.
-///
-/// Character counting uses UTF-16 code units to match JS `string.length`
-/// semantics exactly (BMP characters = 1 unit, supplementary-plane characters
-/// = 2 units via surrogate pairs).
+//! Streaming tool-output truncation.
+//!
+//! Mirrors `ToolResultBuilder.write()` in
+//! `packages/agent-core/src/tools/support/result-builder.ts`.
+//!
+//! The TS class accumulates tool output chunk-by-chunk, splitting each chunk
+//! into lines, truncating lines that exceed `max_line_length`, and stopping
+//! once the total character count reaches `max_chars`. This module implements
+//! the per-chunk processing as a stateless function: the TS caller holds the
+//! running state (`nChars`, `truncated`, `buffer`) and calls `write_chunk`
+//! for each incoming text chunk.
+//!
+//! Character counting uses UTF-16 code units to match JS `string.length`
+//! semantics exactly (BMP characters = 1 unit, supplementary-plane characters
+//! = 2 units via surrogate pairs).
 
 const TRUNCATION_MARKER: &str = "[...truncated]";
 
@@ -236,7 +236,10 @@ mod tests {
 
     #[test]
     fn test_split_lines_crlf() {
-        assert_eq!(split_lines("hello\r\nworld\r\n"), vec!["hello\r\n", "world\r\n"]);
+        assert_eq!(
+            split_lines("hello\r\nworld\r\n"),
+            vec!["hello\r\n", "world\r\n"]
+        );
     }
 
     #[test]
@@ -261,7 +264,10 @@ mod tests {
 
     #[test]
     fn test_split_lines_mixed_endings() {
-        assert_eq!(split_lines("a\nb\r\nc\rd"), vec!["a\n", "b\r\n", "c\r", "d"]);
+        assert_eq!(
+            split_lines("a\nb\r\nc\rd"),
+            vec!["a\n", "b\r\n", "c\r", "d"]
+        );
     }
 
     // ── extract_trailing_newlines ────────────────────────────────────────

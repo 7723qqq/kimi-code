@@ -175,9 +175,7 @@ pub fn bash_exec(config: &BashConfig) -> BashResult {
         String::new()
     };
 
-    let exit_code = exit_status
-        .map(|s| s.code().unwrap_or(-1))
-        .unwrap_or(-1);
+    let exit_code = exit_status.map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
 
     // Truncate output if too large.
     let stdout = truncate_output(&stdout, MAX_OUTPUT_BYTES);
@@ -351,7 +349,9 @@ fn which(name: &str) -> Option<String> {
 fn is_bat_command(command: &str) -> bool {
     let trimmed = command.trim_start();
     // Find the end of the first token (whitespace or shell operator).
-    let first_token: &str = match trimmed.find(|c: char| c.is_whitespace() || c == '|' || c == '&' || c == ';' || c == '>' || c == '<') {
+    let first_token: &str = match trimmed.find(|c: char| {
+        c.is_whitespace() || c == '|' || c == '&' || c == ';' || c == '>' || c == '<'
+    }) {
         Some(idx) => &trimmed[..idx],
         None => trimmed,
     };

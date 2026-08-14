@@ -160,7 +160,11 @@ pub fn canonicalize_path_for_glob(
         normalize_path(&abs, path_class)
     };
 
-    let sep = if path_class == PathClass::Win32 { '\\' } else { '/' };
+    let sep = if path_class == PathClass::Win32 {
+        '\\'
+    } else {
+        '/'
+    };
     Ok(format!("{}{}{}", normalized_prefix, sep, glob_suffix))
 }
 
@@ -197,7 +201,11 @@ fn is_absolute(path: &str, path_class: PathClass) -> bool {
 }
 
 fn join_path(base: &str, rel: &str, path_class: PathClass) -> String {
-    let sep = if path_class == PathClass::Win32 { '\\' } else { '/' };
+    let sep = if path_class == PathClass::Win32 {
+        '\\'
+    } else {
+        '/'
+    };
     if base.ends_with('/') || base.ends_with('\\') {
         format!("{}{}", base, rel)
     } else {
@@ -206,8 +214,16 @@ fn join_path(base: &str, rel: &str, path_class: PathClass) -> String {
 }
 
 fn normalize_path(path: &str, path_class: PathClass) -> String {
-    let sep = if path_class == PathClass::Win32 { '\\' } else { '/' };
-    let slash_sep = if path_class == PathClass::Win32 { '/' } else { '\\' };
+    let sep = if path_class == PathClass::Win32 {
+        '\\'
+    } else {
+        '/'
+    };
+    let slash_sep = if path_class == PathClass::Win32 {
+        '/'
+    } else {
+        '\\'
+    };
     let normalized = path.replace(slash_sep, &sep.to_string());
     let parts: Vec<&str> = normalized.split(sep).collect();
     let mut result: Vec<&str> = Vec::new();
@@ -252,7 +268,11 @@ pub fn is_within_directory(candidate: &str, base: &str, path_class: PathClass) -
     if comp_c == comp_b {
         return true;
     }
-    let sep = if path_class == PathClass::Win32 { '\\' } else { '/' };
+    let sep = if path_class == PathClass::Win32 {
+        '\\'
+    } else {
+        '/'
+    };
     let prefix = if comp_b.ends_with('/') || comp_b.ends_with('\\') {
         comp_b.clone()
     } else {
@@ -277,13 +297,22 @@ mod tests {
 
     #[test]
     fn test_normalize_user_path_posix() {
-        assert_eq!(normalize_user_path("/foo/bar", PathClass::Posix), "/foo/bar");
-        assert_eq!(normalize_user_path("relative", PathClass::Posix), "relative");
+        assert_eq!(
+            normalize_user_path("/foo/bar", PathClass::Posix),
+            "/foo/bar"
+        );
+        assert_eq!(
+            normalize_user_path("relative", PathClass::Posix),
+            "relative"
+        );
     }
 
     #[test]
     fn test_normalize_user_path_win32_cygdrive() {
-        assert_eq!(normalize_user_path("/cygdrive/c/path", PathClass::Win32), "C:/path");
+        assert_eq!(
+            normalize_user_path("/cygdrive/c/path", PathClass::Win32),
+            "C:/path"
+        );
         assert_eq!(normalize_user_path("/cygdrive/z", PathClass::Win32), "Z:/");
     }
 
@@ -296,19 +325,34 @@ mod tests {
     #[test]
     fn test_normalize_user_path_win32_bare_root() {
         assert_eq!(normalize_user_path("/", PathClass::Win32), "/");
-        assert_eq!(normalize_user_path("//server", PathClass::Win32), "//server");
+        assert_eq!(
+            normalize_user_path("//server", PathClass::Win32),
+            "//server"
+        );
     }
 
     #[test]
     fn test_expand_user_path_posix() {
-        assert_eq!(expand_user_path("~/foo", Some("/home/user"), PathClass::Posix), "/home/user/foo");
-        assert_eq!(expand_user_path("~", Some("/home/user"), PathClass::Posix), "/home/user");
-        assert_eq!(expand_user_path("/abs", Some("/home/user"), PathClass::Posix), "/abs");
+        assert_eq!(
+            expand_user_path("~/foo", Some("/home/user"), PathClass::Posix),
+            "/home/user/foo"
+        );
+        assert_eq!(
+            expand_user_path("~", Some("/home/user"), PathClass::Posix),
+            "/home/user"
+        );
+        assert_eq!(
+            expand_user_path("/abs", Some("/home/user"), PathClass::Posix),
+            "/abs"
+        );
     }
 
     #[test]
     fn test_expand_user_path_win32() {
-        assert_eq!(expand_user_path("~\\foo", Some("C:\\User"), PathClass::Win32), "C:\\User\\foo");
+        assert_eq!(
+            expand_user_path("~\\foo", Some("C:\\User"), PathClass::Win32),
+            "C:\\User\\foo"
+        );
     }
 
     #[test]
@@ -323,19 +367,34 @@ mod tests {
 
     #[test]
     fn test_canonicalize_relative() {
-        assert_eq!(canonicalize_path("foo/bar", "/cwd", PathClass::Posix).unwrap(), "/cwd/foo/bar");
-        assert_eq!(canonicalize_path("./foo", "/cwd", PathClass::Posix).unwrap(), "/cwd/foo");
+        assert_eq!(
+            canonicalize_path("foo/bar", "/cwd", PathClass::Posix).unwrap(),
+            "/cwd/foo/bar"
+        );
+        assert_eq!(
+            canonicalize_path("./foo", "/cwd", PathClass::Posix).unwrap(),
+            "/cwd/foo"
+        );
     }
 
     #[test]
     fn test_canonicalize_dotdot() {
-        assert_eq!(canonicalize_path("foo/../bar", "/cwd", PathClass::Posix).unwrap(), "/cwd/bar");
-        assert_eq!(canonicalize_path("../bar", "/cwd/sub", PathClass::Posix).unwrap(), "/cwd/bar");
+        assert_eq!(
+            canonicalize_path("foo/../bar", "/cwd", PathClass::Posix).unwrap(),
+            "/cwd/bar"
+        );
+        assert_eq!(
+            canonicalize_path("../bar", "/cwd/sub", PathClass::Posix).unwrap(),
+            "/cwd/bar"
+        );
     }
 
     #[test]
     fn test_canonicalize_already_absolute() {
-        assert_eq!(canonicalize_path("/foo/bar", "/cwd", PathClass::Posix).unwrap(), "/foo/bar");
+        assert_eq!(
+            canonicalize_path("/foo/bar", "/cwd", PathClass::Posix).unwrap(),
+            "/foo/bar"
+        );
     }
 
     #[test]
@@ -351,23 +410,43 @@ mod tests {
 
     #[test]
     fn test_is_within_directory_exact() {
-        assert!(is_within_directory("/workspace/file", "/workspace", PathClass::Posix));
+        assert!(is_within_directory(
+            "/workspace/file",
+            "/workspace",
+            PathClass::Posix
+        ));
     }
 
     #[test]
     fn test_is_within_directory_descendant() {
-        assert!(is_within_directory("/workspace/sub/file", "/workspace", PathClass::Posix));
+        assert!(is_within_directory(
+            "/workspace/sub/file",
+            "/workspace",
+            PathClass::Posix
+        ));
     }
 
     #[test]
     fn test_is_within_directory_shared_prefix_escape() {
-        assert!(!is_within_directory("/workspace-evil", "/workspace", PathClass::Posix));
-        assert!(!is_within_directory("/workspace/sub/../../../etc/passwd", "/workspace", PathClass::Posix));
+        assert!(!is_within_directory(
+            "/workspace-evil",
+            "/workspace",
+            PathClass::Posix
+        ));
+        assert!(!is_within_directory(
+            "/workspace/sub/../../../etc/passwd",
+            "/workspace",
+            PathClass::Posix
+        ));
     }
 
     #[test]
     fn test_is_within_directory_win32_case() {
-        assert!(is_within_directory("C:/Workspace/File", "c:/workspace", PathClass::Win32));
+        assert!(is_within_directory(
+            "C:/Workspace/File",
+            "c:/workspace",
+            PathClass::Win32
+        ));
     }
 
     #[test]
@@ -392,7 +471,8 @@ mod tests {
         );
         // Absolute glob pattern.
         assert_eq!(
-            canonicalize_path_for_glob("/workspace/src/**", "/workspace", PathClass::Posix).unwrap(),
+            canonicalize_path_for_glob("/workspace/src/**", "/workspace", PathClass::Posix)
+                .unwrap(),
             "/workspace/src/**"
         );
         // Pattern starting with glob char — untouched.
@@ -402,7 +482,8 @@ mod tests {
         );
         // Character class glob.
         assert_eq!(
-            canonicalize_path_for_glob("./src/file[0-9].txt", "/workspace", PathClass::Posix).unwrap(),
+            canonicalize_path_for_glob("./src/file[0-9].txt", "/workspace", PathClass::Posix)
+                .unwrap(),
             "/workspace/src/file[0-9].txt"
         );
         // Brace glob.
@@ -425,8 +506,20 @@ mod tests {
     #[test]
     fn test_is_within_workspace_multi_root() {
         let roots = vec!["/primary".to_string(), "/secondary".to_string()];
-        assert!(is_within_workspace("/primary/file", &roots, PathClass::Posix));
-        assert!(is_within_workspace("/secondary/file", &roots, PathClass::Posix));
-        assert!(!is_within_workspace("/other/file", &roots, PathClass::Posix));
+        assert!(is_within_workspace(
+            "/primary/file",
+            &roots,
+            PathClass::Posix
+        ));
+        assert!(is_within_workspace(
+            "/secondary/file",
+            &roots,
+            PathClass::Posix
+        ));
+        assert!(!is_within_workspace(
+            "/other/file",
+            &roots,
+            PathClass::Posix
+        ));
     }
 }

@@ -188,12 +188,7 @@ mod tests {
     #[test]
     fn test_edit_single_occurrence() {
         let f = write_temp(b"hello world\n");
-        let result = edit_file(
-            f.path().to_str().unwrap(),
-            "world",
-            "rust",
-            false,
-        );
+        let result = edit_file(f.path().to_str().unwrap(), "world", "rust", false);
         assert!(result.success);
         assert_eq!(result.replacements, 1);
         let content = fs::read_to_string(f.path()).unwrap();
@@ -203,12 +198,7 @@ mod tests {
     #[test]
     fn test_edit_not_found() {
         let f = write_temp(b"hello world\n");
-        let result = edit_file(
-            f.path().to_str().unwrap(),
-            "xyz",
-            "abc",
-            false,
-        );
+        let result = edit_file(f.path().to_str().unwrap(), "xyz", "abc", false);
         assert!(!result.success);
         assert!(result.error.unwrap().contains("not found"));
     }
@@ -216,12 +206,7 @@ mod tests {
     #[test]
     fn test_edit_multiple_occurrences_error() {
         let f = write_temp(b"aaa\n");
-        let result = edit_file(
-            f.path().to_str().unwrap(),
-            "a",
-            "b",
-            false,
-        );
+        let result = edit_file(f.path().to_str().unwrap(), "a", "b", false);
         assert!(!result.success);
         assert!(result.error.unwrap().contains("not unique"));
     }
@@ -229,12 +214,7 @@ mod tests {
     #[test]
     fn test_edit_replace_all() {
         let f = write_temp(b"aaa\n");
-        let result = edit_file(
-            f.path().to_str().unwrap(),
-            "a",
-            "b",
-            true,
-        );
+        let result = edit_file(f.path().to_str().unwrap(), "a", "b", true);
         assert!(result.success);
         assert_eq!(result.replacements, 3);
         let content = fs::read_to_string(f.path()).unwrap();
@@ -244,12 +224,7 @@ mod tests {
     #[test]
     fn test_edit_empty_old_string() {
         let f = write_temp(b"hello\n");
-        let result = edit_file(
-            f.path().to_str().unwrap(),
-            "",
-            "x",
-            false,
-        );
+        let result = edit_file(f.path().to_str().unwrap(), "", "x", false);
         assert!(!result.success);
         assert!(result.error.unwrap().contains("must not be empty"));
     }
@@ -257,12 +232,7 @@ mod tests {
     #[test]
     fn test_edit_same_string() {
         let f = write_temp(b"hello\n");
-        let result = edit_file(
-            f.path().to_str().unwrap(),
-            "hello",
-            "hello",
-            false,
-        );
+        let result = edit_file(f.path().to_str().unwrap(), "hello", "hello", false);
         assert!(!result.success);
         assert!(result.error.unwrap().contains("exactly the same"));
     }
@@ -270,12 +240,7 @@ mod tests {
     #[test]
     fn test_edit_preserves_crlf() {
         let f = write_temp(b"hello\r\nworld\r\n");
-        let result = edit_file(
-            f.path().to_str().unwrap(),
-            "hello",
-            "hi",
-            false,
-        );
+        let result = edit_file(f.path().to_str().unwrap(), "hello", "hi", false);
         assert!(result.success);
         let content = fs::read_to_string(f.path()).unwrap();
         assert_eq!(content, "hi\r\nworld\r\n");
@@ -286,12 +251,7 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let nonexistent = temp_dir.path().join("nope.txt");
         drop(temp_dir);
-        let result = edit_file(
-            &nonexistent.to_string_lossy(),
-            "old",
-            "new",
-            false,
-        );
+        let result = edit_file(&nonexistent.to_string_lossy(), "old", "new", false);
         assert!(!result.success);
         assert!(result.error.unwrap().contains("does not exist"));
     }

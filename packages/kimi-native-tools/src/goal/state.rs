@@ -43,24 +43,6 @@ pub enum GoalStatus {
 }
 
 impl GoalStatus {
-    /// Returns true if the goal can be autonomously continued.
-    pub fn is_active(self) -> bool {
-        matches!(self, GoalStatus::Active)
-    }
-
-    /// Returns true if the goal can be resumed (by user or system).
-    pub fn is_resumable(self) -> bool {
-        matches!(self, GoalStatus::Paused | GoalStatus::Blocked)
-    }
-
-    /// Returns true if the goal is in a terminal-ish state (not running, not resumable).
-    pub fn is_terminal(self) -> bool {
-        matches!(
-            self,
-            GoalStatus::Complete | GoalStatus::BudgetLimited | GoalStatus::UsageLimited
-        )
-    }
-
     /// Serialize to a JSON-safe string (camelCase for napi compat).
     pub fn as_str(self) -> &'static str {
         match self {
@@ -134,6 +116,10 @@ pub struct GoalState {
 
 impl GoalState {
     /// Create a new active goal.
+    ///
+    /// Production code constructs goals via `parse_goal` from TS JSON; this
+    /// constructor serves the test suites in `state` / `engine` / `steering`.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn new(goal_id: String, objective: String, token_budget: Option<i64>) -> Self {
         let now = chrono_now_ms();
         Self {
@@ -168,9 +154,7 @@ impl GoalState {
 
     /// Returns true if any configured budget dimension is reached.
     pub fn is_over_budget(&self, now_ms: i64) -> bool {
-        let token_reached = self
-            .token_budget
-            .is_some_and(|b| self.tokens_used >= b);
+        let token_reached = self.token_budget.is_some_and(|b| self.tokens_used >= b);
         let turn_reached = self.turn_budget.is_some_and(|b| self.turns_used >= b);
         let wall_clock_reached = self
             .wall_clock_budget_ms
@@ -179,6 +163,10 @@ impl GoalState {
     }
 
     /// Returns remaining tokens (MAX if no budget).
+    ///
+    /// The budget report computes the `Option<i64>` variant inline; this
+    /// `i64`-with-MAX-default form is used by the test suites.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn remaining_tokens(&self) -> i64 {
         self.token_budget
             .map(|b| (b - self.tokens_used).max(0))
@@ -409,7 +397,10 @@ pub enum GoalUpdateOutcome {
     /// expected_goal_id did not match.
     GoalIdMismatch { current: String, expected: String },
     /// The requested status transition is not allowed.
-    InvalidTransition { current: GoalStatus, target: GoalStatus },
+    InvalidTransition {
+        current: GoalStatus,
+        target: GoalStatus,
+    },
 }
 
 impl GoalState {
@@ -458,9 +449,7 @@ impl GoalState {
                     self.terminal_reason = None;
                 }
                 // On leaving active: fold elapsed wall-clock into wall_clock_ms
-                if self.status == GoalStatus::Active
-                    && status != GoalStatus::Active
-                {
+                if self.status == GoalStatus::Active && status != GoalStatus::Active {
                     if let Some(resumed_at) = self.wall_clock_resumed_at {
                         let elapsed = (chrono_now_ms() - resumed_at).max(0);
                         self.wall_clock_ms += elapsed;
@@ -711,11 +700,25 @@ mod tests {
         let mut g = GoalState::new("g1".into(), "test".into(), None);
         // Streak 0 -> record_attempt
         let d = g.decide_blocked_audit();
-        assert!(matches!(d, BlockedAuditDecision::RecordAttempt { streak: 0, attempts_needed: 2, .. }));
+        assert!(matches!(
+            d,
+            BlockedAuditDecision::RecordAttempt {
+                streak: 0,
+                attempts_needed: 2,
+                ..
+            }
+        ));
         // Streak 1 -> record_attempt
         g.blocked_streak = 1;
         let d = g.decide_blocked_audit();
-        assert!(matches!(d, BlockedAuditDecision::RecordAttempt { streak: 1, attempts_needed: 1, .. }));
+        assert!(matches!(
+            d,
+            BlockedAuditDecision::RecordAttempt {
+                streak: 1,
+                attempts_needed: 1,
+                ..
+            }
+        ));
         // Streak 2 -> mark_blocked
         g.blocked_streak = 2;
         let d = g.decide_blocked_audit();

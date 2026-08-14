@@ -46,12 +46,13 @@ impl LineEndingFlags {
     }
 
     /// Feed a CRLF sequence (the caller detected CR followed by LF).
+    ///
+    /// Callers never feed the CR of the pair through `feed()`, so this must
+    /// NOT touch `has_lone_cr` — resetting it here would erase genuine lone
+    /// CRs seen earlier in the file and misdetect mixed content as pure CRLF.
     pub fn feed_crlf(&mut self) {
         self.has_crlf = true;
         self.has_lf = true;
-        // This LF is part of CRLF, not a bare LF.
-        // The CR was already marked as lone_cr by feed(), so undo that.
-        self.has_lone_cr = false;
     }
 
     pub fn style(&self) -> LineEndingStyle {
@@ -126,33 +127,68 @@ pub fn make_carriage_returns_visible(text: &str) -> String {
     text.replace('\r', "\\r")
 }
 
-/// Strip trailing \r\n or \n from a line (raw line content, not display).
-pub fn strip_trailing_lf(raw: &str) -> &str {
-    raw.strip_suffix("\r\n").or_else(|| raw.strip_suffix('\n')).unwrap_or(raw)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_detect_lf() {
-        assert_eq!(detect_line_ending_style(b"hello\nworld\n"), LineEndingStyle::Lf);
+        assert_eq!(
+            detect_line_ending_style(b"hello\nworld\n"),
+            LineEndingStyle::Lf
+        );
     }
 
     #[test]
     fn test_detect_crlf() {
-        assert_eq!(detect_line_ending_style(b"hello\r\nworld\r\n"), LineEndingStyle::CrLf);
+        assert_eq!(
+            detect_line_ending_style(b"hello\r\nworld\r\n"),
+            LineEndingStyle::CrLf
+        );
     }
 
     #[test]
     fn test_detect_mixed() {
-        assert_eq!(detect_line_ending_style(b"hello\r\nworld\n"), LineEndingStyle::Mixed);
+        assert_eq!(
+            detect_line_ending_style(b"hello\r\nworld\n"),
+            LineEndingStyle::Mixed
+        );
     }
 
     #[test]
     fn test_detect_lone_cr() {
-        assert_eq!(detect_line_ending_style(b"hello\rworld"), LineEndingStyle::Mixed);
+        assert_eq!(
+            detect_line_ending_style(b"hello\rworld"),
+            LineEndingStyle::Mixed
+        );
+    }
+
+    #[test]
+    fn test_detect_lone_cr_then_crlf_is_mixed() {
+        // A lone CR seen before a CRLF must survive — feed_crlf must not
+        // erase it (regression: this used to detect as CrLf).
+        assert_eq!(
+            detect_line_ending_style(b"a\rb\r\n"),
+            LineEndingStyle::Mixed
+        );
+    }
+
+    #[test]
+    fn test_detect_crlf_then_lone_cr_is_mixed() {
+        assert_eq!(
+            detect_line_ending_style(b"a\r\nb\rc\n"),
+            LineEndingStyle::Mixed
+        );
+    }
+
+    #[test]
+    fn test_feed_crlf_preserves_earlier_lone_cr() {
+        let mut flags = LineEndingFlags::default();
+        flags.feed(b'a');
+        flags.feed(b'\r');
+        flags.feed(b'b');
+        flags.feed_crlf();
+        assert_eq!(flags.style(), LineEndingStyle::Mixed);
     }
 
     #[test]
@@ -179,12 +215,5 @@ mod tests {
     fn test_materialize_lf() {
         let result = materialize_model_text("hello\nworld\n", LineEndingStyle::Lf);
         assert_eq!(result, "hello\nworld\n");
-    }
-
-    #[test]
-    fn test_strip_trailing_lf() {
-        assert_eq!(strip_trailing_lf("hello\n"), "hello");
-        assert_eq!(strip_trailing_lf("hello\r\n"), "hello");
-        assert_eq!(strip_trailing_lf("hello"), "hello");
     }
 }

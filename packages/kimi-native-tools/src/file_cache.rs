@@ -22,7 +22,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::sync::LazyLock;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 /// Maximum number of cached file entries.
 const MAX_CACHE_ENTRIES: usize = 32;
@@ -52,9 +52,13 @@ pub fn snapshot(path: &str) -> Option<FileSnapshot> {
 #[cfg(unix)]
 fn ctime_of(meta: &fs::Metadata) -> Option<SystemTime> {
     use std::os::unix::fs::MetadataExt;
+    use std::time::Duration;
     let secs = meta.ctime();
     let nsecs = meta.ctime_nsec();
-    Some(SystemTime::UNIX_EPOCH + Duration::new(if secs < 0 { 0 } else { secs as u64 }, nsecs as u32))
+    Some(
+        SystemTime::UNIX_EPOCH
+            + Duration::new(if secs < 0 { 0 } else { secs as u64 }, nsecs as u32),
+    )
 }
 
 /// No change-time signal outside Unix; fall back to (mtime, size).
@@ -176,7 +180,11 @@ mod tests {
         let cache = FileReadCache::new();
 
         let pre = snapshot(&ps).unwrap();
-        // File changes between the snapshot and put().
+        // File changes between the snapshot and put(). Sleep past the
+        // filesystem's mtime tick first: the contents are deliberately the
+        // same byte length, so on Windows (ctime unavailable) detection
+        // rides on mtime alone and two writes in one tick are identical.
+        std::thread::sleep(std::time::Duration::from_millis(25));
         write_temp(&dir, "b.txt", b"v2");
         cache.put(ps.clone(), "v1".to_string(), 1, pre);
         assert!(cache.get(&ps).is_none());

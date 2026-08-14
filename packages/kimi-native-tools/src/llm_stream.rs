@@ -10,20 +10,24 @@
 
 use std::time::Duration;
 
-use futures_util::StreamExt;
 use eventsource_stream::Eventsource as EvensourceExt;
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
+use futures_util::StreamExt;
+use reqwest::header::{
+    HeaderMap, HeaderName, HeaderValue, AUTHORIZATION, CONTENT_TYPE, USER_AGENT,
+};
 use serde_json::Value;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 /// Configuration for initiating an LLM stream.
+///
+/// The model name is not carried here: it already rides inside the serialized
+/// `request_body`, which is the only place the provider needs it.
 #[derive(Debug, Clone)]
 pub struct LlmStreamConfig {
     pub provider: String,
     pub url: String,
     pub api_key: String,
-    pub model: String,
     pub request_body: String,
     pub timeout_ms: u64,
     pub extra_headers: Vec<(String, String)>,
@@ -68,9 +72,7 @@ pub enum StreamEvent {
 ///
 /// Returns a stream of `StreamEvent`s. The caller (NAPI binding) iterates
 /// this and dispatches each event to the appropriate JS callback.
-pub async fn run_llm_stream(
-    config: &LlmStreamConfig,
-) -> Result<Vec<StreamEvent>, String> {
+pub async fn run_llm_stream(config: &LlmStreamConfig) -> Result<Vec<StreamEvent>, String> {
     let mut events = Vec::new();
     run_llm_stream_with(config, |event| events.push(event)).await?;
     Ok(events)
@@ -89,19 +91,23 @@ pub async fn run_llm_stream_with(
     // Build headers
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    headers.insert(USER_AGENT, HeaderValue::from_static("kimi-native-tools/0.1"));
+    headers.insert(
+        USER_AGENT,
+        HeaderValue::from_static("kimi-native-tools/0.1"),
+    );
 
     // Auth header
     if !config.api_key.is_empty() {
         let auth_value = if config.provider == "anthropic" {
-            format!("{}", config.api_key) // Anthropic uses x-api-key, not Bearer
+            config.api_key.to_string() // Anthropic uses x-api-key, not Bearer
         } else {
             format!("Bearer {}", config.api_key)
         };
         if config.provider == "anthropic" {
             headers.insert(
                 HeaderName::from_static("x-api-key"),
-                HeaderValue::from_str(&config.api_key).map_err(|e| format!("Invalid API key header: {e}"))?,
+                HeaderValue::from_str(&config.api_key)
+                    .map_err(|e| format!("Invalid API key header: {e}"))?,
             );
             headers.insert(
                 HeaderName::from_static("anthropic-version"),
@@ -110,7 +116,8 @@ pub async fn run_llm_stream_with(
         } else {
             headers.insert(
                 AUTHORIZATION,
-                HeaderValue::from_str(&auth_value).map_err(|e| format!("Invalid auth header: {e}"))?,
+                HeaderValue::from_str(&auth_value)
+                    .map_err(|e| format!("Invalid auth header: {e}"))?,
             );
         }
     }
@@ -206,7 +213,10 @@ pub async fn run_llm_stream_with(
 
 // ── OpenAI Responses API decoder ─────────────────────────────────────────────
 
-fn decode_openai_responses_event(event: &Value, metadata: &mut StreamMetadata) -> Vec<StreamedPart> {
+fn decode_openai_responses_event(
+    event: &Value,
+    metadata: &mut StreamMetadata,
+) -> Vec<StreamedPart> {
     let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
     match event_type {
@@ -234,11 +244,13 @@ fn decode_openai_responses_event(event: &Value, metadata: &mut StreamMetadata) -
             if item_type == "function_call" {
                 let call_id = item.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
                 let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let arguments = item.get("arguments").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let arguments = item
+                    .get("arguments")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
                 let item_id = item.get("id").and_then(|v| v.as_str());
                 let output_index = event.get("output_index").and_then(|v| v.as_u64());
-                let stream_idx = item_id
-                    .map(|_| output_index.unwrap_or(0) as u32);
+                let stream_idx = item_id.map(|_| output_index.unwrap_or(0) as u32);
 
                 vec![StreamedPart {
                     part_type: "function".into(),
@@ -306,13 +318,19 @@ fn decode_openai_responses_event(event: &Value, metadata: &mut StreamMetadata) -
                     metadata.response_id = Some(id.to_string());
                 }
                 if let Some(usage) = resp.get("usage") {
-                    metadata.input_tokens = usage.get("input_tokens")
-                        .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                    metadata.output_tokens = usage.get("output_tokens")
-                        .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                    metadata.input_tokens = usage
+                        .get("input_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
+                    metadata.output_tokens = usage
+                        .get("output_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
                     if let Some(details) = usage.get("input_tokens_details") {
-                        metadata.cached_tokens = details.get("cached_tokens")
-                            .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                        metadata.cached_tokens = details
+                            .get("cached_tokens")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as u32;
                     }
                 }
                 let status = resp.get("status").and_then(|v| v.as_str());
@@ -322,7 +340,10 @@ fn decode_openai_responses_event(event: &Value, metadata: &mut StreamMetadata) -
         }
 
         "error" => {
-            let msg = event.get("message").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+            let msg = event
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error");
             vec![StreamedPart {
                 part_type: "error".into(),
                 text: Some(msg.to_string()),
@@ -344,18 +365,27 @@ fn decode_openai_legacy_event(event: &Value, metadata: &mut StreamMetadata) -> V
 
     // Extract usage if present
     if let Some(usage) = event.get("usage") {
-        metadata.input_tokens = usage.get("prompt_tokens")
-            .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-        metadata.output_tokens = usage.get("completion_tokens")
-            .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        metadata.input_tokens = usage
+            .get("prompt_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        metadata.output_tokens = usage
+            .get("completion_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
         // DeepSeek proprietary cache counters: prompt_cache_hit_tokens /
         // prompt_cache_miss_tokens (top-level). Fall back to the Moonshot
         // top-level cached_tokens for Kimi-compatible endpoints.
-        if let Some(hit) = usage.get("prompt_cache_hit_tokens").and_then(|v| v.as_u64()) {
+        if let Some(hit) = usage
+            .get("prompt_cache_hit_tokens")
+            .and_then(|v| v.as_u64())
+        {
             metadata.cached_tokens = hit as u32;
         } else {
-            metadata.cached_tokens = usage.get("cached_tokens")
-                .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            metadata.cached_tokens = usage
+                .get("cached_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
         }
     }
 
@@ -448,12 +478,18 @@ fn decode_anthropic_event(event: &Value, metadata: &mut StreamMetadata) -> Vec<S
                     metadata.response_id = Some(id.to_string());
                 }
                 if let Some(usage) = message.get("usage") {
-                    metadata.input_tokens = usage.get("input_tokens")
-                        .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                    metadata.output_tokens = usage.get("output_tokens")
-                        .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                    metadata.cached_tokens = usage.get("cache_read_input_tokens")
-                        .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                    metadata.input_tokens = usage
+                        .get("input_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
+                    metadata.output_tokens = usage
+                        .get("output_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
+                    metadata.cached_tokens = usage
+                        .get("cache_read_input_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
                 }
             }
             vec![]
@@ -462,7 +498,10 @@ fn decode_anthropic_event(event: &Value, metadata: &mut StreamMetadata) -> Vec<S
         "content_block_start" => {
             let block = event.get("content_block").unwrap_or(&Value::Null);
             let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            let block_index = event.get("index").and_then(|v| v.as_u64()).map(|i| i as u32);
+            let block_index = event
+                .get("index")
+                .and_then(|v| v.as_u64())
+                .map(|i| i as u32);
 
             match block_type {
                 "text" => {
@@ -482,7 +521,10 @@ fn decode_anthropic_event(event: &Value, metadata: &mut StreamMetadata) -> Vec<S
                     }]
                 }
                 "redacted_thinking" => {
-                    let data = block.get("data").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let data = block
+                        .get("data")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
                     vec![StreamedPart {
                         part_type: "think".into(),
                         think: Some(String::new()),
@@ -509,7 +551,10 @@ fn decode_anthropic_event(event: &Value, metadata: &mut StreamMetadata) -> Vec<S
         "content_block_delta" => {
             let delta = event.get("delta").unwrap_or(&Value::Null);
             let delta_type = delta.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            let block_index = event.get("index").and_then(|v| v.as_u64()).map(|i| i as u32);
+            let block_index = event
+                .get("index")
+                .and_then(|v| v.as_u64())
+                .map(|i| i as u32);
 
             match delta_type {
                 "text_delta" => {
@@ -529,7 +574,10 @@ fn decode_anthropic_event(event: &Value, metadata: &mut StreamMetadata) -> Vec<S
                     }]
                 }
                 "input_json_delta" => {
-                    let partial_json = delta.get("partial_json").and_then(|v| v.as_str()).unwrap_or("");
+                    let partial_json = delta
+                        .get("partial_json")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
                     vec![StreamedPart {
                         part_type: "tool_call_part".into(),
                         arguments_part: Some(partial_json.to_string()),
@@ -538,7 +586,10 @@ fn decode_anthropic_event(event: &Value, metadata: &mut StreamMetadata) -> Vec<S
                     }]
                 }
                 "signature_delta" => {
-                    let signature = delta.get("signature").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let signature = delta
+                        .get("signature")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
                     vec![StreamedPart {
                         part_type: "think".into(),
                         think: Some(String::new()),
@@ -555,7 +606,10 @@ fn decode_anthropic_event(event: &Value, metadata: &mut StreamMetadata) -> Vec<S
                 if let Some(output) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
                     metadata.output_tokens = output as u32;
                 }
-                if let Some(cached) = usage.get("cache_read_input_tokens").and_then(|v| v.as_u64()) {
+                if let Some(cached) = usage
+                    .get("cache_read_input_tokens")
+                    .and_then(|v| v.as_u64())
+                {
                     metadata.cached_tokens = cached as u32;
                 }
                 if let Some(input) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
@@ -658,7 +712,8 @@ mod tests {
     #[test]
     fn test_openai_responses_reasoning_summary_delta() {
         let mut meta = StreamMetadata::default();
-        let event = json!({ "type": "response.reasoning_summary_text.delta", "delta": "Let me think..." });
+        let event =
+            json!({ "type": "response.reasoning_summary_text.delta", "delta": "Let me think..." });
         let parts = decode_openai_responses_event(&event, &mut meta);
         assert_eq!(parts.len(), 1);
         assert_eq!(parts[0].part_type, "think");

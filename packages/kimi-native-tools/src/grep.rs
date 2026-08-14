@@ -410,7 +410,8 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
     });
 
     let timed_out = timed_out.load(Ordering::Relaxed);
-    let mut file_matches: Vec<(PathBuf, usize, std::time::SystemTime)> = file_matches.into_inner().unwrap();
+    let mut file_matches: Vec<(PathBuf, usize, std::time::SystemTime)> =
+        file_matches.into_inner().unwrap();
     let filtered_sensitive = filtered_sensitive.into_inner().unwrap();
     let content_cache: Vec<(PathBuf, String)> = content_cache.into_inner().unwrap();
     let total_matches: usize = file_matches.iter().map(|(_, c, _)| c).sum();
@@ -446,31 +447,50 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
             // (two matches closer together than the combined context), so a
             // directory walk emits each line once — mirroring the single-file
             // path and ripgrep's context-merge behavior.
-            let mut shown_lines: std::collections::HashSet<usize> = std::collections::HashSet::new();
+            let mut shown_lines: std::collections::HashSet<usize> =
+                std::collections::HashSet::new();
             for &line_idx in &matched_lines {
-                let start = if effective_before > 0 { line_idx.saturating_sub(effective_before) } else { line_idx };
-                let end = if effective_after > 0 { (line_idx + effective_after + 1).min(lines.len()) } else { line_idx + 1 };
+                let start = if effective_before > 0 {
+                    line_idx.saturating_sub(effective_before)
+                } else {
+                    line_idx
+                };
+                let end = if effective_after > 0 {
+                    (line_idx + effective_after + 1).min(lines.len())
+                } else {
+                    line_idx + 1
+                };
 
                 for (ctx_idx, line_content) in lines.iter().enumerate().take(end).skip(start) {
                     if !shown_lines.insert(ctx_idx) {
                         continue;
                     }
                     let line_no = ctx_idx + 1;
-                    let entry = MatchEntry { file: path.to_path_buf(), line_no, line: line_content.to_string() };
+                    let entry = MatchEntry {
+                        file: path.to_path_buf(),
+                        line_no,
+                        line: line_content.to_string(),
+                    };
                     let entry_bytes = format_entry_bytes(&entry, config, &search_path);
-                    if output_bytes + entry_bytes > MAX_OUTPUT_BYTES { break; }
+                    if output_bytes + entry_bytes > MAX_OUTPUT_BYTES {
+                        break;
+                    }
                     output_bytes += entry_bytes;
                     line_matches.push(entry);
                 }
             }
-            if output_bytes > MAX_OUTPUT_BYTES { break; }
+            if output_bytes > MAX_OUTPUT_BYTES {
+                break;
+            }
         }
 
         let mut rendered = Vec::new();
         let mut prev_file: Option<PathBuf> = None;
         for entry in &line_matches {
             if prev_file.as_ref() != Some(&entry.file) {
-                if prev_file.is_some() { rendered.push("--".to_string()); }
+                if prev_file.is_some() {
+                    rendered.push("--".to_string());
+                }
                 prev_file = Some(entry.file.clone());
             }
             let rel_path = relativize(&entry.file, &search_path);
@@ -745,10 +765,7 @@ fn build_glob_set(globs: &[String]) -> Option<globset::GlobSet> {
     }
     let mut builder = globset::GlobSetBuilder::new();
     for g in globs {
-        if let Ok(glob) = globset::GlobBuilder::new(g)
-            .literal_separator(true)
-            .build()
-        {
+        if let Ok(glob) = globset::GlobBuilder::new(g).literal_separator(true).build() {
             builder.add(glob);
         }
     }
@@ -819,7 +836,8 @@ fn search_single_file(path: &Path, regex: &regex::Regex, config: &GrepConfig) ->
         }
         OutputMode::Content => {
             let mut rendered = Vec::new();
-            let mut shown_lines: std::collections::HashSet<usize> = std::collections::HashSet::new();
+            let mut shown_lines: std::collections::HashSet<usize> =
+                std::collections::HashSet::new();
 
             for &line_idx in &matched_lines {
                 let start = line_idx.saturating_sub(effective_before);
@@ -1162,7 +1180,10 @@ mod tests {
         });
         assert!(result.error.is_none());
         let test2 = result.files.iter().find(|f| f.path == "test2.txt");
-        assert!(test2.is_some(), "test2.txt should match with case_insensitive");
+        assert!(
+            test2.is_some(),
+            "test2.txt should match with case_insensitive"
+        );
         assert_eq!(test2.unwrap().matches[0].text, "some HELLO text");
     }
 
@@ -1205,7 +1226,10 @@ mod tests {
         });
         assert!(result.error.is_none());
         let paths: Vec<&str> = result.files.iter().map(|f| f.path.as_str()).collect();
-        assert!(paths.iter().all(|p| *p == "test1.txt"), "only test1.txt should match");
+        assert!(
+            paths.iter().all(|p| *p == "test1.txt"),
+            "only test1.txt should match"
+        );
     }
 
     #[test]
@@ -1222,7 +1246,10 @@ mod tests {
         });
         assert!(result.error.is_none());
         let paths: Vec<&str> = result.files.iter().map(|f| f.path.as_str()).collect();
-        assert!(!paths.contains(&"test1.txt"), "test1.txt should be excluded");
+        assert!(
+            !paths.contains(&"test1.txt"),
+            "test1.txt should be excluded"
+        );
         assert!(paths.contains(&"test2.txt") || paths.contains(&"subdir/test3.txt"));
     }
 

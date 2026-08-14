@@ -67,7 +67,10 @@ pub fn glob_search(config: &GlobConfig) -> GlobResult {
     if !search_path.is_dir() {
         return GlobResult {
             files: Vec::new(),
-            error: Some(format!("Path is not a directory: {}", search_path.display())),
+            error: Some(format!(
+                "Path is not a directory: {}",
+                search_path.display()
+            )),
             truncated: false,
         };
     }
@@ -118,7 +121,9 @@ pub fn glob_search(config: &GlobConfig) -> GlobResult {
             }
 
             let rel_path = path.strip_prefix(search_path).unwrap_or(path);
-            let matches = matchers.iter().any(|m| m.is_match(rel_path) || m.is_match(path));
+            let matches = matchers
+                .iter()
+                .any(|m| m.is_match(rel_path) || m.is_match(path));
             if !matches {
                 return ignore::WalkState::Continue;
             }
@@ -179,10 +184,7 @@ pub fn glob_matches_any(globs: &[String], path: &str) -> bool {
     }
     let mut builder = globset::GlobSetBuilder::new();
     for g in globs {
-        if let Ok(glob) = globset::GlobBuilder::new(g)
-            .literal_separator(true)
-            .build()
-        {
+        if let Ok(glob) = globset::GlobBuilder::new(g).literal_separator(true).build() {
             builder.add(glob);
         }
     }

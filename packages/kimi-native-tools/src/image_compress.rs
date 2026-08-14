@@ -1,22 +1,20 @@
-/// Image compression and cropping — native Rust replacement for
-/// `packages/agent-core/src/tools/support/image-compress.ts`.
-///
-/// The TS module uses `jimp` (pure JS) for PNG/JPEG decode, resize, and
-/// encode — 10–100× slower than native codecs. This module does the same
-/// work with the `image` crate (native PNG/JPEG codecs), cutting per-image
-/// latency from hundreds of milliseconds to single-digit milliseconds.
-///
-/// The TS wrapper retains the fast-path checks (already within budgets,
-/// decode-bomb guard) and telemetry; this module handles only the
-/// compute-heavy decode → resize → encode → quality-ladder path.
+//! Image compression and cropping — native Rust replacement for
+//! `packages/agent-core/src/tools/support/image-compress.ts`.
+//!
+//! The TS module uses `jimp` (pure JS) for PNG/JPEG decode, resize, and
+//! encode — 10–100× slower than native codecs. This module does the same
+//! work with the `image` crate (native PNG/JPEG codecs), cutting per-image
+//! latency from hundreds of milliseconds to single-digit milliseconds.
+//!
+//! The TS wrapper retains the fast-path checks (already within budgets,
+//! decode-bomb guard) and telemetry; this module handles only the
+//! compute-heavy decode → resize → encode → quality-ladder path.
 
 use std::io::Cursor;
 
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
-use image::{
-    DynamicImage, GenericImageView, ImageDecoder, ImageEncoder, ImageFormat, ImageReader,
-};
+use image::{DynamicImage, GenericImageView, ImageDecoder, ImageEncoder, ImageFormat, ImageReader};
 
 // ── config / result structs ──────────────────────────────────────────────
 
@@ -251,9 +249,15 @@ pub fn crop_image(
 
     if config.skip_resize {
         let (data, mime) = if source_is_png_like {
-            (encode_png(&cropped).map_err(|e| CropError::DecodeFailed(e.to_string()))?, "image/png")
+            (
+                encode_png(&cropped).map_err(|e| CropError::DecodeFailed(e.to_string()))?,
+                "image/png",
+            )
         } else {
-            (encode_jpeg(&cropped, 90).map_err(|e| CropError::DecodeFailed(e.to_string()))?, "image/jpeg")
+            (
+                encode_jpeg(&cropped, 90).map_err(|e| CropError::DecodeFailed(e.to_string()))?,
+                "image/jpeg",
+            )
         };
         let final_byte_length = data.len();
         if final_byte_length > config.byte_budget {
@@ -438,13 +442,7 @@ fn encode_within_budget(
         for &quality in jpeg_quality_steps {
             if let Ok(jpeg) = encode_jpeg(img, quality) {
                 let len = jpeg.len();
-                track_smallest(
-                    &mut smallest,
-                    jpeg,
-                    "image/jpeg",
-                    img.width(),
-                    img.height(),
-                );
+                track_smallest(&mut smallest, jpeg, "image/jpeg", img.width(), img.height());
                 if len <= byte_budget {
                     return smallest;
                 }
@@ -462,13 +460,7 @@ fn encode_within_budget(
             for &quality in jpeg_quality_steps {
                 if let Ok(jpeg) = encode_jpeg(img, quality) {
                     let len = jpeg.len();
-                    track_smallest(
-                        &mut smallest,
-                        jpeg,
-                        "image/jpeg",
-                        img.width(),
-                        img.height(),
-                    );
+                    track_smallest(&mut smallest, jpeg, "image/jpeg", img.width(), img.height());
                     if len <= byte_budget {
                         return smallest;
                     }
@@ -479,13 +471,7 @@ fn encode_within_budget(
         for &quality in jpeg_quality_steps {
             if let Ok(jpeg) = encode_jpeg(img, quality) {
                 let len = jpeg.len();
-                track_smallest(
-                    &mut smallest,
-                    jpeg,
-                    "image/jpeg",
-                    img.width(),
-                    img.height(),
-                );
+                track_smallest(&mut smallest, jpeg, "image/jpeg", img.width(), img.height());
                 if len <= byte_budget {
                     return smallest;
                 }
@@ -499,13 +485,7 @@ fn encode_within_budget(
             for &quality in jpeg_quality_steps {
                 if let Ok(jpeg) = encode_jpeg(img, quality) {
                     let len = jpeg.len();
-                    track_smallest(
-                        &mut smallest,
-                        jpeg,
-                        "image/jpeg",
-                        img.width(),
-                        img.height(),
-                    );
+                    track_smallest(&mut smallest, jpeg, "image/jpeg", img.width(), img.height());
                     if len <= byte_budget {
                         return smallest;
                     }
@@ -557,7 +537,12 @@ fn encode_jpeg(img: &DynamicImage, quality: u8) -> Result<Vec<u8>, image::ImageE
     {
         let encoder = JpegEncoder::new_with_quality(&mut buf, quality);
         let rgb = img.to_rgb8();
-        encoder.write_image(&rgb, img.width(), img.height(), image::ExtendedColorType::Rgb8)?;
+        encoder.write_image(
+            &rgb,
+            img.width(),
+            img.height(),
+            image::ExtendedColorType::Rgb8,
+        )?;
     }
     Ok(buf)
 }
@@ -605,7 +590,9 @@ fn decode_with_orientation(
     // `orientation()` reads the decoder's Exif metadata; its default is
     // `NoTransforms` when absent or unreadable. Never fail the whole decode
     // over a missing/garbled orientation tag — fall back to no transform.
-    let orientation = decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
+    let orientation = decoder
+        .orientation()
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
     let mut img = DynamicImage::from_decoder(decoder)?;
     img.apply_orientation(orientation);
     Ok(img)
@@ -641,11 +628,7 @@ mod tests {
         let mut img = ImageBuffer::new(width, height);
         for x in 0..width {
             for y in 0..height {
-                img.put_pixel(
-                    x,
-                    y,
-                    Rgba([(x % 256) as u8, (y % 256) as u8, 128, 255]),
-                );
+                img.put_pixel(x, y, Rgba([(x % 256) as u8, (y % 256) as u8, 128, 255]));
             }
         }
         DynamicImage::ImageRgba8(img)
@@ -722,7 +705,10 @@ mod tests {
         let bytes = encode_to_png_bytes(&img);
         assert!(!bytes.is_empty());
         // PNG magic bytes
-        assert_eq!(&bytes[..8], &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        assert_eq!(
+            &bytes[..8],
+            &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+        );
     }
 
     #[test]
@@ -730,7 +716,10 @@ mod tests {
         let img = make_rgba_image(50, 50);
         let bytes = encode_to_png_bytes(&img);
         assert!(!bytes.is_empty());
-        assert_eq!(&bytes[..8], &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        assert_eq!(
+            &bytes[..8],
+            &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+        );
     }
 
     #[test]
@@ -1006,11 +995,9 @@ mod tests {
     /// Build a tiny valid WebP image (lossless). The `image` crate's webp
     /// encoder produces a valid still WebP.
     fn make_still_webp_bytes() -> Vec<u8> {
-        let img = image::DynamicImage::ImageRgba8(
-            image::ImageBuffer::from_fn(32, 32, |x, y| {
-                image::Rgba([(x % 256) as u8, (y % 256) as u8, 128, 255])
-            }),
-        );
+        let img = image::DynamicImage::ImageRgba8(image::ImageBuffer::from_fn(32, 32, |x, y| {
+            image::Rgba([(x % 256) as u8, (y % 256) as u8, 128, 255])
+        }));
         let mut buf = Vec::new();
         let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut buf);
         encoder
@@ -1067,7 +1054,7 @@ mod tests {
         tiff.extend_from_slice(&0x0112u16.to_le_bytes()); // tag: Orientation
         tiff.extend_from_slice(&3u16.to_le_bytes()); // type: SHORT
         tiff.extend_from_slice(&1u32.to_le_bytes()); // count
-        // SHORT value in the low 2 bytes of the 4-byte value field.
+                                                     // SHORT value in the low 2 bytes of the 4-byte value field.
         tiff.extend_from_slice(&orientation.to_le_bytes());
         tiff.extend_from_slice(&[0u8, 0u8]); // pad to 4 bytes
         tiff.extend_from_slice(&0u32.to_le_bytes()); // next IFD offset (none)
@@ -1097,8 +1084,16 @@ mod tests {
         let bytes = make_jpeg_with_exif_orientation(120, 80, 6);
         let img = decode_with_orientation(&bytes, ImageFormat::Jpeg)
             .expect("EXIF-oriented JPEG should decode");
-        assert_eq!(img.width(), 80, "width should be the rotated (displayed) width");
-        assert_eq!(img.height(), 120, "height should be the rotated (displayed) height");
+        assert_eq!(
+            img.width(),
+            80,
+            "width should be the rotated (displayed) width"
+        );
+        assert_eq!(
+            img.height(),
+            120,
+            "height should be the rotated (displayed) height"
+        );
     }
 
     #[test]
@@ -1118,8 +1113,8 @@ mod tests {
     fn test_no_exif_orientation_is_noop() {
         // A plain JPEG with no Exif keeps its stored dimensions (no rotation).
         let bytes = encode_to_jpeg_bytes(&make_rgb_image(120, 80), 90);
-        let img = decode_with_orientation(&bytes, ImageFormat::Jpeg)
-            .expect("plain JPEG should decode");
+        let img =
+            decode_with_orientation(&bytes, ImageFormat::Jpeg).expect("plain JPEG should decode");
         assert_eq!(img.width(), 120);
         assert_eq!(img.height(), 80);
     }

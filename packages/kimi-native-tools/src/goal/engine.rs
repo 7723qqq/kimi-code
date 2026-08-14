@@ -6,8 +6,8 @@
 //! persists results and emits events.
 
 use crate::goal::state::{
-    validate_goal_objective, BlockedAuditDecision, BudgetLimitsPatch, BudgetUnit,
-    GoalBudgetReport, GoalState, GoalStatus, GoalUpdate, GoalUpdateOutcome,
+    validate_goal_objective, BlockedAuditDecision, BudgetLimitsPatch, BudgetUnit, GoalBudgetReport,
+    GoalState, GoalStatus, GoalUpdate, GoalUpdateOutcome,
 };
 
 // ---------------------------------------------------------------------------
@@ -15,7 +15,10 @@ use crate::goal::state::{
 // ---------------------------------------------------------------------------
 
 /// Validates and normalizes a goal creation input.
-pub fn validate_create_input(objective: &str, completion_criterion: Option<&str>) -> Result<(String, Option<String>), String> {
+pub fn validate_create_input(
+    objective: &str,
+    completion_criterion: Option<&str>,
+) -> Result<(String, Option<String>), String> {
     validate_goal_objective(objective)?;
     let trimmed = objective.trim().to_string();
     let criterion = completion_criterion.map(|c| {
@@ -36,8 +39,7 @@ pub fn validate_create_input(objective: &str, completion_criterion: Option<&str>
 
 /// Validates a budget input into a patch. Returns the patch for TS to apply.
 pub fn validate_budget_input_json(value: f64, unit: &str) -> Result<BudgetLimitsPatch, String> {
-    let unit = BudgetUnit::from_str(unit)
-        .ok_or_else(|| format!("invalid budget unit: {unit}"))?;
+    let unit = BudgetUnit::from_str(unit).ok_or_else(|| format!("invalid budget unit: {unit}"))?;
     crate::goal::state::validate_budget_input(value, unit)
 }
 
@@ -139,17 +141,13 @@ pub fn decide_status_transition(
     };
     match goal.apply_update(update) {
         GoalUpdateOutcome::Updated(g) => Ok(g),
-        GoalUpdateOutcome::InvalidTransition { current, target } => {
-            Err(format!(
-                "invalid transition from {:?} to {:?}",
-                current, target
-            ))
-        }
-        GoalUpdateOutcome::GoalIdMismatch { current, expected } => {
-            Err(format!(
-                "goal ID mismatch: current={current}, expected={expected}"
-            ))
-        }
+        GoalUpdateOutcome::InvalidTransition { current, target } => Err(format!(
+            "invalid transition from {:?} to {:?}",
+            current, target
+        )),
+        GoalUpdateOutcome::GoalIdMismatch { current, expected } => Err(format!(
+            "goal ID mismatch: current={current}, expected={expected}"
+        )),
         GoalUpdateOutcome::Unchanged => Err(format!(
             "no change: goal is already in status {:?}",
             target_status

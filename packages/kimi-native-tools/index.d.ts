@@ -12,6 +12,8 @@ export interface ReadResult {
   content: string;
   lineCount: number;
   error?: string;
+  /** Machine-readable error class for precise routing: not_found / not_a_file / media / binary / invalid_utf8 / too_large / io / panic (all final verdicts) */
+  errorKind?: string;
 }
 
 export interface ReadOptions {
@@ -50,6 +52,8 @@ export type WriteMode = 'overwrite' | 'append';
 export interface WriteResult {
   bytesWritten: number;
   error?: string;
+  /** Machine-readable error class: io / parent_not_dir / panic (all final verdicts) */
+  errorKind?: string;
 }
 
 export interface WriteOptions {

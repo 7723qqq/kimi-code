@@ -31,7 +31,13 @@ pub struct GithubResponse {
 
 impl GithubResponse {
     fn failure(status: u16, body: String, error: String, rate_remaining: Option<i64>) -> Self {
-        Self { status, ok: false, body, error: Some(error), rate_remaining }
+        Self {
+            status,
+            ok: false,
+            body,
+            error: Some(error),
+            rate_remaining,
+        }
     }
 }
 
@@ -94,8 +100,7 @@ pub fn query_pairs(query_json: Option<&str>) -> Result<Vec<(String, String)>, St
         Some(s) if !s.trim().is_empty() => s,
         _ => return Ok(Vec::new()),
     };
-    let value: Value =
-        serde_json::from_str(raw).map_err(|e| format!("invalid query_json: {e}"))?;
+    let value: Value = serde_json::from_str(raw).map_err(|e| format!("invalid query_json: {e}"))?;
     let obj = match value {
         Value::Object(map) => map,
         _ => return Err("query_json must be a JSON object".to_string()),
@@ -115,7 +120,8 @@ pub fn query_pairs(query_json: Option<&str>) -> Result<Vec<(String, String)>, St
 }
 
 fn rate_remaining_of(resp: &ureq::Response) -> Option<i64> {
-    resp.header("x-ratelimit-remaining").and_then(|s| s.parse::<i64>().ok())
+    resp.header("x-ratelimit-remaining")
+        .and_then(|s| s.parse::<i64>().ok())
 }
 
 /// Perform an authenticated GitHub request.
@@ -182,9 +188,9 @@ pub fn request(
         first = false;
 
         let call = match body_json {
-            Some(body) if !body.trim().is_empty() => {
-                req.set("Content-Type", "application/json").send_string(body)
-            }
+            Some(body) if !body.trim().is_empty() => req
+                .set("Content-Type", "application/json")
+                .send_string(body),
             _ => req.call(),
         };
 
@@ -193,12 +199,7 @@ pub fn request(
             Err(ureq::Error::Status(code, resp)) => {
                 let rr = rate_remaining_of(&resp).or(rate_remaining);
                 let body = resp.into_string().unwrap_or_default();
-                return GithubResponse::failure(
-                    code,
-                    body,
-                    format!("GitHub API error {code}"),
-                    rr,
-                );
+                return GithubResponse::failure(code, body, format!("GitHub API error {code}"), rr);
             }
             Err(ureq::Error::Transport(t)) => {
                 return GithubResponse::failure(
@@ -216,7 +217,13 @@ pub fn request(
         let text = resp.into_string().unwrap_or_default();
 
         if !paginate {
-            return GithubResponse { status, ok: true, body: text, error: None, rate_remaining };
+            return GithubResponse {
+                status,
+                ok: true,
+                body: text,
+                error: None,
+                rate_remaining,
+            };
         }
 
         match serde_json::from_str::<Value>(&text) {
@@ -232,14 +239,26 @@ pub fn request(
             }
             // Not an array — pagination doesn't apply; return the single page.
             _ => {
-                return GithubResponse { status, ok: true, body: text, error: None, rate_remaining };
+                return GithubResponse {
+                    status,
+                    ok: true,
+                    body: text,
+                    error: None,
+                    rate_remaining,
+                };
             }
         }
     }
 
     let items = aggregated.unwrap_or_default();
     let body = serde_json::to_string(&Value::Array(items)).unwrap_or_else(|_| "[]".to_string());
-    GithubResponse { status: 200, ok: true, body, error: None, rate_remaining }
+    GithubResponse {
+        status: 200,
+        ok: true,
+        body,
+        error: None,
+        rate_remaining,
+    }
 }
 
 #[cfg(test)]

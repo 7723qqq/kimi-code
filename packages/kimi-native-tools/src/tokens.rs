@@ -263,8 +263,14 @@ mod tests {
     fn test_truncate_backward_ascii() {
         // "hello world" = 3 tokens
         assert_eq!(truncate_text_to_tokens_from_end("hello world", 1), "orld");
-        assert_eq!(truncate_text_to_tokens_from_end("hello world", 2), "lo world");
-        assert_eq!(truncate_text_to_tokens_from_end("hello world", 3), "hello world");
+        assert_eq!(
+            truncate_text_to_tokens_from_end("hello world", 2),
+            "lo world"
+        );
+        assert_eq!(
+            truncate_text_to_tokens_from_end("hello world", 3),
+            "hello world"
+        );
     }
 
     #[test]
@@ -315,14 +321,24 @@ mod tests {
         for (text, budget) in cases {
             let front = truncate_text_to_tokens(text, budget);
             let front_tokens = estimate_tokens(&front);
-            assert!(front_tokens <= budget,
+            assert!(
+                front_tokens <= budget,
                 "forward({:?}, {}): got {} tokens in {:?}",
-                text, budget, front_tokens, front);
+                text,
+                budget,
+                front_tokens,
+                front
+            );
             let back = truncate_text_to_tokens_from_end(text, budget);
             let back_tokens = estimate_tokens(&back);
-            assert!(back_tokens <= budget,
+            assert!(
+                back_tokens <= budget,
                 "backward({:?}, {}): got {} tokens in {:?}",
-                text, budget, back_tokens, back);
+                text,
+                budget,
+                back_tokens,
+                back
+            );
         }
     }
 }

@@ -84,9 +84,13 @@ fn with_db<F, R>(f: F) -> Result<R>
 where
     F: FnOnce(&Connection) -> std::result::Result<R, String>,
 {
-    let guard = DB.lock().map_err(|e| Error::from_reason(format!("DB lock: {e}")))?;
-    let conn = guard.as_ref().ok_or_else(|| Error::from_reason("Knowledge DB not opened. Call knowledge_open first."))?;
-    f(conn).map_err(|e| Error::from_reason(e))
+    let guard = DB
+        .lock()
+        .map_err(|e| Error::from_reason(format!("DB lock: {e}")))?;
+    let conn = guard
+        .as_ref()
+        .ok_or_else(|| Error::from_reason("Knowledge DB not opened. Call knowledge_open first."))?;
+    f(conn).map_err(Error::from_reason)
 }
 
 fn generate_id() -> String {
@@ -104,7 +108,11 @@ fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<KnowledgeEntry> {
         category: row.get(1)?,
         title: row.get(2)?,
         content: row.get(3)?,
-        tags: if tags_str.is_empty() { vec![] } else { tags_str.split(',').map(|s| s.trim().to_string()).collect() },
+        tags: if tags_str.is_empty() {
+            vec![]
+        } else {
+            tags_str.split(',').map(|s| s.trim().to_string()).collect()
+        },
         scope: row.get(5)?,
         confidence: row.get(6)?,
         source: row.get(7)?,
@@ -117,15 +125,24 @@ fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<KnowledgeEntry> {
 
 #[napi]
 pub fn knowledge_open(db_path: String) -> Result<()> {
-    let mut guard = DB.lock().map_err(|e| Error::from_reason(format!("DB lock: {e}")))?;
+    let mut guard = DB
+        .lock()
+        .map_err(|e| Error::from_reason(format!("DB lock: {e}")))?;
     // Close any previously-open database (dropping the rusqlite connection,
     // which flushes WAL and releases the file handle) before reopening.
     if guard.is_some() {
         *guard = None;
     }
-    std::fs::create_dir_all(std::path::Path::new(&db_path).parent().unwrap_or(std::path::Path::new("."))).ok();
-    let conn = Connection::open(&db_path).map_err(|e| Error::from_reason(format!("Open DB: {e}")))?;
-    conn.execute_batch("PRAGMA journal_mode = WAL;").map_err(|e| Error::from_reason(format!("{e}")))?;
+    std::fs::create_dir_all(
+        std::path::Path::new(&db_path)
+            .parent()
+            .unwrap_or(std::path::Path::new(".")),
+    )
+    .ok();
+    let conn =
+        Connection::open(&db_path).map_err(|e| Error::from_reason(format!("Open DB: {e}")))?;
+    conn.execute_batch("PRAGMA journal_mode = WAL;")
+        .map_err(|e| Error::from_reason(format!("{e}")))?;
     // Check if schema exists
     let has_table: bool = conn
         .prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='entries'")
@@ -133,7 +150,8 @@ pub fn knowledge_open(db_path: String) -> Result<()> {
         .map(|c| c > 0)
         .unwrap_or(false);
     if !has_table {
-        conn.execute_batch(SCHEMA_SQL).map_err(|e| Error::from_reason(format!("Schema: {e}")))?;
+        conn.execute_batch(SCHEMA_SQL)
+            .map_err(|e| Error::from_reason(format!("Schema: {e}")))?;
     }
     *guard = Some(conn);
     Ok(())
@@ -158,7 +176,22 @@ pub fn knowledge_add(
             params![id, category, title, content, tags, scope, confidence, source, now, now],
         ).map_err(|e| format!("Insert: {e}"))?;
 
-        let entry = KnowledgeEntry { id: id.clone(), category, title, content, tags: tags.split(',').filter(|s| !s.is_empty()).map(|s| s.trim().to_string()).collect(), scope, confidence, source, created_at: now.clone(), updated_at: now };
+        let entry = KnowledgeEntry {
+            id: id.clone(),
+            category,
+            title,
+            content,
+            tags: tags
+                .split(',')
+                .filter(|s| !s.is_empty())
+                .map(|s| s.trim().to_string())
+                .collect(),
+            scope,
+            confidence,
+            source,
+            created_at: now.clone(),
+            updated_at: now,
+        };
         serde_json::to_string(&entry).map_err(|e| format!("JSON: {e}"))
     })
 }
@@ -179,7 +212,9 @@ pub fn knowledge_search(
             let mut stmt = conn.prepare(
                 "SELECT id,category,title,content,tags,scope,confidence,source,created_at,updated_at FROM entries WHERE confidence >= ?1 AND (scope IS NULL OR substr(?2, 1, length(scope)) = scope) ORDER BY confidence DESC LIMIT 20"
             ).map_err(|e| format!("{e}"))?;
-            let rows = stmt.query_map(params![min_confidence, path], |r| row_to_entry(r)).map_err(|e| format!("{e}"))?;
+            let rows = stmt
+                .query_map(params![min_confidence, path], row_to_entry)
+                .map_err(|e| format!("{e}"))?;
             for row in rows.flatten() {
                 let score = if row.scope.is_some() { 3.0 } else { 1.0 };
                 let id = row.id.clone();
@@ -194,7 +229,11 @@ pub fn knowledge_search(
             let fts_query = if query.contains('"') {
                 query.clone()
             } else {
-                query.split_whitespace().map(|w| format!("\"{}\"", w.replace('"', "\"\""))).collect::<Vec<_>>().join(" OR ")
+                query
+                    .split_whitespace()
+                    .map(|w| format!("\"{}\"", w.replace('"', "\"\"")))
+                    .collect::<Vec<_>>()
+                    .join(" OR ")
             };
             let sql = "SELECT e.id,e.category,e.title,e.content,e.tags,e.scope,e.confidence,e.source,e.created_at,e.updated_at,rank FROM entries_fts f JOIN entries e ON e.rowid=f.rowid WHERE entries_fts MATCH ?1 AND e.confidence >= ?2 ORDER BY rank LIMIT 20";
             if let Ok(mut stmt) = conn.prepare(sql) {
@@ -207,7 +246,9 @@ pub fn knowledge_search(
                         let (entry, rank) = row;
                         let score = 2.0 * (1.0 / (1.0 + rank.abs()));
                         let id = entry.id.clone();
-                        let e = results_map.entry(id).or_insert_with(|| (entry, 0.0, vec![]));
+                        let e = results_map
+                            .entry(id)
+                            .or_insert_with(|| (entry, 0.0, vec![]));
                         e.1 += score;
                         e.2.push("fts".to_string());
                     }
@@ -217,10 +258,16 @@ pub fn knowledge_search(
 
         // 3. Tag overlap
         if let Some(ref tag_str) = tags {
-            let query_tags: HashSet<&str> = tag_str.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+            let query_tags: HashSet<&str> = tag_str
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect();
             if !query_tags.is_empty() {
                 let mut stmt = conn.prepare("SELECT id,category,title,content,tags,scope,confidence,source,created_at,updated_at FROM entries WHERE confidence >= ?1 AND tags != ''").map_err(|e| format!("{e}"))?;
-                let rows = stmt.query_map(params![min_confidence], |r| row_to_entry(r)).map_err(|e| format!("{e}"))?;
+                let rows = stmt
+                    .query_map(params![min_confidence], row_to_entry)
+                    .map_err(|e| format!("{e}"))?;
                 for row in rows.flatten() {
                     let entry_tags: HashSet<&str> = row.tags.iter().map(|s| s.as_str()).collect();
                     let overlap = query_tags.intersection(&entry_tags).count();
@@ -235,12 +282,27 @@ pub fn knowledge_search(
         }
 
         // Sort and truncate
-        let mut results: Vec<SearchResult> = results_map.into_values().map(|(entry, score, sources)| {
-            let relevance = score * entry.confidence;
-            let unique: Vec<String> = sources.into_iter().collect::<HashSet<_>>().into_iter().collect();
-            SearchResult { entry, relevance, match_source: unique }
-        }).collect();
-        results.sort_by(|a, b| b.relevance.partial_cmp(&a.relevance).unwrap_or(std::cmp::Ordering::Equal));
+        let mut results: Vec<SearchResult> = results_map
+            .into_values()
+            .map(|(entry, score, sources)| {
+                let relevance = score * entry.confidence;
+                let unique: Vec<String> = sources
+                    .into_iter()
+                    .collect::<HashSet<_>>()
+                    .into_iter()
+                    .collect();
+                SearchResult {
+                    entry,
+                    relevance,
+                    match_source: unique,
+                }
+            })
+            .collect();
+        results.sort_by(|a, b| {
+            b.relevance
+                .partial_cmp(&a.relevance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(limit as usize);
 
         serde_json::to_string(&results).map_err(|e| format!("JSON: {e}"))
@@ -250,7 +312,9 @@ pub fn knowledge_search(
 #[napi]
 pub fn knowledge_remove(id: String) -> Result<bool> {
     with_db(|conn| {
-        let affected = conn.execute("DELETE FROM entries WHERE id = ?1", params![id]).map_err(|e| format!("{e}"))?;
+        let affected = conn
+            .execute("DELETE FROM entries WHERE id = ?1", params![id])
+            .map_err(|e| format!("{e}"))?;
         Ok(affected > 0)
     })
 }
@@ -270,20 +334,43 @@ pub fn knowledge_confirm(id: String) -> Result<bool> {
 #[napi]
 pub fn knowledge_stats() -> Result<String> {
     with_db(|conn| {
-        let total: usize = conn.query_row("SELECT count(*) FROM entries", [], |r| r.get(0)).map_err(|e| format!("{e}"))?;
+        let total: usize = conn
+            .query_row("SELECT count(*) FROM entries", [], |r| r.get(0))
+            .map_err(|e| format!("{e}"))?;
         let mut by_category = HashMap::new();
-        let mut stmt = conn.prepare("SELECT category, count(*) FROM entries GROUP BY category").map_err(|e| format!("{e}"))?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_,String>(0)?, r.get::<_,usize>(1)?))).map_err(|e| format!("{e}"))?;
-        for row in rows.flatten() { by_category.insert(row.0, row.1); }
+        let mut stmt = conn
+            .prepare("SELECT category, count(*) FROM entries GROUP BY category")
+            .map_err(|e| format!("{e}"))?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, usize>(1)?)))
+            .map_err(|e| format!("{e}"))?;
+        for row in rows.flatten() {
+            by_category.insert(row.0, row.1);
+        }
 
         let mut by_source = HashMap::new();
-        let mut stmt = conn.prepare("SELECT source, count(*) FROM entries GROUP BY source").map_err(|e| format!("{e}"))?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_,String>(0)?, r.get::<_,usize>(1)?))).map_err(|e| format!("{e}"))?;
-        for row in rows.flatten() { by_source.insert(row.0, row.1); }
+        let mut stmt = conn
+            .prepare("SELECT source, count(*) FROM entries GROUP BY source")
+            .map_err(|e| format!("{e}"))?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, usize>(1)?)))
+            .map_err(|e| format!("{e}"))?;
+        for row in rows.flatten() {
+            by_source.insert(row.0, row.1);
+        }
 
-        let avg_confidence: f64 = conn.query_row("SELECT COALESCE(avg(confidence),0) FROM entries", [], |r| r.get(0)).map_err(|e| format!("{e}"))?;
+        let avg_confidence: f64 = conn
+            .query_row("SELECT COALESCE(avg(confidence),0) FROM entries", [], |r| {
+                r.get(0)
+            })
+            .map_err(|e| format!("{e}"))?;
 
-        let stats = Stats { total, by_category, by_source, avg_confidence };
+        let stats = Stats {
+            total,
+            by_category,
+            by_source,
+            avg_confidence,
+        };
         serde_json::to_string(&stats).map_err(|e| format!("JSON: {e}"))
     })
 }
@@ -297,9 +384,13 @@ pub fn knowledge_import(markdown: String) -> Result<String> {
 
         for block in blocks {
             let block = block.trim();
-            if block.is_empty() { continue; }
+            if block.is_empty() {
+                continue;
+            }
             let lines: Vec<&str> = block.lines().collect();
-            if lines.is_empty() { continue; }
+            if lines.is_empty() {
+                continue;
+            }
 
             let header = lines[0].trim_start_matches('#').trim();
             let (cat_str, title) = match header.split_once(':') {
@@ -313,11 +404,18 @@ pub fn knowledge_import(markdown: String) -> Result<String> {
 
             for (i, line) in lines.iter().enumerate().skip(1) {
                 if let Some(t) = line.strip_prefix("tags:") {
-                    tags = t.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect::<Vec<_>>().join(",");
+                    tags = t
+                        .split(',')
+                        .map(|s| s.trim())
+                        .filter(|s| !s.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(",");
                     content_start = i + 1;
                 } else if let Some(s) = line.strip_prefix("scope:") {
                     let s = s.trim();
-                    if !s.is_empty() { scope = Some(s.to_string()); }
+                    if !s.is_empty() {
+                        scope = Some(s.to_string());
+                    }
                     content_start = i + 1;
                 } else if line.is_empty() {
                     content_start = i + 1;
@@ -327,8 +425,13 @@ pub fn knowledge_import(markdown: String) -> Result<String> {
                 }
             }
 
-            let entry_content = lines[content_start..].join("\n").trim().replace("\n\\---\n", "\n---\n");
-            if entry_content.is_empty() { continue; }
+            let entry_content = lines[content_start..]
+                .join("\n")
+                .trim()
+                .replace("\n\\---\n", "\n---\n");
+            if entry_content.is_empty() {
+                continue;
+            }
 
             let id = generate_id();
             let now = now_iso();

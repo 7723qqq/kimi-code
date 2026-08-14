@@ -29,7 +29,7 @@ pub fn render_template(template: &str, vars: &HashMap<String, String>) -> String
             }
         } else {
             // Unterminated placeholder — keep the rest as-is
-            result.push_str(&rest);
+            result.push_str(rest);
             break;
         }
     }
@@ -58,11 +58,7 @@ const OBJECTIVE_UPDATED_TEMPLATE: &str = include_str!("templates/objective_updat
 // ---------------------------------------------------------------------------
 
 /// Build variables map from goal fields and render the continuation prompt.
-pub fn render_continuation(
-    objective: &str,
-    tokens_used: i64,
-    token_budget: Option<i64>,
-) -> String {
+pub fn render_continuation(objective: &str, tokens_used: i64, token_budget: Option<i64>) -> String {
     let vars = vars_map_owned(objective, tokens_used, token_budget);
     render_template(CONTINUATION_TEMPLATE, &vars)
 }
@@ -75,7 +71,10 @@ pub fn render_budget_limit(
     time_used_seconds: i64,
 ) -> String {
     let mut vars = vars_map_owned(objective, tokens_used, token_budget);
-    vars.insert("time_used_seconds".to_string(), time_used_seconds.to_string());
+    vars.insert(
+        "time_used_seconds".to_string(),
+        time_used_seconds.to_string(),
+    );
     render_template(BUDGET_LIMIT_TEMPLATE, &vars)
 }
 
@@ -339,12 +338,16 @@ mod tests {
         let mut vars = std::collections::HashMap::new();
         vars.insert("name".to_string(), "Alice".to_string());
         vars.insert("count".to_string(), "3".to_string());
-        assert_eq!(render_template(tmpl, &vars), "Hello Alice, you have 3 messages.");
+        assert_eq!(
+            render_template(tmpl, &vars),
+            "Hello Alice, you have 3 messages."
+        );
     }
 
     #[test]
     fn test_render_goal_reminder() {
-        let mut g = crate::goal::state::GoalState::new("g1".into(), "fix the bug".into(), Some(2000));
+        let mut g =
+            crate::goal::state::GoalState::new("g1".into(), "fix the bug".into(), Some(2000));
         g.completion_criterion = Some("tests pass".to_string());
         g.turn_budget = Some(10);
         g.tokens_used = 500;

@@ -10,8 +10,7 @@ use std::time::Duration;
 // ── Configuration ────────────────────────────────────────────────────────────
 
 const DDG_HTML_URL: &str = "https://html.duckduckgo.com/html/";
-const DDG_USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+const DDG_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
      (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36";
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const MAX_RESULTS: usize = 10;
@@ -100,18 +99,15 @@ fn web_search_inner(config: &WebSearchConfig) -> Result<Vec<WebSearchResultEntry
 
 // ── HTML Parsing ─────────────────────────────────────────────────────────────
 
-fn parse_ddg_results(
-    html: &str,
-    max_results: usize,
-) -> Result<Vec<WebSearchResultEntry>, String> {
+fn parse_ddg_results(html: &str, max_results: usize) -> Result<Vec<WebSearchResultEntry>, String> {
     let document = Html::parse_document(html);
 
     let result_sel =
         Selector::parse("div.result").map_err(|_| "Failed to parse selector".to_string())?;
     let title_sel =
         Selector::parse("a.result__a").map_err(|_| "Failed to parse selector".to_string())?;
-    let snippet_sel = Selector::parse(".result__snippet")
-        .map_err(|_| "Failed to parse selector".to_string())?;
+    let snippet_sel =
+        Selector::parse(".result__snippet").map_err(|_| "Failed to parse selector".to_string())?;
     let url_sel =
         Selector::parse(".result__url").map_err(|_| "Failed to parse selector".to_string())?;
 

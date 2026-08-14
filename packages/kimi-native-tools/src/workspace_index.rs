@@ -3,9 +3,9 @@
 //! Built once at workspace load time, then used by Read/Grep/etc to return
 //! instant approximate results while exact execution happens in background.
 //!
-//! The index stores per-file metadata: size, line count, mtime, and a
-//! preview (first N lines). It is read-only after construction; call
-//! `build()` to create a fresh index, or `update()` to refresh a subtree.
+//! The index stores per-file metadata: size, line count, and a preview
+//! (first N lines). It is read-only after construction; call `build()` to
+//! create a fresh index.
 
 use std::collections::HashMap;
 use std::fs;
@@ -22,8 +22,6 @@ pub struct FileMeta {
     pub size: u64,
     /// Total number of lines in the file.
     pub line_count: u32,
-    /// Last modification time (epoch millis).
-    pub mtime: i64,
     /// Preview text (first PREVIEW_LINES lines, joined with newlines).
     pub preview: String,
 }
@@ -42,7 +40,6 @@ pub struct ReadPrediction {
 pub struct WorkspaceIndex {
     files: Arc<HashMap<String, FileMeta>>,
     file_count: usize,
-    root: String,
 }
 
 impl WorkspaceIndex {
@@ -68,7 +65,6 @@ impl WorkspaceIndex {
         Self {
             files: Arc::new(files),
             file_count,
-            root: root.to_string(),
         }
     }
 
@@ -79,11 +75,11 @@ impl WorkspaceIndex {
 
     /// Generate a Read prediction for the given path.
     pub fn predict_read(&self, path: &str) -> Option<ReadPrediction> {
-        let meta = self.files.get(path)?;
+        let meta = self.get(path)?;
 
         // Rough estimate: ~100 MB/s sequential read, plus parsing overhead
         let estimated_read_ms = ((meta.size as f64 / 100_000.0) + 0.5) as u64;
-        let estimated_read_ms = estimated_read_ms.max(1).min(5000);
+        let estimated_read_ms = estimated_read_ms.clamp(1, 5000);
 
         Some(ReadPrediction {
             line_count: meta.line_count,
@@ -97,28 +93,11 @@ impl WorkspaceIndex {
     pub fn file_count(&self) -> usize {
         self.file_count
     }
-
-    /// Root path this index was built from.
-    pub fn root(&self) -> &str {
-        &self.root
-    }
-
-    /// Returns all indexed paths (for debugging/telemetry).
-    pub fn paths(&self) -> Vec<String> {
-        self.files.keys().cloned().collect()
-    }
 }
 
 /// Collect metadata for a single file.
 fn collect_file_meta(path: &Path) -> FileMeta {
-    let meta = fs::metadata(path);
-    let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-    let mtime = meta
-        .ok()
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
+    let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
     // Line count and preview — read first PREVIEW_LINES + count all lines
     let (line_count, preview) = if size == 0 {
@@ -127,7 +106,10 @@ fn collect_file_meta(path: &Path) -> FileMeta {
         // Skip preview for large files (> 10 MB), just count lines from header
         let header = read_first_n_bytes(path, 64 * 1024);
         let lines_in_header = header.lines().count();
-        (lines_in_header as u32, format!("[{} bytes, preview unavailable]", size))
+        (
+            lines_in_header as u32,
+            format!("[{} bytes, preview unavailable]", size),
+        )
     } else {
         read_line_count_and_preview(path, PREVIEW_LINES)
     };
@@ -135,7 +117,6 @@ fn collect_file_meta(path: &Path) -> FileMeta {
     FileMeta {
         size,
         line_count,
-        mtime,
         preview,
     }
 }
@@ -454,8 +435,14 @@ mod tests {
 
         let pred = index.predict_read(&path_str).unwrap();
         assert_eq!(pred.line_count, 8, "should count all 8 lines");
-        assert!(!pred.preview.contains("line6"), "preview should not contain line 6+");
-        assert!(pred.preview.contains("line1"), "preview should contain line 1");
+        assert!(
+            !pred.preview.contains("line6"),
+            "preview should not contain line 6+"
+        );
+        assert!(
+            pred.preview.contains("line1"),
+            "preview should contain line 1"
+        );
     }
 
     #[test]
@@ -468,7 +455,9 @@ mod tests {
         let index = WorkspaceIndex::build(dir.path().to_str().unwrap());
         // The index stores forward-slash paths. predict_read with a
         // backslash path won't match — this test documents that behavior.
-        let fwd = dir.path().join("code.rs")
+        let fwd = dir
+            .path()
+            .join("code.rs")
             .to_string_lossy()
             .to_string()
             .replace('\\', "/");
@@ -489,13 +478,19 @@ mod tests {
         let small = dir.path().join("small.txt");
         let small_str = small.to_string_lossy().to_string().replace('\\', "/");
         let pred = index.predict_read(&small_str).unwrap();
-        assert!(pred.estimated_read_ms >= 1, "small file should estimate >= 1ms");
+        assert!(
+            pred.estimated_read_ms >= 1,
+            "small file should estimate >= 1ms"
+        );
 
         // Note: big.bin may be skipped by binary detection, so check if indexed.
         let big = dir.path().join("big.bin");
         let big_str = big.to_string_lossy().to_string().replace('\\', "/");
         if let Some(pred) = index.predict_read(&big_str) {
-            assert!(pred.estimated_read_ms <= 5000, "large file should be capped at 5000ms");
+            assert!(
+                pred.estimated_read_ms <= 5000,
+                "large file should be capped at 5000ms"
+            );
         }
     }
 

@@ -17,7 +17,7 @@
  * and nothing else.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { PathSecurityError } from '#/tool/path-access';
 import { MEDIA_SNIFF_BYTES } from '#/agent/media/file-type';
@@ -35,15 +35,23 @@ import {
 import { ReadTool } from '#/agent/tools/os/read/readTool';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { tryNativeRead } from '#/_base/native-tools';
 
 // The Rust native tools addon is loadable in the vitest environment (activated
 // indirectly through the workspace), so ReadTool's `tryNativeRead` fast-path
 // reads the real filesystem and bypasses the fake `IHostFileSystem` below —
 // leftover files in /tmp (e.g. from the write suite) leak into results. Stub
 // every native export to return `undefined` so the TS line-iteration path runs.
+// `tryNativeRead` stays a controllable `vi.fn` so the native routing policy
+// (authoritative errors, invalid_utf8 → GBK chain) can be exercised directly.
 vi.mock('#/_base/native-tools', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
-  return Object.fromEntries(Object.keys(actual).map((key) => [key, () => {}]));
+  const stubs = Object.fromEntries(
+    Object.keys(actual)
+      .filter((key) => key !== 'tryNativeRead')
+      .map((key) => [key, () => {}]),
+  );
+  return { ...stubs, tryNativeRead: vi.fn(() => Promise.resolve(undefined)) };
 });
 
 const signal = new AbortController().signal;
@@ -504,6 +512,27 @@ describe('ReadTool', () => {
     );
     expect(output).not.toContain('Python tools');
     expect(readText).not.toHaveBeenCalled();
+  });
+
+  it('reads a file whose multi-byte char straddles the 512-byte sniff window', async () => {
+    // The preflight header is a raw byte slice: a CJK char cut at byte 512
+    // yields an invalid-UTF-8 tail that must NOT make the file look binary —
+    // the header check only looks for magic bytes / NULs, and line decoding
+    // always sees whole lines.
+    const content = `${'a'.repeat(509)}\n中文内容测试\n${'b'.repeat(100)}\n`;
+    const bytes = Buffer.from(content, 'utf8');
+    expect(bytes.length).toBeGreaterThan(MEDIA_SNIFF_BYTES);
+    // Sanity: the header really ends mid-character (split lead bytes, no NUL).
+    const header = bytes.subarray(0, MEDIA_SNIFF_BYTES);
+    expect(header.includes(0x00)).toBe(false);
+    expect(() => Buffer.from(header.toString('utf8'), 'utf8').toString()).not.toThrow();
+
+    const tool = toolWithContent(content);
+
+    const result = await execute(tool, { path: '/tmp/cjk-boundary.txt' });
+
+    expect(result.isError).not.toBe(true);
+    expect(toolContentString(result)).toContain('中文内容测试');
   });
 
   it('rejects NUL bytes that appear after the preflight header', async () => {
@@ -1030,5 +1059,142 @@ describe('ReadTool description and schema parity', () => {
 
     expect(tool.description).toMatch(/UTF-?8/i);
     expect(tool.description).toMatch(/binary/i);
+  });
+});
+
+describe('ReadTool native fast-path routing', () => {
+  afterEach(() => {
+    vi.mocked(tryNativeRead).mockReset();
+    vi.mocked(tryNativeRead).mockImplementation(() => Promise.resolve(undefined));
+  });
+
+  it('uses the native result directly and never spins up the TS line reader', async () => {
+    // The fake fs content ('ignored by native') doubles as a sentinel: had
+    // the TS line reader run, it would appear in the output.
+    const { fs } = createSpiedMapFs({
+      '/tmp/native.txt': { bytes: Buffer.from('ignored by native\n', 'utf8') },
+    });
+    vi.mocked(tryNativeRead).mockResolvedValue({
+      content:
+        '1\talpha\n2\tbeta\n<system>2 lines read from file starting from line 1. Total lines in file: 2. End of file reached.</system>',
+      lineCount: 2,
+    });
+    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+
+    const result = await execute(tool, { path: '/tmp/native.txt' });
+
+    expect(result).toEqual({
+      output: '1\talpha\n2\tbeta',
+      note: '<system>2 lines read from file starting from line 1. Total lines in file: 2. End of file reached.</system>',
+    });
+  });
+
+  it('returns a classified native error as final instead of re-reading via TS', async () => {
+    const { fs } = createSpiedMapFs({
+      '/tmp/gone.txt': { bytes: Buffer.from('never read\n', 'utf8') },
+    });
+    vi.mocked(tryNativeRead).mockResolvedValue({
+      content: '',
+      lineCount: 0,
+      error: '"/tmp/gone.txt" does not exist.',
+      errorKind: 'not_found',
+    });
+    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+
+    const result = await execute(tool, { path: '/tmp/gone.txt' });
+
+    expect(result.isError).toBe(true);
+    // The native verdict verbatim — a TS re-read would have surfaced the
+    // fake file's content ('never read') instead.
+    expect(toolContentString(result)).toBe('"/tmp/gone.txt" does not exist.');
+  });
+
+  it('returns the native invalid_utf8 refusal as final (the chain ran in Rust)', async () => {
+    // The native reader runs the GBK/GB18030 + lenient chain internally;
+    // an invalid_utf8 error reaching TS means the chain refused — the
+    // verdict is final and the TS decode chain must not re-run.
+    const { fs } = createSpiedMapFs({
+      '/tmp/native-garbage.txt': { bytes: Buffer.from([0xff, 0xff, 0xff, 0xff]) },
+    });
+    vi.mocked(tryNativeRead).mockResolvedValue({
+      content: '',
+      lineCount: 0,
+      error:
+        '"/tmp/native-garbage.txt" is not valid UTF-8, UTF-16, or GBK/GB18030 text. ' +
+        'Only UTF-8, UTF-16 and GBK/GB18030 text files can be read; for other encodings, ' +
+        'convert the file to UTF-8 first (e.g. `iconv` via Bash).',
+      errorKind: 'invalid_utf8',
+    });
+    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+
+    const result = await execute(tool, { path: '/tmp/native-garbage.txt' });
+
+    expect(result.isError).toBe(true);
+    expect(toolContentString(result)).toContain('not valid UTF-8, UTF-16, or GBK/GB18030 text');
+  });
+
+  it('consults the native reader for UTF-16 headers instead of transcoding in TS', async () => {
+    // BOM + "ab\n" as UTF-16 LE — the native reader transcodes it itself,
+    // so the TS whole-file decode path never runs.
+    const utf16 = Buffer.concat([
+      Buffer.from([0xff, 0xfe]),
+      Buffer.from('a\0b\0\n\0', 'latin1'),
+    ]);
+    const { fs } = createSpiedMapFs({
+      '/tmp/native-utf16.txt': { bytes: utf16 },
+    });
+    vi.mocked(tryNativeRead).mockResolvedValue({
+      content:
+        '1\tab\n<system>1 line read from file starting from line 1. Total lines in file: 1. End of file reached. Detected file encoding: UTF-16 LE; content transcoded to UTF-8 for display.</system>',
+      lineCount: 1,
+    });
+    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+
+    const result = await execute(tool, { path: '/tmp/native-utf16.txt' });
+
+    expect(tryNativeRead).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      output: '1\tab',
+      note: expect.stringContaining('Detected file encoding: UTF-16 LE'),
+    });
+  });
+
+  it('skips the TS stat and header preflight entirely when the native read succeeds', async () => {
+    // The native reader performs every preflight itself (existence, file
+    // type, encoding detection), so a successful native verdict must not
+    // trigger any TS-side I/O — not even the 512-byte header sniff.
+    const { fs, readBytes, stat } = createSpiedMapFs({
+      '/tmp/native-preflight.txt': { bytes: Buffer.from('content\n', 'utf8') },
+    });
+    vi.mocked(tryNativeRead).mockResolvedValue({
+      content:
+        '1\tfrom native\n<system>1 line read from file starting from line 1. Total lines in file: 1. End of file reached.</system>',
+      lineCount: 1,
+    });
+    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+
+    const result = await execute(tool, { path: '/tmp/native-preflight.txt' });
+
+    expect(result.output).toBe('1\tfrom native');
+    expect(stat).not.toHaveBeenCalled();
+    expect(readBytes).not.toHaveBeenCalled();
+  });
+
+  it('treats any native error as final, even one without errorKind', async () => {
+    // Release builds bundle the native module (SEA exe / version-pinned
+    // optional dep), so a loaded-but-mismatched prebuild is not a real
+    // distribution state — no TS fallthrough is owed to missing errorKind.
+    const { fs } = createSpiedFs('legacy content\n');
+    vi.mocked(tryNativeRead).mockResolvedValue({
+      content: '',
+      lineCount: 0,
+      error: 'stream did not contain valid UTF-8',
+    });
+    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+
+    const result = await execute(tool, { path: '/tmp/stale.txt' });
+
+    expect(result.isError).toBe(true);
+    expect(toolContentString(result)).toBe('stream did not contain valid UTF-8');
   });
 });

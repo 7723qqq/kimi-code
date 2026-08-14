@@ -113,7 +113,9 @@ export class WriteTool implements IWriteTool {
     }
 
     // ── Native fast-path ─────────────────────────────────────────────────
-    // nativeWrite creates parent dirs and writes atomically in Rust.
+    // nativeWrite creates parent dirs and writes in one truncating pass
+    // (or `O_APPEND`), matching the TS path's semantics. Its errors are
+    // final verdicts — never silently re-run in TS.
     const nativeResult = await tryNativeWrite(safePath, args.content, args.mode);
     if (nativeResult) {
       if (nativeResult.error) {

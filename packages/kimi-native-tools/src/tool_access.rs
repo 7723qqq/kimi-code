@@ -59,7 +59,12 @@ fn resource_accesses_conflict(left: &ToolAccessMeta, right: &ToolAccessMeta) -> 
         Some(p) => p,
         None => return false,
     };
-    file_accesses_overlap(left_path, left.recursive.unwrap_or(false), right_path, right.recursive.unwrap_or(false))
+    file_accesses_overlap(
+        left_path,
+        left.recursive.unwrap_or(false),
+        right_path,
+        right.recursive.unwrap_or(false),
+    )
 }
 
 fn file_operations_conflict(left: &str, right: &str) -> bool {

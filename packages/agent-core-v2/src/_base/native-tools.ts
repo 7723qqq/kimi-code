@@ -88,6 +88,13 @@ export interface NativeReadResult {
   readonly content: string;
   readonly lineCount: number;
   readonly error?: string;
+  /**
+   * Machine-readable error class — `not_found` / `not_a_file` / `media` /
+   * `binary` / `invalid_utf8` / `io` / `panic`. Observability metadata
+   * only: every native error is a final verdict regardless of whether the
+   * kind is present.
+   */
+  readonly errorKind?: string;
 }
 
 /**
@@ -106,10 +113,18 @@ export async function tryNativeRead(
 export interface NativeWriteResult {
   readonly bytesWritten: number;
   readonly error?: string;
+  /**
+   * Machine-readable error class — `io` / `parent_not_dir` / `panic`.
+   * Observability metadata only: every native error is a final verdict
+   * regardless of whether the kind is present.
+   */
+  readonly errorKind?: string;
 }
 
 /**
  * Try the Rust native file write. Creates parent dirs automatically.
+ * The write is a plain truncating pass (or `O_APPEND`), matching the TS
+ * writeText semantics — not a temp-file-and-rename atomic write.
  * Returns `undefined` when the native module is unavailable.
  */
 export async function tryNativeWrite(

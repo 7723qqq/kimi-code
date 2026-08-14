@@ -3,17 +3,20 @@
 /// This module defines the `#[napi]` functions that TypeScript calls.
 /// Each function wraps the corresponding Rust implementation.
 use crate::bash::{self, BashConfig, BashResult, DEFAULT_TIMEOUT_S, MAX_TIMEOUT_S};
-use crate::compaction::{self, CompactionConfigMeta, CompactionMessageMeta, HandoffMessageMeta, CompactionUserSelection};
+use crate::compaction::{self, CompactionConfigMeta, CompactionMessageMeta};
 use crate::edit::{self, EditResult};
 use crate::escape;
-use crate::glob::{self, GlobConfig, GlobResult, MAX_MATCHES};
 use crate::github;
-use crate::grep::{self, GrepConfig, GrepResult, GrepStructuredConfig, GrepStructuredResult, OutputMode, DEFAULT_HEAD_LIMIT};
+use crate::glob::{self, GlobConfig, GlobResult, MAX_MATCHES};
+use crate::grep::{
+    self, GrepConfig, GrepResult, GrepStructuredConfig, GrepStructuredResult, OutputMode,
+    DEFAULT_HEAD_LIMIT,
+};
 use crate::image_compress;
 use crate::list_directory::{self, ListDirectoryConfig, ListDirectoryResult};
 use crate::output_truncate;
 use crate::permission;
-use crate::read::{self, ReadConfig, ReadResult, MAX_BYTES, MAX_LINE_LENGTH, MAX_LINES};
+use crate::read::{self, ReadConfig, ReadResult, MAX_BYTES, MAX_LINES, MAX_LINE_LENGTH};
 use crate::tool_access::{self, ToolAccessMeta};
 use crate::tool_naming;
 use crate::translation::{self, CachedTranslator};
@@ -125,7 +128,10 @@ pub fn native_translate_batch_cached(
 /// @param path - Path to the file to read.
 /// @param line_offset - Line number to start from (1-indexed). Negative = tail from end.
 /// @param n_lines - Number of lines to read. Capped at 1000.
-/// @returns ReadResult with content (line-numbered), lineCount, and optional error.
+/// @returns ReadResult with content (line-numbered), lineCount, and optional
+///          error plus errorKind (`not_found` / `not_a_file` / `media` /
+///          `binary` / `invalid_utf8` / `too_large` / `io` / `panic`) — every
+///          verdict is final; UTF-16/GBK/lenient transcoding runs natively.
 #[napi]
 pub async fn native_read(
     path: String,
@@ -139,6 +145,7 @@ pub async fn native_read(
                 content,
                 line_count,
                 error: None,
+                error_kind: None,
             };
         }
     }
@@ -167,6 +174,9 @@ pub async fn native_read(
         content: String::new(),
         line_count: 0,
         error: Some(format!("read panicked: {e}")),
+        // A panic is a native bug — surface it instead of letting the JS
+        // caller silently mask it with its TypeScript fallback.
+        error_kind: Some("panic".to_string()),
     });
 
     // Cache full-file reads (put() re-checks the metadata snapshot and skips
@@ -205,8 +215,8 @@ pub async fn native_batch_read(
 
     let tasks: Vec<_> = paths
         .into_iter()
-        .zip(offsets.into_iter())
-        .zip(lines.into_iter())
+        .zip(offsets)
+        .zip(lines)
         .map(|((path, line_offset), n_lines)| {
             tokio::task::spawn_blocking(move || {
                 read::read_file(&ReadConfig {
@@ -220,13 +230,12 @@ pub async fn native_batch_read(
 
     let mut results = Vec::with_capacity(tasks.len());
     for task in tasks {
-        results.push(
-            task.await.unwrap_or_else(|e| ReadResult {
-                content: String::new(),
-                line_count: 0,
-                error: Some(format!("read panicked: {e}")),
-            }),
-        );
+        results.push(task.await.unwrap_or_else(|e| ReadResult {
+            content: String::new(),
+            line_count: 0,
+            error: Some(format!("read panicked: {e}")),
+            error_kind: Some("panic".to_string()),
+        }));
     }
     results
 }
@@ -247,29 +256,32 @@ pub fn native_file_cache_invalidate(path: String) {
 
 /// Write content to a file.
 ///
+/// Creates parent directories automatically. The write is a plain
+/// truncating pass (or `O_APPEND`), matching the TS writeText semantics —
+/// NOT a temp-file-and-rename atomic write.
+///
 /// @param path - Path to the file to create or overwrite.
 /// @param content - Raw content to write.
 /// @param mode - "overwrite" or "append". Defaults to "overwrite".
-/// @returns WriteResult with bytesWritten and optional error.
+/// @returns WriteResult with bytesWritten and optional error plus errorKind
+///          (`io` / `parent_not_dir` / `panic`) — every verdict is final.
 #[napi]
-pub async fn native_write(
-    path: String,
-    content: String,
-    mode: Option<String>,
-) -> WriteResult {
+pub async fn native_write(path: String, content: String, mode: Option<String>) -> WriteResult {
     let write_mode = match mode.as_deref() {
         Some("append") => WriteMode::Append,
         _ => WriteMode::Overwrite,
     };
     let path_clone = path.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        write::write_file(&path_clone, &content, write_mode)
-    })
-    .await
-    .unwrap_or_else(|e| WriteResult {
-        bytes_written: 0,
-        error: Some(format!("write panicked: {e}")),
-    });
+    let result =
+        tokio::task::spawn_blocking(move || write::write_file(&path_clone, &content, write_mode))
+            .await
+            .unwrap_or_else(|e| WriteResult {
+                bytes_written: 0,
+                error: Some(format!("write panicked: {e}")),
+                // A panic is a native bug — surface it instead of letting the JS
+                // caller silently mask it with its TypeScript fallback.
+                error_kind: Some("panic".to_string()),
+            });
 
     if result.error.is_none() {
         crate::file_cache::FILE_CACHE.invalidate(&path);
@@ -297,7 +309,12 @@ pub async fn native_edit(
 ) -> EditResult {
     let path_clone = path.clone();
     let result = tokio::task::spawn_blocking(move || {
-        edit::edit_file(&path_clone, &old_string, &new_string, replace_all.unwrap_or(false))
+        edit::edit_file(
+            &path_clone,
+            &old_string,
+            &new_string,
+            replace_all.unwrap_or(false),
+        )
     })
     .await
     .unwrap_or_else(|e| EditResult {
@@ -647,7 +664,10 @@ pub fn native_detect_file_type(path: String, header: Uint8Array) -> FileTypeResu
         file_type::FileKind::Unknown => "unknown",
     };
     let mime = file_type::resolve_mime(std::path::Path::new(&path), &header);
-    FileTypeResult { kind: kind_str.to_string(), mime_type: mime }
+    FileTypeResult {
+        kind: kind_str.to_string(),
+        mime_type: mime,
+    }
 }
 
 // ============================================================================
@@ -1190,7 +1210,7 @@ pub async fn native_mcp_stdio_spawn(
     };
     let result = mcp::stdio_spawn(&spawn_config)
         .await
-        .map_err(|e| napi::Error::from_reason(e))?;
+        .map_err(napi::Error::from_reason)?;
     Ok(NativeMcpStdioSpawnResult {
         handle: result.handle as i64,
         pid: result.pid,
@@ -1206,7 +1226,7 @@ pub async fn native_mcp_stdio_initialize(
 ) -> Result<String, napi::Error> {
     let result = mcp::stdio_initialize(handle as u64, &client_name, &client_version, timeout_ms)
         .await
-        .map_err(|e| napi::Error::from_reason(e))?;
+        .map_err(napi::Error::from_reason)?;
     serde_json::to_string(&result)
         .map_err(|e| napi::Error::from_reason(format!("Failed to serialize result: {}", e)))
 }
@@ -1217,7 +1237,7 @@ pub async fn native_mcp_stdio_list_tools(
 ) -> Result<Vec<NativeMcpToolDef>, napi::Error> {
     let tools = mcp::stdio_list_tools(handle as u64)
         .await
-        .map_err(|e| napi::Error::from_reason(e))?;
+        .map_err(napi::Error::from_reason)?;
     Ok(tools
         .into_iter()
         .map(|tool| NativeMcpToolDef {
@@ -1239,7 +1259,7 @@ pub async fn native_mcp_stdio_call_tool(
         .map_err(|e| napi::Error::from_reason(format!("Invalid args JSON: {}", e)))?;
     let result = mcp::stdio_call_tool(handle as u64, &name, &args, timeout_ms)
         .await
-        .map_err(|e| napi::Error::from_reason(e))?;
+        .map_err(napi::Error::from_reason)?;
     serde_json::to_string(&result)
         .map_err(|e| napi::Error::from_reason(format!("Failed to serialize result: {}", e)))
 }
@@ -1248,7 +1268,7 @@ pub async fn native_mcp_stdio_call_tool(
 pub async fn native_mcp_stdio_close(handle: i64) -> Result<(), napi::Error> {
     mcp::stdio_close(handle as u64)
         .await
-        .map_err(|e| napi::Error::from_reason(e))
+        .map_err(napi::Error::from_reason)
 }
 
 #[napi]
@@ -1356,18 +1376,14 @@ pub fn native_goal_apply_update(goal_json: String, update_json: String) -> Strin
             state::GoalUpdateOutcome::Unchanged => {
                 Ok(json!({ "ok": true, "goal": goal }).to_string())
             }
-            state::GoalUpdateOutcome::GoalIdMismatch { current, expected } => {
-                Ok(json!({
-                    "ok": false,
-                    "error": format!("goal_id mismatch: current={current}, expected={expected}"),
-                })
-                .to_string())
-            }
-            state::GoalUpdateOutcome::InvalidTransition { current, target } => {
-                Err(format!(
-                    "invalid transition: cannot go from {current} to {target}",
-                ))
-            }
+            state::GoalUpdateOutcome::GoalIdMismatch { current, expected } => Ok(json!({
+                "ok": false,
+                "error": format!("goal_id mismatch: current={current}, expected={expected}"),
+            })
+            .to_string()),
+            state::GoalUpdateOutcome::InvalidTransition { current, target } => Err(format!(
+                "invalid transition: cannot go from {current} to {target}",
+            )),
         }
     })();
 
@@ -1446,7 +1462,8 @@ pub fn native_goal_render_objective_updated(
 #[napi]
 pub fn native_goal_engine_validate_create_input(json: String) -> String {
     let result = (|| -> Result<serde_json::Value, String> {
-        let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
+        let v: serde_json::Value =
+            serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
         let objective = get_str(&v, "objective")?.to_string();
         let criterion = v.get("completionCriterion").and_then(|x| x.as_str());
         let (obj, crit) = crate::goal::engine::validate_create_input(&objective, criterion)?;
@@ -1465,8 +1482,12 @@ pub fn native_goal_engine_validate_create_input(json: String) -> String {
 #[napi]
 pub fn native_goal_engine_validate_budget_input(json: String) -> String {
     let result = (|| -> Result<serde_json::Value, String> {
-        let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
-        let value = v.get("value").and_then(|x| x.as_f64()).ok_or("missing value")?;
+        let v: serde_json::Value =
+            serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
+        let value = v
+            .get("value")
+            .and_then(|x| x.as_f64())
+            .ok_or("missing value")?;
         let unit = get_str(&v, "unit")?;
         let patch = crate::goal::engine::validate_budget_input_json(value, unit)?;
         Ok(json!({
@@ -1490,7 +1511,8 @@ pub fn native_goal_engine_validate_budget_input(json: String) -> String {
 #[napi]
 pub fn native_goal_engine_compute_budget_report(json: String) -> String {
     let result = (|| -> Result<serde_json::Value, String> {
-        let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
+        let v: serde_json::Value =
+            serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
         let goal = parse_goal(v.get("goal").ok_or("missing goal")?)?;
         let now_ms = v.get("nowMs").and_then(|x| x.as_i64()).unwrap_or(0);
         let report = crate::goal::engine::compute_budget_report(&goal, now_ms);
@@ -1519,7 +1541,8 @@ pub fn native_goal_engine_compute_budget_report(json: String) -> String {
 #[napi]
 pub fn native_goal_engine_apply_usage(json: String) -> String {
     let result = (|| -> Result<serde_json::Value, String> {
-        let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
+        let v: serde_json::Value =
+            serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
         let mut goal = parse_goal(v.get("goal").ok_or("missing goal")?)?;
         let token_delta = v.get("tokenDelta").and_then(|x| x.as_i64()).unwrap_or(0);
         let turn_delta = v.get("turnDelta").and_then(|x| x.as_i64()).unwrap_or(0);
@@ -1541,7 +1564,8 @@ pub fn native_goal_engine_apply_usage(json: String) -> String {
 #[napi]
 pub fn native_goal_engine_decide_continuation(json: String) -> String {
     let result = (|| -> Result<serde_json::Value, String> {
-        let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
+        let v: serde_json::Value =
+            serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
         let goal = parse_goal(v.get("goal").ok_or("missing goal")?)?;
         let now_ms = v.get("nowMs").and_then(|x| x.as_i64()).unwrap_or(0);
         let decision = crate::goal::engine::decide_continuation(&goal, now_ms);
@@ -1549,9 +1573,12 @@ pub fn native_goal_engine_decide_continuation(json: String) -> String {
             crate::goal::engine::ContinuationAction::Continue { steering_prompt } => {
                 Ok(json!({ "action": "continue", "steeringPrompt": steering_prompt }))
             }
-            crate::goal::engine::ContinuationAction::StopBudget { reason, steering_prompt } => {
-                Ok(json!({ "action": "stop_budget", "reason": reason, "steeringPrompt": steering_prompt }))
-            }
+            crate::goal::engine::ContinuationAction::StopBudget {
+                reason,
+                steering_prompt,
+            } => Ok(
+                json!({ "action": "stop_budget", "reason": reason, "steeringPrompt": steering_prompt }),
+            ),
             crate::goal::engine::ContinuationAction::StopInactive => {
                 Ok(json!({ "action": "stop_inactive" }))
             }
@@ -1570,13 +1597,18 @@ pub fn native_goal_engine_decide_continuation(json: String) -> String {
 #[napi]
 pub fn native_goal_engine_decide_blocked_audit(json: String) -> String {
     let result = (|| -> Result<serde_json::Value, String> {
-        let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
+        let v: serde_json::Value =
+            serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
         let goal = parse_goal(v.get("goal").ok_or("missing goal")?)?;
         let decision = crate::goal::engine::decide_blocked_audit(&goal);
         match decision {
-            state::BlockedAuditDecision::RecordAttempt { streak, attempts_needed, message } => {
-                Ok(json!({ "action": "record_attempt", "streak": streak, "attemptsNeeded": attempts_needed, "message": message }))
-            }
+            state::BlockedAuditDecision::RecordAttempt {
+                streak,
+                attempts_needed,
+                message,
+            } => Ok(
+                json!({ "action": "record_attempt", "streak": streak, "attemptsNeeded": attempts_needed, "message": message }),
+            ),
             state::BlockedAuditDecision::MarkBlocked { streak } => {
                 Ok(json!({ "action": "mark_blocked", "streak": streak }))
             }
@@ -1594,9 +1626,13 @@ pub fn native_goal_engine_decide_blocked_audit(json: String) -> String {
 #[napi]
 pub fn native_goal_engine_decide_status_transition(json: String) -> String {
     let result = (|| -> Result<serde_json::Value, String> {
-        let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
+        let v: serde_json::Value =
+            serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
         let goal = parse_goal(v.get("goal").ok_or("missing goal")?)?;
-        let target_str = v.get("targetStatus").and_then(|x| x.as_str()).ok_or("missing targetStatus")?;
+        let target_str = v
+            .get("targetStatus")
+            .and_then(|x| x.as_str())
+            .ok_or("missing targetStatus")?;
         let target = state::GoalStatus::from_str(target_str)
             .ok_or_else(|| format!("invalid status: {target_str}"))?;
         let expected = v.get("expectedGoalId").and_then(|x| x.as_str());
@@ -1615,7 +1651,8 @@ pub fn native_goal_engine_decide_status_transition(json: String) -> String {
 #[napi]
 pub fn native_goal_engine_render_goal_reminder(json: String) -> String {
     let result = (|| -> Result<String, String> {
-        let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
+        let v: serde_json::Value =
+            serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
         let goal = parse_goal(v.get("goal").ok_or("missing goal")?)?;
         let now_ms = v.get("nowMs").and_then(|x| x.as_i64()).unwrap_or(0);
         Ok(steering::render_goal_reminder(&goal, now_ms))
@@ -1632,7 +1669,8 @@ pub fn native_goal_engine_render_goal_reminder(json: String) -> String {
 #[napi]
 pub fn native_goal_engine_render_blocked_note(json: String) -> String {
     let result = (|| -> Result<String, String> {
-        let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
+        let v: serde_json::Value =
+            serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
         let goal = parse_goal(v.get("goal").ok_or("missing goal")?)?;
         Ok(steering::render_blocked_note(&goal))
     })();
@@ -1648,7 +1686,8 @@ pub fn native_goal_engine_render_blocked_note(json: String) -> String {
 #[napi]
 pub fn native_goal_engine_render_paused_note(json: String) -> String {
     let result = (|| -> Result<String, String> {
-        let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
+        let v: serde_json::Value =
+            serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
         let goal = parse_goal(v.get("goal").ok_or("missing goal")?)?;
         Ok(steering::render_paused_note(&goal))
     })();
@@ -1680,10 +1719,7 @@ fn parse_goal(v: &serde_json::Value) -> Result<state::GoalState, String> {
         tokens_used: get_i64(v, "tokensUsed")?,
         turns_used: v.get("turnsUsed").and_then(|x| x.as_i64()).unwrap_or(0),
         wall_clock_ms: v.get("wallClockMs").and_then(|x| x.as_i64()).unwrap_or(0),
-        blocked_streak: v
-            .get("blockedStreak")
-            .and_then(|x| x.as_u64())
-            .unwrap_or(0) as u32,
+        blocked_streak: v.get("blockedStreak").and_then(|x| x.as_u64()).unwrap_or(0) as u32,
         wall_clock_resumed_at: v.get("wallClockResumedAt").and_then(|x| x.as_i64()),
         terminal_reason: v
             .get("terminalReason")
@@ -1695,7 +1731,9 @@ fn parse_goal(v: &serde_json::Value) -> Result<state::GoalState, String> {
 
 fn parse_update(v: &serde_json::Value) -> Result<state::GoalUpdate, String> {
     Ok(state::GoalUpdate {
-        objective: v.get("objective").and_then(|x| x.as_str().map(|s| s.to_string())),
+        objective: v
+            .get("objective")
+            .and_then(|x| x.as_str().map(|s| s.to_string())),
         completion_criterion: match v.get("completionCriterion") {
             Some(val) if val.is_null() => Some(None),
             Some(val) => Some(val.as_str().map(|s| s.to_string())),
@@ -1723,7 +1761,9 @@ fn parse_update(v: &serde_json::Value) -> Result<state::GoalUpdate, String> {
         tokens_used: v.get("tokensUsed").and_then(|x| x.as_i64()),
         turns_used: v.get("turnsUsed").and_then(|x| x.as_i64()),
         wall_clock_ms: v.get("wallClockMs").and_then(|x| x.as_i64()),
-        blocked_streak: v.get("blockedStreak").and_then(|x| x.as_u64().map(|x| x as u32)),
+        blocked_streak: v
+            .get("blockedStreak")
+            .and_then(|x| x.as_u64().map(|x| x as u32)),
         wall_clock_resumed_at: match v.get("wallClockResumedAt") {
             Some(val) if val.is_null() => Some(None),
             Some(val) => Some(val.as_i64()),
@@ -1838,14 +1878,20 @@ use crate::path_access;
 /// Normalize a user path (Win32/Cygwin drive conversion).
 #[napi]
 pub fn native_path_normalize_user_path(path: String, path_class: String) -> String {
-    let class = path_access::PathClass::from_str(&path_class).unwrap_or(path_access::PathClass::Posix);
+    let class =
+        path_access::PathClass::from_str(&path_class).unwrap_or(path_access::PathClass::Posix);
     path_access::normalize_user_path(&path, class)
 }
 
 /// Expand `~` → home directory.
 #[napi]
-pub fn native_path_expand_user_path(path: String, home_dir: Option<String>, path_class: String) -> String {
-    let class = path_access::PathClass::from_str(&path_class).unwrap_or(path_access::PathClass::Posix);
+pub fn native_path_expand_user_path(
+    path: String,
+    home_dir: Option<String>,
+    path_class: String,
+) -> String {
+    let class =
+        path_access::PathClass::from_str(&path_class).unwrap_or(path_access::PathClass::Posix);
     path_access::expand_user_path(&path, home_dir.as_deref(), class)
 }
 
@@ -1853,7 +1899,8 @@ pub fn native_path_expand_user_path(path: String, home_dir: Option<String>, path
 /// Returns "ERROR: <code>: <message>" on failure (mirrors TS PathSecurityError).
 #[napi]
 pub fn native_path_canonicalize(path: String, cwd: String, path_class: String) -> String {
-    let class = path_access::PathClass::from_str(&path_class).unwrap_or(path_access::PathClass::Posix);
+    let class =
+        path_access::PathClass::from_str(&path_class).unwrap_or(path_access::PathClass::Posix);
     match path_access::canonicalize_path(&path, &cwd, class) {
         Ok(p) => p,
         Err(e) => format!("ERROR: {e}"),
@@ -1862,15 +1909,25 @@ pub fn native_path_canonicalize(path: String, cwd: String, path_class: String) -
 
 /// Component-boundary prefix check.
 #[napi]
-pub fn native_path_is_within_directory(candidate: String, base: String, path_class: String) -> bool {
-    let class = path_access::PathClass::from_str(&path_class).unwrap_or(path_access::PathClass::Posix);
+pub fn native_path_is_within_directory(
+    candidate: String,
+    base: String,
+    path_class: String,
+) -> bool {
+    let class =
+        path_access::PathClass::from_str(&path_class).unwrap_or(path_access::PathClass::Posix);
     path_access::is_within_directory(&candidate, &base, class)
 }
 
 /// Multi-root workspace containment.
 #[napi]
-pub fn native_path_is_within_workspace(candidate: String, roots: Vec<String>, path_class: String) -> bool {
-    let class = path_access::PathClass::from_str(&path_class).unwrap_or(path_access::PathClass::Posix);
+pub fn native_path_is_within_workspace(
+    candidate: String,
+    roots: Vec<String>,
+    path_class: String,
+) -> bool {
+    let class =
+        path_access::PathClass::from_str(&path_class).unwrap_or(path_access::PathClass::Posix);
     path_access::is_within_workspace(&candidate, &roots, class)
 }
 
@@ -1953,7 +2010,8 @@ pub fn native_parse_permission_pattern(pattern: String) -> String {
 /// "ERROR: ..." on failure.
 #[napi]
 pub fn native_path_canonicalize_for_glob(path: String, cwd: String, path_class: String) -> String {
-    let class = path_access::PathClass::from_str(&path_class).unwrap_or(path_access::PathClass::Posix);
+    let class =
+        path_access::PathClass::from_str(&path_class).unwrap_or(path_access::PathClass::Posix);
     match path_access::canonicalize_path_for_glob(&path, &cwd, class) {
         Ok(p) => p,
         Err(e) => format!("ERROR: {e}"),
@@ -1995,10 +2053,14 @@ pub async fn native_fetch_url(
     let config = fetch_url::FetchUrlConfig {
         url,
         user_agent: user_agent.unwrap_or_else(|| fetch_url::FetchUrlConfig::default().user_agent),
-        max_bytes: max_bytes.map(|v| v as usize).unwrap_or(fetch_url::FetchUrlConfig::default().max_bytes),
+        max_bytes: max_bytes
+            .map(|v| v as usize)
+            .unwrap_or(fetch_url::FetchUrlConfig::default().max_bytes),
         allow_private: allow_private.unwrap_or(false),
         max_redirects: fetch_url::FetchUrlConfig::default().max_redirects,
-        timeout_ms: timeout_ms.map(|v| v as u64).unwrap_or(fetch_url::FetchUrlConfig::default().timeout_ms),
+        timeout_ms: timeout_ms
+            .map(|v| v as u64)
+            .unwrap_or(fetch_url::FetchUrlConfig::default().timeout_ms),
     };
 
     let result = tokio::task::spawn_blocking(move || fetch_url::fetch_url(&config))
@@ -2028,6 +2090,8 @@ pub struct NativeLlmStreamConfig {
     pub provider: String,
     pub url: String,
     pub api_key: String,
+    /// Kept for wire compatibility with TS callers. The native stream does
+    /// not read it — the model name already rides inside `request_body`.
     pub model: String,
     pub request_body: String,
     pub timeout_ms: Option<u32>,
@@ -2093,17 +2157,15 @@ pub struct NativeLlmStreamResult {
 ///
 /// @param config - Stream configuration (provider, url, api_key, request_body, etc.)
 #[napi]
-pub async fn native_llm_stream(
-    config: NativeLlmStreamConfig,
-) -> NativeLlmStreamResult {
+pub async fn native_llm_stream(config: NativeLlmStreamConfig) -> NativeLlmStreamResult {
     let stream_config = llm_stream::LlmStreamConfig {
         provider: config.provider,
         url: config.url,
         api_key: config.api_key,
-        model: config.model,
         request_body: config.request_body,
         timeout_ms: config.timeout_ms.unwrap_or(120_000) as u64,
-        extra_headers: config.extra_headers
+        extra_headers: config
+            .extra_headers
             .unwrap_or_default()
             .into_iter()
             .map(|h| (h.key, h.value))
@@ -2215,10 +2277,10 @@ pub fn native_llm_stream_streaming(
         provider: config.provider,
         url: config.url,
         api_key: config.api_key,
-        model: config.model,
         request_body: config.request_body,
         timeout_ms: config.timeout_ms.unwrap_or(120_000) as u64,
-        extra_headers: config.extra_headers
+        extra_headers: config
+            .extra_headers
             .unwrap_or_default()
             .into_iter()
             .map(|h| (h.key, h.value))
@@ -2308,8 +2370,8 @@ pub fn native_llm_stream_streaming(
 // WebSearch — DuckDuckGo HTML scraping
 // ============================================================================
 
-use crate::web_search;
 use crate::llm_stream;
+use crate::web_search;
 
 /// A single search result entry.
 #[napi(object)]
@@ -2342,8 +2404,12 @@ pub async fn native_web_search(
 ) -> NativeWebSearchResult {
     let config = web_search::WebSearchConfig {
         query,
-        timeout_ms: timeout_ms.map(|v| v as u64).unwrap_or(web_search::WebSearchConfig::default().timeout_ms),
-        max_results: max_results.map(|v| v as usize).unwrap_or(web_search::WebSearchConfig::default().max_results),
+        timeout_ms: timeout_ms
+            .map(|v| v as u64)
+            .unwrap_or(web_search::WebSearchConfig::default().timeout_ms),
+        max_results: max_results
+            .map(|v| v as usize)
+            .unwrap_or(web_search::WebSearchConfig::default().max_results),
     };
 
     let result = tokio::task::spawn_blocking(move || web_search::web_search(&config))
@@ -2354,12 +2420,16 @@ pub async fn native_web_search(
         });
 
     NativeWebSearchResult {
-        results: result.results.into_iter().map(|r| NativeWebSearchEntry {
-            title: r.title,
-            url: r.url,
-            snippet: r.snippet,
-            site_name: r.site_name,
-        }).collect(),
+        results: result
+            .results
+            .into_iter()
+            .map(|r| NativeWebSearchEntry {
+                title: r.title,
+                url: r.url,
+                snippet: r.snippet,
+                site_name: r.site_name,
+            })
+            .collect(),
         error: result.error,
     }
 }

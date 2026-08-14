@@ -312,10 +312,7 @@ pub fn can_split_after(messages: &[CompactionMessageMeta], index: usize) -> bool
 /// Whether the prefix `messages[0..=index]` ends with an unresolved
 /// tool exchange — i.e. the last message is a tool result whose owning
 /// assistant had more tool calls than the trailing results can satisfy.
-fn prefix_ends_with_open_tool_exchange(
-    messages: &[CompactionMessageMeta],
-    index: usize,
-) -> bool {
+fn prefix_ends_with_open_tool_exchange(messages: &[CompactionMessageMeta], index: usize) -> bool {
     let m = match messages.get(index) {
         Some(m) => m,
         None => return false,
@@ -422,7 +419,11 @@ pub fn select_compaction_user_messages(
         let idx = head_end_exclusive;
         if idx < messages.len() {
             let prefix_len = messages[idx].text.len() as u32 - kept_len;
-            if prefix_len > 0 { Some(idx as u32) } else { None }
+            if prefix_len > 0 {
+                Some(idx as u32)
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -513,7 +514,10 @@ mod tests {
             msg("user", 1_200, 0),
         ];
         // Split after assistant (index 1) → compact first 2.
-        assert_eq!(compute_compact_count(&messages, &default_config(1_000), false), 2);
+        assert_eq!(
+            compute_compact_count(&messages, &default_config(1_000), false),
+            2
+        );
     }
 
     #[test]
@@ -524,7 +528,10 @@ mod tests {
             msg("user", 1_200, 0),
             msg("user", 1_200, 0),
         ];
-        assert_eq!(compute_compact_count(&messages, &default_config(1_000), false), 2);
+        assert_eq!(
+            compute_compact_count(&messages, &default_config(1_000), false),
+            2
+        );
     }
 
     #[test]
@@ -536,30 +543,35 @@ mod tests {
             msg("user", 10, 0),
             msg("assistant", 1_200, 0),
         ];
-        assert_eq!(compute_compact_count(&messages, &default_config(1_000), false), 2);
+        assert_eq!(
+            compute_compact_count(&messages, &default_config(1_000), false),
+            2
+        );
     }
 
     #[test]
     fn returns_zero_when_nothing_to_compact() {
         assert_eq!(compute_compact_count(&[], &default_config(1_000), false), 0);
         let single = vec![msg("user", 10, 0)];
-        assert_eq!(compute_compact_count(&single, &default_config(1_000), false), 0);
-        let all_users = vec![
-            msg("user", 10, 0),
-            msg("user", 10, 0),
-            msg("user", 10, 0),
-        ];
-        assert_eq!(compute_compact_count(&all_users, &default_config(1_000), false), 0);
+        assert_eq!(
+            compute_compact_count(&single, &default_config(1_000), false),
+            0
+        );
+        let all_users = vec![msg("user", 10, 0), msg("user", 10, 0), msg("user", 10, 0)];
+        assert_eq!(
+            compute_compact_count(&all_users, &default_config(1_000), false),
+            0
+        );
     }
 
     #[test]
     fn returns_zero_when_last_message_is_unsplittable() {
         // user, assistant with pending tool call
-        let messages = vec![
-            msg("user", 10, 0),
-            msg("assistant", 10, 1),
-        ];
-        assert_eq!(compute_compact_count(&messages, &default_config(1_000), false), 0);
+        let messages = vec![msg("user", 10, 0), msg("assistant", 10, 1)];
+        assert_eq!(
+            compute_compact_count(&messages, &default_config(1_000), false),
+            0
+        );
     }
 
     #[test]
@@ -576,7 +588,10 @@ mod tests {
         ];
         // Valid split: after the first "old assistant" (index 1) → compact 2.
         // Splitting after tool_a (index 4) would orphan tool_b.
-        assert_eq!(compute_compact_count(&messages, &default_config(1_000), false), 2);
+        assert_eq!(
+            compute_compact_count(&messages, &default_config(1_000), false),
+            2
+        );
     }
 
     #[test]
@@ -588,7 +603,10 @@ mod tests {
         assert!(count < 30, "expected shrink, got {count}");
         let total: u32 = messages[..count as usize].iter().map(|m| m.tokens).sum();
         assert!(total <= 1_000, "compacted prefix exceeds window: {total}");
-        let next_total: u32 = messages[..count as usize + 1].iter().map(|m| m.tokens).sum();
+        let next_total: u32 = messages[..count as usize + 1]
+            .iter()
+            .map(|m| m.tokens)
+            .sum();
         assert!(next_total > 1_000, "could have compacted one more");
     }
 
@@ -602,7 +620,10 @@ mod tests {
         assert!(count < 30, "expected shrink, got {count}");
         let total: u32 = messages[..count as usize].iter().map(|m| m.tokens).sum();
         assert!(total <= 1_000, "compacted prefix exceeds window: {total}");
-        let next_total: u32 = messages[..count as usize + 1].iter().map(|m| m.tokens).sum();
+        let next_total: u32 = messages[..count as usize + 1]
+            .iter()
+            .map(|m| m.tokens)
+            .sum();
         assert!(next_total > 1_000, "could have compacted one more");
     }
 
@@ -649,10 +670,7 @@ mod tests {
 
     #[test]
     fn can_split_after_rejects_assistant_with_tool_calls() {
-        let messages = vec![
-            msg("assistant", 10, 1),
-            msg("user", 10, 0),
-        ];
+        let messages = vec![msg("assistant", 10, 1), msg("user", 10, 0)];
         assert!(!can_split_after(&messages, 0));
     }
 
@@ -683,10 +701,7 @@ mod tests {
     #[test]
     fn can_split_after_accepts_safe_split() {
         // assistant (no tool calls), then user — safe to split.
-        let messages = vec![
-            msg("assistant", 10, 0),
-            msg("user", 10, 0),
-        ];
+        let messages = vec![msg("assistant", 10, 0), msg("user", 10, 0)];
         assert!(can_split_after(&messages, 0));
     }
 
@@ -701,29 +716,20 @@ mod tests {
     #[test]
     fn open_exchange_detected_when_results_fewer_than_calls() {
         // assistant(2 calls), tool_a — 1 result < 2 calls → open.
-        let messages = vec![
-            msg("assistant", 10, 2),
-            msg("tool", 10, 0),
-        ];
+        let messages = vec![msg("assistant", 10, 2), msg("tool", 10, 0)];
         assert!(prefix_ends_with_open_tool_exchange(&messages, 1));
     }
 
     #[test]
     fn open_exchange_not_detected_when_results_match_calls() {
         // assistant(1 call), tool_a — 1 result == 1 call → resolved.
-        let messages = vec![
-            msg("assistant", 10, 1),
-            msg("tool", 10, 0),
-        ];
+        let messages = vec![msg("assistant", 10, 1), msg("tool", 10, 0)];
         assert!(!prefix_ends_with_open_tool_exchange(&messages, 1));
     }
 
     #[test]
     fn open_exchange_not_detected_for_non_tool_prefix() {
-        let messages = vec![
-            msg("assistant", 10, 0),
-            msg("user", 10, 0),
-        ];
+        let messages = vec![msg("assistant", 10, 0), msg("user", 10, 0)];
         assert!(!prefix_ends_with_open_tool_exchange(&messages, 1));
     }
 

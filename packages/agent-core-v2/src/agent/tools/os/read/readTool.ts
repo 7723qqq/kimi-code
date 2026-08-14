@@ -305,6 +305,51 @@ export class ReadTool implements IReadTool {
   private async execution(args: ReadInput, safePath: string): Promise<ExecutableToolResult> {
     let stat: Awaited<ReturnType<IHostFileSystem['stat']>> | undefined;
     try {
+      const lineOffset = args.line_offset ?? 1;
+      const requestedLines = args.n_lines ?? MAX_LINES;
+      const effectiveLimit = Math.min(requestedLines, MAX_LINES);
+
+      // ── Native fast-path ─────────────────────────────────────────────
+      // The native reader owns the full capability set: line counting,
+      // offsets, limits, CRLF handling, UTF-16 LE/BE transcoding, and the
+      // GBK/GB18030 + lenient-UTF-8 fallback chain all run in Rust — ~5x
+      // faster than the async line iterator and with no capability gap.
+      // It is tried FIRST: the native reader performs every preflight
+      // itself (existence, file type, media redirect, encoding detection),
+      // so the TS stat + header sniff below runs only on the fallback path
+      // instead of duplicating that I/O on every call. Any native error is
+      // a final verdict — re-running the TS reader would only mask native
+      // bugs. (Release builds bundle the native module in the SEA binary
+      // and npm installs pin it as a versioned optional dependency, so a
+      // loaded-but-mismatched prebuild is not a real distribution state.)
+      // The TS implementation below is a fallback for hosts where the
+      // native module is not loaded at all.
+      const nativeResult = await tryNativeRead(safePath, {
+        lineOffset: lineOffset,
+        nLines: effectiveLimit,
+      });
+      if (nativeResult && !nativeResult.error) {
+        // Split the native output: content before <system> is output,
+        // the <system>...</system> block is the note. The block may be
+        // preceded by a newline (normal reads) or start the content
+        // directly (empty output, e.g. offset past EOF).
+        const systemIdx = nativeResult.content.lastIndexOf('\n<system>');
+        if (systemIdx >= 0) {
+          const output = nativeResult.content.slice(0, systemIdx);
+          const note = nativeResult.content.slice(systemIdx + 1); // includes <system>...</system>
+          return { output, note };
+        }
+        if (nativeResult.content.startsWith('<system>')) {
+          return { output: '', note: nativeResult.content };
+        }
+        // If no <system> tag (e.g. empty file), use content as-is
+        return { output: nativeResult.content };
+      }
+      if (nativeResult && nativeResult.error) {
+        return { isError: true, output: nativeResult.error };
+      }
+      // Native not loaded — run the TS implementation below.
+
       try {
         stat = await this.fs.stat(safePath);
       } catch (error) {
@@ -355,41 +400,6 @@ export class ReadTool implements IReadTool {
       } else {
         lines = this.fs.readLines(safePath, { errors: 'strict' });
       }
-
-      const lineOffset = args.line_offset ?? 1;
-      const requestedLines = args.n_lines ?? MAX_LINES;
-      const effectiveLimit = Math.min(requestedLines, MAX_LINES);
-
-      // ── Native fast-path ─────────────────────────────────────────────
-      // nativeRead handles line counting, offset, limits, CRLF, and
-      // truncation in Rust — ~5x faster than the async line iterator.
-      // Skip it for UTF-16 content: the native reader only accepts UTF-8,
-      // while the TS path transcodes UTF-16 to UTF-8 for display.
-      const nativeResult =
-        detectedEncoding === undefined
-          ? await tryNativeRead(safePath, {
-              lineOffset: lineOffset,
-              nLines: effectiveLimit,
-            })
-          : undefined;
-      if (nativeResult && !nativeResult.error) {
-        // Split the native output: content before <system> is output,
-        // the <system>...</system> block is the note. The block may be
-        // preceded by a newline (normal reads) or start the content
-        // directly (empty output, e.g. offset past EOF).
-        const systemIdx = nativeResult.content.lastIndexOf('\n<system>');
-        if (systemIdx >= 0) {
-          const output = nativeResult.content.slice(0, systemIdx);
-          const note = nativeResult.content.slice(systemIdx + 1); // includes <system>...</system>
-          return { output, note };
-        }
-        if (nativeResult.content.startsWith('<system>')) {
-          return { output: '', note: nativeResult.content };
-        }
-        // If no <system> tag (e.g. empty file), use content as-is
-        return { output: nativeResult.content };
-      }
-      // Native unavailable or returned error — fall through to TS path.
 
       if (lineOffset < 0) {
         return await this.readTail(

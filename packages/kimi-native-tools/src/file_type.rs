@@ -22,12 +22,13 @@ pub fn detect_file_type(path: &Path, header: &[u8]) -> FileKind {
         let ext_lower = ext.to_ascii_lowercase();
         match ext_lower.as_str() {
             // Image extensions
-            | "png" | "jpg" | "jpeg" | "gif" | "bmp" | "ico" | "webp" | "svg"
-            | "tiff" | "tif" | "avif" | "heic" | "heif" | "raw" | "cr2" | "nef"
-            | "arw" | "dng" | "psd" | "ai" => return FileKind::Image,
+            "png" | "jpg" | "jpeg" | "gif" | "bmp" | "ico" | "webp" | "svg" | "tiff" | "tif"
+            | "avif" | "heic" | "heif" | "raw" | "cr2" | "nef" | "arw" | "dng" | "psd" | "ai" => {
+                return FileKind::Image
+            }
             // Video extensions
-            | "mp4" | "webm" | "mkv" | "avi" | "mov" | "wmv" | "flv" | "m4v"
-            | "mpg" | "mpeg" | "3gp" | "ogv" => return FileKind::Video,
+            "mp4" | "webm" | "mkv" | "avi" | "mov" | "wmv" | "flv" | "m4v" | "mpg" | "mpeg"
+            | "3gp" | "ogv" => return FileKind::Video,
             _ => {}
         }
     }
@@ -79,15 +80,23 @@ pub fn resolve_mime(path: &Path, header: &[u8]) -> String {
             "mpg" | "mpeg" => "video/mpeg",
             "pdf" => "application/pdf",
             _ => {
-                if is_image_magic(header) { "image/unknown" }
-                else if is_video_magic(header) { "video/unknown" }
-                else { "application/octet-stream" }
+                if is_image_magic(header) {
+                    "image/unknown"
+                } else if is_video_magic(header) {
+                    "video/unknown"
+                } else {
+                    "application/octet-stream"
+                }
             }
         };
         return mime.to_string();
     }
-    if is_image_magic(header) { return "image/unknown".to_string(); }
-    if is_video_magic(header) { return "video/unknown".to_string(); }
+    if is_image_magic(header) {
+        return "image/unknown".to_string();
+    }
+    if is_video_magic(header) {
+        return "video/unknown".to_string();
+    }
     "application/octet-stream".to_string()
 }
 
@@ -167,7 +176,16 @@ const PUBLIC_KEY_BASENAMES: &[&str] = &["id_rsa.pub", "id_ed25519.pub", "id_ecds
 const SENSITIVE_BASENAME_PREFIXES: &[&str] = &["id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
 
 const SENSITIVE_DOT_VARIANT_SUFFIXES: &[&str] = &[
-    ".bak", ".backup", ".copy", ".disabled", ".key", ".old", ".orig", ".pem", ".save", ".tmp",
+    ".bak",
+    ".backup",
+    ".copy",
+    ".disabled",
+    ".key",
+    ".old",
+    ".orig",
+    ".pem",
+    ".save",
+    ".tmp",
 ];
 
 /// Image dimensions (width × height in pixels).
@@ -246,7 +264,8 @@ pub fn sniff_image_dimensions(data: &[u8]) -> Option<ImageDimensions> {
             }
             let marker = data[offset + 1];
             // SOFn markers carry frame dimensions; skip SOF4/SOF8/SOF12 (0xc4/0xc8/0xcc).
-            if (0xC0..=0xCF).contains(&marker) && marker != 0xC4 && marker != 0xC8 && marker != 0xCC {
+            if (0xC0..=0xCF).contains(&marker) && marker != 0xC4 && marker != 0xC8 && marker != 0xCC
+            {
                 let height = u16::from_be_bytes([data[offset + 5], data[offset + 6]]) as u32;
                 let width = u16::from_be_bytes([data[offset + 7], data[offset + 8]]) as u32;
                 return Some(ImageDimensions { width, height });
@@ -332,8 +351,16 @@ pub fn is_sensitive_file_bytes(path: &[u8]) -> bool {
 
     #[inline]
     fn char_eq_sep(c: u8, a: u8) -> bool {
-        let c = if c == b'\\' { b'/' } else { c.to_ascii_lowercase() };
-        let a = if a == b'\\' { b'/' } else { a.to_ascii_lowercase() };
+        let c = if c == b'\\' {
+            b'/'
+        } else {
+            c.to_ascii_lowercase()
+        };
+        let a = if a == b'\\' {
+            b'/'
+        } else {
+            a.to_ascii_lowercase()
+        };
         c == a
     }
 
@@ -342,7 +369,10 @@ pub fn is_sensitive_file_bytes(path: &[u8]) -> bool {
             return false;
         }
         let off = path.len() - suffix.len();
-        path[off..].iter().zip(suffix).all(|(&c, &a)| char_eq_sep(c, a))
+        path[off..]
+            .iter()
+            .zip(suffix)
+            .all(|(&c, &a)| char_eq_sep(c, a))
     }
 
     fn path_contains(path: &[u8], needle: &[u8]) -> bool {
@@ -405,8 +435,16 @@ pub fn is_sensitive_file_bytes(path: &[u8]) -> bool {
 
     const PREFIXES: &[&[u8]] = &[b"id_rsa", b"id_ed25519", b"id_ecdsa", b"credentials"];
     const DOT_SUFFIXES: &[&[u8]] = &[
-        b".bak", b".backup", b".copy", b".disabled", b".key", b".old", b".orig", b".pem",
-        b".save", b".tmp",
+        b".bak",
+        b".backup",
+        b".copy",
+        b".disabled",
+        b".key",
+        b".old",
+        b".orig",
+        b".pem",
+        b".save",
+        b".tmp",
     ];
 
     for &prefix in PREFIXES {
@@ -649,14 +687,18 @@ mod tests {
     fn test_sensitive_path_suffix_boundaries() {
         // Should match: proper separator boundaries
         assert!(is_sensitive_file_bytes(b"/home/user/.aws/credentials"));
-        assert!(is_sensitive_file_bytes(b"/home/user/.aws/credentials/extra"));
+        assert!(is_sensitive_file_bytes(
+            b"/home/user/.aws/credentials/extra"
+        ));
         assert!(is_sensitive_file_bytes(b"/.aws/credentials"));
         assert!(is_sensitive_file_bytes(b"foo/.aws/credentials"));
         assert!(is_sensitive_file_bytes(b"foo/.aws/credentials/bar"));
         assert!(is_sensitive_file_bytes(b"/home/user/.gcp/credentials"));
         assert!(is_sensitive_file_bytes(b"foo/.gcp/credentials/bar"));
         // Backslash variants
-        assert!(is_sensitive_file_bytes(b"C:\\Users\\foo\\.aws\\credentials"));
+        assert!(is_sensitive_file_bytes(
+            b"C:\\Users\\foo\\.aws\\credentials"
+        ));
         assert!(is_sensitive_file_bytes(b"foo\\.aws\\credentials\\bar"));
 
         // Should NOT match: no separator before .aws (basename is NOT a
@@ -777,10 +819,10 @@ mod tests {
         jpeg.extend_from_slice(&[
             0xFF, 0xC0, // SOF0
             0x00, 0x0B, // length = 11
-            0x08,       // precision
+            0x08, // precision
             0x00, 0xC8, // height = 200
             0x00, 0x64, // width = 100
-            0x03,       // components
+            0x03, // components
         ]);
         let dims = sniff_image_dimensions(&jpeg);
         assert!(dims.is_some());

@@ -11,7 +11,7 @@
  * reflect that single-call mechanic.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { PathSecurityError } from '#/tool/path-access';
 import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -21,14 +21,23 @@ import { WriteTool } from '#/agent/tools/os/write/writeTool';
 import type { IConfigService } from '#/app/config/config';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { tryNativeWrite } from '#/_base/native-tools';
 
 // Stub every native-tools binding so the tool exercises the TS fallback path:
 // under vitest the Rust addon can be loaded (via the i18n package) and would
 // otherwise take the native fast-path, bypassing the fake `IHostFileSystem`
-// assertions below. (vitest hoists this mock above the imports.)
+// assertions below. `tryNativeWrite` stays a controllable `vi.fn` (defaulting
+// to `undefined`, i.e. native not loaded) so the native routing policy —
+// success passthrough and final, non-fallback errors — can be exercised
+// directly. (vitest hoists this mock above the imports.)
 vi.mock('#/_base/native-tools', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
-  return Object.fromEntries(Object.keys(actual).map((key) => [key, () => {}]));
+  const stubs = Object.fromEntries(
+    Object.keys(actual)
+      .filter((key) => key !== 'tryNativeWrite')
+      .map((key) => [key, () => {}]),
+  );
+  return { ...stubs, tryNativeWrite: vi.fn(() => Promise.resolve(undefined)) };
 });
 
 const signal = new AbortController().signal;
@@ -521,5 +530,77 @@ describe('WriteTool', () => {
     expect(result).toMatchObject({ isError: true });
     expect(result.output).toMatch(/is a directory|not a file|already exists/i);
     expect(writeText).not.toHaveBeenCalled();
+  });
+
+  describe('native write path', () => {
+    afterEach(() => {
+      vi.mocked(tryNativeWrite).mockReset();
+      vi.mocked(tryNativeWrite).mockImplementation(() => Promise.resolve(undefined));
+    });
+
+    it('reports the native byte count without touching the TS fs on success', async () => {
+      const { tool, writeText, appendText, mkdir } = makeTool();
+      vi.mocked(tryNativeWrite).mockResolvedValue({ bytesWritten: 5 });
+
+      const result = await execute(tool, { path: '/tmp/native.txt', content: 'hello' });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.output).toContain('Wrote 5 bytes');
+      // The native writer owns parent-directory creation too — the TS
+      // fallback path (mkdir + writeText) must not run at all.
+      expect(writeText).not.toHaveBeenCalled();
+      expect(appendText).not.toHaveBeenCalled();
+      expect(mkdir).not.toHaveBeenCalled();
+    });
+
+    it('routes append mode through the native writer', async () => {
+      const { tool, appendText } = makeTool();
+      vi.mocked(tryNativeWrite).mockResolvedValue({ bytesWritten: 6 });
+
+      const result = await execute(tool, {
+        path: '/tmp/native.txt',
+        content: '\nhello',
+        mode: 'append',
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.output).toContain('Appended 6 bytes');
+      expect(appendText).not.toHaveBeenCalled();
+      expect(tryNativeWrite).toHaveBeenCalledWith('/tmp/native.txt', '\nhello', 'append');
+    });
+
+    it('returns a classified native error as final instead of re-writing via TS', async () => {
+      const { tool, writeText } = makeTool();
+      vi.mocked(tryNativeWrite).mockResolvedValue({
+        bytesWritten: 0,
+        error: 'Parent path is not a directory: /tmp/blocker',
+        errorKind: 'parent_not_dir',
+      });
+
+      const result = await execute(tool, { path: '/tmp/blocker/child.txt', content: 'data' });
+
+      expect(result).toMatchObject({ isError: true });
+      // The native verdict verbatim — a TS re-run of ensureParentDirectory
+      // would have surfaced its own differently-worded error instead.
+      expect(result.output).toBe('Parent path is not a directory: /tmp/blocker');
+      expect(writeText).not.toHaveBeenCalled();
+    });
+
+    it('treats any native error as final, even one without errorKind', async () => {
+      // Release builds bundle the native module (SEA exe / version-pinned
+      // optional dep), so a loaded-but-mismatched prebuild is not a real
+      // distribution state — no TS fallthrough is owed to a missing kind.
+      const { tool, writeText } = makeTool();
+      vi.mocked(tryNativeWrite).mockResolvedValue({
+        bytesWritten: 0,
+        error: 'write panicked: worker thread unavailable',
+      });
+
+      const result = await execute(tool, { path: '/tmp/panic.txt', content: 'data' });
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.output).toBe('write panicked: worker thread unavailable');
+      expect(writeText).not.toHaveBeenCalled();
+    });
   });
 });

@@ -19,6 +19,21 @@ const S_IFDIR: u32 = 0o040000;
 pub struct WriteResult {
     pub bytes_written: i32,
     pub error: Option<String>,
+    /// Machine-readable error class — `io` / `parent_not_dir` / `panic`.
+    /// Every kind is the native writer's final verdict; the TS caller must
+    /// not silently re-run its own write path.
+    pub error_kind: Option<String>,
+}
+
+impl WriteResult {
+    /// Build an error result carrying a machine-readable kind.
+    fn err(kind: &str, message: String) -> Self {
+        Self {
+            bytes_written: 0,
+            error: Some(message),
+            error_kind: Some(kind.to_string()),
+        }
+    }
 }
 
 /// Write mode.
@@ -35,20 +50,25 @@ pub enum WriteMode {
 ///   - Creates missing parent directories automatically.
 ///   - `mode`: 'overwrite' (default) or 'append'.
 ///   - Returns the number of UTF-8 bytes written.
+///
+/// The write is a plain truncating `write_all` (or `O_APPEND` for append),
+/// matching the TS `writeText` / `appendText` semantics — not a
+/// temp-file-and-rename atomic write. A crash mid-write can leave the target
+/// truncated; preserving the target's inode (symlinks, hard links) is
+/// deliberately preferred over rename-atomicity.
 pub fn write_file(path: &str, content: &str, mode: WriteMode) -> WriteResult {
     let file_path = Path::new(path);
 
     // Ensure parent directory exists.
     if let Some(parent) = file_path.parent() {
         if !parent.as_os_str().is_empty() {
-            match ensure_parent_directory(parent) {
-                Ok(()) => {}
-                Err(e) => {
-                    return WriteResult {
-                        bytes_written: 0,
-                        error: Some(e),
-                    };
-                }
+            if let Err(e) = ensure_parent_directory(parent) {
+                let kind = if e.starts_with("Parent path is not a directory") {
+                    "parent_not_dir"
+                } else {
+                    "io"
+                };
+                return WriteResult::err(kind, e);
             }
         }
     }
@@ -61,7 +81,6 @@ pub fn write_file(path: &str, content: &str, mode: WriteMode) -> WriteResult {
             .truncate(true)
             .open(file_path),
         WriteMode::Append => fs::OpenOptions::new()
-            
             .create(true)
             .append(true)
             .open(file_path),
@@ -70,35 +89,23 @@ pub fn write_file(path: &str, content: &str, mode: WriteMode) -> WriteResult {
     let mut file = match file {
         Ok(f) => f,
         Err(e) => {
-            let msg = e.to_string();
             if e.kind() == std::io::ErrorKind::NotFound {
-                return WriteResult {
-                    bytes_written: 0,
-                    error: Some(format!(
-                        "Failed to write {}: parent directory does not exist.",
-                        path
-                    )),
-                };
+                return WriteResult::err(
+                    "io",
+                    format!("Failed to write {}: parent directory does not exist.", path),
+                );
             }
-            return WriteResult {
-                bytes_written: 0,
-                error: Some(msg),
-            };
+            return WriteResult::err("io", e.to_string());
         }
     };
 
     match file.write_all(content.as_bytes()) {
-        Ok(()) => {
-            let bytes = content.len();
-            WriteResult {
-                bytes_written: bytes as i32,
-                error: None,
-            }
-        }
-        Err(e) => WriteResult {
-            bytes_written: 0,
-            error: Some(e.to_string()),
+        Ok(()) => WriteResult {
+            bytes_written: content.len() as i32,
+            error: None,
+            error_kind: None,
         },
+        Err(e) => WriteResult::err("io", e.to_string()),
     }
 }
 
@@ -201,7 +208,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("test.txt");
 
-        write_file(path.to_str().unwrap(), "long content here", WriteMode::Overwrite);
+        write_file(
+            path.to_str().unwrap(),
+            "long content here",
+            WriteMode::Overwrite,
+        );
         let result = write_file(path.to_str().unwrap(), "short", WriteMode::Overwrite);
         assert!(result.error.is_none());
 
@@ -221,5 +232,24 @@ mod tests {
         let result = write_file(path.to_str().unwrap(), "你好", WriteMode::Overwrite);
         assert!(result.error.is_none());
         assert_eq!(result.bytes_written, 6);
+    }
+
+    #[test]
+    fn test_write_error_kinds() {
+        let dir = TempDir::new().unwrap();
+
+        // Parent path is an existing FILE, not a directory.
+        let blocker = dir.path().join("blocker");
+        fs::write(&blocker, b"x").unwrap();
+        let target = blocker.join("child.txt");
+        let result = write_file(target.to_str().unwrap(), "data", WriteMode::Overwrite);
+        assert_eq!(result.error_kind.as_deref(), Some("parent_not_dir"));
+        assert!(result.error.unwrap().contains("not a directory"));
+
+        // Success carries no kind.
+        let ok = dir.path().join("ok.txt");
+        let result = write_file(ok.to_str().unwrap(), "data", WriteMode::Overwrite);
+        assert!(result.error.is_none());
+        assert_eq!(result.error_kind, None);
     }
 }

@@ -12,8 +12,7 @@ use url::Url;
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
-const DEFAULT_USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
      (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
 const DEFAULT_MAX_BYTES: usize = 10 * 1024 * 1024; // 10 MB
 const DEFAULT_MAX_REDIRECTS: u32 = 10;
@@ -80,19 +79,16 @@ fn fetch_url_inner(config: &FetchUrlConfig) -> Result<FetchUrlResult, String> {
         // SSRF check on every hop
         validate_url(&current_url, config.allow_private)?;
 
-        let response = agent
-            .get(&current_url)
-            .call()
-            .map_err(|e| match e {
-                ureq::Error::Status(code, resp) => {
-                    // For redirects, we handle them below
-                    if is_redirect(code) {
-                        return format!("__redirect__:{}", resp.header("location").unwrap_or(""));
-                    }
-                    format!("HTTP {code}")
+        let response = agent.get(&current_url).call().map_err(|e| match e {
+            ureq::Error::Status(code, resp) => {
+                // For redirects, we handle them below
+                if is_redirect(code) {
+                    return format!("__redirect__:{}", resp.header("location").unwrap_or(""));
                 }
-                ureq::Error::Transport(t) => format!("Network error: {t}"),
-            });
+                format!("HTTP {code}")
+            }
+            ureq::Error::Transport(t) => format!("Network error: {t}"),
+        });
 
         match response {
             Ok(resp) => {
@@ -111,10 +107,7 @@ fn fetch_url_inner(config: &FetchUrlConfig) -> Result<FetchUrlResult, String> {
                 }
 
                 // Extract content type before consuming the response
-                let content_type = resp
-                    .header("content-type")
-                    .unwrap_or("")
-                    .to_lowercase();
+                let content_type = resp.header("content-type").unwrap_or("").to_lowercase();
 
                 // Read body with size limit (consumes resp)
                 let body = read_body_limited(resp, config.max_bytes)?;
@@ -166,7 +159,11 @@ fn validate_url(url_str: &str, allow_private: bool) -> Result<(), String> {
 
     match parsed.scheme() {
         "http" | "https" => {}
-        scheme => return Err(format!("Unsupported scheme \"{scheme}\" — only http(s) allowed.")),
+        scheme => {
+            return Err(format!(
+                "Unsupported scheme \"{scheme}\" — only http(s) allowed."
+            ))
+        }
     }
 
     let host = parsed
@@ -220,32 +217,54 @@ fn is_private_ip(ip: IpAddr) -> bool {
 fn is_private_ipv4(ip: Ipv4Addr) -> bool {
     let octets = ip.octets();
     // 0.0.0.0/8 — "this network"
-    if octets[0] == 0 { return true; }
+    if octets[0] == 0 {
+        return true;
+    }
     // 10.0.0.0/8
-    if octets[0] == 10 { return true; }
+    if octets[0] == 10 {
+        return true;
+    }
     // 100.64.0.0/10 — CGNAT
-    if octets[0] == 100 && (octets[1] & 0xC0) == 64 { return true; }
+    if octets[0] == 100 && (octets[1] & 0xC0) == 64 {
+        return true;
+    }
     // 127.0.0.0/8 — loopback
-    if octets[0] == 127 { return true; }
+    if octets[0] == 127 {
+        return true;
+    }
     // 169.254.0.0/16 — link-local / cloud metadata
-    if octets[0] == 169 && octets[1] == 254 { return true; }
+    if octets[0] == 169 && octets[1] == 254 {
+        return true;
+    }
     // 172.16.0.0/12
-    if octets[0] == 172 && (octets[1] & 0xF0) == 16 { return true; }
+    if octets[0] == 172 && (octets[1] & 0xF0) == 16 {
+        return true;
+    }
     // 192.168.0.0/16
-    if octets[0] == 192 && octets[1] == 168 { return true; }
+    if octets[0] == 192 && octets[1] == 168 {
+        return true;
+    }
     false
 }
 
 fn is_private_ipv6(ip: Ipv6Addr) -> bool {
     // :: (unspecified)
-    if ip.is_unspecified() { return true; }
+    if ip.is_unspecified() {
+        return true;
+    }
     // ::1 (loopback)
-    if ip == Ipv6Addr::LOCALHOST { return true; }
+    if ip == Ipv6Addr::LOCALHOST {
+        return true;
+    }
     let segments = ip.segments();
     // fc00::/7 — ULA
-    if (segments[0] & 0xFE00) == 0xFC00 { return true; }
+    if (segments[0] & 0xFE00) == 0xFC00 {
+        return true;
+    }
     // fe80::/10 — link-local
-    if (segments[0] & 0xFFC0) == 0xFE80 { return true; }
+    if (segments[0] & 0xFFC0) == 0xFE80 {
+        return true;
+    }
     // IPv4-mapped IPv6 (::ffff:x.x.x.x) — check the embedded IPv4
     if let Some(v4) = ip.to_ipv4_mapped() {
         return is_private_ipv4(v4);
@@ -259,7 +278,9 @@ fn is_redirect(status: u16) -> bool {
 
 fn resolve_redirect(base_url: &str, location: &str) -> Result<String, String> {
     let base = Url::parse(base_url).map_err(|e| format!("Invalid base URL: {e}"))?;
-    let resolved = base.join(location).map_err(|e| format!("Invalid redirect location: {e}"))?;
+    let resolved = base
+        .join(location)
+        .map_err(|e| format!("Invalid redirect location: {e}"))?;
     Ok(resolved.to_string())
 }
 
@@ -270,8 +291,12 @@ fn read_body_limited(resp: ureq::Response, max_bytes: usize) -> Result<String, S
     let mut reader = resp.into_reader();
     let mut chunk = [0u8; 8192];
     loop {
-        let n = reader.read(&mut chunk).map_err(|e| format!("Read error: {e}"))?;
-        if n == 0 { break; }
+        let n = reader
+            .read(&mut chunk)
+            .map_err(|e| format!("Read error: {e}"))?;
+        if n == 0 {
+            break;
+        }
         buf.extend_from_slice(&chunk[..n]);
         if buf.len() > max_bytes {
             return Err(format!(
@@ -323,7 +348,9 @@ fn try_extract_container(document: &Html, tag: &str) -> Option<String> {
     let element = document.select(&sel).next()?;
 
     // Collect text, skipping noise elements
-    let noise_tags: &[&str] = &["script", "style", "nav", "header", "footer", "aside", "noscript"];
+    let noise_tags: &[&str] = &[
+        "script", "style", "nav", "header", "footer", "aside", "noscript",
+    ];
     let mut text_parts: Vec<String> = Vec::new();
 
     collect_text_excluding(element, noise_tags, &mut text_parts);

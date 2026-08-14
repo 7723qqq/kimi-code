@@ -58,12 +58,10 @@ fn collect_entries(dir_path: &Path, max_width: usize) -> (Vec<Entry>, usize, boo
     let total = all.len();
 
     // Sort: directories first, then alphabetically (case-insensitive).
-    all.sort_by(|a, b| {
-        match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-        }
+    all.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
     });
 
     let entries = if all.len() > max_width {
@@ -139,7 +137,11 @@ pub fn list_directory(config: &ListDirectoryConfig) -> ListDirectoryResult {
 
             for (j, ce) in child_entries.iter().enumerate() {
                 let c_is_last = j == child_entries.len() - 1 && child_remaining == 0;
-                let c_connector = if c_is_last { "└── " } else { "├── " };
+                let c_connector = if c_is_last {
+                    "└── "
+                } else {
+                    "├── "
+                };
                 let suffix = if ce.is_dir { "/" } else { "" };
                 lines.push(format!(
                     "{}{}{}{}",

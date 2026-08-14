@@ -1,24 +1,24 @@
-/// i18n translation engine — resolves dot-separated keys against locale JSON
-/// and interpolates `{{param}}` placeholders.
-///
-/// Designed to be the compiled core of the project's i18n system. Locale data
-/// stays in TypeScript/JSON (easy to maintain); the engine that reads it is
-/// compiled Rust — fixed, fast, and never lost.
-///
-/// # Design
-///
-/// - `resolve` walks a dot-separated key path into a parsed JSON value tree.
-/// - `interpolate` replaces `{{param}}` tokens with supplied values.
-/// - `translate` chains both: resolve → interpolate → fallback → return key.
-///
-/// The engine is stateless: all locale data is passed in at call time, so
-/// the same engine serves every i18n module in the project.
-///
-/// # Caching
-///
-/// `CachedTranslator` wraps the engine with a parsed-JSON cache keyed by
-/// locale JSON string. Use it when the same locale data is used repeatedly
-/// (e.g. in a long-running server) to avoid re-parsing JSON on every call.
+//! i18n translation engine — resolves dot-separated keys against locale JSON
+//! and interpolates `{{param}}` placeholders.
+//!
+//! Designed to be the compiled core of the project's i18n system. Locale data
+//! stays in TypeScript/JSON (easy to maintain); the engine that reads it is
+//! compiled Rust — fixed, fast, and never lost.
+//!
+//! # Design
+//!
+//! - `resolve` walks a dot-separated key path into a parsed JSON value tree.
+//! - `interpolate` replaces `{{param}}` tokens with supplied values.
+//! - `translate` chains both: resolve → interpolate → fallback → return key.
+//!
+//! The engine is stateless: all locale data is passed in at call time, so
+//! the same engine serves every i18n module in the project.
+//!
+//! # Caching
+//!
+//! `CachedTranslator` wraps the engine with a parsed-JSON cache keyed by
+//! locale JSON string. Use it when the same locale data is used repeatedly
+//! (e.g. in a long-running server) to avoid re-parsing JSON on every call.
 
 use serde_json::Value;
 use std::collections::HashMap;
@@ -36,10 +36,9 @@ pub fn resolve<'a>(data: &'a Value, key: &str) -> Option<&'a str> {
     let mut current = data;
     for part in &parts {
         match current {
-            Value::Object(map) => match map.get(*part) {
-                Some(v) => current = v,
-                None => return None,
-            },
+            Value::Object(map) => {
+                current = map.get(*part)?;
+            }
             _ => return None,
         }
     }
@@ -388,10 +387,7 @@ mod tests {
     #[test]
     fn test_interpolate_missing_param() {
         let params = HashMap::new();
-        assert_eq!(
-            interpolate("Hello, {{name}}!", &params),
-            "Hello, {{name}}!"
-        );
+        assert_eq!(interpolate("Hello, {{name}}!", &params), "Hello, {{name}}!");
     }
 
     #[test]
@@ -536,10 +532,7 @@ mod tests {
     #[test]
     fn test_cached_translator_batch() {
         let t = CachedTranslator::new();
-        let keys = vec![
-            "common.ok".to_string(),
-            "common.cancel".to_string(),
-        ];
+        let keys = vec!["common.ok".to_string(), "common.cancel".to_string()];
         let results = t.translate_batch(en(), en(), &keys, None);
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].message, "OK");
@@ -592,9 +585,6 @@ mod tests {
     fn test_interpolate_special_chars_in_params() {
         let mut params = HashMap::new();
         params.insert("text".to_string(), "a<b>c&d\"e'".to_string());
-        assert_eq!(
-            interpolate("{{text}}", &params),
-            "a<b>c&d\"e'"
-        );
+        assert_eq!(interpolate("{{text}}", &params), "a<b>c&d\"e'");
     }
 }
