@@ -6,9 +6,11 @@
  */
 import { ChatProviderError } from '#/errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
+import type { MessageParam } from '@anthropic-ai/sdk/resources/messages/messages.js';
 import { AnthropicChatProvider, resolveDefaultMaxTokens } from '#/providers/anthropic';
 import { matchKnownAnthropicModelProfile, matchUnknownClaudeProfile, LATEST_OPUS_PROFILE } from '#/providers/anthropic-profile';
 import type { GenerateOptions } from '#/provider';
+import { injectCacheControlOnLastBlock, CACHEABLE_TYPES } from '#/providers/anthropic-cache-breakpoints';
 import type { Tool } from '#/tool';
 import { describe, it, expect, vi } from 'vitest';
 
@@ -62,6 +64,100 @@ const UNSIGNED_THINKING_ONLY_HISTORY: Message[] = [
   },
   { role: 'user', content: [{ type: 'text', text: 'Continue' }], toolCalls: [] },
 ];
+
+describe('injectCacheControlOnLastBlock', () => {
+  const text = (t: string) => ({ type: 'text' as const, text: t });
+
+  it('is a no-op on empty messages', () => {
+    const messages: MessageParam[] = [];
+    injectCacheControlOnLastBlock(messages);
+    expect(messages).toEqual([]);
+  });
+
+  it('injects only the tail breakpoint when fewer than 4 messages', () => {
+    const messages: MessageParam[] = [
+      { role: 'user', content: [text('a')] },
+      { role: 'assistant', content: [text('b')] },
+      { role: 'user', content: [text('c')] },
+    ];
+    injectCacheControlOnLastBlock(messages);
+    expect(messages[0]?.content).toEqual([{ type: 'text', text: 'a' }]);
+    expect(messages[1]?.content).toEqual([{ type: 'text', text: 'b' }]);
+    // Tail lands on the last message's last block.
+    expect(messages[2]?.content).toEqual([
+      { type: 'text', text: 'c', cache_control: { type: 'ephemeral' } },
+    ]);
+  });
+
+  it('injects both history and tail breakpoints at ≥4 messages', () => {
+    const messages: MessageParam[] = [
+      { role: 'user', content: [text('1')] },
+      { role: 'assistant', content: [text('2')] },
+      { role: 'user', content: [text('3')] },
+      { role: 'assistant', content: [text('4')] },
+    ];
+    injectCacheControlOnLastBlock(messages);
+    // History breakpoint at index length-3 == 1.
+    expect(messages[1]?.content).toEqual([
+      { type: 'text', text: '2', cache_control: { type: 'ephemeral' } },
+    ]);
+    // Tail breakpoint on the last message; the stable message at index 0 is untouched.
+    expect(messages[0]?.content).toEqual([{ type: 'text', text: '1' }]);
+    expect(messages[2]?.content).toEqual([{ type: 'text', text: '3' }]);
+    expect(messages[3]?.content).toEqual([
+      { type: 'text', text: '4', cache_control: { type: 'ephemeral' } },
+    ]);
+  });
+
+  it('does not double-inject when the history block already has cache_control', () => {
+    const messages: MessageParam[] = [
+      { role: 'user', content: [text('a')] },
+      { role: 'assistant', content: [text('b'), { type: 'text', text: 'b2', cache_control: { type: 'ephemeral' } }] },
+      { role: 'user', content: [text('c')] },
+      { role: 'assistant', content: [text('d')] },
+    ];
+    injectCacheControlOnLastBlock(messages);
+    // History message (index 1) already had a breakpoint on its last block — unchanged.
+    expect(messages[1]?.content).toEqual([
+      { type: 'text', text: 'b' },
+      { type: 'text', text: 'b2', cache_control: { type: 'ephemeral' } },
+    ]);
+  });
+
+  it('skips blocks whose type is not cacheable', () => {
+    const messages: MessageParam[] = [
+      { role: 'user', content: [text('a')] },
+      { role: 'assistant', content: [{ type: 'notCacheable' as 'text', text: 'b' }] },
+      { role: 'user', content: [text('c')] },
+      { role: 'assistant', content: [{ type: 'notCacheable' as 'text', text: 'd' }] },
+    ];
+    injectCacheControlOnLastBlock(messages);
+    // Neither the history (index 1) nor the tail (index 3) target block is
+    // cacheable, so no breakpoint is injected anywhere.
+    expect(messages[1]?.content).toEqual([{ type: 'notCacheable', text: 'b' }]);
+    expect(messages[3]?.content).toEqual([{ type: 'notCacheable', text: 'd' }]);
+  });
+
+  it('handles non-array string content without crashing', () => {
+    const messages: MessageParam[] = [
+      { role: 'user', content: 'plain string' },
+      { role: 'assistant', content: [text('2')] },
+      { role: 'user', content: [text('3')] },
+      { role: 'assistant', content: [text('4')] },
+    ];
+    injectCacheControlOnLastBlock(messages);
+    expect(messages[0]?.content).toBe('plain string');
+    expect(messages[3]?.content).toEqual([
+      { type: 'text', text: '4', cache_control: { type: 'ephemeral' } },
+    ]);
+  });
+
+  it('declares every cacheable type as a string type', () => {
+    for (const type of CACHEABLE_TYPES) {
+      expect(typeof type).toBe('string');
+    }
+  });
+});
 
 describe('Anthropic model profile matching', () => {
   it.each([
