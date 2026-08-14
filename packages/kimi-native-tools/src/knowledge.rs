@@ -118,8 +118,10 @@ fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<KnowledgeEntry> {
 #[napi]
 pub fn knowledge_open(db_path: String) -> Result<()> {
     let mut guard = DB.lock().map_err(|e| Error::from_reason(format!("DB lock: {e}")))?;
+    // Close any previously-open database (dropping the rusqlite connection,
+    // which flushes WAL and releases the file handle) before reopening.
     if guard.is_some() {
-        // Already open — reopen at new path
+        *guard = None;
     }
     std::fs::create_dir_all(std::path::Path::new(&db_path).parent().unwrap_or(std::path::Path::new("."))).ok();
     let conn = Connection::open(&db_path).map_err(|e| Error::from_reason(format!("Open DB: {e}")))?;

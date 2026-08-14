@@ -128,41 +128,6 @@ pub fn read_file(config: &ReadConfig) -> ReadResult {
         FileKind::Text => {}
     }
 
-    let scan = match scan_text_file(path) {
-        Ok(scan) => scan,
-        Err(e) => {
-            let msg = e.to_string();
-            if msg.contains("invalid") && msg.contains("utf") {
-                return ReadResult {
-                    content: String::new(),
-                    line_count: 0,
-                    error: Some(not_readable_message(&config.path)),
-                };
-            }
-            return ReadResult {
-                content: String::new(),
-                line_count: 0,
-                error: Some(msg),
-            };
-        }
-    };
-
-    if scan.has_nul {
-        return ReadResult {
-            content: String::new(),
-            line_count: 0,
-            error: Some(not_readable_message(&config.path)),
-        };
-    }
-
-    if scan.total_lines == 0 {
-        return ReadResult {
-            content: "<system>No lines read from file. Total lines in file: 0.</system>".to_string(),
-            line_count: 0,
-            error: None,
-        };
-    }
-
     let line_offset = config.line_offset.unwrap_or(1);
 
     if line_offset < 0 {
@@ -177,67 +142,6 @@ pub fn read_file(config: &ReadConfig) -> ReadResult {
         // Single-pass: scan + read in one file traversal.
         scan_and_read_forward(path, start_line, max_lines)
     }
-}
-
-struct TextScanResult {
-    total_lines: usize,
-    has_nul: bool,
-}
-
-fn scan_text_file(path: &Path) -> io::Result<TextScanResult> {
-    let mut file = File::open(path)?;
-    let mut buf = [0u8; 64 * 1024];
-    let mut total_lines = 0usize;
-    let mut has_nul = false;
-    let mut saw_any = false;
-    let mut last_byte = None;
-    let mut flags = LineEndingFlags::default();
-    let mut pending_cr = false;
-
-    loop {
-        let n = file.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        saw_any = true;
-        for &byte in &buf[..n] {
-            if byte == 0 {
-                has_nul = true;
-            }
-            if byte == b'\n' {
-                total_lines += 1;
-            }
-            if pending_cr {
-                if byte == b'\n' {
-                    flags.feed_crlf();
-                    pending_cr = false;
-                    last_byte = Some(byte);
-                    continue;
-                }
-                flags.feed(b'\r');
-                pending_cr = false;
-            }
-            if byte == b'\r' {
-                pending_cr = true;
-            } else {
-                flags.feed(byte);
-            }
-            last_byte = Some(byte);
-        }
-    }
-
-    if pending_cr {
-        flags.feed(b'\r');
-    }
-
-    if saw_any && last_byte != Some(b'\n') {
-        total_lines += 1;
-    }
-
-    Ok(TextScanResult {
-        total_lines,
-        has_nul,
-    })
 }
 
 /// Single-pass scan + read: reads the file once, detecting line endings and
