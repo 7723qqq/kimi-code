@@ -11,6 +11,7 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { Event } from '#/_base/event';
+import { ILogService } from '#/_base/log/log';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
@@ -33,6 +34,7 @@ import { IWireService } from '#/wire/wire';
 
 import { stubContextMemory } from '../contextMemory/stubs';
 import { stubLoopWithHooks, stubToolExecutor, stubWire } from '../loop/stubs';
+import { stubLog } from '../../_base/log/stubs';
 import { registerStateServices } from '../../state/stubs';
 
 function message(text: string): ContextMessage {
@@ -54,6 +56,7 @@ function harness() {
   const ix = createServices(disposables, {
     strict: true, additionalServices: (reg) => {
       registerStateServices(reg);
+      reg.defineInstance(ILogService, stubLog());
       reg.defineInstance(IAgentContextMemoryService, context);
       reg.defineInstance(IAgentLoopService, loop);
       reg.defineInstance(IWireService, stubWire());
@@ -123,6 +126,20 @@ describe('AgentPromptService', () => {
     const handles = await prompt.steer([two.id, one.id]);
     expect(handles.map((item) => item.id)).toEqual([one.id, two.id]);
     loop.drainNextBatch(context);
+  });
+
+  it('keeps steered prompts queued in order when the loop refuses the steer', async () => {
+    const { prompt, loop } = harness();
+    const active = await prompt.enqueue({ message: message('active') });
+    await active.launched;
+    const one = await prompt.enqueue({ message: message('one') });
+    const two = await prompt.enqueue({ message: message('two') });
+    vi.spyOn(loop, 'enqueue').mockImplementation(() => {
+      throw new Error2(ErrorCodes.REQUEST_INVALID, 'loop busy');
+    });
+
+    await expect(prompt.steer([two.id, one.id])).rejects.toThrow();
+    expect(prompt.list().pending.map((item) => item.id)).toEqual([one.id, two.id]);
   });
 
   it('aborts pending prompts and settles completion', async () => {

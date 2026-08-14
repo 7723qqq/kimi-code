@@ -175,9 +175,13 @@ export class SubagentTool implements ISubagentTool {
       this.toolPolicy.isToolActive('TaskList') &&
       this.toolPolicy.isToolActive('TaskOutput') &&
       this.toolPolicy.isToolActive('TaskStop');
-    void this.catalog.ready.then(() => {
-      this.catalogReady = true;
-    });
+    void this.catalog.ready
+      .then(() => {
+        this.catalogReady = true;
+      })
+      .catch((error) => {
+        this.log.warn('agent profile catalog failed to load', { error });
+      });
   }
 
   get description(): string {

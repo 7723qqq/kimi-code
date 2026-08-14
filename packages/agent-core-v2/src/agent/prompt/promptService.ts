@@ -22,6 +22,7 @@
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { ILogService } from '#/_base/log/log';
 import { defineState } from '#/_base/state/stateRegistry';
 import { extractImageCompressionCaptions } from '#/agent/media/image-compress';
 import { userCancellationReason } from '#/_base/utils/abort';
@@ -107,6 +108,7 @@ export class AgentPromptService implements IAgentPromptService {
     @IEventService private readonly eventService: IEventService,
     @ISessionContext private readonly sessionContext: ISessionContext,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
+    @ILogService private readonly log: ILogService,
   ) {
     this.states.register(promptLaunchingKey);
     toolExecutor.hooks.onDidExecuteTool.register('prompt-service-delivery', async (ctx, next) => {
@@ -223,6 +225,7 @@ export class AgentPromptService implements IAgentPromptService {
       throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, t('v2Errors.promptsNotPending'));
     }
     const selected = this.pending.filter((item) => ids.has(item.id));
+    const selectedIndices = selected.map((item) => this.pending.indexOf(item));
     for (const item of selected) this.pending.splice(this.pending.indexOf(item), 1);
     const message: ContextMessage = {
       role: 'user', content: selected.flatMap((item) => item.message.content), toolCalls: [], origin: USER_PROMPT_ORIGIN,
@@ -231,12 +234,23 @@ export class AgentPromptService implements IAgentPromptService {
     const request = new SteerStepRequest(rerouted, captions, this.reminders, (materialized) => {
       this.wire.dispatch(steerTurn({ input: materialized.content, origin: materialized.origin ?? USER_PROMPT_ORIGIN }));
     }, () => {});
-    const turn = (await this.loop.enqueue(request).assigned).turn;
-    if (turn === undefined) throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, t('v2Errors.noActiveTurnToSteer'));
-    for (const item of selected) { item.state = 'steered'; item.launchedDeferred.resolve(turn); }
-    this.steered.set(this.active.id, [...(this.steered.get(this.active.id) ?? []), ...selected]);
-    this.eventBus.publish({ type: 'prompt.steered', activePromptId: this.active.id, promptIds: selected.map((x) => x.id), content: rerouted.content as ContentPart[], steeredAt: new Date().toISOString() });
-    return selected.map((item) => item.handle);
+    try {
+      const turn = (await this.loop.enqueue(request).assigned).turn;
+      if (turn === undefined) throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, t('v2Errors.noActiveTurnToSteer'));
+      for (const item of selected) { item.state = 'steered'; item.launchedDeferred.resolve(turn); }
+      this.steered.set(this.active.id, [...(this.steered.get(this.active.id) ?? []), ...selected]);
+      this.eventBus.publish({ type: 'prompt.steered', activePromptId: this.active.id, promptIds: selected.map((x) => x.id), content: rerouted.content as ContentPart[], steeredAt: new Date().toISOString() });
+      return selected.map((item) => item.handle);
+    } catch (error) {
+      // The loop refused the steer (BugIndicatingError / PROMPT_NOT_FOUND):
+      // restore the spliced records to their original slots, so no message is lost.
+      for (const [i, item] of selected.entries()) {
+        const index = selectedIndices[i];
+        if (index === undefined) continue;
+        this.pending.splice(index, 0, item);
+      }
+      throw error;
+    }
   }
 
   abort(promptId: string, reason: Error = userCancellationReason()): boolean {
@@ -282,7 +296,10 @@ export class AgentPromptService implements IAgentPromptService {
       if (turn === undefined) { this.pending.unshift(item); return; }
       item.state = 'running'; item.launchedDeferred.resolve(turn); this.active = Object.assign(item, { turn });
       void turn.result.then((result) => this.settle(item, result));
-    } catch {
+    } catch (error) {
+      this.log.error('prompt launch failed', { promptId: item.id, error });
+      const { message: failedMessage, captions } = this.extractCompressionCaptions(item.message);
+      this.appendPrompt(failedMessage, captions);
       item.state = 'failed';
       item.launchedDeferred.resolve(undefined as never);
       item.completionDeferred.resolve({ promptId: item.id, result: undefined, state: 'failed' });

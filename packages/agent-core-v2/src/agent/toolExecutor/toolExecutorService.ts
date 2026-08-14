@@ -249,7 +249,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
           candidates.push(
             nextTimed.then(
               (result): ToolExecutionStreamEvent => ({ type: 'timed', result }),
-              (reason): ToolExecutionStreamEvent => ({ type: 'timedRejected', reason: reason }),
+              (error): ToolExecutionStreamEvent => ({ type: 'timedRejected', reason: error }),
             ),
           );
         }
@@ -279,7 +279,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
             options,
           ).then(
             (value): SettledToolExecutionResult => ({ status: 'fulfilled', value }),
-            (reason): SettledToolExecutionResult => ({ status: 'rejected', reason: reason }),
+            (error): SettledToolExecutionResult => ({ status: 'rejected', reason: error }),
           );
           finalizations.add(finalization);
           nextTimed = timedResults.next();
@@ -496,7 +496,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         index,
         pendingResult.then(
           (value): SettledTimedToolResult => ({ status: 'fulfilled', value }),
-          (reason): SettledTimedToolResult => ({ status: 'rejected', index, reason: reason }),
+          (error): SettledTimedToolResult => ({ status: 'rejected', index, reason: error }),
         ),
       );
     }
@@ -871,18 +871,26 @@ function normalizeToolResult(result: ExecutableToolResult): ToolResult {
     output = result.output.length > 0 ? result.output : TOOL_OUTPUT_EMPTY;
   } else if (result.output.length === 0) {
     output = TOOL_OUTPUT_EMPTY;
+  } else if (result.output.some((part) => !isWellFormedContentPart(part))) {
+    return {
+      output: 'Tool returned a result with a malformed content part.',
+      isError: true,
+    };
   } else {
     const hasMediaBlock = result.output.some(isMediaContentPart);
     if (hasMediaBlock) {
       const hasNonEmptyText = result.output.some(
-        (part) => part.type === 'text' && part.text.length > 0,
+        (part) => part.type === 'text' && typeof part.text === 'string' && part.text.length > 0,
       );
       output = hasNonEmptyText
         ? result.output
         : [{ type: 'text', text: TOOL_OUTPUT_NON_TEXT }, ...result.output];
     } else {
       const textJoined = result.output
-        .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
+        .filter(
+          (part): part is Extract<ContentPart, { type: 'text' }> =>
+            part.type === 'text' && typeof part.text === 'string',
+        )
         .map((part) => part.text)
         .join('');
       output = textJoined.length > 0 ? textJoined : TOOL_OUTPUT_EMPTY;
@@ -923,9 +931,23 @@ function toolTelemetryErrorType(outcome: 'success' | 'error' | 'cancelled'): 'ca
 function toolOutputText(output: ToolResult['output']): string {
   if (typeof output === 'string') return output;
   return output
-    .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
+    .filter(
+      (part): part is Extract<ContentPart, { type: 'text' }> =>
+        typeof part === 'object' &&
+        part !== null &&
+        part.type === 'text' &&
+        typeof part.text === 'string',
+    )
     .map((part) => part.text)
     .join('');
+}
+
+function isWellFormedContentPart(part: unknown): boolean {
+  if (typeof part !== 'object' || part === null) return false;
+  const candidate = part as { type?: unknown; text?: unknown };
+  if (typeof candidate.type !== 'string') return false;
+  if (candidate.type === 'text') return typeof candidate.text === 'string';
+  return true;
 }
 
 function isMediaContentPart(part: ContentPart): boolean {

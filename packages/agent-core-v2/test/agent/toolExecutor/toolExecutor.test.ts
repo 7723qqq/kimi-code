@@ -715,6 +715,40 @@ describe('AgentToolExecutorService', () => {
     ]);
   });
 
+  it('degrades array output with a non-object element to an error result', async () => {
+    const tool = new TestTool('broken-output', {
+      result: { output: [null] } as unknown as ExecutableToolResult,
+    });
+    registry.register(tool);
+
+    const results = await execute([toolCall('call_broken_output', 'broken-output', {})]);
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        isError: true,
+        output: expect.stringContaining('malformed content part'),
+      }),
+    ]);
+  });
+
+  it('degrades a text part without a string text to an error result', async () => {
+    const tool = new TestTool('broken-text', {
+      result: {
+        output: [{ type: 'text' }, { type: 'text', text: 'ok' }],
+      } as unknown as ExecutableToolResult,
+    });
+    registry.register(tool);
+
+    const results = await execute([toolCall('call_broken_text', 'broken-text', {})]);
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        isError: true,
+        output: expect.stringContaining('malformed content part'),
+      }),
+    ]);
+  });
+
   it('onDidExecuteTool failures replace the raw output with a hook error', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);

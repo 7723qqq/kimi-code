@@ -64,7 +64,14 @@ import type {
   TurnStartedEvent as TurnStartedTelemetryEvent,
 } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { BugIndicatingError, ErrorCodes, Error2, isError2, toKimiErrorPayload } from '#/errors';
+import {
+  BugIndicatingError,
+  ErrorCodes,
+  Error2,
+  isError2,
+  onUnexpectedError,
+  toKimiErrorPayload,
+} from '#/errors';
 import { OrderedHookSlot } from '#/hooks';
 import { mergeInPlace, type ContentPart, type StreamedMessagePart } from '#/kosong/contract/message';
 import { type FinishReason } from '#/kosong/contract/provider';
@@ -536,59 +543,77 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         signal: turn.signal,
         onStarted: () =>{  ready.resolve(); },
       });
-      return result;
     } catch (error) {
       result = this.resultFromTurnError(turn, error);
-      return result;
-    } finally {
+    }
+    const traceId =
+      result?.type === 'completed' ? this.lastRequestTraceId : this.activeRequestTrace?.traceId;
+    try {
       this.settleTurnReady(ready, result);
       this.releaseActiveTurn(turn, result);
-      const traceId =
-        result?.type === 'completed' ? this.lastRequestTraceId : this.activeRequestTrace?.traceId;
-      if (result !== undefined) {
-        const error = result.type === 'failed' ? toKimiErrorPayload(result.error) : undefined;
-        const interruptReason =
-          result.type === 'completed' ? undefined : interruptReasonFor(result);
-        const durationMs = Date.now() - startedAt;
-        this.wire.dispatch(endTurn({ turnId: turn.id, reason: result.type, error, durationMs }));
-        this.eventBus.publish({
-          type: 'turn.ended',
-          turnId: turn.id,
-          reason: result.type,
-          error,
-          durationMs,
-          interruptReason,
-        });
-        if (error !== undefined) this.eventBus.publish({ type: 'error', ...error });
-        if (interruptReason !== undefined) {
-          const interrupted: TurnInterruptedEvent = {
-            turn_id: turn.id,
-            at_step: result.steps,
-            mode,
-            interrupt_reason: interruptReason,
-            provider_type,
-            protocol,
-            thinking_effort: thinkingEffort,
-            trace_id: traceId,
-          };
-          turnTelemetry.track2('turn_interrupted', interrupted);
+      try {
+        if (result !== undefined) {
+          const error = result.type === 'failed' ? toKimiErrorPayload(result.error) : undefined;
+          const interruptReason =
+            result.type === 'completed' ? undefined : interruptReasonFor(result);
+          const durationMs = Date.now() - startedAt;
+          this.wire.dispatch(endTurn({ turnId: turn.id, reason: result.type, error, durationMs }));
+          this.eventBus.publish({
+            type: 'turn.ended',
+            turnId: turn.id,
+            reason: result.type,
+            error,
+            durationMs,
+            interruptReason,
+          });
+          if (error !== undefined) this.eventBus.publish({ type: 'error', ...error });
+          if (interruptReason !== undefined) {
+            const interrupted: TurnInterruptedEvent = {
+              turn_id: turn.id,
+              at_step: result.steps,
+              mode,
+              interrupt_reason: interruptReason,
+              provider_type,
+              protocol,
+              thinking_effort: thinkingEffort,
+              trace_id: traceId,
+            };
+            turnTelemetry.track2('turn_interrupted', interrupted);
+          }
         }
+      } catch (error) {
+        onUnexpectedError(error);
+        // A failed endTurn persist must not escape the turn teardown: it
+        // would reject the turn result and skip pumpTurns, leaving the
+        // queue stuck. Settle the turn as failed instead.
+        result = { type: 'failed', error, steps: result?.steps ?? 0 };
+        (turn as MutableTurn).state = 'failed';
       }
-      const ended: TurnEndedTelemetryEvent = {
-        turn_id: turn.id,
-        reason: result?.type ?? 'failed',
-        duration_ms: Date.now() - startedAt,
-        mode,
-        provider_type,
-        protocol,
-        thinking_effort: thinkingEffort,
-        trace_id: traceId,
-      };
-      turnTelemetry.track2('turn_ended', ended);
+    } finally {
+      try {
+        const ended: TurnEndedTelemetryEvent = {
+          turn_id: turn.id,
+          reason: result?.type ?? 'failed',
+          duration_ms: Date.now() - startedAt,
+          mode,
+          provider_type,
+          protocol,
+          thinking_effort: thinkingEffort,
+          trace_id: traceId,
+        };
+        turnTelemetry.track2('turn_ended', ended);
+      } catch (error) {
+        onUnexpectedError(error);
+      }
       this.activeRequestTrace = undefined;
       this.lastRequestTraceId = undefined;
-      this.pumpTurns();
+      try {
+        this.pumpTurns();
+      } catch (error) {
+        onUnexpectedError(error);
+      }
     }
+    return result;
   }
 
   private resultFromTurnError(turn: Turn, error: unknown): TurnResult {
@@ -898,6 +923,18 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       reason,
       toErrorMessage(interruptedError),
     );
+    const mutableStep = runtime.current?.mutableStep;
+    if (
+      mutableStep !== undefined &&
+      mutableStep.state !== 'completed' &&
+      mutableStep.state !== 'failed' &&
+      mutableStep.state !== 'cancelled'
+    ) {
+      // Settle the step as failed (symmetric with `cancelStep`) so its result
+      // promise resolves instead of hanging for the rest of the turn.
+      mutableStep.state = 'failed';
+      mutableStep.resultControl?.resolve({ type: 'failed', error });
+    }
     return { type: 'return', result: { type: 'failed', error, steps: runtime.steps } };
   }
 

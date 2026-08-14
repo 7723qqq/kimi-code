@@ -158,7 +158,12 @@ import {
 } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 
-import { agentScopeOf, sessionDirOf, sessionScopeOf } from './internal/addressing';
+import {
+  agentScopeOf,
+  assertValidSessionId,
+  sessionDirOf,
+  sessionScopeOf,
+} from './internal/addressing';
 import {
   type CreateChildSessionOptions,
   type CreateSessionOptions,
@@ -250,6 +255,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
 
   async create(opts: CreateSessionOptions): Promise<ISessionScopeHandle> {
     const sessionId = opts.sessionId ?? createSessionId();
+    assertValidSessionId(sessionId);
     const handle = await this.materializeSession({ ...opts, sessionId });
     try {
       // Wait for the initial `state.json` to be durable before create resolves:
@@ -436,10 +442,13 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     if (handle === undefined) return;
     await this.announceWillClose({ sessionId, handle, reason: 'exit' });
     this.sessions.delete(sessionId);
-    await this.drainAgents(handle);
-    await drainSessionMetadataWrites();
-    await this.indexMirror.drain();
-    handle.dispose();
+    try {
+      await this.drainAgents(handle);
+      await drainSessionMetadataWrites();
+      await this.indexMirror.drain();
+    } finally {
+      handle.dispose();
+    }
     this._onDidCloseSession.fire({ sessionId });
   }
 
@@ -448,16 +457,19 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     if (handle === undefined) return;
     const meta = handle.accessor.get(ISessionMetadata);
     await meta.setArchived(true);
-    await this.drainAgents(handle);
-    this.event.publish({
-      type: 'event.session.archived',
-      payload: { sessionId },
-    });
-    await this.announceWillClose({ sessionId, handle, reason: 'archive' });
-    this.sessions.delete(sessionId);
-    await drainSessionMetadataWrites();
-    await this.indexMirror.drain();
-    handle.dispose();
+    try {
+      await this.drainAgents(handle);
+      this.event.publish({
+        type: 'event.session.archived',
+        payload: { sessionId },
+      });
+      await this.announceWillClose({ sessionId, handle, reason: 'archive' });
+      this.sessions.delete(sessionId);
+      await drainSessionMetadataWrites();
+      await this.indexMirror.drain();
+    } finally {
+      handle.dispose();
+    }
     this._onDidArchiveSession.fire({ sessionId });
   }
 
@@ -498,7 +510,12 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
   private async drainAgents(handle: ISessionScopeHandle): Promise<void> {
     const agentLifecycle = handle.accessor.get(IAgentLifecycleService);
     for (const agent of agentLifecycle.list()) {
-      await agentLifecycle.remove(agent.id);
+      try {
+        await agentLifecycle.remove(agent.id);
+      } catch {
+        // Best-effort teardown: a failing agent removal must not block the
+        // remaining agents or the session scope disposal in close/archive.
+      }
     }
   }
 
@@ -529,6 +546,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
           : await this.readMetaFromDisk(sourceId);
 
       targetId = opts.newSessionId ?? createSessionId();
+      assertValidSessionId(targetId);
       if (this.sessions.has(targetId) || (await this.index.get(targetId)) !== undefined) {
         throw new Error2(
           ErrorCodes.SESSION_ALREADY_EXISTS,

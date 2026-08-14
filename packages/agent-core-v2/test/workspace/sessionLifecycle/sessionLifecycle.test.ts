@@ -674,6 +674,31 @@ describe('SessionLifecycleService', () => {
     expect(svc.get('s1')).toBeUndefined();
   });
 
+  it('rejects create with a session id that would escape the session directory', async () => {
+    const svc = await build();
+
+    await expect(svc.create({ sessionId: '../escape', workDir: '/tmp/proj' })).rejects.toMatchObject(
+      { code: ErrorCodes.SESSION_ID_INVALID },
+    );
+    await expect(svc.create({ sessionId: 'a/b', workDir: '/tmp/proj' })).rejects.toMatchObject({
+      code: ErrorCodes.SESSION_ID_INVALID,
+    });
+    await expect(svc.create({ sessionId: 'a\\b', workDir: '/tmp/proj' })).rejects.toMatchObject({
+      code: ErrorCodes.SESSION_ID_INVALID,
+    });
+    expect(svc.get('../escape')).toBeUndefined();
+  });
+
+  it('rejects fork with a newSessionId that would escape the session directory', async () => {
+    const svc = await build();
+    await svc.create({ sessionId: 'src', workDir: '/tmp/proj' });
+
+    await expect(svc.fork({ sourceSessionId: 'src', newSessionId: '../evil' })).rejects.toMatchObject(
+      { code: ErrorCodes.SESSION_ID_INVALID },
+    );
+    expect(svc.get('../evil')).toBeUndefined();
+  });
+
   it('create seeds identity and materializes metadata', async () => {
     const svc = await build();
     const h = await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });
@@ -1589,6 +1614,82 @@ describe('SessionLifecycleService', () => {
     await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });
     await svc.close('s1');
     expect(closed).toEqual(['s1']);
+  });
+
+  it('disposes the session scope even when close teardown fails', async () => {
+    let disposed = 0;
+    const svc = await build([
+      stubPair(ISessionIndexMirror, {
+        ...sessionIndexMirrorStub(),
+        drain: () => Promise.reject(new Error('mirror drain failed')),
+      }),
+    ]);
+    svc.onWillCreateSession((event) => {
+      event.onSessionDispose(() => {
+        disposed += 1;
+      });
+    });
+    await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });
+
+    await expect(svc.close('s1')).rejects.toThrow('mirror drain failed');
+
+    expect(disposed).toBe(1);
+    expect(svc.get('s1')).toBeUndefined();
+  });
+
+  it('disposes the session scope even when archive teardown fails', async () => {
+    let disposed = 0;
+    const svc = await build([
+      stubPair(ISessionIndexMirror, {
+        ...sessionIndexMirrorStub(),
+        drain: () => Promise.reject(new Error('mirror drain failed')),
+      }),
+    ]);
+    svc.onWillCreateSession((event) => {
+      event.onSessionDispose(() => {
+        disposed += 1;
+      });
+    });
+    await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });
+
+    await expect(svc.archive('s1')).rejects.toThrow('mirror drain failed');
+
+    expect(disposed).toBe(1);
+    expect(svc.get('s1')).toBeUndefined();
+  });
+
+  it('close drains the remaining agents when one agent removal fails', async () => {
+    const agentA = {
+      id: 'agent-a',
+      kind: LifecycleScope.Agent,
+      accessor: { get: () => ({}) },
+      dispose: () => {},
+    } as unknown as IAgentScopeHandle;
+    const agentB = {
+      id: 'agent-b',
+      kind: LifecycleScope.Agent,
+      accessor: { get: () => ({}) },
+      dispose: () => {},
+    } as unknown as IAgentScopeHandle;
+    const removed: string[] = [];
+    const svc = await build([
+      stubPair(IAgentLifecycleService, {
+        ...agentLifecycleStub(),
+        list: () => [agentA, agentB],
+        remove: (id: string) => {
+          removed.push(id);
+          return id === 'agent-a'
+            ? Promise.reject(new Error('agent teardown failed'))
+            : Promise.resolve();
+        },
+      } as unknown as IAgentLifecycleService),
+    ]);
+    await svc.create({ sessionId: 's1', workDir: '/tmp/proj' });
+
+    await svc.close('s1');
+
+    expect(removed).toEqual(['agent-a', 'agent-b']);
+    expect(svc.get('s1')).toBeUndefined();
   });
 
   it('fires onDidArchiveSession when a session is archived', async () => {
