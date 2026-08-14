@@ -201,6 +201,58 @@ search over a session's wire journal.
 Deferred (documented for a future round): `session-query` stage C (model
 tool), `extensions`, `attachment`, `e2b`.
 
+## Sixth round: session-query (stage C — the model tool)
+
+Ported: **`session-query` stage C** — the `session_query` agent tool.
+
+- Upstream: `packages/session-query/tool-session-query` (MIT).
+- Adaptation notes:
+  - Three operations, one per call: `session_search` (cross-session
+    full-text search, force-scoped to the caller's workspace cwd),
+    `event_search` (within-session search, current session by default), and
+    `session_trace` (fork lineage). Upstream `event_trace`/`event_read` are
+    deferred (kimi's query service has no event-trace/window reads yet).
+  - `toolInput` ports the argument schemas, ISO 8601 timestamp bounds, and
+    filter construction; the upstream sub-millisecond boundary handling is
+    dropped (kimi event times are integer epoch milliseconds).
+  - `toolPresentation` renders model-readable text with snippets and a
+    result cap; `session_query` is main-agent-only.
+- Verification: `tsc --noEmit` clean; oxlint clean; new unit tests
+  (`test/features/sessionQuery/sessionQueryTool.test.ts`, 15 cases) covering
+  schema validation, filter construction, the three operations against a
+  stubbed service, and rendering; full `agent-core-v2` suite green.
+
+Deferred (documented for a future round): `extensions`, `attachment`, `e2b`.
+
+## Seventh round: attachment storage
+
+Ported: **`attachment`** — content-addressed image attachment storage.
+
+- Upstream: `packages/attachment/attachment` + `packages/attachment/attachment-local` (MIT).
+- Rationale: kimi has agent-scoped blobs and media originals, but no
+  content-addressed, cross-session durable object store with image
+  admission.
+- Adaptation notes:
+  - `IAttachmentService` (App scope) saves/reads images under
+    `sha256:<hex>` content addresses; identical payloads deduplicate and a
+    reference verifies against the object it names. Writes are exclusive +
+    owner-only with a directory sync before the reference is reported.
+  - Admission policy: declared media type must match the bytes (magic-byte
+    sniffing via kimi's `sniffMediaFromMagic`), byte and decoded-pixel
+    limits, and a full jimp decode. The upstream sharp pipeline is replaced
+    by kimi's existing image toolchain; dimensions come from
+    `sniffImageDimensions` (native + TS fallback).
+  - `[attachment] root` (default: private per-process temp dir) and
+    `limits` config section.
+  - Protocol/tool integration (attachment references in messages) is
+    deferred — this round ports the storage seam only.
+- Verification: `tsc --noEmit` clean; oxlint clean; new unit tests
+  (`test/features/attachment/attachment.test.ts`, 11 cases) covering
+  digest addressing/deduplication, name sanitization, admission rejections,
+  and service round-trip; full `agent-core-v2` suite green.
+
+Deferred (documented for a future round): `extensions`, `e2b`.
+
 ## Verification
 
 - `tsc --noEmit` on `agent-core-v2` and `kosong` (typecheck of the full app is
