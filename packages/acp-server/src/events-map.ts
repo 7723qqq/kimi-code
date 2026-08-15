@@ -184,7 +184,7 @@ export function toolCallLocations(
     (candidate): candidate is string => candidate !== undefined && isAbsolute(candidate),
   );
   if (path === undefined) return undefined;
-  return [{ path }];
+  return [{ path: path.replaceAll('\\', '/') }];
 }
 
 /**

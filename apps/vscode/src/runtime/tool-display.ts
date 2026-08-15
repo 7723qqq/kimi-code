@@ -2,6 +2,10 @@ import type { ToolInputDisplay } from '@moonshot-ai/kimi-code-sdk';
 
 import type { DisplayBlock } from '../../shared/legacy-sdk';
 
+function toDisplayPath(input: string): string {
+  return input.replaceAll('\\', '/');
+}
+
 export function describeToolDisplay(display: ToolInputDisplay): string {
   switch (display.kind) {
     case 'command':
@@ -39,7 +43,12 @@ export function toLegacyDisplay(display: ToolInputDisplay): DisplayBlock[] {
       return [{ type: 'shell', language: display.language ?? 'bash', command: display.command }];
     case 'diff':
       return [
-        { type: 'diff', path: display.path, old_text: display.before, new_text: display.after },
+        {
+          type: 'diff',
+          path: toDisplayPath(display.path),
+          old_text: display.before,
+          new_text: display.after,
+        },
       ];
     case 'file_io':
       if (
@@ -50,7 +59,7 @@ export function toLegacyDisplay(display: ToolInputDisplay): DisplayBlock[] {
         return [
           {
             type: 'diff',
-            path: display.path,
+            path: toDisplayPath(display.path),
             old_text: display.before ?? '',
             new_text: display.after ?? display.content ?? '',
           },

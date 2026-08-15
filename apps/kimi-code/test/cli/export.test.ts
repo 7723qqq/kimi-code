@@ -595,5 +595,8 @@ describe('kimi export', () => {
     expect(mocks.harnessExportSession).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'ses_v2_engine', outputPath: output }),
     );
-  });
+    // Real default deps (telemetry bootstrap, npm global-prefix detection,
+    // shell-env detection) do child-process I/O that can exceed the default 5s
+    // timeout under load, so give this case a larger per-test budget.
+  }, 30_000);
 });

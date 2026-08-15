@@ -1680,7 +1680,10 @@ command = "vim"
 
     resolveExport();
     await command;
-  });
+    // The feedback chain (prompt -> listSessions -> export) can exceed the
+    // default 5s test timeout when the suite runs in parallel shards; the
+    // waitFor above already budgets 10s, so the test itself must outlive it.
+  }, 15_000);
 
   it('waits for the codebase upload to finish before returning', async () => {
     const { driver, harness } = await makeDriver(makeSession());
