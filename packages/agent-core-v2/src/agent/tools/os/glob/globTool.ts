@@ -186,7 +186,7 @@ export class GlobTool implements IGlobTool {
     signal: AbortSignal,
     searchRoots: readonly string[],
   ): Promise<ExecutableToolResult> {
-    const searchRoot = searchRoots[0] ?? this.workspaceConfig.workspaceDir;
+    const searchRoot = normalize(searchRoots[0] ?? this.workspaceConfig.workspaceDir);
 
     try {
       const st = await this.fs.stat(searchRoot);

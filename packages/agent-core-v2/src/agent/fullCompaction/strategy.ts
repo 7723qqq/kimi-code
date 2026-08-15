@@ -305,7 +305,12 @@ function toNativeCompactionConfig(
   return {
     maxSize,
     maxRecentMessages: config.maxRecentMessages,
-    maxRecentUserMessages: config.maxRecentUserMessages,
+    // napi u32 cannot represent Infinity ("unlimited recent user
+    // messages"); encode it as u32::MAX, which no real message count can
+    // reach. A broken value here makes the Rust loop break on its first
+    // iteration and return the wrong split point.
+    maxRecentUserMessages:
+      config.maxRecentUserMessages === Infinity ? 0xffffffff : config.maxRecentUserMessages,
     maxRecentSizeRatio: config.maxRecentSizeRatio,
     minOverflowReductionRatio: config.minOverflowReductionRatio,
   };
