@@ -1157,6 +1157,11 @@ export default {
       pluginsInlineChangeHint: 'run /reload or /new to apply',
       pluginsOpeningPage: 'Opening the {{label}} page in your browser…',
       pluginsIfNotOpened: 'If it did not open, visit {{url}}',
+      pluginInstallStillRunning: '{{label}} installation is still running in the background.',
+      pluginInstallFailed: '{{label}} installation failed: {{error}}',
+      pluginInstallFixHint: 'Fix the reported error, then install again from /plugins.',
+      pluginPermissionHint:
+        'Grant Accessibility and Screen Recording in System Settings → Privacy & Security.',
       pluginsReloadResult: 'Reload: +{{added}} -{{removed}}',
       pluginsReloadResultErrors: ' ({{count}} errors)',
       pluginsDeclaresMcp_one:
@@ -1318,6 +1323,8 @@ export default {
       providerCatalogModelNotInProvider:
         'Model "{{model}}" is not in provider "{{id}}". Run "kimi provider catalog list {{id}}" to see available ids.',
       providerImported: 'Imported {{name}} ({{id}}) with {{count}} model{{plural}} from {{url}}.',
+      providerProtocolGuessedNote:
+        'Note: the catalog does not declare a protocol for "{{providerId}}"; guessed "openai". Edit "type" in config.toml if requests fail.',
       providerMultipleImported:
         'Imported {{count}} provider{{plural}} ({{modelCount}} model{{modelPlural}}) from {{url}}:',
       providerDefaultSet: 'Default model set to {{id}}/{{model}}.',
@@ -1346,6 +1353,8 @@ export default {
       providerNoUsableModels: 'Provider "{{providerId}}" has no usable models.',
       providerUnsupportedWire: 'Provider "{{providerId}}" has an unsupported wire type.',
       providerAdded: 'Provider "{{providerName}}" added.',
+      protocolGuessed:
+        'Protocol guessed as "openai" for {{providerId}} — edit "type" in config.toml if requests fail.',
       setDefaultModelFailed: 'Failed to set default model: {{error}}',
       defaultModelSet: 'Default model set to {{alias}} (thinking {{effort}}).',
       failedToImportRegistry: 'Failed to import registry: {{error}}',
@@ -1902,6 +1911,10 @@ export default {
       tasksCannotOpenOutput: 'Cannot open output: {{message}}',
       // tui/controllers/clipboard-image-hint.ts
       clipboardImageHint: 'Image in clipboard · {{shortcut}} to paste',
+      // tui/controllers/cache-hint-controller.ts
+      cacheHintPreferenceSaveFailed: 'Failed to save the tui.toml preference.',
+      cacheCompactFailed: 'Compact failed: {{error}}',
+      cacheCompactNotStarted: 'Compact did not start; message not sent.',
       // tui/controllers/streaming-ui.ts
       streamingTaskComplete: 'Kimi Code task complete',
       // tui/kimi-tui.ts

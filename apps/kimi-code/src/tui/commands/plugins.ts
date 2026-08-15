@@ -556,13 +556,15 @@ async function installCapabilityFromPanel(
   // plain plugin install flow.
   host.restoreEditor();
   if (result === undefined) {
-    host.showStatus(`${label} installation is still running in the background.`);
+    host.showStatus(t('tui.statusMessages.pluginInstallStillRunning', { label }));
     return;
   }
   logCapabilityStatus(result);
   if (result.install.error !== undefined) {
-    host.showError(`${label} installation failed: ${result.install.error}`);
-    host.showStatus('Fix the reported error, then install again from /plugins.', 'warning');
+    host.showError(
+      t('tui.statusMessages.pluginInstallFailed', { label, error: result.install.error }),
+    );
+    host.showStatus(t('tui.statusMessages.pluginInstallFixHint'), 'warning');
     return;
   }
   if (result.state !== 'ready') {
@@ -570,10 +572,7 @@ async function installCapabilityFromPanel(
       entry.id === 'kimi-cu' &&
       result.steps.some((step) => step.id === 'permissions' && step.state !== 'ok');
     if (permissionsRequired) {
-      host.showStatus(
-        'Grant Accessibility and Screen Recording in System Settings → Privacy & Security.',
-        'warning',
-      );
+      host.showStatus(t('tui.statusMessages.pluginPermissionHint'), 'warning');
     } else {
       host.showError(
         `${label} installation did not complete. Check the logs and install again from /plugins.`,

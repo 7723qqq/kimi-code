@@ -268,11 +268,11 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
 
   await host.authFlow.refreshConfigAfterLogin();
   host.track('connect', { provider: providerId, method: 'catalog' });
-  host.showStatus(`Provider added: ${entry.name ?? providerId}`);
+  host.showStatus(
+    t('tui.statusMessages.providerAdded', { providerName: entry.name ?? providerId }),
+  );
   if (resolution.guessed) {
-    host.showStatus(
-      `Protocol guessed as "openai" for ${providerId} — edit "type" in config.toml if requests fail.`,
-    );
+    host.showStatus(t('tui.statusMessages.protocolGuessed', { providerId }));
   }
 
   // Build a merged model dictionary that includes existing models plus the

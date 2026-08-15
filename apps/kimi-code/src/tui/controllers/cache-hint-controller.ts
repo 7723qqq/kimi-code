@@ -9,6 +9,7 @@
 import { log, type KimiHarness, type Session, type TokenUsage } from '@moonshot-ai/kimi-code-sdk';
 import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
 import { getCacheHintConfig, peekCacheHintConfig } from '#/utils/cache-hint-config';
 
 import { currentTuiConfig } from '../commands/config';
@@ -440,7 +441,7 @@ export class CacheHintController {
         try {
           await saveTuiConfig({ ...currentTuiConfig(host), cacheExpiryHint: false });
         } catch {
-          host.showError('Failed to save the tui.toml preference.');
+          host.showError(t('tui.statusMessages.cacheHintPreferenceSaveFailed'));
         }
         break;
       case 'compact': {
@@ -449,7 +450,9 @@ export class CacheHintController {
           try {
             await session.compact({});
           } catch (error) {
-            host.showError(`Compact failed: ${formatErrorMessage(error)}`);
+            host.showError(
+              t('tui.statusMessages.cacheCompactFailed', { error: formatErrorMessage(error) }),
+            );
             restoreInput();
             return;
           }
@@ -458,7 +461,7 @@ export class CacheHintController {
             // Wait for the engagement barrier so the resend lands in the
             // queue and drains automatically when compaction finishes.
             if (!(await this.waitForCompactionStart())) {
-              host.showError('Compact did not start; message not sent.');
+              host.showError(t('tui.statusMessages.cacheCompactNotStarted'));
               restoreInput();
               return;
             }

@@ -419,12 +419,16 @@ export async function handleCatalogAdd(
 
   const displayName = entry.name ?? providerId;
   deps.stdout.write(
-    `Imported ${displayName} (${providerId}) with ${String(models.length)} model${models.length === 1 ? '' : 's'} from ${url}.\n`,
+    t('tui.statusMessages.providerImported', {
+      name: displayName,
+      id: providerId,
+      count: models.length,
+      plural: models.length === 1 ? '' : 's',
+      url,
+    }) + '\n',
   );
   if (resolution.guessed) {
-    deps.stdout.write(
-      `Note: the catalog does not declare a protocol for "${providerId}"; guessed "openai". Edit "type" in config.toml if requests fail.\n`,
-    );
+    deps.stdout.write(t('tui.statusMessages.providerProtocolGuessedNote', { providerId }) + '\n');
   }
   if (opts.defaultModel !== undefined) {
     deps.stdout.write(

@@ -1123,6 +1123,10 @@ export default {
       pluginsInlineChangeHint: '运行 /reload 或 /new 生效',
       pluginsOpeningPage: '正在浏览器中打开 {{label}} 页面…',
       pluginsIfNotOpened: '如果未打开，请访问 {{url}}',
+      pluginInstallStillRunning: '{{label}} 的安装仍在后台运行。',
+      pluginInstallFailed: '{{label}} 安装失败：{{error}}',
+      pluginInstallFixHint: '修复所报告的错误，然后从 /plugins 重新安装。',
+      pluginPermissionHint: '请在"系统设置 → 隐私与安全性"中授予辅助功能和屏幕录制权限。',
       pluginsReloadResult: '重载：+{{added}} -{{removed}}',
       pluginsReloadResultErrors: '（{{count}} 个错误）',
       pluginsDeclaresMcp_one: ' 声明了 {{count}} 个 MCP 服务器；默认启用，可从 /plugins 配置。',
@@ -1282,6 +1286,8 @@ export default {
       providerCatalogModelNotInProvider:
         '模型"{{model}}"不在提供商"{{id}}"中。运行"kimi provider catalog list {{id}}"查看可用 ID。',
       providerImported: '已从 {{url}} 导入 {{name}}（{{id}}），包含 {{count}} 个模型。',
+      providerProtocolGuessedNote:
+        '注意：目录未为"{{providerId}}"声明协议；已猜定为 "openai"。若请求失败，请在 config.toml 中修改 "type"。',
       providerMultipleImported: '已从 {{url}} 导入 {{count}} 个提供商（{{modelCount}} 个模型）：',
       providerDefaultSet: '默认模型已设置为 {{id}}/{{model}}。',
       providerCatalogFetchFailed: '从 {{url}} 获取目录失败{{suffix}}：{{error}}',
@@ -1309,6 +1315,8 @@ export default {
       providerNoUsableModels: '提供商"{{providerId}}"没有可用模型。',
       providerUnsupportedWire: '提供商"{{providerId}}"的传输类型不受支持。',
       providerAdded: '已添加提供商"{{providerName}}"。',
+      protocolGuessed:
+        '已为 {{providerId}} 猜定为 "openai" 协议——若请求失败，请在 config.toml 中修改 "type"。',
       setDefaultModelFailed: '设置默认模型失败：{{error}}',
       defaultModelSet: '默认模型已设置为 {{alias}}（思考 {{effort}}）。',
       failedToImportRegistry: '导入注册表失败：{{error}}',
@@ -1858,6 +1866,10 @@ export default {
       tasksCannotOpenOutput: '无法打开输出：{{message}}',
       // tui/controllers/clipboard-image-hint.ts
       clipboardImageHint: '剪贴板中有图片 · {{shortcut}} 粘贴',
+      // tui/controllers/cache-hint-controller.ts
+      cacheHintPreferenceSaveFailed: '无法保存 tui.toml 偏好设置。',
+      cacheCompactFailed: '压缩失败：{{error}}',
+      cacheCompactNotStarted: '压缩未开始；消息未发送。',
       // tui/controllers/streaming-ui.ts
       streamingTaskComplete: 'Kimi Code 任务完成',
       // tui/kimi-tui.ts
