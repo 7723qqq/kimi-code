@@ -109,8 +109,8 @@ export class AgentRunBatch<T> {
   private readonly results: Array<AgentRunResult<T> | undefined>;
   private readonly active = new Set<ActiveAttempt<T>>();
   private readonly controller = new AbortController();
-  private readonly batchSignal: AbortSignal | undefined;
-  private readonly batchAbortListener: () => void;
+  private readonly taskSignals: readonly AbortSignal[];
+  private readonly abortUnlinks: Array<() => void> = [];
   private readonly maxConcurrency: number | undefined;
   private normalLaunchCount = 0;
   private normalLaunchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -143,15 +143,13 @@ export class AgentRunBatch<T> {
     }));
     this.pending = [...this.states];
     this.results = Array.from({ length: tasks.length });
-    this.batchSignal = tasks.find((task) => task.signal !== undefined)?.signal;
-    this.batchAbortListener = () => {
-      this.controller.abort(this.batchSignal?.reason);
-      if (isUserCancellation(this.batchSignal?.reason)) {
-        this.finishWithUserCancellation();
-      } else {
-        this.fail(this.batchSignal?.reason ?? new Error('Aborted'));
-      }
-    };
+    this.taskSignals = [
+      ...new Set(
+        tasks
+          .map((task) => task.signal)
+          .filter((signal): signal is AbortSignal => signal !== undefined),
+      ),
+    ];
   }
 
   run(): Promise<Array<AgentRunResult<T>>> {
@@ -169,14 +167,29 @@ export class AgentRunBatch<T> {
         return;
       }
 
-      if (this.batchSignal?.aborted === true) {
-        this.batchAbortListener();
-        return;
+      for (const signal of this.taskSignals) {
+        if (signal.aborted) {
+          this.handleBatchAbort(signal.reason);
+          return;
+        }
       }
 
-      this.batchSignal?.addEventListener('abort', this.batchAbortListener, { once: true });
+      for (const signal of this.taskSignals) {
+        const onAbort = () => this.handleBatchAbort(signal.reason);
+        signal.addEventListener('abort', onAbort, { once: true });
+        this.abortUnlinks.push(() => signal.removeEventListener('abort', onAbort));
+      }
       this.schedule();
     });
+  }
+
+  private handleBatchAbort(reason: unknown): void {
+    this.controller.abort(reason);
+    if (isUserCancellation(reason)) {
+      this.finishWithUserCancellation();
+    } else {
+      this.fail(reason ?? new Error('Aborted'));
+    }
   }
 
   private schedule(): void {
@@ -571,7 +584,8 @@ export class AgentRunBatch<T> {
   }
 
   private cleanup(): void {
-    this.batchSignal?.removeEventListener('abort', this.batchAbortListener);
+    for (const unlink of this.abortUnlinks) unlink();
+    this.abortUnlinks.length = 0;
     this.clearNormalTimer();
     this.clearRateLimitTimer();
     for (const attempt of this.active.values()) {
