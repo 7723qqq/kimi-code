@@ -7,13 +7,15 @@
  * `tool-session-query` (MIT), trimmed to the operations the query service
  * provides (upstream event-trace/event-read are deferred).
  *
- * Bound at Agent scope for the main agent only.
+ * Bound at Agent scope for the main agent only. Contributed through the
+ * `sessionQuery` Feature (`SessionQueryFeature.contributeTool`), which carries
+ * the main-agent-only `when` gate; this tool additionally guards at
+ * execution time.
  */
 
 import { t } from '@moonshot-ai/kimi-i18n';
 
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { Error2 } from '#/errors';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
@@ -157,9 +159,3 @@ export class SessionQueryTool implements ISessionQueryTool {
 function formatValidationError(message: string): string {
   return `Invalid arguments: ${message}`;
 }
-
-registerAgentToolService(ISessionQueryTool, SessionQueryTool, {
-  name: 'session_query',
-  domain: 'sessionQuery',
-  when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
-});

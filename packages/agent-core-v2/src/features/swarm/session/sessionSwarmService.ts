@@ -81,7 +81,7 @@ const RESUMED_PROFILE_FALLBACK = 'subagent';
 export class SessionSwarmService implements ISessionSwarmService {
   declare readonly _serviceBrand: undefined;
 
-  private readonly inFlight = new Map<string, AbortController>();
+  private readonly inFlight = new Map<string, Set<AbortController>>();
 
   constructor(
     @IAgentLifecycleService private readonly lifecycle: IAgentLifecycleService,
@@ -107,7 +107,9 @@ export class SessionSwarmService implements ISessionSwarmService {
   run<T>(args: SessionSwarmRunArgs<T>): Promise<readonly SessionSwarmRunResult<T>[]> {
     const { callerAgentId, tasks } = args;
     const controller = new AbortController();
-    this.inFlight.set(callerAgentId, controller);
+    const controllers = this.inFlight.get(callerAgentId) ?? new Set<AbortController>();
+    controllers.add(controller);
+    this.inFlight.set(callerAgentId, controllers);
     const unlinks: Array<() => void> = [];
     const linkedTasks: SessionSwarmTask<T>[] = tasks.map((task) => {
       if (task.signal !== undefined) unlinks.push(linkAbortSignal(task.signal, controller));
@@ -130,13 +132,17 @@ export class SessionSwarmService implements ISessionSwarmService {
     const promise = new AgentRunBatch(launcher, linkedTasks, { maxConcurrency }).run();
     void promise.finally(() => {
       for (const unlink of unlinks) unlink();
-      if (this.inFlight.get(callerAgentId) === controller) this.inFlight.delete(callerAgentId);
+      const controllers = this.inFlight.get(callerAgentId);
+      controllers?.delete(controller);
+      if (controllers !== undefined && controllers.size === 0) {
+        this.inFlight.delete(callerAgentId);
+      }
     });
     return promise;
   }
 
   cancel({ callerAgentId }: { readonly callerAgentId: string }): void {
-    this.inFlight.get(callerAgentId)?.abort();
+    for (const controller of this.inFlight.get(callerAgentId) ?? []) controller.abort();
   }
 
   private async spawnAttempt(
