@@ -24,12 +24,13 @@
  * command requirements before changing plugin wiring.
  */
 
-import { constants } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { constants, createReadStream } from 'node:fs';
 import { access, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { downloadToFile, runCommand } from '../host';
+import { downloadToFile, runCommand, type FetchLike } from '../host';
 import type {
   CapabilityDetectResult,
   CapabilityEntry,
@@ -72,6 +73,48 @@ const WINDOWS_DOCTOR_SCRIPT =
   "if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles 'KimiCU\\kimi-cu.exe') }; " +
   '$exe = $candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1; ' +
   'if (-not $exe) { exit 3 }; & $exe doctor; exit $LASTEXITCODE';
+
+/**
+ * Verify a downloaded artifact against a `.sha256` file published next to it
+ * on the CDN. When the checksum file is absent (not yet published), the
+ * download proceeds unverified — a best-effort integrity anchor, not a hard
+ * gate, so installs keep working until the CDN publishes sums.
+ */
+async function verifyDownloadedChecksum(
+  url: string,
+  filePath: string,
+  fetchImpl: FetchLike | undefined,
+): Promise<void> {
+  const checksumPath = `${filePath}.sha256`;
+  try {
+    await downloadToFile(`${url}.sha256`, checksumPath, undefined, fetchImpl);
+  } catch {
+    return;
+  }
+  try {
+    const expected = (await readFile(checksumPath, 'utf8')).trim().split(/\s+/)[0];
+    // A valid SHA-256 sum is exactly 64 hex characters. Anything else means
+    // the CDN did not serve a checksum (e.g. an HTML error page), so treat it
+    // as "no checksum published" and proceed unverified.
+    if (expected === undefined || !/^[0-9a-f]{64}$/i.test(expected)) {
+      return;
+    }
+    const actual = await sha256File(filePath);
+    if (expected.toLowerCase() !== actual) {
+      throw new Error(`Checksum mismatch for ${url}: expected ${expected}, got ${actual}`);
+    }
+  } finally {
+    await rm(checksumPath, { force: true }).catch(() => {});
+  }
+}
+
+async function sha256File(filePath: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(filePath)) {
+    hash.update(chunk);
+  }
+  return hash.digest('hex');
+}
 
 interface PluginLayerConfig {
   readonly id: string;
@@ -455,6 +498,7 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
           },
           ctx.fetchImpl,
         );
+        await verifyDownloadedChecksum(APP_ZIP_URL, zipPath, ctx.fetchImpl);
 
         report('app');
         const unzipDir = path.join(workDir, 'unzipped');
@@ -665,6 +709,7 @@ function createWindowsKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry 
           },
           ctx.fetchImpl,
         );
+        await verifyDownloadedChecksum(WINDOWS_SETUP_URL, setupPath, ctx.fetchImpl);
 
         report('runtime');
         const installed = await runCommand(

@@ -407,6 +407,50 @@ describe('kimi-cu entry', () => {
     expect(doctorResults).toEqual([]);
   });
 
+  it('rejects a Windows setup download whose published checksum does not match', async () => {
+    const plugins = fakePlugins([]);
+    const calls: string[] = [];
+    const hostProcess = {
+      _serviceBrand: undefined,
+      spawn: (command: string, args: readonly string[] = []) => {
+        calls.push(`${command} ${args.join(' ')}`);
+        if (args.some((arg) => arg.includes('Get-FileHash'))) {
+          return Promise.resolve(fakeProc(0, 'PowerShell 5.1'));
+        }
+        return Promise.resolve(fakeProc(0));
+      },
+    } as IHostProcessService;
+    const fetchImpl = ((url: string) => {
+      if (url.endsWith('.sha256')) {
+        // A well-formed but deliberately wrong sum must fail the install
+        // before the script is ever executed.
+        const bytes = new TextEncoder().encode('0'.repeat(64));
+        return Promise.resolve(
+          new Response(bytes, { status: 200, headers: { 'content-length': '64' } }),
+        );
+      }
+      const bytes = new TextEncoder().encode("Write-Host 'official setup'");
+      return Promise.resolve(
+        new Response(bytes, {
+          status: 200,
+          headers: { 'content-length': String(bytes.length) },
+        }),
+      );
+    }) as typeof fetch;
+    const entry = createKimiCuEntry(
+      makeCtx({
+        platform: 'win32',
+        arch: 'x64',
+        plugins: plugins.service,
+        hostProcess,
+        fetchImpl,
+      }),
+    );
+
+    await expect(entry.install(() => {})).rejects.toThrow(/Checksum mismatch/);
+    expect(calls.some((call) => call.includes('setup_windows.ps1'))).toBe(false);
+  });
+
   it('uses trusted PowerShell 7 when system PowerShell cannot run the installer', async () => {
     const plugins = fakePlugins([]);
     const calls: string[] = [];
