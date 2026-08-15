@@ -7,7 +7,7 @@
  * fence is a `FrontmatterError`.
  */
 
-import { load as loadYaml } from 'js-yaml';
+import { CORE_SCHEMA, load as loadYaml } from 'js-yaml';
 
 export class FrontmatterError extends Error {
   constructor(message: string, cause?: unknown) {
@@ -44,7 +44,7 @@ export function parseFrontmatter(text: string): ParsedFrontmatter {
   }
 
   try {
-    return { data: loadYaml(yamlText) ?? {}, body };
+    return { data: loadYaml(yamlText, { schema: CORE_SCHEMA }) ?? {}, body };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new FrontmatterError(message, error);

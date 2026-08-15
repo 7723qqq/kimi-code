@@ -435,7 +435,11 @@ export class EditorKeyboardController {
     // Cancel any running `!` shell command (treated as a streaming phase) in
     // addition to the agent turn, so Esc / Ctrl+C interrupts it too.
     this.host.cancelRunningShellCommand();
-    void this.host.session?.cancel();
+    const session = this.host.session;
+    if (session === undefined) return;
+    // Cancel is best-effort and user-initiated; a rejection here is not worth
+    // surfacing, but it must not become an unhandled rejection.
+    void session.cancel().catch(() => {});
   }
 
   private cancelCurrentCompaction(): void {
