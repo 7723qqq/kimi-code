@@ -33,7 +33,7 @@ const props = withDefaults(
   { mobile: false, stackPosition: 'single', toolDiffPanel: false },
 );
 
-defineEmits<{
+const emit = defineEmits<{
   openMedia: [media: ToolMedia];
   openFile: [target: FilePreviewRequest];
   openToolDiff: [id: string];
@@ -61,6 +61,15 @@ function parseInput(arg: string): SwarmInput {
 
 const resolveSwarmMembers =
   inject<(toolCallId: string) => SwarmMember[] | undefined>('resolveSwarmMembers');
+// Resolves a row id (live rows carry the AppTask id) to a task id, so a live
+// member click hands the row to the right-side agent detail panel — the same
+// "Open detail" affordance the single-agent card uses. Rows without a live
+// task (aborted / post-refresh result rows) fall back to the inline accordion.
+const resolveAgentTaskId = inject<(id: string) => string | undefined>('resolveAgentTaskId');
+
+function rowHasLiveTask(row: SwarmCardRow): boolean {
+  return resolveAgentTaskId?.(row.id) !== undefined;
+}
 
 const input = computed(() => parseInput(props.tool.arg));
 const label = computed(() => toolLabel(props.tool.name));
@@ -140,11 +149,18 @@ const fallbackOutput = computed(() => {
 });
 
 // Per-row accordion: each member expands on its own, leaving the rest folded.
+// On desktop (panel wired) a live member opens the right-side agent detail
+// panel instead; rows without a live task keep the inline accordion since the
+// panel has no task to stream.
 const openRows = ref<Set<string>>(new Set());
-function toggleRow(id: string): void {
+function toggleRow(row: SwarmCardRow): void {
+  if (props.toolDiffPanel && rowHasLiveTask(row)) {
+    emit('openAgent', row.id);
+    return;
+  }
   const next = new Set(openRows.value);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
+  if (next.has(row.id)) next.delete(row.id);
+  else next.add(row.id);
   openRows.value = next;
 }
 function isRowOpen(id: string): boolean {
@@ -208,7 +224,8 @@ function phaseLabel(phase: AppSubagentPhase): string {
             class="member-head"
             type="button"
             :aria-expanded="isRowOpen(row.id)"
-            @click="toggleRow(row.id)"
+            :aria-label="rowHasLiveTask(row) ? t('tasks.openDetail') : undefined"
+            @click="toggleRow(row)"
           >
             <StatusDot class="row-dot" :status="row.phase" />
             <Tooltip :text="row.name">
@@ -218,7 +235,7 @@ function phaseLabel(phase: AppSubagentPhase): string {
               <span class="mact">{{ row.activity }}</span>
             </Tooltip>
             <span class="mphase">{{ phaseLabel(row.phase) }}</span>
-            <Icon class="mcar" :name="isRowOpen(row.id) ? 'chevron-down' : 'chevron-right'" size="sm" />
+            <Icon class="mcar" :name="rowHasLiveTask(row) ? 'arrow-right' : isRowOpen(row.id) ? 'chevron-down' : 'chevron-right'" size="sm" />
           </button>
           <div v-show="isRowOpen(row.id)" class="member-body">{{ row.body }}</div>
         </div>

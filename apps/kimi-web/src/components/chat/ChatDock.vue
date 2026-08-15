@@ -292,7 +292,6 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
       @decide="emit('approval', pendingApproval!.approvalId, $event)"
     />
     <div v-else class="composer-stack">
-      <StatsLine v-if="stats && stats.steps > 0" :stats="stats" />
       <Composer
         ref="composerRef"
       :session-id="sessionId"
@@ -329,6 +328,7 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
         @pick-model="emit('pickModel')"
         @select-model="emit('selectModel', $event)"
       />
+      <StatsLine v-if="stats && stats.steps > 0" :stats="stats" />
     </div>
   </div>
 </template>

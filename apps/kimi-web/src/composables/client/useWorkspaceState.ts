@@ -1166,6 +1166,23 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     try {
       const sid = await createDraftSession(workspaceId);
       if (!sid) return;
+      // The daemon's session profile is the source of truth that
+      // refreshSessionStatus / agent.status.updated fold back into the
+      // per-session maps. Without persisting staged plan/swarm here, those
+      // refreshes overwrite the transferred toggles with the profile's false
+      // and the switches visibly turn themselves off right after entering
+      // the new session. (The skill-activation and side-chat paths persist
+      // their own merged patch after createDraftSession.) Failure is
+      // tolerated: the per-prompt flags still carry the modes for this turn.
+      const stagedPlan = rawState.planModeBySession[sid] ?? false;
+      const stagedSwarm = rawState.swarmModeBySession[sid] ?? false;
+      if (stagedPlan || stagedSwarm) {
+        try {
+          await persistSessionProfile({ planMode: stagedPlan, swarmMode: stagedSwarm }, sid);
+        } catch {
+          // profile push failed — first prompt still carries the modes
+        }
+      }
       await submitPromptInternal(sid, text, attachments);
     } catch (error) {
       pushOperationFailure('startSessionAndSendPrompt', error);

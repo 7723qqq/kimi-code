@@ -20,4 +20,11 @@ export default {
   openDetail: 'Open',
   collapse: 'Collapse',
   expand: 'Expand',
+  fieldTask: 'Task',
+  fieldOutput: 'Output',
+  fieldProgress: 'Progress',
+  fieldResult: 'Result',
+  moreLines: '… ({count} more)',
+  copyCommand: 'Copy command',
+  copyOutput: 'Copy output',
 } as const;

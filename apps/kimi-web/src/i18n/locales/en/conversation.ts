@@ -26,6 +26,10 @@ export default {
   turnSpeed: '{speed} tok/s',
   loadOlder: 'Load earlier messages',
   loadingOlder: 'Loading earlier messages…',
+  fold: {
+    worked: 'Worked {duration}',
+    workedUnknown: 'Work process',
+  },
   cron: {
     fired: 'Scheduled reminder fired',
     missed: 'Missed scheduled reminders',

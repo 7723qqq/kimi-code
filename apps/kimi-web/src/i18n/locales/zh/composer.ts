@@ -30,12 +30,5 @@ export default {
   quickStartPlaceholder: '输入消息开始新对话…',
   thinkingSuffix: ' · 思考',
   thinkingSuffixEffort: ' · {level}',
-  modelSelectorTitle: '切换会话模型',
-  modelSelectorNone: '无模型',
-  modelSelectorAvailable: '可用模型',
-  modelSelectorEmpty: '未配置模型',
-  skillPanelTitle: '技能',
-  skillPanelEmpty: '当前会话没有技能',
-  skillPanelActivate: '激活',
 
 } as const;

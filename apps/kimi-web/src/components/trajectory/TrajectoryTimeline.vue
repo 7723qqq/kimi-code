@@ -1,7 +1,9 @@
 <!-- TrajectoryTimeline.vue — the overview strip above the trajectory ledger.
      Projects records into the active domain (sequence / duration / time /
-     actual) on three lanes; turn boundaries are marked; hover shows the
-     record label and duration; drag selects an inclusive interval; wheel
+     actual) on three lanes; turn boundaries are marked; hover shows #index,
+     kind, label, duration and (timed modes) the wall clock; drag selects an
+     inclusive interval; a click (no drag) selects the hovered record; double
+     click or the toolbar buttons clear the selection / reset the zoom; wheel
      zooms the time domain around the pointer. Ported from deepseek-harness
      ui-trajectory TrajectoryTimeline (MIT). -->
 <script setup lang="ts">
@@ -18,10 +20,14 @@ import { formatDurationMillis } from '../../lib/trajectory/timeline';
 const props = defineProps<{
   model: TrajectoryTimelineModel;
   mode: TrajectoryTimelineMode;
+  /** Whether an interval selection is active (drives the clear button). */
+  hasSelection?: boolean;
 }>();
 
 const emit = defineEmits<{
   rangeChange: [range: TrajectoryTimeRange | null];
+  /** A span was clicked without dragging — select its record. */
+  spanSelect: [index: number];
 }>();
 
 const { t } = useI18n();
@@ -46,6 +52,10 @@ const hovered = ref<TrajectoryTimelineSpan | null>(null);
 
 const domainWidth = computed(() => Math.max(1, viewEnd.value - viewStart.value));
 
+const zoomed = computed(
+  () => viewStart.value !== props.model.start || viewEnd.value !== props.model.end,
+);
+
 function toDomain(clientX: number, el: HTMLElement): number {
   const rect = el.getBoundingClientRect();
   const ratio = (clientX - rect.left) / Math.max(1, rect.width);
@@ -66,13 +76,20 @@ function onPointerDown(event: PointerEvent, el: HTMLElement): void {
   const onMove = (move: PointerEvent): void => {
     if (drag.value === null) return;
     drag.value.current = toDomain(move.clientX, el);
-    const { anchor, current } = drag.value;
+    const { anchor: from, current } = drag.value;
     emit('rangeChange', {
-      start: Math.min(anchor, current),
-      end: Math.max(anchor, current),
+      start: Math.min(from, current),
+      end: Math.max(from, current),
     });
   };
   const onUp = (): void => {
+    // A press-release without movement is a click: select the hovered span's
+    // record instead of leaving a zero-width interval behind.
+    const moved = drag.value !== null && Math.abs(drag.value.current - drag.value.anchor) > 2;
+    if (!moved && hovered.value !== null) {
+      emit('spanSelect', hovered.value.index);
+      emit('rangeChange', null);
+    }
     drag.value = null;
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
@@ -100,9 +117,29 @@ function onWheel(event: WheelEvent, el: HTMLElement): void {
   viewEnd.value = nextStart + nextWidth;
 }
 
+function resetView(): void {
+  viewStart.value = props.model.start;
+  viewEnd.value = props.model.end;
+}
+
+function onDblclick(): void {
+  resetView();
+  emit('rangeChange', null);
+}
+
 function turnBoundaryStyle(time: number): Record<string, string> {
   return { left: `${((time - viewStart.value) / domainWidth.value) * 100}%` };
 }
+
+const hint = computed(() => {
+  const span = hovered.value;
+  if (span === null) return '';
+  const clock =
+    props.mode !== 'sequence' && span.startedAt !== null
+      ? ` · ${new Date(span.startedAt).toLocaleTimeString()}`
+      : '';
+  return `#${span.index} ${span.kind.toUpperCase()} · ${span.label} · ${formatDurationMillis(span.end - span.start)}${clock}`;
+});
 </script>
 
 <template>
@@ -111,6 +148,7 @@ function turnBoundaryStyle(time: number): Record<string, string> {
     :data-mode="mode"
     @pointerdown="onPointerDown($event, ($event.currentTarget as HTMLElement))"
     @wheel.prevent="onWheel($event, ($event.currentTarget as HTMLElement))"
+    @dblclick="onDblclick"
   >
     <div class="trajectory-timeline__lane">
       <div
@@ -122,7 +160,7 @@ function turnBoundaryStyle(time: number): Record<string, string> {
           { error: span.isError, selected: drag !== null && span.start <= drag.current && span.end >= drag.anchor },
         ]"
         :style="spanStyle(span)"
-        :title="`${span.label} — ${formatDurationMillis(span.end - span.start)}`"
+        :title="hint"
         @pointerenter="hovered = span"
         @pointerleave="hovered = null"
       />
@@ -139,7 +177,15 @@ function turnBoundaryStyle(time: number): Record<string, string> {
       width: `${(Math.abs(drag.current - drag.anchor) / domainWidth) * 100}%`,
     }"></div>
     <div class="trajectory-timeline__hint">
-      {{ hovered ? `${hovered.label} · ${formatDurationMillis(hovered.end - hovered.start)}` : '' }}
+      <span class="trajectory-timeline__hint-text">{{ hint }}</span>
+      <span v-if="zoomed || hasSelection" class="trajectory-timeline__hint-actions">
+        <button v-if="zoomed" type="button" @click.stop="resetView">
+          {{ t('trajectory.resetView') }}
+        </button>
+        <button v-if="hasSelection" type="button" @click.stop="emit('rangeChange', null)">
+          {{ t('trajectory.clearFocus') }}
+        </button>
+      </span>
     </div>
   </div>
 </template>
@@ -192,11 +238,38 @@ function turnBoundaryStyle(time: number): Record<string, string> {
   right: 0;
   bottom: 0;
   left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+.trajectory-timeline__hint-text {
   overflow: hidden;
   color: var(--color-text-faint);
   font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
-  pointer-events: none;
+}
+.trajectory-timeline__hint-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex: none;
+}
+.trajectory-timeline__hint-actions button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  pointer-events: auto;
+}
+.trajectory-timeline__hint-actions button:hover {
+  text-decoration: underline;
+}
+.trajectory-timeline__hint-actions button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 </style>

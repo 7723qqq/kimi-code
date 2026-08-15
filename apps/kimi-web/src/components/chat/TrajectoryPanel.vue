@@ -27,7 +27,11 @@ import TrajectoryInspector from '../trajectory/TrajectoryInspector.vue';
 
 const props = defineProps<{ frames: readonly LedgerFrame[] | null }>();
 
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{
+  close: [];
+  /** Clear the raw-frame ledger for the active session. */
+  clear: [];
+}>();
 
 const { t } = useI18n();
 
@@ -57,10 +61,9 @@ const filteredLayout = computed<readonly TrajectoryTurnModel[]>(() => {
     .map((turn) => ({
       turn: turn.turn,
       groups: turn.groups
-        .map((group) => ({
-          title: group.title,
-          records: group.records.filter((record) => ids.has(record.id)),
-        }))
+        // Spread the group so kind/step/seq/stats survive the filter —
+        // the ledger's group header reads them for title + description.
+        .map((group) => ({ ...group, records: group.records.filter((record) => ids.has(record.id)) }))
         .filter((group) => group.records.length > 0),
     }))
     .filter((turn) => turn.groups.length > 0);
@@ -69,6 +72,14 @@ const filteredLayout = computed<readonly TrajectoryTurnModel[]>(() => {
 const timelineModel = computed(() =>
   deriveTrajectoryTimeline(filteredLayout.value, mode.value),
 );
+
+/** Match count for the active query (null when not searching). */
+const matchCount = computed<number | null>(() => {
+  const query = search.value;
+  if (query.trim() === '') return null;
+  const ids = searchIndex.search(query);
+  return ids === null ? null : ids.size;
+});
 
 const focusIds = computed<ReadonlySet<string>>(() => {
   if (focusRange.value === null) return new Set();
@@ -121,6 +132,20 @@ function onRangeChange(range: TrajectoryTimeRange | null): void {
   focusRange.value = range;
 }
 
+/** A timeline span was clicked — select its record (by record index). */
+function onSpanSelect(index: number): void {
+  for (const turn of filteredLayout.value) {
+    for (const group of turn.groups) {
+      for (const record of group.records) {
+        if (record.index === index) {
+          selectedId.value = record.id;
+          return;
+        }
+      }
+    }
+  }
+}
+
 function collapseAll(): void {
   collapsedTurns.value = new Set(filteredLayout.value.map((turn) => turn.turn ?? -1));
 }
@@ -163,8 +188,14 @@ function clearSelection(): void {
         :placeholder="t('trajectory.searchPlaceholder')"
       />
       <div class="tv-actions">
+        <span v-if="matchCount !== null" class="tv-match-count">
+          {{ t('trajectory.matchCount', { count: matchCount }) }}
+        </span>
         <button type="button" class="tv-action" @click="collapseAll">{{ t('trajectory.collapseAll') }}</button>
         <button type="button" class="tv-action" @click="expandAll">{{ t('trajectory.expandAll') }}</button>
+        <button type="button" class="tv-action tv-action-danger" @click="emit('clear')">
+          {{ t('trajectory.clearLedger') }}
+        </button>
       </div>
     </div>
 
@@ -172,7 +203,9 @@ function clearSelection(): void {
       v-if="timelineModel"
       :model="timelineModel"
       :mode="mode"
+      :has-selection="focusRange !== null"
       @range-change="onRangeChange"
+      @span-select="onSpanSelect"
     />
 
     <div class="tv-body">
@@ -226,7 +259,12 @@ function clearSelection(): void {
 }
 .tv-actions {
   display: flex;
+  align-items: center;
   gap: var(--space-2);
+}
+.tv-match-count {
+  color: var(--color-text-muted);
+  font: var(--text-xs) var(--font-ui);
 }
 .tv-action {
   padding: 0;
@@ -235,6 +273,9 @@ function clearSelection(): void {
   color: var(--color-accent);
   font: var(--text-xs) var(--font-ui);
   cursor: pointer;
+}
+.tv-action-danger {
+  color: var(--color-danger);
 }
 .tv-action:hover {
   text-decoration: underline;

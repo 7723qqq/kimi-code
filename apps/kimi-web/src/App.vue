@@ -1006,6 +1006,7 @@ function openPr(url: string): void {
         v-else-if="detailTarget === 'trajectory' && trajectoryOpen"
         :frames="(client.activeSessionId.value ? client.ledgers[client.activeSessionId.value]?.frames : null) ?? null"
         @close="closeTrajectoryPanel"
+        @clear="client.clearLedger(client.activeSessionId.value)"
       />
       <SubagentCatalogPanel
         v-else-if="detailTarget === 'subagents' && subagentsOpen"

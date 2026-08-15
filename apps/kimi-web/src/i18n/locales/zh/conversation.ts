@@ -26,6 +26,10 @@ export default {
   turnSpeed: '{speed} tok/s',
   loadOlder: '加载更早的消息',
   loadingOlder: '正在加载更早的消息…',
+  fold: {
+    worked: '已工作 {duration}',
+    workedUnknown: '工作过程',
+  },
   cron: {
     fired: '定时任务已触发',
     missed: '错过的定时提醒',

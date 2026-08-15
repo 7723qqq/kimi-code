@@ -81,7 +81,7 @@ describe('feedSessionStats', () => {
     expect(s.stats.ttftSteps).toBe(2);
     expect(s.stats.decodeMs).toBe(15_000);
     expect(s.stats.decodeTokens).toBe(1_000);
-    expect(s.stats.inputTokens).toBe(3_700);
+    expect(s.stats.inputTokens).toBe(6_000);
     expect(s.stats.outputTokens).toBe(1_000);
     expect(s.stats.cacheReadTokens).toBe(2_500);
     expect(s.stats.cacheCreationTokens).toBe(500);
@@ -128,7 +128,33 @@ describe('derived figures', () => {
       s,
       stepCompleted({ usage: { inputOther: 100, inputCacheRead: 900, inputCacheCreation: 0 } }),
     );
-    expect(cacheHitPercent(fed.stats)).toBe(90);
+    expect(cacheHitPercent(fed.stats)).toBe(100);
+  });
+
+  it('never exceeds 100% when snapshot usage overlays cache-excluded inputTokens', () => {
+    // Regression: the snapshot's inputTokens excludes cache buckets, so a
+    // session with heavy cache reuse (read 158.4K, other 10K, creation 0)
+    // used to render "缓存命中 1584%". The standard formula over cache
+    // traffic keeps the figure bounded.
+    const stats = {
+      ...createSessionStatsState().stats,
+      inputTokens: 168_400,
+      outputTokens: 1_000,
+      cacheReadTokens: 158_400,
+      cacheCreationTokens: 0,
+    };
+    expect(cacheHitPercent(stats)).toBe(100);
+  });
+
+  it('divides cache-read by total cache traffic (read + creation)', () => {
+    const stats = {
+      ...createSessionStatsState().stats,
+      inputTokens: 2_000,
+      outputTokens: 100,
+      cacheReadTokens: 750,
+      cacheCreationTokens: 250,
+    };
+    expect(cacheHitPercent(stats)).toBe(75);
   });
 
   it('returns null for cache hit when no input was billed', () => {

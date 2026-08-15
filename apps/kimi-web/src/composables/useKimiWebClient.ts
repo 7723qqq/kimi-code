@@ -81,6 +81,7 @@ import { isPlaceholderSessionUsage } from '../api/daemon/mappers';
 
 import type { SessionStats } from '../lib/sessionStats';
 import {
+  clearLedger as resetLedger,
   createEventLedger,
   feedLedger,
   type EventLedgerState,
@@ -442,6 +443,16 @@ const rawState: ExtendedState = reactive({
 // projector's per-session state.
 // ---------------------------------------------------------------------------
 const ledgersBySession = reactive<Record<string, EventLedgerState>>({});
+
+/**
+ * Clear the raw-frame ledger for one session (the trajectory panel's "Clear
+ * trajectory" button). Subsequent frames start a fresh ledger from the next
+ * event; the transcripts / messages state is untouched.
+ */
+function clearLedger(sessionId: string | undefined): void {
+  if (sessionId === undefined) return;
+  ledgersBySession[sessionId] = resetLedger();
+}
 
 // ---------------------------------------------------------------------------
 // Draft mode staging (no active session yet).
@@ -858,6 +869,8 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
   rawState.lastSeqBySession = next.lastSeqBySession;
   rawState.turnActiveBySession = next.turnActiveBySession;
   rawState.compactionBySession = next.compactionBySession;
+  rawState.pendingUsageBySession = next.pendingUsageBySession;
+  rawState.statsBySession = next.statsBySession;
   rawState.config = next.config ?? null;
   rawState.warnings = next.warnings;
 
@@ -2342,7 +2355,10 @@ const sessionStats = computed<SessionStats | null>(() => {
   if (usage === null) return live;
   return {
     ...live,
-    inputTokens: usage.inputTokens,
+    // The snapshot's inputTokens excludes cache buckets; the live totals
+    // include them (normalizeUsage sums all three). Re-compose here so the
+    // "input" figure keeps one billed-total semantics across both sources.
+    inputTokens: usage.inputTokens + usage.cacheReadTokens + usage.cacheCreationTokens,
     outputTokens: usage.outputTokens,
     cacheReadTokens: usage.cacheReadTokens,
     cacheCreationTokens: usage.cacheCreationTokens,
@@ -3052,6 +3068,7 @@ export function useKimiWebClient() {
 
     // Trajectory ledger (raw frame archive per session)
     ledgers: ledgersBySession,
+    clearLedger,
 
     // Subagent activity per session (sidebar lineage aggregation)
     subagentActivityBySession,

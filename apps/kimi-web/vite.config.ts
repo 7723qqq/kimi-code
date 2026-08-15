@@ -131,6 +131,15 @@ export default defineConfig({
       customCollections: {
         kimi: FileSystemIconLoader(fileURLToPath(new URL('./src/icons/kimi', import.meta.url))),
       },
+      // Pin node resolution for @iconify-json/* to this package directory.
+      // unplugin-icons defaults to process.cwd(), which is the repo root when
+      // tests run via `pnpm vitest run --project @moonshot-ai/kimi-web` — and
+      // kimi-web is excluded from the root workspace, so @iconify-json/tabler
+      // and @iconify-json/ri only exist in this package's own node_modules.
+      // Without this, every `~icons/tabler/*` / `~icons/ri/*` import throws
+      // "Icon ... not found" under vitest (the Vite build is unaffected: its
+      // cwd is already this directory).
+      collectionsNodeResolvePath: import.meta.dirname,
     }),
   ],
   // Expose the dev proxy's upstream server target to the client so the UI can

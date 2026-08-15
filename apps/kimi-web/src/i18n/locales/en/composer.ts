@@ -30,12 +30,5 @@ export default {
   quickStartPlaceholder: 'Type a message to start a new conversation…',
   thinkingSuffix: ' · thinking',
   thinkingSuffixEffort: ' · {level}',
-  modelSelectorTitle: 'Switch the session model',
-  modelSelectorNone: 'No model',
-  modelSelectorAvailable: 'Available models',
-  modelSelectorEmpty: 'No models configured',
-  skillPanelTitle: 'Skills',
-  skillPanelEmpty: 'No skills in this session',
-  skillPanelActivate: 'Activate',
 
 } as const;

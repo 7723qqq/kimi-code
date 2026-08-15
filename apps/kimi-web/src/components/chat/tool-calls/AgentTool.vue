@@ -1,13 +1,15 @@
 <!-- apps/kimi-web/src/components/chat/tool-calls/AgentTool.vue -->
 <!-- The single-subagent `Agent` tool, rendered as a normal tool card: the fixed
-     args (description / prompt) and final result show here when expanded, while
-     the subagent's LIVE progress streams in the right-side detail panel. The
-     trailing "Open" button jumps to that panel. -->
+     args (description / prompt) show here when expanded, the subagent's LIVE
+     progress streams in the right-side detail panel, and its final result is a
+     secondary "已保存的结果" disclosure (collapsed by default, mirroring the
+     official agent-card). The trailing "Open" button jumps to the detail panel. -->
 <script setup lang="ts">
 import { computed, inject, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
 import { toolGlyph, toolLabel } from '../../../lib/toolMeta';
+import Icon from '../../ui/Icon.vue';
 import ToolRow from '../ToolRow.vue';
 
 const { t } = useI18n();
@@ -57,6 +59,10 @@ const canExpand = computed(
 );
 const open = ref(props.tool.defaultExpanded === true && canExpand.value);
 
+// The subagent's saved result is a secondary disclosure ("已保存的结果"),
+// collapsed by default — mirrors the official agent-card's saved-result row.
+const showSaved = ref(false);
+
 const status = computed<'running' | 'ok' | 'error'>(() => props.tool.status as 'running' | 'ok' | 'error');
 const label = computed(() => toolLabel(props.tool.name));
 const glyph = computed(() => toolGlyph(props.tool.name));
@@ -103,7 +109,18 @@ watch(
     </template>
     <div v-if="input.subagentType" class="at-type">{{ input.subagentType }}</div>
     <div v-if="input.prompt" class="at-task">{{ input.prompt }}</div>
-    <div v-if="hasOutput" class="bb-code">
+    <button
+      v-if="hasOutput"
+      type="button"
+      class="at-saved"
+      :aria-expanded="showSaved"
+      :aria-label="t('tools.output.saved')"
+      @click="showSaved = !showSaved"
+    >
+      <Icon class="at-saved-car" :name="showSaved ? 'chevron-down' : 'chevron-right'" size="sm" />
+      <span>{{ t('tools.output.saved') }}</span>
+    </button>
+    <div v-show="showSaved" class="bb-code">
       <div v-for="(line, i) in tool.output ?? []" :key="i">{{ line }}</div>
     </div>
   </ToolRow>
@@ -136,6 +153,35 @@ watch(
 }
 .at-task + .bb-code {
   margin-top: 10px;
+}
+.at-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 1px 7px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--color-text-muted);
+  font: var(--text-xs) var(--font-ui);
+  cursor: pointer;
+  user-select: none;
+}
+.at-saved:hover {
+  color: var(--color-text);
+  background: var(--color-surface-sunken);
+}
+.at-saved:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-accent-soft);
+}
+.at-saved-car {
+  color: var(--color-text-faint);
+  flex: none;
+}
+.at-saved + .bb-code {
+  margin-top: 8px;
 }
 .bb-code {
   padding: 11px 13px;

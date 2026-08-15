@@ -1,0 +1,4 @@
+# kimi-web is a standalone app (own lockfile + node_modules).
+# An empty workspace file marks it as an independent install root so that
+# `pnpm install` inside apps/kimi-web does not climb up to the repo root.
+packages: []

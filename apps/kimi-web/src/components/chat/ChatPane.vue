@@ -9,6 +9,7 @@ import Markdown from './Markdown.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
 import ActivityNotice from './ActivityNotice.vue';
 import CronNotice from './CronNotice.vue';
+import TurnFold from './TurnFold.vue';
 import MessageTime from './MessageTime.vue';
 import AuthMedia from './AuthMedia.vue';
 import AttachmentChip from './AttachmentChip.vue';
@@ -35,6 +36,7 @@ import {
   turnBlocks,
   turnFinalText,
   turnToMarkdown,
+  type AssistantRenderBlock,
 } from '../chatTurnRendering';
 
 const { t } = useI18n();
@@ -596,6 +598,25 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
   return block.sourceIndex === turnBlocks(turn).length - 1;
 }
 
+/**
+ * Split an assistant turn's render blocks into "work" (thinking + tool
+ * activity + intermediate text, wrapped in the turn fold) and the trailing
+ * "answer" text (rendered directly). Mirrors the official web: the work is
+ * collapsible behind "Worked {duration}", the final answer stays visible.
+ */
+function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: AssistantRenderBlock[] } {
+  const blocks = assistantRenderBlocks(turn);
+  let lastText = -1;
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    if (blocks[i]?.kind === 'text') {
+      lastText = i;
+      break;
+    }
+  }
+  if (lastText < 0) return { work: blocks, answer: [] };
+  return { work: blocks.slice(0, lastText), answer: blocks.slice(lastText) };
+}
+
 // NOTE: the turn-summary line ("已调用 N 个工具…") was removed in f9417af. If it
 // comes back, rebuild it from turnBlocks() with i18n strings — the old
 // implementation lives in git history at f9417af^.
@@ -720,7 +741,31 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
 
       <!-- Assistant turn → left-aligned, no name/role label. -->
       <div v-else class="a-msg turn-anchor" :data-turn-id="turn.id">
-        <template v-for="(blk, bi) in assistantRenderBlocks(turn)" :key="renderBlockKey(blk, bi)">
+        <!-- Work process (thinking + tool activity + intermediate text) is
+             collapsed behind the per-turn fold; the final answer stays
+             visible below. -->
+        <TurnFold
+          v-if="splitTurnWork(turn).work.length > 0"
+          :duration-ms="turn.durationMs"
+          :streaming="turn.id === streamingTurnId"
+        >
+          <template v-for="(blk, bi) in splitTurnWork(turn).work" :key="renderBlockKey(blk, bi)">
+            <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" mobile :streaming="isStreamingRenderBlock(turn, blk)" @open="emit('openThinking', { turnId: turn.id, blockIndex: blk.sourceIndex })" />
+            <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="isStreamingRenderBlock(turn, blk)" :open-file="(target) => emit('openFile', target)" /></div>
+            <ToolGroup
+              v-else-if="blk.kind === 'tool-stack'"
+              :tools="blk.tools"
+              mobile
+              :tool-diff-panel="toolDiffPanel"
+              @open-media="emit('openMedia', $event)"
+              @open-file="emit('openFile', $event)"
+              @open-tool-diff="emit('openToolDiff', $event)"
+              @open-agent="emit('openAgent', $event)"
+            />
+            <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" mobile :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" @open-agent="emit('openAgent', $event)" />
+          </template>
+        </TurnFold>
+        <template v-for="(blk, bi) in splitTurnWork(turn).answer" :key="'ans-' + renderBlockKey(blk, bi)">
           <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" mobile :streaming="isStreamingRenderBlock(turn, blk)" @open="emit('openThinking', { turnId: turn.id, blockIndex: blk.sourceIndex })" />
           <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="isStreamingRenderBlock(turn, blk)" :open-file="(target) => emit('openFile', target)" /></div>
           <ToolGroup

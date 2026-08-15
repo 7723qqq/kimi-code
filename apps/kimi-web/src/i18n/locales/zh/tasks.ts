@@ -20,4 +20,11 @@ export default {
   openDetail: '查看',
   collapse: '折叠',
   expand: '展开',
+  fieldTask: '任务',
+  fieldOutput: '输出',
+  fieldProgress: '进度',
+  fieldResult: '结果',
+  moreLines: '…（还有 {count} 行）',
+  copyCommand: '复制命令',
+  copyOutput: '复制输出',
 } as const;

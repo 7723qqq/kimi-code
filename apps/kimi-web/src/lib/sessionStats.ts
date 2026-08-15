@@ -126,7 +126,10 @@ export function feedSessionStats(
       return { ...state, stats: { ...stats, turns: stats.turns + 1 } };
     }
     case 'turn.step.started': {
-      return { ...state, stats: { ...stats, steps: stats.steps + 1 } };
+      // Counted when the step CLOSES (completed/interrupted), mirroring the
+      // upstream sessionStats projection counting at step/end — counting at
+      // start would double-count interrupted attempts.
+      return state;
     }
     case 'turn.step.interrupted': {
       return { ...state, stats: { ...stats, steps: stats.steps + 1 } };
@@ -145,6 +148,7 @@ export function feedSessionStats(
         ...state,
         stats: {
           ...stats,
+          steps: stats.steps + 1,
           llmMs,
           ttftMs: ttft !== null ? stats.ttftMs + ttft : stats.ttftMs,
           ttftSteps: ttft !== null ? stats.ttftSteps + 1 : stats.ttftSteps,
@@ -194,10 +198,18 @@ export function feedSessionStats(
 // Derived display figures
 // ---------------------------------------------------------------------------
 
-/** Cache-read share of billed input, rounded integer percent; null when no input was billed. */
+/**
+ * Cache-hit share, rounded integer percent; null when no cache traffic.
+ * Standard formula: cache-read / (cache-read + cache-creation). The billed
+ * input total cannot serve as the denominator here — the snapshot usage's
+ * inputTokens excludes cache buckets, so dividing cache-read by it can exceed
+ * 100% (e.g. "1584%") once the live totals are overlaid from the snapshot.
+ */
 export function cacheHitPercent(stats: SessionStats): number | null {
-  const billed = stats.inputTokens;
-  return billed === 0 ? null : Math.round((stats.cacheReadTokens / billed) * 100);
+  const cacheTraffic = stats.cacheReadTokens + stats.cacheCreationTokens;
+  return cacheTraffic === 0
+    ? null
+    : Math.round((stats.cacheReadTokens / cacheTraffic) * 100);
 }
 
 /** Average first-token latency in ms; null when no step recorded one. */

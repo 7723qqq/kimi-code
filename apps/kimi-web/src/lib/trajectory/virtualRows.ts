@@ -70,7 +70,8 @@ export function groupTrajectoryVirtualRows(
 }
 
 /**
- * Compute the visible row window for a scroll container.
+ * Compute the visible row window for a scroll container. Accepts any row
+ * model carrying a height (the ledger's turn/group header rows reuse it).
  * @param rows - all virtual rows.
  * @param scrollTop - container scrollTop in px.
  * @param viewportHeight - container clientHeight in px.
@@ -78,7 +79,7 @@ export function groupTrajectoryVirtualRows(
  * @returns row indexes [start, end) plus the total content height.
  */
 export function trajectoryVirtualWindow(
-  rows: readonly TrajectoryVirtualRow[],
+  rows: readonly { readonly height: number }[],
   scrollTop: number,
   viewportHeight: number,
   overscan = 8,

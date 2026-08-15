@@ -53,6 +53,9 @@ export default {
     error: 'failed',
     done: 'done',
   },
+  output: {
+    saved: 'Saved result',
+  },
   ask: {
     dismissed: 'Dismissed',
     answer: '{count} answer',

@@ -51,8 +51,22 @@ export interface TrajectoryRecord {
   readonly selected?: boolean;
 }
 
+export type TrajectoryGroupKind = 'message' | 'step' | 'compaction';
+
+export interface TrajectoryGroupStats {
+  /** Wall-clock span across the group's timed records, ms; null when unknown. */
+  readonly wallMs: number | null;
+  /** Tool-name histogram over the group's tool records ("bash ×3"). */
+  readonly tools: ReadonlyMap<string, number>;
+}
+
 export interface TrajectoryGroupModel {
+  /** Stable identity (grouping key + search source); display uses kind/step. */
   readonly title: string;
+  readonly kind: TrajectoryGroupKind;
+  readonly step?: number;
+  readonly seq?: number;
+  readonly stats: TrajectoryGroupStats;
   readonly records: readonly TrajectoryRecord[];
 }
 
@@ -61,7 +75,15 @@ export interface TrajectoryTurnModel {
   readonly groups: readonly TrajectoryGroupModel[];
 }
 
-const MESSAGE_GROUP = 'Message';
+const MESSAGE_GROUP: GroupRef = { key: 'Message', kind: 'message' };
+
+function stepGroup(step: number): GroupRef {
+  return { key: `Step ${step}`, kind: 'step', step };
+}
+
+function compactionGroup(seq: number): GroupRef {
+  return { key: `Compaction ${seq}`, kind: 'compaction', seq };
+}
 
 function frameTime(frame: LedgerFrame): number | null {
   const ms = Date.parse(frame.timestamp);
@@ -118,13 +140,19 @@ function usageFields(usage: unknown): {
     const v = u[key];
     return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
   };
+  const other = n('inputOther');
+  const cacheRead = n('inputCacheRead');
+  const cacheWrite = n('inputCacheCreation');
   return {
     // Total input: non-cached + cache-read + cache-creation (deepseek-harness
-    // TrajectoryTable sums the same three into the "input" cell).
+    // TrajectoryTable sums the same three into the "input" cell); undefined
+    // when the usage payload carries none of the three.
     input:
-      (n('inputOther') ?? 0) + (n('inputCacheRead') ?? 0) + (n('inputCacheCreation') ?? 0),
-    cacheRead: n('inputCacheRead'),
-    cacheWrite: n('inputCacheCreation'),
+      other === undefined && cacheRead === undefined && cacheWrite === undefined
+        ? undefined
+        : (other ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0),
+    cacheRead,
+    cacheWrite,
     output: n('output'),
     think: n('reasoningTokens'),
   };
@@ -149,8 +177,16 @@ interface OpenAssistant {
   finishedAt: number | null;
 }
 
+interface GroupRef {
+  readonly key: string;
+  readonly kind: TrajectoryGroupKind;
+  readonly step?: number;
+  readonly seq?: number;
+}
+
 interface MutableGroup {
   title: string;
+  ref: GroupRef;
   records: TrajectoryRecord[];
 }
 
@@ -181,13 +217,13 @@ function bucket(b: Builder, turn: number): MutableTurn {
   return created;
 }
 
-function pushRecord(b: Builder, turn: number, group: string, record: Omit<TrajectoryRecord, 'index' | 'turn' | 'group'>): void {
+function pushRecord(b: Builder, turn: number, ref: GroupRef, record: Omit<TrajectoryRecord, 'index' | 'turn' | 'group'>): void {
   const t = bucket(b, turn);
   const last = t.groups.at(-1);
-  if (last !== undefined && last.title === group) {
-    last.records.push({ ...record, index: ++b.index, turn, group });
+  if (last !== undefined && last.ref.key === ref.key) {
+    last.records.push({ ...record, index: ++b.index, turn, group: ref.key });
   } else {
-    t.groups.push({ title: group, records: [{ ...record, index: ++b.index, turn, group }] });
+    t.groups.push({ title: ref.key, ref, records: [{ ...record, index: ++b.index, turn, group: ref.key }] });
   }
 }
 
@@ -196,7 +232,7 @@ function settleAssistant(b: Builder, finishedAt: number | null): void {
   if (a === null) return;
   b.openAssistant = null;
   const turn = b.currentTurn ?? b.nextTurn - 1;
-  pushRecord(b, turn, `Step ${a.step}`, {
+  pushRecord(b, turn, stepGroup(a.step), {
     id: `assistant\u0000step\u0000${turn}\u0000${a.step}`,
     kind: 'assistant',
     text: singleLine(a.text) || (a.interrupted ? '(interrupted)' : '(empty)'),
@@ -222,13 +258,16 @@ function settleStep(b: Builder, finishedAt: number | null): void {
 function settleTool(b: Builder, callId: string, tool: OpenTool, stepOverride?: number): void {
   const turn = b.currentTurn ?? b.nextTurn - 1;
   const step = stepOverride ?? b.openAssistant?.step ?? 0;
-  pushRecord(b, turn, `Step ${step}`, {
+  // Row text mirrors dsh's "name · args" call summary; the result rides the
+  // same row as "→ result" instead of duplicating the output summary.
+  const args = singleLine(tool.input, 160);
+  pushRecord(b, turn, stepGroup(step), {
     id: `tool\u0000call\u0000${callId}`,
     kind: 'tool',
     callId,
     toolName: tool.toolName,
-    text: singleLine(tool.output) || `${tool.toolName} → (no output)`,
-    result: singleLine(tool.output) || undefined,
+    text: args === '' ? tool.toolName : `${tool.toolName} · ${args}`,
+    result: singleLine(tool.output, 160) || undefined,
     inputDetail: tool.input === '' ? undefined : tool.input,
     outputDetail: tool.output === '' ? undefined : tool.output,
     isError: tool.isError,
@@ -355,7 +394,7 @@ export function deriveTrajectoryLayout(frames: readonly LedgerFrame[]): readonly
             think: usage.think,
           };
           b.openAssistant = null;
-          pushRecord(b, b.currentTurn ?? b.nextTurn - 1, `Step ${a.step}`, record);
+          pushRecord(b, b.currentTurn ?? b.nextTurn - 1, stepGroup(a.step), record);
           // The step's tool calls settle right after their assistant record.
           for (const tool of b.pendingTools) {
             settleTool(b, tool.callId, tool, a.step);
@@ -384,14 +423,14 @@ export function deriveTrajectoryLayout(frames: readonly LedgerFrame[]): readonly
         settleStep(b, time);
         const reason = str(p['reason']) ?? 'manual_compact';
         const turn = b.currentTurn ?? null;
-        const title = `Compaction ${frame.seq}`;
+        const ref = compactionGroup(frame.seq);
         if (turn === null) {
-          const between: MutableTurn = { turn: null, groups: [{ title, records: [{
+          const between: MutableTurn = { turn: null, groups: [{ title: ref.key, ref, records: [{
             id: `compacted\u0000seq\u0000${frame.seq}`,
             index: ++b.index,
             kind: 'compacted',
             turn: null,
-            group: title,
+            group: ref.key,
             text: `Context compacted (${reason})`,
             sourceSeq: frame.seq,
             timeSeconds: 0,
@@ -399,7 +438,7 @@ export function deriveTrajectoryLayout(frames: readonly LedgerFrame[]): readonly
           }] }] };
           b.turns.push(between);
         } else {
-          pushRecord(b, turn, title, {
+          pushRecord(b, turn, ref, {
             id: `compacted\u0000seq\u0000${frame.seq}`,
             kind: 'compacted',
             sourceSeq: frame.seq,
@@ -424,6 +463,25 @@ export function deriveTrajectoryLayout(frames: readonly LedgerFrame[]): readonly
   settlePendingUser(b.currentTurn ?? b.nextTurn);
   return b.turns.map((t) => ({
     turn: t.turn,
-    groups: t.groups.map((g) => ({ title: g.title, records: g.records })),
+    groups: t.groups.map((g) => ({ title: g.title, ...g.ref, stats: groupStats(g.records), records: g.records })),
   }));
+}
+
+/** Wall-clock span + tool histogram for a group, mirroring dsh's
+ * groupDescription ("1.5 s bash×6"). */
+function groupStats(records: readonly TrajectoryRecord[]): TrajectoryGroupStats {
+  let min: number | null = null;
+  let max: number | null = null;
+  const tools = new Map<string, number>();
+  for (const record of records) {
+    if (record.startedAt !== null) {
+      const end = record.startedAt + (record.timeSeconds ?? 0) * 1_000;
+      min = min === null ? record.startedAt : Math.min(min, record.startedAt);
+      max = max === null ? end : Math.max(max, end);
+    }
+    if ((record.kind === 'tool' || record.kind === 'subtool') && record.toolName !== undefined) {
+      tools.set(record.toolName, (tools.get(record.toolName) ?? 0) + 1);
+    }
+  }
+  return { wallMs: min === null || max === null ? null : Math.max(0, max - min), tools };
 }

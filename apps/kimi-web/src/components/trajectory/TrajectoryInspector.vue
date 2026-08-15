@@ -69,7 +69,7 @@ const sections = computed(() => [
     : [t('trajectory.output'), props.record.outputDetail] as const,
   props.record.result === undefined
     ? null
-    : [t('trajectory.output'), props.record.result] as const,
+    : [t('trajectory.result'), props.record.result] as const,
 ].filter((entry): entry is readonly [string, string] => entry !== null));
 </script>
 

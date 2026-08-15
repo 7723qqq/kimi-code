@@ -18,6 +18,8 @@ export interface TrajectoryTimelineSpan extends TrajectoryTimeRange {
   readonly kind: TrajectoryRecord['kind'];
   readonly label: string;
   readonly lane: number;
+  /** Epoch ms when the record started, when known (hover clock display). */
+  readonly startedAt: number | null;
 }
 
 export interface TrajectoryTimelineTurnBoundary {
@@ -96,6 +98,7 @@ export function deriveTrajectoryTimeline(
         kind: cell.kind,
         label: cell.text,
         lane: laneFor(cell.kind),
+        startedAt: cell.startedAt,
       });
     }
   }
@@ -126,6 +129,7 @@ function deriveTimedTimeline(
               kind: record.kind,
               label: record.text,
               lane: laneFor(record.kind),
+              startedAt: record.startedAt,
             }];
       }),
     );
