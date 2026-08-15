@@ -1199,7 +1199,7 @@ mod tests {
         content.push('\n');
         content.push_str(&"b".repeat(100));
         content.push('\n');
-        assert!(content.as_bytes().len() > MEDIA_SNIFF_BYTES);
+        assert!(content.len() > MEDIA_SNIFF_BYTES);
         let f = write_temp(content.as_bytes());
         let result = read_file(&ReadConfig {
             path: f.path().to_str().unwrap().to_string(),

@@ -743,7 +743,7 @@ mod tests {
 
     #[test]
     fn test_compress_unsupported_format() {
-        let config = default_compress_config(3_75_000);
+        let config = default_compress_config(375_000);
         let result = compress_image(b"not an image", "image/gif", &config);
         assert!(result.is_none());
     }
@@ -761,7 +761,7 @@ mod tests {
         // very well, so the result may not shrink in bytes, but pixels do.
         let img = make_rgb_image(4000, 3000);
         let bytes = encode_to_png_bytes(&img);
-        let config = default_compress_config(3_75_000);
+        let config = default_compress_config(375_000);
         let result = compress_image(&bytes, "image/png", &config);
         assert!(result.is_some());
         let r = result.unwrap();
@@ -793,7 +793,7 @@ mod tests {
         // Small PNG that's already tiny — re-encode won't help
         let img = make_rgb_image(10, 10);
         let bytes = encode_to_png_bytes(&img);
-        let config = default_compress_config(3_75_000);
+        let config = default_compress_config(375_000);
         let result = compress_image(&bytes, "image/png", &config);
         assert!(result.is_some());
         let r = result.unwrap();
@@ -804,7 +804,7 @@ mod tests {
     fn test_compress_preserves_mime_type() {
         let img = make_rgb_image(4000, 3000);
         let bytes = encode_to_png_bytes(&img);
-        let config = default_compress_config(3_75_000);
+        let config = default_compress_config(375_000);
         let result = compress_image(&bytes, "image/png", &config);
         let r = result.unwrap();
         // PNG source should stay PNG (unless quality ladder kicks in for tiny budget)
@@ -819,14 +819,14 @@ mod tests {
 
     #[test]
     fn test_crop_empty() {
-        let config = default_crop_config(3_75_000);
+        let config = default_crop_config(375_000);
         let result = crop_image(b"", "image/png", 0.0, 0.0, 100.0, 100.0, &config);
         assert!(matches!(result, Err(CropError::Empty)));
     }
 
     #[test]
     fn test_crop_unsupported_format() {
-        let config = default_crop_config(3_75_000);
+        let config = default_crop_config(375_000);
         let result = crop_image(b"data", "image/gif", 0.0, 0.0, 100.0, 100.0, &config);
         assert!(matches!(result, Err(CropError::UnsupportedFormat)));
     }
@@ -835,7 +835,7 @@ mod tests {
     fn test_crop_region_nan() {
         let img = make_rgb_image(100, 100);
         let bytes = encode_to_png_bytes(&img);
-        let config = default_crop_config(3_75_000);
+        let config = default_crop_config(375_000);
         let result = crop_image(&bytes, "image/png", f64::NAN, 0.0, 10.0, 10.0, &config);
         assert!(matches!(result, Err(CropError::RegionInvalid)));
     }
@@ -844,7 +844,7 @@ mod tests {
     fn test_crop_out_of_bounds() {
         let img = make_rgb_image(100, 100);
         let bytes = encode_to_png_bytes(&img);
-        let config = default_crop_config(3_75_000);
+        let config = default_crop_config(375_000);
         let result = crop_image(&bytes, "image/png", 200.0, 200.0, 10.0, 10.0, &config);
         assert!(matches!(result, Err(CropError::OutOfBounds { .. })));
     }
@@ -853,7 +853,7 @@ mod tests {
     fn test_crop_negative_origin() {
         let img = make_rgb_image(100, 100);
         let bytes = encode_to_png_bytes(&img);
-        let config = default_crop_config(3_75_000);
+        let config = default_crop_config(375_000);
         let result = crop_image(&bytes, "image/png", -10.0, 0.0, 50.0, 50.0, &config);
         assert!(matches!(result, Err(CropError::OutOfBounds { .. })));
     }
@@ -862,7 +862,7 @@ mod tests {
     fn test_crop_success_png() {
         let img = make_rgb_image(200, 200);
         let bytes = encode_to_png_bytes(&img);
-        let config = default_crop_config(3_75_000);
+        let config = default_crop_config(375_000);
         let result = crop_image(&bytes, "image/png", 50.0, 50.0, 100.0, 100.0, &config);
         assert!(result.is_ok());
         let r = result.unwrap();
@@ -879,7 +879,7 @@ mod tests {
     fn test_crop_clamped_to_bounds() {
         let img = make_rgb_image(100, 100);
         let bytes = encode_to_png_bytes(&img);
-        let config = default_crop_config(3_75_000);
+        let config = default_crop_config(375_000);
         // Region extends past the image — should clamp
         let result = crop_image(&bytes, "image/png", 80.0, 80.0, 100.0, 100.0, &config);
         assert!(result.is_ok());
@@ -892,7 +892,7 @@ mod tests {
     fn test_crop_skip_resize_png() {
         let img = make_rgb_image(200, 200);
         let bytes = encode_to_png_bytes(&img);
-        let mut config = default_crop_config(3_75_000);
+        let mut config = default_crop_config(375_000);
         config.skip_resize = true;
         let result = crop_image(&bytes, "image/png", 50.0, 50.0, 100.0, 100.0, &config);
         assert!(result.is_ok());
@@ -907,7 +907,7 @@ mod tests {
     fn test_crop_skip_resize_jpeg() {
         let img = make_rgb_image(200, 200);
         let bytes = encode_to_jpeg_bytes(&img, 90);
-        let mut config = default_crop_config(3_75_000);
+        let mut config = default_crop_config(375_000);
         config.skip_resize = true;
         let result = crop_image(&bytes, "image/jpeg", 50.0, 50.0, 100.0, 100.0, &config);
         assert!(result.is_ok());
@@ -932,7 +932,7 @@ mod tests {
     fn test_crop_jpeg_source() {
         let img = make_rgb_image(300, 300);
         let bytes = encode_to_jpeg_bytes(&img, 85);
-        let config = default_crop_config(3_75_000);
+        let config = default_crop_config(375_000);
         let result = crop_image(&bytes, "image/jpeg", 100.0, 100.0, 100.0, 100.0, &config);
         assert!(result.is_ok());
         let r = result.unwrap();
@@ -1011,7 +1011,7 @@ mod tests {
         let bytes = make_still_webp_bytes();
         let config = CompressConfig {
             max_edge: 16,
-            byte_budget: 3_75_000,
+            byte_budget: 375_000,
             fallback_edges: vec![16],
             jpeg_quality_steps: vec![80, 60, 40, 20],
         };
@@ -1026,7 +1026,7 @@ mod tests {
     #[test]
     fn test_crop_webp_success() {
         let bytes = make_still_webp_bytes();
-        let config = default_crop_config(3_75_000);
+        let config = default_crop_config(375_000);
         let result = crop_image(&bytes, "image/webp", 0.0, 0.0, 16.0, 16.0, &config);
         assert!(result.is_ok());
         let r = result.unwrap();

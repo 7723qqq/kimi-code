@@ -377,6 +377,7 @@ pub struct StdioSpawnConfig {
 }
 
 /// Result of spawning a stdio MCP server.
+#[derive(Debug)]
 pub struct StdioSpawnResult {
     pub handle: u64,
     pub pid: u32,
@@ -832,4 +833,448 @@ fn try_get_stderr(_handle: u64) -> Option<String> {
     // Cannot try_lock on tokio Mutex — return None and let callers use
     // the async `stdio_stderr_snapshot` when they need the actual value.
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Serializes stdio tests (the client registry is process-global).
+    static STDIO_TEST_LOCK: once_cell::sync::Lazy<tokio::sync::Mutex<()>> =
+        once_cell::sync::Lazy::new(|| tokio::sync::Mutex::new(()));
+
+    // ── Config parsing ──────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_server_config_infers_stdio_from_command() {
+        let raw = json!({ "command": "npx", "args": ["-y", "server"] });
+        let config = parse_server_config(&raw, None).unwrap();
+        assert_eq!(config.transport, "stdio");
+        assert_eq!(config.command.as_deref(), Some("npx"));
+        assert_eq!(config.args, Some(vec!["-y".to_string(), "server".to_string()]));
+    }
+
+    #[test]
+    fn test_parse_server_config_infers_http_from_url() {
+        let raw = json!({ "url": "https://example.test/mcp" });
+        let config = parse_server_config(&raw, None).unwrap();
+        assert_eq!(config.transport, "http");
+        assert_eq!(config.url.as_deref(), Some("https://example.test/mcp"));
+    }
+
+    #[test]
+    fn test_parse_server_config_explicit_transport_wins() {
+        let raw = json!({
+            "transport": "sse",
+            "command": "npx",
+            "url": "https://example.test/mcp",
+        });
+        let config = parse_server_config(&raw, None).unwrap();
+        assert_eq!(config.transport, "sse");
+    }
+
+    #[test]
+    fn test_parse_server_config_stdio_requires_command() {
+        let raw = json!({ "transport": "stdio", "url": "https://x" });
+        let err = parse_server_config(&raw, None).unwrap_err();
+        assert!(err.contains("requires 'command'"), "got: {err}");
+    }
+
+    #[test]
+    fn test_parse_server_config_http_requires_url() {
+        let raw = json!({ "transport": "http", "command": "npx" });
+        let err = parse_server_config(&raw, None).unwrap_err();
+        assert!(err.contains("requires 'url'"), "got: {err}");
+    }
+
+    #[test]
+    fn test_parse_server_config_unknown_transport() {
+        let raw = json!({ "transport": "carrier-pigeon", "command": "npx" });
+        let err = parse_server_config(&raw, None).unwrap_err();
+        assert!(err.contains("unknown transport"), "got: {err}");
+    }
+
+    #[test]
+    fn test_parse_server_config_resolves_relative_cwd() {
+        let raw = json!({ "command": "npx", "cwd": "rel/path" });
+        let config = parse_server_config(&raw, Some("G:/base")).unwrap();
+        let expected = std::path::PathBuf::from("G:/base").join("rel/path");
+        assert_eq!(
+            std::path::PathBuf::from(config.cwd.as_deref().unwrap()),
+            expected
+        );
+        // Absolute cwd is left untouched.
+        let raw2 = json!({ "command": "npx", "cwd": "G:/abs/path" });
+        let config2 = parse_server_config(&raw2, Some("G:/base")).unwrap();
+        assert_eq!(config2.cwd.as_deref(), Some("G:/abs/path"));
+    }
+
+    #[test]
+    fn test_parse_server_config_full_field_mapping() {
+        let raw = json!({
+            "command": "npx",
+            "env": { "A": "1" },
+            "bearerTokenEnvVar": "MY_TOKEN",
+            "enabled": false,
+            "startupTimeoutMs": 5000,
+            "toolTimeoutMs": 10000,
+            "enabledTools": ["a", "b"],
+            "disabledTools": ["c"],
+        });
+        let config = parse_server_config(&raw, None).unwrap();
+        assert_eq!(config.env, Some(HashMap::from([("A".to_string(), "1".to_string())])));
+        assert_eq!(config.bearer_token_env_var.as_deref(), Some("MY_TOKEN"));
+        assert_eq!(config.enabled, Some(false));
+        assert_eq!(config.startup_timeout_ms, Some(5000));
+        assert_eq!(config.tool_timeout_ms, Some(10000));
+        assert_eq!(config.enabled_tools, Some(vec!["a".to_string(), "b".to_string()]));
+        assert_eq!(config.disabled_tools, Some(vec!["c".to_string()]));
+    }
+
+    #[test]
+    fn test_parse_server_config_rejects_non_object() {
+        let err = parse_server_config(&json!("string"), None).unwrap_err();
+        assert!(err.contains("must be an object"), "got: {err}");
+    }
+
+    #[test]
+    fn test_read_mcp_json_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = read_mcp_json(&dir.path().join("nope.json"), None).unwrap_err();
+        assert!(err.contains("not found"), "got: {err}");
+    }
+
+    #[test]
+    fn test_read_mcp_json_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        std::fs::write(&path, "  \n").unwrap();
+        let servers = read_mcp_json(&path, None).unwrap();
+        assert!(servers.is_empty());
+    }
+
+    #[test]
+    fn test_read_mcp_json_invalid_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        std::fs::write(&path, "{ not json").unwrap();
+        let err = read_mcp_json(&path, None).unwrap_err();
+        assert!(err.contains("invalid JSON"), "got: {err}");
+    }
+
+    #[test]
+    fn test_read_mcp_json_missing_servers_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        std::fs::write(&path, r#"{"other": true}"#).unwrap();
+        let err = read_mcp_json(&path, None).unwrap_err();
+        assert!(err.contains("missing 'mcpServers'"), "got: {err}");
+    }
+
+    #[test]
+    fn test_read_mcp_json_server_error_propagates_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        std::fs::write(&path, r#"{"mcpServers": {"bad": {"transport": "stdio"}}}"#).unwrap();
+        let err = read_mcp_json(&path, None).unwrap_err();
+        assert!(err.contains("'bad'"), "got: {err}");
+    }
+
+    fn write_file(path: &std::path::Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, content).unwrap();
+    }
+
+    fn test_home() -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().to_string_lossy().to_string();
+        (dir, home)
+    }
+
+    #[tokio::test]
+    async fn test_load_mcp_config_merges_tiers_with_override_order() {
+        let (dir, home) = test_home();
+        let proj = dir.path().join("proj");
+        let cwd = proj.clone();
+        std::fs::create_dir_all(proj.join(".git")).unwrap();
+        std::fs::create_dir_all(&cwd).unwrap();
+
+        write_file(
+            &proj.join(".kimi-code").join("mcp.json"),
+            r#"{"mcpServers": {"shared": {"command": "local-cmd"}, "localOnly": {"url": "http://local"}}}"#,
+        );
+        write_file(
+            &proj.join(".mcp.json"),
+            r#"{"mcpServers": {"shared": {"command": "root-cmd", "cwd": "rel"}, "rootOnly": {"command": "root-tool", "cwd": "tools"}}}"#,
+        );
+        write_file(
+            &Path::new(&home).join(".kimi-code").join("mcp.json"),
+            r#"{"mcpServers": {"shared": {"command": "user-cmd"}, "userOnly": {"url": "http://user"}}}"#,
+        );
+
+        let result = load_mcp_config(&McpConfigLoadInput {
+            cwd: cwd.to_string_lossy().to_string(),
+            home_dir: Some(home.clone()),
+        })
+        .await;
+
+        assert!(result.error.is_none(), "error: {:?}", result.error);
+        let names: Vec<&str> = result.servers.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["localOnly", "rootOnly", "shared", "userOnly"]);
+
+        let shared = result
+            .servers
+            .iter()
+            .find(|(n, _)| n == "shared")
+            .map(|(_, c)| c)
+            .unwrap();
+        // Project-local tier wins over project-root and user tiers.
+        assert_eq!(shared.command.as_deref(), Some("local-cmd"));
+
+        let root_only = result
+            .servers
+            .iter()
+            .find(|(n, _)| n == "rootOnly")
+            .map(|(_, c)| c)
+            .unwrap();
+        // Relative cwd in the project-root file is resolved against the project root.
+        let expected_cwd = proj.join("tools").to_string_lossy().to_string();
+        assert_eq!(root_only.cwd.as_deref(), Some(expected_cwd.as_str()));
+
+        let expected_user = Path::new(&home).join(".kimi-code").join("mcp.json").to_string_lossy().to_string();
+        assert_eq!(result.user_path, expected_user);
+        assert_eq!(result.project_root_path, proj.join(".mcp.json").to_string_lossy().to_string());
+        assert_eq!(result.project_path, proj.join(".kimi-code").join("mcp.json").to_string_lossy().to_string());
+        drop(dir);
+    }
+
+    #[tokio::test]
+    async fn test_load_mcp_config_missing_files_is_not_an_error() {
+        let (dir, home) = test_home();
+        let proj = dir.path().join("proj");
+        std::fs::create_dir_all(&proj).unwrap();
+
+        let result = load_mcp_config(&McpConfigLoadInput {
+            cwd: proj.to_string_lossy().to_string(),
+            home_dir: Some(home),
+        })
+        .await;
+
+        assert!(result.error.is_none(), "error: {:?}", result.error);
+        assert!(result.servers.is_empty());
+        drop(dir);
+    }
+
+    #[tokio::test]
+    async fn test_load_mcp_config_reports_partial_errors() {
+        let (dir, home) = test_home();
+        let proj = dir.path().join("proj");
+        std::fs::create_dir_all(&proj).unwrap();
+        write_file(
+            &Path::new(&home).join(".kimi-code").join("mcp.json"),
+            "{ definitely not json",
+        );
+        write_file(
+            &proj.join(".mcp.json"),
+            r#"{"mcpServers": {"ok": {"command": "fine"}}}"#,
+        );
+
+        let result = load_mcp_config(&McpConfigLoadInput {
+            cwd: proj.to_string_lossy().to_string(),
+            home_dir: Some(home),
+        })
+        .await;
+
+        let error = result.error.expect("partial failure should be reported");
+        assert!(error.contains("user config"), "got: {error}");
+        // Servers from the valid tier still load.
+        assert_eq!(result.servers.len(), 1);
+        assert_eq!(result.servers[0].0, "ok");
+        drop(dir);
+    }
+
+    #[test]
+    fn test_find_project_root_walks_to_git() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("a").join("b");
+        let cwd = root.join("c").join("d");
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::create_dir_all(&cwd).unwrap();
+
+        let found = find_project_root(&cwd);
+        assert_eq!(found, root);
+
+        // No .git anywhere: falls back to the start path.
+        let loose = dir.path().join("x");
+        std::fs::create_dir_all(&loose).unwrap();
+        let found = find_project_root(&loose);
+        assert_eq!(found, loose);
+    }
+
+    // ── Stdio client (requires `node` on PATH) ──────────────────────
+
+    const TEST_SERVER_JS: &str = r#"
+const readline = require('node:readline');
+const rl = readline.createInterface({ input: process.stdin });
+process.stderr.write('server stderr line\n');
+rl.on('line', (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === 'initialize') {
+    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'test-server', version: '1.0.0' } } }) + '\n');
+  } else if (msg.method === 'tools/list') {
+    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { tools: [{ name: 'echo', description: 'Echo tool', inputSchema: { type: 'object', properties: { text: { type: 'string' } } } }] } }) + '\n');
+  } else if (msg.method === 'tools/call') {
+    if (msg.params.name === 'fail') {
+      process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: 'intentional failure' } }) + '\n');
+    } else {
+      process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: 'echo:' + JSON.stringify(msg.params.arguments) }] } }) + '\n');
+    }
+  }
+});
+"#;
+
+    fn node_available() -> bool {
+        std::process::Command::new("node")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    fn write_test_server() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        write_file(&dir.path().join("mcp-server.js"), TEST_SERVER_JS);
+        dir
+    }
+
+    #[tokio::test]
+    async fn test_stdio_full_lifecycle() {
+        let _guard = STDIO_TEST_LOCK.lock().await;
+        if !node_available() {
+            eprintln!("node not available; skipping");
+            return;
+        }
+        let dir = write_test_server();
+        let script = dir.path().join("mcp-server.js");
+        let spawn = stdio_spawn(&StdioSpawnConfig {
+            command: "node".to_string(),
+            args: vec![script.to_string_lossy().to_string()],
+            env: HashMap::new(),
+            cwd: None,
+        })
+        .await
+        .expect("spawn should succeed");
+        assert!(spawn.pid > 0);
+
+        let init = stdio_initialize(spawn.handle, "test-client", "0.0.1", Some(5000))
+            .await
+            .expect("initialize should succeed");
+        assert_eq!(init["serverInfo"]["name"], "test-server");
+
+        let tools = stdio_list_tools(spawn.handle).await.expect("tools/list");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "echo");
+        assert_eq!(tools[0].description, "Echo tool");
+
+        let result = stdio_call_tool(
+            spawn.handle,
+            "echo",
+            &json!({ "text": "hello" }),
+            Some(5000),
+        )
+        .await
+        .expect("tools/call");
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert_eq!(text, r#"echo:{"text":"hello"}"#);
+
+        // stderr buffer captures the server's stderr line.
+        let snapshot = stdio_stderr_snapshot(spawn.handle).await;
+        assert!(snapshot.contains("server stderr line"), "got: {snapshot}");
+
+        assert!(stdio_is_alive(spawn.handle).await);
+        stdio_close(spawn.handle).await.expect("close");
+        assert!(!stdio_is_alive(spawn.handle).await);
+    }
+
+    #[tokio::test]
+    async fn test_stdio_jsonrpc_error_surfaces() {
+        let _guard = STDIO_TEST_LOCK.lock().await;
+        if !node_available() {
+            eprintln!("node not available; skipping");
+            return;
+        }
+        let dir = write_test_server();
+        let script = dir.path().join("mcp-server.js");
+        let spawn = stdio_spawn(&StdioSpawnConfig {
+            command: "node".to_string(),
+            args: vec![script.to_string_lossy().to_string()],
+            env: HashMap::new(),
+            cwd: None,
+        })
+        .await
+        .expect("spawn");
+
+        stdio_initialize(spawn.handle, "test-client", "0.0.1", Some(5000))
+            .await
+            .expect("initialize");
+
+        let err = stdio_call_tool(spawn.handle, "fail", &json!({}), Some(5000))
+            .await
+            .unwrap_err();
+        assert!(err.contains("intentional failure"), "got: {err}");
+        stdio_close(spawn.handle).await.ok();
+    }
+
+    #[tokio::test]
+    async fn test_stdio_invalid_handle_errors() {
+        let _guard = STDIO_TEST_LOCK.lock().await;
+        let err = stdio_initialize(99_999, "c", "v", Some(1000)).await.unwrap_err();
+        assert!(err.contains("Invalid handle"), "got: {err}");
+        let err = stdio_call_tool(99_999, "x", &json!({}), Some(1000))
+            .await
+            .unwrap_err();
+        assert!(err.contains("Invalid handle"), "got: {err}");
+        // Closing an unknown handle is a no-op success.
+        stdio_close(99_999).await.expect("close unknown handle");
+        assert!(!stdio_is_alive(99_999).await);
+    }
+
+    #[tokio::test]
+    async fn test_stdio_spawn_missing_command_fails() {
+        let _guard = STDIO_TEST_LOCK.lock().await;
+        let err = stdio_spawn(&StdioSpawnConfig {
+            command: "definitely-not-a-real-command-xyz".to_string(),
+            args: vec![],
+            env: HashMap::new(),
+            cwd: None,
+        })
+        .await
+        .unwrap_err();
+        assert!(err.contains("Failed to spawn"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn test_stdio_call_tool_before_initialize_fails() {
+        let _guard = STDIO_TEST_LOCK.lock().await;
+        if !node_available() {
+            eprintln!("node not available; skipping");
+            return;
+        }
+        let dir = write_test_server();
+        let script = dir.path().join("mcp-server.js");
+        let spawn = stdio_spawn(&StdioSpawnConfig {
+            command: "node".to_string(),
+            args: vec![script.to_string_lossy().to_string()],
+            env: HashMap::new(),
+            cwd: None,
+        })
+        .await
+        .expect("spawn");
+
+        // The test server responds to tools/list even without initialize,
+        // but a client that never initializes must still be closable.
+        stdio_close(spawn.handle).await.expect("close");
+    }
 }

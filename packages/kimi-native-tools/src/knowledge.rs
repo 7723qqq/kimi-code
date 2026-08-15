@@ -446,3 +446,375 @@ pub fn knowledge_import(markdown: String) -> Result<String> {
         serde_json::to_string(&entries).map_err(|e| format!("JSON: {e}"))
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    // knowledge_* functions operate on a process-global DB singleton, so
+    // tests touching it must run serially.
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct TestDb {
+        dir: TempDir,
+    }
+
+    impl TestDb {
+        fn new() -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("knowledge.db");
+            knowledge_open(path.to_string_lossy().to_string()).unwrap();
+            TestDb { dir }
+        }
+    }
+
+    impl Drop for TestDb {
+        fn drop(&mut self) {
+            // Close the global connection so the TempDir can be removed on
+            // Windows (an open file handle would block deletion).
+            *DB.lock().unwrap() = None;
+        }
+    }
+
+    fn parse_vec<T: serde::de::DeserializeOwned>(json: &str) -> Vec<T> {
+        serde_json::from_str(json).expect("result should be valid JSON")
+    }
+
+    fn add_entry(title: &str, category: &str, content: &str) -> String {
+        knowledge_add(
+            title.to_string(),
+            category.to_string(),
+            content.to_string(),
+            "".to_string(),
+            None,
+            "human".to_string(),
+            1.0,
+        )
+        .unwrap()
+    }
+
+    fn add_entry_id(title: &str, category: &str, content: &str) -> String {
+        let entry: serde_json::Value = serde_json::from_str(&add_entry(title, category, content)).unwrap();
+        entry["id"].as_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn test_open_creates_empty_db() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let db = TestDb::new();
+        let stats: serde_json::Value =
+            serde_json::from_str(&knowledge_stats().unwrap()).unwrap();
+        assert_eq!(stats["total"], 0);
+        drop(db);
+    }
+
+    #[test]
+    fn test_add_returns_entry_json() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        let json = add_entry("Rust lifetimes", "coding-style", "Prefer explicit lifetimes.");
+        let entry: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(entry["title"], "Rust lifetimes");
+        assert_eq!(entry["category"], "coding-style");
+        assert_eq!(entry["source"], "human");
+        assert_eq!(entry["confidence"], 1.0);
+        assert!(!entry["id"].as_str().unwrap().is_empty());
+        assert!(!entry["created_at"].as_str().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_search_fts_finds_matches() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        add_entry("Error handling", "pitfall", "Always propagate errors with context.");
+        add_entry("Naming", "coding-style", "Use snake_case for functions.");
+
+        let results: Vec<serde_json::Value> =
+            parse_vec(&knowledge_search("error".to_string(), None, None, 10, 0.0).unwrap());
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["entry"]["title"], "Error handling");
+        assert!(results[0]["match_source"].as_array().unwrap().contains(&serde_json::json!("fts")));
+    }
+
+    #[test]
+    fn test_search_fallback_when_fixed_prefix_wrong() {
+        // The fixed prefix `"error" OR "handling"` style query must not match
+        // when the phrase is absent.
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        add_entry("Naming", "coding-style", "Use snake_case for functions.");
+        let results: Vec<serde_json::Value> =
+            parse_vec(&knowledge_search("zzzznope".to_string(), None, None, 10, 0.0).unwrap());
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_search_scope_match() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        knowledge_add(
+            "Scoped rule".to_string(),
+            "coding-style".to_string(),
+            "Scope-specific guidance.".to_string(),
+            "".to_string(),
+            Some("G:/repo".to_string()),
+            "human".to_string(),
+            1.0,
+        )
+        .unwrap();
+        knowledge_add(
+            "Global rule".to_string(),
+            "coding-style".to_string(),
+            "Works everywhere.".to_string(),
+            "".to_string(),
+            None,
+            "human".to_string(),
+            1.0,
+        )
+        .unwrap();
+
+        // Path under the scoped entry's prefix matches.
+        let results: Vec<serde_json::Value> = parse_vec(
+            &knowledge_search("".to_string(), Some("G:/repo/src".to_string()), None, 10, 0.0)
+                .unwrap(),
+        );
+        assert_eq!(results.len(), 2);
+        // Scoped entry scores higher (3.0 scope + 1.0 unscoped = 4.0*1.0 vs 1.0).
+        assert_eq!(results[0]["entry"]["title"], "Scoped rule");
+
+        // Unrelated path: only the unscoped entry matches.
+        let results: Vec<serde_json::Value> = parse_vec(
+            &knowledge_search("".to_string(), Some("G:/other".to_string()), None, 10, 0.0)
+                .unwrap(),
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["entry"]["title"], "Global rule");
+    }
+
+    #[test]
+    fn test_search_tag_overlap() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        knowledge_add(
+            "Tagged rule".to_string(),
+            "pitfall".to_string(),
+            "Content.".to_string(),
+            "rust,async".to_string(),
+            None,
+            "human".to_string(),
+            1.0,
+        )
+        .unwrap();
+
+        let results: Vec<serde_json::Value> = parse_vec(
+            &knowledge_search("".to_string(), None, Some("rust".to_string()), 10, 0.0).unwrap(),
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["entry"]["title"], "Tagged rule");
+        assert!(results[0]["match_source"].as_array().unwrap().contains(&serde_json::json!("tag")));
+    }
+
+    #[test]
+    fn test_search_min_confidence_filters() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        knowledge_add(
+            "Low confidence".to_string(),
+            "pitfall".to_string(),
+            "Maybe wrong.".to_string(),
+            "".to_string(),
+            None,
+            "ai-learned".to_string(),
+            0.3,
+        )
+        .unwrap();
+        add_entry("High confidence", "coding-style", "Definitely right.");
+
+        let results: Vec<serde_json::Value> =
+            parse_vec(&knowledge_search("".to_string(), Some("/".to_string()), None, 10, 0.8).unwrap());
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["entry"]["title"], "High confidence");
+    }
+
+    #[test]
+    fn test_search_limit_truncates() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        for i in 0..5 {
+            add_entry(&format!("Rule {i}"), "coding-style", "Shared content body.");
+        }
+        let results: Vec<serde_json::Value> =
+            parse_vec(&knowledge_search("".to_string(), Some("/".to_string()), None, 2, 0.0).unwrap());
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_remove_and_missing() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        let id = add_entry_id("To remove", "pitfall", "Remove me.");
+        assert!(knowledge_remove(id.clone()).unwrap());
+        // Removed entry is gone from search.
+        let results: Vec<serde_json::Value> =
+            parse_vec(&knowledge_search("remove".to_string(), None, None, 10, 0.0).unwrap());
+        assert!(results.is_empty());
+        // Second remove of the same id is a no-op.
+        assert!(!knowledge_remove(id).unwrap());
+    }
+
+    #[test]
+    fn test_confirm_updates_source_and_confidence() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        let id = knowledge_add(
+            "AI learned".to_string(),
+            "pitfall".to_string(),
+            "Content.".to_string(),
+            "".to_string(),
+            None,
+            "ai-learned".to_string(),
+            0.4,
+        )
+        .unwrap();
+        let id: serde_json::Value = serde_json::from_str(&id).unwrap();
+        let id = id["id"].as_str().unwrap();
+        assert!(knowledge_confirm(id.to_string()).expect("confirm failed"), "confirm returned false");
+        let results: Vec<serde_json::Value> =
+            parse_vec(&knowledge_search("Content".to_string(), None, None, 10, 1.0).unwrap());
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["entry"]["source"], "ai-confirmed");
+        assert_eq!(results[0]["entry"]["confidence"], 1.0);
+        // Confirm of a missing id is a no-op.
+        assert!(!knowledge_confirm("missing-id".to_string()).unwrap());
+    }
+
+    #[test]
+    fn test_stats_grouping() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        add_entry("A", "coding-style", "One.");
+        add_entry("B", "coding-style", "Two.");
+        add_entry("C", "pitfall", "Three.");
+
+        let stats: serde_json::Value =
+            serde_json::from_str(&knowledge_stats().unwrap()).unwrap();
+        assert_eq!(stats["total"], 3);
+        assert_eq!(stats["by_category"]["coding-style"], 2);
+        assert_eq!(stats["by_category"]["pitfall"], 1);
+        assert_eq!(stats["by_source"]["human"], 3);
+        assert_eq!(stats["avg_confidence"], 1.0);
+    }
+
+    #[test]
+    fn test_import_markdown_blocks() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        let md = r#"# coding-style:Imported Rule
+tags: rust, style
+scope: G:/repo
+
+This is the body.
+Second line.
+---
+# pitfall:Second Entry
+Content only.
+"#;
+        let entries: Vec<serde_json::Value> =
+            parse_vec(&knowledge_import(md.to_string()).unwrap());
+        assert_eq!(entries.len(), 2);
+
+        let first = &entries[0];
+        assert_eq!(first["title"], "Imported Rule");
+        assert_eq!(first["category"], "coding-style");
+        assert_eq!(first["tags"], serde_json::json!(["rust", "style"]));
+        assert_eq!(first["scope"], "G:/repo");
+        assert_eq!(first["content"], "This is the body.\nSecond line.");
+        assert_eq!(first["source"], "human");
+
+        let second = &entries[1];
+        assert_eq!(second["title"], "Second Entry");
+        assert_eq!(second["tags"], serde_json::json!([]));
+        assert_eq!(second["content"], "Content only.");
+
+        // Imported entries are searchable.
+        let results: Vec<serde_json::Value> =
+            parse_vec(&knowledge_search("imported".to_string(), None, None, 10, 0.0).unwrap());
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_import_skips_malformed_blocks() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        let md = r#"# NoColonTitle
+Content.
+---
+# coding-style:Valid
+Good content.
+---
+# pitfall:Empty body
+---
+"#;
+        let entries: Vec<serde_json::Value> =
+            parse_vec(&knowledge_import(md.to_string()).unwrap());
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["title"], "Valid");
+    }
+
+    #[test]
+    fn test_invalid_category_rejected() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        let err = knowledge_add(
+            "Bad".to_string(),
+            "not-a-category".to_string(),
+            "Content.".to_string(),
+            "".to_string(),
+            None,
+            "human".to_string(),
+            1.0,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("CHECK"), "got: {err}");
+    }
+
+    #[test]
+    fn test_operations_without_open_error() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        // Ensure no database is open (TestDb::drop resets the singleton).
+        *DB.lock().unwrap() = None;
+        let err = knowledge_add(
+            "X".to_string(),
+            "pitfall".to_string(),
+            "Y".to_string(),
+            "".to_string(),
+            None,
+            "human".to_string(),
+            1.0,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("not opened"), "got: {err}");
+        let err = knowledge_stats().unwrap_err();
+        assert!(err.to_string().contains("not opened"), "got: {err}");
+    }
+
+    #[test]
+    fn test_open_replaces_existing_db() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let db = TestDb::new();
+        add_entry("Old data", "pitfall", "From the first database.");
+        assert!(db.dir.path().join("knowledge.db").exists());
+
+        // Re-open a fresh database in a new location: old data must be gone.
+        let dir2 = tempfile::tempdir().unwrap();
+        let path2 = dir2.path().join("kb2.db");
+        knowledge_open(path2.to_string_lossy().to_string()).unwrap();
+        let results: Vec<serde_json::Value> =
+            parse_vec(&knowledge_search("".to_string(), Some("/".to_string()), None, 10, 0.0).unwrap());
+        assert!(results.is_empty());
+        *DB.lock().unwrap() = None;
+        drop(db);
+        drop(dir2);
+    }
+}

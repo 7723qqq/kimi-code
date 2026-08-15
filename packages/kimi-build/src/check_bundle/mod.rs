@@ -1,7 +1,7 @@
-/// Bundle checker — verifies that a bundled JS file has no unresolved
-/// external requires or imports.
-///
-/// Ported from `apps/kimi-code/scripts/native/check-bundle.mjs`.
+//! Bundle checker — verifies that a bundled JS file has no unresolved
+//! external requires or imports.
+//!
+//! Ported from `apps/kimi-code/scripts/native/check-bundle.mjs`.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -197,9 +197,144 @@ pub fn check_bundle(path: &str) -> anyhow::Result<()> {
         for error in &errors {
             eprintln!("- {error}");
         }
-        anyhow::bail!("Bundle check failed with {} error(s)", errors.len());
+        anyhow::bail!(
+            "Bundle check failed with {} error(s):\n- {}",
+            errors.len(),
+            errors.join("\n- ")
+        );
     }
 
     println!("Bundle check passed for {path}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_bundle(content: &str) -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bundle.mjs");
+        std::fs::write(&path, content).unwrap();
+        let path_str = path.to_string_lossy().to_string();
+        (dir, path_str)
+    }
+
+    #[test]
+    fn clean_bundle_passes() {
+        let (_dir, path) = write_bundle(
+            r#"
+            import { readFileSync } from 'node:fs';
+            import path from 'node:path';
+            const x = require('fs/promises');
+            async function load() {
+                const mod = await import('node:util');
+                return mod;
+            }
+            "#,
+        );
+        check_bundle(&path).expect("clean bundle should pass");
+    }
+
+    #[test]
+    fn external_require_rejected() {
+        let (_dir, path) = write_bundle("const x = require('lodash');\n");
+        let err = check_bundle(&path).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("external require remains: lodash"), "got: {msg}");
+    }
+
+    #[test]
+    fn external_dynamic_import_rejected() {
+        let (_dir, path) = write_bundle("await import('axios');\n");
+        let err = check_bundle(&path).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("external dynamic import remains: axios"), "got: {msg}");
+    }
+
+    #[test]
+    fn external_import_from_rejected() {
+        let (_dir, path) = write_bundle("import express from 'express';\n");
+        let err = check_bundle(&path).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("external import remains: express"), "got: {msg}");
+    }
+
+    #[test]
+    fn relative_requires_rejected() {
+        let (_dir, path) = write_bundle(
+            r#"
+            const a = require('./local.js');
+            await import('../up.js');
+            import b from '/abs/path.js';
+            "#,
+        );
+        let err = check_bundle(&path).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("relative require remains: ./local.js"), "got: {msg}");
+        assert!(msg.contains("relative dynamic import remains: ../up.js"), "got: {msg}");
+        assert!(msg.contains("relative import remains: /abs/path.js"), "got: {msg}");
+    }
+
+    #[test]
+    fn optional_runtime_requires_allowed() {
+        let (_dir, path) = write_bundle(
+            r#"
+            const native = require('@moonshot-ai/kimi-native-tools');
+            const i18n = require('@moonshot-ai/kimi-i18n');
+            const agent = require('@moonshot-ai/kimi-agent');
+            const bufferutil = require('bufferutil');
+            "#,
+        );
+        check_bundle(&path).expect("optional runtime requires should pass");
+    }
+
+    #[test]
+    fn optional_relative_require_allowed() {
+        let (_dir, path) = write_bundle(
+            "const ssh = require('./crypto/build/Release/sshcrypto.node');\n",
+        );
+        check_bundle(&path).expect("optional relative require should pass");
+    }
+
+    #[test]
+    fn comments_and_blank_lines_skipped() {
+        let (_dir, path) = write_bundle(
+            r#"
+            // require('lodash');
+            /* import('axios'); */
+            *
+            require('node:fs');
+            "#,
+        );
+        check_bundle(&path).expect("commented-out requires should be ignored");
+    }
+
+    #[test]
+    fn missing_file_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nope.js").to_string_lossy().to_string();
+        let err = check_bundle(&path).unwrap_err();
+        assert!(format!("{err}").contains("Failed to read"), "got: {err}");
+    }
+
+    #[test]
+    fn boundary_prevents_word_prefix_matches() {
+        // `my_require(...)` contains "require" but is part of an identifier —
+        // the boundary check must reject it, mirroring the `(?<![\w.])`
+        // lookbehind.
+        let (_dir, path) = write_bundle("const x = my_require('node:fs');\n");
+        check_bundle(&path).expect("require inside an identifier should be ignored");
+    }
+
+    #[test]
+    fn multiple_errors_all_reported() {
+        let (_dir, path) = write_bundle(
+            "const a = require('foo');\nconst b = require('bar');\n",
+        );
+        let err = check_bundle(&path).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("foo"), "got: {msg}");
+        assert!(msg.contains("bar"), "got: {msg}");
+    }
 }

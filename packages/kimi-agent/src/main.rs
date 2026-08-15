@@ -1,7 +1,7 @@
-/// kimi-agent — Rust agent engine with stdio JSON-RPC bridge.
-///
-/// Usage:
-///   kimi-agent [--health] [--test]
+//! kimi-agent — Rust agent engine with stdio JSON-RPC bridge.
+//!
+//! Usage:
+//!   kimi-agent [--health] [--test]
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

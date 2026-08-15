@@ -1,8 +1,8 @@
-/// Windows PE injection using Windows UpdateResource API.
-///
-/// On Windows, the SEA blob is stored as a custom PE resource (RT_RCDATA)
-/// named "NODE_SEA_BLOB". We use the standard Windows API to add/replace
-/// this resource in the executable.
+//! Windows PE injection using Windows UpdateResource API.
+//!
+//! On Windows, the SEA blob is stored as a custom PE resource (RT_RCDATA)
+//! named "NODE_SEA_BLOB". We use the standard Windows API to add/replace
+//! this resource in the executable.
 
 #[cfg(target_os = "windows")]
 pub fn inject(input: &str, blob_data: &[u8], output: &str) -> anyhow::Result<()> {

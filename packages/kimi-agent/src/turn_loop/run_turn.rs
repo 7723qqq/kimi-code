@@ -1,16 +1,16 @@
-/// Event-driven turn loop with prediction support.
-///
-/// The loop runs as an async state machine:
-///   1. Call LLM → get tool calls
-///   2. Execute all tools concurrently
-///      - If tool returns a prediction (is_prediction=true):
-///        insert into messages immediately, spawn background precise execution
-///      - Otherwise: use result directly
-///   3. Continue next LLM step — messages already contain predictions
-///   4. Before next LLM call, await background precise results and replace predictions
-///
-/// This allows the LLM to continue working while tools execute,
-/// and predictions give it enough context to make progress.
+//! Event-driven turn loop with prediction support.
+//!
+//! The loop runs as an async state machine:
+//!   1. Call LLM → get tool calls
+//!   2. Execute all tools concurrently
+//!      - If tool returns a prediction (is_prediction=true):
+//!        insert into messages immediately, spawn background precise execution
+//!      - Otherwise: use result directly
+//!   3. Continue next LLM step — messages already contain predictions
+//!   4. Before next LLM call, await background precise results and replace predictions
+//!
+//! This allows the LLM to continue working while tools execute,
+//! and predictions give it enough context to make progress.
 
 use std::sync::Arc;
 
@@ -95,8 +95,8 @@ pub fn run_turn<'a>(
             // ── Cancellation check ────────────────────────────────────────
             // If the host sent a CANCEL_TURN request, the cancellation flag
             // is set. Abort the turn before calling the LLM.
-            if let Some(ref cancel) = input.cancellation {
-                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            if let Some(ref cancel) = input.cancellation
+                && cancel.load(std::sync::atomic::Ordering::Relaxed) {
                     drain_pending_precise(&mut messages, &mut pending_precise).await;
                     return Ok(TurnResult {
                         stop_reason: LoopTurnStopReason::Aborted,
@@ -104,10 +104,9 @@ pub fn run_turn<'a>(
                         usage: total_usage,
                     });
                 }
-            }
 
-            if let Some(ref hooks) = input.hooks {
-                if let Some(ref before_step) = hooks.before_step {
+            if let Some(hooks) = input.hooks
+                && let Some(ref before_step) = hooks.before_step {
                     let ctx = StepContext {
                         turn_id: turn_id.clone(),
                         step: step_num,
@@ -122,7 +121,6 @@ pub fn run_turn<'a>(
                         });
                     }
                 }
-            }
 
             // Before calling LLM, drain any completed background precise
             // results and replace predictions in messages.
@@ -139,7 +137,7 @@ pub fn run_turn<'a>(
                 tool_defs.clone(),
                 &retry_config,
             ).await.map_err(|e| -> Box<dyn std::error::Error + 'a> {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+                Box::new(std::io::Error::other(e.to_string()))
             })?;
 
             total_usage.input_tokens += step_result.usage.input_tokens;
@@ -150,8 +148,8 @@ pub fn run_turn<'a>(
                 LoopStepStopReason::Complete => {
                     // Fire after_step with no tool results (step ended
                     // without tool calls).
-                    if let Some(ref hooks) = input.hooks {
-                        if let Some(ref after_step) = hooks.after_step {
+                    if let Some(hooks) = input.hooks
+                        && let Some(ref after_step) = hooks.after_step {
                             let ctx = AfterStepContext {
                                 turn_id: turn_id.clone(),
                                 step: step_num,
@@ -167,7 +165,6 @@ pub fn run_turn<'a>(
                                 });
                             }
                         }
-                    }
                     drain_pending_precise(&mut messages, &mut pending_precise).await;
                     return Ok(TurnResult {
                         stop_reason: LoopTurnStopReason::EndTurn,
@@ -247,7 +244,7 @@ pub fn run_turn<'a>(
                     // Swap out the Some handles into a separate vec so we
                     // can await them later (JoinHandle is not Clone).
                     let new_handles: Vec<_> = background_handles.drain(..)
-                        .filter_map(|h| h)
+                        .flatten()
                         .collect();
                     let handle_start = pending_precise.len();
                     pending_precise.extend(new_handles.into_iter().map(|h| (0, h)));
@@ -263,8 +260,8 @@ pub fn run_turn<'a>(
                     // Fire after_step with the actual tool results from
                     // this step (predictions included — the hook can inspect
                     // them to decide whether to stop the turn).
-                    if let Some(ref hooks) = input.hooks {
-                        if let Some(ref after_step) = hooks.after_step {
+                    if let Some(hooks) = input.hooks
+                        && let Some(ref after_step) = hooks.after_step {
                             let ctx = AfterStepContext {
                                 turn_id: turn_id.clone(),
                                 step: step_num,
@@ -280,7 +277,6 @@ pub fn run_turn<'a>(
                                 });
                             }
                         }
-                    }
                 }
                 LoopStepStopReason::Aborted => {
                     drain_pending_precise(&mut messages, &mut pending_precise).await;
@@ -320,7 +316,7 @@ pub fn run_turn<'a>(
 
 /// Replace any completed prediction results with precise results.
 async fn replace_completed_predictions(
-    messages: &mut Vec<LLMMessage>,
+    messages: &mut [LLMMessage],
     pending: &mut Vec<(usize, tokio::task::JoinHandle<ExecutableToolResult>)>,
 ) {
     let mut i = 0;
@@ -328,11 +324,10 @@ async fn replace_completed_predictions(
         let (_idx, handle) = &pending[i];
         if handle.is_finished() {
             let (idx, handle) = pending.swap_remove(i);
-            if let Ok(precise) = handle.await {
-                if idx < messages.len() {
+            if let Ok(precise) = handle.await
+                && idx < messages.len() {
                     messages[idx].content = precise.content;
                 }
-            }
         } else {
             i += 1;
         }
@@ -343,15 +338,14 @@ async fn replace_completed_predictions(
 /// corresponding prediction in `messages`. Used on every exit path so that
 /// background precise execution is not cancelled when the turn ends.
 async fn drain_pending_precise(
-    messages: &mut Vec<LLMMessage>,
+    messages: &mut [LLMMessage],
     pending: &mut Vec<(usize, tokio::task::JoinHandle<ExecutableToolResult>)>,
 ) {
     while let Some((idx, handle)) = pending.pop() {
-        if let Ok(precise) = handle.await {
-            if idx < messages.len() {
+        if let Ok(precise) = handle.await
+            && idx < messages.len() {
                 messages[idx].content = precise.content;
             }
-        }
     }
 }
 
@@ -505,40 +499,6 @@ mod tests {
     /// Helper: create an RpcHostCallbacks from an RpcServer.
     fn rpc_callbacks(server: Arc<RpcServer>) -> Arc<dyn HostCallbacks> {
         Arc::new(RpcHostCallbacks { server })
-    }
-
-    /// A test implementation of [`HostCallbacks`] backed by closures.
-    struct TestHostCallbacks {
-        execute_tool_fn: Arc<dyn Fn(ToolExecuteRequest) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ToolExecuteResponse, String>> + Send>> + Send + Sync>,
-    }
-
-    impl TestHostCallbacks {
-        fn new<F, Fut>(f: F) -> Self
-        where
-            F: Fn(ToolExecuteRequest) -> Fut + Send + Sync + 'static,
-            Fut: std::future::Future<Output = Result<ToolExecuteResponse, String>> + Send + 'static,
-        {
-            Self {
-                execute_tool_fn: Arc::new(move |req| Box::pin(f(req))),
-            }
-        }
-    }
-
-    impl HostCallbacks for TestHostCallbacks {
-        fn llm_chat(
-            &self,
-            _request: types::LlmChatRequest,
-        ) -> BoxFuture<'static, Result<types::LlmChatResponse, String>> {
-            Box::pin(async { Err("llm_chat not implemented in test".into()) })
-        }
-
-        fn execute_tool(
-            &self,
-            request: ToolExecuteRequest,
-        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
-            let f = self.execute_tool_fn.clone();
-            Box::pin(async move { f(request).await })
-        }
     }
 
     struct PredictTestLlm {

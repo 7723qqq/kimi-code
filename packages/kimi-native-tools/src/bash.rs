@@ -474,11 +474,8 @@ mod tests {
 
     #[test]
     fn test_bash_nonzero_exit() {
-        let command = if is_powershell() {
-            "exit 42".to_string()
-        } else {
-            "exit 42".to_string()
-        };
+        // `exit 42` works in both PowerShell and POSIX shells.
+        let command = "exit 42".to_string();
         let result = bash_exec(&BashConfig {
             command,
             ..Default::default()

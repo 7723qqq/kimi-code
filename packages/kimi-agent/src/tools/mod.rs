@@ -155,11 +155,10 @@ impl NativeToolset {
             if !entry.file_type().is_some_and(|t| t.is_file()) {
                 continue;
             }
-            if let Some(ref gs) = glob_filter {
-                if !gs.is_match(path) {
+            if let Some(ref gs) = glob_filter
+                && !gs.is_match(path) {
                     continue;
                 }
-            }
             scanned += 1;
             let Ok(bytes) = std::fs::read(path) else { continue };
             if bytes.contains(&0) {

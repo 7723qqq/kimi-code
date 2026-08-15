@@ -17,7 +17,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 
 ### Fork-specific additions vs upstream
 
-- **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via `/locale` or the dialog.
+- **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
 - **Swarm Discussion** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
 - **Rust Native Tools** — Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as a native Node addon, significantly faster than JS.
 - **Windows one-click launchers** — `start-native.bat` and `start-desktop.bat` for quick launch on Windows.
@@ -271,7 +271,7 @@ pnpm --filter @moonshot-ai/kimi-code run test
 pnpm --filter @moonshot-ai/kimi-code run e2e     # E2E tests (sets KIMI_E2E=1)
 
 # Native tools (Rust)
-cd packages/kimi-native-tools && cargo test
+cd packages/kimi-native-tools && cargo test --lib  # cdylib crate: doc tests unsupported
 cd packages/kimi-native-tools && cargo build --release
 pnpm --filter @moonshot-ai/kimi-code run build:native:release  # Full SEA build
 

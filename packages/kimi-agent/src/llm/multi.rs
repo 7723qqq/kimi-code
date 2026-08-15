@@ -1,8 +1,8 @@
-/// MultiLLM — concurrent execution across multiple LLM providers.
-///
-/// Sends the same prompt to all registered providers concurrently and
-/// returns the first successful response ("first past the post").
-/// Failed providers are recorded but don't block the overall result.
+//! MultiLLM — concurrent execution across multiple LLM providers.
+//!
+//! Sends the same prompt to all registered providers concurrently and
+//! returns the first successful response ("first past the post").
+//! Failed providers are recorded but don't block the overall result.
 
 use crate::callbacks::HostCallbacks;
 use crate::llm::proxy::HostLlmProxy;

@@ -217,11 +217,10 @@ impl StreamAccumulator {
     /// chunk, if any.
     pub fn feed(&mut self, v: &Value) -> Option<String> {
         // The final usage-only chunk has an empty `choices` array.
-        if let Some(usage) = v.get("usage") {
-            if !usage.is_null() {
+        if let Some(usage) = v.get("usage")
+            && !usage.is_null() {
                 self.usage = parse_usage(Some(usage));
             }
-        }
         let choice = v.get("choices").and_then(|c| c.as_array()).and_then(|a| a.first())?;
         if let Some(fr) = choice.get("finish_reason").and_then(|f| f.as_str()) {
             self.finish_reason = Some(fr.to_string());

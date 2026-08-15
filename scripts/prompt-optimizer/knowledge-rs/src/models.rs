@@ -98,3 +98,48 @@ pub struct Stats {
     pub by_source: std::collections::HashMap<String, usize>,
     pub avg_confidence: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn category_roundtrip() {
+        for (s, cat) in [
+            ("coding-style", Category::CodingStyle),
+            ("pitfall", Category::Pitfall),
+            ("architecture", Category::Architecture),
+            ("workflow", Category::Workflow),
+        ] {
+            assert_eq!(Category::from_str(s).unwrap(), cat);
+            assert_eq!(cat.as_str(), s);
+            assert_eq!(cat.to_string(), s);
+        }
+    }
+
+    #[test]
+    fn category_rejects_unknown() {
+        let err = Category::from_str("nope").unwrap_err();
+        assert!(err.contains("Invalid category"), "got: {err}");
+        assert!(err.contains("pitfall"), "got: {err}");
+    }
+
+    #[test]
+    fn source_roundtrip() {
+        for (s, src) in [
+            ("human", Source::Human),
+            ("ai-learned", Source::AiLearned),
+            ("ai-confirmed", Source::AiConfirmed),
+        ] {
+            assert_eq!(Source::from_str(s).unwrap(), src);
+            assert_eq!(src.as_str(), s);
+            assert_eq!(src.to_string(), s);
+        }
+    }
+
+    #[test]
+    fn source_rejects_unknown() {
+        let err = Source::from_str("robot").unwrap_err();
+        assert!(err.contains("Invalid source"), "got: {err}");
+    }
+}

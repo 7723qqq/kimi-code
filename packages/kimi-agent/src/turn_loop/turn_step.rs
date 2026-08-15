@@ -1,4 +1,4 @@
-/// Single step execution within a turn.
+//! Single step execution within a turn.
 
 use super::retry::RetryConfig;
 use super::retry::retry_delay;
@@ -7,7 +7,7 @@ use crate::rpc::types::BoxFuture;
 
 /// Wrap a string error into a `Box<dyn Error + Send + Sync>` (`'static`).
 fn boxed_err(s: String) -> Box<dyn std::error::Error + Send + Sync> {
-    Box::new(std::io::Error::new(std::io::ErrorKind::Other, s))
+    Box::new(std::io::Error::other(s))
 }
 
 /// Classify an LLM error: decide whether to return it or continue retrying.

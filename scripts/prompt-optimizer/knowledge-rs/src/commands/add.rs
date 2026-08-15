@@ -2,6 +2,8 @@ use rusqlite::Connection;
 use crate::models::{Category, Source};
 use crate::store;
 
+// CLI entry: args come straight from command-line parsing; keep the flat signature
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     conn: &Connection,
     title: &str,

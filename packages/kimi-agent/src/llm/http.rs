@@ -219,7 +219,7 @@ impl LLM for NativeHttpLlm {
             self.chat_impl(params)
                 .await
                 .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
-                    Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    Box::new(std::io::Error::other(e))
                 })
         })
     }

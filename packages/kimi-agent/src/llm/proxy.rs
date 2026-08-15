@@ -1,6 +1,6 @@
-/// LLM proxy implementation that forwards chat requests to the JS host
-/// via the [`HostCallbacks`] trait (abstracting over stdio JSON-RPC and
-/// napi-rs ThreadsafeFunction transports).
+//! LLM proxy implementation that forwards chat requests to the JS host
+//! via the [`HostCallbacks`] trait (abstracting over stdio JSON-RPC and
+//! napi-rs ThreadsafeFunction transports).
 
 use std::sync::Arc;
 
@@ -111,7 +111,7 @@ impl LLM for HostLlmProxy {
 
             let response = callbacks.llm_chat(request).await
                 .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
-                    Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    Box::new(std::io::Error::other(e))
                 })?;
 
             // Convert to turn_loop types

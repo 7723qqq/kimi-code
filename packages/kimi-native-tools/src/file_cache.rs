@@ -203,4 +203,71 @@ mod tests {
         cache.invalidate(&ps);
         assert!(cache.get(&ps).is_none());
     }
+
+    #[test]
+    fn evicts_all_when_at_capacity() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = FileReadCache::new();
+
+        // Fill past MAX_CACHE_ENTRIES; the insertion that overflows clears
+        // the whole cache before storing the new entry.
+        for i in 0..MAX_CACHE_ENTRIES + 1 {
+            let path = write_temp(&dir, &format!("f{i:03}.txt"), b"x");
+            let ps = path.to_string_lossy().to_string();
+            let pre = snapshot(&ps).unwrap();
+            cache.put(ps.clone(), format!("v{i}"), 1, pre);
+        }
+
+        // Only the newest entry survives the eviction.
+        for i in 0..MAX_CACHE_ENTRIES {
+            let path = dir.path().join(format!("f{i:03}.txt"));
+            let ps = path.to_string_lossy().to_string();
+            assert!(cache.get(&ps).is_none(), "entry {i} should be evicted");
+        }
+        let last = dir.path().join(format!("f{:03}.txt", MAX_CACHE_ENTRIES));
+        let ps = last.to_string_lossy().to_string();
+        assert_eq!(
+            cache.get(&ps).map(|(c, _)| c),
+            Some(format!("v{MAX_CACHE_ENTRIES}"))
+        );
+    }
+
+    #[test]
+    fn get_missing_file_returns_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = FileReadCache::new();
+        let ps = dir.path().join("nope.txt").to_string_lossy().to_string();
+        // No file → no snapshot → miss, without panicking.
+        assert!(cache.get(&ps).is_none());
+    }
+
+    #[test]
+    fn put_missing_file_is_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = FileReadCache::new();
+        let ps = dir.path().join("nope.txt").to_string_lossy().to_string();
+        // A pre-read snapshot that cannot be re-taken post-read → nothing
+        // cached, and later reads still miss.
+        let pre = FileSnapshot {
+            mtime: std::time::SystemTime::now(),
+            ctime: None,
+            size: 0,
+        };
+        cache.put(ps.clone(), "ghost".to_string(), 1, pre);
+        assert!(cache.get(&ps).is_none());
+    }
+
+    #[test]
+    fn invalidate_unknown_path_is_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = FileReadCache::new();
+        let ps = dir.path().join("ghost.txt").to_string_lossy().to_string();
+        cache.invalidate(&ps);
+        // Cache still usable afterwards.
+        let path = write_temp(&dir, "ok.txt", b"data");
+        let ps2 = path.to_string_lossy().to_string();
+        let pre = snapshot(&ps2).unwrap();
+        cache.put(ps2.clone(), "data".to_string(), 1, pre);
+        assert!(cache.get(&ps2).is_some());
+    }
 }

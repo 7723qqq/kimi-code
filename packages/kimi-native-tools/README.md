@@ -2,7 +2,7 @@
 
 Rust-native implementations of the core Kimi Code tools: `Read`, `Write`, `Edit`, `Grep`, `Glob`, and `Bash`.
 
-This package is consumed by `@moonshot-ai/agent-core` and is bundled into the Kimi Code CLI. The native module is gated behind the `KIMI_CODE_EXPERIMENTAL_NATIVE_TOOLS` flag and falls back to the TypeScript implementations when disabled or unavailable.
+This package is consumed by `apps/kimi-code` (through `@moonshot-ai/kimi-code-sdk`) and is bundled into the Kimi Code CLI. The native module is the primary implementation of the core tools when available, falling back to the TypeScript implementations when the addon cannot be loaded.
 
 ## Building
 
@@ -14,6 +14,10 @@ pnpm build:debug
 
 # Release build for the current platform
 pnpm build
+
+# Run the Rust unit tests (--lib: this is a cdylib crate, so `cargo test`
+# without `--lib` fails on the unsupported doc-test target)
+cargo test --lib
 ```
 
 ## Cross-platform artifacts

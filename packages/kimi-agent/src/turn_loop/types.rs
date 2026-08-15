@@ -1,6 +1,6 @@
-/// Core type definitions for the stateless turn loop.
-///
-/// These correspond to the types in `packages/agent-core/src/loop/types.ts`.
+//! Core type definitions for the stateless turn loop.
+//!
+//! These correspond to the types in `packages/agent-core/src/loop/types.ts`.
 
 use serde::{Deserialize, Serialize};
 
@@ -116,8 +116,13 @@ pub struct RunnableToolExecution {
     pub accesses: ToolAccesses,
     pub approval_rule: String,
     /// The actual execution logic.
-    pub execute: Box<dyn FnOnce(ToolExecContext) -> Result<ExecutableToolResult, Box<dyn std::error::Error>> + Send>,
+    pub execute: ToolExecutor,
 }
+
+/// Tool execution closure: takes the execution context and produces a result.
+pub type ToolExecutor = Box<
+    dyn FnOnce(ToolExecContext) -> Result<ExecutableToolResult, Box<dyn std::error::Error>> + Send,
+>;
 
 /// Context passed to a tool's execute function.
 #[derive(Debug, Clone)]
@@ -600,12 +605,26 @@ pub struct AfterStepContext {
     pub tool_results: Vec<ExecutableToolResult>,
 }
 
+/// A before-step hook: invoked before each step with the step context.
+pub type BeforeStepHook = Box<
+    dyn Fn(&StepContext) -> Result<Option<BeforeStepResult>, Box<dyn std::error::Error>>
+        + Send
+        + Sync,
+>;
+
+/// An after-step hook: invoked after each step with the step context.
+pub type AfterStepHook = Box<
+    dyn Fn(&AfterStepContext) -> Result<Option<AfterStepResult>, Box<dyn std::error::Error>>
+        + Send
+        + Sync,
+>;
+
 /// The hook system for the turn loop.
 /// Each hook is optional.
 #[derive(Default)]
 pub struct LoopHooks {
-    pub before_step: Option<Box<dyn Fn(&StepContext) -> Result<Option<BeforeStepResult>, Box<dyn std::error::Error>> + Send + Sync>>,
-    pub after_step: Option<Box<dyn Fn(&AfterStepContext) -> Result<Option<AfterStepResult>, Box<dyn std::error::Error>> + Send + Sync>>,
+    pub before_step: Option<BeforeStepHook>,
+    pub after_step: Option<AfterStepHook>,
 }
 
 // ── GoalContext (budget-aware turn execution) ──────────────────────────────
@@ -658,16 +677,14 @@ impl GoalContext {
     /// Returns true if adding `turn_tokens` and one more turn would exceed
     /// any configured budget.
     pub fn would_exceed_budget(&self, turn_tokens: i64, turns_this_turn: i64) -> bool {
-        if let Some(budget) = self.token_budget {
-            if self.tokens_used + turn_tokens >= budget {
+        if let Some(budget) = self.token_budget
+            && self.tokens_used + turn_tokens >= budget {
                 return true;
             }
-        }
-        if let Some(budget) = self.turn_budget {
-            if self.turns_used + turns_this_turn >= budget {
+        if let Some(budget) = self.turn_budget
+            && self.turns_used + turns_this_turn >= budget {
                 return true;
             }
-        }
         false
     }
 
@@ -675,16 +692,14 @@ impl GoalContext {
     /// (0.0 when no budgets configured).
     pub fn budget_fraction(&self, turn_tokens: i64, turns_this_turn: i64) -> f64 {
         let mut fractions = Vec::new();
-        if let Some(budget) = self.token_budget {
-            if budget > 0 {
+        if let Some(budget) = self.token_budget
+            && budget > 0 {
                 fractions.push((self.tokens_used + turn_tokens) as f64 / budget as f64);
             }
-        }
-        if let Some(budget) = self.turn_budget {
-            if budget > 0 {
+        if let Some(budget) = self.turn_budget
+            && budget > 0 {
                 fractions.push((self.turns_used + turns_this_turn) as f64 / budget as f64);
             }
-        }
         fractions.iter().cloned().fold(0.0_f64, f64::max)
     }
 }

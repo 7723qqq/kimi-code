@@ -1,26 +1,26 @@
-/// napi-rs bindings for the kimi-agent Rust engine.
-///
-/// This module exposes the turn loop as a native Node.js addon via napi-rs,
-/// enabling direct in-process communication between Node.js and Rust without
-/// the stdio JSON-RPC bridge.
-///
-/// ## Callback architecture
-///
-/// napi-rs 2.16 `call_async` does not properly await JS Promises returned by
-/// async callbacks (it tries to convert the Promise object directly to a
-/// String, triggering `StringExpected`). To work around this, we use a
-/// **callback registry** pattern:
-///
-/// 1. Rust assigns a unique `callback_id` + creates a `oneshot` channel.
-/// 2. Rust calls the JS function via `tsfn.call()` (fire-and-forget), passing
-///    the input payload and the `callback_id`.
-/// 3. The JS function processes the request asynchronously, then calls the
-///    exported `resolveCallback(id, error, result)` napi function.
-/// 4. `resolveCallback` looks up the `oneshot` sender and sends the result.
-/// 5. The Rust future (from step 1) awaits the `oneshot` receiver.
-///
-/// This avoids `call_async` entirely and works with both sync and async JS
-/// callbacks.
+//! napi-rs bindings for the kimi-agent Rust engine.
+//!
+//! This module exposes the turn loop as a native Node.js addon via napi-rs,
+//! enabling direct in-process communication between Node.js and Rust without
+//! the stdio JSON-RPC bridge.
+//!
+//! ## Callback architecture
+//!
+//! napi-rs 2.16 `call_async` does not properly await JS Promises returned by
+//! async callbacks (it tries to convert the Promise object directly to a
+//! String, triggering `StringExpected`). To work around this, we use a
+//! **callback registry** pattern:
+//!
+//! 1. Rust assigns a unique `callback_id` + creates a `oneshot` channel.
+//! 2. Rust calls the JS function via `tsfn.call()` (fire-and-forget), passing
+//!    the input payload and the `callback_id`.
+//! 3. The JS function processes the request asynchronously, then calls the
+//!    exported `resolveCallback(id, error, result)` napi function.
+//! 4. `resolveCallback` looks up the `oneshot` sender and sends the result.
+//! 5. The Rust future (from step 1) awaits the `oneshot` receiver.
+//!
+//! This avoids `call_async` entirely and works with both sync and async JS
+//! callbacks.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -48,8 +48,11 @@ use crate::turn_loop::{
 
 // ── Global callback registry ───────────────────────────────────────────────
 
+/// Result channel for a pending callback awaiting resolution from JS.
+type PendingCallback = oneshot::Sender<Result<String, String>>;
+
 /// Pending callbacks awaiting resolution from the JS side.
-static CALLBACK_REGISTRY: LazyLock<Mutex<HashMap<u32, oneshot::Sender<std::result::Result<std::string::String, std::string::String>>>>> =
+static CALLBACK_REGISTRY: LazyLock<Mutex<HashMap<u32, PendingCallback>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Payload registry — stores the JSON request payloads by callback ID.

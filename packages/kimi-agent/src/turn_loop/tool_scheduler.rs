@@ -1,16 +1,16 @@
 #![allow(dead_code)]
 
-/// Tool scheduling — parallel and serial execution of tool calls with
-/// resource conflict detection.
-///
-/// Corresponds to `packages/agent-core/src/loop/tool-scheduler.ts`.
-///
-/// The scheduler groups tool calls into non-conflicting batches:
-///   - Tasks with non-conflicting resource accesses run in the same batch
-///     (parallel execution).
-///   - Tasks with conflicting resource accesses are placed in separate
-///     batches (serial execution).
-///   - Within each batch, tasks are independent and safe to parallelise.
+//! Tool scheduling — parallel and serial execution of tool calls with
+//! resource conflict detection.
+//!
+//! Corresponds to `packages/agent-core/src/loop/tool-scheduler.ts`.
+//!
+//! The scheduler groups tool calls into non-conflicting batches:
+//!   - Tasks with non-conflicting resource accesses run in the same batch
+//!     (parallel execution).
+//!   - Tasks with conflicting resource accesses are placed in separate
+//!     batches (serial execution).
+//!   - Within each batch, tasks are independent and safe to parallelise.
 
 use std::future::Future;
 

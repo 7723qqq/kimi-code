@@ -1,14 +1,14 @@
-/// Async stdio JSON-RPC server for kimi-agent.
-///
-/// Reads JSON-RPC 2.0 requests from stdin, dispatches them to registered
-/// handlers, and writes responses to stdout. Supports concurrent request
-/// processing: multiple `call_host` requests can be in-flight simultaneously,
-/// with responses matched by request ID.
-///
-/// Uses tokio for async I/O:
-///   - `incoming_loop` (spawned): reads stdin, routes to pending or handler
-///   - `call_host`: sends request to stdout, registers oneshot, awaits reply
-///   - handlers run in spawned tasks so stdin reading is never blocked
+//! Async stdio JSON-RPC server for kimi-agent.
+//!
+//! Reads JSON-RPC 2.0 requests from stdin, dispatches them to registered
+//! handlers, and writes responses to stdout. Supports concurrent request
+//! processing: multiple `call_host` requests can be in-flight simultaneously,
+//! with responses matched by request ID.
+//!
+//! Uses tokio for async I/O:
+//!   - `incoming_loop` (spawned): reads stdin, routes to pending or handler
+//!   - `call_host`: sends request to stdout, registers oneshot, awaits reply
+//!   - handlers run in spawned tasks so stdin reading is never blocked
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -21,11 +21,20 @@ use crate::rpc::types::*;
 
 type AsyncMethodHandler = Arc<dyn Fn(serde_json::Value) -> crate::rpc::types::BoxFuture<'static, Result<serde_json::Value, JsonRpcError>> + Send + Sync>;
 
+/// One side of an in-flight request: the oneshot sender awaiting a reply.
+type PendingRequest = oneshot::Sender<Result<serde_json::Value, String>>;
+
 /// The async JSON-RPC server.
 pub struct RpcServer {
     methods: Mutex<HashMap<String, AsyncMethodHandler>>,
-    pending: Arc<Mutex<HashMap<u32, oneshot::Sender<Result<serde_json::Value, String>>>>>,
+    pending: Arc<Mutex<HashMap<u32, PendingRequest>>>,
     next_id: AtomicU32,
+}
+
+impl Default for RpcServer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RpcServer {
@@ -226,8 +235,8 @@ impl RpcServer {
         // not mis-consumed as that call's response.
         if Self::is_response_message(&parsed) {
             // Case 1: Response to a pending call_host
-            if let Some(id_val) = parsed.get("id") {
-                if let Some(id) = id_val.as_u64() {
+            if let Some(id_val) = parsed.get("id")
+                && let Some(id) = id_val.as_u64() {
                     let mut pending = match server.pending.lock() {
                         Ok(p) => p,
                         Err(_) => return,
@@ -247,7 +256,6 @@ impl RpcServer {
                         }
                     }
                 }
-            }
             return;
         }
 
@@ -405,7 +413,7 @@ mod tests {
 
     #[test]
     fn test_pending_map_insert_and_remove() {
-        let pending: Arc<Mutex<HashMap<u32, oneshot::Sender<Result<serde_json::Value, String>>>>> = 
+        let pending: Arc<Mutex<HashMap<u32, PendingRequest>>> = 
             Arc::new(Mutex::new(HashMap::new()));
         
         let (tx, _rx) = oneshot::channel();

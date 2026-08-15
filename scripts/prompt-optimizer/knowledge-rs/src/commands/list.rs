@@ -12,7 +12,7 @@ pub fn run(conn: &Connection, category: Option<&str>, tag: Option<&str>, source:
             println!("No entries found.");
             return Ok(());
         }
-        println!("{:<8} {:<14} {:<40} {:<6} {}", "ID", "Category", "Title", "Conf", "Tags");
+        println!("{:<8} {:<14} {:<40} {:<6} Tags", "ID", "Category", "Title", "Conf");
         println!("{}", "─".repeat(90));
         for e in &entries {
             let id_short = &e.id[..8.min(e.id.len())];

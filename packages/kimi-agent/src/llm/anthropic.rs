@@ -258,13 +258,11 @@ impl StreamAccumulator {
                     Some("input_json_delta") => {
                         if let Some(Some(PartialBlock::ToolUse { input_json, .. })) =
                             self.blocks.get_mut(index)
-                        {
-                            if let Some(fragment) =
+                            && let Some(fragment) =
                                 delta.get("partial_json").and_then(|x| x.as_str())
                             {
                                 input_json.push_str(fragment);
                             }
-                        }
                         None
                     }
                     _ => None,

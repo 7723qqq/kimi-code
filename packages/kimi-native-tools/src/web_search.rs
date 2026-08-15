@@ -197,6 +197,106 @@ mod tests {
     }
 
     #[test]
+    fn test_urlencoded_reserved_and_unicode() {
+        // Unreserved characters pass through unchanged.
+        assert_eq!(urlencoded("abc-._~XYZ012"), "abc-._~XYZ012");
+        // Empty input stays empty.
+        assert_eq!(urlencoded(""), "");
+        // CJK and emoji are percent-encoded byte-by-byte (uppercase hex).
+        assert_eq!(urlencoded("你好"), "%E4%BD%A0%E5%A5%BD");
+        assert_eq!(urlencoded("🔥"), "%F0%9F%94%A5");
+    }
+
+    #[test]
+    fn test_parse_ddg_skips_missing_title_or_url() {
+        let html = r#"
+        <html><body>
+            <div class="result">
+                <a class="result__a" href="https://ok.com">OK</a>
+                <span class="result__snippet">S</span>
+            </div>
+            <div class="result">
+                <!-- missing title link entirely -->
+                <span class="result__snippet">No link</span>
+            </div>
+            <div class="result">
+                <a class="result__a" href="">Empty href</a>
+            </div>
+            <div class="result">
+                <a class="result__a" href="https://blank.com">   </a>
+            </div>
+        </body></html>
+        "#;
+        let results = parse_ddg_results(html, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "OK");
+    }
+
+    #[test]
+    fn test_parse_ddg_optional_fields() {
+        let html = r#"
+        <html><body>
+            <div class="result">
+                <a class="result__a" href="https://no-snippet.com">No Snippet</a>
+            </div>
+            <div class="result">
+                <a class="result__a" href="https://no-site.com">No Site</a>
+                <span class="result__snippet">Has snippet only</span>
+            </div>
+        </body></html>
+        "#;
+        let results = parse_ddg_results(html, 10).unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].snippet, "");
+        assert_eq!(results[0].site_name, None);
+        assert_eq!(results[1].snippet, "Has snippet only");
+        assert_eq!(results[1].site_name, None);
+    }
+
+    #[test]
+    fn test_parse_ddg_html_entities_decoded() {
+        let html = r#"
+        <html><body>
+            <div class="result">
+                <a class="result__a" href="https://a.com?x=1&amp;y=2">Rust &amp; Go &lt;3</a>
+                <span class="result__snippet">a &gt; b &amp;&amp; c &lt; d</span>
+            </div>
+        </body></html>
+        "#;
+        let results = parse_ddg_results(html, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Rust & Go <3");
+        assert_eq!(results[0].url, "https://a.com?x=1&y=2");
+        assert_eq!(results[0].snippet, "a > b && c < d");
+    }
+
+    #[test]
+    fn test_parse_ddg_zero_and_oversized_max() {
+        let html = r#"
+        <html><body>
+            <div class="result"><a class="result__a" href="https://1.com">R1</a></div>
+        </body></html>
+        "#;
+        // max_results = 0 returns nothing; larger than available returns all.
+        assert!(parse_ddg_results(html, 0).unwrap().is_empty());
+        assert_eq!(parse_ddg_results(html, 100).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_parse_ddg_ignores_unrelated_divs() {
+        let html = r#"
+        <html><body>
+            <div class="result"><a class="result__a" href="https://r.com">Real</a></div>
+            <div class="other"><a class="result__a" href="https://f.com">Fake</a></div>
+            <div><a class="result__a" href="https://f2.com">Fake2</a></div>
+        </body></html>
+        "#;
+        let results = parse_ddg_results(html, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Real");
+    }
+
+    #[test]
     fn test_parse_ddg_results_empty() {
         let html = "<html><body><div>No results</div></body></html>";
         let results = parse_ddg_results(html, 10).unwrap();

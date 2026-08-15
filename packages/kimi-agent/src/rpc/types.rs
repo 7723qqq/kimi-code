@@ -1,9 +1,9 @@
-/// JSON-RPC 2.0 protocol types for kimi-agent stdio communication.
-///
-/// The agent process speaks JSON-RPC 2.0 over stdio:
-/// - Reads JSON-RPC requests from stdin
-/// - Writes JSON-RPC responses (and notifications) to stdout
-/// - Uses stderr for logging/diagnostics
+//! JSON-RPC 2.0 protocol types for kimi-agent stdio communication.
+//!
+//! The agent process speaks JSON-RPC 2.0 over stdio:
+//! - Reads JSON-RPC requests from stdin
+//! - Writes JSON-RPC responses (and notifications) to stdout
+//! - Uses stderr for logging/diagnostics
 
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;

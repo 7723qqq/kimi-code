@@ -252,4 +252,35 @@ mod tests {
         assert!(result.error.is_none());
         assert_eq!(result.error_kind, None);
     }
+
+    #[test]
+    fn test_write_append_creates_new_file() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("new.txt");
+
+        // Append mode also creates the file when it does not exist.
+        let result = write_file(path.to_str().unwrap(), "first", WriteMode::Append);
+        assert!(result.error.is_none());
+        assert_eq!(result.bytes_written, 5);
+
+        let mut content = String::new();
+        fs::File::open(&path)
+            .unwrap()
+            .read_to_string(&mut content)
+            .unwrap();
+        assert_eq!(content, "first");
+    }
+
+    #[test]
+    fn test_write_empty_content() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("empty.txt");
+
+        let result = write_file(path.to_str().unwrap(), "", WriteMode::Overwrite);
+        assert!(result.error.is_none());
+        assert_eq!(result.bytes_written, 0);
+        // File is created and empty.
+        let meta = fs::metadata(&path).unwrap();
+        assert_eq!(meta.len(), 0);
+    }
 }
