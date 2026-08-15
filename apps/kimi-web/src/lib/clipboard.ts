@@ -55,8 +55,9 @@ function legacyCopy(text: string): boolean {
   textarea.style.top = '-9999px';
   textarea.style.left = '-9999px';
   textarea.style.opacity = '0';
-  // `appendChild` (not `append`): jsdom's DOM does not implement Element.append.
-  document.body.append(textarea);
+  // `appendChild` (not `append`): universally supported (incl. jsdom and the
+  // browser) and mirrors the `removeChild` teardown below.
+  document.body.appendChild(textarea);
 
   let ok = false;
   try {

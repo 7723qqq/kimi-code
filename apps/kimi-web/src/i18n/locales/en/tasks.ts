@@ -27,4 +27,6 @@ export default {
   moreLines: '… ({count} more)',
   copyCommand: 'Copy command',
   copyOutput: 'Copy output',
+  copy: 'Copy',
+  copied: 'Copied',
 } as const;

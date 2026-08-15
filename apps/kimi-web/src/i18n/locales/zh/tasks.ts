@@ -27,4 +27,6 @@ export default {
   moreLines: '…（还有 {count} 行）',
   copyCommand: '复制命令',
   copyOutput: '复制输出',
+  copy: '复制',
+  copied: '已复制',
 } as const;
