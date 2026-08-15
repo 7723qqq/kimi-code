@@ -446,6 +446,7 @@ export { AGENT_RUN_PROMPT_ORIGIN } from '#/session/subagent/runAgentTurn';
 export * from '#/session/subagent/mirrorAgentRun';
 export * from '#/session/subagent/persistentSubagent';
 export * from '#/session/subagent/persistentSubagentService';
+import '#/session/subagent/backend/subagentBackendService';
 import '#/session/subagent/configSection';
 export * from '#/agent/tools/agent/agent';
 import '#/agent/tools/agent/agentTool';
