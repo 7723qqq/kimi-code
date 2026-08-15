@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::SystemTime;
 
+use crate::file_type::is_sensitive_file;
+
 /// Maximum number of matches to return.
 pub const MAX_MATCHES: usize = 100;
 /// Maximum brace expansions before falling through as literal.
@@ -23,6 +25,10 @@ pub struct GlobResult {
     pub files: Vec<String>,
     pub error: Option<String>,
     pub truncated: bool,
+    /// Paths (relativized to the search root) that were excluded because
+    /// they carry credentials or secrets (.env, SSH keys, cloud
+    /// credentials). Mirrors the Grep tool's filtered_sensitive field.
+    pub filtered_sensitive: Vec<String>,
 }
 
 /// Glob configuration.
@@ -61,6 +67,7 @@ pub fn glob_search(config: &GlobConfig) -> GlobResult {
             files: Vec::new(),
             error: Some(format!("Path does not exist: {}", search_path.display())),
             truncated: false,
+            filtered_sensitive: Vec::new(),
         };
     }
 
@@ -72,6 +79,7 @@ pub fn glob_search(config: &GlobConfig) -> GlobResult {
                 search_path.display()
             )),
             truncated: false,
+            filtered_sensitive: Vec::new(),
         };
     }
 
@@ -87,6 +95,7 @@ pub fn glob_search(config: &GlobConfig) -> GlobResult {
             files: Vec::new(),
             error: None,
             truncated: false,
+            filtered_sensitive: Vec::new(),
         };
     }
 
@@ -97,10 +106,12 @@ pub fn glob_search(config: &GlobConfig) -> GlobResult {
 
     let include_dirs = config.include_dirs;
     let all_files: Mutex<Vec<(PathBuf, SystemTime)>> = Mutex::new(Vec::new());
+    let filtered_sensitive: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
     builder.build_parallel().run(|| {
         let matchers = &matchers;
         let all_files = &all_files;
+        let filtered_sensitive = &filtered_sensitive;
         let search_path = &search_path;
 
         Box::new(move |entry| {
@@ -117,6 +128,15 @@ pub fn glob_search(config: &GlobConfig) -> GlobResult {
             let is_dir = entry.file_type().is_some_and(|ft| ft.is_dir());
 
             if is_dir && !include_dirs {
+                return ignore::WalkState::Continue;
+            }
+
+            let path_str = path.to_string_lossy();
+            if is_sensitive_file(&path_str) {
+                filtered_sensitive
+                    .lock()
+                    .unwrap()
+                    .push(path.strip_prefix(search_path).unwrap_or(path).display().to_string());
                 return ignore::WalkState::Continue;
             }
 
@@ -156,12 +176,15 @@ pub fn glob_search(config: &GlobConfig) -> GlobResult {
         files,
         error: None,
         truncated,
+        filtered_sensitive: filtered_sensitive.into_inner().unwrap(),
     }
 }
 
 fn build_glob_matcher(pattern: &str) -> Option<globset::GlobMatcher> {
+    // Case-sensitive, matching ripgrep's --glob semantics and the
+    // glob_matches_any helper (see its doc comment below). The previous
+    // case_insensitive(true) made the Glob tool disagree with both.
     globset::GlobBuilder::new(pattern)
-        .case_insensitive(true)
         .build()
         .ok()
         .map(|g| g.compile_matcher())
@@ -175,9 +198,9 @@ fn build_glob_matcher(pattern: &str) -> Option<globset::GlobMatcher> {
 ///
 /// Uses case-sensitive matching with `literal_separator(true)` to mirror
 /// `globToRegExp` in `fsSearchService.ts` — `*` does NOT cross `/`, only `**`
-/// does. This also matches ripgrep's `--glob` semantics. Do NOT use
-/// `build_glob_matcher` which sets `.case_insensitive(true)` for the glob
-/// tool's file-discovery use.
+/// does. This also matches ripgrep's `--glob` semantics. Note that
+/// `build_glob_matcher` (used by the Glob tool) is now also case-sensitive,
+/// so both matchers agree.
 pub fn glob_matches_any(globs: &[String], path: &str) -> bool {
     if globs.is_empty() {
         return false;
@@ -489,5 +512,57 @@ mod tests {
         let expanded = expand_braces(&groups);
         assert_eq!(expanded.len(), 1);
         assert_eq!(expanded[0], groups);
+    }
+
+    #[test]
+    fn test_glob_filters_sensitive_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("app.ts"), b"code").unwrap();
+        std::fs::write(dir.path().join("data.txt"), b"data").unwrap();
+        std::fs::write(dir.path().join(".env"), b"SECRET=1").unwrap();
+        std::fs::write(dir.path().join(".env.local"), b"SECRET=2").unwrap();
+
+        let result = glob_search(&GlobConfig {
+            pattern: "**/*".to_string(),
+            path: Some(dir.path().to_str().unwrap().to_string()),
+            include_dirs: false,
+        });
+        assert!(result.error.is_none());
+
+        // Sensitive files are excluded from files and reported separately
+        // (relativized to the search root).
+        assert!(result.files.iter().all(|f| !f.contains(".env")), "files: {:?}", result.files);
+        assert_eq!(result.filtered_sensitive.len(), 2);
+        assert!(result.filtered_sensitive.iter().any(|f| f.ends_with(".env")), "got: {:?}", result.filtered_sensitive);
+        assert!(result.filtered_sensitive.iter().any(|f| f.ends_with(".env.local")), "got: {:?}", result.filtered_sensitive);
+        // Normal files are neither filtered nor sensitive-listed.
+        assert!(result.files.iter().any(|f| f.ends_with("app.ts")));
+        assert!(result.files.iter().any(|f| f.ends_with("data.txt")));
+    }
+
+    #[test]
+    fn test_glob_matching_is_case_sensitive() {
+        let dir = tempfile::tempdir().unwrap();
+        // Windows FS is case-insensitive, so distinct names are required to
+        // test case-sensitive pattern matching.
+        std::fs::write(dir.path().join("upper.TXT"), b"code").unwrap();
+        std::fs::write(dir.path().join("lower.txt"), b"code").unwrap();
+
+        // Lowercase pattern matches only the lowercase file.
+        let result = glob_search(&GlobConfig {
+            pattern: "*.txt".to_string(),
+            path: Some(dir.path().to_str().unwrap().to_string()),
+            include_dirs: false,
+        });
+        assert_eq!(result.files.len(), 1, "got: {:?}", result.files);
+
+        // Uppercase pattern matches only the uppercase file — case-sensitive
+        // matching, consistent with ripgrep --glob semantics.
+        let result = glob_search(&GlobConfig {
+            pattern: "*.TXT".to_string(),
+            path: Some(dir.path().to_str().unwrap().to_string()),
+            include_dirs: false,
+        });
+        assert_eq!(result.files.len(), 1, "got: {:?}", result.files);
     }
 }
