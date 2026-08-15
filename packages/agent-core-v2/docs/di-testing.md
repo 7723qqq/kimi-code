@@ -1,5 +1,8 @@
 # DI testing
 
+> **路径提示（2026-08-15）**: 本文引用的示例测试（`test/message/*`、`test/turn/*`、`test/environment/*`、`test/records/stubs.ts`）已随重构移动或删除；实际测试树见 `test/` 下按域划分的目录（如 `test/agent/`、`test/session/`、`test/wire/`）。「按接口解析、`createServices`、stubs 约定」等规则不变。
+
+
 > Conventions for testing services built on the DI × Scope architecture.
 >
 > The goal of these rules is that a test exercises the **same path production

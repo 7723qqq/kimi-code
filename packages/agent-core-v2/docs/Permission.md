@@ -2,6 +2,8 @@
 
 本文系统整理 agent-core 权限系统的目标方案，并与 `packages/agent-core`（v1）现状对比。结论先行：
 
+> **状态（2026-08-15）**: v1 包（`packages/agent-core`）已从仓库删除，§二「现状（v1）」为历史快照。演进落地情况：step1（veto 监听器 + `IAgentToolApprovalService`）已实现；step2（`permissionMode` 域 + `session/approval` broker）已实现；step3（`IPermissionPolicyRegistry` 注册表）**未实现**——`permissionPolicyService.ts` 仍是硬编码 policy 数组，并新增了文档未收录的 `GuardianReviewPermissionPolicyService` 维度。引用实现以当前代码为准。
+
 > **权限系统应是一个「可组合、可注册的责任链（微内核）」**：内核只负责按顺序跑链、首个命中赢；具体权限维度（policy）由各自的 Domain Service 通过注册表插入；工具只需在 `resolveExecution` 里声明标准化的资源访问（`accesses`），通用维度集中消费这份元数据。
 >
 > **链只裁决危险程度**。policy 节点回答的是「这个调用有多危险、用户能否逐次豁免这个判断」——它产出的 `ask`/`deny` 永远可被用户豁免。**Harness 约束不是权限**：运行机制为自身正确性施加的限制（plan 模式禁写、AgentSwarm 批量排他、btw side-question fork 禁工具、goal 预算拒绝）产出的是无 ask 通道、用户无法逐次豁免的硬 deny，它们以 `onBeforeExecuteTool` veto 监听器挂在各自 domain，用 `event.veto(...)` 表态（先例：`goalService.ts` 的预算/过期拒绝）。产物审批（plan review、goal-start review）同样不是权限：由 owning domain 用 cold 的 `event.waitUntil(factory)` 拦截自己的工具、直接驱动共享的 `IAgentToolApprovalService` 审批往返——审批只可能在没有任何监听器 veto 该调用之后才开始。

@@ -4,6 +4,8 @@ Status: accepted and implemented for extension `0.6.0`
 
 Last updated: 2026-07-16
 
+> **Update (2026-08-15)**: Extension `0.7.0` runs the **v2 agent engine by default** (see `CHANGELOG.md`). The v1 `packages/agent-core` package has since been removed from the monorepo — the SDK now targets `agent-core-v2`. Sections below that describe the v1 engine architecture are historical; the durable invariants (webview never imports the SDK, in-process Extension Host runtime, shared config/auth) remain in force.
+
 ## Context
 
 The `0.5.x` VS Code extension launched a separately installed Python Kimi CLI

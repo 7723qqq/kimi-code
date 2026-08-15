@@ -1,5 +1,7 @@
 # 统一读写模型设计（提案稿）
 
+> **状态（2026-08-15）**: 本文为设计提案，其统一读写模型**已落地实现**（src/wire/model.ts、src/wire/op.ts、src/wire/wireService.ts、src/wire/wireContribution.ts）。正文保留提案原貌供追溯，引用类型时以当前代码为准；文中涉及的已删除 record 类型见下方更新注。
+
 > 目标：为 agent-core-v2 定义一套**唯一**的读写模型，统一 view、topic、写 operation、
 > 订阅方式，消解回环、定义方式不一致、事件可见性混乱等问题。本文基于对
 > agent-core-v2 / server-v2 / TUI（apps/kimi-code）三方现状的完整调研，

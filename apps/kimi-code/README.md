@@ -2,7 +2,9 @@
 
 > The Starting Point for Next-Gen Agents
 
-[![npm](https://img.shields.io/npm/v/@moonshot-ai/kimi-code)](https://www.npmjs.com/package/@moonshot-ai/kimi-code) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)  [![Docs](https://img.shields.io/badge/docs-online-blue)](https://moonshotai.github.io/kimi-code/en/)
+[![npm](https://img.shields.io/npm/v/@moonshot-ai/kimi-code)](https://www.npmjs.com/package/@moonshot-ai/kimi-code) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![Docs](https://img.shields.io/badge/docs-online-blue)](https://moonshotai.github.io/kimi-code/en/)
+
+> **Note**: This repository is a personal experimental fork of [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code). Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream. Fork additions (i18n, Swarm Discussion, Rust native tools) are documented in the repository root [README](../README.md).
 
 ## What is Kimi Code CLI
 
@@ -81,9 +83,9 @@ Take a look at this project and explain the main directories.
 
 ## Repository & Issues
 
-- Source: https://github.com/MoonshotAI/kimi-code
-- Issues: https://github.com/MoonshotAI/kimi-code/issues
-- Security: see SECURITY.md in the main repository
+- Fork source: https://github.com/7723qqq/kimi-code
+- Upstream: https://github.com/MoonshotAI/kimi-code
+- Security: see SECURITY.md in the repository
 
 ## License
 

@@ -20,6 +20,10 @@ This repository uses VitePress for the documentation site. Most user-facing page
 
 Keep both locales in sync before release. Machine-assisted translation is fine; review the locale you changed and its mirror for accuracy, terminology, and broken links.
 
+
+## Non-site documents
+
+Everything directly under `docs/` (outside `en/`/`zh/`) is part of the VitePress site and gets built and published. Internal reports, audit snapshots, and runbooks must NOT live there — put them under `reports/` (e.g. `reports/audits/` for review/audit reports), which is outside the site source and gitignored content is kept out of the build. `docs/` root keeps only `index.md` and site infrastructure.
 ## Authoring workflow
 
 - Each page should keep the section ordering established by surrounding pages. Changelog is the exception because it is generated from release history.

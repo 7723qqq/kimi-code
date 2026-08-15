@@ -48,7 +48,7 @@ scope: packages/
 tags: dependency, kimi-code, agent-core
 scope: apps/kimi-code/
 
-CLI/TUI 应用通过 `@moonshot-ai/kimi-code-sdk` 消费核心能力，不可直接依赖 `@moonshot-ai/agent-core`。
+CLI/TUI 应用通过 `@moonshot-ai/kimi-code-sdk` 消费核心能力，不可直接依赖 `@moonshot-ai/agent-core-v2`。
 
 ---
 
@@ -56,13 +56,13 @@ CLI/TUI 应用通过 `@moonshot-ai/kimi-code-sdk` 消费核心能力，不可直
 tags: dependency, kimi-web, agent-core
 scope: apps/kimi-web/
 
-Web UI 不依赖 `@moonshot-ai/agent-core`，wire types 在本地重新实现。
+Web UI 不依赖 `@moonshot-ai/agent-core-v2`，wire types 在本地重新实现。
 
 ---
 
 # architecture: Agent 类必须独立于 Session
 tags: agent-core, class-design, session
-scope: packages/agent-core/src/agent/
+scope: packages/agent-core-v2/src/agent/
 
 `Agent` 类构造函数不可强制要求创建 `Session` 实例，不可要求 `agentId` 或 `session`。可接受可选 `sessionId` 作为 hint，但实例不可持有 `sessionId`，不可依赖 Session 生命周期。
 
@@ -142,9 +142,9 @@ scope:
 
 # architecture: 实验特性用 flag 开关
 tags: feature-flag, experimental
-scope: packages/agent-core/src/flags/
+scope: packages/agent-core-v2/src/app/flag/
 
-新特性 gate 在 `packages/agent-core/src/flags/registry.ts` 注册 flag，用 `flags.enabled('my-feature')` 检查。环境变量 `KIMI_CODE_EXPERIMENTAL_<NAME>` 开关单个，`KIMI_CODE_EXPERIMENTAL_FLAG` 开全部。
+新特性 gate 在 `packages/agent-core-v2/src/app/flag/flagRegistry.ts` 注册 flag，用 `flags.enabled('my-feature')` 检查。环境变量 `KIMI_CODE_EXPERIMENTAL_<NAME>` 开关单个，`KIMI_CODE_EXPERIMENTAL_FLAG` 开全部。
 
 ---
 

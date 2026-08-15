@@ -1,5 +1,8 @@
 # Service Design Principles
 
+> **路径提示（2026-08-15）**: 本文的示例域名（`chatProvider`/`modelRuntime`/`filestore`/`blobStore`/`records`/`turn`/`swarm`）为早期设计命名，当前实现已更名（如 `agent/llmRequester`、`agent/blob`、`app/sessionIndex`、`app/llmProtocol`、`features/swarm`）。文中「scope 即状态身份」等原则仍然成立，示例仅作结构示意。
+
+
 > First-principles guide for designing a new Service in agent-core-v2: how to pick its
 > **scope**, when to **split it across scopes**, how to **call** other Services, and which
 > direction dependencies should point.

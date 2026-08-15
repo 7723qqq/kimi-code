@@ -1,6 +1,6 @@
 # agent-core-v2 Agent Guide
 
-> New agent engine built on the DI Scope architecture. (The legacy v1 engine, `packages/agent-core`, has been removed from the repository — see git history.) Design: `plan/PLAN.md`.
+> New agent engine built on the DI Scope architecture. (The legacy v1 engine, `packages/agent-core`, has been removed from the repository — see git history.) Design: `plan/PLAN.md`（已归档，历史设计见 `docs/` 目录）.
 
 ## Scopes
 
@@ -29,7 +29,7 @@ The four contribution seams (token → fold): config sections — `ConfigSection
 
 ## Examples
 
-> The runnable examples have moved to the standalone `kimi-code-mini-bench` package at `../kimi-code-mini-bench`. They are wired to `agent-core-v2` through a pnpm `link:` dependency and run as a separate Vitest project.
+> The runnable examples have moved to the standalone `kimi-code-mini-bench` package at `../kimi-code-mini-bench`（目录已移除，示例见 `packages/kosong/test/e2e` 等测试）. They are wired to `agent-core-v2` through a pnpm `link:` dependency and run as a separate Vitest project.
 
 Domain-slice scenarios that used to live in `examples/<name>.example.ts` are now maintained there. Each `*.example.ts` exercises one subset of domains end-to-end, builds its own container, runs its slice's services for real, and stubs collaborators outside the slice. See `../kimi-code-mini-bench/README.md` for how to run them.
 

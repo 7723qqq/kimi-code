@@ -109,7 +109,7 @@ Then open a new conversation in Zed's Agent panel. See [Using in IDEs](https://m
 Requirements: Node.js ≥ 24.15.0, pnpm 10.33.0.
 
 ```sh
-git clone https://github.com/MoonshotAI/kimi-code.git
+git clone https://github.com/7723qqq/kimi-code.git
 cd kimi-code
 pnpm install
 ```

@@ -198,6 +198,7 @@ Kimi Computer Use 让 AI 直接操作你的桌面应用，可以完成点击、�
 
 #### Windows 版注意事项
 
+Windows 版（WinCU）的安装方式与 macOS 版不同：在 Kimi Code 中运行 `/plugins install https://cdn.kimi.com/kimi-computer-use-windows/latest/kimi-cu-win-plugin.zip`，安装后重启即可。使用前需要了解以下几点：
 
 - **会短暂占用键鼠**：Windows 版无法像 macOS 版那样稳定地全程后台输入，执行操作时可能短暂激活目标窗口并使用你的鼠标键盘
 - **系统要求**：Windows 10 version 1903（Build 18362）或更新版本 / Windows 11，x64；需要真实交互式桌面会话，Windows Server 需要 Desktop Experience

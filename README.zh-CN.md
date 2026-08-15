@@ -112,7 +112,7 @@ Kimi Code CLI 支持 [Agent Client Protocol](https://agentclientprotocol.com/)�
 环境要求：Node.js ≥ 24.15.0，pnpm 10.33.0。
 
 ```sh
-git clone https://github.com/MoonshotAI/kimi-code.git
+git clone https://github.com/7723qqq/kimi-code.git
 cd kimi-code
 pnpm install
 ```

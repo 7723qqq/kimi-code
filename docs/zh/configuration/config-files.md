@@ -418,11 +418,11 @@ disabled = ["EnterPlanMode", "ExitPlanMode", "mcp__github__*"]
 
 ```toml
 [services.moonshot_search]
-base_url = "https://api.moonshot.cn/v1/search"
+base_url = "https://api.kimi.com/coding/v1/search"
 api_key = "sk-xxx"
 
 [services.moonshot_fetch]
-base_url = "https://api.moonshot.cn/v1/fetch"
+base_url = "https://api.kimi.com/coding/v1/fetch"
 api_key = "sk-xxx"
 ```
 
