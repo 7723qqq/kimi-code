@@ -24,6 +24,7 @@ import {
   resolvePathAccessPath,
   type WorkspaceConfig,
 } from '#/tool/path-access';
+import { tryNativeEdit } from '#/_base/native-tools';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
 import { IFileEditService } from '#/app/edit/fileEdit';
@@ -108,6 +109,29 @@ export class EditTool implements IEditTool {
       return {
         isError: true,
         output: t('toolsV2.editNoChanges'),
+      };
+    }
+
+    // Native fast-path: the Rust edit is authoritative when available (a
+    // native error is a final verdict, same convention as Read/Write).
+    const nativeResult = await tryNativeEdit(
+      safePath,
+      args.old_string,
+      args.new_string,
+      args.replace_all ?? false,
+    );
+    if (nativeResult !== undefined) {
+      if (!nativeResult.success) {
+        return { isError: true, output: nativeResult.error ?? t('toolsV2.editNoChanges') };
+      }
+      const nativeWord =
+        nativeResult.replacements === 1 ? t('toolsV2.occurrence') : t('toolsV2.occurrences');
+      return {
+        output: t('toolsV2.editReplaced', {
+          count: String(nativeResult.replacements),
+          occurrences: nativeWord,
+          path: args.path,
+        }),
       };
     }
 

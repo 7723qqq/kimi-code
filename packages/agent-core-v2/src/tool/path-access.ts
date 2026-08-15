@@ -20,6 +20,14 @@
 
 import * as pathe from 'pathe';
 
+import {
+  tryNativeIsSensitiveFile,
+  tryNativePathCanonicalize,
+  tryNativePathExpandUserPath,
+  tryNativePathIsWithinDirectory,
+  tryNativePathIsWithinWorkspace,
+  tryNativePathNormalizeUserPath,
+} from '#/_base/native-tools';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 
 export interface WorkspaceConfig {
@@ -64,6 +72,8 @@ function comparable(path: string): string {
 }
 
 export function isSensitiveFile(path: string): boolean {
+  const native = tryNativeIsSensitiveFile(path);
+  if (native !== undefined) return native;
   const name = pathe.basename(path);
   const comparableName = comparable(name);
   const comparablePath = comparable(path);
@@ -138,6 +148,8 @@ function isWin32DriveRelative(path: string): boolean {
 }
 
 export function normalizeUserPath(path: string, pathClass: PathClass = DEFAULT_PATH_CLASS): string {
+  const native = tryNativePathNormalizeUserPath(path, pathClass);
+  if (native !== undefined) return native;
   if (pathClass !== 'win32') return path;
 
   if (path === '/') return '/';
@@ -165,6 +177,8 @@ export function normalizeUserPath(path: string, pathClass: PathClass = DEFAULT_P
 
 function expandUserPath(path: string, homeDir: string | undefined, pathClass: PathClass): string {
   if (homeDir === undefined) return path;
+  const native = tryNativePathExpandUserPath(path, homeDir, pathClass);
+  if (native !== undefined) return native;
   if (path === '~') return homeDir;
   if (path.startsWith('~/') || (pathClass === 'win32' && path.startsWith('~\\'))) {
     return pathe.join(homeDir, path.slice(2));
@@ -197,6 +211,10 @@ export function canonicalizePath(
       `Cannot resolve "${path}" against non-absolute cwd "${cwd}".`,
     );
   }
+  const native = tryNativePathCanonicalize(normalizedPath, cwd, pathClass);
+  if (native !== undefined && !native.startsWith('ERROR:')) {
+    return native;
+  }
   const abs = pathe.isAbsolute(normalizedPath) ? normalizedPath : pathe.resolve(cwd, normalizedPath);
   return pathe.normalize(abs);
 }
@@ -206,6 +224,8 @@ export function isWithinDirectory(
   base: string,
   pathClass: PathClass = DEFAULT_PATH_CLASS,
 ): boolean {
+  const native = tryNativePathIsWithinDirectory(candidate, base, pathClass);
+  if (native !== undefined) return native;
   const nc = pathe.normalize(candidate);
   const nb = pathe.normalize(base);
   const comparableCandidate = pathClass === 'win32' ? nc.toLowerCase() : nc;
@@ -220,6 +240,12 @@ export function isWithinWorkspace(
   config: WorkspaceConfig,
   pathClass: PathClass = DEFAULT_PATH_CLASS,
 ): boolean {
+  const native = tryNativePathIsWithinWorkspace(
+    candidate,
+    [config.workspaceDir, ...config.additionalDirs],
+    pathClass,
+  );
+  if (native !== undefined) return native;
   if (isWithinDirectory(candidate, config.workspaceDir, pathClass)) return true;
   for (const dir of config.additionalDirs) {
     if (isWithinDirectory(candidate, dir, pathClass)) return true;

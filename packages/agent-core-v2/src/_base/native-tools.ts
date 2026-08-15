@@ -534,3 +534,230 @@ export async function tryNativeGrepStructured(
     opts.followGitignore ?? true,
   );
 }
+// ============================================================================
+// Edit (native fast-path)
+// ============================================================================
+
+export interface NativeEditResult {
+  readonly success: boolean;
+  readonly error?: string;
+  readonly replacements: number;
+}
+
+/**
+ * Try the Rust native file edit. Returns `undefined` when the native module
+ * is unavailable or the call fails, letting the caller fall through to the
+ * TS edit path. `replaceAll` defaults to false (exactly one occurrence).
+ */
+export async function tryNativeEdit(
+  path: string,
+  oldString: string,
+  newString: string,
+  replaceAll?: boolean,
+): Promise<NativeEditResult | undefined> {
+  return callNativeAsync<NativeEditResult>(
+    'nativeEdit',
+    path,
+    oldString,
+    newString,
+    { replaceAll: replaceAll ?? false },
+  );
+}
+
+// ============================================================================
+// Path access (native fast-path)
+// ============================================================================
+
+export type NativePathClass = 'posix' | 'win32';
+
+export function tryNativePathNormalizeUserPath(
+  path: string,
+  pathClass: NativePathClass,
+): string | undefined {
+  return callNativeSync<string>('nativePathNormalizeUserPath', path, pathClass);
+}
+
+export function tryNativePathExpandUserPath(
+  path: string,
+  homeDir: string,
+  pathClass: NativePathClass,
+): string | undefined {
+  return callNativeSync<string>('nativePathExpandUserPath', path, homeDir, pathClass);
+}
+
+export function tryNativePathCanonicalize(
+  path: string,
+  cwd: string,
+  pathClass: NativePathClass,
+): string | undefined {
+  return callNativeSync<string>('nativePathCanonicalize', path, cwd, pathClass);
+}
+
+export function tryNativePathIsWithinDirectory(
+  candidate: string,
+  base: string,
+  pathClass: NativePathClass,
+): boolean | undefined {
+  return callNativeSync<boolean>('nativePathIsWithinDirectory', candidate, base, pathClass);
+}
+
+export function tryNativePathIsWithinWorkspace(
+  candidate: string,
+  roots: readonly string[],
+  pathClass: NativePathClass,
+): boolean | undefined {
+  return callNativeSync<boolean>('nativePathIsWithinWorkspace', candidate, [...roots], pathClass);
+}
+
+// ============================================================================
+// Sensitive file detection (native fast-path)
+// ============================================================================
+
+export function tryNativeIsSensitiveFile(path: string): boolean | undefined {
+  return callNativeSync<boolean>('nativeIsSensitiveFile', path);
+}
+
+// ============================================================================
+// Permission pattern parsing (native fast-path)
+// ============================================================================
+
+export interface NativePermissionPattern {
+  readonly toolName: string;
+  readonly argPattern: string | null;
+}
+
+export function tryNativeParsePermissionPattern(
+  pattern: string,
+): NativePermissionPattern | undefined {
+  const result = callNativeSync<string>('nativeParsePermissionPattern', pattern);
+  if (result === undefined) return undefined;
+  try {
+    const parsed = JSON.parse(result) as { toolName?: string; argPattern?: string | null };
+    if (typeof parsed.toolName === 'string') {
+      return { toolName: parsed.toolName, argPattern: parsed.argPattern ?? null };
+    }
+    return undefined; // "ERROR: ..." string — caller falls back to TS
+  } catch {
+    return undefined;
+  }
+}
+
+// ============================================================================
+// Compaction — split safety + user message selection
+// ============================================================================
+
+export interface NativeCompactionUserMessageMeta {
+  readonly role: string;
+  readonly text: string;
+  readonly tokens: number;
+}
+
+export interface NativeCompactionUserSelection {
+  readonly headIndices: number[];
+  readonly tailIndices: number[];
+  readonly headTruncateChars: number | null;
+  readonly tailTruncateChars: number | null;
+  readonly elided: boolean;
+  readonly omittedTokens: number;
+}
+
+export function tryNativeSelectCompactionUserMessages(
+  messages: readonly NativeCompactionUserMessageMeta[],
+  maxTokens: number,
+  headTokens: number,
+): NativeCompactionUserSelection | undefined {
+  return callNativeSync<NativeCompactionUserSelection>(
+    'nativeSelectCompactionUserMessages',
+    messages.map((m) => ({ role: m.role, text: m.text, tokens: m.tokens })),
+    maxTokens,
+    headTokens,
+  );
+}
+
+// ============================================================================
+// Token truncation from end
+// ============================================================================
+
+export function tryNativeTruncateTextToTokensFromEnd(
+  text: string,
+  maxTokens: number,
+): string | undefined {
+  return callNativeSync<string>('nativeTruncateTextToTokensFromEnd', text, maxTokens);
+}
+
+// ============================================================================
+// Tool output truncation (ToolResultBuilder.write core)
+// ============================================================================
+
+export interface NativeToolOutputChunkResult {
+  readonly output: string;
+  readonly charsWritten: number;
+  readonly newNchars: number;
+  readonly truncated: boolean;
+}
+
+export function tryNativeWriteToolOutputChunk(
+  text: string,
+  currentNchars: number,
+  maxChars: number,
+  maxLineLength: number | null,
+  alreadyTruncated: boolean,
+): NativeToolOutputChunkResult | undefined {
+  return callNativeSync<NativeToolOutputChunkResult>(
+    'nativeWriteToolOutputChunk',
+    text,
+    currentNchars,
+    maxChars,
+    maxLineLength,
+    alreadyTruncated,
+  );
+}
+
+// ============================================================================
+// List directory (native fast-path)
+// ============================================================================
+
+export interface NativeListDirectoryOptions {
+  readonly path?: string;
+  readonly collapseHiddenDirs?: boolean;
+}
+
+export interface NativeListDirectoryResult {
+  readonly output: string;
+  readonly error?: string;
+}
+
+export function tryNativeListDirectory(
+  options?: NativeListDirectoryOptions,
+): NativeListDirectoryResult | undefined {
+  return callNativeSync<NativeListDirectoryResult>(
+    'nativeListDirectory',
+    { path: options?.path ?? null, collapseHiddenDirs: options?.collapseHiddenDirs ?? null },
+  );
+}
+
+// ============================================================================
+// Tool access conflict detection
+// ============================================================================
+
+export interface NativeToolAccessMeta {
+  readonly kind: string;
+  readonly operation?: string;
+  readonly path?: string;
+  readonly recursive?: boolean;
+}
+
+export function tryNativeIsMcpToolName(name: string): boolean | undefined {
+  return callNativeSync<boolean>('nativeIsMcpToolName', name);
+}
+
+export function tryNativeToolAccessesConflict(
+  left: readonly NativeToolAccessMeta[],
+  right: readonly NativeToolAccessMeta[],
+): boolean | undefined {
+  return callNativeSync<boolean>(
+    'nativeToolAccessesConflict',
+    left.map((a) => ({ kind: a.kind, operation: a.operation ?? null, path: a.path ?? null, recursive: a.recursive ?? null })),
+    right.map((a) => ({ kind: a.kind, operation: a.operation ?? null, path: a.path ?? null, recursive: a.recursive ?? null })),
+  );
+}

@@ -28,6 +28,7 @@
 
 import { basename, dirname, join, normalize } from 'pathe';
 
+import { tryNativeListDirectory } from '#/_base/native-tools';
 import { findGitWorkTree } from '#/app/git/workTree';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 
@@ -418,6 +419,17 @@ async function listDirectory(
   workDir: string,
   options: ListDirectoryOptions = {},
 ): Promise<string> {
+  // Native fast-path: the Rust tree renderer mirrors this implementation
+  // (two-level tree, dirs first, hidden-dir collapsing, truncation notes).
+  // On error it falls back to the TS renderer to keep error text identical.
+  const native = tryNativeListDirectory({
+    path: workDir,
+    collapseHiddenDirs: options.collapseHiddenDirs,
+  });
+  if (native !== undefined && (native.error === undefined || native.error === null)) {
+    return native.output;
+  }
+
   const lines: string[] = [];
   const { entries, total, readable } = await collectEntries(deps, workDir, LIST_DIR_ROOT_WIDTH);
   if (!readable) return '[not readable]';

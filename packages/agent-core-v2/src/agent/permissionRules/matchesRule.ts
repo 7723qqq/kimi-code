@@ -1,5 +1,6 @@
 import { tryNativeGlobMatch } from '../../tool/native-glob-match';
 
+import { tryNativeParsePermissionPattern } from '#/_base/native-tools';
 import { Error2, ErrorCodes } from '#/errors';
 import { t } from '@moonshot-ai/kimi-i18n';
 import type { RunnableToolExecution } from '#/tool/toolContract';
@@ -31,6 +32,16 @@ export interface PermissionRuleMatchInput {
 }
 
 export function parsePattern(pattern: string): ParsedPattern {
+  // Native fast-path: the Rust parser is authoritative when available. An
+  // "ERROR: ..." result (invalid pattern) deliberately falls back to the TS
+  // parser below so the existing Error2 throw semantics are preserved.
+  const native = tryNativeParsePermissionPattern(pattern);
+  if (native !== undefined) {
+    return native.argPattern === null
+      ? { toolName: native.toolName }
+      : { toolName: native.toolName, argPattern: native.argPattern };
+  }
+
   const trimmed = pattern.trim();
   if (trimmed.length === 0) {
     throw new Error2(ErrorCodes.VALIDATION_FAILED, t('v2Errors.permissionPatternEmpty'));

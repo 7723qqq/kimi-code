@@ -129,6 +129,8 @@ export interface GlobResult {
   files: string[];
   error?: string;
   truncated: boolean;
+  /** Paths (relativized to the search root) excluded as credentials/secrets (.env, SSH keys, cloud credentials). */
+  filteredSensitive: string[];
 }
 
 export interface GlobOptions {
@@ -199,7 +201,7 @@ export interface BashOptions {
   env?: Array<[string, string]>;
 }
 
-export function nativeBash(command: string, options?: BashOptions): BashResult;
+export function nativeBash(command: string, options?: BashOptions): Promise<BashResult>;
 
 // ============================================================================
 // Compaction
@@ -234,6 +236,74 @@ export function nativeResolveCompactionMaxCompletionTokens(
   maxContextTokens: number,
   maxOutputSize: number | null,
 ): number | null;
+
+/** Check whether a compaction split is safe after messages[index]. */
+export function nativeCanSplitAfter(
+  messages: CompactionMessageMeta[],
+  index: number,
+): boolean;
+
+export interface CompactionUserMessageMeta {
+  role: string;
+  text: string;
+  tokens: number;
+}
+
+export interface CompactionUserSelection {
+  headIndices: number[];
+  tailIndices: number[];
+  headTruncateChars: number | null;
+  tailTruncateChars: number | null;
+  elided: boolean;
+  omittedTokens: number;
+}
+
+/** Select user messages compaction keeps verbatim, with head/tail split. */
+export function nativeSelectCompactionUserMessages(
+  messages: CompactionUserMessageMeta[],
+  maxTokens: number,
+  headTokens: number,
+): CompactionUserSelection;
+
+// ============================================================================
+// Path access
+// ============================================================================
+
+export type PathClass = 'posix' | 'win32';
+
+/** Normalize a user path (Win32/Cygwin drive conversion). */
+export function nativePathNormalizeUserPath(path: string, pathClass: PathClass): string;
+
+/** Expand `~` → home directory. */
+export function nativePathExpandUserPath(path: string, homeDir: string, pathClass: PathClass): string;
+
+/** Lexical canonicalization (relative → absolute → normalize). Returns "ERROR: ..." on failure. */
+export function nativePathCanonicalize(path: string, cwd: string, pathClass: PathClass): string;
+
+/** Component-boundary prefix check (true if candidate is base or its descendant). */
+export function nativePathIsWithinDirectory(candidate: string, base: string, pathClass: PathClass): boolean;
+
+/** Multi-root workspace containment check. */
+export function nativePathIsWithinWorkspace(candidate: string, roots: string[], pathClass: PathClass): boolean;
+
+/** Glob-aware canonicalization: normalizes prefix before glob, leaves glob suffix. Returns "ERROR: ..." on failure. */
+export function nativePathCanonicalizeForGlob(path: string, cwd: string, pathClass: PathClass): string;
+
+// ============================================================================
+// Permission — DSL pattern parsing
+// ============================================================================
+
+export interface PermissionPattern {
+  toolName: string;
+  argPattern: string | null;
+}
+
+/**
+ * Parse a permission rule DSL pattern (e.g. `"Read(/etc/**)"`).
+ * Returns `{ toolName, argPattern }` on success or a string starting with
+ * `"ERROR: "` on failure.
+ */
+export function nativeParsePermissionPattern(pattern: string): PermissionPattern | string;
 
 // ============================================================================
 // Tool access conflict detection

@@ -15,6 +15,11 @@
  * before persistence. No scoped service.
  */
 
+import {
+  tryNativeIsMcpToolName,
+  tryNativeToolAccessesConflict,
+  type NativeToolAccessMeta,
+} from '#/_base/native-tools';
 import type { ContentPart, ToolCall } from '#/kosong/contract/message';
 import type { Tool } from '#/kosong/contract/tool';
 import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
@@ -187,11 +192,29 @@ export const ToolAccesses = {
   },
 
   conflict(left: ToolAccesses, right: ToolAccesses): boolean {
+    // Native fast-path: the Rust conflict engine is authoritative when
+    // available (same semantics: all-vs-anything, write ops only, path
+    // overlap with recursive containment).
+    const native = tryNativeToolAccessesConflict(
+      left.map(toNativeToolAccessMeta),
+      right.map(toNativeToolAccessMeta),
+    );
+    if (native !== undefined) return native;
     return left.some((leftAccess) =>
       right.some((rightAccess) => resourceAccessesConflict(leftAccess, rightAccess)),
     );
   },
 };
+
+function toNativeToolAccessMeta(access: ToolResourceAccess): NativeToolAccessMeta {
+  if (access.kind === 'all') return { kind: 'all' };
+  return {
+    kind: 'file',
+    operation: access.operation,
+    path: access.path,
+    recursive: access.recursive,
+  };
+}
 
 function resourceAccessesConflict(left: ToolResourceAccess, right: ToolResourceAccess): boolean {
   if (left.kind === 'all' || right.kind === 'all') return true;
@@ -242,5 +265,7 @@ function normalizePath(path: string): string {
 const MCP_NAME_PREFIX = 'mcp__';
 
 export function isMcpToolName(name: string): boolean {
+  const native = tryNativeIsMcpToolName(name);
+  if (native !== undefined) return native;
   return name.startsWith(MCP_NAME_PREFIX);
 }

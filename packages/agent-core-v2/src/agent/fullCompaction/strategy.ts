@@ -1,5 +1,11 @@
 import type { Message } from '#/kosong/contract/message';
 import type { ProfileModelContext } from '#/agent/profile/profile';
+import {
+  tryNativeComputeCompactCount,
+  tryNativeReduceCompactOnOverflow,
+  type NativeCompactionConfigMeta,
+  type NativeCompactionMessageMeta,
+} from '#/_base/native-tools';
 import type { CompactionSource } from './types';
 import { estimateTokensForMessage } from '#/kosong/contract/tokens';
 
@@ -135,6 +141,16 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
   }
 
   computeCompactCount(messages: readonly Message[], source: CompactionSource): number {
+    // Native fast-path: the Rust compaction engine is a line-for-line port
+    // of this algorithm (same split-safety guards). Message tokens are
+    // projected with the same estimator the TS path uses, so results are
+    // identical; the TS algorithm below remains the fallback.
+    const native = tryNativeComputeCompactCount(
+      toCompactionMeta(messages, this.estimateMessage),
+      toNativeCompactionConfig(this.maxSize, this.config),
+      source === 'manual',
+    );
+    if (native !== undefined) return native;
 
     if (source === 'manual') {
       for (let i = messages.length - 1; i > 0; i--) {
@@ -176,6 +192,12 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
   }
 
   reduceCompactOnOverflow(messages: readonly Message[]): number {
+    const native = tryNativeReduceCompactOnOverflow(
+      toCompactionMeta(messages, this.estimateMessage),
+      toNativeCompactionConfig(this.maxSize, this.config),
+    );
+    if (native !== undefined) return native;
+
     const minReducedSize = Math.max(
       1,
       Math.ceil(this.maxSize * this.config.minOverflowReductionRatio),
@@ -263,4 +285,28 @@ function prefixEndsWithOpenToolExchange(messages: readonly Message[], index: num
     return message.role === 'assistant' && message.toolCalls.length > toolResultCount;
   }
   return false;
+}
+
+function toCompactionMeta(
+  messages: readonly Message[],
+  estimateMessage: (message: Message) => number,
+): NativeCompactionMessageMeta[] {
+  return messages.map((message) => ({
+    role: message.role,
+    toolCallsCount: message.toolCalls.length,
+    tokens: estimateMessage(message),
+  }));
+}
+
+function toNativeCompactionConfig(
+  maxSize: number,
+  config: CompactionConfig,
+): NativeCompactionConfigMeta {
+  return {
+    maxSize,
+    maxRecentMessages: config.maxRecentMessages,
+    maxRecentUserMessages: config.maxRecentUserMessages,
+    maxRecentSizeRatio: config.maxRecentSizeRatio,
+    minOverflowReductionRatio: config.minOverflowReductionRatio,
+  };
 }
