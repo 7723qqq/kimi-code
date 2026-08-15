@@ -344,6 +344,7 @@ export class ConfigService extends Disposable implements IConfigService {
   private readonly diagnosticsList: ConfigDiagnostic[] = [];
   private lastDiagnosticsSnapshot = '[]';
   private readonly configKey: string;
+  private hasEffectiveOverlays = false;
 
   constructor(
     @IConfigRegistry private readonly registry: IConfigRegistry,
@@ -355,7 +356,11 @@ export class ConfigService extends Disposable implements IConfigService {
     this.configKey = this.bootstrap.configKey;
     this._register(this.registry.onDidRegisterSection((e) => this.revalidateDomain(e.domain)));
     this._register(this.registry.onDidUnregisterSection((e) => this.devalidateDomain(e.domain)));
-    this._register(this.registry.onDidRegisterOverlay(() => this.reapplyOverlays()));
+    this.hasEffectiveOverlays = this.registry.listEffectiveOverlays().length > 0;
+    this._register(this.registry.onDidRegisterOverlay(() => {
+      this.hasEffectiveOverlays = true;
+      this.reapplyOverlays();
+    }));
     const { configKey } = this;
     const { homeDir } = this.bootstrap;
     this.ready = (async () => {
@@ -376,6 +381,13 @@ export class ConfigService extends Disposable implements IConfigService {
     if (Object.prototype.hasOwnProperty.call(this.memory, domain)) {
       return this.memory[domain] as T;
     }
+    // Fast path: when a section has no env binding and no effective overlay is
+    // registered, the cached `effective` value cannot go stale from a process
+    // environment change. Avoid rebuilding the whole config on every read.
+    const section = this.registry.getSection(domain);
+    if (section?.env === undefined && !this.hasEffectiveOverlays) {
+      return this.effective[domain] as T;
+    }
     // Rebuild on every read: env bindings + overlays must reflect the CURRENT
     // process environment, which can change at any time without a reload.
     return this.freshEffective()[domain] as T;
@@ -392,7 +404,17 @@ export class ConfigService extends Disposable implements IConfigService {
   }
 
   getAll(): ResolvedConfig {
+    if (!this.hasEffectiveOverlays && !this.hasAnyEnvBindings()) {
+      return { ...this.effective, ...this.memory };
+    }
     return { ...this.freshEffective(), ...this.memory };
+  }
+
+  private hasAnyEnvBindings(): boolean {
+    for (const section of this.registry.listSections()) {
+      if (section.env !== undefined) return true;
+    }
+    return false;
   }
 
   private freshEffective(): ResolvedConfig {

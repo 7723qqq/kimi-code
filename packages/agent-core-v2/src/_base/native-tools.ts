@@ -177,8 +177,8 @@ export interface NativeWriteResult {
 
 /**
  * Try the Rust native file write. Creates parent dirs automatically.
- * The write is a plain truncating pass (or `O_APPEND`), matching the TS
- * writeText semantics — not a temp-file-and-rename atomic write.
+ * Overwrite uses an atomic temp-file-and-rename by default; pass
+ * `atomic: false` to opt into the legacy in-place truncating write.
  * Returns `undefined` when the native module is unavailable.
  * A native call that throws is a final error verdict (never re-run in TS).
  */
@@ -186,10 +186,11 @@ export function tryNativeWrite(
   path: string,
   content: string,
   mode?: 'overwrite' | 'append',
+  atomic?: boolean,
 ): Promise<NativeWriteResult | undefined> {
   return callNativeAsync<NativeWriteResult>(
     'nativeWrite',
-    [path, content, { mode: mode ?? null }],
+    [path, content, { mode: mode ?? null, atomic: atomic ?? null }],
     (message) => ({
       bytesWritten: 0,
       error: `native write failed: ${message}`,
@@ -900,15 +901,15 @@ export function tryNativeToolAccessesConflict(
   return callNativeSync<boolean>('nativeToolAccessesConflict', [
     left.map((a) => ({
       kind: a.kind,
-      operation: a.operation ?? null,
-      path: a.path ?? null,
-      recursive: a.recursive ?? null,
+      operation: a.operation,
+      path: a.path,
+      recursive: a.recursive,
     })),
     right.map((a) => ({
       kind: a.kind,
-      operation: a.operation ?? null,
-      path: a.path ?? null,
-      recursive: a.recursive ?? null,
+      operation: a.operation,
+      path: a.path,
+      recursive: a.recursive,
     })),
   ]);
 }

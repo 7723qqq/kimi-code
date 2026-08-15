@@ -581,7 +581,7 @@ describe('WriteTool', () => {
       expect(result.isError).toBeUndefined();
       expect(result.output).toContain('Appended 6 bytes');
       expect(appendText).not.toHaveBeenCalled();
-      expect(tryNativeWrite).toHaveBeenCalledWith('/tmp/native.txt', '\nhello', 'append');
+      expect(tryNativeWrite).toHaveBeenCalledWith('/tmp/native.txt', '\nhello', 'append', true);
     });
 
     it('returns a classified native error as final instead of re-writing via TS', async () => {

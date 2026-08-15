@@ -19,7 +19,7 @@
 /// Windows std cannot expose a change time, so `ctime` is `None` and the
 /// `(mtime, size)` pair is used — acceptable because NTFS mtime already has
 /// sub-second granularity (coarse granularity is the FAT case ctime covers).
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::sync::LazyLock;
 use std::time::SystemTime;
@@ -75,26 +75,45 @@ struct CacheEntry {
     snap: FileSnapshot,
 }
 
-/// Thread-safe file content cache using std::sync::Mutex.
+/// Thread-safe file content cache using std::sync::Mutex and an LRU order.
 pub struct FileReadCache {
-    cache: std::sync::Mutex<HashMap<String, CacheEntry>>,
+    inner: std::sync::Mutex<CacheInner>,
+}
+
+struct CacheInner {
+    entries: HashMap<String, CacheEntry>,
+    /// Most-recently-used order: front = least recently used, back = most recently used.
+    order: VecDeque<String>,
 }
 
 impl FileReadCache {
     pub fn new() -> Self {
         Self {
-            cache: std::sync::Mutex::new(HashMap::new()),
+            inner: std::sync::Mutex::new(CacheInner {
+                entries: HashMap::new(),
+                order: VecDeque::new(),
+            }),
         }
     }
 
     /// Look up a cached read result. Returns None on miss or staleness.
     pub fn get(&self, path: &str) -> Option<(String, i32)> {
         let current = snapshot(path)?;
-        let cache = self.cache.lock().ok()?;
-        if let Some(entry) = cache.get(path) {
-            if entry.snap == current {
-                return Some((entry.content.clone(), entry.line_count));
+        let mut inner = self.inner.lock().ok()?;
+        // Clone the hit into owned data first so the `entries` borrow ends
+        // before `order` is mutated (LRU reordering).
+        let hit = inner
+            .entries
+            .get(path)
+            .filter(|entry| entry.snap == current)
+            .map(|entry| (entry.content.clone(), entry.line_count));
+        if hit.is_some() {
+            // Mark this entry as most recently used.
+            if let Some(pos) = inner.order.iter().position(|p| p.as_str() == path) {
+                let p = inner.order.remove(pos).expect("position came from order");
+                inner.order.push_back(p);
             }
+            return hit;
         }
         None
     }
@@ -113,28 +132,38 @@ impl FileReadCache {
             self.invalidate(&path);
             return;
         }
-        let mut cache = match self.cache.lock() {
+        let mut inner = match self.inner.lock() {
             Ok(c) => c,
             Err(_) => return,
         };
-        // Evict oldest if at capacity.
-        if cache.len() >= MAX_CACHE_ENTRIES && !cache.contains_key(&path) {
-            cache.clear(); // Simple eviction: clear all when full
+        // Evict the least-recently-used entry when at capacity.
+        if inner.entries.len() >= MAX_CACHE_ENTRIES && !inner.entries.contains_key(&path) {
+            if let Some(oldest) = inner.order.pop_front() {
+                inner.entries.remove(&oldest);
+            }
         }
-        cache.insert(
-            path,
+        // Remove any stale position before pushing this path to the back.
+        if let Some(pos) = inner.order.iter().position(|p| p.as_str() == path) {
+            let _ = inner.order.remove(pos);
+        }
+        inner.entries.insert(
+            path.clone(),
             CacheEntry {
                 content,
                 line_count,
                 snap: post,
             },
         );
+        inner.order.push_back(path);
     }
 
     /// Invalidate a cache entry (called after file write/edit).
     pub fn invalidate(&self, path: &str) {
-        if let Ok(mut cache) = self.cache.lock() {
-            cache.remove(path);
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.entries.remove(path);
+            if let Some(pos) = inner.order.iter().position(|p| p.as_str() == path) {
+                let _ = inner.order.remove(pos);
+            }
         }
     }
 }
@@ -205,12 +234,12 @@ mod tests {
     }
 
     #[test]
-    fn evicts_all_when_at_capacity() {
+    fn evicts_least_recently_used_when_at_capacity() {
         let dir = tempfile::tempdir().unwrap();
         let cache = FileReadCache::new();
 
-        // Fill past MAX_CACHE_ENTRIES; the insertion that overflows clears
-        // the whole cache before storing the new entry.
+        // Fill past MAX_CACHE_ENTRIES; the insertion that overflows evicts
+        // only the least-recently-used entry (the first one inserted).
         for i in 0..MAX_CACHE_ENTRIES + 1 {
             let path = write_temp(&dir, &format!("f{i:03}.txt"), b"x");
             let ps = path.to_string_lossy().to_string();
@@ -218,18 +247,19 @@ mod tests {
             cache.put(ps.clone(), format!("v{i}"), 1, pre);
         }
 
-        // Only the newest entry survives the eviction.
-        for i in 0..MAX_CACHE_ENTRIES {
+        // The oldest entry is evicted; all newer entries remain cached.
+        let first = dir.path().join(format!("f{:03}.txt", 0));
+        let first_ps = first.to_string_lossy().to_string();
+        assert!(cache.get(&first_ps).is_none(), "oldest entry should be evicted");
+        for i in 1..MAX_CACHE_ENTRIES + 1 {
             let path = dir.path().join(format!("f{i:03}.txt"));
             let ps = path.to_string_lossy().to_string();
-            assert!(cache.get(&ps).is_none(), "entry {i} should be evicted");
+            assert_eq!(
+                cache.get(&ps).map(|(c, _)| c),
+                Some(format!("v{i}")),
+                "entry {i} should remain cached"
+            );
         }
-        let last = dir.path().join(format!("f{:03}.txt", MAX_CACHE_ENTRIES));
-        let ps = last.to_string_lossy().to_string();
-        assert_eq!(
-            cache.get(&ps).map(|(c, _)| c),
-            Some(format!("v{MAX_CACHE_ENTRIES}"))
-        );
     }
 
     #[test]

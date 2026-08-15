@@ -58,6 +58,11 @@ export interface WriteResult {
 
 export interface WriteOptions {
   mode?: WriteMode;
+  /**
+   * For overwrite, write via a temporary file and rename so a crash cannot
+   * leave a truncated destination. Defaults to true.
+   */
+  atomic?: boolean;
 }
 
 export function nativeWrite(
@@ -440,52 +445,6 @@ export function nativeGrepStructured(
   timeoutMs: number,
   followGitignore: boolean,
 ): GrepStructuredResult;
-
-// ============================================================================
-// MCP — Config loading
-// ============================================================================
-
-export function nativeMcpLoadConfig(cwd: string, homeDir?: string | null): Promise<Record<string, unknown>>;
-
-// ============================================================================
-// MCP — Stdio client
-// ============================================================================
-
-export interface McpStdioSpawnConfig {
-  command: string;
-  args?: string[] | null;
-  env?: Record<string, string> | null;
-  cwd?: string | null;
-}
-
-export interface McpStdioSpawnResult {
-  handle: number;
-  pid: number;
-}
-
-export function nativeMcpStdioSpawn(config: McpStdioSpawnConfig): Promise<McpStdioSpawnResult>;
-
-export function nativeMcpStdioInitialize(
-  handle: number,
-  clientName: string,
-  clientVersion: string,
-  timeoutMs?: number | null,
-): Promise<string>;
-
-export function nativeMcpStdioListTools(handle: number): Promise<Record<string, unknown>[]>;
-
-export function nativeMcpStdioCallTool(
-  handle: number,
-  name: string,
-  argsJson: string,
-  timeoutMs?: number | null,
-): Promise<string>;
-
-export function nativeMcpStdioClose(handle: number): Promise<void>;
-
-export function nativeMcpStdioStderrSnapshot(handle: number): Promise<string>;
-
-export function nativeMcpStdioIsAlive(handle: number): Promise<boolean>;
 
 // ============================================================================
 // Constants

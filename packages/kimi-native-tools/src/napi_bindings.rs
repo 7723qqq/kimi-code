@@ -256,32 +256,41 @@ pub fn native_file_cache_invalidate(path: String) {
 
 /// Write content to a file.
 ///
-/// Creates parent directories automatically. The write is a plain
-/// truncating pass (or `O_APPEND`), matching the TS writeText semantics —
-/// NOT a temp-file-and-rename atomic write.
+/// Creates parent directories automatically. Overwrite uses an atomic
+/// temp-file-and-rename by default (`atomic = true`), so a crash cannot leave
+/// a truncated destination; symlink targets are still written through in-place
+/// to preserve the link. Append remains an `O_APPEND` pass.
 ///
 /// @param path - Path to the file to create or overwrite.
 /// @param content - Raw content to write.
 /// @param mode - "overwrite" or "append". Defaults to "overwrite".
+/// @param atomic - When true and mode is overwrite, use atomic rename. Defaults to true.
 /// @returns WriteResult with bytesWritten and optional error plus errorKind
 ///          (`io` / `parent_not_dir` / `panic`) — every verdict is final.
 #[napi]
-pub async fn native_write(path: String, content: String, mode: Option<String>) -> WriteResult {
+pub async fn native_write(
+    path: String,
+    content: String,
+    mode: Option<String>,
+    atomic: Option<bool>,
+) -> WriteResult {
     let write_mode = match mode.as_deref() {
         Some("append") => WriteMode::Append,
         _ => WriteMode::Overwrite,
     };
+    let use_atomic = atomic.unwrap_or(true);
     let path_clone = path.clone();
-    let result =
-        tokio::task::spawn_blocking(move || write::write_file(&path_clone, &content, write_mode))
-            .await
-            .unwrap_or_else(|e| WriteResult {
-                bytes_written: 0,
-                error: Some(format!("write panicked: {e}")),
-                // A panic is a native bug — surface it instead of letting the JS
-                // caller silently mask it with its TypeScript fallback.
-                error_kind: Some("panic".to_string()),
-            });
+    let result = tokio::task::spawn_blocking(move || {
+        write::write_file(&path_clone, &content, write_mode, use_atomic)
+    })
+    .await
+    .unwrap_or_else(|e| WriteResult {
+        bytes_written: 0,
+        error: Some(format!("write panicked: {e}")),
+        // A panic is a native bug — surface it instead of letting the JS
+        // caller silently mask it with its TypeScript fallback.
+        error_kind: Some("panic".to_string()),
+    });
 
     if result.error.is_none() {
         crate::file_cache::FILE_CACHE.invalidate(&path);
@@ -1055,230 +1064,6 @@ pub fn native_write_tool_output_chunk(
         new_nchars: result.new_nchars as u32,
         truncated: result.truncated,
     }
-}
-
-// ============================================================================
-// MCP — Config loading
-// ============================================================================
-
-use crate::mcp;
-
-/// A single MCP server configuration entry returned by `nativeMcpLoadConfig`.
-#[napi(object)]
-pub struct NativeMcpServerConfig {
-    /// Transport type: "stdio", "http", or "sse".
-    pub transport: String,
-    /// Command to execute (stdio only).
-    pub command: Option<String>,
-    /// Command arguments (stdio only).
-    pub args: Option<Vec<String>>,
-    /// Environment variables (stdio only).
-    pub env: Option<HashMap<String, String>>,
-    /// Working directory (stdio only).
-    pub cwd: Option<String>,
-    /// Server URL (http/sse only).
-    pub url: Option<String>,
-    /// HTTP headers (http/sse only).
-    pub headers: Option<HashMap<String, String>>,
-    /// Environment variable name containing the bearer token (http/sse only).
-    pub bearer_token_env_var: Option<String>,
-    /// Whether the server is enabled. Defaults to true.
-    pub enabled: Option<bool>,
-    /// Startup timeout in milliseconds.
-    pub startup_timeout_ms: Option<u32>,
-    /// Tool call timeout in milliseconds.
-    pub tool_timeout_ms: Option<u32>,
-    /// Allowlist of tool names.
-    pub enabled_tools: Option<Vec<String>>,
-    /// Blocklist of tool names.
-    pub disabled_tools: Option<Vec<String>>,
-}
-
-/// A named server entry in the config result.
-#[napi(object)]
-pub struct NativeMcpServerEntry {
-    /// Server name (key in mcpServers object).
-    pub name: String,
-    /// Server configuration.
-    pub config: NativeMcpServerConfig,
-}
-
-/// Result of `nativeMcpLoadConfig`.
-#[napi(object)]
-pub struct NativeMcpConfigLoadResult {
-    /// Merged server entries from all config files.
-    pub servers: Vec<NativeMcpServerEntry>,
-    /// Path to the user-global mcp.json.
-    pub user_path: String,
-    /// Path to the project-root .mcp.json.
-    pub project_root_path: String,
-    /// Path to the project-local .kimi-code/mcp.json.
-    pub project_path: String,
-    /// Error message if loading failed partially.
-    pub error: Option<String>,
-}
-
-/// Load and merge MCP server configs from the three-tier file hierarchy.
-///
-/// Reads from:
-///   1. `~/.kimi-code/mcp.json` (user-global)
-///   2. `<project-root>/.mcp.json` (project-root)
-///   3. `<cwd>/.kimi-code/mcp.json` (project-local)
-///
-/// Later files override earlier entries with the same key.
-///
-/// @param cwd - Current working directory (used to find project root).
-/// @param homeDir - Optional home directory override. Falls back to USERPROFILE (Windows) or HOME (Unix).
-/// @returns Merged config with resolved paths.
-#[napi]
-pub async fn native_mcp_load_config(
-    cwd: String,
-    home_dir: Option<String>,
-) -> Result<NativeMcpConfigLoadResult, napi::Error> {
-    let input = mcp::McpConfigLoadInput { cwd, home_dir };
-    let result = mcp::load_mcp_config(&input).await;
-
-    let servers = result
-        .servers
-        .into_iter()
-        .map(|(name, config)| NativeMcpServerEntry {
-            name,
-            config: NativeMcpServerConfig {
-                transport: config.transport,
-                command: config.command,
-                args: config.args,
-                env: config.env,
-                cwd: config.cwd,
-                url: config.url,
-                headers: config.headers,
-                bearer_token_env_var: config.bearer_token_env_var,
-                enabled: config.enabled,
-                startup_timeout_ms: config.startup_timeout_ms,
-                tool_timeout_ms: config.tool_timeout_ms,
-                enabled_tools: config.enabled_tools,
-                disabled_tools: config.disabled_tools,
-            },
-        })
-        .collect();
-
-    Ok(NativeMcpConfigLoadResult {
-        servers,
-        user_path: result.user_path,
-        project_root_path: result.project_root_path,
-        project_path: result.project_path,
-        error: result.error,
-    })
-}
-
-// ============================================================================
-// MCP — Stdio client
-// ============================================================================
-
-/// Configuration for `nativeMcpStdioSpawn`.
-#[napi(object)]
-pub struct NativeMcpStdioSpawnConfig {
-    pub command: String,
-    pub args: Option<Vec<String>>,
-    pub env: Option<HashMap<String, String>>,
-    pub cwd: Option<String>,
-}
-
-/// Result of `nativeMcpStdioSpawn`.
-#[napi(object)]
-pub struct NativeMcpStdioSpawnResult {
-    pub handle: i64,
-    pub pid: u32,
-}
-
-/// A tool definition returned by `tools/list`.
-#[napi(object)]
-pub struct NativeMcpToolDef {
-    pub name: String,
-    pub description: String,
-    pub input_schema: String,
-}
-
-#[napi]
-pub async fn native_mcp_stdio_spawn(
-    config: NativeMcpStdioSpawnConfig,
-) -> Result<NativeMcpStdioSpawnResult, napi::Error> {
-    let spawn_config = mcp::StdioSpawnConfig {
-        command: config.command,
-        args: config.args.unwrap_or_default(),
-        env: config.env.unwrap_or_default(),
-        cwd: config.cwd,
-    };
-    let result = mcp::stdio_spawn(&spawn_config)
-        .await
-        .map_err(napi::Error::from_reason)?;
-    Ok(NativeMcpStdioSpawnResult {
-        handle: result.handle as i64,
-        pid: result.pid,
-    })
-}
-
-#[napi]
-pub async fn native_mcp_stdio_initialize(
-    handle: i64,
-    client_name: String,
-    client_version: String,
-    timeout_ms: Option<u32>,
-) -> Result<String, napi::Error> {
-    let result = mcp::stdio_initialize(handle as u64, &client_name, &client_version, timeout_ms)
-        .await
-        .map_err(napi::Error::from_reason)?;
-    serde_json::to_string(&result)
-        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize result: {}", e)))
-}
-
-#[napi]
-pub async fn native_mcp_stdio_list_tools(
-    handle: i64,
-) -> Result<Vec<NativeMcpToolDef>, napi::Error> {
-    let tools = mcp::stdio_list_tools(handle as u64)
-        .await
-        .map_err(napi::Error::from_reason)?;
-    Ok(tools
-        .into_iter()
-        .map(|tool| NativeMcpToolDef {
-            name: tool.name,
-            description: tool.description,
-            input_schema: serde_json::to_string(&tool.input_schema).unwrap_or_default(),
-        })
-        .collect())
-}
-
-#[napi]
-pub async fn native_mcp_stdio_call_tool(
-    handle: i64,
-    name: String,
-    args_json: String,
-    timeout_ms: Option<u32>,
-) -> Result<String, napi::Error> {
-    let args: serde_json::Value = serde_json::from_str(&args_json)
-        .map_err(|e| napi::Error::from_reason(format!("Invalid args JSON: {}", e)))?;
-    let result = mcp::stdio_call_tool(handle as u64, &name, &args, timeout_ms)
-        .await
-        .map_err(napi::Error::from_reason)?;
-    serde_json::to_string(&result)
-        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize result: {}", e)))
-}
-
-#[napi]
-pub async fn native_mcp_stdio_close(handle: i64) -> Result<(), napi::Error> {
-    mcp::stdio_close(handle as u64)
-        .await
-        .map_err(napi::Error::from_reason)
-}
-
-#[napi]
-pub async fn native_mcp_stdio_stderr_snapshot(handle: i64) -> String {
-    mcp::stdio_stderr_snapshot(handle as u64).await
-}
-
-#[napi]
-pub async fn native_mcp_stdio_is_alive(handle: i64) -> bool {
-    mcp::stdio_is_alive(handle as u64).await
 }
 
 // ============================================================================

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
@@ -51,4 +51,28 @@ describe('HostFileSystem stat / lstat', () => {
     await expect(fs.stat(link)).rejects.toThrow();
     expect((await fs.lstat(link)).isSymbolicLink).toBe(true);
   });
+
+  describe('HostFileSystem writeText atomic', () => {
+    it('writes text and leaves no temp files behind', async () => {
+      const file = join(dir, 'a.txt');
+      await fs.writeText(file, 'hello');
+      expect(await readFile(file, 'utf8')).toBe('hello');
+
+      const entries = await readdir(dir);
+      expect(entries.filter((entry) => entry.includes('.tmp'))).toEqual([]);
+    });
+
+    it('writes through symlinks without replacing the link', async () => {
+      const target = join(dir, 'target.txt');
+      await writeFile(target, 'old', 'utf8');
+      const link = join(dir, 'link.txt');
+      await symlink(target, link);
+
+      await fs.writeText(link, 'new');
+
+      expect(await readFile(target, 'utf8')).toBe('new');
+      expect((await fs.lstat(link)).isSymbolicLink).toBe(true);
+    });
+  });
+
 });

@@ -10,7 +10,7 @@
  * Ported from deepseek-harness `spill/spill-local` (MIT).
  */
 
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 
 import { t } from '@moonshot-ai/kimi-i18n';
 
@@ -54,9 +54,21 @@ export class SpillService extends Service implements ISpillService {
 
   async readText(locator: ReturnType<typeof SpillLocator>): Promise<string | null> {
     const root = this.spillRoot();
-    if (!isWithinRoot(locator, root)) return null;
+    let resolvedLocator: string;
+    let resolvedRoot: string;
     try {
-      return await readFile(locator, 'utf8');
+      // Resolve symlinks before the containment check so a planted link inside
+      // the spill root cannot be used to read an arbitrary file outside it.
+      resolvedLocator = await realpath(locator);
+      resolvedRoot = await realpath(root);
+    } catch {
+      // Absent artifact, unreadable root, or an unresolvable locator all read
+      // as missing; the caller degrades to the inline truncated output.
+      return null;
+    }
+    if (!isWithinRoot(resolvedLocator, resolvedRoot)) return null;
+    try {
+      return await readFile(resolvedLocator, 'utf8');
     } catch {
       // Absent artifact (or an unreadable one) reads as missing; the caller
       // degrades to the inline truncated output.
@@ -66,8 +78,15 @@ export class SpillService extends Service implements ISpillService {
 }
 
 function isWithinRoot(path: string, root: string): boolean {
-  const normalizedPath = path.replaceAll('\\', '/');
+  const normalizedPath = path.replaceAll('\\', '/').replace(/\/+$/, '');
   const normalizedRoot = root.replaceAll('\\', '/').replace(/\/+$/, '');
   if (normalizedRoot === '') return false;
-  return normalizedPath.startsWith(`${normalizedRoot}/`) || normalizedPath === normalizedRoot;
+  // Windows paths are case-insensitive; compare lowercased so a drive-letter
+  // or directory-case difference does not defeat the containment guard.
+  if (process.platform === 'win32') {
+    const lowerPath = normalizedPath.toLowerCase();
+    const lowerRoot = normalizedRoot.toLowerCase();
+    return lowerPath === lowerRoot || lowerPath.startsWith(`${lowerRoot}/`);
+  }
+  return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`);
 }

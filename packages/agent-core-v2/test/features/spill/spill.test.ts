@@ -9,7 +9,7 @@
  */
 
 import { mkdtempSync, readFileSync, statSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -202,6 +202,24 @@ describe('SpillService', () => {
     expect(await service.readText(SpillLocator('C:\\Windows\\win.ini'))).toBeNull();
     expect(await service.readText(SpillLocator(join(root, '..', 'outside.txt')))).toBeNull();
   });
+
+    it('refuses to read through a symlink that escapes the root', async () => {
+      const root = scratchDir();
+      const outsideDir = scratchDir();
+      const outside = join(outsideDir, 'secret.txt');
+      await writeFile(outside, 'secret', 'utf8');
+      const link = join(root, 'escape.txt');
+      try {
+        await symlink(outside, link);
+      } catch {
+        // Symlink creation may be unavailable (e.g. Windows without privilege);
+        // the containment guard is still covered by the lexical tests above.
+        return;
+      }
+      const service = spillService(root);
+      expect(await service.readText(SpillLocator(link))).toBeNull();
+    });
+
 
   it('reads a missing artifact as null', async () => {
     const root = scratchDir();

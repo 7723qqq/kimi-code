@@ -5,18 +5,22 @@
  * Bound at App scope.
  */
 
+import { randomBytes } from 'node:crypto';
 import {
   appendFile,
+  chmod,
   lstat,
   open,
   readFile,
   readdir,
   mkdir,
   realpath as nodeRealpath,
+  rename,
   rm,
   stat as nodeStat,
   writeFile,
 } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { decodeTextWithErrors, type TextDecodeErrors } from '#/_base/execEnv/decodeText';
@@ -69,9 +73,57 @@ export class HostFileSystem implements IHostFileSystem {
 
   async writeText(path: string, data: string): Promise<void> {
     try {
-      await writeFile(path, data, 'utf8');
+      await this.atomicWriteText(path, data);
     } catch (error) {
       throw toHostFsError(error, { path, op: 'write' });
+    }
+  }
+
+  /**
+   * Write text via a temporary file in the same directory followed by rename.
+   * This prevents a crash from leaving a truncated destination. Symlink
+   * targets are written through in-place so the link itself is preserved.
+   */
+  private async atomicWriteText(path: string, data: string): Promise<void> {
+    // Preserve symlink semantics: if the destination is a symlink, write
+    // through it exactly like the previous non-atomic path.
+    try {
+      const st = await lstat(path);
+      // Preserve symlinks and special files (FIFO, device, socket, ...);
+      // atomic rename is only safe for regular files.
+      if (st.isSymbolicLink() || !st.isFile()) {
+        await writeFile(path, data, 'utf8');
+        return;
+      }
+    } catch {
+      // ENOENT or any lstat failure means we can proceed with the atomic path.
+    }
+
+    const dir = dirname(path);
+    const base = basename(path);
+    const tempPath = join(dir, `.${base}.${randomBytes(6).toString('hex')}.tmp`);
+
+    try {
+      const handle = await open(tempPath, 'wx');
+      try {
+        await handle.writeFile(data, { encoding: 'utf8' });
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+
+      // Best-effort permission preservation.
+      try {
+        const st = await nodeStat(path);
+        await chmod(tempPath, st.mode);
+      } catch {
+        // New file or platform limitation: keep default permissions.
+      }
+
+      await rename(tempPath, path);
+    } catch (error) {
+      await rm(tempPath, { force: true }).catch(() => {});
+      throw error;
     }
   }
 
