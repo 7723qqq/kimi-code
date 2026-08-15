@@ -174,10 +174,10 @@ describe('e2e: kimi adapter', () => {
       expect(harness.requests[0]!.headers['authorization']).toBe('Bearer test-key');
       expect(result.id).toBe('chatcmpl-kimi-1');
       expect(result.usage).toEqual({
-        inputOther: 10,
+        inputOther: 0,
         output: 6,
         inputCacheRead: 2,
-        inputCacheCreation: 0,
+        inputCacheCreation: 10,
       });
       expect(result.parts).toHaveLength(4);
       expect(result.parts[0]).toMatchObject({ type: 'think', think: 'Let me think. ' });

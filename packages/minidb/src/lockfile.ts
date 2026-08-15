@@ -55,12 +55,13 @@ let exitHooked = false;
 // settle is ADAPTIVE: it scales with how long our own takeover attempt took
 // (4x the wall clock of inspect+writeBid+rename — a stalled machine stalls
 // every bidder), floored at 60ms and capped at 2s so a healthy takeover stays
-// fast. Residual (bounded-delay, inherent to file-based takeover): a bidder
-// whose writeBid is delayed past the winner's final verify can still
-// double-win — the liveness-watch check at verification shrinks this window
-// to "competitor had not even registered its watch yet" (the watch precedes
-// the whole attempt), which requires a full-attempt+settle-sized skew and is
-// effectively a process-level pause.
+// fast. Exactly-one is then a construction, not a timing bet: every
+// contender's watch registration precedes its whole attempt (a racer that
+// has not registered yet cannot have started, so it will only ever see our
+// live line), unreadable registrations count as live contenders instead of
+// being skipped, and the claim is finalized only by a synchronous re-verify
+// that the lock line is still ours — no scheduler interleaving can land
+// between that re-verify and markHeld.
 const TAKEOVER_SETTLE_BASE_MS = 60;
 const TAKEOVER_SETTLE_MAX_MS = 2_000;
 function hookExit(): void {
@@ -199,8 +200,17 @@ export class LockFile {
         // registration precedes its whole attempt): wait for its loop to
         // finish instead of claiming on stale evidence. This is the check
         // that makes exactly-one a construction, not a timing bet.
-        if (!(await this.hasLiveForeignWatch())) break;
-        settleMs = Math.min(TAKEOVER_SETTLE_MAX_MS, settleMs * 2);
+        if (await this.hasLiveForeignWatch(path.basename(watch))) {
+          settleMs = Math.min(TAKEOVER_SETTLE_MAX_MS, settleMs * 2);
+          continue;
+        }
+        // No contender is in flight, but a straggler could still land its
+        // rename between the foreign-watch check and this re-verify. Claim
+        // only while the file STILL carries our line; nothing can interleave
+        // between the re-verify and markHeld (both synchronous).
+        const verify = await this.inspect();
+        if (verify === null || !verify.mine) return false;
+        break;
       }
       this.markHeld();
       return true;
@@ -227,19 +237,26 @@ export class LockFile {
    *  registration counts, so the settle loop waits for the competitor's whole
    *  attempt to finish instead of claiming on stale evidence. A legacy
    *  tokenless watch line cannot be told apart from our own when its pid is
-   *  ours, so it keeps the old pid-based exclusion. */
-  private async hasLiveForeignWatch(): Promise<boolean> {
+   *  ours, so it keeps the old pid-based exclusion. `ownWatch` (basename) is
+   *  this instance's own registration — never foreign. A registration that
+   *  cannot be read is conservatively live: skipping it could let us claim
+   *  on incomplete evidence and re-open the double-win this check closes. */
+  private async hasLiveForeignWatch(ownWatch: string): Promise<boolean> {
     const dir = path.dirname(this.path);
     const prefix = `${path.basename(this.path)}.watch-`;
     for (const f of await fs.readdir(dir).catch(() => [] as string[])) {
-      if (!f.startsWith(prefix)) continue;
+      if (!f.startsWith(prefix) || f === ownWatch) continue;
       const pid = Number(f.slice(prefix.length).split('-')[0]);
       if (!Number.isInteger(pid)) continue;
       let token: string | undefined;
       try {
         token = (JSON.parse(await fs.readFile(path.join(dir, f), 'utf8')) as { token?: string }).token;
       } catch {
-        token = undefined; // unreadable/partial line: fall back to the pid in the name
+        // Unreadable (transient handle contention) or vanished between
+        // readdir and readFile (its owner just finished). Either way we
+        // cannot prove it is not a live contender's registration — wait one
+        // more settle period instead of claiming.
+        return true;
       }
       if (token !== undefined ? token === this.token : pid === process.pid) continue;
       if (pidAlive(pid)) return true;

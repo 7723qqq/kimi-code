@@ -11,8 +11,8 @@ import { tmpdir } from 'node:os';
 import { join as pathJoin } from 'node:path';
 import { join } from 'pathe';
 
-import { createKimiHarness, KimiHarness } from '#/index';
-import type { KimiError } from '#/index';
+import { createKimiHarness } from '#/index';
+import type { KimiError , KimiHarness } from '#/index';
 import type { ResumeSessionInput, ResumedSessionSummary } from '#/types';
 import { SDKRpcClientBase } from '#/rpc';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -674,21 +674,21 @@ effort = "medium"
     expect(harness.sessions.size).toBe(0);
   });
 
-  it('rejects deleteSession with not_implemented (v2 has no session deletion)', async () => {
-    // The v2 engine has no session-deletion capability anywhere (tracked in
-    // .tmp/v2-migration-tracker.md); the v1 client permanently removed the
-    // session directory and index entry.
+  it('deletes the session and rejects missing sessions with session.not_found', async () => {
+    // v2 deletion was implemented with the extension's v2 engine switch
+    // (7475c2e2e): the engine closes the live session, removes the session
+    // directory and the index entry; a missing session rejects with v1's
+    // session.not_found shape.
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
 
     try {
       const session = await harness.createSession({ id: 'ses_delete_active', workDir });
-      await expect(harness.deleteSession(session.id)).rejects.toMatchObject({
-        code: 'not_implemented',
-      });
+      await expect(harness.deleteSession(session.id)).resolves.toBeUndefined();
+      expect(harness.getSession(session.id)).toBeUndefined();
       await expect(harness.deleteSession('ses_delete_missing')).rejects.toMatchObject({
-        code: 'not_implemented',
+        code: 'session.not_found',
       });
     } finally {
       await harness.close();

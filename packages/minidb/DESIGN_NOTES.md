@@ -236,7 +236,7 @@ delta+varint compressed, CRC-framed), while only the small term dictionary
 RAM. Writes go to an in-memory `delta` and deletes set a tombstone; `search`
 reads each query term's postings from disk (or a small LRU cache), merges the
 delta, drops tombstones, and scores — synchronously, so `db.search()` /
-`db.query()` keep their sync API. See `src/text-index.ts` and
+`db.query()` keep their sync API. See `src/text-index/` (directory) and
 `src/text-postings.ts`.
 
 `db.query(q)` composes all four: it intersects candidate key sets from the key
@@ -256,7 +256,7 @@ rebuilt.
 - **Main thread**: all GET/SET/DEL and index maintenance — lock-free by virtue
   of the single-threaded event loop. Snapshot encoding is chunked + yielding so
   it does not starve other work.
-- **Single writer** at process scope, like SQLite WAL. No multi-process locking
+- **Single writer** at process scope, like SQLite WAL. ~~No multi-process locking~~ (superseded: `ClusterDb` + `src/lockfile.ts` implement cross-process locking; see the lockfile module)
   in v1.
 - A future `worker_thread` can offload snapshot encoding / compression / heavy
   CRC if needed (Node's analog of Redis's `fork()`/COW).
@@ -295,7 +295,7 @@ src/
 ## 13. Roadmap
 
 1. **MVP**: Map index + get/set/del + WAL (`everysec`) + recovery replay.
-2. **Durability**: snapshot + WAL rewrite/compaction (Worker).
+2. **Durability**: snapshot + WAL rewrite/compaction (Worker). (Done: worker compaction shipped; see `src/worker/`.)
 3. **Queries**: secondary indexes + skiplist range.
 4. **Server**: RESP-like protocol.
 5. **Extras**: eviction (LRU/LFU), compression, sharding.

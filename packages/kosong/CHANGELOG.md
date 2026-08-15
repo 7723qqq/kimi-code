@@ -1,5 +1,14 @@
 # @moonshot-ai/kosong
 
+## 0.6.0
+
+### Patch Changes
+
+- [9b136d91](https://github.com/7723qqq/kimi-code/commit/9b136d915) - Split Anthropic/OpenAI cache-creation tokens so the cache hit rate is not stuck at 100%, and harden cache correctness / prompt-cache prefix stability.
+- [25f6530f](https://github.com/7723qqq/kimi-code/commit/25f6530fe) - Support DeepSeek prompt-cache accounting and drop the cache-breaking tool injection.
+- [1cf24442](https://github.com/7723qqq/kimi-code/commit/1cf244427) - Extract anthropic cache-breakpoint injection into a shared kosong module.
+- [cdbd33c1](https://github.com/7723qqq/kimi-code/commit/cdbd33c13) - Fail fast on quota-exhausted 429 responses instead of retrying.
+
 ## 0.5.5
 
 ### Patch Changes

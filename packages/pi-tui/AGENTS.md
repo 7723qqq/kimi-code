@@ -1,6 +1,6 @@
 # pi-tui Agent Guide
 
-`packages/pi-tui` is a vendored copy of pi-tui from the upstream pi-mono project (baseline: upstream 0.80.2, see commit `7859b0af`). It is no longer patched via pnpm patches — all local fixes are applied directly to the source. The differential-rendering behavior in `src/tui.ts` matches upstream: the fork's viewport/scrollback rendering patches were reverted; the only remaining divergences are listed below.
+`packages/pi-tui` is a vendored copy of pi-tui from the upstream pi-mono project (baseline: upstream 0.84.1, see commit `ec84a6f9` (re-baselined 2026-08-12; package version now 0.84.3)). It is no longer patched via pnpm patches — all local fixes are applied directly to the source. The differential-rendering behavior in `src/tui.ts` matches upstream: the fork's viewport/scrollback rendering patches were reverted; the only remaining divergences are listed below.
 
 ## Local divergences from upstream (must be preserved on every re-vendor)
 

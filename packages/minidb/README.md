@@ -328,8 +328,7 @@ and flash wear:
 ## RESP server (redis-cli compatible)
 
 ```bash
-npm run server -- --dir ./data --port 6379
-# or: node --import tsx src/server.ts --dir ./data --port 6379
+node --import tsx src/server.ts --dir ./data --port 6379
 ```
 
 Then in another shell:
@@ -389,12 +388,10 @@ pnpm bench:cluster   # bench/cluster.ts — spawns real writer/reader processes
 
 ## Testing
 
-Three layers of tests, run with the built-in `node:test` runner (no deps):
+Three layers of tests (unit under `test/`, stability suite under `test/e2e/`, sharding suite under `test/cluster/`), run with **vitest**:
 
 ```bash
-npm test            # unit tests (fast)
-npm run test:e2e    # end-to-end stability suite
-npm run test:all    # both
+npm test    # runs every suite
 ```
 
 The **unit tests** (`test/*.test.js`) cover each module: frame codec/CRC, WAL
@@ -413,7 +410,7 @@ long-run behavior:
 | `recovery-matrix.test.js` | WAL corruption at head/mid/tail under `resync` vs `strict` |
 | `durability.test.js` | `always`/`everysec`/`no` close-durability + many open/close cycles |
 | `boundary.test.js` | key-length limits, large values, many keys, empty db |
-| `soak.test.js` | sustained ops + heap stability (opt-in: `SOAK=30 npm run test:e2e`) |
+| `soak.test.js` | sustained ops + heap stability (opt-in: `SOAK=30 npm run test`) |
 
 The **cluster suite** (`test/cluster/*.test.ts`) covers the `ClusterDb`
 sharding layer: topology/routing, merged scans, lock contention and lease

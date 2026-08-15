@@ -353,17 +353,18 @@ describe('Session.prompt events', () => {
       expect(events).not.toContainEqual(expect.objectContaining({ type: 'subagent.spawned' }));
       expect(events).not.toContainEqual(expect.objectContaining({ type: 'subagent.completed' }));
       expect(events).not.toContainEqual(expect.objectContaining({ type: 'subagent.failed' }));
-      // v2's RPC prompt path updates the session metadata unconditionally (v1
-      // updated it for the main agent only), so a session.meta.updated event
-      // is expected here rather than excluded. The provider-level assertions
+      // The metadata tracks prompt-derived title/lastPrompt for the main
+      // agent only (v2 matches v1 here), so the btw child's prompt does not
+      // emit a session.meta.updated event. The provider-level assertions
       // are dropped: the fake kosong `createProvider` mock only intercepts
       // v1's provider layer.
 
       const statePath = join(session.summary!.sessionDir, 'state.json');
       const state = JSON.parse(await readFile(statePath, 'utf-8')) as Record<string, unknown>;
-      // v2's RPC prompt path updates the metadata unconditionally (v1 did it
-      // for the main agent only), so the btw child's prompt is the last one.
-      expect(state['lastPrompt']).toBe('What are you working on right now?');
+      // The metadata tracks prompt-derived title/lastPrompt for the main
+      // agent only (v2 matches v1 here), so the btw child's prompt leaves
+      // the session-level lastPrompt untouched.
+      expect(state['lastPrompt']).toBe('main task context');
       expect(state['agents']).toMatchObject({ main: expect.any(Object) });
       // v2's btw child is a regular persisted agent (v1's was memory-only,
       // pinned in the migration tracker), so it appears in the metadata.
@@ -382,7 +383,7 @@ describe('Session.prompt events', () => {
     }
   });
 
-  it('rejects historical turn-index forks (v2 not implemented)', async () => {
+  it('rejects out-of-range turn-index forks with request.invalid (v2 pinned)', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
@@ -390,9 +391,10 @@ describe('Session.prompt events', () => {
     try {
       const source = await harness.createSession({ id: 'ses_turn_fork_source', workDir });
 
-      // v1 truncated a fork to a historical turn (and rejected out-of-range
-      // indexes with request.invalid); v2's fork has no turnIndex counterpart
-      // and fails loudly (pinned in the migration tracker).
+      // v2's fork truncates at a turn index with v1's rules (implemented
+      // with the extension's v2 engine switch): an index beyond the
+      // recorded turns rejects with request.invalid and leaves no fork
+      // behind.
       await expect(
         harness.forkSession({
           id: source.id,
@@ -400,7 +402,7 @@ describe('Session.prompt events', () => {
           turnIndex: 1,
         }),
       ).rejects.toMatchObject({
-        code: 'not_implemented',
+        code: 'request.invalid',
       });
       await expect(
         harness.listSessions({ sessionId: 'ses_turn_fork_child' }),

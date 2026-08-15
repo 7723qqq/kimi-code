@@ -1528,10 +1528,10 @@ describe('OpenAIResponsesChatProvider', () => {
       ]);
 
       expect(stream.usage).toEqual({
-        inputOther: 15,
+        inputOther: 0,
         output: 10,
         inputCacheRead: 5,
-        inputCacheCreation: 0,
+        inputCacheCreation: 15,
       });
     });
 

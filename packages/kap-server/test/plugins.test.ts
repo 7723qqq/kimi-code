@@ -580,7 +580,12 @@ describe('server-v2 /api/v1 plugins', () => {
     expect(cu?.tier).toBe('official');
     expect(cu?.capabilityId).toBe('kimi-cu');
     expect(cu?.source).toBe('capability:kimi-cu');
-    expect(cu?.displayName).toBe('Kimi Computer Use');
+    // The capability descriptor's display name is platform-specific
+    // (agent-core-v2's kimiCu entry: 'Kimi Computer Use for Windows' on
+    // Windows, plain 'Kimi Computer Use' on macOS).
+    expect(cu?.displayName).toBe(
+      process.platform === 'win32' ? 'Kimi Computer Use for Windows' : 'Kimi Computer Use',
+    );
 
     // Injected rows join install state like catalog rows.
     const cuSource = await makePluginDir('kimi-cu', '0.5.8');
