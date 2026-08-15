@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, normalize } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -12,6 +12,18 @@ import {
   loadAgentsMdDetailed,
   prepareSystemPromptContext,
 } from '#/agent/profile/context';
+
+// These suites count fs.readdir calls to assert the preload/freeze behavior
+// of the TS list-directory path. Stub the native addon so a locally-built
+// addon (which lists directories in Rust) cannot bypass the readdir spies.
+vi.mock('#/_base/native-tools', async () => {
+  const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
+  const stubs: Record<string, unknown> = {};
+  for (const key of Object.keys(actual)) {
+    stubs[key] = vi.fn(() => undefined);
+  }
+  return stubs;
+});
 
 function createFs(): IHostFileSystem {
   return new HostFileSystem();

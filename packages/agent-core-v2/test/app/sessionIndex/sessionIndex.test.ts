@@ -2,7 +2,12 @@ import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// This file includes a heavy baseline benchmark (~30s) and read-model
+// lifecycle tests that exceed the 5s default timeout under parallel
+// full-suite load. Raise the file-wide timeout.
+vi.setConfig({ testTimeout: 120_000 });
 
 import { LifecycleScope } from '#/app/scopes';
 import {

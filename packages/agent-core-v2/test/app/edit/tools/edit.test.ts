@@ -31,6 +31,20 @@ import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
+// These suites exercise the TS edit path (text model, CRLF handling,
+// exact-match semantics) through the real FileEditService. Stub the native
+// addon so a locally-built addon cannot hijack the assertions: every native
+// binding is undefined by default, which routes the tool to the TS
+// implementation exactly like an environment without the addon.
+vi.mock('#/_base/native-tools', async () => {
+  const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
+  const stubs: Record<string, unknown> = {};
+  for (const key of Object.keys(actual)) {
+    stubs[key] = vi.fn(() => undefined);
+  }
+  return stubs;
+});
+
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');
 
