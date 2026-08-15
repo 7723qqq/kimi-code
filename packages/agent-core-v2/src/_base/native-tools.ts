@@ -8,10 +8,20 @@
  * synchronously — the leaf helpers below (escape / tokens / name sanitize)
  * are intentionally synchronous to keep their call sites unchanged.
  *
- * Everything here is best-effort. If the native module is not built, fails to
- * load, or a native call throws, every wrapper returns `undefined` and the
- * caller's TypeScript fallback runs. No feature flag is required: an
- * absent or broken module simply degrades to the TS implementation.
+ * Everything here is best-effort with three distinct failure classes:
+ *
+ *   1. **Module unavailable** — the addon is not built / fails to load /
+ *      the function is missing (version skew). Wrappers return `undefined`
+ *      and the caller's TypeScript fallback runs. This is the designed
+ *      degradation path (e.g. dev checkouts without a built addon).
+ *   2. **Native call threw** — the napi boundary itself errored (argument
+ *      serialization, unexpected throw from Rust). These are *not* treated
+ *      as "module missing": the failure is reported to stderr, and the
+ *      tool-shaped wrappers (read/write/edit/grep/fetch/search/list-dir)
+ *      return an error verdict that is final, so a native bug is never
+ *      silently re-run through the TS implementation.
+ *   3. **Native returned an error field** — a normal native error result;
+ *      the caller owns the verdict (same convention as class 2).
  *
  * When the module IS built, napi-rs exposes the Rust `snake_case` functions
  * as `camelCase` JS identifiers (e.g. `native_escape_xml` → `nativeEscapeXml`).
@@ -22,6 +32,16 @@ const requireNative = createRequire(import.meta.url);
 
 // Three-state cache: undefined = not tried, null = tried & failed, object = loaded.
 let nativeModule: Record<string, unknown> | null | undefined;
+
+/** Report a native call that threw at the napi boundary (never silent). */
+function reportNativeFailure(name: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  try {
+    process.stderr.write(`[native-tools] native ${name} threw: ${message}\n`);
+  } catch {
+    // stderr itself failed — nothing sensible left to do.
+  }
+}
 
 function getNativeModule(): Record<string, unknown> | undefined {
   if (nativeModule === null) return undefined;
@@ -42,44 +62,67 @@ function getNativeFn(name: string): ((...args: unknown[]) => unknown) | undefine
   return typeof fn === 'function' ? (fn as (...args: unknown[]) => unknown) : undefined;
 }
 
-/** Call a synchronous native function; returns `undefined` on any failure. */
-function callNativeSync<T>(name: string, ...args: unknown[]): T | undefined {
+/**
+ * Call a synchronous native function.
+ *
+ * Returns `undefined` when the module is unavailable (designed fallback).
+ * When the call itself throws, the failure is reported to stderr and
+ * `onThrown` (when provided) builds the caller's error verdict — a thrown
+ * native call is never silently treated as "module missing".
+ */
+function callNativeSync<T>(
+  name: string,
+  args: unknown[],
+  onThrown?: (message: string) => T | undefined,
+): T | undefined {
   const fn = getNativeFn(name);
   if (fn === undefined) return undefined;
   try {
     const result = fn(...args);
     return (result as T) ?? undefined;
-  } catch {
-    return undefined;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    reportNativeFailure(name, error);
+    return onThrown ? onThrown(message) : undefined;
   }
 }
 
-/** Call an async native function (returns a Promise); `undefined` on failure. */
-async function callNativeAsync<T>(name: string, ...args: unknown[]): Promise<T | undefined> {
+/**
+ * Call an async native function.
+ *
+ * Same failure-class semantics as `callNativeSync`.
+ */
+async function callNativeAsync<T>(
+  name: string,
+  args: unknown[],
+  onThrown?: (message: string) => T | undefined,
+): Promise<T | undefined> {
   const fn = getNativeFn(name);
   if (fn === undefined) return undefined;
   try {
     const result = await (fn(...args) as Promise<T> | T);
     return result ?? undefined;
-  } catch {
-    return undefined;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    reportNativeFailure(name, error);
+    return onThrown ? onThrown(message) : undefined;
   }
 }
 
 // ── XML / HTML escaping ─────────────────────────────────────────────
 export function tryNativeEscapeXml(input: string): string | undefined {
-  return callNativeSync<string>('nativeEscapeXml', input);
+  return callNativeSync<string>('nativeEscapeXml', [input]);
 }
 export function tryNativeEscapeXmlAttr(input: string): string | undefined {
-  return callNativeSync<string>('nativeEscapeXmlAttr', input);
+  return callNativeSync<string>('nativeEscapeXmlAttr', [input]);
 }
 export function tryNativeEscapeXmlTags(input: string): string | undefined {
-  return callNativeSync<string>('nativeEscapeXmlTags', input);
+  return callNativeSync<string>('nativeEscapeXmlTags', [input]);
 }
 
 // ── Token estimation / truncation ───────────────────────────────────
 export function tryNativeEstimateTokens(text: string): number | undefined {
-  return callNativeSync<number>('nativeEstimateTokens', text);
+  return callNativeSync<number>('nativeEstimateTokens', [text]);
 }
 
 // ── File Read (native fast-path) ─────────────────────────────────────
@@ -90,9 +133,9 @@ export interface NativeReadResult {
   readonly error?: string;
   /**
    * Machine-readable error class — `not_found` / `not_a_file` / `media` /
-   * `binary` / `invalid_utf8` / `io` / `panic`. Observability metadata
-   * only: every native error is a final verdict regardless of whether the
-   * kind is present.
+   * `binary` / `invalid_utf8` / `io` / `panic` / `native_error`.
+   * Observability metadata only: every native error is a final verdict
+   * regardless of whether the kind is present.
    */
   readonly errorKind?: string;
 }
@@ -100,12 +143,18 @@ export interface NativeReadResult {
 /**
  * Try the Rust native file read. Returns `undefined` when the native
  * module is unavailable, letting the caller fall through to the TS path.
+ * A native call that throws is a final error verdict (never re-run in TS).
  */
-export async function tryNativeRead(
+export function tryNativeRead(
   path: string,
   options?: { lineOffset?: number; nLines?: number },
 ): Promise<NativeReadResult | undefined> {
-  return callNativeAsync<NativeReadResult>('nativeRead', path, options ?? {});
+  return callNativeAsync<NativeReadResult>('nativeRead', [path, options ?? {}], (message) => ({
+    content: '',
+    lineCount: 0,
+    error: `native read failed: ${message}`,
+    errorKind: 'native_error',
+  }));
 }
 
 // ── File Write (native fast-path) ────────────────────────────────────
@@ -126,30 +175,39 @@ export interface NativeWriteResult {
  * The write is a plain truncating pass (or `O_APPEND`), matching the TS
  * writeText semantics — not a temp-file-and-rename atomic write.
  * Returns `undefined` when the native module is unavailable.
+ * A native call that throws is a final error verdict (never re-run in TS).
  */
-export async function tryNativeWrite(
+export function tryNativeWrite(
   path: string,
   content: string,
   mode?: 'overwrite' | 'append',
 ): Promise<NativeWriteResult | undefined> {
-  return callNativeAsync<NativeWriteResult>('nativeWrite', path, content, { mode: mode ?? null });
+  return callNativeAsync<NativeWriteResult>(
+    'nativeWrite',
+    [path, content, { mode: mode ?? null }],
+    (message) => ({
+      bytesWritten: 0,
+      error: `native write failed: ${message}`,
+      errorKind: 'native_error',
+    }),
+  );
 }
 export function tryNativeEstimateTokensBatch(texts: readonly string[]): number | undefined {
-  return callNativeSync<number>('nativeEstimateTokensBatch', [...texts]);
+  return callNativeSync<number>('nativeEstimateTokensBatch', [[...texts]]);
 }
 export function tryNativeTruncateTextToTokens(text: string, maxTokens: number): string | undefined {
-  return callNativeSync<string>('nativeTruncateTextToTokens', text, maxTokens);
+  return callNativeSync<string>('nativeTruncateTextToTokens', [text, maxTokens]);
 }
 
 // ── MCP tool-name sanitization ──────────────────────────────────────
 export function tryNativeSanitizeMcpNamePart(part: string): string | undefined {
-  return callNativeSync<string>('nativeSanitizeMcpNamePart', part);
+  return callNativeSync<string>('nativeSanitizeMcpNamePart', [part]);
 }
 export function tryNativeQualifyMcpToolName(
   serverName: string,
   toolName: string,
 ): string | undefined {
-  return callNativeSync<string>('nativeQualifyMcpToolName', serverName, toolName);
+  return callNativeSync<string>('nativeQualifyMcpToolName', [serverName, toolName]);
 }
 
 // ── Image compression (async; wired into image-compress.ts) ────────
@@ -191,8 +249,7 @@ export async function tryNativeCompressImage(
   mimeType: string,
   config: NativeCompressImageConfig,
 ): Promise<NativeCompressImageResult | undefined> {
-  const result = await callNativeAsync<NativeCompressImageResult | null>(
-    'nativeCompressImage',
+  const result = await callNativeAsync<NativeCompressImageResult | null>('nativeCompressImage', [
     data,
     mimeType,
     {
@@ -201,7 +258,7 @@ export async function tryNativeCompressImage(
       fallbackEdges: [...config.fallbackEdges],
       jpegQualitySteps: [...config.jpegQualitySteps],
     },
-  );
+  ]);
   return result ?? undefined;
 }
 
@@ -216,7 +273,7 @@ export function tryNativeGlobMatchesAny(
   globs: readonly string[],
   path: string,
 ): boolean | undefined {
-  return callNativeSync<boolean>('nativeGlobMatchesAny', [...globs], path);
+  return callNativeSync<boolean>('nativeGlobMatchesAny', [[...globs], path]);
 }
 
 // ── Compaction (sync; wired into strategy.ts) ───────────────────────
@@ -264,7 +321,7 @@ export function tryNativeComputeCompactCount(
   config: NativeCompactionConfigMeta,
   isManual: boolean,
 ): number | undefined {
-  return callNativeSync<number>('nativeComputeCompactCount', [...messages], config, isManual);
+  return callNativeSync<number>('nativeComputeCompactCount', [[...messages], config, isManual]);
 }
 
 /**
@@ -279,7 +336,7 @@ export function tryNativeReduceCompactOnOverflow(
   messages: readonly NativeCompactionMessageMeta[],
   config: NativeCompactionConfigMeta,
 ): number | undefined {
-  return callNativeSync<number>('nativeReduceCompactOnOverflow', [...messages], config);
+  return callNativeSync<number>('nativeReduceCompactOnOverflow', [[...messages], config]);
 }
 
 // ── Image cropping (async; reused by image-compress.ts) ─────────────
@@ -322,8 +379,7 @@ export async function tryNativeCropImage(
   region: { readonly x: number; readonly y: number; readonly width: number; readonly height: number },
   config: NativeCropImageConfig,
 ): Promise<NativeCropImageOutcome | undefined> {
-  const result = await callNativeAsync<NativeCropImageOutcome | null>(
-    'nativeCropImage',
+  const result = await callNativeAsync<NativeCropImageOutcome | null>('nativeCropImage', [
     data,
     mimeType,
     region.x,
@@ -337,7 +393,7 @@ export async function tryNativeCropImage(
       fallbackEdges: [...config.fallbackEdges],
       jpegQualitySteps: [...config.jpegQualitySteps],
     },
-  );
+  ]);
   return result ?? undefined;
 }
 
@@ -349,10 +405,14 @@ export interface NativeImageDimensions {
 
 export function tryNativeSniffImageDimensions(data: Uint8Array): NativeImageDimensions | undefined {
   const m = getNativeModule();
-  if (m) {
+  const sniff = m?.['nativeSniffImageDimensions'] as
+    | ((data: Uint8Array) => NativeImageDimensions | null)
+    | undefined;
+  if (sniff) {
     try {
-      return (m as any).nativeSniffImageDimensions(new Uint8Array(data)) ?? undefined;
-    } catch {
+      return sniff(new Uint8Array(data)) ?? undefined;
+    } catch (error) {
+      reportNativeFailure('nativeSniffImageDimensions', error);
       return undefined;
     }
   }
@@ -366,11 +426,17 @@ export interface NativeFileTypeResult {
 
 export function tryNativeDetectFileType(path: string, header: Uint8Array): NativeFileTypeResult | undefined {
   const m = getNativeModule();
-  if (m && (m as any).nativeDetectFileType) {
+  const detect = m?.['nativeDetectFileType'] as
+    | ((path: string, header: Uint8Array) => { kind: string; mimeType?: string; mime_type?: string } | null)
+    | undefined;
+  if (detect) {
     try {
-      const r = (m as any).nativeDetectFileType(path, new Uint8Array(header));
-      return r ? { kind: r.kind, mimeType: r.mimeType ?? r.mime_type } : undefined;
-    } catch {
+      const r = detect(path, new Uint8Array(header));
+      return r
+        ? { kind: r.kind as NativeFileTypeResult['kind'], mimeType: r.mimeType ?? r.mime_type ?? '' }
+        : undefined;
+    } catch (error) {
+      reportNativeFailure('nativeDetectFileType', error);
       return undefined;
     }
   }
@@ -383,7 +449,7 @@ export function tryNativeDetectFileType(path: string, header: Uint8Array): Nativ
 
 /** Validate a goal objective. Returns error message on failure, or empty string on success. */
 export function tryNativeGoalValidateObjective(objective: string): string | undefined {
-  return callNativeSync<string>('nativeGoalValidateObjective', objective);
+  return callNativeSync<string>('nativeGoalValidateObjective', [objective]);
 }
 
 /** Apply a goal state update. Returns updated goal object or error. */
@@ -391,7 +457,7 @@ export function tryNativeGoalApplyUpdate(
   goalJson: string,
   updateJson: string,
 ): { ok: boolean; goal?: Record<string, unknown>; error?: string } | undefined {
-  return callNativeSync('nativeGoalApplyUpdate', goalJson, updateJson);
+  return callNativeSync('nativeGoalApplyUpdate', [goalJson, updateJson]);
 }
 
 /** Compute the chargeable token delta between two usage snapshots. */
@@ -399,28 +465,28 @@ export function tryNativeGoalComputeTokenDelta(
   prevInput: number, prevCached: number, prevOutput: number,
   currInput: number, currCached: number, currOutput: number,
 ): number | undefined {
-  return callNativeSync<number>('nativeGoalComputeTokenDelta', prevInput, prevCached, prevOutput, currInput, currCached, currOutput);
+  return callNativeSync<number>('nativeGoalComputeTokenDelta', [prevInput, prevCached, prevOutput, currInput, currCached, currOutput]);
 }
 
 /** Render the continuation steering prompt. */
 export function tryNativeGoalRenderContinuation(
   objective: string, tokensUsed: number, tokenBudget: number | null,
 ): string | undefined {
-  return callNativeSync<string>('nativeGoalRenderContinuation', objective, tokensUsed, tokenBudget);
+  return callNativeSync<string>('nativeGoalRenderContinuation', [objective, tokensUsed, tokenBudget]);
 }
 
 /** Render the budget-limit wrap-up prompt. */
 export function tryNativeGoalRenderBudgetLimit(
   objective: string, tokensUsed: number, tokenBudget: number | null, timeUsedSeconds: number,
 ): string | undefined {
-  return callNativeSync<string>('nativeGoalRenderBudgetLimit', objective, tokensUsed, tokenBudget, timeUsedSeconds);
+  return callNativeSync<string>('nativeGoalRenderBudgetLimit', [objective, tokensUsed, tokenBudget, timeUsedSeconds]);
 }
 
 /** Render the objective-updated prompt. */
 export function tryNativeGoalRenderObjectiveUpdated(
   objective: string, tokensUsed: number, tokenBudget: number | null,
 ): string | undefined {
-  return callNativeSync<string>('nativeGoalRenderObjectiveUpdated', objective, tokensUsed, tokenBudget);
+  return callNativeSync<string>('nativeGoalRenderObjectiveUpdated', [objective, tokensUsed, tokenBudget]);
 }
 
 // ============================================================================
@@ -437,12 +503,22 @@ export interface NativeFetchUrlResult {
 /**
  * Fetch a URL via Rust native HTTP client with SSRF protection and HTML
  * extraction. Returns `undefined` when the native module is unavailable.
+ * A native call that throws is a final error verdict (never re-run in TS).
  */
-export async function tryNativeFetchUrl(
+export function tryNativeFetchUrl(
   url: string,
   options?: { userAgent?: string; maxBytes?: number; allowPrivate?: boolean; timeoutMs?: number },
 ): Promise<NativeFetchUrlResult | undefined> {
-  return callNativeAsync<NativeFetchUrlResult>('nativeFetchUrl', url, options ?? {});
+  return callNativeAsync<NativeFetchUrlResult>(
+    'nativeFetchUrl',
+    [url, options ?? {}],
+    (message) => ({
+      content: '',
+      kind: 'passthrough',
+      status: 0,
+      error: `native fetch failed: ${message}`,
+    }),
+  );
 }
 
 // ============================================================================
@@ -464,12 +540,17 @@ export interface NativeWebSearchResult {
 /**
  * Search DuckDuckGo via Rust native HTTP + HTML scraping.
  * Returns `undefined` when the native module is unavailable.
+ * A native call that throws is a final error verdict (never re-run in TS).
  */
-export async function tryNativeWebSearch(
+export function tryNativeWebSearch(
   query: string,
   options?: { timeoutMs?: number; maxResults?: number },
 ): Promise<NativeWebSearchResult | undefined> {
-  return callNativeAsync<NativeWebSearchResult>('nativeWebSearch', query, options ?? {});
+  return callNativeAsync<NativeWebSearchResult>(
+    'nativeWebSearch',
+    [query, options ?? {}],
+    (message) => ({ results: [], error: `native search failed: ${message}` }),
+  );
 }
 
 // ============================================================================
@@ -501,7 +582,7 @@ export interface NativeGrepStructuredResult {
  * Use as a fallback when ripgrep is not available on PATH.
  * Returns `undefined` when the native module is unavailable.
  */
-export async function tryNativeGrepStructured(
+export function tryNativeGrepStructured(
   pattern: string,
   path: string,
   options?: {
@@ -520,18 +601,26 @@ export async function tryNativeGrepStructured(
   const opts = options ?? {};
   return callNativeAsync<NativeGrepStructuredResult>(
     'nativeGrepStructured',
-    pattern,
-    path,
-    opts.literal ?? false,
-    opts.caseInsensitive ?? false,
-    opts.includeGlobs ?? [],
-    opts.excludeGlobs ?? [],
-    opts.contextLines ?? 0,
-    opts.maxFiles ?? 5000,
-    opts.maxMatchesPerFile ?? 100,
-    opts.maxTotalMatches ?? 500,
-    opts.timeoutMs ?? 20000,
-    opts.followGitignore ?? true,
+    [
+      pattern,
+      path,
+      opts.literal ?? false,
+      opts.caseInsensitive ?? false,
+      opts.includeGlobs ?? [],
+      opts.excludeGlobs ?? [],
+      opts.contextLines ?? 0,
+      opts.maxFiles ?? 5000,
+      opts.maxMatchesPerFile ?? 100,
+      opts.maxTotalMatches ?? 500,
+      opts.timeoutMs ?? 20000,
+      opts.followGitignore ?? true,
+    ],
+    (message) => ({
+      files: [],
+      filesScanned: 0,
+      truncated: false,
+      error: `native grep failed: ${message}`,
+    }),
   );
 }
 // ============================================================================
@@ -546,10 +635,11 @@ export interface NativeEditResult {
 
 /**
  * Try the Rust native file edit. Returns `undefined` when the native module
- * is unavailable or the call fails, letting the caller fall through to the
- * TS edit path. `replaceAll` defaults to false (exactly one occurrence).
+ * is unavailable, letting the caller fall through to the TS edit path.
+ * A native call that throws is a final error verdict (never re-run in TS).
+ * `replaceAll` defaults to false (exactly one occurrence).
  */
-export async function tryNativeEdit(
+export function tryNativeEdit(
   path: string,
   oldString: string,
   newString: string,
@@ -557,10 +647,8 @@ export async function tryNativeEdit(
 ): Promise<NativeEditResult | undefined> {
   return callNativeAsync<NativeEditResult>(
     'nativeEdit',
-    path,
-    oldString,
-    newString,
-    { replaceAll: replaceAll ?? false },
+    [path, oldString, newString, { replaceAll: replaceAll ?? false }],
+    (message) => ({ success: false, replacements: 0, error: `native edit failed: ${message}` }),
   );
 }
 
@@ -574,7 +662,7 @@ export function tryNativePathNormalizeUserPath(
   path: string,
   pathClass: NativePathClass,
 ): string | undefined {
-  return callNativeSync<string>('nativePathNormalizeUserPath', path, pathClass);
+  return callNativeSync<string>('nativePathNormalizeUserPath', [path, pathClass]);
 }
 
 export function tryNativePathExpandUserPath(
@@ -582,7 +670,7 @@ export function tryNativePathExpandUserPath(
   homeDir: string,
   pathClass: NativePathClass,
 ): string | undefined {
-  return callNativeSync<string>('nativePathExpandUserPath', path, homeDir, pathClass);
+  return callNativeSync<string>('nativePathExpandUserPath', [path, homeDir, pathClass]);
 }
 
 export function tryNativePathCanonicalize(
@@ -590,7 +678,7 @@ export function tryNativePathCanonicalize(
   cwd: string,
   pathClass: NativePathClass,
 ): string | undefined {
-  return callNativeSync<string>('nativePathCanonicalize', path, cwd, pathClass);
+  return callNativeSync<string>('nativePathCanonicalize', [path, cwd, pathClass]);
 }
 
 export function tryNativePathIsWithinDirectory(
@@ -598,7 +686,7 @@ export function tryNativePathIsWithinDirectory(
   base: string,
   pathClass: NativePathClass,
 ): boolean | undefined {
-  return callNativeSync<boolean>('nativePathIsWithinDirectory', candidate, base, pathClass);
+  return callNativeSync<boolean>('nativePathIsWithinDirectory', [candidate, base, pathClass]);
 }
 
 export function tryNativePathIsWithinWorkspace(
@@ -606,7 +694,7 @@ export function tryNativePathIsWithinWorkspace(
   roots: readonly string[],
   pathClass: NativePathClass,
 ): boolean | undefined {
-  return callNativeSync<boolean>('nativePathIsWithinWorkspace', candidate, [...roots], pathClass);
+  return callNativeSync<boolean>('nativePathIsWithinWorkspace', [candidate, [...roots], pathClass]);
 }
 
 // ============================================================================
@@ -614,7 +702,7 @@ export function tryNativePathIsWithinWorkspace(
 // ============================================================================
 
 export function tryNativeIsSensitiveFile(path: string): boolean | undefined {
-  return callNativeSync<boolean>('nativeIsSensitiveFile', path);
+  return callNativeSync<boolean>('nativeIsSensitiveFile', [path]);
 }
 
 // ============================================================================
@@ -629,7 +717,7 @@ export interface NativePermissionPattern {
 export function tryNativeParsePermissionPattern(
   pattern: string,
 ): NativePermissionPattern | undefined {
-  const result = callNativeSync<string>('nativeParsePermissionPattern', pattern);
+  const result = callNativeSync<string>('nativeParsePermissionPattern', [pattern]);
   if (result === undefined) return undefined;
   try {
     const parsed = JSON.parse(result) as { toolName?: string; argPattern?: string | null };
@@ -668,9 +756,11 @@ export function tryNativeSelectCompactionUserMessages(
 ): NativeCompactionUserSelection | undefined {
   return callNativeSync<NativeCompactionUserSelection>(
     'nativeSelectCompactionUserMessages',
-    messages.map((m) => ({ role: m.role, text: m.text, tokens: m.tokens })),
-    maxTokens,
-    headTokens,
+    [
+      messages.map((m) => ({ role: m.role, text: m.text, tokens: m.tokens })),
+      maxTokens,
+      headTokens,
+    ],
   );
 }
 
@@ -682,7 +772,7 @@ export function tryNativeTruncateTextToTokensFromEnd(
   text: string,
   maxTokens: number,
 ): string | undefined {
-  return callNativeSync<string>('nativeTruncateTextToTokensFromEnd', text, maxTokens);
+  return callNativeSync<string>('nativeTruncateTextToTokensFromEnd', [text, maxTokens]);
 }
 
 // ============================================================================
@@ -705,12 +795,12 @@ export function tryNativeWriteToolOutputChunk(
 ): NativeToolOutputChunkResult | undefined {
   return callNativeSync<NativeToolOutputChunkResult>(
     'nativeWriteToolOutputChunk',
-    text,
+    [text,
     currentNchars,
     maxChars,
     maxLineLength,
     alreadyTruncated,
-  );
+  ]);
 }
 
 // ============================================================================
@@ -732,7 +822,8 @@ export function tryNativeListDirectory(
 ): NativeListDirectoryResult | undefined {
   return callNativeSync<NativeListDirectoryResult>(
     'nativeListDirectory',
-    { path: options?.path ?? null, collapseHiddenDirs: options?.collapseHiddenDirs ?? null },
+    [{ path: options?.path ?? null, collapseHiddenDirs: options?.collapseHiddenDirs ?? null }],
+    (message) => ({ output: '', error: `native list-directory failed: ${message}` }),
   );
 }
 
@@ -748,7 +839,7 @@ export interface NativeToolAccessMeta {
 }
 
 export function tryNativeIsMcpToolName(name: string): boolean | undefined {
-  return callNativeSync<boolean>('nativeIsMcpToolName', name);
+  return callNativeSync<boolean>('nativeIsMcpToolName', [name]);
 }
 
 export function tryNativeToolAccessesConflict(
@@ -757,7 +848,9 @@ export function tryNativeToolAccessesConflict(
 ): boolean | undefined {
   return callNativeSync<boolean>(
     'nativeToolAccessesConflict',
-    left.map((a) => ({ kind: a.kind, operation: a.operation ?? null, path: a.path ?? null, recursive: a.recursive ?? null })),
-    right.map((a) => ({ kind: a.kind, operation: a.operation ?? null, path: a.path ?? null, recursive: a.recursive ?? null })),
+    [
+      left.map((a) => ({ kind: a.kind, operation: a.operation ?? null, path: a.path ?? null, recursive: a.recursive ?? null })),
+      right.map((a) => ({ kind: a.kind, operation: a.operation ?? null, path: a.path ?? null, recursive: a.recursive ?? null })),
+    ],
   );
 }
