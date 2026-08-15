@@ -302,8 +302,11 @@ function toNativeCompactionConfig(
   config: CompactionConfig,
 ): NativeCompactionConfigMeta {
   return {
-    maxSize,
-    maxRecentMessages: config.maxRecentMessages,
+    // A non-finite maxSize has no u32 representation; 0 makes both the
+    // Rust and TS fit paths return the input count unchanged.
+    maxSize: Number.isFinite(maxSize) ? maxSize : 0,
+    maxRecentMessages:
+      config.maxRecentMessages === Infinity ? 0xffffffff : config.maxRecentMessages,
     // napi u32 cannot represent Infinity ("unlimited recent user
     // messages"); encode it as u32::MAX, which no real message count can
     // reach. A broken value here makes the Rust loop break on its first

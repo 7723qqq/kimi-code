@@ -44,6 +44,11 @@ function reportNativeFailure(name: string, error: unknown): void {
 }
 
 function getNativeModule(): Record<string, unknown> | undefined {
+  // Test switch: force the TypeScript fallback path for every wrapper. Lets
+  // parity suites (native vs TS on the same inputs) and golden-vector runs
+  // exercise both implementations, and gives developers a way to compare
+  // behavior without uninstalling the addon.
+  if (process.env['KIMI_NATIVE_TOOLS_FORCE_JS']) return undefined;
   if (nativeModule === null) return undefined;
   if (nativeModule !== undefined) return nativeModule;
   try {
@@ -835,6 +840,11 @@ export function tryNativeWriteToolOutputChunk(
   maxLineLength: number | null,
   alreadyTruncated: boolean,
 ): NativeToolOutputChunkResult | undefined {
+  // The TS path treats non-finite budgets as "no limit" (Infinity never
+  // truncates). napi u32 cannot represent them, so fall back to TS instead
+  // of corrupting the budget at the boundary.
+  if (!Number.isFinite(maxChars)) return undefined;
+  if (maxLineLength !== null && !Number.isFinite(maxLineLength)) return undefined;
   return callNativeSync<NativeToolOutputChunkResult>('nativeWriteToolOutputChunk', [
     text,
     currentNchars,

@@ -100,4 +100,21 @@ describe('native-tools failure classes', () => {
     await expect(tryNativeRead('/f')).resolves.toBeUndefined();
     expect(stderrSpy).not.toHaveBeenCalled();
   });
+
+  it('KIMI_NATIVE_TOOLS_FORCE_JS forces the TS path even when the addon loads', async () => {
+    // The switch is checked before the module cache, so it wins even after
+    // a successful load.
+    process.env['KIMI_NATIVE_TOOLS_FORCE_JS'] = '1';
+    try {
+      nativeModule.nativeRead.mockResolvedValue({ content: 'native', lineCount: 1 });
+      await expect(tryNativeRead('/f')).resolves.toBeUndefined();
+      expect(tryNativeEscapeXml('<')).toBeUndefined();
+      // Forcing the TS path is not a native failure — no stderr noise.
+      expect(stderrSpy).not.toHaveBeenCalled();
+    } finally {
+      delete process.env['KIMI_NATIVE_TOOLS_FORCE_JS'];
+    }
+    // Back to the native path once the switch is gone.
+    await expect(tryNativeRead('/f')).resolves.toEqual({ content: 'native', lineCount: 1 });
+  });
 });
