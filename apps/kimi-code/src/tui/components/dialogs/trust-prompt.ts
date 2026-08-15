@@ -29,18 +29,20 @@ interface TrustPromptOption {
   readonly description: string;
 }
 
-const OPTIONS: readonly TrustPromptOption[] = [
-  {
-    value: 'trust',
-    label: t('tui.dialogs.trustPrompt.trustLabel'),
-    description: t('tui.dialogs.trustPrompt.trustDesc'),
-  },
-  {
-    value: 'distrust',
-    label: t('tui.dialogs.trustPrompt.distrustLabel'),
-    description: t('tui.dialogs.trustPrompt.distrustDesc'),
-  },
-];
+function getOptions(): readonly TrustPromptOption[] {
+  return [
+    {
+      value: 'trust',
+      label: t('tui.dialogs.trustPrompt.trustLabel'),
+      description: t('tui.dialogs.trustPrompt.trustDesc'),
+    },
+    {
+      value: 'distrust',
+      label: t('tui.dialogs.trustPrompt.distrustLabel'),
+      description: t('tui.dialogs.trustPrompt.distrustDesc'),
+    },
+  ];
+}
 
 export class TrustPromptComponent implements Component, Focusable {
   focused = false;
@@ -60,11 +62,11 @@ export class TrustPromptComponent implements Component, Focusable {
       return;
     }
     if (matchesKey(data, Key.down)) {
-      this.selectedIndex = Math.min(OPTIONS.length - 1, this.selectedIndex + 1);
+      this.selectedIndex = Math.min(getOptions().length - 1, this.selectedIndex + 1);
       return;
     }
     if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
-      this.opts.onSelect(OPTIONS[this.selectedIndex]!.value);
+      this.opts.onSelect(getOptions()[this.selectedIndex]!.value);
     }
   }
 
@@ -96,8 +98,9 @@ export class TrustPromptComponent implements Component, Focusable {
     }
     lines.push('');
 
-    for (let i = 0; i < OPTIONS.length; i += 1) {
-      const option = OPTIONS[i]!;
+    const options = getOptions();
+    for (let i = 0; i < options.length; i += 1) {
+      const option = options[i]!;
       const selected = i === this.selectedIndex;
       const pointer = selected ? SELECT_POINTER : ' ';
       const label = selected

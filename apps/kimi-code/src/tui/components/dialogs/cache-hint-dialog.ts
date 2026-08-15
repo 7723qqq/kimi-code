@@ -30,24 +30,26 @@ interface CacheHintOption {
   readonly description?: string;
 }
 
-const OPTIONS: readonly CacheHintOption[] = [
-  {
-    value: 'compact',
-    label: t('tui.dialogs.cacheHint.compactLabel'),
-    description: t('tui.dialogs.cacheHint.compactDesc'),
-  },
-  {
-    value: 'new',
-    label: t('tui.dialogs.cacheHint.newLabel'),
-    description: t('tui.dialogs.cacheHint.newDesc'),
-  },
-  {
-    value: 'continue',
-    label: t('tui.dialogs.cacheHint.continueLabel'),
-    description: t('tui.dialogs.cacheHint.continueDesc'),
-  },
-  { value: 'never', label: t('tui.dialogs.cacheHint.neverLabel') },
-];
+function getOptions(): readonly CacheHintOption[] {
+  return [
+    {
+      value: 'compact',
+      label: t('tui.dialogs.cacheHint.compactLabel'),
+      description: t('tui.dialogs.cacheHint.compactDesc'),
+    },
+    {
+      value: 'new',
+      label: t('tui.dialogs.cacheHint.newLabel'),
+      description: t('tui.dialogs.cacheHint.newDesc'),
+    },
+    {
+      value: 'continue',
+      label: t('tui.dialogs.cacheHint.continueLabel'),
+      description: t('tui.dialogs.cacheHint.continueDesc'),
+    },
+    { value: 'never', label: t('tui.dialogs.cacheHint.neverLabel') },
+  ];
+}
 
 export interface CacheHintDialogOptions {
   readonly idleSeconds: number;
@@ -65,7 +67,7 @@ export class CacheHintDialogComponent extends Container implements Focusable {
     super();
     this.opts = opts;
     this.list = new SearchableList({
-      items: OPTIONS,
+      items: getOptions(),
       toSearchText: (o) => o.label,
       initialIndex: 0,
       searchable: false,
@@ -99,7 +101,7 @@ export class CacheHintDialogComponent extends Container implements Focusable {
       currentTheme.fg('text', t('tui.dialogs.cacheHint.expired')),
     ];
 
-    const maxLabelWidth = Math.max(...OPTIONS.map((o) => visibleWidth(o.label)));
+    const maxLabelWidth = Math.max(...getOptions().map((o) => visibleWidth(o.label)));
     for (let i = view.page.start; i < view.page.end; i++) {
       const opt = view.items[i]!;
       const isSelected = i === view.selectedIndex;

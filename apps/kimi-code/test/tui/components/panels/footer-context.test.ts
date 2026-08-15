@@ -3,6 +3,7 @@ import chalk from 'chalk';
 
 import { FooterComponent, formatFooterGitBadge, buildWeightedTips } from '#/tui/components/chrome/footer';
 import { darkColors } from '#/tui/theme/colors';
+import { createEmptySessionStats } from '#/tui/utils/session-stats';
 import type { AppState } from '#/tui/types';
 
 const ANSI_SGR = /\u001B\[[0-9;]*m/g;
@@ -30,6 +31,7 @@ function baseState(overrides: Partial<AppState> = {}): AppState {
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 0,
+    sessionStats: createEmptySessionStats(),
     isCompacting: false,
     isReplaying: false,
     streamingPhase: 'idle',
@@ -178,7 +180,7 @@ describe('FooterComponent · live cache hit rate and token speed', () => {
       baseState({ cacheReadTokens: 1_792, cacheMissTokens: 99 }),
     );
     const out = strip(fc.render(200).join(''));
-    expect(out).toMatch(/cache 95%/);
+    expect(out).toMatch(/cache hit 95%/);
     expect(out).toMatch(/context: 0%/);
   });
 
@@ -187,7 +189,7 @@ describe('FooterComponent · live cache hit rate and token speed', () => {
       baseState({ cacheReadTokens: 1_792, cacheMissTokens: 99, tokenSpeed: 12.345 }),
     );
     const out = strip(fc.render(200).join(''));
-    expect(out).toMatch(/cache 95% · 12.3 tok\/s/);
+    expect(out).toMatch(/12\.3 tok\/s \| cache hit 95%/);
   });
 
   it('falls back to the total-input share when cache writes are never reported', () => {
@@ -197,7 +199,7 @@ describe('FooterComponent · live cache hit rate and token speed', () => {
       baseState({ cacheReadTokens: 200, cacheMissTokens: 0, cacheOtherTokens: 800 }),
     );
     const out = strip(fc.render(200).join(''));
-    expect(out).toMatch(/cache 20%/);
+    expect(out).toMatch(/cache hit 20%/);
   });
 
   it('never renders NaN for partial/undefined cache state', () => {

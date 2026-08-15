@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { PluginUpdateNotifier } from '#/tui/controllers/plugin-update-notifier';
-import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
+import {
+  SessionEventHandler,
+  type SessionEventHost,
+} from '#/tui/controllers/session-event-handler';
 import { getBuiltInPalette } from '#/tui/theme';
 
 const DATASOURCE_TOOL = 'mcp__plugin-kimi-datasource_data__call_data_source_tool';
@@ -49,6 +52,9 @@ function makeHost() {
     track: vi.fn(),
     recordSessionActivity: vi.fn(),
     noteStepUsage: vi.fn(),
+    noteSessionTurnStarted: vi.fn(),
+    noteSessionStepCompleted: vi.fn(),
+    noteSessionToolCompleted: vi.fn(),
     noteCompactionFinished: vi.fn(),
     mountEditorReplacement: vi.fn(),
     restoreEditor: vi.fn(),
@@ -60,7 +66,7 @@ function makeHost() {
     btwPanelController: { routeEvent: vi.fn(() => false) },
     tasksBrowserController: {},
   };
-  return { host: host as never, streamingUI };
+  return { host: host as unknown as SessionEventHost, streamingUI };
 }
 
 function makeNotifier() {
@@ -185,5 +191,19 @@ describe('SessionEventHandler plugin update notices', () => {
     handler.handleEvent(pluginCommandTurnStarted(), sendQueued);
     handler.handleEvent(turnEnded('cancelled', 2), sendQueued);
     expect(notifier.handlePluginCommandCompleted).not.toHaveBeenCalled();
+  });
+
+  it('drops tool start timestamps at the turn boundary', () => {
+    const { host } = makeHost();
+    const handler = new SessionEventHandler(host, makeNotifier() as unknown as PluginUpdateNotifier);
+
+    // A tool starts but the turn ends before its result arrives (abort /
+    // max_tokens) — the stale start time must not survive into the next turn.
+    handler.handleEvent(toolCallStarted('Bash'), sendQueued);
+    handler.handleEvent(turnEnded('completed'), sendQueued);
+
+    // A same-id result after the boundary must not count tool duration.
+    handler.handleEvent(toolResult(), sendQueued);
+    expect(host.noteSessionToolCompleted).not.toHaveBeenCalled();
   });
 });

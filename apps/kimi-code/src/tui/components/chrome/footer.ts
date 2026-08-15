@@ -33,6 +33,14 @@ import {
   usagePercent,
   usagePercentFromRatio,
 } from '#/utils/usage/usage-format';
+import {
+  firstTokenAverageMs,
+  fitSessionStatsText,
+  formatOneDecimal,
+  formatStatDuration,
+  type SessionStatsGroup,
+  type SessionStatsSegment,
+} from '#/tui/utils/session-stats';
 
 const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git'] as const;
 
@@ -208,19 +216,18 @@ function formatContextStatus(usage: number, tokens?: number, maxTokens?: number)
 }
 
 /**
- * Live cache hit rate and output speed readout, e.g. `cache 87% · 12.3 tok/s`.
- * Hidden until at least one step reported usage (no session traffic yet).
+ * Live cache hit rate readout, e.g. `cache hit 87%`. Hidden until at least one
+ * step reported usage (no session traffic yet).
  *
  * Hit rate: reads / (reads + writes) when the provider reports cache writes.
  * Providers that never surface cache writes (e.g. DeepSeek's Anthropic-compatible
  * endpoint reports `cache_read_input_tokens` only) fall back to the share of
  * total input that hit the cache — otherwise the readout would always read 100%.
  */
-function formatCacheStatus(
+function formatCacheHitRate(
   cacheReadTokens: number,
   cacheMissTokens: number,
   cacheOtherTokens: number,
-  tokenSpeed: number,
 ): string | null {
   const read = cacheReadTokens ?? 0;
   const miss = cacheMissTokens ?? 0;
@@ -234,12 +241,89 @@ function formatCacheStatus(
   } else {
     return null;
   }
-  const speed =
-    (tokenSpeed ?? 0) > 0
-      ? t('tui.chrome.footer.tokenSpeed', { speed: (tokenSpeed ?? 0).toFixed(1) })
-      : '';
-  const hit = t('tui.chrome.footer.cacheHit', { pct: String(pct) });
-  return speed.length > 0 ? `${hit} · ${speed}` : hit;
+  return t('tui.chrome.footer.cacheHit', { pct: String(pct) });
+}
+
+/**
+ * Compose the footer's right-hand readout as ordered groups (items in a group
+ * join with ` · `, groups with ` | `). Display order: turns/steps, LLM time ·
+ * tool time, first-token avg · tok/s, cache hit, input/output, context. The
+ * cache-hit and context readouts carry `Infinity` priority and only disappear
+ * when their data is absent entirely. Item drop priority (lower = dropped
+ * first when the terminal narrows): tool time → first-token avg → tok/s →
+ * LLM time → input/output → turns/steps.
+ */
+function buildSessionStatSegments(
+  stats: AppState['sessionStats'],
+  hitRateText: string | null,
+  speedText: string | null,
+  contextText: string,
+): SessionStatsGroup[] {
+  const groups: SessionStatsGroup[] = [];
+  if (stats.turnCount > 0 || stats.stepCount > 0) {
+    const turnText = t(
+      stats.turnCount === 1 ? 'tui.chrome.footer.turn_one' : 'tui.chrome.footer.turn_other',
+      { count: String(stats.turnCount) },
+    );
+    const stepText = t(
+      stats.stepCount === 1 ? 'tui.chrome.footer.step_one' : 'tui.chrome.footer.step_other',
+      { count: String(stats.stepCount) },
+    );
+    groups.push({
+      items: [
+        {
+          text: t('tui.chrome.footer.turnsSteps', { turns: turnText, steps: stepText }),
+          priority: 6,
+        },
+      ],
+    });
+  }
+  const llmTool: SessionStatsSegment[] = [];
+  if (stats.llmTotalMs > 0) {
+    llmTool.push({
+      text: t('tui.chrome.footer.llmTime', { time: formatStatDuration(stats.llmTotalMs) }),
+      priority: 4,
+    });
+  }
+  if (stats.toolTotalMs > 0) {
+    llmTool.push({
+      text: t('tui.chrome.footer.toolTime', { time: formatStatDuration(stats.toolTotalMs) }),
+      priority: 1,
+    });
+  }
+  if (llmTool.length > 0) groups.push({ items: llmTool });
+
+  const latencySpeed: SessionStatsSegment[] = [];
+  const firstToken = firstTokenAverageMs(stats);
+  if (firstToken !== null) {
+    latencySpeed.push({
+      text: t('tui.chrome.footer.firstTokenAvg', { time: formatStatDuration(firstToken) }),
+      priority: 2,
+    });
+  }
+  if (speedText !== null) {
+    latencySpeed.push({ text: speedText, priority: 3 });
+  }
+  if (latencySpeed.length > 0) groups.push({ items: latencySpeed });
+
+  if (hitRateText !== null) {
+    groups.push({ items: [{ text: hitRateText, priority: Number.POSITIVE_INFINITY }] });
+  }
+  if (stats.inputTokens > 0 || stats.outputTokens > 0) {
+    groups.push({
+      items: [
+        {
+          text: t('tui.chrome.footer.inputOutput', {
+            input: formatTokenCount(stats.inputTokens),
+            output: formatTokenCount(stats.outputTokens),
+          }),
+          priority: 5,
+        },
+      ],
+    });
+  }
+  groups.push({ items: [{ text: contextText, priority: Number.POSITIVE_INFINITY }] });
+  return groups;
 }
 
 export function formatFooterGitBadge(status: GitStatus, colors: ColorPalette): string {
@@ -392,19 +476,27 @@ export class FooterComponent implements Component {
       }
     }
 
-    // ── Line 2: transient hint (bottom-left) + cache/context (right) ──
-    const cacheText = formatCacheStatus(
+    // ── Line 2: transient hint (bottom-left) + session stats / context (right) ──
+    const hitRateText = formatCacheHitRate(
       state.cacheReadTokens,
       state.cacheMissTokens,
       state.cacheOtherTokens,
-      state.tokenSpeed,
     );
+    const speedText =
+      (state.tokenSpeed ?? 0) > 0
+        ? t('tui.chrome.footer.tokenSpeed', { speed: formatOneDecimal(state.tokenSpeed ?? 0) })
+        : null;
     const contextText = formatContextStatus(
       state.contextUsage,
       state.contextTokens,
       state.maxContextTokens,
     );
-    const rightText = cacheText === null ? contextText : `${cacheText}  ${contextText}`;
+    const segments = buildSessionStatSegments(state.sessionStats, hitRateText, speedText, contextText);
+    // The context group is always present; when nothing else exists there is
+    // no session traffic yet — keep the old plain context readout instead of
+    // a stats bar with a single group.
+    const hasLiveStats = segments.length > 1;
+    const rightText = hasLiveStats ? fitSessionStatsText(segments, width) : contextText;
     const contextWidth = visibleWidth(rightText);
     let line2: string;
     if (this.transientHint) {

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
 import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
+import { createEmptySessionStats } from '#/tui/utils/session-stats';
 import type { AppState } from '#/tui/types';
 
 const ANSI_SGR = /\[[0-9;]*m/g;
@@ -21,6 +22,7 @@ function baseState(overrides: Partial<AppState> = {}): AppState {
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 200_000,
+    sessionStats: createEmptySessionStats(),
     isCompacting: false,
     isReplaying: false,
     streamingPhase: 'idle',

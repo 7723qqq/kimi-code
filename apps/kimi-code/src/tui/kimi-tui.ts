@@ -156,6 +156,12 @@ import { ImageAttachmentStore, type ImageAttachment } from './utils/image-attach
 import { extractMediaAttachments, rewriteMediaPlaceholders } from './utils/image-placeholder';
 import type { ExtractionResult } from './utils/image-placeholder';
 import { installInputLatencyProbe } from './utils/input-latency';
+import {
+  accumulateStepCompleted,
+  accumulateToolDuration,
+  bumpTurnCount,
+  createEmptySessionStats,
+} from './utils/session-stats';
 import { startupTrace } from '#/utils/startup-trace';
 import { REPLAY_TURN_LIMIT } from './utils/message-replay';
 import { hasPatchChanges } from './utils/object-patch';
@@ -255,6 +261,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     cacheMissTokens: 0,
     cacheOtherTokens: 0,
     tokenSpeed: 0,
+    sessionStats: createEmptySessionStats(),
     outputTokens: 0,
     locale: getLocale(),
     isCompacting: false,
@@ -3326,6 +3333,38 @@ export class KimiTUI {
     if (Object.keys(patch).length > 0) {
       this.setAppState(patch);
     }
+  }
+
+  /** Session turn counter for the footer stats (user-facing turns only; the
+   *  event handler skips plugin-internal turns before calling this). */
+  noteSessionTurnStarted(): void {
+    this.setAppState({
+      sessionStats: bumpTurnCount(this.state.appState.sessionStats),
+    });
+  }
+
+  /** Fold one completed step (usage + timing) into the footer session stats. */
+  noteSessionStepCompleted(
+    usage: TokenUsage | undefined,
+    llmStreamDurationMs: number | undefined,
+    llmFirstTokenLatencyMs: number | undefined,
+  ): void {
+    this.setAppState({
+      sessionStats: accumulateStepCompleted(
+        this.state.appState.sessionStats,
+        usage,
+        llmStreamDurationMs,
+        llmFirstTokenLatencyMs,
+      ),
+    });
+  }
+
+  /** Accumulate one tool-call wall time (started→result, measured in the
+   *  event handler) into the footer session stats. */
+  noteSessionToolCompleted(deltaMs: number): void {
+    this.setAppState({
+      sessionStats: accumulateToolDuration(this.state.appState.sessionStats, deltaMs),
+    });
   }
 
   /** Compaction shrinks the cached prefix — reset the cache-break baseline. */

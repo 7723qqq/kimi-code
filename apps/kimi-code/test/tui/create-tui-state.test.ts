@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { TuiAltScreen, TuiMainScreen } from '@moonshot-ai/pi-tui';
 
 import { createTUIState, type KimiTUIOptions } from '#/tui/kimi-tui';
+import { createEmptySessionStats } from '#/tui/utils/session-stats';
 import type { AppState } from '#/tui/types';
 
 function fakeInitialAppState(): AppState {
@@ -22,6 +23,7 @@ function fakeInitialAppState(): AppState {
   cacheMissTokens: 0,
     cacheOtherTokens: 0,
   tokenSpeed: 0,
+  sessionStats: createEmptySessionStats(),
     contextTokens: 0,
     maxContextTokens: 0,
     isCompacting: false,

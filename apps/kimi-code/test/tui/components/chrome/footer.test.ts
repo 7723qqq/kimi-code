@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FooterComponent } from '#/tui/components/chrome/footer';
 import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
+import { createEmptySessionStats } from '#/tui/utils/session-stats';
 import type { AppState } from '#/tui/types';
 
 const TRUECOLOR_PATTERN = /\[38;2;(\d+);(\d+);(\d+)m/g;
@@ -46,6 +47,7 @@ const appState: AppState = {
   cacheMissTokens: 0,
     cacheOtherTokens: 0,
   tokenSpeed: 0,
+  sessionStats: createEmptySessionStats(),
   contextTokens: 0,
   maxContextTokens: 0,
   isCompacting: false,

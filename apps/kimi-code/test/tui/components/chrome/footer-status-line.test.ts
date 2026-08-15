@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
 import {
@@ -11,6 +11,7 @@ import {
   StatusLineCommandRunner,
   type StatusLinePayload,
 } from '#/tui/utils/status-line-command';
+import { createEmptySessionStats } from '#/tui/utils/session-stats';
 import type { AppState } from '#/tui/types';
 
 const baseState: AppState = {
@@ -27,6 +28,7 @@ const baseState: AppState = {
   cacheMissTokens: 0,
     cacheOtherTokens: 0,
   tokenSpeed: 0,
+  sessionStats: createEmptySessionStats(),
   contextTokens: 0,
   maxContextTokens: 0,
   isCompacting: false,
@@ -227,9 +229,15 @@ describe('FooterComponent status_line command', () => {
       // Before the first run completes the built-in layout is still shown.
       expect(plain(footer.render(120)[0]!)).toContain('kimi-k2');
 
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
-      expect(plain(footer.render(120)[0]!)).toContain('my-custom-status');
+      // A cold node.exe spawn can exceed a fixed sleep on a loaded machine
+      // (the suite runs many files in parallel); poll renders instead — each
+      // render kicks a throttled rerun, so the line lands once a run succeeds.
+      await vi.waitFor(
+        () => {
+          expect(plain(footer.render(120)[0]!)).toContain('my-custom-status');
+        },
+        { timeout: 5_000, interval: 100 },
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

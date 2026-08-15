@@ -71,6 +71,8 @@ export interface AppState {
   cacheOtherTokens: number;
   /** 最近一步的模型输出速度（tokens/秒）。 */
   tokenSpeed: number;
+  /** 会话级累计统计（轮次/步数/耗时/token），footer 第二行展示；TUI 生命周期内有效。 */
+  sessionStats: SessionStats;
   isCompacting: boolean;
   isReplaying: boolean;
   streamingPhase: 'idle' | 'waiting' | 'thinking' | 'composing' | 'shell';
@@ -100,6 +102,28 @@ export interface AppState {
   mcpServersSummary: string | null;
   /** Optional banner shown below the welcome panel; null means no banner to render. */
   banner?: BannerState | null;
+}
+
+/**
+ * 会话级累计统计，供 footer 第二行展示。
+ * 数据来自 `turn.started` / `turn.step.completed` / `tool.call.started`→`tool.result`
+ * 事件，在 TUI 生命周期内累计（新会话/重启后自然清零，与 cache* 字段一致）。
+ */
+export interface SessionStats {
+  /** 用户轮次（`turn.started`，排除插件内部轮）。 */
+  turnCount: number;
+  /** LLM 调用步数（`turn.step.completed`）。 */
+  stepCount: number;
+  /** 累计 LLM 流式耗时（`llmStreamDurationMs`），毫秒。 */
+  llmTotalMs: number;
+  /** 累计工具调用耗时（TUI 侧 `tool.call.started`→`tool.result` 计时），毫秒。 */
+  toolTotalMs: number;
+  /** `llmFirstTokenLatencyMs` 样本，渲染时求平均。 */
+  firstTokenSamples: number[];
+  /** 累计输入 token（inputOther + inputCacheRead + inputCacheCreation）。 */
+  inputTokens: number;
+  /** 累计输出 token（usage.output 精确值）。 */
+  outputTokens: number;
 }
 
 export interface StepRetryState {

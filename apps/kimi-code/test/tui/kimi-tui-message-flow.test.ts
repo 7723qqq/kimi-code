@@ -1746,7 +1746,10 @@ command = "vim"
     expect(harness.auth.submitFeedback).toHaveBeenCalledWith(
       expect.not.objectContaining({ info: expect.anything() }),
     );
-  });
+    // The chain (scan -> package -> export -> upload) can exceed the default
+    // 5s test timeout when the suite runs in parallel shards; the waitFor
+    // below already budgets 10s, so the test itself must outlive it.
+  }, 15_000);
 
   it('uploads session logs when codebase scanning fails but the session directory is available', async () => {
     const { driver, harness } = await makeDriver(makeSession());
@@ -1785,7 +1788,9 @@ command = "vim"
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('Feedback ID: 3');
     expect(transcript).toContain('attachment upload failed');
-  });
+    // The chain (scan fail -> export -> upload) can exceed the default 5s
+    // test timeout when the suite runs in parallel shards.
+  }, 15_000);
 
   it('keeps archive-path creation failures as partial failures without the GitHub fallback', async () => {
     const { driver, harness } = await makeDriver(makeSession());

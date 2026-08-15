@@ -113,6 +113,13 @@ export interface SessionEventHost {
   recordSessionActivity(): void;
   noteStepUsage(usage: TokenUsage | undefined): void;
   noteStepCacheStats(usage: TokenUsage | undefined, streamDurationMs: number | undefined): void;
+  noteSessionTurnStarted(): void;
+  noteSessionStepCompleted(
+    usage: TokenUsage | undefined,
+    llmStreamDurationMs: number | undefined,
+    llmFirstTokenLatencyMs: number | undefined,
+  ): void;
+  noteSessionToolCompleted(deltaMs: number): void;
   noteCompactionFinished(): void;
   mountEditorReplacement(panel: Component & Focusable): void;
   restoreEditor(): void;
@@ -183,6 +190,9 @@ export class SessionEventHandler {
   private currentTurnHasAssistantText = false;
   private pluginCommandTurns: Map<string, string> = new Map();
   private pluginMcpToolsUsedInTurn: Set<string> = new Set();
+  /** `tool.call.started` timestamps for the footer tool-duration stat; entries
+   *  are removed when the matching `tool.result` arrives. */
+  private toolStartTimes: Map<string, number> = new Map();
   private pendingModelBlockedFallback: GoalChange | undefined;
   private queuedGoalPromotionPending = false;
   private queuedGoalPromotionInFlight = false;
@@ -344,6 +354,8 @@ export class SessionEventHandler {
     this.currentTurnHasAssistantText = false;
     if (event.origin?.kind === 'plugin_command') {
       this.pluginCommandTurns.set(String(event.turnId), event.origin.pluginId);
+    } else {
+      this.host.noteSessionTurnStarted();
     }
     this.clearAgentSwarmProgress();
     this.host.streamingUI.resetToolUi();
@@ -387,6 +399,10 @@ export class SessionEventHandler {
     // (v2 suppresses it for aborts), so their activity records would linger
     // until the session reset — prune them when the owning turn ends.
     this.subAgentEventHandler.dropForegroundOnlyActivityRecords();
+    // A tool interrupted by the turn end (abort, max_tokens without result)
+    // would otherwise leave a stale start timestamp that a later same-id
+    // result could match — drop the whole map at the turn boundary.
+    this.toolStartTimes.clear();
     if (event.reason === 'failed' && event.error?.code === 'provider.filtered') {
       this.host.showStatus(t('tui.statusMessages.turnStoppedFiltered'), 'error');
     }
@@ -443,6 +459,11 @@ export class SessionEventHandler {
     this.clearStepRetry();
     this.host.noteStepUsage(event.usage);
     this.host.noteStepCacheStats(event.usage, event.llmStreamDurationMs);
+    this.host.noteSessionStepCompleted(
+      event.usage,
+      event.llmStreamDurationMs,
+      event.llmFirstTokenLatencyMs,
+    );
     this.maybeShowDebugTiming(event);
 
     if (event.providerFinishReason === 'filtered') {
@@ -631,6 +652,7 @@ export class SessionEventHandler {
   private handleToolCall(event: ToolCallStartedEvent): void {
     const { streamingUI } = this.host;
     streamingUI.flushNow();
+    this.toolStartTimes.set(event.toolCallId, Date.now());
     const { turnId, step } = streamingUI.getTurnContext();
     const toolCall: ToolCallBlockData = {
       id: event.toolCallId,
@@ -695,6 +717,11 @@ export class SessionEventHandler {
     const { streamingUI } = this.host;
     streamingUI.flushNow();
     this.clearStepRetry();
+    const startMs = this.toolStartTimes.get(event.toolCallId);
+    this.toolStartTimes.delete(event.toolCallId);
+    if (startMs !== undefined && event.synthetic !== true) {
+      this.host.noteSessionToolCompleted(Date.now() - startMs);
+    }
     const resultData: ToolResultBlockData = {
       tool_call_id: event.toolCallId,
       output: serializeToolResultOutput(event.output),
