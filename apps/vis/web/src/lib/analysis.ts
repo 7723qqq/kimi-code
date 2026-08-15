@@ -313,7 +313,7 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
       case 'context.append_loop_event': {
         const ev = rec.event;
         if (ev.type === 'step.begin') {
-          current ??= startTurn('prompt', entry.lineNo, t, '(no prompt record)');
+          current ??= startTurn('prompt', entry.lineNo, t, '(no prompt record)', undefined as string | undefined);
           const step: StepNode = {
             uuid: ev.uuid,
             step: ev.step,
